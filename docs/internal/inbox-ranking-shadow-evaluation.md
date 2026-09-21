@@ -16,5 +16,7 @@ A missing champion partition uses candidate scores as an explicit fallback, not 
 
 The daily job has a one-hour timeout.
 Every completed evaluation emits `inbox_ranking_shadow_run_completed`, including runs with zero grades and a `reason`: `no_complete_lists`, `no_available_scores`, or `no_gradeable_outcomes`.
-Per-order metrics remain on `inbox_ranking_shadow_ranking_graded`.
+Per-order metrics for `all_rows` remain on `inbox_ranking_shadow_ranking_graded`.
+Metrics for `scored_rows` use `inbox_ranking_shadow_scored_ranking_graded`, so existing charts do not mix the two scopes.
+Use the scored event to compare orders on the same scored reports.
 See the [ranking DAG README](../../products/signals/dags/inbox_ranking/README.md) for configuration and metric definitions.

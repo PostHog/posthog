@@ -1,6 +1,6 @@
 # Marketing retention summary
 
-Retention opens with a source table of users, return rates within 7 and 30 days, and median days to a second session. The volume column is labeled New users when Only new users is enabled and Users otherwise. It displays its count and share on one line at wider widths. The interface exposes only the summary. The cohort implementation remains in code temporarily, without a navigation control.
+Retention opens with a source table of users, return rates within 7 and 30 days, and median days to a second session. The volume column is labeled New users when Only new users is enabled and Users otherwise. It displays its count and share on one line at wider widths. The interface exposes only the summary. The legacy cohort frontend is removed.
 
 ## Definitions
 
@@ -16,6 +16,6 @@ Comparison is enabled by default and can be disabled with the comparison selecto
 
 Summary mode adds optional fields to the existing retention query and response. Callers that omit summary mode retain the cohort response. The summary materializes acquisition and per-person return results within one query, including comparison. Return events are joined to each acquisition window before aggregation, and the median uses ClickHouse's bounded reservoir. The table defaults to current acquisition volume, and sources are selected by that volume; the tail is folded before computing the median. User shares include the folded Other row.
 
-The cohort renderer and query mode remain in code temporarily. A separate draft can remove the unused frontend while retaining the backend contract for existing query callers. That cleanup must be reviewed independently.
+The legacy cohort renderer, summary helpers, and frontend controls are removed. The backend cohort query mode remains compatible with existing callers. This cleanup is a separate draft and must be reviewed independently before merging.
 
 This mode measures session returns. Conversion-goal retention is a separate behavior and needs an explicit definition before sharing these fixed-window summary metrics. There is no dedicated retention precompute path.

@@ -1,5 +1,7 @@
 import { RecipeNormalizer } from '@posthog/llm-normalizer'
 
+import api from 'lib/api'
+
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { AnthropicInputMessage, CompatMessage, OpenAICompletionMessage } from './types'
@@ -14,6 +16,7 @@ import {
     getSessionID,
     getSessionStartTimestamp,
     getSummarizationLookupDateRange,
+    queryEvaluationRuns,
     hasCostBreakdown,
     hasStringContentField,
     isEmptyJSONStructure,
@@ -2958,5 +2961,25 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                 { role: 'tool', content: '{"tempF":71}', tool_call_id: 'c1' },
             ])
         })
+    })
+})
+
+describe('queryEvaluationRuns', () => {
+    const queryHogQL = jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+
+    afterEach(() => queryHogQL.mockClear())
+
+    it('narrows to one backfill as SQL rather than as a string', async () => {
+        await queryEvaluationRuns({ evaluationId: 'eval-1', backfillId: 'run-1' })
+
+        // A nested hogql template would arrive escaped as a value and fail to parse, so assert
+        // the clause reached the query as SQL.
+        expect(queryHogQL.mock.calls[0][0]).toContain("AND properties.$ai_evaluation_backfill_id = 'run-1'")
+    })
+
+    it('leaves the runs unfiltered when no backfill is given', async () => {
+        await queryEvaluationRuns({ evaluationId: 'eval-1' })
+
+        expect(queryHogQL.mock.calls[0][0]).not.toContain('$ai_evaluation_backfill_id')
     })
 })

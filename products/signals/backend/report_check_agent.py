@@ -28,6 +28,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck, SignalScoutConfig
+from products.signals.backend.report_check_telemetry import capture_report_check_dispatch
 from products.signals.backend.report_checks import AgentCheckConfig, parse_check_config
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates, check_run_in_flight, check_spend_gates
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
@@ -288,6 +289,9 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
         # spending an error on a flag read or a row lookup that failed.
         logger.exception("signals.report_check.agent_gates_failed", check_id=str(check.id), team_id=check.team_id)
         _defer(check, now)
+        capture_report_check_dispatch(
+            check.team, check, outcome="deferred", skill_name=skill_name, reason="gates_failed"
+        )
         return "deferred"
     if refusal is not None:
         logger.info(
@@ -300,6 +304,9 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
         )
         if refusal.retryable:
             _defer(check, now)
+            capture_report_check_dispatch(
+                check.team, check, outcome="deferred", skill_name=skill_name, reason=refusal.reason
+            )
             return "deferred"
         record_check_verdict(
             check, CheckVerdict(outcome="errored", explanation=f"{check.title}: {refusal.detail}"), now=now
@@ -322,10 +329,16 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
         # Another check on the same lane is still being answered. Theirs finishes, ours goes next
         # window; nothing is wrong with either check.
         _release_dispatch_claim(check, now)
+        capture_report_check_dispatch(
+            check.team, check, outcome="deferred", skill_name=skill_name, reason="workflow_already_started"
+        )
         return "deferred"
     except Exception:
         logger.exception("signals.report_check.agent_dispatch_failed", check_id=str(check.id), team_id=check.team_id)
         _release_dispatch_claim(check, now)
+        capture_report_check_dispatch(
+            check.team, check, outcome="deferred", skill_name=skill_name, reason="dispatch_failed"
+        )
         return "deferred"
 
     logger.info(
@@ -335,4 +348,5 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
         skill_name=skill_name,
         workflow_id=workflow_id,
     )
+    capture_report_check_dispatch(check.team, check, outcome="dispatched", skill_name=skill_name)
     return "dispatched"

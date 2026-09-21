@@ -337,9 +337,9 @@ user's conversation, in order — according to this criteria:
 def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
     """Render a session as the canonical text representation, one section per trace.
 
-    Preserve message content when the full session fits, including when one trace uses more
-    than an equal share of the budget. Oversized sessions split the budget evenly across traces
-    so one long trace cannot crowd out the opening and closing turns.
+    Preserve generation outputs across the full session before truncating them, including
+    when one trace uses more than an equal share of the budget. If trimming input history
+    is insufficient, split the budget evenly so one trace cannot crowd out the others.
 
     Returns `None` when the fallback transcript still overshoots the budget, meaning a final slice
     would silently drop trailing traces. The caller must treat that as a `session_too_long_to_judge`
@@ -353,20 +353,21 @@ def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
     if not traces:
         return ""
     per_trace_budget = max(JUDGE_SESSION_MAX_CHARS // len(traces), _MIN_TRACE_CHARS_IN_SESSION)
-    for truncated in (False, True):
+    for truncated, preserve_generation_output in ((False, True), (True, True), (True, False)):
         options: FormatterOptions = {
             "include_markers": False,
             "collapsed": False,
             "truncated": truncated,
+            "preserve_generation_output": preserve_generation_output,
             "include_line_numbers": True,
-            "max_length": per_trace_budget if truncated else None,
+            "max_length": None if preserve_generation_output else per_trace_budget,
         }
         sections: list[str] = []
         rendered_length = 0
         for index, trace in enumerate(traces, start=1):
             header = f"=== Trace {index} of {len(traces)} (id: {trace.id}) ===\n"
             rendered_length += len(header) + (2 if sections else 0)
-            if not truncated:
+            if preserve_generation_output:
                 options["max_render_length"] = JUDGE_SESSION_MAX_CHARS - rendered_length
             trace_dict, hierarchy = llm_trace_to_formatter_format(trace)
             try:
@@ -423,7 +424,9 @@ class ExecuteSessionEvaluationInputs:
 
 @temporalio.activity.defn
 @close_db_connections
-@posthoganalytics.scoped()
+# capture_exceptions=False: the worker interceptor reports judge failures, and its capture carries
+# the team and evaluation ids. A capture inside the activity wins the SDK's dedupe and loses them.
+@posthoganalytics.scoped(capture_exceptions=False)
 def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -> EvaluationActivityResult:
     """Fetch the whole session and run the LLM judge over its transcript.
 

@@ -21,7 +21,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityTab, PropertyOperator } from '~/types'
 
 import { EventName } from 'products/actions/frontend/components/EventName'
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
+import { buildLiveEventsAgentContext } from '../activityAgentContext'
 import { LiveBotPanel } from './LiveBotPanel'
 import { LiveEventsFeed } from './LiveEventsFeed'
 import { LIVE_EVENTS_SUPPORTED_OPERATORS, liveEventsLogic } from './liveEventsLogic'
@@ -39,6 +41,8 @@ export function LiveEventsTable(): JSX.Element {
     const { events, streamPaused, filters } = useValues(liveEventsLogic)
     const { pauseStream, resumeStream, setFilters, clearEvents } = useActions(liveEventsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    useAttachedContext(buildLiveEventsAgentContext(filters))
 
     const { isVisible } = usePageVisibility()
     useEffect(() => {

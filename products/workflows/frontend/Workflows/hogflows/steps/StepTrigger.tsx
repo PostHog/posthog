@@ -55,11 +55,12 @@ import { ACCOUNT_CUSTOM_PROPERTY_OPERATOR_ALLOWLIST } from 'products/customer_an
 import 'products/workflows/frontend/Workflows/hogflows/registry/triggers'
 
 import { workflowLogic } from '../../workflowLogic'
-import { HogFlowEventFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
+import { HogFlowEventFilters, HogFlowPropertyFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
 import { TriggerFrequencyOption, getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
 import { createAccountAssignmentFilterUpdate, parseAccountAssignmentFilter } from './accountAssignmentFilter'
 import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './batchTriggerLogic'
+import { HogFlowDuration, MAX_CONVERSION_WINDOW_FOR_DURATION_UNIT } from './components/HogFlowDuration'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
@@ -416,12 +417,35 @@ function StepTriggerConfigurationEvents({
                     setFilters={(filters) =>
                         setWorkflowActionConfig(action.id, {
                             type: 'event',
-                            filters: { ...filters, filter_test_accounts: filterTestAccounts },
+                            // The event filter only returns events/actions, so carry the global
+                            // property array through or an event edit drops it.
+                            filters: {
+                                ...filters,
+                                properties: config.filters?.properties,
+                                filter_test_accounts: filterTestAccounts,
+                            },
                         })
                     }
                     filtersKey={`workflow-trigger-${action.id}`}
                     typeKey="workflow-trigger"
                     buttonCopy="Add trigger event"
+                />
+            </LemonField.Pure>
+
+            <LemonField.Pure
+                label="Additional filters"
+                info="These filters apply to every trigger event above. Use them for conditions shared across all events, such as a SQL expression."
+            >
+                <HogFlowPropertyFilters
+                    filters={config.filters ?? {}}
+                    setFilters={(filters) =>
+                        setWorkflowActionConfig(action.id, {
+                            type: 'event',
+                            filters: { ...config.filters, properties: filters?.properties ?? [] },
+                        })
+                    }
+                    filtersKey={`workflow-trigger-${action.id}`}
+                    buttonCopy="Add filter"
                 />
             </LemonField.Pure>
 
@@ -923,11 +947,31 @@ function FrequencySection({
     )
 }
 
+const DEFAULT_CONVERSION_WINDOW = '90d'
+// The worker measures a legacy window_minutes at most this long, so a longer stored value is shown
+// as what it actually measures rather than as a number the API would now reject.
+const LEGACY_CONVERSION_WINDOW_CEILING_MINUTES = 90 * 24 * 60
+
+function conversionWindowFromMinutes(minutes: number): string {
+    const capped = Math.min(minutes, LEGACY_CONVERSION_WINDOW_CEILING_MINUTES)
+    if (capped % (24 * 60) === 0) {
+        return `${capped / (24 * 60)}d`
+    }
+    if (capped % 60 === 0) {
+        return `${capped / 60}h`
+    }
+    return `${capped}m`
+}
+
 function ConversionGoalSection(): JSX.Element {
     const { setWorkflowValue } = useActions(workflowLogic)
     const { workflow } = useValues(workflowLogic)
 
     const conversionEventFilters = workflow.conversion?.events?.[0]?.filters ?? {}
+    const legacyWindowMinutes = workflow.conversion?.window_minutes
+    const conversionWindow =
+        workflow.conversion?.window ??
+        (legacyWindowMinutes ? conversionWindowFromMinutes(legacyWindowMinutes) : DEFAULT_CONVERSION_WINDOW)
 
     return (
         <div className="flex flex-col py-2 w-full">
@@ -975,6 +1019,29 @@ function ConversionGoalSection(): JSX.Element {
                         }
                         typeKey="workflow-conversion-event"
                         buttonCopy="Add event"
+                    />
+                </div>
+
+                <div className="flex flex-col gap-1 items-start">
+                    <span className="flex gap-1 items-center">
+                        <LemonLabel>Conversion window</LemonLabel>
+                        <Tooltip title="A person who meets the goal after this window is not counted as converted. The window runs from the moment they enter the workflow.">
+                            <IconInfo className="text-secondary" />
+                        </Tooltip>
+                    </span>
+                    <HogFlowDuration
+                        value={conversionWindow}
+                        onChange={(next) => {
+                            // Dropping window_minutes keeps the two forms from arriving together, which
+                            // the API rejects. A cleared amount arrives as a bare unit such as "d", so
+                            // omitting window restores the default instead of failing the save.
+                            const { window_minutes, window, ...conversion } = workflow.conversion ?? {}
+                            setWorkflowValue(
+                                'conversion',
+                                /\d/.test(next) ? { ...conversion, window: next } : conversion
+                            )
+                        }}
+                        maxValueForUnit={MAX_CONVERSION_WINDOW_FOR_DURATION_UNIT}
                     />
                 </div>
             </div>

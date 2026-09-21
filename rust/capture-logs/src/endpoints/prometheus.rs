@@ -154,11 +154,12 @@ pub fn write_request_to_kafka_rows(req: WriteRequest) -> (Vec<KafkaMetricRow>, u
                     resource_attributes
                         .insert("service.name".to_string(), json!(label.value).to_string());
                 }
+                // `instance` is copied, not moved: Prometheus queries filter on
+                // `instance`, and OTel queries on `service.instance.id`.
                 INSTANCE_LABEL => {
-                    resource_attributes.insert(
-                        "service.instance.id".to_string(),
-                        json!(label.value).to_string(),
-                    );
+                    let value = json!(label.value).to_string();
+                    resource_attributes.insert("service.instance.id".to_string(), value.clone());
+                    attributes.insert(label.name, value);
                 }
                 _ => {
                     attributes.insert(label.name, json!(label.value).to_string());

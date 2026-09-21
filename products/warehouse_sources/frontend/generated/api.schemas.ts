@@ -31,6 +31,20 @@ export const ExternalDataDestinationTypeEnumApi = {
     S3: 'S3',
 } as const
 
+/**
+ * One source that writes to a destination. Shape only — never used to deserialize.
+ */
+export interface SyncedSourceApi {
+    /** The source's id. */
+    id: string
+    /** How the source is labelled in the UI, prefix included. */
+    name: string
+    /** Which connector this is, e.g. Stripe or Postgres. */
+    source_type: string
+    /** True when only some of the source's tables reach this destination, through their own override. */
+    via_table_override: boolean
+}
+
 export interface ExternalDataDestinationApi {
     readonly id: string
     /** Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.
@@ -63,6 +77,8 @@ export interface ExternalDataDestinationApi {
     readonly created_by: number | null
     /** @nullable */
     readonly updated_at: string | null
+    /** Sources whose tables sync to this destination, so you can see what a change or a deletion would affect. Includes sources that reach it through a single table's override, and — for the PostHog warehouse — sources that write there by default because nothing else was configured. */
+    readonly synced_sources: readonly SyncedSourceApi[]
 }
 
 export interface PaginatedExternalDataDestinationListApi {
@@ -106,6 +122,8 @@ export interface PatchedExternalDataDestinationApi {
     readonly created_by?: number | null
     /** @nullable */
     readonly updated_at?: string | null
+    /** Sources whose tables sync to this destination, so you can see what a change or a deletion would affect. Includes sources that reach it through a single table's override, and — for the PostHog warehouse — sources that write there by default because nothing else was configured. */
+    readonly synced_sources?: readonly SyncedSourceApi[]
 }
 
 /**
@@ -1924,6 +1942,13 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `ElectricityMaps` - ElectricityMaps
  * * `Amplemarket` - Amplemarket
  * * `Quo` - Quo
+ * * `HeyReach` - HeyReach
+ * * `MoEngage` - MoEngage
+ * * `Monaco` - Monaco
+ * * `Oneleet` - Oneleet
+ * * `Expo` - Expo
+ * * `PostNord` - PostNord
+ * * `Commslayer` - Commslayer
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3270,6 +3295,13 @@ export const ExternalDataSourceTypeEnumApi = {
     ElectricityMaps: 'ElectricityMaps',
     Amplemarket: 'Amplemarket',
     Quo: 'Quo',
+    HeyReach: 'HeyReach',
+    MoEngage: 'MoEngage',
+    Monaco: 'Monaco',
+    Oneleet: 'Oneleet',
+    Expo: 'Expo',
+    PostNord: 'PostNord',
+    Commslayer: 'Commslayer',
 } as const
 
 /**
@@ -4762,7 +4794,14 @@ export interface ExternalDataSourceCreateApi {
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
      * * `Amplemarket` - Amplemarket
-     * * `Quo` - Quo */
+     * * `Quo` - Quo
+     * * `HeyReach` - HeyReach
+     * * `MoEngage` - MoEngage
+     * * `Monaco` - Monaco
+     * * `Oneleet` - Oneleet
+     * * `Expo` - Expo
+     * * `PostNord` - PostNord
+     * * `Commslayer` - Commslayer */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
     payload: ExternalDataSourceCreateApiPayload
@@ -5244,6 +5283,11 @@ export interface SourceConnectLinkApi {
 
 export interface ExternalDataSourceConnectionOptionApi {
     readonly id: string
+    /**
+     * Default database schema used to group tables in the SQL editor.
+     * @nullable
+     */
+    readonly schema_name: string | null
     /** @nullable */
     readonly prefix: string | null
     /** Backend engine detected for the direct connection.
@@ -6599,7 +6643,14 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
      * * `Amplemarket` - Amplemarket
-     * * `Quo` - Quo */
+     * * `Quo` - Quo
+     * * `HeyReach` - HeyReach
+     * * `MoEngage` - MoEngage
+     * * `Monaco` - Monaco
+     * * `Oneleet` - Oneleet
+     * * `Expo` - Expo
+     * * `PostNord` - PostNord
+     * * `Commslayer` - Commslayer */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -7974,7 +8025,14 @@ export interface DatabaseSchemaRequestApi {
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
      * * `Amplemarket` - Amplemarket
-     * * `Quo` - Quo */
+     * * `Quo` - Quo
+     * * `HeyReach` - HeyReach
+     * * `MoEngage` - MoEngage
+     * * `Monaco` - Monaco
+     * * `Oneleet` - Oneleet
+     * * `Expo` - Expo
+     * * `PostNord` - PostNord
+     * * `Commslayer` - Commslayer */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -9324,7 +9382,14 @@ export interface DirectConnectionSourceOptionApi {
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
      * * `Amplemarket` - Amplemarket
-     * * `Quo` - Quo */
+     * * `Quo` - Quo
+     * * `HeyReach` - HeyReach
+     * * `MoEngage` - MoEngage
+     * * `Monaco` - Monaco
+     * * `Oneleet` - Oneleet
+     * * `Expo` - Expo
+     * * `PostNord` - PostNord
+     * * `Commslayer` - Commslayer */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** Human-readable name to show in the picker (falls back to the source type). */
     readonly label: string
@@ -10759,7 +10824,14 @@ export interface SourcePreviewRequestApi {
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
      * * `Amplemarket` - Amplemarket
-     * * `Quo` - Quo */
+     * * `Quo` - Quo
+     * * `HeyReach` - HeyReach
+     * * `MoEngage` - MoEngage
+     * * `Monaco` - Monaco
+     * * `Oneleet` - Oneleet
+     * * `Expo` - Expo
+     * * `PostNord` - PostNord
+     * * `Commslayer` - Commslayer */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -12144,7 +12216,14 @@ export interface SourceSetupApi {
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
      * * `Amplemarket` - Amplemarket
-     * * `Quo` - Quo */
+     * * `Quo` - Quo
+     * * `HeyReach` - HeyReach
+     * * `MoEngage` - MoEngage
+     * * `Monaco` - Monaco
+     * * `Oneleet` - Oneleet
+     * * `Expo` - Expo
+     * * `PostNord` - PostNord
+     * * `Commslayer` - Commslayer */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -13536,7 +13615,14 @@ export interface SourceCredentialCreateApi {
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
      * * `Amplemarket` - Amplemarket
-     * * `Quo` - Quo */
+     * * `Quo` - Quo
+     * * `HeyReach` - HeyReach
+     * * `MoEngage` - MoEngage
+     * * `Monaco` - Monaco
+     * * `Oneleet` - Oneleet
+     * * `Expo` - Expo
+     * * `PostNord` - PostNord
+     * * `Commslayer` - Commslayer */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload

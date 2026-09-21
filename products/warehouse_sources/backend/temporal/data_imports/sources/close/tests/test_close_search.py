@@ -275,8 +275,8 @@ class TestSearchSourceWiring:
         manager.can_resume.return_value = False
         session = FakeSession([_response({"data": []})])
         monkeypatch.setattr(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.close.close._make_search_session",
-            lambda _api_key: session,
+            "products.warehouse_sources.backend.temporal.data_imports.sources.close.close._make_session",
+            lambda _api_key, **_kwargs: session,
         )
 
         response = close_source(
@@ -299,8 +299,8 @@ class TestSearchSourceWiring:
         manager.can_resume.return_value = False
         session = FakeSession([_response({"data": []})])
         monkeypatch.setattr(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.close.close._make_search_session",
-            lambda _api_key: session,
+            "products.warehouse_sources.backend.temporal.data_imports.sources.close.close._make_session",
+            lambda _api_key, **_kwargs: session,
         )
 
         response = close_search_source(
@@ -338,8 +338,8 @@ class TestSearchSourceWiring:
         manager.can_resume.return_value = False
         session = FakeSession([_response({"data": []})])
         monkeypatch.setattr(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.close.close._make_search_session",
-            lambda _api_key: session,
+            "products.warehouse_sources.backend.temporal.data_imports.sources.close.close._make_session",
+            lambda _api_key, **_kwargs: session,
         )
 
         response = close_search_source(

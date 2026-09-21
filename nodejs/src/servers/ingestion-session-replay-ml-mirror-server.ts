@@ -6,6 +6,7 @@ import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
+import { threadpoolConcurrency } from '~/common/utils/threadpool-concurrency'
 import { AllowListFetcher, loadAllowLists } from '~/ingestion/pipelines/sessionreplay/anonymize/allow-list-loader'
 import { type SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
 import {
@@ -14,15 +15,13 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/consumer'
 import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
 import { DynamoDBCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/dynamodb-crawl-history'
-import {
-    resolveMlAnonymizeMaxConcurrency,
-    resolveMlMirrorRedisConnection,
-} from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
+import { ML_BLOCK_COMPRESSION } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-compression'
+import { resolveMlMirrorRedisConnection } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import { MlBlockMetadataSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-block-metadata-sink'
-import { createMlMirrorReplayPipeline } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-mirror-pipeline'
 import { resolvePseudonymKey } from '~/ingestion/pipelines/sessionreplay/ml-mirror/pseudonym-key'
 import { SessionFormatFileStorage } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-format-file-storage'
+import { MlMirrorStagedBatchRunner } from '~/ingestion/pipelines/sessionreplay/ml-mirror/staged-batch-runner'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
 import { createOutputsRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/registry'
 import { BlackholeSessionBatchFileStorage } from '~/ingestion/pipelines/sessionreplay/sessions/blackhole-session-batch-writer'
@@ -128,41 +127,38 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
             featureStore: new SessionFeatureStore(outputs, false),
             keyStore: keyManager,
             encryptor: keyManager,
-            createPipeline: (pipelineConfig) =>
-                createMlMirrorReplayPipeline(
-                    pipelineConfig,
-                    {
-                        keyManager,
-                        anonymizeMaxConcurrency: resolveMlAnonymizeMaxConcurrency(
-                            this.config.SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY
-                        ),
-                    },
-                    this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED
-                        ? {
-                              outputs,
-                              producedRefCacheMax: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX,
-                          }
-                        : undefined,
-                    {
-                        pseudonymSecret,
-                        // Producing the images is what makes collecting them useful, so the image
-                        // lane follows its producer flag. The URL lane collects on its own flag,
-                        // because collecting alone measures without sending anything anywhere.
-                        collectImages: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED,
-                        collectUrls: this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED,
-                    },
-                    // Producing needs collection: without it the anonymizer returns no URLs, and
-                    // the step would have nothing to send.
-                    urlProducerEnabled
-                        ? {
-                              outputs,
-                              producedRefCacheMax: this.config.SESSION_RECORDING_ML_URL_PRODUCED_REF_CACHE_MAX,
-                              producedRefCacheWindowMs:
-                                  (this.config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS * 1000) / 2,
-                              crawlHistory: urlCrawlHistory,
-                          }
-                        : undefined
-                ),
+            compression: ML_BLOCK_COMPRESSION,
+            runner: new MlMirrorStagedBatchRunner(
+                {
+                    keyManager,
+                    anonymizeMaxConcurrency: threadpoolConcurrency(),
+                },
+                this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED
+                    ? {
+                          outputs,
+                          producedRefCacheMax: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX,
+                      }
+                    : undefined,
+                {
+                    pseudonymSecret,
+                    // Producing the images is what makes collecting them useful, so the image
+                    // lane follows its producer flag. The URL lane collects on its own flag,
+                    // because collecting alone measures without sending anything anywhere.
+                    collectImages: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED,
+                    collectUrls: this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED,
+                },
+                // Producing needs collection: without it the anonymizer returns no URLs, and
+                // the step would have nothing to send.
+                urlProducerEnabled
+                    ? {
+                          outputs,
+                          producedRefCacheMax: this.config.SESSION_RECORDING_ML_URL_PRODUCED_REF_CACHE_MAX,
+                          producedRefCacheWindowMs:
+                              (this.config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS * 1000) / 2,
+                          crawlHistory: urlCrawlHistory,
+                      }
+                    : undefined
+            ),
             // Isolate the mirror's session tracker/filter keys from the main lane. Sharing them would let
             // the cleartext mirror mark a session seen without the main lane's KMS key, so the main lane
             // would then fetch a missing key and record cleartext.

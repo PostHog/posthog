@@ -562,18 +562,18 @@ def _business_knowledge_maintained_for_team(team: Team) -> bool:
         return False
 
 
-def _governed_metric_names_for_team(team: Team, user_id: int) -> list[str] | None:
-    """Approved metric names for prompt injection, or None when the read fails.
+def _project_has_governed_metrics(team: Team, user_id: int) -> bool:
+    """Whether the run's prompt should mention the data catalog.
 
     Resolved as the run's acting user, the same identity the sandbox's MCP token carries, so the
-    injected listing can never be wider than what the run could have queried for itself through
-    `system.information_schema.metrics`.
+    prompt never points a run at metrics it could not read for itself. A failed read is False:
+    the mention is optional steering, so an outage must not fail the run or mis-steer it.
     """
     try:
-        return approved_metric_names_for_team(team, User.objects.get(id=user_id))
+        return bool(approved_metric_names_for_team(team, User.objects.get(id=user_id)))
     except Exception as error:
         capture_exception(error)
-        return None
+        return False
 
 
 def _granted_write_scopes(config: SignalScoutConfig) -> list[str]:
@@ -777,7 +777,7 @@ async def _spawn_and_run(
         # Codex-only, and independent of the model pin: which OpenAI queue the run's turns join.
         service_tier=service_tier,
     )
-    governed_metric_names = await database_sync_to_async(_governed_metric_names_for_team, thread_sensitive=False)(
+    project_has_governed_metrics = await database_sync_to_async(_project_has_governed_metrics, thread_sensitive=False)(
         team, user_id
     )
     mcp_server_names = await database_sync_to_async(_mcp_server_names_for_run, thread_sensitive=False)(
@@ -789,7 +789,7 @@ async def _spawn_and_run(
         team_id=team.id,
         started_at=started_at,
         github_read_access=github_guidance,
-        governed_metric_names=governed_metric_names,
+        project_has_governed_metrics=project_has_governed_metrics,
         # Names the external MCP servers the sandbox will mount, so *How to call tools* can carve
         # them out of the exec-interface rule; empty renders nothing.
         mcp_server_names=mcp_server_names,
