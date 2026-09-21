@@ -136,6 +136,8 @@ class TestUrls(APIBaseTest):
             ("absolute_other_host", "https://evil.example.com/steal", "/"),
             ("protocol_relative", "//evil.example.com/steal", "/"),
             ("back_to_signup", "/signup", "/"),
+            ("dot_segments_back_to_login", "/projects/../login", "/"),
+            ("single_dot_segment", "/./project/123", "/"),
         ]
     )
     def test_signed_in_signup_redirect_honors_only_safe_next(self, _name, next_param, expected_location):

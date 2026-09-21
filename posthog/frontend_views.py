@@ -67,6 +67,11 @@ def post_auth_destination(request: HttpRequest) -> str:
     parsed = urlparse(next_path)
     if parsed.scheme or parsed.netloc or not parsed.path.startswith("/"):
         return "/"
+    # Django writes the value straight into `Location`, and the browser resolves dot
+    # segments itself, so `/projects/../login` would land back on an auth route and
+    # spend a second redirect getting out of it again.
+    if any(segment in (".", "..") for segment in parsed.path.split("/")):
+        return "/"
     if parsed.path.rstrip("/") in ONLY_UNAUTHENTICATED_PATHS:
         return "/"
     return urlunparse(("", "", parsed.path, parsed.params, parsed.query, ""))
