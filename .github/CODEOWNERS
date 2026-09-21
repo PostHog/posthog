@@ -57,6 +57,10 @@ posthog/api/authentication.py @PostHog/team-security
 posthog/auth.py @PostHog/team-security
 ee/api/scim/auth.py @PostHog/team-security
 
+# The Content-Security-Policy for login, signup and OAuth consent. Each source it admits widens what
+# a markup injection on a credentials page can reach.
+posthog/security/auth_page_csp.py @PostHog/team-security
+
 # Dev sandbox provides important protection in local dev
 bin/dev-sandbox* @PostHog/team-security
 
