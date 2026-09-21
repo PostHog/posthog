@@ -329,8 +329,6 @@ export const chartPreviewsLogic = kea<chartPreviewsLogicType>([
                         .map((preview) => preview.option.display),
                     all_previews_loaded:
                         eligiblePreviews.length > 0 && loadedPreviews.length === eligiblePreviews.length,
-                    all_previews_use_sample_data:
-                        eligiblePreviews.length > 0 && samplePreviews.length === eligiblePreviews.length,
                 })
             },
             loadDataSuccess: rememberLoadedTimeSeries,
