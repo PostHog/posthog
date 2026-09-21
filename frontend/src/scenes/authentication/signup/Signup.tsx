@@ -2,7 +2,6 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useState } from 'react'
 
-import { getCookie } from 'lib/api'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupReferralSource from 'lib/components/SignupReferralSource'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
@@ -16,13 +15,12 @@ import { Link } from 'lib/lemon-ui/Link'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
+import { useLastLoginMethod } from 'scenes/authentication/shared/lastLoginMethod'
 import { pendingOAuthConnectionLogic, reviewAccessCopy } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { TurnstileChallenge } from 'scenes/authentication/signup/signupForm/TurnstileChallenge'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
-
-import { LoginMethod } from '~/types'
 
 import { signupLogic } from './signupForm/signupLogic'
 
@@ -46,7 +44,7 @@ function SignupEmailPanel(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
     const [showJoinOrg, setShowJoinOrg] = useState(false)
-    const lastLoginMethod = getCookie('ph_last_login_method') as LoginMethod | null
+    const lastLoginMethod = useLastLoginMethod()
     const accountExists = !!signupPanelEmailManualErrors?.email
 
     if (pendingInvite) {
