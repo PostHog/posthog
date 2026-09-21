@@ -1,0 +1,91 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.2.4/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": false
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "suspicious": {
+        "noExplicitAny": "warn"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double"
+    }
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "overrides": [
+    {
+      // Object-tag kind registry generated from posthog/object_tags/kinds.py; the
+      // generator's byte-stable output is what `hogli build:object-tags --check`
+      // compares against, so no formatter may touch it.
+      "includes": ["packages/agent-contracts/src/objectTagKinds.generated.ts"],
+      "formatter": {
+        "enabled": false
+      }
+    },
+    {
+      // Disallow console.* in agent source code - use logger instead
+      "includes": ["packages/agent/src/**/*.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "error"
+          }
+        }
+      }
+    },
+    {
+      // Logger implementations intentionally wrap console
+      "includes": ["packages/agent/src/utils/logger.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["@posthog/shared", "@posthog/shared/*"],
+                    "message": "The agent runtime must not depend on desktop code. Import from @posthog/agent-contracts."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
