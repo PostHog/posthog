@@ -65,6 +65,31 @@ describe("local-tools registry", () => {
     expect(hasSignedCommit).toBe(expected);
   });
 
+  it.each([
+    {
+      name: "cloud run bound to a task run",
+      meta: { environment: "cloud" as const },
+      ctx: { cwd: "/repo", taskId: "task-1", taskRunId: "run-1" },
+      expected: true,
+    },
+    {
+      name: "cloud run without a task run id",
+      meta: { environment: "cloud" as const },
+      ctx: { cwd: "/repo", taskId: "task-1" },
+      expected: false,
+    },
+    {
+      name: "desktop run bound to a task run",
+      meta: { environment: "local" as const },
+      ctx: { cwd: "/repo", taskId: "task-1", taskRunId: "run-1" },
+      expected: false,
+    },
+  ])("exposes task_summary_update in $name", ({ meta, ctx, expected }) => {
+    const tools = enabledLocalTools(ctx, meta);
+    const hasSummaryTool = tools.some((t) => t.name === "task_summary_update");
+    expect(hasSummaryTool).toBe(expected);
+  });
+
   it("does not treat legacy taskRunId-only metadata as cloud", () => {
     const tools = enabledLocalTools({ cwd: "/repo", token: undefined }, {
       taskRunId: "run-1",

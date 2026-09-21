@@ -16,8 +16,12 @@ from posthog.models.utils import generate_random_oauth_refresh_token
 
 from products.access_control.backend.models.access_control import AccessControl
 
-from ee.partners.stripe.api.provisioning.signature import compute_signature
-from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, HMAC_SECRET, StripeProvisioningTestBase
+from ee.partners.stripe.api.provisioning.test.base import (
+    BASE_PATH,
+    HMAC_SECRET,
+    StripeProvisioningTestBase,
+    compute_signature,
+)
 
 TOKEN_URL = f"{BASE_PATH}/oauth/token"
 
