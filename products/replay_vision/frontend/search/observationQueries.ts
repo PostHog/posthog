@@ -78,8 +78,9 @@ export function searchBreadcrumb(returnParams: Record<string, string>): Breadcru
 
 const SIMILAR_SEARCH_INTENT_KEY = 'replay-vision.similar-search-intent'
 
+// Both logics are mounted app-wide. `values` throws if not, where `findMounted` would silently mismatch owners.
 function intentOwner(): string {
-    return `${userLogic.findMounted()?.values.user?.uuid ?? ''}:${teamLogic.findMounted()?.values.currentTeamId ?? ''}`
+    return `${userLogic.values.user?.uuid ?? ''}:${teamLogic.values.currentTeamId ?? ''}`
 }
 
 /** The query travels through sessionStorage, not the URL: it is observation prose that can carry customer

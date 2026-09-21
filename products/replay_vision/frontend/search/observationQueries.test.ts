@@ -1,8 +1,12 @@
+import { userLogic } from 'scenes/userLogic'
+
+import { initKeaTests } from '~/test/init'
+
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import {
-    readSimilarSearchIntent,
     firstCitedTimestampMs,
     markSimilarSearchIntent,
+    readSimilarSearchIntent,
     similarSearchQuery,
     similarSearchUrl,
 } from './observationQueries'
@@ -16,6 +20,11 @@ function observation(modelOutput: Record<string, unknown> | null): ReplayObserva
 }
 
 describe('observationQueries', () => {
+    beforeEach(() => {
+        initKeaTests()
+        userLogic.mount()
+    })
+
     it.each([
         ['a summary citation, ahead of the reasoning', { summary: 'a (t 12)', reasoning: 'c (t 5)' }, 12000],
         ['a reasoning citation when the summary has none', { summary: 'plain', reasoning: 'c (t 5)' }, 5000],

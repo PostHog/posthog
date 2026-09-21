@@ -4,13 +4,14 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { ObservationSearchResultApi, ReplayObservationApi } from '../generated/api.schemas'
 import { markSimilarSearchIntent } from './observationQueries'
-import { SEARCH_PAGE_SIZE, observationSearchLogic } from './observationSearchLogic'
+import { SEARCH_COALESCE_MS, SEARCH_PAGE_SIZE, observationSearchLogic } from './observationSearchLogic'
 
 function searchResults(distances: number[]): ObservationSearchResultApi[] {
     return distances.map(
@@ -43,6 +44,7 @@ describe('observationSearchLogic', () => {
             },
         })
         initKeaTests()
+        userLogic.mount()
     })
 
     it.each([
@@ -66,6 +68,12 @@ describe('observationSearchLogic', () => {
         await expectLogic(logic, () => logic.actions.setScannerId('scanner-2')).toFinishAllListeners()
         expect(searchSpy).toHaveBeenCalledTimes(2)
         expect(new URL(searchSpy.mock.calls[1][0].request.url).searchParams.get('scanner_id')).toBe('scanner-2')
+
+        router.actions.push(urls.replayVision(), { tab: 'search', scanner: 'scanner-3', q: 'rage clicks' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(searchSpy).toHaveBeenCalledTimes(3)
+        const lastRequest = new URL(searchSpy.mock.calls[2][0].request.url).searchParams
+        expect([lastRequest.get('scanner_id'), lastRequest.get('q')]).toEqual(['scanner-3', 'rage clicks'])
         logic.unmount()
     })
 
@@ -185,6 +193,12 @@ describe('observationSearchLogic', () => {
     })
 
     it('a superseded failure is dropped, so the rate counts only the searches a person waited for', async () => {
+        let releaseFirst: () => void = () => {}
+        const firstHeld = new Promise<void>((resolve) => (releaseFirst = resolve))
+        searchSpy.mockImplementationOnce(async () => {
+            await firstHeld
+            return [500, { detail: 'embedding service down' }]
+        })
         searchSpy.mockImplementation(() => [500, { detail: 'embedding service down' }])
         const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
         const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
@@ -194,9 +208,10 @@ describe('observationSearchLogic', () => {
 
         logic.actions.setQuery('rage clicks')
         logic.actions.search()
-        // The second search starts while the first request is in flight, which supersedes the first.
+        await new Promise((resolve) => setTimeout(resolve, SEARCH_COALESCE_MS + 1))
         logic.actions.setQuery('coupon rejected at checkout')
         logic.actions.search()
+        releaseFirst()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(searchSpy).toHaveBeenCalledTimes(2)
@@ -227,15 +242,20 @@ describe('observationSearchLogic', () => {
         logic.unmount()
     })
 
-    it('loads suggestions for the scope', async () => {
+    it('loads suggestions for the scope, and a deep link into a scope records one view, not two', async () => {
         const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
         logic.mount()
-        await expectLogic(logic, () => logic.actions.setScannerId('scanner-1')).toFinishAllListeners()
-        expect(suggestionsSpy).toHaveBeenCalledTimes(2)
-        expect(new URL(suggestionsSpy.mock.calls[1][0].request.url).searchParams.get('scanner_id')).toBe('scanner-1')
+        router.actions.push(urls.replayVision(), { tab: 'search', scanner: 'scanner-1' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(suggestionsSpy).toHaveBeenCalledTimes(1)
+        expect(new URL(suggestionsSpy.mock.calls[0][0].request.url).searchParams.get('scanner_id')).toBe('scanner-1')
         expect(logic.values.suggestedQueries).toEqual(['coupon rejected at checkout'])
-        expect(viewedSpy).toHaveBeenCalledTimes(2)
-        expect(await viewedSpy.mock.calls[1][0].request.json()).toEqual({ scanner_id: 'scanner-1' })
+        expect(viewedSpy).toHaveBeenCalledTimes(1)
+        expect(await viewedSpy.mock.calls[0][0].request.json()).toEqual({ scanner_id: 'scanner-1' })
+
+        await expectLogic(logic, () => logic.actions.setScannerId(null)).toFinishAllListeners()
+        expect(suggestionsSpy).toHaveBeenCalledTimes(2)
+        expect(new URL(suggestionsSpy.mock.calls[1][0].request.url).searchParams.get('scanner_id')).toBeNull()
         logic.unmount()
     })
 
@@ -290,18 +310,25 @@ describe('observationSearchLogic', () => {
         expect(searchSpy).toHaveBeenCalledTimes(1)
         expect(new URL(searchSpy.mock.calls[0][0].request.url).searchParams.get('scanner_id')).toBe('scanner-2')
 
-        router.actions.push(urls.replayVision(), { tab: 'search', similar: 'obs-9', scanner: 'scanner-2' })
-        await expectLogic(logic).toFinishAllListeners()
-        expect(router.values.searchParams.similar).toBeUndefined()
-        expect(searchSpy).toHaveBeenCalledTimes(1)
-
         // Editing the prose keeps the shown results' provenance until the edited search lands as a regular one.
         logic.actions.setQuery('Stalled at checkout twice')
         expect(logic.values.sourceObservationId).toBe('obs-0')
+        router.actions.push(urls.replayVision(), { tab: 'search', similar: 'obs-0', scanner: 'scanner-2', t: 12 })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.query).toBe('Stalled at checkout twice')
+        expect(searchSpy).toHaveBeenCalledTimes(1)
+
         await expectLogic(logic, () => logic.actions.search()).toFinishAllListeners()
         expect(logic.values.sourceObservationId).toBeNull()
         expect(router.values.searchParams.q).toBe('Stalled at checkout twice')
         expect(logic.values.recentQueries).toEqual(['Stalled at checkout twice'])
+
+        router.actions.push(urls.replayVision(), { tab: 'search', similar: 'obs-9', scanner: 'scanner-2' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.searchParams.similar).toBeUndefined()
+        expect(router.values.searchParams.q).toBeUndefined()
+        expect(logic.values.results).toBeNull()
+        expect(searchSpy).toHaveBeenCalledTimes(2)
         logic.unmount()
     })
 

@@ -39,6 +39,8 @@ const TOP_MATCH_MARGIN = 0.05
 // The server's error code when the organization has not allowed AI data processing.
 const AI_CONSENT_REQUIRED_CODE = 'ai_data_processing_not_approved'
 const RECENT_QUERIES_LIMIT = 3
+// One URL change can dispatch the same action twice. A short breakpoint collapses them into one request.
+export const SEARCH_COALESCE_MS = 10
 
 export type ResultsView = 'grid' | 'list'
 
@@ -281,7 +283,8 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
         suggestedQueries: [
             [] as string[],
             {
-                loadSuggestedQueries: async () => {
+                loadSuggestedQueries: async (_, breakpoint) => {
+                    await breakpoint(SEARCH_COALESCE_MS)
                     const teamId = teamLogic.values.currentTeamId
                     // A deep-linked query renders results, never the empty state, so its suggestions would go unseen.
                     if (!teamId || router.values.searchParams.q) {
@@ -348,6 +351,7 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
         },
         searchSimilar: () => actions.search(),
         search: async (_, breakpoint) => {
+            await breakpoint(SEARCH_COALESCE_MS)
             const query = values.query.trim()
             if (!query) {
                 actions.searchFailure()
@@ -441,19 +445,16 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                 }
                 const similar = typeof searchParams.similar === 'string' ? searchParams.similar : ''
                 if (similar) {
-                    if (similar === values.pendingSourceObservationId) {
+                    // Result links keep `similar` after typing cleared the pending source, so match the shown source too.
+                    if (similar === values.pendingSourceObservationId || similar === values.sourceObservationId) {
                         return
                     }
                     const similarQuery = readSimilarSearchIntent(similar)
                     if (similarQuery) {
                         actions.searchSimilar(similarQuery, similar)
                     } else {
-                        // A pasted link has no stored query, so drop the param instead of looking filtered.
-                        router.actions.replace(
-                            router.values.location.pathname,
-                            { ...searchParams, similar: undefined },
-                            router.values.hashParams
-                        )
+                        // No stored query: clearing drops the param and the previous results.
+                        actions.clearSearch()
                     }
                     return
                 }

@@ -19,7 +19,7 @@ export function isSegment(value: unknown): value is Segment {
     return false
 }
 
-// Also matches leaked joined variants the backend never parsed: `(t 1, 2)`, `(t 34-42)`, `(t 4 to t 9 and t 12)`.
+// Wider than the backend's TIMESTAMP_CITATION_RE (scanners/base.py), which only parses comma-joined lists.
 const TIMESTAMP_CITATION_RE = /\s*\(\s*t\s*(\d+(?:\s*(?:[,\u2013-]|to|and)\s*t?\s*\d+)*)\s*\)/g
 
 /** Split leaked `(t <sec>)` markers in plain text into chip segments, one chip per cited second. */

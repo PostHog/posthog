@@ -113,11 +113,15 @@ export const replayScannerSceneLogic = kea<replayScannerSceneLogicType>([
             // Old per-scanner search links open the hub search.
             if (searchParams.tab === ReplayScannerTab.Search) {
                 const q = searchParams.q != null ? String(searchParams.q) : ''
-                router.actions.replace(urls.replayVision(), {
-                    tab: ReplayScannerTab.Search,
-                    ...(id && id !== 'new' ? { scanner: id } : {}),
-                    ...(q ? { q } : {}),
-                })
+                router.actions.replace(
+                    urls.replayVision(),
+                    {
+                        tab: ReplayScannerTab.Search,
+                        ...(id && id !== 'new' ? { scanner: id } : {}),
+                        ...(q ? { q } : {}),
+                    },
+                    router.values.hashParams
+                )
                 return
             }
             const scannerId = id || 'new'
