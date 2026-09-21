@@ -1721,9 +1721,9 @@ Diffed against: <https://coda.io/apis/v1/openapi.json>
 
 Note: Coda has been rebranded to Superhuman Docs, but the OpenAPI spec is still served at https://coda.io/apis/v1/openapi.json (v1.6.0). The synced rows table returns cells keyed by column ID; the columns table now resolves those ids to names, types, and formulas.
 
-## Codacy — **thin**
+## Codacy — gaps
 
-Today (11): `commit_delta_issues`, `commits`, `files`, `issues`, `metrics_timerange`, `organizations`, `people`, `pull_requests`, `repositories`, `tool_patterns`, `tools`
+Today (17): `category_overviews`, `commit_delta_issues`, `commit_statistics`, `commits`, `files`, `issues`, `issues_overview`, `metrics_timerange`, `organizations`, `people`, `pull_request_coverage`, `pull_request_file_coverage`, `pull_requests`, `repositories`, `security_items`, `tool_patterns`, `tools`
 
 Diffed against: <https://api.codacy.com/api/api-docs/swagger.yaml>
 
@@ -1731,16 +1731,16 @@ Diffed against: <https://api.codacy.com/api/api-docs/swagger.yaml>
 - [x] `/tools and /tools/{toolUuid}/patterns` — Lookup that resolves the toolUuid and patternId every synced issue carries - without it issues cannot be grouped by rule or linter (high)
 - [x] `/analysis/organizations/{provider}/{org}/repositories/{repo}/commits/{commitUuid}/deltaStatistics and /commits/{srcCommitUuid}/deltaIssues` — New vs fixed issues introduced by each commit - the change-over-time signal the flat issues table cannot produce (high) — `deltaIssues` synced as `commit_delta_issues`; `deltaStatistics` skipped, its counts are already on `commits` under `quality`
 - [x] `/organizations/{provider}/{org}/metrics/{metricName}/period, /period-grouped, /timerange` — Org-level quality metric time series (Codacy's dashboard numbers) precomputed per period (high) — `/timerange` synced as `metrics_timerange`; `/period` and `/period-grouped` skipped, they return a single period's value that `/timerange` already covers
-- [ ] `/organizations/{provider}/{org}/security/items and /security/items/search` — Security issues (SRM) with severity and SLA state - an entire product area with no synced table (high)
-- [ ] `/analysis/organizations/{provider}/{org}/repositories/{repo}/commit-statistics` — Per-repo commit statistics over time, giving repo health a trend rather than a snapshot (medium)
-- [ ] `/analysis/organizations/{provider}/{org}/repositories/{repo}/category-overviews and /issues/overview` — Issue counts broken down by category and severity - the standard reporting breakdown dimensions (medium)
+- [x] `/organizations/{provider}/{org}/security/items and /security/items/search` — Security issues (SRM) with severity and SLA state - an entire product area with no synced table (high) — `/security/items/search` synced as `security_items`; the `/security/items` twin is deprecated in the spec and caps repository filtering at 100 names
+- [x] `/analysis/organizations/{provider}/{org}/repositories/{repo}/commit-statistics` — Per-repo commit statistics over time, giving repo health a trend rather than a snapshot (medium) — synced as `commit_statistics`
+- [x] `/analysis/organizations/{provider}/{org}/repositories/{repo}/category-overviews and /issues/overview` — Issue counts broken down by category and severity - the standard reporting breakdown dimensions (medium) — synced as `category_overviews` and `issues_overview`
 - [ ] `/organizations/{provider}/{org}/repositories/{repo}/branches` — Branch lookup that resolves the branch each analysed commit belongs to (medium)
 - [ ] `/organizations/{provider}/{org}/sbom/dependencies/search` — Dependency inventory per org and repo, for supply-chain and license reporting (medium)
-- [ ] `/coverage/organizations/{provider}/{org}/repositories/{repo}/pull-requests/{pullRequestNumber} (+ /files)` — Coverage delta per pull request - coverage is completely absent from the current table set (medium)
+- [x] `/coverage/organizations/{provider}/{org}/repositories/{repo}/pull-requests/{pullRequestNumber} (+ /files)` — Coverage delta per pull request - coverage is completely absent from the current table set (medium) — synced as `pull_request_coverage` and `pull_request_file_coverage`
 - [ ] `/organizations/{provider}/{org}/repositories/{repo}/files/{fileId}/coverage and /files/{fileId}/duplication` — File-level coverage and duplication metrics that enrich the files table already synced (medium)
 - [ ] `/organizations/{provider}/{org}/audit` — Audit log of org and repo configuration changes, useful for correlating quality shifts with settings changes (low)
 
-Note: Codacy API v3 swagger is served at https://api.codacy.com/api/api-docs/swagger.yaml (~250 paths). Eleven static endpoints in codacy/settings.py, no dynamic discovery. Whole product domains are still unrepresented: security/SRM, SBOM, and coverage. Excluded config surfaces (coding-standards, gate-policies, settings/\*, tokens, integrations).
+Note: Codacy API v3 swagger is served at https://api.codacy.com/api/api-docs/swagger.yaml (~250 paths). Seventeen static endpoints in codacy/settings.py, no dynamic discovery. SBOM is the remaining unrepresented product domain; coverage is covered per pull request only, not per file of the default branch. Excluded config surfaces (coding-standards, gate-policies, settings/\*, tokens, integrations).
 
 ## Codecov — gaps
 
