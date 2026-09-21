@@ -31,8 +31,10 @@ Writes to `s3://posthog-ml-training-prod-us-east-1-base-models/posthog/kev-4b-vl
 On a CUDA box with the `serve` extra installed (`uv sync --extra serve`), the entry points register the model class and the IO processor on import:
 
 ```bash
-vllm serve /models/kev-4b --served-model-name kev-4b --mamba-ssm-cache-dtype float32 --port 8000
+VLLM_USE_V2_MODEL_RUNNER=0 vllm serve /models/kev-4b --served-model-name kev-4b --mamba-ssm-cache-dtype float32 --port 8000
 ```
+
+`VLLM_USE_V2_MODEL_RUNNER=0` is required on vLLM 0.29: its new model runner does not run the `plugin` pooling task that IO processors use.
 
 `config.json` names the IO processor (`io_processor_plugin: "kev"`), so no extra flag is needed. Then:
 

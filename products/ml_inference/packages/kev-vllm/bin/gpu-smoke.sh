@@ -45,6 +45,8 @@ PY
 
 cd "$PACKAGE_DIR"
 export UV_PROJECT_ENVIRONMENT="$PACKAGE_DIR/.venv-serve"
+# Model Runner V2 (default in vLLM 0.29) does not run the "plugin" pooling task; the V1 runner does.
+export VLLM_USE_V2_MODEL_RUNNER=0
 uv sync --extra serve
 nohup uv run --extra serve vllm serve "$MODEL_DIR" --served-model-name "$MODEL_NAME" --port "$PORT" \
   --mamba-ssm-cache-dtype float32 --max-model-len 16384 --gpu-memory-utilization 0.85 > vllm.log 2>&1 &
