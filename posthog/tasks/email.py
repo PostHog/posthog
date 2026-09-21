@@ -805,7 +805,9 @@ def send_hog_function_filters_uncompilable(team_id: int, hog_function_ids: list[
     ]
     if not broken:
         return
-    broken.sort(key=lambda entry: entry.hog_function.name or "")
+    # The id breaks ties: two destinations can share a name, and the query has no ORDER BY, so
+    # without it the same breakage can fingerprint differently between runs and email twice.
+    broken.sort(key=lambda entry: (entry.hog_function.name or "", entry.hog_function.id))
 
     recipients = {membership.user for membership in _get_project_admins_to_notify_of_email_sending_suspension(team)}
     # A creator may have left the organization, or kept organization membership while losing access

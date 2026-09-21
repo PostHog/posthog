@@ -1260,6 +1260,30 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         digest = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:16]
         assert mocked_email_messages[0].campaign_key == f"hog_function_filters_uncompilable_{self.team.id}_{digest}"
 
+    def test_send_hog_function_filters_uncompilable_orders_same_named_destinations_by_id(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        bytecode_error = "Cohort membership can't be evaluated"
+        # Two destinations can share a name, and the query that reads them has no ORDER BY. The
+        # higher id is written first, so the rows come back in the reverse of the order the key
+        # has to use, and a key built on names alone would flip between runs and mail twice.
+        earlier = uuid.UUID("00000000-0000-0000-0000-0000000000a0")
+        later = uuid.UUID("00000000-0000-0000-0000-0000000000b0")
+        for hog_function_id in (later, earlier):
+            HogFunction.objects.create(id=hog_function_id, team=self.team, name="Shared name", enabled=True)
+            HogFunction.objects.filter(id=hog_function_id).update(
+                filters={"bytecode": None, "bytecode_error": bytecode_error}
+            )
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(later), str(earlier)])
+
+        fingerprint = ";".join(f"{hog_function_id}:{bytecode_error}:1" for hog_function_id in (earlier, later))
+        digest = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:16]
+        assert mocked_email_messages[0].campaign_key == f"hog_function_filters_uncompilable_{self.team.id}_{digest}"
+
     def test_send_hog_function_filters_uncompilable_subject_survives_a_newline_in_a_name(
         self, MockEmailMessage: MagicMock
     ) -> None:
