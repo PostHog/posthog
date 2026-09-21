@@ -105,7 +105,23 @@ Kev's own server is FastAPI plus HF `transformers` with a threading lock and one
 That is the starting point, not the destination.
 
 - **Phase 1.** Keep the HF model and pointer head. Replace the server with a batching runner: one process per GPU, an asyncio front, a single model thread that drains a bounded queue. This is a few hundred lines and gets us to a correct multi-tenant node fast.
-- **Phase 2.** Port Kev to a vLLM pooling model with a custom head. vLLM already runs Qwen3.5's hybrid layout with prefix caching for Mamba-style states (checked at block boundaries), CUDA graphs, varlen packing, Prometheus metrics, and the LMCache and Dynamo integrations. Writing that ourselves is a bad trade once traffic is real.
+- **Phase 2.** Port Kev to a vLLM pooling model with a custom head. vLLM already runs Qwen3.5's hybrid layout with CUDA graphs, varlen packing, continuous batching, Prometheus metrics, and the LMCache and Dynamo integrations. Writing that ourselves is a bad trade once traffic is real. Two caveats decide when phase 2 pays off, both checked 2026-09-21:
+  - vLLM's prefix cache for GDN hybrids works at a 528-token block granularity (`--mamba-cache-mode align`). A state shorter than 528 tokens never hits, and a 772-token state reuses 528 tokens and recomputes 244. The finer `all` mode is an unmerged PR that costs 28 to 40% throughput and stores the GDN state in bf16 unless forced to fp32, which makes cold and warm answers differ slightly. See [vllm#40696](https://github.com/vllm-project/vllm/issues/40696) and [vllm#26807](https://github.com/vllm-project/vllm/pull/26807).
+  - vLLM enables prefix caching for pooling models only when the pooler reads the last token. Kev's head reads hidden states at every option end token and at the decide token, so the port needs a custom pooler that pools a set of positions, and those positions must all sit in the question suffix, after the cached state prefix, for the cache to apply.
+
+  Kev's own cache is exact, whole-state, any length, fp32 for the GDN part. Phase 1 keeps that. Phase 2 is worth it when batching and packing gains outweigh the coarser state cache, which the phase 1 measurements decide.
+
+### Port effort, HF to vLLM
+
+The base model already exists in vLLM (`Qwen3_5ForCausalLM`). The port is:
+
+1. Export Kev as a plain Qwen3.5 checkpoint with the LoRA merged in fp32 and cast to bf16, which is what Kev already does at load time.
+2. An out-of-tree model class registered through vLLM's plugin entry point, subclassing the Qwen3.5 model and adding a pooler that finds the option end and decide token ids in the flattened `input_ids`, applies `k(h_opts) @ q(h_decide) * scale`, and returns one softmax per question.
+3. Row expansion (one row per question, state plus question) done by the node before the request enters vLLM, so all rows of one request land in the same batch and share the state prefix blocks.
+4. Calibration temperature as post-processing at the node.
+5. A parity harness that compares probabilities against the HF path on a fixed record set. The bar is Kev's own bf16 versus fp32 gap (0.017 max on 24 records).
+
+Estimate: one to two engineer weeks for a working port, then a similar amount for parity, cache tuning, and load testing. The ongoing cost is that an out-of-tree subclass tracks vLLM's internal model API, which changes between releases, so pin the version and re-run parity on every bump.
 
 The node contract must not change between the phases: same `/v1/systemone`, `/healthz`, `/capacity`, `/metrics`.
 
@@ -174,7 +190,7 @@ That registry is the provider abstraction: Lambda, Thunder, and later AWS `g6e`/
 
 Provider notes as of 2026-09-21:
 
-- **Lambda** sells on-demand and reserved instances with GPUs on PCIe or SXM, and multi-node clusters. Good for the first production pool. Check region availability against EU residency before assuming an EU pool exists.
+- **Lambda** sells on-demand and reserved instances with GPUs on PCIe or SXM, multi-node clusters, a Managed Kubernetes offering with the NVIDIA GPU Operator preinstalled, per-instance firewall rules, networked persistent storage, and an API for launching instances. It works for both dev and the first production pools. Its [region list](https://docs.lambda.ai/public-cloud/on-demand/) has one EU region, `europe-central-1` in Germany, alongside nine US regions and four in Asia and the Middle East. Check which GPU types the German region actually stocks before planning an EU pool on it. On-demand H100 inventory is reported to run out at peak times, so a production pool needs reserved capacity, not on-demand.
 - **Thunder Compute** attaches the GPU to the VM over TCP rather than PCIe. That is how it undercuts on price. It also means host-to-device copies and small-batch latency are worse than on a real PCIe box, which hurts exactly the host DRAM tier and the low-latency path above. Fine for development and load testing of the batcher. Measure before serving production from it.
 
 Network between the gateway and nodes: a WireGuard or Tailscale mesh per region, or provider VPC peering where it exists, with mTLS on top.
@@ -205,7 +221,8 @@ SLOs are per region: availability, p50 and p99 total time for warm and cold stat
 
 - What is the real hit ratio of the result cache and the prefix cache on PostHog's own use cases (replay, tickets, error groups)? This decides node count more than anything else.
 - Does an EU GPU pool exist at either provider, or does EU need a different provider from day one?
-- Does vLLM's hybrid prefix caching (state checkpoints at block boundaries) preserve Kev's exact probabilities, or does block alignment change the prefix boundary?
+- Does vLLM's 528-token block granularity for GDN state caching lose more than the batching gains recover on PostHog's real state lengths? If most states are under 528 tokens, phase 2 needs either the `all` cache mode to land upstream or our own state cache in front of vLLM.
+- What does SGLang's hybrid GDN prefix cache do at the same granularity? Its radix cache is token-exact for attention layers; the GDN checkpoint interval is the number to check.
 - Is Kev-0.8B accurate enough for the high-volume PostHog use cases? It changes the throughput math by about 5x.
 - Should the gateway be a new service or a route family on the Go AI gateway (`PostHog/ai-gateway`)? The auth, rate limiting, and usage emission are the same code.
 
@@ -214,6 +231,8 @@ SLOs are per region: availability, p50 and p99 total time for warm and cold stat
 - Kev: [repository](https://github.com/jaredpalmer/kev), `kev/serve.py` (prefix cache, single-request lock), `kev/model.py` (row construction, pointer head).
 - Jev: [Introducing System One models and Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), [TypeSafe System One docs](https://docs.typesafe.ai/concepts/system-one).
 - Qwen3.5-4B config: [Hugging Face](https://huggingface.co/Qwen/Qwen3.5-4B/raw/main/config.json). Hybrid attention background: [Raschka, Hybrid Attention](https://sebastianraschka.com/llm-architecture-gallery/hybrid-attention/).
+- vLLM: [pooling models](https://docs.vllm.ai/en/latest/models/pooling_models.html), [V1 feature matrix](https://docs.vllm.ai/en/latest/usage/v1_guide.html), [out-of-tree model registration](https://docs.vllm.ai/en/latest/contributing/model/registration.html).
+- Lambda: [On-Demand Cloud overview and regions](https://docs.lambda.ai/public-cloud/on-demand/), [Managed Kubernetes](https://docs.lambda.ai/managed-kubernetes/).
 - KV cache tiers: [LMCache](https://github.com/lmcache/lmcache), [Mooncake](https://arxiv.org/pdf/2407.00079).
 - Routing and batching: [NVIDIA Dynamo KV-aware routing](https://docs.nvidia.com/dynamo/latest/user-guides/kv-cache-aware-routing), [Baseten on KV-aware routing](https://www.baseten.co/blog/how-baseten-achieved-2x-faster-inference-with-nvidia-dynamo/).
 - Providers: [How Thunder Compute works (GPU over TCP)](https://www.thundercompute.com/blog/how-thunder-compute-works-gpu-over-tcp), [Thunder Compute vs Lambda](https://www.thundercompute.com/blog/thunder-compute-lambda-labs-gpu-cloud).
