@@ -1,17 +1,19 @@
 """Shared attachment helpers for conversations channels (email, Slack, etc.)."""
 
 import re
-from io import BytesIO
 from typing import Any
 
 from django.conf import settings
 
 import structlog
-from PIL import Image
 
-from posthog.api.uploaded_media import INLINE_SAFE_IMAGE_FORMATS, is_inline_safe_content_type
 from posthog.models.team import Team
-from posthog.models.uploaded_media import UploadedMedia, save_content_to_object_storage
+from posthog.models.uploaded_media import (
+    UploadedMedia,
+    is_inline_safe_content_type,
+    save_content_to_object_storage,
+    sniff_image_content_type,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -38,22 +40,18 @@ def sanitize_attachment_filename(name: str | None) -> str:
     return name or "attachment"
 
 
-def is_valid_image(content: bytes, content_type: str) -> bool:
-    """Verify bytes are a real image (prevents serving disguised malicious content).
+def resolve_attachment_content_type(content: bytes, declared_content_type: str) -> str | None:
+    """Return the content type to store for an attachment, or None when its bytes are not a valid image.
 
-    Only content types that the media endpoint serves inline need the check, and the decode
-    is limited to those formats. The endpoint serves every other type, including image types
-    such as TIFF or HEIC, as an opaque download, so those bytes are stored without a decode.
+    The media endpoint serves only inline-safe types inline, so only those get a decode, which
+    prevents serving disguised content as an image. For them the stored type comes from the
+    decoded bytes, not from the sender's claim. The endpoint serves every other type, including
+    image types such as TIFF or HEIC, as an opaque download, so those keep their declared type
+    and are stored without a decode.
     """
-    if not is_inline_safe_content_type(content_type):
-        return True
-    try:
-        image = Image.open(BytesIO(content), formats=INLINE_SAFE_IMAGE_FORMATS)
-        image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-        image.close()
-        return True
-    except Exception:
-        return False
+    if not is_inline_safe_content_type(declared_content_type):
+        return declared_content_type
+    return sniff_image_content_type(content)
 
 
 def save_file_to_uploaded_media(
@@ -67,16 +65,19 @@ def save_file_to_uploaded_media(
     """Persist a file to object storage via UploadedMedia.
 
     Returns the absolute URL on success, None on failure.
-    For content types the media endpoint serves inline, validates the bytes
-    are a real image unless validate_images is False.
+    Unless validate_images is False, stores the type that resolve_attachment_content_type
+    returns, and rejects bytes that it finds invalid.
     """
     if not settings.OBJECT_STORAGE_ENABLED:
         logger.warning("conversations_attachment_no_object_storage", team_id=team.id)
         return None
 
-    if validate_images and not is_valid_image(content, content_type):
-        logger.warning("conversations_attachment_invalid_image", team_id=team.id, file_name=file_name)
-        return None
+    if validate_images:
+        resolved_content_type = resolve_attachment_content_type(content, content_type)
+        if resolved_content_type is None:
+            logger.warning("conversations_attachment_invalid_image", team_id=team.id, file_name=file_name)
+            return None
+        content_type = resolved_content_type
 
     uploaded_media = UploadedMedia.objects.create(
         team=team,

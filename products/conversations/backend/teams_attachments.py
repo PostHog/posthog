@@ -17,7 +17,7 @@ from posthog.models.team.team import Team
 from .services.attachments import (
     CONVERSATIONS_MAX_IMAGE_BYTES,
     MAX_ATTACHMENTS_PER_MESSAGE,
-    is_valid_image,
+    resolve_attachment_content_type,
     sanitize_attachment_filename,
     save_file_to_uploaded_media,
 )
@@ -102,16 +102,17 @@ def _save_attachment(team: Team, file_bytes: bytes, name: str, mimetype: str) ->
     Only types the media endpoint serves inline are byte-validated; other types are
     stored as-is and served as opaque downloads by the media endpoint.
     """
-    if not is_valid_image(file_bytes, mimetype):
+    content_type = resolve_attachment_content_type(file_bytes, mimetype)
+    if content_type is None:
         logger.warning("teams_image_invalid_content", name=name)
         return None
 
     safe_name = sanitize_attachment_filename(name)
-    stored_url = save_file_to_uploaded_media(team, safe_name, mimetype, file_bytes, validate_images=False)
+    stored_url = save_file_to_uploaded_media(team, safe_name, content_type, file_bytes, validate_images=False)
     if not stored_url:
         return None
 
-    return {"url": stored_url, "name": safe_name, "mimetype": mimetype}
+    return {"url": stored_url, "name": safe_name, "mimetype": content_type}
 
 
 def extract_teams_bot_attachments(
