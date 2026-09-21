@@ -1,9 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 
-import { LemonButton } from '@posthog/lemon-ui'
-
 import { CodeManagedTag } from './CodeManagedTag'
-import { codeManagedReason } from './codeManagedWorkflow'
 import type { HogFlow } from './hogflows/types'
 
 const meta: Meta<typeof CodeManagedTag> = {
@@ -39,15 +36,4 @@ export const Basic: StoryFn = () => <CodeManagedTag workflow={workflow()} />
 // The three source columns stay null until a push writes them, so the tag has to read without them
 export const WithoutARecordedSource: StoryFn = () => (
     <CodeManagedTag workflow={workflow({ source_repository: null, source_path: null, source_ref: null })} />
-)
-
-// What the scene header shows: the tag beside the title, and a save button that says why it cannot save
-export const ReadOnlyControls: StoryFn = () => (
-    <div className="flex items-center gap-2">
-        <h3 className="mb-0">Welcome sequence</h3>
-        <CodeManagedTag workflow={workflow()} />
-        <LemonButton type="primary" size="small" disabledReason={codeManagedReason(workflow())}>
-            Save
-        </LemonButton>
-    </div>
 )

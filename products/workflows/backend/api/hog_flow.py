@@ -226,24 +226,14 @@ DRAFT_CONTENT_FIELDS = (
 )
 
 
-# Which surfaces may write a workflow a repository owns. An allow-list rather than a deny-list, so an
-# EventSource added upstream is refused until someone decides it belongs here: `web` and every MCP
-# surface must not edit a workflow whose source of truth is a file, because the next push would
-# silently revert the edit.
+# An allow-list rather than a deny-list, so an EventSource added upstream is refused by default.
 CODE_MANAGED_WRITER_EVENT_SOURCES: Final = frozenset({EventSource.API, EventSource.CLI})
 
-# The two payloads an editor may still send to a code-managed workflow. `status` keeps the enable and
-# disable controls working, so a person can stop a workflow at 2am without a deploy. `managed_by`
-# alone is the release back to the UI. Matched as whole payloads: a lone field cannot be released or
-# stopped by accident from a spread-out form body.
+# Matched as whole payloads, so a form body spread into a PATCH cannot release or stop by accident.
 _CODE_MANAGED_ALLOWED_PAYLOADS: Final = (frozenset({"status"}), frozenset({"managed_by"}))
 
-# Actions that operate a workflow rather than define it. The file decides what the workflow is; it
-# does not decide what is running right now, so a person keeps the operational controls: replay a run,
-# send a test, start or stop a batch, and resume sending after a deliverability pause, which is
-# self-serve by design. `schedules` and `schedule_detail` are absent because a schedule is part of the
-# trigger, which the file owns. An action not named here is refused, so one added later stays refused
-# until someone decides which of the two it is.
+# Actions that operate a workflow rather than define it, so the file has no opinion on them.
+# `schedules` and `schedule_detail` are absent because a schedule is part of the trigger.
 _CODE_MANAGED_OPERATIONS_ACTIONS: Final = frozenset(
     {
         "rerun",
@@ -262,22 +252,12 @@ _CODE_MANAGED_INERT_KEYS: Final = frozenset({"base_updated_at", "base_live_updat
 
 
 def is_code_managed_writer(request: Request) -> bool:
-    """Whether this request may write a workflow that a repository owns.
-
-    The question is which client may write the row, not who may: a caller that reaches this already
-    holds `hog_flow:write`. What the lock stops is an interactive surface making an edit that the next
-    push would revert, so the two credentials that identify a push are the ones that pass.
-
-    `cli` is resolved from a user-agent token and an MCP consumer header, and both are client-declared,
-    so the two conditions below are what keep the classification from being taken on trust.
-    """
-    # A session cookie never qualifies, whatever the request declares, or the editor could reach
-    # around its own read-only mode by setting one header.
+    """Whether this request is the client that pushes the file, and so may write a code-managed row."""
+    # `cli` is resolved from client-declared headers, so a browser could claim it from the editor.
     if isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
         return False
-    # The MCP server forwards a caller-supplied consumer header verbatim and applies no allow-list to
-    # it, so an agent can declare itself the CLI. The transport cannot be declared away, so read it
-    # first: every request that arrives over MCP is an agent, whatever it calls itself.
+    # The MCP server forwards a caller-supplied consumer header with no allow-list, so read the
+    # transport, which cannot be declared away.
     if is_mcp_transport_request(request):
         return False
     return get_event_source(request) in CODE_MANAGED_WRITER_EVENT_SOURCES
@@ -296,13 +276,8 @@ def _payload_keys(request: Request) -> frozenset[str]:
 
 
 class CodeManagedWorkflowError(exceptions.PermissionDenied):
-    """Refusal of a write to a workflow a repository owns.
-
-    The body names the recorded source and the way out, because the reader is usually looking at an
-    editor that has just refused to save and has no other way to find out who owns the workflow.
-    `extra` is drf-exceptions-hog's channel for anything beyond `detail`; the HTTP status carries the
-    status, `detail` the message.
-    """
+    """Refusal of a write to a workflow a repository owns. `extra` is drf-exceptions-hog's channel
+    for anything beyond `detail`."""
 
     default_code = "immutable"
     # A plain PermissionDenied renders as `authentication_error`, which reads as "log in again". This
@@ -358,11 +333,6 @@ def resolve_workflow_created_via(request: Request) -> str:
     if created_via == HogFlow.CreatedVia.WIZARD and is_wizard_self_driving_program(request):
         return HogFlow.CreatedVia.SELF_DRIVING
     return created_via
-
-
-def _normalized_managed_by(value: Optional[str]) -> str:
-    """NULL means the app owns the workflow, so the two read as the same answer."""
-    return value or HogFlow.ManagedBy.GUI
 
 
 def describe_workflow_source(hog_flow: HogFlow) -> str:
@@ -3666,29 +3636,31 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
     def update(self, instance, validated_data):
         request = self.context["request"]
-        self._validate_managed_by_release(instance)
+        self._validate_managed_by_release(instance, request)
         self._validate_managed_by_claim(validated_data.get("managed_by"), request)
         self._validate_source_claim(validated_data, instance, request)
         self._strip_secret_inputs(validated_data)
         return super().update(instance, validated_data)
 
-    def _validate_managed_by_release(self, instance: HogFlow) -> None:
+    def _validate_managed_by_release(self, instance: HogFlow, request: Request) -> None:
         """A `managed_by` that moves the lock has to be the only field in the request.
 
-        Read from the raw payload, not from validated_data, because validate() injects derived fields
-        that would make every release look like a mixed edit. A refusal rather than a silent strip: a
-        form body spread back into a PATCH must not release the lock by accident, and the caller that
-        meant to release needs to hear that it did not happen.
+        The rule exists for the editor, which loads a workflow and spreads the whole thing into its
+        next save, so a form body must not move the lock by accident. A push sends the ownership and
+        the content together on purpose, so the client that may write the row is exempt.
 
-        A payload that re-sends the stored value passes. The editor loads a workflow and spreads the
-        whole thing into its next save, so a rule over the key alone would refuse every ordinary save,
-        and a value that does not move cannot release anything.
+        Read from the raw payload, not from validated_data, because validate() injects derived fields
+        that would make every release look like a mixed edit.
         """
+        if is_code_managed_writer(request):
+            return
         keys = set(self.initial_data.keys()) if isinstance(self.initial_data, dict) else set()
         keys -= _CODE_MANAGED_INERT_KEYS
         if "managed_by" not in keys or keys == {"managed_by"}:
             return
-        if _normalized_managed_by(self.initial_data.get("managed_by")) == _normalized_managed_by(instance.managed_by):
+        # NULL and `gui` are the same answer, so a re-sent stored value moves nothing.
+        claimed = self.initial_data.get("managed_by") or HogFlow.ManagedBy.GUI
+        if claimed == (instance.managed_by or HogFlow.ManagedBy.GUI):
             return
         raise serializers.ValidationError(
             {
@@ -4493,7 +4465,7 @@ class HogFlowViewSet(
             # never exposes action config bodies (which can hold credential-like values). The web app
             # and raw API keep the full graph, which they legitimately need (e.g. client-side
             # duplication); MCP callers drill into a single workflow via retrieve instead.
-            if self.request is not None and self._is_mcp_request(self.request):
+            if self.request is not None and is_mcp_transport_request(self.request):
                 return HogFlowSummarySerializer
             return HogFlowMinimalSerializer
         if self.action in ("update", "partial_update"):
@@ -4589,23 +4561,13 @@ class HogFlowViewSet(
         # TODO(team-workflows): Somehow implement version lookups
         return super().safely_get_object(queryset)
 
-    @staticmethod
-    def _is_mcp_request(request: Request) -> bool:
-        return request.headers.get("x-posthog-client") == "mcp"
-
     def check_object_permissions(self, request: Request, obj: Any) -> None:
         """Refuse every write to a code-managed workflow except the two the UI still owns.
 
         Placed here because there is no single write chokepoint: `graph`, `action_email`, `publish`,
-        `discard_draft` and `restore_revision` never reach `perform_update`, and three of them write
-        the row with no serializer at all. Every detail action reaches this through `get_object()`.
-
-        The rule keys on the action and the whole payload rather than on a set of field names. Half the
-        write actions carry bodies that name no workflow field (`publish` sends a confirm token,
-        `restore_revision` an overwrite flag), so a field-based check would pass them and the two
-        together replace the definition. Keyed this way, a write action added later is refused until
-        someone decides it belongs in the allow-list, and the actions that operate a workflow rather
-        than define it stay open.
+        `discard_draft` and `restore_revision` never reach `perform_update`, and every detail action
+        reaches this through `get_object()`. The rule keys on the action and the whole payload rather
+        than on field names, because half the write actions carry bodies that name no workflow field.
         """
         super().check_object_permissions(request, obj)
         if request.method in permissions.SAFE_METHODS or not isinstance(obj, HogFlow):
@@ -4811,7 +4773,7 @@ class HogFlowViewSet(
             logger.warning("Failed to capture workflow usage event", event=event, error=str(e))
 
     def perform_create(self, serializer):
-        if self._is_mcp_request(self.request) and serializer.validated_data.get("status") == HogFlow.State.ACTIVE:
+        if is_mcp_transport_request(self.request) and serializer.validated_data.get("status") == HogFlow.State.ACTIVE:
             raise exceptions.ValidationError(
                 "You can't one-shot active workflows via MCP. "
                 "Create as draft, test with workflows-test-run, then enable with workflows-enable."
@@ -4840,7 +4802,7 @@ class HogFlowViewSet(
         # injects derived fields like 'trigger' and 'billable_action_types' which would otherwise make every
         # status-only PATCH look like a mixed edit.
         route_to_draft = False
-        if self._is_mcp_request(self.request):
+        if is_mcp_transport_request(self.request):
             keys = set(self.request.data.keys())
             has_status = "status" in keys
             has_non_status = bool(keys - {"status"})
@@ -5082,7 +5044,7 @@ class HogFlowViewSet(
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
 
-            route_to_draft = self._is_mcp_request(request) and locked.status == HogFlow.State.ACTIVE
+            route_to_draft = is_mcp_transport_request(request) and locked.status == HogFlow.State.ACTIVE
 
             # Optimistic concurrency, mirroring perform_update: the graph endpoint is the only MCP
             # path that writes graph content, so it carries the base_updated_at staleness contract.
@@ -5170,7 +5132,7 @@ class HogFlowViewSet(
         # the apply conflicts.
         rendered: Optional[_RenderedActionEmailDesign] = None
         if operations:
-            predicts_draft = self._is_mcp_request(request) and instance.status == HogFlow.State.ACTIVE
+            predicts_draft = is_mcp_transport_request(request) and instance.status == HogFlow.State.ACTIVE
             if predicts_draft and instance.draft:
                 render_base = list(instance.draft.get("actions") or [])
             else:
@@ -5181,7 +5143,7 @@ class HogFlowViewSet(
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
 
-            route_to_draft = self._is_mcp_request(request) and locked.status == HogFlow.State.ACTIVE
+            route_to_draft = is_mcp_transport_request(request) and locked.status == HogFlow.State.ACTIVE
 
             # Same staleness contract as /graph: draft edits race against other draft edits, so the
             # baseline is the draft's timestamp once one exists.

@@ -3202,15 +3202,9 @@ export const workflowLogic = kea<workflowLogicType>([
                         // would create a phantom draft identical to live.
                         const stagingDraft =
                             latest?.status === 'active' && updates.status === 'active' && contentChanged
-                        // A status transition (enable/disable) toggles the lifecycle only, so it sends
-                        // the status and nothing else. The button is disabled while the form is dirty,
-                        // so content in the payload is at best a no-op re-send of the live row and at
-                        // worst (with a staged draft merged into the form) a silent deploy of
-                        // unpublished content. It is also what lets the control keep working on a
-                        // workflow a repository owns: the API takes a status-only write from the editor
-                        // and refuses a payload that carries anything more. Metadata-only saves on
-                        // active workflows strip content the same way, so unchanged content never
-                        // routes to a draft.
+                        // A status transition sends the status and nothing else, because content riding
+                        // along would silently deploy a staged draft, and because the API refuses any
+                        // payload beyond the status on a workflow a repository owns.
                         const payload: Partial<HogFlow> = isStatusTransition
                             ? { status: updates.status }
                             : latest?.status === 'active' && !contentChanged
@@ -3896,12 +3890,17 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         publishDisabledReason: [
-            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending],
+            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending, s.workflowEditDisabledReason],
             (
                 hasStagedDraft: boolean,
                 hasUnsavedChanges: boolean,
-                draftActionPending: 'publish' | 'discard' | null
+                draftActionPending: 'publish' | 'discard' | null,
+                workflowEditDisabledReason: string | null
             ): string | undefined => {
+                // The API refuses publish on a workflow a repository owns, so say so rather than 403.
+                if (workflowEditDisabledReason) {
+                    return workflowEditDisabledReason
+                }
                 if (draftActionPending === 'discard') {
                     return 'Discarding is in progress'
                 }
@@ -3915,12 +3914,16 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         discardDisabledReason: [
-            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending],
+            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending, s.workflowEditDisabledReason],
             (
                 hasStagedDraft: boolean,
                 hasUnsavedChanges: boolean,
-                draftActionPending: 'publish' | 'discard' | null
+                draftActionPending: 'publish' | 'discard' | null,
+                workflowEditDisabledReason: string | null
             ): string | undefined => {
+                if (workflowEditDisabledReason) {
+                    return workflowEditDisabledReason
+                }
                 if (draftActionPending === 'publish') {
                     return 'Publishing is in progress'
                 }
@@ -4203,7 +4206,10 @@ export const workflowLogic = kea<workflowLogicType>([
                 // reset the reducers, so the live value no longer describes what the user staged.
                 const pendingSchedule = saveContext ? saveContext.pendingSchedule : values.pendingSchedule
                 const existingScheduleId = values.currentSchedule?.id
-                const hasScheduleChanges = pendingSchedule !== false && !!workflowId
+                // A schedule is part of the trigger, which the file owns, so the API refuses a
+                // schedule write on a code-managed workflow. The status-only save is still allowed
+                // and would otherwise drag a staged schedule change into a 403.
+                const hasScheduleChanges = pendingSchedule !== false && !!workflowId && values.canEditWorkflow
 
                 if (hasScheduleChanges) {
                     try {
