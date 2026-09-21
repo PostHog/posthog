@@ -441,8 +441,10 @@ async def test_prepare_activity_reads_current_reportability_and_polarity(team, u
             name="Detector Eval",
             evaluation_type="llm_judge",
             evaluation_config={"prompt": "test prompt"},
-            output_type="boolean",
-            output_config={"true_is_failure": True},
+            output_type="numeric" if remove_passing_rule else "boolean",
+            output_config={"passing_rule": {"operator": "gte", "threshold": 7}}
+            if remove_passing_rule
+            else {"true_is_failure": True},
             enabled=True,
             created_by=user,
             conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
@@ -460,7 +462,7 @@ async def test_prepare_activity_reads_current_reportability_and_polarity(team, u
 
     if remove_passing_rule:
         await sync_to_async(Evaluation.objects.filter(id=report.evaluation_id).update)(
-            output_type="numeric", output_config={"passing_rule": None}
+            output_config={"passing_rule": None}
         )
     context = await prepare_report_context_activity(PrepareReportContextInput(report_id=str(report.id)))
     if remove_passing_rule:

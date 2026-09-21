@@ -93,7 +93,8 @@ describe('evaluationMetricsLogic', () => {
         queryMock.mockClear()
         evaluationsLogic.actions.loadEvaluations()
         metricsLogic.mount()
-        await expectLogic(metricsLogic).toDispatchActions(['loadStatsSuccess'])
+        await waitFor(() => expect(queryMock).toHaveBeenCalledTimes(1))
+        await expectLogic(metricsLogic).toFinishAllListeners()
         expect(queryMock).toHaveBeenCalledTimes(1)
     })
 
