@@ -107,3 +107,15 @@ class TestProtectedDomain(TestCase):
     @parameterized.expand([("posthog.com", True), ("eu.posthog.com", True), ("notposthog.com", False), (None, False)])
     def test_is_protected_domain(self, domain: str | None, expected: bool) -> None:
         assert is_protected_domain(domain) is expected
+
+
+class TestSubjectLength(TestCase):
+    @parameterized.expand(
+        [
+            ("address", {"email": "x@" + "a." * 150_000 + "com"}),
+            ("bare domain", {"domain": "a." * 150_000 + "com"}),
+        ]
+    )
+    def test_overlong_input_carries_no_email_or_domain(self, _name: str, kwargs: dict[str, str]) -> None:
+        subject = normalize_subject(**kwargs)
+        assert subject.email is None and subject.domain is None

@@ -9,6 +9,9 @@ from posthog.dataclasses import frozen
 # Gmail ignores dots in the local part, so one mailbox has many spellings.
 DOT_INSENSITIVE_DOMAINS = frozenset({"gmail.com", "googlemail.com"})
 
+# SMTP caps a deliverable address at 254 characters. Longer input is refused so the domain suffix expansion stays small.
+MAX_ADDRESS_LENGTH = 254
+
 
 @frozen
 class Subject:
@@ -60,10 +63,14 @@ def normalize_subject(
     ip: str | None = None,
 ) -> Subject:
     address = (email or "").strip().lower() or None
+    if address and len(address) > MAX_ADDRESS_LENGTH:
+        address = None
     if address:
         subject_domain = address.rpartition("@")[2] or None
     else:
         subject_domain = (domain or "").strip().lower().removeprefix("@") or None
+    if subject_domain and len(subject_domain) > MAX_ADDRESS_LENGTH:
+        subject_domain = None
     organizations = frozenset(filter(None, (_canonical_uuid(org) for org in organization_ids)))
     return Subject(
         email=address,
