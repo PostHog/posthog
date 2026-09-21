@@ -10,7 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { getRelativeNextPath, toParams } from 'lib/utils/url'
+import { getRelativeNextPath } from 'lib/utils/url'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -28,6 +28,7 @@ import { groupDisplayId } from 'products/persons/frontend/components/GroupActorD
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { Noun } from '../../../../frontend/src/models/groupsModel'
 import type { GroupType } from '../../../../frontend/src/types'
+import { groupsFindRetrieve } from '../generated/api'
 
 function getGroupEventsQuery(groupTypeIndex: number, groupKey: string): DataTableNode {
     return {
@@ -269,12 +270,12 @@ export const groupLogic = kea<groupLogicType>([
             null as Group | null,
             {
                 loadGroup: async () => {
-                    const params = { group_type_index: props.groupTypeIndex, group_key: props.groupKey }
-                    const url = `api/environments/${values.currentTeamId}/groups/find?${toParams(params)}`
-                    // groupsFindRetrieve returns Promise<void> because the endpoint declares no
-                    // response schema, so it cannot type the Group this loader returns.
-                    // nosemgrep: prefer-codegen-api
-                    return await api.get(url)
+                    const group = await groupsFindRetrieve(String(values.currentTeamId), {
+                        group_type_index: props.groupTypeIndex,
+                        group_key: props.groupKey,
+                    })
+                    // Group narrows group_type_index to the five indexes a team can have.
+                    return { ...group, group_type_index: group.group_type_index as GroupTypeIndex }
                 },
             },
         ],
