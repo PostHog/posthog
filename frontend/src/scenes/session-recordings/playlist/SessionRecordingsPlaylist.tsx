@@ -2,6 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useRef } from 'react'
 
 import * as directorPng from '@posthog/brand/hoggies/png/director'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
@@ -169,13 +170,15 @@ function PlayerWrapper({
         matchingEventsMatchType,
         exposureSkipExperimentId,
         activeSessionRecording,
+        activeSessionRecordingId,
         allowHogQLFilters,
         totalFiltersCount,
         nextSessionRecording,
         pinnedFilters,
         sessionRecordingsResponseLoading,
+        listLoadStalled,
     } = useValues(sessionRecordingsPlaylistLogic)
-    const { setFilters, resetFilters, setSelectedRecordingId, loadAllRecordings } =
+    const { setFilters, resetFilters, setSelectedRecordingId, loadAllRecordings, retryLoadSessionRecordings } =
         useActions(sessionRecordingsPlaylistLogic)
 
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
@@ -205,11 +208,11 @@ function PlayerWrapper({
                     />
                 </div>
             )}
-            {showContent && activeSessionRecording ? (
+            {showContent && activeSessionRecordingId ? (
                 <div className={cn('h-full', isFiltersExpanded && 'hidden')}>
                     <SessionRecordingPlayer
                         playerKey={props.logicKey ?? 'playlist'}
-                        sessionRecordingId={activeSessionRecording.id}
+                        sessionRecordingId={activeSessionRecordingId}
                         matchingEventsMatchType={matchingEventsMatchType}
                         exposureSkipExperimentId={exposureSkipExperimentId}
                         autoPlay={props.autoPlay}
@@ -217,13 +220,10 @@ function PlayerWrapper({
                             loadAllRecordings()
                             setSelectedRecordingId(null)
                         }}
-                        pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecording.id)}
+                        pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecordingId)}
                         setPinned={
-                            props.onPinnedChange
+                            props.onPinnedChange && activeSessionRecording
                                 ? (pinned) => {
-                                      if (!activeSessionRecording.id) {
-                                          return
-                                      }
                                       props.onPinnedChange?.(activeSessionRecording, pinned)
                                   }
                                 : undefined
@@ -246,12 +246,21 @@ function PlayerWrapper({
                     </div>
 
                     {/* Centered hedgehog overlay */}
-                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
                         <HedgehogDirector className="w-60 h-60" />
-                        <div className="mt-4 flex items-center gap-2">
-                            <Spinner textColored />
-                            <span className="text-secondary">Loading recordings...</span>
-                        </div>
+                        {listLoadStalled ? (
+                            <div className="mt-4 flex flex-col items-center gap-2">
+                                <span className="text-secondary">This is taking longer than usual.</span>
+                                <LemonButton type="secondary" size="small" onClick={retryLoadSessionRecordings}>
+                                    Try again
+                                </LemonButton>
+                            </div>
+                        ) : (
+                            <div className="mt-4 flex items-center gap-2 pointer-events-none">
+                                <Spinner textColored />
+                                <span className="text-secondary">Loading recordings...</span>
+                            </div>
+                        )}
                     </div>
                 </div>
             ) : (

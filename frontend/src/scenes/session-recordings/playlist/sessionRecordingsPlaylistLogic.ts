@@ -3,6 +3,7 @@ import {
     MakeLogicType,
     actions,
     afterMount,
+    beforeUnmount,
     connect,
     kea,
     key,
@@ -159,6 +160,13 @@ interface BackendEventsMatching {
 }
 
 export type MatchingEventsMatchType = NoEventsToMatch | EventNamesMatching | EventUUIDsMatching | BackendEventsMatching
+
+/**
+ * How long a list load may run before the player-area loading screen offers a retry. The list query
+ * is capped and throttled server-side, so a load still running after this either sat in a
+ * backgrounded tab or will not answer at all. Both need a way out that is not a page reload.
+ */
+export const LIST_LOAD_STALL_MS = 20000
 
 export const RECORDINGS_LIMIT = 20
 export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the need for pagination for now...
@@ -625,6 +633,7 @@ export interface sessionRecordingsPlaylistLogicValues {
         order_direction: RecordingsQuery['order_direction']
     }
     sessionRecordingsResponseLoading: boolean
+    listLoadStalled: boolean
     showFilters: boolean
     showSettings: boolean
     totalFiltersCount: number
@@ -845,6 +854,9 @@ export interface sessionRecordingsPlaylistLogicActions {
     resetFilters: () => {
         value: true
     }
+    retryLoadSessionRecordings: () => {
+        value: true
+    }
     setAddToCollectionSearch: (addToCollectionSearch: string) => {
         addToCollectionSearch: string
     }
@@ -869,6 +881,9 @@ export interface sessionRecordingsPlaylistLogicActions {
     }
     setIsDeletingSelectedRecordings: (isDeletingSelectedRecordings: boolean) => {
         isDeletingSelectedRecordings: boolean
+    }
+    setListLoadStalled: (stalled: boolean) => {
+        stalled: boolean
     }
     setNewCollectionName: (newCollectionName: string) => {
         newCollectionName: string
@@ -1020,6 +1035,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }),
         loadAllRecordings: true,
         loadPinnedRecordings: true,
+        /** Issue a fresh list request, abandoning one that is already in flight. */
+        retryLoadSessionRecordings: true,
+        setListLoadStalled: (stalled: boolean) => ({ stalled }),
         loadSessionRecordings: (
             direction?: 'newer' | 'older',
             userModifiedFilters?: Record<string, any>,
@@ -1436,6 +1454,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 setSelectedRecordingId: (_, { id }) => id ?? null,
             },
         ],
+        listLoadStalled: [
+            false,
+            {
+                loadSessionRecordings: () => false,
+                loadSessionRecordingsSuccess: () => false,
+                loadSessionRecordingsFailure: () => false,
+                setListLoadStalled: (_, { stalled }) => stalled,
+            },
+        ],
         sessionRecordingsAPIErrored: [
             false,
             {
@@ -1759,7 +1786,24 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.loadSessionRecordings(direction)
             },
 
+            loadSessionRecordings: ({ direction }) => {
+                // Only a first-page load holds the player area behind a loading screen, so only
+                // that one arms the stall timer.
+                clearTimeout(cache.stallTimeout)
+                if (!direction) {
+                    cache.stallTimeout = window.setTimeout(() => actions.setListLoadStalled(true), LIST_LOAD_STALL_MS)
+                }
+            },
+
+            retryLoadSessionRecordings: () => {
+                // `forceRefetch` skips both the in-flight and the memoised path, so the retry
+                // issues a new request instead of waiting on the one that stalled. The kea
+                // breakpoint in the loader drops whatever the abandoned request returns.
+                actions.loadSessionRecordings(undefined, undefined, true)
+            },
+
             loadSessionRecordingsSuccess: ({ sessionRecordingsResponse, payload }) => {
+                clearTimeout(cache.stallTimeout)
                 actions.maybeLoadPropertiesForSessions(values.sessionRecordings)
                 // A load without a direction replaces the list rather than paging it, the same
                 // reading the `sessionRecordings` reducer takes.
@@ -1769,6 +1813,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
 
             loadSessionRecordingsFailure: ({ error, errorObject }) => {
+                clearTimeout(cache.stallTimeout)
                 // The status rides alongside the message so a host page can tell a refusal the
                 // backend states on purpose from a transport failure. What it offers for either is
                 // its own decision, and the two differ: the shelf on the experiment recordings tab
@@ -2451,10 +2496,24 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     }),
 
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior
-    afterMount(({ actions, props, values }) => {
+    afterMount(({ actions, props, values, cache }) => {
         if (props.onlyPinned) {
             return
         }
+
+        // A backgrounded tab throttles timers and the fetch that the list load is waiting on, so a
+        // load started before the tab was hidden can still be in flight minutes later. Coming back
+        // to the tab is the moment the viewer wants rows, so retry the one that stalled.
+        cache.onVisibilityChange = (): void => {
+            if (
+                document.visibilityState === 'visible' &&
+                values.listLoadStalled &&
+                values.sessionRecordingsResponseLoading
+            ) {
+                actions.retryLoadSessionRecordings()
+            }
+        }
+        document.addEventListener('visibilitychange', cache.onVisibilityChange)
 
         // The filters reducer persists to localStorage and rehydrates without validation, so a stale
         // or malformed entry poisons state and makes every later filter change fall back to defaults.
@@ -2518,5 +2577,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }
 
         actions.loadSessionRecordings()
+    }),
+
+    beforeUnmount(({ cache }) => {
+        clearTimeout(cache.stallTimeout)
+        if (cache.onVisibilityChange) {
+            document.removeEventListener('visibilitychange', cache.onVisibilityChange)
+        }
     }),
 ])
