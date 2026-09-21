@@ -186,10 +186,6 @@ If `bin/start` sees any `op://` reference in `.env.local`, it re-execs itself un
 
 If the `op` CLI isn't installed, `op://` lines are skipped (rather than sourced as literal `op://...` strings that break downstream services with cryptic errors). Services that need those secrets will fail with their own "missing key" errors — install `1password-cli` or replace the refs with literal values.
 
-When smoke-testing AI dashboard edits, start with a dashboard that already contains an insight and a text tile.
-Ask the agent to add a saved insight and a generated chart, then repeat each addition.
-The `add_insights` action should preserve existing tiles and reuse the same saved insight for repeated generated-chart IDs.
-
 ### Running in detached mode
 
 By default, `hogli start` runs interactively with a terminal UI (phrocs) that displays logs from all processes. If you prefer to run the dev stack in the background without an attached terminal, use detached mode:
