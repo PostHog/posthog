@@ -42,11 +42,16 @@ describe('dataNodeLogic concurrency routing', () => {
     })
 
     it('keeps web analytics query kinds off the scene in the pre-aggregated pool', () => {
-        activeSceneId = Scene.Dashboard
+        // Both web analytics pools carry the same limit, so only the instance tells them apart.
+        activeSceneId = Scene.WebAnalytics
+        const preAggregatedPool = getConcurrencyController(query(NodeKind.WebOverviewQuery), preAggregatedTeam)
+        const livePool = getConcurrencyController(query(NodeKind.WebOverviewQuery), liveTeam)
 
-        expect(
-            getConcurrencyController(query(NodeKind.WebOverviewQuery), preAggregatedTeam)._concurrencyLimit
-        ).toBeGreaterThan(1)
+        activeSceneId = Scene.Dashboard
+        const offScenePool = getConcurrencyController(query(NodeKind.WebOverviewQuery), preAggregatedTeam)
+
+        expect(offScenePool).toBe(preAggregatedPool)
+        expect(offScenePool).not.toBe(livePool)
     })
 
     it('leaves unrelated queries off the scene in the app-wide pool', () => {
