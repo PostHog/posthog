@@ -57,6 +57,20 @@ const baseAliases: Alias[] = [
 
 export const workspaceAliases: Alias[] = [
   {
+    find: /^@posthog\/agent-contracts\/(.+)$/,
+    replacement: path.resolve(
+      __dirname,
+      "../../packages/agent-contracts/src/$1",
+    ),
+  },
+  {
+    find: /^@posthog\/agent-contracts$/,
+    replacement: path.resolve(
+      __dirname,
+      "../../packages/agent-contracts/src/index.ts",
+    ),
+  },
+  {
     find: /^@posthog\/agent\/(.+)$/,
     replacement: path.resolve(__dirname, "../../packages/agent/src/$1.ts"),
   },

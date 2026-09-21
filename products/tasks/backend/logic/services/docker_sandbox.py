@@ -269,7 +269,7 @@ class DockerSandbox(AgentServerLaunchMixin):
             os.path.join(monorepo_root, "scripts", "rimraf.mjs"),
             *[
                 os.path.join(monorepo_root, "packages", package_name, "package.json")
-                for package_name in ("agent", "harness", "shared", "git", "enricher")
+                for package_name in ("agent", "harness", "agent-contracts", "git", "enricher")
             ],
         ]
         missing = [path for path in required_paths if not os.path.exists(path)]
@@ -352,7 +352,7 @@ class DockerSandbox(AgentServerLaunchMixin):
             shutil.copytree(os.path.join(monorepo_root, "patches"), os.path.join(workspace_path, "patches"))
             shutil.copy2(os.path.join(monorepo_root, "scripts", "rimraf.mjs"), scripts_path)
 
-            for package_name in ("agent", "harness", "shared", "git", "enricher"):
+            for package_name in ("agent", "harness", "agent-contracts", "git", "enricher"):
                 shutil.copytree(
                     os.path.join(monorepo_root, "packages", package_name),
                     os.path.join(packages_path, package_name),

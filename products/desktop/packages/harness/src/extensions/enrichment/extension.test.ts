@@ -3,7 +3,7 @@ import type {
   ExtensionContext,
   ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
-import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
+import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/agent-contracts/rich-output-prompt";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPiEnrichmentExtension } from "./extension";
 

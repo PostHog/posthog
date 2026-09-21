@@ -1,5 +1,5 @@
+import { BEDROCK_LLM_GATEWAY_FLAG } from "@posthog/agent-contracts/bedrock-gateway";
 import { describe, expect, it } from "vitest";
-import { BEDROCK_LLM_GATEWAY_FLAG } from "./bedrock-gateway";
 import featureFlagKeys from "./feature-flag-keys.json" with { type: "json" };
 
 describe("flags", () => {

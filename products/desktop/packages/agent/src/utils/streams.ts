@@ -1,6 +1,6 @@
 import type { Readable, Writable } from "node:stream";
 import { ReadableStream, WritableStream } from "node:stream/web";
-import { serializeError } from "@posthog/shared";
+import { serializeError } from "@posthog/agent-contracts";
 import type { Logger } from "./logger";
 
 export class Pushable<T> implements AsyncIterable<T> {

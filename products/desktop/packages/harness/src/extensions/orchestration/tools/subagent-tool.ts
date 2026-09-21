@@ -1,7 +1,7 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import type { PiSubagentToolDetails } from "@posthog/shared";
+import type { PiSubagentToolDetails } from "@posthog/agent-contracts";
 import { Type } from "typebox";
 import type { AgentConfig } from "../agents";
 import {

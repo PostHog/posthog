@@ -1,4 +1,4 @@
-import type { McpServerConnection } from "@posthog/shared";
+import type { McpServerConnection } from "@posthog/agent-contracts";
 import { z } from "zod/v4";
 
 export { posthogExecPermissionRegexSchema } from "@posthog/harness/extensions/posthog-mcp-policy";

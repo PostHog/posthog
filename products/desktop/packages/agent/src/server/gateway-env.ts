@@ -4,7 +4,7 @@ import {
   buildPosthogPropertiesHeaderRecord,
   buildPosthogScopedPropertyHeaderLines,
   buildPosthogScopedPropertyHeaderRecord,
-} from "@posthog/shared/posthog-property-headers";
+} from "@posthog/agent-contracts/posthog-property-headers";
 import type { GatewayEnv } from "../adapters/claude/session/options";
 import type { Task } from "../types";
 import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";

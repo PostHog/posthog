@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createPiToolCallRecord } from "@posthog/shared";
+import { createPiToolCallRecord } from "@posthog/agent-contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { runAgentMock } = vi.hoisted(() => ({

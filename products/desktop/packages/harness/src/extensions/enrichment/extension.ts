@@ -4,7 +4,7 @@ import {
   type ExtensionFactory,
   isReadToolResult,
 } from "@earendil-works/pi-coding-agent";
-import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
+import { appendRichOutputPrompt } from "@posthog/agent-contracts/rich-output-prompt";
 import { createEnrichment, enrichFileForAgent } from "./file-enricher";
 
 export interface PiEnrichmentConfig {

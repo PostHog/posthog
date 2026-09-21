@@ -1,4 +1,4 @@
-import { getErrorMessage } from "@posthog/shared";
+import { getErrorMessage } from "@posthog/agent-contracts";
 
 export type AgentErrorClassification =
   | "upstream_stream_terminated"
