@@ -78,7 +78,7 @@ export interface observationSearchLogicActions {
     clearSearch: () => {
         value: true
     }
-    loadSuggestedQueries: () => any
+    loadSuggestedQueries: (_: any) => any
     loadSuggestedQueriesFailure: (
         error: string,
         errorObject?: any
