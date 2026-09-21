@@ -8,7 +8,7 @@ from django.utils import timezone
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, PolymorphicProxySerializer, inline_serializer
+from drf_spectacular.utils import OpenApiParameter, PolymorphicProxySerializer, extend_schema_field, inline_serializer
 from opentelemetry import trace
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
@@ -276,9 +276,27 @@ class CreateGroupSerializer(serializers.ModelSerializer):
         fields = ["group_type_index", "group_key", "group_properties"]
 
 
+# The action rejects a null value, so the schema lists the JSON types it accepts rather than
+# leaving the field as an untyped blob.
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "string"},
+            {"type": "number"},
+            {"type": "boolean"},
+            {"type": "object"},
+            # Without `items` the zod generator emits a bare `zod.array()`, which does not compile.
+            {"type": "array", "items": {}},
+        ]
+    }
+)
+class GroupPropertyValueField(serializers.JSONField):
+    pass
+
+
 class GroupUpdatePropertyRequestSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="Name of the property to set.")
-    value = serializers.JSONField(help_text="Value to set. Any JSON value other than null.")
+    value = GroupPropertyValueField(help_text="Value to set. Any JSON value other than null.")
 
 
 # The key is `$unset`, which no field name can carry, so the body is declared inline.

@@ -26,5 +26,7 @@ export const GroupsDeletePropertyCreateBody = /* @__PURE__ */ zod.object({
 
 export const GroupsUpdatePropertyCreateBody = /* @__PURE__ */ zod.object({
     key: zod.string().describe('Name of the property to set.'),
-    value: zod.unknown().describe('Value to set. Any JSON value other than null.'),
+    value: zod
+        .union([zod.string(), zod.number(), zod.boolean(), zod.looseObject({}), zod.array(zod.unknown())])
+        .describe('Value to set. Any JSON value other than null.'),
 })

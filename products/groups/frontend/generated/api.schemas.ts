@@ -158,11 +158,16 @@ export interface SerializedGroupActorApi {
 
 export type RelatedActorApi = SerializedPersonActorApi | SerializedGroupActorApi
 
+/**
+ * Value to set. Any JSON value other than null.
+ */
+export type GroupUpdatePropertyRequestApiValue = string | number | boolean | { [key: string]: unknown } | unknown[]
+
 export interface GroupUpdatePropertyRequestApi {
     /** Name of the property to set. */
     key: string
     /** Value to set. Any JSON value other than null. */
-    value: unknown
+    value: GroupUpdatePropertyRequestApiValue
 }
 
 export type GroupsListParams = {

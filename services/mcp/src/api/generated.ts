@@ -46335,11 +46335,16 @@ export namespace Schemas {
       created_at?: string | null;
     }
 
+    /**
+     * Value to set. Any JSON value other than null.
+     */
+    export type GroupUpdatePropertyRequestValue = string | number | boolean | { [key: string]: unknown } | unknown[];
+
     export interface GroupUpdatePropertyRequest {
       /** Name of the property to set. */
       key: string;
       /** Value to set. Any JSON value other than null. */
-      value: unknown;
+      value: GroupUpdatePropertyRequestValue;
     }
 
     /**

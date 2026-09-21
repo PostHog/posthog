@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -12,7 +12,6 @@ import { objectsEqual } from 'lib/utils/objects'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { Scene } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -76,7 +75,6 @@ export interface groupLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
-    currentTeamId: number | null // teamLogic
     backNavigation: GroupBackNavigation | null
     backTo: Breadcrumb
     breadcrumbs: Breadcrumb[]
@@ -248,14 +246,7 @@ export const groupLogic = kea<groupLogicType>([
     path((key) => ['scenes', 'groups', 'groupLogic', key]),
     connect(() => ({
         actions: [groupsModel, ['createDetailDashboard']],
-        values: [
-            teamLogic,
-            ['currentTeamId'],
-            groupsModel,
-            ['groupTypes', 'aggregationLabel'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+        values: [groupsModel, ['groupTypes', 'aggregationLabel'], featureFlagLogic, ['featureFlags']],
     })),
     actions(() => ({
         setGroupData: (group: Group) => ({ group }),
@@ -265,7 +256,7 @@ export const groupLogic = kea<groupLogicType>([
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
         deleteProperty: (key: string) => ({ key }),
     })),
-    loaders(({ values, props }) => ({
+    loaders(({ props }) => ({
         groupData: [
             null as Group | null,
             {
@@ -273,7 +264,7 @@ export const groupLogic = kea<groupLogicType>([
                     // The generated parameter is named projectId because OpenAPI renders the
                     // path segment as {project_id}, but the groups routes register on team_id, so
                     // this takes a team id. A project id resolves the wrong environment.
-                    const group = await groupsFindRetrieve(String(values.currentTeamId), {
+                    const group = await groupsFindRetrieve(String(ApiConfig.getCurrentTeamId()), {
                         group_type_index: props.groupTypeIndex,
                         group_key: props.groupKey,
                     })
