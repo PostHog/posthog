@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -86,7 +88,16 @@ class TicketPatternViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         if not spikes:
             return []
 
-        every_id = {ticket_id for spike in spikes for ticket_id in spike.get("ticket_ids", [])}
+        # Only well-formed ids reach the query: this list is a cache blob, and an id the Ticket
+        # model cannot parse raises rather than returning nothing, which would fail the inbox
+        # scene the banner sits on instead of just dropping the banner.
+        every_id = set()
+        for spike in spikes:
+            for ticket_id in spike.get("ticket_ids", []):
+                try:
+                    every_id.add(str(UUID(str(ticket_id))))
+                except (ValueError, AttributeError, TypeError):
+                    continue
         if not every_id:
             return []
 

@@ -153,6 +153,23 @@ class TestTicketPatternsAPI(APIBaseTest):
 
         assert response.status_code == 404, response.content
 
+    def test_a_cached_id_the_model_cannot_parse_drops_the_banner_not_the_page(self):
+        # The banner loads on the inbox scene, so a cache blob the Ticket model chokes on must
+        # cost the banner rather than the ticket list behind it.
+        record_spike(
+            self.team.id,
+            {
+                "topic": TOPIC,
+                "summary": "",
+                "ticket_ids": ["not-a-uuid"],
+                "ticket_count": 1,
+                "requester_count": 1,
+                "detected_at": timezone.now().isoformat(),
+            },
+        )
+
+        assert self._list() == []
+
     def test_turning_detection_off_stops_serving_spikes(self):
         self._record(self.tickets)
         self.team.conversations_settings = {"ticket_patterns_enabled": False}

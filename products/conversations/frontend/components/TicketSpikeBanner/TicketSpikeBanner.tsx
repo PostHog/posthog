@@ -27,7 +27,7 @@ function SpikeBanner({ spike }: { spike: TicketPatternApi }): JSX.Element {
             <span>
                 {' '}
                 reported by {spike.requester_count} customers across {spike.ticket_count} tickets,{' '}
-                {humanFriendlyDetailedTime(spike.detected_at)}.
+                {humanFriendlyDetailedTime(spike.detected_at, 'MMMM DD, YYYY', 'h:mm A')}.
             </span>
             {spike.summary ? <p className="mb-0 mt-1">{spike.summary}</p> : null}
         </LemonBanner>
