@@ -1944,7 +1944,7 @@ Note: Bundled OpenAPI 3.1 spec (redoc spec-url from api.doc.concordnow.com). Top
 
 ## ConfigCat — gaps
 
-Today (6): `configs`, `environments`, `organizations`, `products`, `setting_values`, `settings`
+Today (12): `audit_logs`, `configs`, `environments`, `organization_members`, `organizations`, `product_members`, `products`, `setting_values`, `settings`, `stale_flags`, `tag_settings`, `tags`
 
 Diffed against: <https://api.configcat.com/docs/v1/swagger.json>
 
@@ -1952,16 +1952,16 @@ Diffed against: <https://api.configcat.com/docs/v1/swagger.json>
 - [x] `GET /v1/products/{productId}/environments` — environment lookup table; flag values are per environment (high)
 - [x] `GET /v1/configs/{configId}/settings` — the feature flag / setting catalog - the product's headline object (high)
 - [x] `GET /v2/configs/{configId}/environments/{environmentId}/values` — flag values and targeting rules per environment; what is actually rolled out where (high)
-- [ ] `GET /v2/products/{productId}/auditlogs and /v2/organizations/{organizationId}/auditlogs` — change history - who flipped which flag when (high)
+- [x] `GET /v2/products/{productId}/auditlogs and /v2/organizations/{organizationId}/auditlogs` — change history - who flipped which flag when (high)
 - [ ] `GET /v1/products/{productId}/segments` — reusable targeting segments referenced by flag rules (medium)
-- [ ] `GET /v1/products/{productId}/tags (and /v1/tags/{tagId}/settings)` — tag lookup plus the tag->setting junction (medium)
-- [ ] `GET /v2/organizations/{organizationId}/members and /v1/products/{productId}/members` — user membership and product access (medium)
-- [ ] `GET /v1/products/{productId}/staleflags` — stale-flag report - the standard cleanup/tech-debt query (medium)
+- [x] `GET /v1/products/{productId}/tags (and /v1/tags/{tagId}/settings)` — tag lookup plus the tag->setting junction (medium)
+- [x] `GET /v2/organizations/{organizationId}/members and /v1/products/{productId}/members` — user membership and product access (medium)
+- [x] `GET /v1/products/{productId}/staleflags` — stale-flag report - the standard cleanup/tech-debt query (medium)
 - [ ] `GET /v1/products/{productId}/permissions` — permission group lookup resolving member role ids (low)
 - [ ] `GET /v1/settings/{settingId}/code-references` — where each flag is referenced in source, for removal analysis (low)
 - [ ] `GET /v1/configs/{configId}/deleted-settings` — deleted flags, needed to keep historical joins from dangling (low)
 
-Note: Source exposes 6 static endpoints (settings.py CONFIGCAT_ENDPOINTS) with no dynamic discovery. The vendor spec has ~48 GET operations. The config/environment/setting model - i.e. what ConfigCat actually is - now syncs; the remaining gaps are audit logs, segments, tags, members and the cleanup reports. Note: I include feature-flag 'settings' despite the generic exclusion on feature flags, because here they are the vendor's core catalog object, not incidental plumbing.
+Note: Source exposes 12 static endpoints (settings.py CONFIGCAT_ENDPOINTS) with no dynamic discovery. The vendor spec has ~48 GET operations. The config/environment/setting model - i.e. what ConfigCat actually is - now syncs, along with audit logs, stale flags, members and tags; the remaining gaps are segments, permissions and the code-reference reports. Audit logs sync from the organization endpoint only, which already covers every product in the organization (productId is one of its filters), so the per-product endpoint would only repeat those rows. Note: I include feature-flag 'settings' despite the generic exclusion on feature flags, because here they are the vendor's core catalog object, not incidental plumbing.
 
 ## Confluence — gaps
 
