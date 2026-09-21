@@ -21,7 +21,7 @@
  *   - the GroupNamesPrefix clickhouse fast path (still goes through generic
  *     endpoint fetcher; behaviour identical, just slower for large groups)
  */
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
@@ -45,6 +45,7 @@ import {
     TAXONOMIC_LIST_KEY_FAMILY,
     TAXONOMIC_LIST_SEARCH_KEY_FAMILY,
     peekTaxonomicResource,
+    subscribeTaxonomicResource,
     useTaxonomicResource,
 } from './useTaxonomicResource'
 
@@ -281,6 +282,21 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     })
     const pageCount = pagesRequested.keyHash === remoteKeyHash ? pagesRequested.count : 1
     const pageKey = useCallback((page: number): unknown[] => [...remoteKey, 'page', page], [remoteKey])
+
+    // Only the newest page is subscribed through `useTaxonomicResource`; the earlier ones are read
+    // straight from the cache, which returns their data whether or not it is still fresh. An edit
+    // elsewhere invalidates every page, so without this the aggregate keeps serving rows the user
+    // just deleted. Collapsing back to page one puts the newest page under the subscription again.
+    useEffect(() => {
+        if (pageCount <= 1) {
+            return
+        }
+        const collapse = (): void => setPagesRequested({ keyHash: remoteKeyHash, count: 1 })
+        const unsubscribes = Array.from({ length: pageCount - 1 }, (_, i) =>
+            subscribeTaxonomicResource(pageKey(i + 1), collapse)
+        )
+        return () => unsubscribes.forEach((unsubscribe) => unsubscribe())
+    }, [pageCount, pageKey, remoteKeyHash])
 
     const remote = useTaxonomicResource<ListStorage>(
         pageKey(pageCount),

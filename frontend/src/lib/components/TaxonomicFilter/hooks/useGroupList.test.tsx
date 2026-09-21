@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { PropertyOperator, PropertyFilterType } from '~/types'
 
 import { QuickFilterItem, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../types'
+import { invalidateDefinitionLists } from '../utils/invalidateDefinitionLists'
 import { NO_ITEM_SELECTED, useGroupList } from './useGroupList'
 import { __clearTaxonomicResourceCache } from './useTaxonomicResource'
 
@@ -170,6 +171,22 @@ describe('useGroupList', () => {
             const { result } = renderHook(() => useGroupList({ group, searchQuery: '' }))
             await waitFor(() => expect(result.current.items).toHaveLength(40))
             expect(result.current.hasMore).toBe(false)
+        })
+
+        it('collapses to the first page when the definition caches are invalidated', async () => {
+            // Only the newest page is subscribed; the earlier ones come straight from the cache, so
+            // without the collapse an edit elsewhere leaves deleted rows in the aggregate.
+            apiGet.mockImplementation((url: string) => Promise.resolve(pageOf(offsetOf(url), 100, 300)))
+            const group = makeGroup({ endpoint: 'api/projects/1/event_definitions' })
+            const { result } = renderHook(() => useGroupList({ group, searchQuery: '' }))
+            await waitFor(() => expect(result.current.items).toHaveLength(100))
+            act(() => result.current.loadMore())
+            await waitFor(() => expect(result.current.items).toHaveLength(200))
+
+            act(() => invalidateDefinitionLists())
+
+            await waitFor(() => expect(result.current.items).toHaveLength(100))
+            expect(offsetOf(apiGet.mock.calls.at(-1)![0])).toBe(0)
         })
 
         it('a new query starts from the first page again', async () => {
