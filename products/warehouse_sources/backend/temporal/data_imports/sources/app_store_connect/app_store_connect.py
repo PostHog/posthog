@@ -1731,9 +1731,12 @@ def _get_analytics_report(
                 )
                 return
 
-            segments = probed_segments.get(walk_instance.instance_id)
-            if segments is None:
-                segments = _analytics_segments(segments_session, token_provider, logger, walk_instance.instance_id)
+            cached_segments = probed_segments.get(walk_instance.instance_id)
+            segments = (
+                cached_segments
+                if cached_segments is not None
+                else _analytics_segments(segments_session, token_provider, logger, walk_instance.instance_id)
+            )
             if not segments:
                 # The instance is listed but its files aren't ready. Stop the whole walk at
                 # this date so no newer date is emitted past the gap: the watermark then
