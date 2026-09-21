@@ -30,6 +30,14 @@ Until then, scale indexed sweepers.
 If Kafka is added later, it is a wake-up relay from the Postgres outbox, not a second source of truth.
 Widget writes stay synchronous in Postgres because the API must return ticket and message ids.
 
+## Unread ticket count
+
+The app fetches the unread ticket count when support is enabled and polls every 5 seconds while the browser tab is visible.
+Ticket actions can trigger an immediate refresh.
+Unrelated updates to the current team do not reset the count or trigger another request.
+Changing teams or toggling support resets the count and restarts polling when support is enabled.
+Failed requests retain the previous count and increase the polling interval.
+
 ## Inbound receipts (`ConversationInboundEvent`)
 
 One row per accepted provider callback, keyed by `(team, source, source_id)`.
