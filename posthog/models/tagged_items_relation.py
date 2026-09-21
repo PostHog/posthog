@@ -29,6 +29,14 @@ class _TaggedItemsDescriptor(ReverseGenericManyToOneDescriptor):
                 self.content_type = self.get_content_type(instance)
                 self.core_filters[f"{self.content_type_field_name}__pk"] = self.content_type.id
 
+            # Both would move rows between objects with an UPDATE that skips TaggedItem.save() and
+            # leaves the legacy key stale. set() is refused before it opens its transaction.
+            def add(self, *objs: models.Model, bulk: bool = True) -> None:
+                raise NotImplementedError("Tagged items cannot move between objects. Create a new row instead.")
+
+            def set(self, objs: Any, *, bulk: bool = True, clear: bool = False) -> None:
+                raise NotImplementedError("Tagged items cannot move between objects. Create a new row instead.")
+
         return TaggedItemsManager
 
 

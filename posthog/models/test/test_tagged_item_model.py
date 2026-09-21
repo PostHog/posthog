@@ -239,6 +239,21 @@ class TestTaggedItemsRelation(BaseTest):
         assert tagged_item.team_id == tag.team_id
         assert list(dashboard.tagged_items.all()) == [tagged_item]
 
+    @parameterized.expand([("add",), ("set",)])
+    def test_moving_a_row_through_the_relation_is_refused(self, method: str):
+        source = Dashboard.objects.create(team_id=self.team.id, name="source")
+        target = Dashboard.objects.create(team_id=self.team.id, name="target")
+        item = source.tagged_items.create(tag=Tag.objects.create(name="tag", team_id=self.team.id))
+
+        with self.assertRaises(NotImplementedError):
+            if method == "add":
+                target.tagged_items.add(item)
+            else:
+                target.tagged_items.set([item])
+
+        item.refresh_from_db()
+        assert (item.object_id, item.dashboard_id) == (source.id, source.id)
+
     def test_reads_ignore_the_legacy_key(self):
         followed = Dashboard.objects.create(team_id=self.team.id, name="followed")
         ignored = Dashboard.objects.create(team_id=self.team.id, name="ignored")
