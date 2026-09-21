@@ -790,8 +790,10 @@ def _compute_target_surface(team: Team, inputs: SetupContextInputs) -> TargetSur
 
     # One pass: the totals merge the per-lib uniq states, so a person who uses two SDKs is counted
     # once overall while still appearing under each of them.
-    # Every property read here resolves to a materialized or property-group column, so the scan
-    # never touches the `properties` blob. The comment in `_compute_sdk_profile` explains.
+    # Every property this query names itself resolves to a materialized or property-group column,
+    # so adding one that resolves to neither puts the whole `properties` blob back in the scan.
+    # The comment in `_compute_sdk_profile` explains. A caller's `target_properties` can name any
+    # property, which is what MAX_PROPERTY_FILTERS and the section's timeout guard bound.
     rows = _run_query(
         team,
         "ExperimentSetupContextTargetSurface",
