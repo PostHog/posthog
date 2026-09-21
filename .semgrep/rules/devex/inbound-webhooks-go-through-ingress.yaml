@@ -116,5 +116,4 @@ rules:
               # so the rule holds whether or not the migrations land with it.
               - /ee/api/vercel/vercel_webhooks.py
               - /posthog/models/integration/slack.py
-              - /products/conversations/backend/mailgun.py
               - /products/workflows/backend/api/ses_events_webhook.py
