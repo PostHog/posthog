@@ -53,6 +53,7 @@ If no repository is reachable by any source, write `not-in-use:pr_follow_up:team
 If every merged PR in the window already carries a `pr:pr_follow_up:` entry with a terminal verdict, or is younger than its soak, and neither `deferred:` nor `recheck:` holds anything due, there is nothing due: write nothing new and close out empty.
 Don't sweep cold history: a PR merged more than 14 days before you first saw it is backlog, not a follow-up.
 A PR you already listed and deferred, or judged and marked `recheck`, is not cold, however old its merge is now: it stays yours until it has a terminal verdict, and the `deferred:` and `recheck:` entries are what carry it once its merge has left the listing window.
+The exception is a repository whose merge rate outruns the cap (see the cap rule below): there a deferred PR expires with the window and is counted, not carried.
 
 ## How a run works
 
@@ -94,6 +95,9 @@ That sweep takes one slot of the cap; a batch that has not reached its onset is 
 **Cap ~8 PRs per run**, and take the carried backlog before anything new.
 First the due rechecks: the `recheck:pr_follow_up:<owner/repo>` entry lists every PR judged non-terminal with the date its recheck is due (`#n@<due date>`), and a due one is hydrated by its number (`gh pr view <n>`, or the `pr:` entry's own record of its files and onset) whatever its merge date, because a PR marked `recheck` at day 12 is due after its merge has left the 14-day listing and would otherwise never be looked at again, its report left open with no one re-measuring it.
 Then the `deferred:pr_follow_up:<owner/repo>` entry, which lists every PR a past run listed but did not judge, oldest merge first; those go before new arrivals because a newest-first pick under sustained merge activity would keep them below the cap until they leave the window with no verdict.
+That holds while the repository merges fewer claim candidates a day than the cap.
+When it merges more (read the count off the listing, humans only), oldest-first can never catch up and every slot goes to stale merges: rank the whole window by claim strength instead, take the cap from the top, and let a `deferred:` entry leave when its merge passes the 14-day window, counted in the close-out as unjudged.
+Record which posture the repository is on in `pattern:pr_follow_up:deploy-signal` next to its deploy rung.
 Within what remains, most valuable first: a PR whose title or body states a measurable claim (`fix`, `resolves #`, `should reduce`, `speeds up`, `stop`, `no longer`) before a feature PR, a feature PR that adds an event or flag before a refactor, a large production diff before a small one.
 A deferred PR is never judged claim-only to beat a clock: it is not cold, it waits its turn, and it gets the full probe and side-effect sweep when it is taken, because a terminal verdict without the sweep is the miss this scout exists to catch.
 Every claim candidate you listed and did not judge goes into `deferred:` as a compact rewritten list (`#n@<merge date>`, one entry per repository), capped at about 200 PRs; when the list is full, stop advancing the `cursor:` so the rest are relisted next run instead of overflowing one entry.
@@ -176,6 +180,8 @@ This is only the PR-follow-up judgment on top:
   Record the pairing in `report:pr_follow_up:<owner/repo>#<n>` instead, so your own dedupe finds it next run.
   On your own still-open report, a re-check that finds the same PR still failing appends the fresh window with `append_evidence`.
   A new fix PR merging is a fresh follow-up cycle on the new PR, not an edit.
+- **Contradict** an open report that says this PR's fix failed or recurred when your probe says it held: append the onset, the deploy rung, and the post-onset counts with `append_evidence`, and record the pairing in `report:`.
+  A recurrence report that counted pre-deploy events sends someone to re-fix a fixed bug, so this is the one held verdict that leaves memory.
 - **Remember** everything else: held, landing, weak, unverifiable.
 - **Skip** a PR already covered by a terminal `pr:` entry (held, held weak, or a failed verdict whose report has since resolved or been dismissed) or a `noise:` entry, or one still inside its soak (a soaking PR stays in `deferred:` until it is due).
 

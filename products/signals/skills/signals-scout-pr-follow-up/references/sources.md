@@ -19,9 +19,24 @@ List the PRs with `gh` exactly as rung 3 describes.
 
 ## Rung 2: GitHub warehouse source
 
-`engineering-analytics-sources` lists each synced `owner/repo` with its `source_id` and table prefix.
-`pull-requests` (`date_from=-14d`, pass `source_id` and `repo`) returns merged PRs with their CI rollup; `pr-lifecycle` gives one PR's timeline.
-Its response is capped: when it carries `truncated: true`, the newest rows are all you got, so complete the window from the raw table below (`merged_at` inside the window, ordered oldest first) or from another rung before you treat the repository as listed.
+`engineering-analytics-sources` lists each configured `owner/repo` with its `source_id`, table prefix, and a `synced` flag.
+Only a `synced: true` entry has tables to read, and one repository can appear under several sources, so take the synced entry.
+`pull-requests` (`date_from=-14d`, pass `source_id` and `repo`) returns open PRs plus those merged in the window with their CI rollup, newest first, capped at 1,000 rows; open PRs count against the cap, so on a busy repository the page holds a few days of merges, not 14, and carries `truncated: true`.
+Treat that flag as the signal to list from the raw table instead:
+
+```sql
+SELECT number, toString(title) AS title, user.login AS author, user.type AS author_type,
+       merged_at, html_url
+FROM <prefix>github_pull_requests
+WHERE merged_at IS NOT NULL AND merged_at != ''
+  AND parseDateTimeBestEffort(merged_at) >= now() - INTERVAL 14 DAY
+ORDER BY merged_at DESC
+LIMIT 500
+```
+
+`title`, `body`, and `user` are JSON columns (`toString(title)`, `toString(body)`, `user.login`, `user.type = 'Bot'`), timestamps are strings, and `merge_commit_sha` can be null, so the merge SHA for the containment check still comes from the detail fetch below.
+Page with `OFFSET` to the window boundary.
+`pr-lifecycle` gives one PR's timeline.
 
 The prefix also names warehouse tables you can read with `execute-sql`: `<prefix>github_pull_requests`, and, when the project syncs the deployments endpoints, `<prefix>github_deployments` and `<prefix>github_deployment_statuses` (the best deploy signal you can get; see `deploy-ladder.md`).
 Only the source's original repository uses those bare names.
@@ -29,7 +44,7 @@ Every other repository of a multi-repository source flattens `owner/repo.endpoin
 Confirm the table for the repository you mean in `system.information_schema.tables` before querying, because the bare name silently returns the original repository's rows.
 Timestamps in those tables land as strings, so wrap them in `parseDateTimeBestEffort`.
 
-A warehouse row has no body and may lack the file paths, so this rung is discovery; the detail fetch below still applies.
+A warehouse row carries the title and body but not the file paths, and often not the merge SHA, so this rung is discovery; the detail fetch below still applies.
 
 ## Rung 3: connected GitHub integration
 
