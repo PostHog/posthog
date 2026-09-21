@@ -73,11 +73,6 @@ export class RequestContext {
         return this.userCacheInstance
     }
 
-    /** State scoped to one MCP session, such as the skills-first gate markers. */
-    getSessionCache(mcpSessionId: string): RedisCache<State> {
-        return new RedisCache<State>(hash(mcpSessionId), this.redis, 'session', SESSION_CACHE_TTL_SECONDS)
-    }
-
     get cache(): RedisCache<State> {
         return this.tokenCache
     }
