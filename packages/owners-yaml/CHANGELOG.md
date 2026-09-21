@@ -14,7 +14,7 @@ the GitHub Release body, so add the entry here before you cut the tag.
 - An optional `additions` field, at file level and in rules, names who decides what may enter a directory, besides the owners of the files in it. Unlike `owners`, additions from every file on the walk and every matching rule add up, and `inherit: false` still cuts them. `SPEC.md` section 3.6 defines it.
 - The resolver response carries an `additions` member, and `Resolution` an `additions` field. Consumers that ignore unknown members, as SPEC section 7.4 requires, are unaffected.
 - `lint` fails on a rule that names a tracked directory without the trailing `/`, such as `docs` for `docs/`. A literal last segment also matches a file of that name, so the slash says which one is meant.
-- Conformance cases may state `additions`. The runner checks it only where a case does, so existing cases need no edit.
+- Conformance cases may state `additions`. A case that leaves it out expects an empty list, so existing cases need no edit.
 
 ### Changed
 

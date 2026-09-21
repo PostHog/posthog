@@ -510,7 +510,7 @@ class CanonicalPlacer:
         current_simple_dirs: set[str] = set()  # dirs whose file fmt may delete
         # dir -> {match: owners as written}. The last rule that sets owners wins, as in
         # the resolver, so the diff compares against what decides.
-        current_rules: dict[str, dict[str, list[str] | None | _Unset]] = {}
+        current_rules: dict[str, dict[str, list[str] | None]] = {}
         current_owners: dict[str, list[str] | None] = {}  # dir -> top-level owners as written
         for entry in entries:
             if entry.name != OWNERS_FILENAME or entry.parsed is None:

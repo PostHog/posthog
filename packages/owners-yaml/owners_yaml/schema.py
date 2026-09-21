@@ -156,28 +156,37 @@ def normalize_owners(owners: list[str]) -> list[str]:
     return [o for o in owners if o != CHANGEME_SLUG]
 
 
+def _as_owner_list(value: object) -> list[str] | None:
+    """A non-empty string or a list of non-empty strings, as a normalized list; None otherwise.
+
+    Empty-string entries are rejected, not filtered: `owners: ['']` would count as covered while
+    the assigner drops the falsy owner and requests nobody.
+    """
+    if isinstance(value, str) and value:
+        value = [value]
+    if not isinstance(value, list) or not all(isinstance(x, str) and x for x in value):
+        return None
+    return normalize_owners([str(x) for x in value])
+
+
 def _validate_owners_value(value: object, where: str, errors: list[str]) -> list[str] | None | _Unset:
     if value is None:
         return None
-    if isinstance(value, str) and value:
-        value = [value]
-    # Empty-string entries are rejected, not filtered: `owners: ['']` would count
-    # as covered while the assigner drops the falsy owner and requests nobody.
-    if not isinstance(value, list) or not all(isinstance(x, str) and x for x in value):
+    owners = _as_owner_list(value)
+    if owners is None:
         errors.append(f"{where}: 'owners' must be a non-empty string, a list of non-empty strings, or null")
         return UNSET
-    return normalize_owners([str(x) for x in value])
+    return owners
 
 
 def _validate_additions(value: object, where: str, errors: list[str]) -> list[str]:
     """``additions`` takes one slug or a list of them. It has no null form: leaving the key out
     already means that nobody besides the owners decides what may enter."""
-    if isinstance(value, str) and value:
-        value = [value]
-    if not isinstance(value, list) or not all(isinstance(x, str) and x for x in value):
+    additions = _as_owner_list(value)
+    if additions is None:
         errors.append(f"{where}: 'additions' must be a non-empty string or a list of non-empty strings")
         return []
-    return normalize_owners([str(x) for x in value])
+    return additions
 
 
 def _is_valid_slack(raw: object) -> TypeGuard[str | bool]:

@@ -382,7 +382,8 @@ class OwnersResolver:
             if not isinstance(contrib.status, _Unset):
                 merged.status = contrib.status
 
-            merged.additions = _union(merged.additions, contrib.additions)
+            if contrib.additions:
+                merged.additions = _union(merged.additions, contrib.additions)
 
         return self._build_resolution(norm, merged)
 

@@ -17,7 +17,7 @@ import click
 from .census import census
 from .codeowners import project_repo
 from .github import GitHubLookupError, GitHubOrg
-from .matcher import PatternMatcher, compile_pattern, normalize_path
+from .matcher import compile_pattern, normalize_path
 from .resolver import OWNERS_FILENAME, OwnersResolver, Purpose, RepoRootNotFound, read_stdin_paths, resolution_to_wire
 from .schema import RepoSettings, is_simple_owners_file, match_is_glob, normalize_owners
 
@@ -250,17 +250,23 @@ def _live_scope(owners_by_file: dict[str, set[str]], paths: tuple[str, ...]) -> 
     return {owner for rel, owners in owners_by_file.items() if rel in wanted for owner in owners}
 
 
-def _bare_directory_match(match: str, matcher: PatternMatcher, rel_paths: list[str]) -> bool:
-    """Whether a rule spells a directory without the trailing ``/``.
+def _bare_directory_match(
+    match: str, directory: str, tracked_dirs: set[str], dirs_by_name: dict[str, list[str]]
+) -> bool:
+    """Whether a rule spells a tracked directory without the trailing ``/``.
 
     A literal last segment matches a file of that name and everything below a directory of that
     name, so ``docs`` can quietly claim a file called ``docs`` too. ``docs/`` says which one is
-    meant. A tracked path below the name, rather than the name itself, shows that it is a directory.
+    meant.
     """
     if match_is_glob(match) or match.endswith("/") or "\\" in match:
         return False
     name = match.lstrip("/")
-    return any(rp != name and not rp.endswith(f"/{name}") and matcher.test(rp) for rp in rel_paths)
+    prefix = f"{directory}/" if directory else ""
+    if match.startswith("/") or "/" in name:
+        return f"{prefix}{name}" in tracked_dirs
+    # A pattern with no `/` matches at any depth below the file's directory.
+    return any(d.startswith(prefix) for d in dirs_by_name.get(name, ()))
 
 
 @click.command(name="owners:lint", help="Validate owners.yaml files, conflicts, dead globs, and coverage")
@@ -282,6 +288,10 @@ def cmd_lint(live: bool, org: str | None, repo_root: Path | None, paths: tuple[s
     for path in tracked:
         directory = path.rsplit("/", 1)[0] if "/" in path else ""
         tracked_by_dir.setdefault(directory, []).append(path)
+    tracked_dirs = {"/".join(d.split("/")[: i + 1]) for d in tracked_by_dir if d for i in range(d.count("/") + 1)}
+    dirs_by_name: dict[str, list[str]] = {}
+    for d in tracked_dirs:
+        dirs_by_name.setdefault(d.rsplit("/", 1)[-1], []).append(d)
 
     entries = resolver.parsed_ownership_files()  # the single parse pass
     owners_yaml_dirs = {e.rel_dir for e in entries if e.name == OWNERS_FILENAME}
@@ -335,7 +345,7 @@ def cmd_lint(live: bool, org: str | None, repo_root: Path | None, paths: tuple[s
             matcher = compile_pattern(rule.match)
             if not any(matcher.test(rp) for rp in rel_paths):
                 warnings.append(f"{rel}: rule '{rule.match}' matches zero tracked files (dead glob)")
-            elif _bare_directory_match(rule.match, matcher, rel_paths):
+            elif _bare_directory_match(rule.match, directory, tracked_dirs, dirs_by_name):
                 errors.append(f"{rel}: rule '{rule.match}' names a directory; write '{rule.match}/'")
 
     if live:
