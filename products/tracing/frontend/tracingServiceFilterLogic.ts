@@ -20,6 +20,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { DateRange } from '~/queries/schema/schema-general'
 
 export interface TracingServiceFilterLogicProps {
+    id?: string
     dateRange?: DateRange
 }
 
@@ -72,7 +73,10 @@ export type tracingServiceFilterLogicType = MakeLogicType<
 export const tracingServiceFilterLogic = kea<tracingServiceFilterLogicType>([
     path(['products', 'tracing', 'frontend', 'tracingServiceFilterLogic']),
     props({} as TracingServiceFilterLogicProps),
-    key((props) => `${props.dateRange?.date_from ?? 'all'}_${props.dateRange?.date_to ?? 'all'}`),
+    key(
+        (props) =>
+            `${props.id ?? 'default'}_${props.dateRange?.date_from ?? 'all'}_${props.dateRange?.date_to ?? 'all'}`
+    ),
 
     connect({
         values: [teamLogic, ['currentTeamId']],

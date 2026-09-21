@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -27,6 +28,35 @@ describe('tracingViewerLogic', () => {
     afterEach(() => {
         logic?.unmount()
         getTraceSpy.mockRestore()
+    })
+
+    it('keeps embedded display modes and trace selection isolated without changing the host URL', async () => {
+        const aggregateSpy = jest.spyOn(api.tracing, 'aggregate').mockResolvedValue({ results: [], compare: null })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]: true })
+        router.actions.push('/insights', { tab: 'retention' })
+        const hostPath = router.values.location.pathname
+        const embedded = tracingViewerLogic({ id: 'embedded' })
+        embedded.mount()
+        try {
+            tracingDataLogic({ id: 'embedded' }).actions.fetchSpansSuccess([makeSpan()])
+            embedded.actions.openTrace('trace-1', { spanId: 'span-1' })
+            await expectLogic(embedded, () => {
+                embedded.actions.setDisplayMode('operations')
+            }).toDispatchActions(['setActiveTracingTab', 'fetchAggregation'])
+
+            expect(embedded.values.displayMode).toBe('operations')
+            expect(embedded.values.selectedSpanId).toBe('span-1')
+            expect(logic.values.displayMode).toBe('traces')
+            expect(logic.values.selectedTraceId).toBeNull()
+            expect(router.values.location.pathname).toBe(hostPath)
+            expect(router.values.searchParams).toEqual({ tab: 'retention' })
+
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            expect(embedded.values.activeTracingTab).toBe('traces')
+        } finally {
+            embedded.unmount()
+            aggregateSpy.mockRestore()
+        }
     })
 
     // The prefetch decision drives whether opening a trace refetches it by id: a partial

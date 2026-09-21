@@ -26,40 +26,47 @@ import {
 
 import { SavedViewsButton } from './savedViews/SavedViewsButton'
 import { tracingDataLogic } from './tracingDataLogic'
-import { tracingFiltersLogic } from './tracingFiltersLogic'
+import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
 import { tracingServiceFilterLogic, TracingServiceFilterLogicProps } from './tracingServiceFilterLogic'
 
-const taxonomicFilterLogicKey = 'tracing'
 const taxonomicGroupTypes = [
     TaxonomicFilterGroupType.Spans,
     TaxonomicFilterGroupType.SpanAttributes,
     TaxonomicFilterGroupType.SpanResourceAttributes,
 ]
 
-export function TracingFilterBar(): JSX.Element {
+export function TracingFilterBar({
+    id = TRACING_SCENE_VIEWER_ID,
+    showSavedViewsButton = true,
+}: {
+    id?: string
+    showSavedViewsButton?: boolean
+}): JSX.Element {
     const { spansLoading } = useValues(tracingDataLogic)
     const { refreshQuery } = useActions(tracingDataLogic)
     const { filters, utcDateRange, timezone } = useValues(tracingFiltersLogic)
     const { setDateRange, setTimezone, setServiceNames, setFilterGroup } = useActions(tracingFiltersLogic)
     const { dateRange, serviceNames, filterGroup } = filters
+    const logicKey = id === TRACING_SCENE_VIEWER_ID ? 'tracing' : `tracing-${id}`
 
     return (
-        <TracingFilterGroup filterGroup={filterGroup} onFilterGroupChange={setFilterGroup}>
+        <TracingFilterGroup logicKey={logicKey} filterGroup={filterGroup} onFilterGroupChange={setFilterGroup}>
             <div className="flex flex-col gap-2 w-full">
                 <div className="flex gap-2 flex-wrap w-full justify-between">
                     <div className="flex shrink-0 flex-1 gap-1.5">
                         <TracingServiceFilter
+                            id={id}
                             value={serviceNames}
                             onChange={setServiceNames}
                             dateRange={utcDateRange as DateRange}
                         />
                         <div className="min-w-[200px] max-w-[300px] w-full">
-                            <TracingFilterSearch />
+                            <TracingFilterSearch logicKey={logicKey} />
                         </div>
                     </div>
                     <div className="flex shrink-0 gap-1.5">
                         <DateRangePickerWithZoom
-                            logicKey="tracing"
+                            logicKey={logicKey}
                             dateRange={dateRange}
                             setDateRange={setDateRange}
                             timezone={timezone}
@@ -72,7 +79,7 @@ export function TracingFilterBar(): JSX.Element {
                             onClick={() => refreshQuery()}
                             loading={spansLoading}
                         />
-                        <SavedViewsButton />
+                        {showSavedViewsButton && <SavedViewsButton />}
                     </div>
                 </div>
                 <TracingAppliedFilters />
@@ -82,10 +89,12 @@ export function TracingFilterBar(): JSX.Element {
 }
 
 function TracingFilterGroup({
+    logicKey,
     filterGroup,
     onFilterGroupChange,
     children,
 }: {
+    logicKey: string
     filterGroup: UniversalFiltersGroup
     onFilterGroupChange: (filterGroup: UniversalFiltersGroup) => void
     children: React.ReactNode
@@ -102,7 +111,7 @@ function TracingFilterGroup({
 
     return (
         <UniversalFilters
-            rootKey={taxonomicFilterLogicKey}
+            rootKey={logicKey}
             group={filterGroup.values[0] as UniversalFiltersGroup}
             taxonomicGroupTypes={taxonomicGroupTypes}
             endpointFilters={endpointFilters}
@@ -115,7 +124,7 @@ function TracingFilterGroup({
     )
 }
 
-function TracingFilterSearch(): JSX.Element {
+function TracingFilterSearch({ logicKey }: { logicKey: string }): JSX.Element {
     const [visible, setVisible] = useState<boolean>(false)
     const { utcDateRange, filters: tracingFilters, queryFilterGroup } = useValues(tracingFiltersLogic)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
@@ -130,7 +139,7 @@ function TracingFilterSearch(): JSX.Element {
     }
 
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
-        taxonomicFilterLogicKey,
+        taxonomicFilterLogicKey: logicKey,
         taxonomicGroupTypes,
         endpointFilters: {
             dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
@@ -242,13 +251,14 @@ function TracingAppliedFilters(): JSX.Element | null {
 }
 
 interface TracingServiceFilterProps {
+    id: string
     value: string[]
     onChange: (serviceNames: string[]) => void
     dateRange?: DateRange
 }
 
-function TracingServiceFilter({ value, onChange, dateRange }: TracingServiceFilterProps): JSX.Element {
-    const logicProps: TracingServiceFilterLogicProps = { dateRange }
+function TracingServiceFilter({ id, value, onChange, dateRange }: TracingServiceFilterProps): JSX.Element {
+    const logicProps: TracingServiceFilterLogicProps = { id, dateRange }
 
     return (
         <BindLogic logic={tracingServiceFilterLogic} props={logicProps}>

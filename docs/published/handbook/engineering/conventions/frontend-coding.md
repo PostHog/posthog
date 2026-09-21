@@ -15,7 +15,7 @@ Hence the explicit separation between the data and view layers.
 
 #### General tips
 
-- The `tracing-ui-v2` feature flag replaces the tracing scene with a `Tracing UI v2` placeholder for targeted testing. When the flag is off or unavailable, the existing tracing UI remains unchanged.
+- The `tracing-ui-v2` feature flag renders the standalone `TracingViewer` in the tracing scene. Embed the viewer with a unique `id` and optional `pinnedFilters`; it loads data without synchronizing the host page's URL. The scene owns page chrome, navigation, and URL synchronization. When the flag is off or unavailable, the existing layout remains active.
 - Think data first: get [your mental model of the data flowing through the app](https://acco.io/i-escaped-node) right, and then everything else will be simpler.
 - Be practical, yet remember that you are balancing speed of delivery with ease of maintainability. If you have to choose: code should be easier to understand than it was to write.
 

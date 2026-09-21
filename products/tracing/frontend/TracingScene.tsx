@@ -34,6 +34,7 @@ import { TracingFilterBar } from './TracingFilterBar'
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
 import { tracingSceneLogic } from './tracingSceneLogic'
 import { TracingSparkline } from './TracingSparkline'
+import { TracingViewer } from './TracingViewer'
 import { tracingViewerLogic } from './tracingViewerLogic'
 import type { Span } from './types'
 
@@ -48,16 +49,11 @@ export const scene: SceneExport = {
 }
 
 export default function TracingScene(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const sceneLogic = tracingSceneLogic()
     // Keep filters + data + viewer logic alive across React unmounts by attaching them to the scene root.
     useAttachedLogic(tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
     useAttachedLogic(tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
     useAttachedLogic(tracingViewerLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
-
-    if (featureFlags[FEATURE_FLAGS.TRACING_UI_V2]) {
-        return <p>Tracing UI v2</p>
-    }
 
     // Bind the scene's keyed instances so nested components (filter bar, sparkline, ...)
     // resolve them from context — the same components work inside an embedded viewer
@@ -205,119 +201,136 @@ function TracingSceneContents(): JSX.Element {
             >
                 Tracing is now in beta. Please share feedback on how to improve the product.
             </LemonBanner>
-            <>
-                <TracingFilterBar />
-                <SceneDivider />
-                <TracingSparkline
-                    sparklineData={sparklineData}
-                    sparklineLoading={sparklineLoading || (isDurationMode && !showHeatmap && durationHistogramLoading)}
-                    onDateRangeChange={setDateRange}
-                    displayTimezone={TRACING_DISPLAY_TIMEZONE}
-                    currentDateTo={utcDateRange.date_to}
-                    compare={compareConfig}
-                    compareActive={compareActive}
-                    visibleRowDateRange={visibleRowDateRange}
-                    durationHistogram={isDurationMode && !showHeatmap ? durationHistogramData : null}
-                    visibleRowDurationRange={visibleRowDurationRange}
-                    chartType={filters.chartType}
-                    onChartTypeChange={heatmapEnabled ? setChartType : undefined}
-                    latencyHeatmap={showHeatmap ? latencyHeatmapData : null}
-                    latencyHeatmapLoading={latencyHeatmapLoading}
-                    onHeatmapBrush={applyHeatmapBrush}
-                    heatmapDisabledReason={
-                        compareActive ? 'The heatmap is unavailable while comparing time windows' : null
+            {featureFlags[FEATURE_FLAGS.TRACING_UI_V2] ? (
+                <TracingViewer
+                    id={TRACING_SCENE_VIEWER_ID}
+                    autoLoad={false}
+                    showSavedViewsButton
+                    onOperationClick={(row, dateRange) =>
+                        router.actions.push(urls.tracingOperation(row.service_name, row.name, dateRange))
                     }
                 />
-                <div className="flex flex-row gap-2 flex-1 min-h-0">
-                    {facetRailEnabled && !facetRailCollapsed && <FacetRail />}
-                    <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
-                        <TracingDisplayBar />
-                        {compareActive && (!operationsViewEnabled || activeTracingTab !== 'operations') && (
-                            <ComparisonBar />
-                        )}
-                        {operationsViewEnabled && activeTracingTab === 'operations' ? (
-                            <OperationsTable
-                                rows={aggregation.current}
-                                loading={aggregationLoading}
-                                windowMs={operationsWindowMs}
-                                onRowClick={(row) =>
-                                    router.actions.push(
-                                        urls.tracingOperation(row.service_name, row.name, filters.dateRange)
-                                    )
-                                }
-                            />
-                        ) : compareActive ? (
-                            <TraceCompareTable
-                                current={aggregation.current}
-                                previous={aggregation.previous}
-                                loading={aggregationLoading}
-                                onRowClick={(row) => openCompareFlame(row.name, row.service_name)}
-                            />
-                        ) : (
-                            <VirtualizedSpanList
-                                dataSource={listRows}
-                                loading={spansLoading}
-                                hasMoreToLoad={hasMoreToLoad}
-                                onLoadMore={fetchNextPage}
-                                onVisibleRowRangeChange={setVisibleRowRange}
-                                orderBy={filters.orderBy}
-                                orderDirection={filters.orderDirection}
-                                onSort={(column) =>
-                                    // Click an active column to flip direction; a new column starts at DESC.
-                                    setSort(
-                                        column,
-                                        column === filters.orderBy && filters.orderDirection === 'DESC' ? 'ASC' : 'DESC'
-                                    )
-                                }
-                                emptyState={
-                                    <div className="flex flex-col items-center gap-1">
-                                        <span>No spans found</span>
-                                        <Link to={TRACING_DOCS_URL} onClick={onDocsLinkClick} target="_blank">
-                                            Learn how to send traces
-                                        </Link>
-                                    </div>
-                                }
-                                onRowClick={(span: Span) => {
-                                    // Clicking a row leaves the scrollable <main tabIndex="0"> as the active
-                                    // element; react-modal then scrolls it back into view when restoring focus
-                                    // on close. Blur so the restore target is <body>, which doesn't scroll.
-                                    ;(document.activeElement as HTMLElement | null)?.blur?.()
-                                    // Anchor the waterfall on the clicked span — in Spans mode this is often a
-                                    // child span, so without spanId the drawer would open unfocused at the root.
-                                    openTrace(span.trace_id, { spanId: span.span_id, ts: span.timestamp })
-                                }}
-                            />
-                        )}
-                    </div>
-                </div>
-            </>
-            <TraceDrawer
-                isOpen={isTraceOpen}
-                traceId={selectedTraceId}
-                ts={selectedTraceTs}
-                spans={openTraceSpans}
-                identity={traceIdentity}
-                loading={isLoadingFullTrace}
-                hasMoreSpans={canLoadMoreTraceSpans}
-                loadingMoreSpans={traceSpansLoadingMore}
-                onLoadMoreSpans={loadMoreTraceSpans}
-                selectedSpanId={selectedSpanId}
-                onSelectSpan={selectSpan}
-                onClose={closeTrace}
-            />
-            <LemonModal
-                title={`Call tree diff: ${compareFlameSpanName ?? ''}`}
-                isOpen={compareFlameSpanName !== null}
-                onClose={closeCompareFlame}
-                width="90vw"
-            >
-                <TraceCompareFlame
-                    current={spanTree.current}
-                    previous={spanTree.previous}
-                    loading={spanTreeLoading}
-                    initialSpanName={compareFlameSpanName}
-                />
-            </LemonModal>
+            ) : (
+                <>
+                    <>
+                        <TracingFilterBar />
+                        <SceneDivider />
+                        <TracingSparkline
+                            sparklineData={sparklineData}
+                            sparklineLoading={
+                                sparklineLoading || (isDurationMode && !showHeatmap && durationHistogramLoading)
+                            }
+                            onDateRangeChange={setDateRange}
+                            displayTimezone={TRACING_DISPLAY_TIMEZONE}
+                            currentDateTo={utcDateRange.date_to}
+                            compare={compareConfig}
+                            compareActive={compareActive}
+                            visibleRowDateRange={visibleRowDateRange}
+                            durationHistogram={isDurationMode && !showHeatmap ? durationHistogramData : null}
+                            visibleRowDurationRange={visibleRowDurationRange}
+                            chartType={filters.chartType}
+                            onChartTypeChange={heatmapEnabled ? setChartType : undefined}
+                            latencyHeatmap={showHeatmap ? latencyHeatmapData : null}
+                            latencyHeatmapLoading={latencyHeatmapLoading}
+                            onHeatmapBrush={applyHeatmapBrush}
+                            heatmapDisabledReason={
+                                compareActive ? 'The heatmap is unavailable while comparing time windows' : null
+                            }
+                        />
+                        <div className="flex flex-row gap-2 flex-1 min-h-0">
+                            {facetRailEnabled && !facetRailCollapsed && <FacetRail />}
+                            <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
+                                <TracingDisplayBar />
+                                {compareActive && (!operationsViewEnabled || activeTracingTab !== 'operations') && (
+                                    <ComparisonBar />
+                                )}
+                                {operationsViewEnabled && activeTracingTab === 'operations' ? (
+                                    <OperationsTable
+                                        rows={aggregation.current}
+                                        loading={aggregationLoading}
+                                        windowMs={operationsWindowMs}
+                                        onRowClick={(row) =>
+                                            router.actions.push(
+                                                urls.tracingOperation(row.service_name, row.name, filters.dateRange)
+                                            )
+                                        }
+                                    />
+                                ) : compareActive ? (
+                                    <TraceCompareTable
+                                        current={aggregation.current}
+                                        previous={aggregation.previous}
+                                        loading={aggregationLoading}
+                                        onRowClick={(row) => openCompareFlame(row.name, row.service_name)}
+                                    />
+                                ) : (
+                                    <VirtualizedSpanList
+                                        dataSource={listRows}
+                                        loading={spansLoading}
+                                        hasMoreToLoad={hasMoreToLoad}
+                                        onLoadMore={fetchNextPage}
+                                        onVisibleRowRangeChange={setVisibleRowRange}
+                                        orderBy={filters.orderBy}
+                                        orderDirection={filters.orderDirection}
+                                        onSort={(column) =>
+                                            // Click an active column to flip direction; a new column starts at DESC.
+                                            setSort(
+                                                column,
+                                                column === filters.orderBy && filters.orderDirection === 'DESC'
+                                                    ? 'ASC'
+                                                    : 'DESC'
+                                            )
+                                        }
+                                        emptyState={
+                                            <div className="flex flex-col items-center gap-1">
+                                                <span>No spans found</span>
+                                                <Link to={TRACING_DOCS_URL} onClick={onDocsLinkClick} target="_blank">
+                                                    Learn how to send traces
+                                                </Link>
+                                            </div>
+                                        }
+                                        onRowClick={(span: Span) => {
+                                            // Clicking a row leaves the scrollable <main tabIndex="0"> as the active
+                                            // element; react-modal then scrolls it back into view when restoring focus
+                                            // on close. Blur so the restore target is <body>, which doesn't scroll.
+                                            ;(document.activeElement as HTMLElement | null)?.blur?.()
+                                            // Anchor the waterfall on the clicked span — in Spans mode this is often a
+                                            // child span, so without spanId the drawer would open unfocused at the root.
+                                            openTrace(span.trace_id, { spanId: span.span_id, ts: span.timestamp })
+                                        }}
+                                    />
+                                )}
+                            </div>
+                        </div>
+                    </>
+                    <TraceDrawer
+                        isOpen={isTraceOpen}
+                        traceId={selectedTraceId}
+                        ts={selectedTraceTs}
+                        spans={openTraceSpans}
+                        identity={traceIdentity}
+                        loading={isLoadingFullTrace}
+                        hasMoreSpans={canLoadMoreTraceSpans}
+                        loadingMoreSpans={traceSpansLoadingMore}
+                        onLoadMoreSpans={loadMoreTraceSpans}
+                        selectedSpanId={selectedSpanId}
+                        onSelectSpan={selectSpan}
+                        onClose={closeTrace}
+                    />
+                    <LemonModal
+                        title={`Call tree diff: ${compareFlameSpanName ?? ''}`}
+                        isOpen={compareFlameSpanName !== null}
+                        onClose={closeCompareFlame}
+                        width="90vw"
+                    >
+                        <TraceCompareFlame
+                            current={spanTree.current}
+                            previous={spanTree.previous}
+                            loading={spanTreeLoading}
+                            initialSpanName={compareFlameSpanName}
+                        />
+                    </LemonModal>
+                </>
+            )}
         </SceneContent>
     )
 }

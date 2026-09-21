@@ -10,6 +10,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 
 import { tracingConfigLogic } from '../../tracingConfigLogic'
+import { TRACING_SCENE_VIEWER_ID } from '../../tracingFiltersLogic'
 import { customFacetsLogic } from './customFacetsLogic'
 import { facetPresenceLogic } from './facetPresenceLogic'
 import { facetRailLogic } from './facetRailLogic'
@@ -22,12 +23,12 @@ const DEFAULT_WIDTH_PX = 240
 const COLLAPSE_THRESHOLD_PX = 120
 
 /** Resizable left-hand facet rail, rendered entirely from the FACETS config (see facets.ts). */
-export function FacetRail(): JSX.Element {
+export function FacetRail({ id = TRACING_SCENE_VIEWER_ID }: { id?: string }): JSX.Element {
     const railRef = useRef<HTMLDivElement>(null)
     const { setFacetRailCollapsed } = useActions(tracingConfigLogic)
-    const { visibleFacets } = useValues(facetPresenceLogic)
-    const { facetNameSearch } = useValues(facetRailLogic)
-    const { setFacetNameSearch } = useActions(facetRailLogic)
+    const { visibleFacets } = useValues(facetPresenceLogic({ id }))
+    const { facetNameSearch } = useValues(facetRailLogic({ id }))
+    const { setFacetNameSearch } = useActions(facetRailLogic({ id }))
     const { addCustomFacet } = useActions(customFacetsLogic)
     const { customFacetsEnabled, entriesLoading } = useValues(customFacetsLogic)
 
@@ -37,7 +38,7 @@ export function FacetRail(): JSX.Element {
     )
     const resizerLogicProps: ResizerLogicProps = useMemo(
         () => ({
-            logicKey: 'tracing-facet-rail',
+            logicKey: id === TRACING_SCENE_VIEWER_ID ? 'tracing-facet-rail' : `tracing-facet-rail-${id}`,
             containerRef: railRef,
             persistent: true,
             persistPrefix: '2026-07-06',
@@ -45,7 +46,7 @@ export function FacetRail(): JSX.Element {
             closeThreshold: COLLAPSE_THRESHOLD_PX,
             onToggleClosed,
         }),
-        [onToggleClosed]
+        [id, onToggleClosed]
     )
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
@@ -107,7 +108,7 @@ export function FacetRail(): JSX.Element {
                             </div>
                         )}
                         {facets.map((facet) => (
-                            <RailFacet key={facet.key} facet={facet} hidden={!matchingKeys.has(facet.key)} />
+                            <RailFacet key={facet.key} id={id} facet={facet} hidden={!matchingKeys.has(facet.key)} />
                         ))}
                     </div>
                 ))}

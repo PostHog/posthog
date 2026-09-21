@@ -9,7 +9,9 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { CompareMenuButton } from './components/Comparison/CompareMenuButton'
 import { tracingConfigLogic } from './tracingConfigLogic'
-import { tracingSceneLogic, type TracingDisplayMode } from './tracingSceneLogic'
+import { tracingDataLogic } from './tracingDataLogic'
+import { tracingFiltersLogic } from './tracingFiltersLogic'
+import { tracingViewerLogic, type TracingDisplayMode } from './tracingViewerLogic'
 
 /**
  * The bar above the results, mirroring logs' LogsDisplayBar:
@@ -19,8 +21,10 @@ import { tracingSceneLogic, type TracingDisplayMode } from './tracingSceneLogic'
  *  - right: Compare, hidden on the Operations view where it doesn't apply.
  */
 export function TracingDisplayBar(): JSX.Element {
-    const { totalMatchingFilters, compareActive, displayMode, operationsViewEnabled } = useValues(tracingSceneLogic())
-    const { setDisplayMode } = useActions(tracingSceneLogic())
+    const { totalMatchingFilters } = useValues(tracingDataLogic)
+    const { compareActive } = useValues(tracingFiltersLogic)
+    const { displayMode, operationsViewEnabled } = useValues(tracingViewerLogic)
+    const { setDisplayMode } = useActions(tracingViewerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { facetRailCollapsed } = useValues(tracingConfigLogic)
     const { setFacetRailCollapsed } = useActions(tracingConfigLogic)
