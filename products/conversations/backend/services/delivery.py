@@ -76,6 +76,12 @@ class DeliveryClaim:
 
 
 @frozen
+class CommentAuthor:
+    name: str
+    email: str
+
+
+@frozen
 class DeliveryQueueMetrics:
     pending_count: int
     processing_count: int
@@ -128,14 +134,14 @@ def _image_refs(rich_content: dict[str, Any] | None) -> list[dict[str, str]]:
     return refs
 
 
-def _author_for_comment(comment: Comment, team: Team) -> tuple[str, str]:
+def _author_for_comment(comment: Comment, team: Team) -> CommentAuthor:
     created_by = comment.created_by
     if created_by:
         name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
-        return name, created_by.email or ""
+        return CommentAuthor(name=name, email=created_by.email or "")
     settings_dict = team.conversations_settings or {}
     bot_name = settings_dict.get("slack_bot_display_name")
-    return (bot_name if isinstance(bot_name, str) and bot_name else "AI assistant"), ""
+    return CommentAuthor(name=bot_name if isinstance(bot_name, str) and bot_name else "AI assistant", email="")
 
 
 def _ticket_belongs_to_comment_team(ticket: Ticket, comment: Comment) -> bool:
@@ -148,8 +154,7 @@ def _body_snapshot(
     comment: Comment,
     *,
     team: Team,
-    author_name: str,
-    author_email: str,
+    author: CommentAuthor,
     media_team_id: int,
 ) -> dict[str, Any]:
     slack_text, slack_blocks = rich_content_to_slack_payload(
@@ -161,8 +166,8 @@ def _body_snapshot(
     return {
         "text": slack_text,
         "blocks": slack_blocks,
-        "author_name": author_name,
-        "author_email": author_email,
+        "author_name": author.name,
+        "author_email": author.email,
         "media_team_id": media_team_id,
         "images": _image_refs(comment.rich_content if isinstance(comment.rich_content, dict) else None),
     }
@@ -239,12 +244,10 @@ def enqueue_slack_body_delivery(comment: Comment) -> ConversationDeliveryPart | 
     if workspace_id is None:
         return None
 
-    author_name, author_email = _author_for_comment(comment, comment.team)
     snapshot = _body_snapshot(
         comment,
         team=comment.team,
-        author_name=author_name,
-        author_email=author_email,
+        author=_author_for_comment(comment, comment.team),
         media_team_id=ticket.team_id,
     )
     route = {"channel": ticket.slack_channel_id, "thread_ts": ticket.slack_thread_ts}
@@ -287,6 +290,15 @@ def enqueue_slack_body_delivery(comment: Comment) -> ConversationDeliveryPart | 
     return part
 
 
+def _delivery_row(*, team_id: int, delivery_id: UUID) -> QuerySet[ConversationDelivery]:
+    """Scope the parent delivery by the part's team.
+
+    ``team`` on both rows is the canonical root team, and the composite FK keeps a
+    part on its parent's team, so ``canonical=True`` skips a Team lookup per write.
+    """
+    return ConversationDelivery.objects.for_team(team_id, canonical=True).filter(id=delivery_id)
+
+
 def _fail_part_without_claim(
     row: ConversationDeliveryPart,
     *,
@@ -309,9 +321,7 @@ def _fail_part_without_claim(
             "updated_at",
         ]
     )
-    ConversationDelivery.objects.unscoped().filter(
-        id=row.delivery_id
-    ).update(  # nosemgrep: idor-lookup-without-team (parent id comes from the claimed part)
+    _delivery_row(team_id=row.team_id, delivery_id=row.delivery_id).update(
         status=ConversationDelivery.Status.FAILED,
         terminal_at=now,
         lease_expires_at=None,
@@ -373,7 +383,7 @@ def claim_delivery_part(delivery_part_id: str) -> DeliveryClaim | None:
 
 
 def _fenced(claim: DeliveryClaim) -> QuerySet[ConversationDeliveryPart]:
-    return ConversationDeliveryPart.objects.unscoped().filter(  # nosemgrep: idor-lookup-without-team (ID comes from the claimed row)
+    return ConversationDeliveryPart.objects.for_team(claim.part.team_id, canonical=True).filter(
         id=claim.part.id,
         fencing_token=claim.part.fencing_token,
         status=ConversationDeliveryPart.Status.PROCESSING,
@@ -390,9 +400,7 @@ def _roll_up_delivery(
     error: str = "",
     accepted_at: datetime | None = None,
 ) -> None:
-    ConversationDelivery.objects.unscoped().filter(
-        id=claim.part.delivery_id
-    ).update(  # nosemgrep: idor-lookup-without-team (parent id comes from the claimed part)
+    _delivery_row(team_id=claim.part.team_id, delivery_id=claim.part.delivery_id).update(
         status=status,
         terminal_at=now if status in ConversationDelivery.TERMINAL_STATUSES else None,
         lease_expires_at=None,
@@ -522,8 +530,8 @@ def cleanup_delivery_snapshots(now: datetime, *, limit: int = DELIVERY_SWEEP_BAT
         .order_by("terminal_at")
         .values_list("id", flat=True)[:limit]
     )
-    # nosemgrep: idor-lookup-without-team (IDs come from the cross-team retention query above)
     parts_cleaned = (
+        # nosemgrep: idor-lookup-without-team (IDs come from the cross-team retention query above)
         ConversationDeliveryPart.objects.unscoped()
         .filter(id__in=part_ids)
         .update(payload=None, route=None, updated_at=now)
@@ -538,8 +546,8 @@ def cleanup_delivery_snapshots(now: datetime, *, limit: int = DELIVERY_SWEEP_BAT
         .order_by("terminal_at")
         .values_list("id", flat=True)[:limit]
     )
-    # nosemgrep: idor-lookup-without-team (IDs come from the cross-team retention query above)
     deliveries_cleaned = (
+        # nosemgrep: idor-lookup-without-team (IDs come from the cross-team retention query above)
         ConversationDelivery.objects.unscoped()
         .filter(id__in=delivery_ids)
         .update(payload=None, route=None, updated_at=now)
@@ -648,9 +656,7 @@ def redrive_failed_delivery_part(part_id: str, *, wake: DeliveryWake) -> Convers
         )
         if part is None or not slack_route_and_config_are_valid(part):
             return None
-        ConversationDeliveryPart.objects.unscoped().filter(
-            id=part.id
-        ).update(  # nosemgrep: idor-lookup-without-team (ID comes from the locked row)
+        ConversationDeliveryPart.objects.for_team(part.team_id, canonical=True).filter(id=part.id).update(
             status=ConversationDeliveryPart.Status.PENDING,
             terminal_at=None,
             lease_expires_at=None,
@@ -658,9 +664,7 @@ def redrive_failed_delivery_part(part_id: str, *, wake: DeliveryWake) -> Convers
             attempts=0,
             updated_at=now,
         )
-        ConversationDelivery.objects.unscoped().filter(
-            id=part.delivery_id
-        ).update(  # nosemgrep: idor-lookup-without-team (parent id comes from the locked part)
+        _delivery_row(team_id=part.team_id, delivery_id=part.delivery_id).update(
             status=ConversationDelivery.Status.PENDING,
             terminal_at=None,
             lease_expires_at=None,

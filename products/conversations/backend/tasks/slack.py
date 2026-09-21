@@ -15,6 +15,7 @@ from celery.exceptions import MaxRetriesExceededError
 from slack_sdk.errors import SlackApiError
 
 from posthog.comment.formatting import extract_images_from_rich_content, rich_content_to_slack_payload
+from posthog.dataclasses import frozen
 from posthog.helpers.slack_identity import (
     resolve_posthog_user_for_slack,
     resolve_slack_avatar_by_email,
@@ -760,7 +761,7 @@ def _raise_slack_body_error(exc: Exception) -> NoReturn:
 
 def _transient_error_code(exc: TransientDeliveryError) -> str:
     cause = exc.__cause__
-    if cause is not None:
+    if isinstance(cause, Exception):
         code = _slack_api_error_code(cause)
         if code:
             return code[:64]
@@ -772,6 +773,28 @@ def _transient_error_code(exc: TransientDeliveryError) -> str:
         if isinstance(status, int) and status >= 500:
             return "http_5xx"
     return "transient"
+
+
+@frozen
+class SlackSender:
+    username: str
+    icon_url: str | None
+
+
+def _slack_sender(*, client: Any, team: Team, payload: dict[str, Any], ticket_id: str = "") -> SlackSender:
+    support_settings = team.conversations_settings or {}
+    author_name = str(payload.get("author_name") or "")
+    author_email = str(payload.get("author_email") or "")
+    author_icon_url: str | None = None
+    if author_email:
+        try:
+            author_icon_url = resolve_slack_avatar_by_email(client, author_email)
+        except Exception:
+            logger.warning("slack_delivery_avatar_lookup_failed", ticket_id=ticket_id, exc_info=True)
+    return SlackSender(
+        username=author_name or support_settings.get("slack_bot_display_name") or "Support",
+        icon_url=author_icon_url or support_settings.get("slack_bot_icon_url"),
+    )
 
 
 def _post_slack_body(
@@ -789,28 +812,17 @@ def _post_slack_body(
     if not slack_text.strip() and not slack_blocks:
         return ""
 
-    support_settings = team.conversations_settings or {}
-    bot_display_name = support_settings.get("slack_bot_display_name")
-    bot_icon_url = support_settings.get("slack_bot_icon_url")
-    author_name = str(payload.get("author_name") or "")
-    author_email = str(payload.get("author_email") or "")
-    author_icon_url: str | None = None
-    if author_email:
-        try:
-            author_icon_url = resolve_slack_avatar_by_email(client, author_email)
-        except Exception:
-            logger.warning("slack_delivery_avatar_lookup_failed", exc_info=True)
-    icon_url = author_icon_url or bot_icon_url
+    sender = _slack_sender(client=client, team=team, payload=payload)
     message_kwargs: dict[str, Any] = {
         "channel": str(route.get("channel") or ""),
         "thread_ts": str(route.get("thread_ts") or ""),
         "text": slack_text,
-        "username": author_name or bot_display_name or "Support",
+        "username": sender.username,
     }
     if client_msg_id:
         message_kwargs["client_msg_id"] = client_msg_id
-    if icon_url:
-        message_kwargs["icon_url"] = icon_url
+    if sender.icon_url:
+        message_kwargs["icon_url"] = sender.icon_url
     if slack_blocks:
         message_kwargs["blocks"] = slack_blocks
 
@@ -848,18 +860,7 @@ def _best_effort_post_slack_images(
         return
     raw_media_team_id = payload.get("media_team_id")
     media_team_id = raw_media_team_id if isinstance(raw_media_team_id, int) else team.id
-    support_settings = team.conversations_settings or {}
-    bot_display_name = support_settings.get("slack_bot_display_name")
-    bot_icon_url = support_settings.get("slack_bot_icon_url")
-    author_name = str(payload.get("author_name") or "")
-    author_email = str(payload.get("author_email") or "")
-    author_icon_url: str | None = None
-    if author_email:
-        try:
-            author_icon_url = resolve_slack_avatar_by_email(client, author_email)
-        except Exception:
-            logger.warning("slack_delivery_image_avatar_lookup_failed", ticket_id=ticket_id, exc_info=True)
-    icon_url = author_icon_url or bot_icon_url
+    sender = _slack_sender(client=client, team=team, payload=payload, ticket_id=ticket_id)
     failed_image_urls: list[str] = []
     for image in images:
         if not isinstance(image, dict):
@@ -895,10 +896,10 @@ def _best_effort_post_slack_images(
         "channel": slack_channel_id,
         "thread_ts": slack_thread_ts,
         "text": "Images:\n" + "\n".join(unique_urls),
-        "username": author_name or bot_display_name or "Support",
+        "username": sender.username,
     }
-    if icon_url:
-        fallback_kwargs["icon_url"] = icon_url
+    if sender.icon_url:
+        fallback_kwargs["icon_url"] = sender.icon_url
     try:
         client.chat_postMessage(**fallback_kwargs)
     except Exception:
