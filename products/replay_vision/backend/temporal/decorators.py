@@ -6,6 +6,8 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Any, TypeVar, cast
 
+from asgiref.sync import sync_to_async
+
 from posthog.temporal.common.utils import close_stale_db_connections
 
 from products.replay_vision.backend.temporal.metrics import record_activity_duration, record_side_effect_failure
@@ -33,6 +35,10 @@ def track_activity(name: str | None = None, side_effect: str | None = None) -> C
 
             @wraps(fn)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+                # An async body still reaches Postgres on the shared sync thread, through the async
+                # ORM or through `sync_to_async`, so the cleanup must run on that thread rather than
+                # on the event loop, where the activity holds no connection of its own.
+                await sync_to_async(close_stale_db_connections)()
                 started = time.monotonic()
                 try:
                     result = await fn(*args, **kwargs)

@@ -29,6 +29,8 @@ class _WithSqlstate(Exception):
         # The dead-socket message on its own, without pgbouncer's cached-login wrapper — the case
         # the marker above doesn't cover.
         (OperationalError("server conn crashed?"), True),
+        # Carries no SQLSTATE, so only the message classifies it.
+        (OperationalError("consuming input failed: the connection is lost"), True),
         (
             OperationalError(
                 'connection failed: connection to server at "10.0.0.1", port 6543 failed: '
