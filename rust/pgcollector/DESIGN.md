@@ -99,8 +99,6 @@ Planned Tier B collectors:
 * (`activity_samples`, `activity_sessions`, `lock_waits` turned out to be
   expressible in SQL — they are Tier A YAML.)
 * **`schema`** — catalog snapshot + diff → schema-change events.
-* **`vacuum_needed`** — derived: per-table dead tuples vs. effective autovacuum
-  threshold (reloptions ⊕ GUCs), `age(relfrozenxid)` vs `autovacuum_freeze_max_age`.
 * **`logs`** — RDS log tailing (phase 4).
 * **`explain`** — plan collection (phase 4).
 * **`system`** — CloudWatch metrics (phase 4).
@@ -122,7 +120,7 @@ Planned Tier B collectors:
 | 10m | table stats | A | `pg_stat_user_tables`, `pg_statio_user_tables` |
 | 10m | index stats | A | `pg_stat_user_indexes`, `pg_statio_user_indexes` |
 | 10m | relation sizes | A | `pg_total_relation_size` etc., TOAST, bloat estimate (heuristic, no pgstattuple) |
-| 10m | vacuum needed | B | derived from table stats + settings |
+| — | vacuum needed | — | derived by `pgapi` from the table stats rows + the settings and schema snapshots; no scan of its own |
 | 1h | schema | B | `pg_class`, `pg_attribute`, `pg_index`, `pg_constraint`, partitions, view defs |
 | 1h | settings | A (snapshot) | `pg_settings` |
 | 1h | extensions / roles / version | A (snapshot) | `pg_extension`, `pg_roles`, `version()` |
@@ -303,7 +301,7 @@ Secrets come from env (`${VAR}` expansion in URLs).
 3. ✅ **Aurora + pg_proctab sources** (Tier 1 of `docs/telemetry-sources.md`).
    Validated against stub functions with the documented shapes; needs a first
    run on a real Aurora cluster.
-4. ✅ **Schema / settings / extension snapshots → change events; `vacuum_needed`; xid age.**
+4. ✅ **Schema / settings / extension snapshots → change events; vacuum attention; xid age.**
 5. ✅ **Logs** — CloudWatch Logs + file sources, prefix-driven parser, durations
    (real latency quantiles), auto_explain plans, autovacuum, checkpoints, temp
    files, errors, deadlock/lock-wait/cancel events. Query fingerprint on
