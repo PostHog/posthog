@@ -206,12 +206,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         link: tabLink(urls.customerAnalyticsJourneys(), 'journeys'),
     })
 
-    const tabsContent =
-        tabs.length > 1 ? (
-            <LemonTabs activeKey={activeTab} data-attr="customer-analytics-tabs" tabs={tabs} sceneInset />
-        ) : (
-            dashboardContent
-        )
+    const tabsContent = <LemonTabs activeKey={activeTab} data-attr="customer-analytics-tabs" tabs={tabs} sceneInset />
     const isFeatureRequestDetail =
         activeTab === 'feature_requests' && /\/customer_analytics\/feature-requests\/[^/]+\/?$/.test(location.pathname)
 
