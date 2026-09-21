@@ -49,6 +49,26 @@ SPECS = (
 )
 
 
+def build_slack_signature_scheme(*, secret_getter: Callable[[], str | None]) -> HmacSha256:
+    """Slack's request signature, as a scheme on its own.
+
+    The dispatched endpoints reach it through `SlackProvider`. A view that must answer Slack
+    synchronously, such as a slash command, keeps its view and calls this directly, so there is
+    still one definition of the window and the signed input.
+    """
+    return HmacSha256(
+        secret_getter=secret_getter,
+        signature_header="X-Slack-Signature",
+        prefix="v0=",
+        signed_input="v0_timestamp_body",
+        timestamp_header="X-Slack-Request-Timestamp",
+        # Slack's own guidance: drop anything older than five minutes. The tighter future
+        # bound is clock skew only, so a replayed future timestamp buys almost nothing.
+        timestamp_max_age_seconds=300,
+        timestamp_max_future_seconds=60,
+    )
+
+
 def _delivery_context(request: HttpRequest, *, slack_team_id: str) -> dict[str, str]:
     return {
         "slack_team_id": slack_team_id,
@@ -68,17 +88,7 @@ class SlackProvider(WebhookProvider):
 
     def __init__(self, *, app: str = "supporthog", secret_getter: Callable[[], str | None]) -> None:
         self.app = app
-        self._scheme = HmacSha256(
-            secret_getter=secret_getter,
-            signature_header="X-Slack-Signature",
-            prefix="v0=",
-            signed_input="v0_timestamp_body",
-            timestamp_header="X-Slack-Request-Timestamp",
-            # Slack's own guidance: drop anything older than five minutes. The tighter future
-            # bound is clock skew only, so a replayed future timestamp buys almost nothing.
-            timestamp_max_age_seconds=300,
-            timestamp_max_future_seconds=60,
-        )
+        self._scheme = build_slack_signature_scheme(secret_getter=secret_getter)
 
     def scheme(self) -> SignatureScheme:
         return self._scheme

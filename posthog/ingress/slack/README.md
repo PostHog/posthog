@@ -34,6 +34,10 @@ They are separate here because they are separate endpoints with separate payload
 The signing secret is the same for both, and it belongs to the product that owns the Slack app, so `build_slack_provider()` and `build_slack_interactivity_provider()` take it as a getter.
 Nothing under `posthog/ingress/` reads it.
 
+The `slack_app` product runs a second Slack app registration with its own signing secret, held as the `SLACK_APP_SIGNING_SECRET` instance setting.
+Its endpoints answer Slack synchronously (a slash command, an interactivity ack, a cross-region workspace probe), so they keep their own views and verify through `build_slack_signature_scheme()` rather than through a provider.
+`posthog.models.integration.validate_slack_request` is that call.
+
 ## Quirks
 
 Slack's `url_verification` handshake wants the challenge echoed in the response body, which no consumer can do.

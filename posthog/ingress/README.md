@@ -251,6 +251,7 @@ Two shapes that already exist and are worth copying rather than re-deriving:
 - **The DRF adapter path.** An endpoint that genuinely needs DRF's team scoping keeps its view, and the incarnation contributes a scheme only, declaring no spec, because nothing dispatches there. `customerio/` is the case. The view verifies through `posthog.auth.WebhookSignatureAuthentication`.
   That base class computes its digest with `hmac_sha256_signature()` and compares with `signatures_match()` from `verify/schemes.py`, so the adapter path and the dispatched path share one implementation of HMAC-SHA256.
   It backs three endpoints rather than Customer.io alone, because the tasks cross-region usage lookup and the AI observability cross-region spend lookup subclass it too, each with its own header names, signed-input format, and secret.
+- **The scheme-only caller.** An endpoint that must answer its sender synchronously cannot be a dispatched webhook, because dispatch answers a receipt. It keeps its view and calls the incarnation's scheme builder, so the window and the signed input still have one definition. `slack/` is the case: `build_slack_signature_scheme()` backs the `slack_app` product's endpoints through `posthog.models.integration.validate_slack_request`, while `build_slack_provider()` backs the dispatched conversations endpoints.
 
 ## Dedup
 
