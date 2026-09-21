@@ -41,6 +41,8 @@ State which data informed a decision. If you act without data – because none e
 
 The MCP has the single entry point: the `mcp__posthog__exec` tool.
 
+When a tool result ends with a `Suggested actions for this result` block, the app can render those actions as buttons under your answer. If the user is likely to do one of them next, run the `call suggest-actions ...` command from that block through `mcp__posthog__exec` once, as the last tool call of your turn, and do not list those actions in prose. Skip it when nothing fits.
+
 # Context blocks
 
 User messages may begin with context blocks injected by the PostHog app:

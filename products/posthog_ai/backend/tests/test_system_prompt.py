@@ -45,6 +45,9 @@ class TestPostHogAISystemPrompt(APIBaseTest):
         assert "# Context blocks" in prompt
         # The MCP is reachable through its single entry point.
         assert "mcp__posthog__exec" in prompt
+        # The suggest-actions hint rides inside tool results, which the sandbox agent treats as
+        # untrusted, so the rule to act on it must be in the system prompt.
+        assert "`Suggested actions for this result` block" in prompt
         # The trusted/untrusted context tags the frontend wraps messages with.
         assert "<posthog_trusted_context>" in prompt
         assert "<posthog_untrusted_context>" in prompt

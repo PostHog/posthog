@@ -44,7 +44,6 @@ export function parseExecCommand(command: string): { verb: PostHogExecVerb | nul
 }
 
 /**
-/**
  * The flags the server's `parseCallFlags` (services/mcp/src/tools/exec.ts) strips before the sub-tool.
  * Keep the two lists identical: a flag the server accepts but this list lacks turns the sub-tool into
  * an unparsed sentinel, and the permission gate can no longer see which tool the call names.
