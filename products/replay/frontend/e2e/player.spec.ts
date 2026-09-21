@@ -1,5 +1,5 @@
 import { PlaywrightWorkspaceSetupResult, expect, test } from '@playwright-utils/workspace-test-base'
-import { Frame, Locator, Page } from '@playwright/test'
+import { Locator, Page } from '@playwright/test'
 import snappy from 'snappyjs'
 
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
@@ -175,12 +175,8 @@ function playerFrame(page: Page): Locator {
     return page.frameLocator('iframe.PlayerFrame__document').locator('.PlayerFrame__content .replayer-wrapper iframe')
 }
 
-function playerFrameDocument(page: Page): Frame {
-    return page.frame({ url: /replay_player_frame/ })!
-}
-
 function clickFlashCount(page: Page): Promise<number> {
-    return playerFrameDocument(page).evaluate(() => (window as any).__clickFlashes ?? 0)
+    return page.evaluate(() => (window as any).__clickFlashes ?? 0)
 }
 
 // One button whose data-attr reflects player state and stays assertable while the auto-hiding controls chrome is hidden (hover via revealControls before clicking it).
@@ -326,14 +322,22 @@ test.describe('Session replay player', () => {
         await page.goto(`/replay/${SESSION_ID}?t=0`)
         await expect(playerFrame(page)).toBeVisible({ timeout: 30000 })
 
-        const frameDocument = playerFrameDocument(page)
-        await frameDocument.locator('.replayer-mouse').waitFor({ timeout: 30000 })
-        await frameDocument.evaluate(() => {
-            const win = window as any
-            win.__clickFlashes = 0
-            document.querySelector('.replayer-mouse')!.addEventListener('animationend', () => {
-                win.__clickFlashes += 1
-            })
+        // The player frame is sandboxed without allow-scripts, so a listener registered inside it
+        // never runs. Register from this document, which is where the player itself drives the
+        // cursor. Capturing on the frame document also outlives the cursor a seek can rebuild.
+        await page.evaluate(() => {
+            const frameDocument = (document.querySelector('iframe.PlayerFrame__document') as HTMLIFrameElement)
+                .contentDocument!
+            ;(window as any).__clickFlashes = 0
+            frameDocument.addEventListener(
+                'animationend',
+                (event) => {
+                    if ((event.target as HTMLElement).classList?.contains('replayer-mouse')) {
+                        ;(window as any).__clickFlashes += 1
+                    }
+                },
+                true
+            )
         })
 
         // Playback autostarts, so the clicks can pass before the listener attaches. Seeking back
