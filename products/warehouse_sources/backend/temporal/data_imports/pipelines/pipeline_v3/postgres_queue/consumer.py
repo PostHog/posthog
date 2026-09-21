@@ -57,6 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     BLOCKED_BATCHES,
     CLAIMABLE_BATCHES,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
+    ORPHANED_BATCHES_DRAINED_TOTAL,
     RUNS_RECONCILED_TOTAL,
     RUNS_TERMINALIZED_STALE_TOTAL,
     observe_queue_query,
@@ -94,6 +95,10 @@ STRANDED_RUN_ERROR = (
     "This sync run stopped before it finished, so it did not complete. "
     "The next scheduled sync retries automatically. No action is needed."
 )
+
+# Stamped on batches retired by the orphan drain. Their run already failed and the customer has
+# already seen that failure on the job, so this text only has to explain the batch rows themselves.
+ORPHANED_BATCH_ERROR = "left over from a run that had already failed (orphan drain)"
 
 
 # Permanent failures the customer can fix. These stop the schedule as well as the run: the loader
@@ -439,6 +444,21 @@ class DeltaBatchConsumerAdapter:
                 )
             await self._release_run_lock(ref)
 
+        # The pass above is newest-first inside a lookback, so a run whose failure ages out of the
+        # window keeps its leftover batches forever. Drain those oldest-first here, on the same
+        # cadence and connection. Isolated so its failure can't take the sweep down.
+        try:
+            await self._drain_orphaned_batches(conn, limit=limit)
+        except psycopg.OperationalError as e:
+            if conn.closed:
+                logger.warning("orphaned_batch_drain_closed_connection", error=str(e))
+            else:
+                logger.exception("orphaned_batch_drain_failed")
+                capture_exception(e)
+        except Exception as e:
+            logger.exception("orphaned_batch_drain_failed")
+            capture_exception(e)
+
         # Runs the loader abandoned leave no 'failed' batch for get_failed_runs to key on, so sweep
         # them on the same cadence and connection. Isolated so its failure can't take the sweep down.
         try:
@@ -454,6 +474,32 @@ class DeltaBatchConsumerAdapter:
         except Exception as e:
             logger.exception("stranded_run_reconcile_sweep_failed")
             capture_exception(e)
+
+    async def _drain_orphaned_batches(self, conn: psycopg.AsyncConnection[Any], *, limit: int) -> None:
+        """Terminalize the leftovers of runs the newest-first reconcile pass never reached.
+
+        Their job is already terminal, so there is nothing to reconcile in the
+        app DB and no lock left to release — only queue rows to retire. Returns
+        nothing to sweep in a healthy fleet.
+        """
+        orphaned = await BatchQueue.get_runs_with_orphaned_batches(conn, limit=limit)
+        for ref in orphaned:
+            drained = await BatchQueue.fail_run(
+                conn,
+                run_uuid=ref.run_uuid,
+                team_id=ref.team_id,
+                schema_id=ref.schema_id,
+                reason=ORPHANED_BATCH_ERROR,
+            )
+            if drained:
+                ORPHANED_BATCHES_DRAINED_TOTAL.inc(drained)
+                logger.warning(
+                    "drained_orphaned_batches",
+                    run_uuid=ref.run_uuid,
+                    team_id=ref.team_id,
+                    external_data_schema_id=ref.schema_id,
+                    batch_count=drained,
+                )
 
     async def _sweep_straggler_batches(self, conn: psycopg.AsyncConnection[Any], ref: FailedRunRef) -> None:
         """Terminalize batches enqueued into a run that ``fail_run`` had already swept.

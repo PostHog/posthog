@@ -77,6 +77,13 @@ RUNS_RECONCILED_TOTAL = Counter(
     "was reconciled to Failed by the reconcile sweep",
 )
 
+ORPHANED_BATCHES_DRAINED_TOTAL = Counter(
+    "warehouse_pg_consumer_orphaned_batches_drained_total",
+    "Non-terminal batches retired because their run had already failed and the newest-first "
+    "reconcile pass never reached it. Pairs with warehouse_pg_queue_blocked_batches: that gauge "
+    "is the standing population, this counter is the drain rate.",
+)
+
 RUNS_TERMINALIZED_STALE_TOTAL = Counter(
     "warehouse_pg_consumer_runs_terminalized_stale_total",
     "Runs the loader abandoned (non-terminal batches, no live lease, no progress past the "

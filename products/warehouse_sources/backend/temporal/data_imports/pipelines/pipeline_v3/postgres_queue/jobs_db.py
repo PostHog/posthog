@@ -577,6 +577,20 @@ class StrandedRunRef:
 
 
 @dataclass(frozen=True, slots=True)
+class OrphanedRunRef:
+    """A run holding a ``failed`` batch that still has non-terminal batches behind it.
+
+    Carries no ``job_id``: the job is already terminal by the time a run reaches
+    this state, so the only work left is terminalizing the queue rows.
+    """
+
+    run_uuid: str
+    team_id: int
+    schema_id: str
+    non_terminal_batches: int
+
+
+@dataclass(frozen=True, slots=True)
 class RunActivitySummary:
     """Queue DB activity for a holder's run, used by the lock takeover decision matrix."""
 
@@ -1294,6 +1308,76 @@ class BatchQueue:
                 schema_id=row["schema_id"],
                 workflow_run_id=(row["metadata"] or {}).get("workflow_run_id"),
                 reason=(row["error_response"] or {}).get("error"),
+            )
+            for row in rows
+        ]
+
+    @staticmethod
+    async def get_runs_with_orphaned_batches(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        limit: int,
+    ) -> list[OrphanedRunRef]:
+        """Runs that hold a ``failed`` batch and still have non-terminal batches behind it.
+
+        Those batches are stuck in both directions: the claim query refuses any
+        run with a failed batch, and the stranded sweep excludes the same runs
+        because ``get_failed_runs`` is supposed to own them. It cannot reach all
+        of them. It is ``ORDER BY failed_at DESC LIMIT n`` inside a lookback,
+        with no gate for runs it has already swept, so every sweep re-picks the
+        same newest runs; once a failure ages past the lookback its leftovers
+        are unreachable until the retention prune, days later.
+
+        This pass closes that gap and cannot starve: oldest-first, and a run
+        leaves the set as soon as its batches go terminal. Normally it returns
+        nothing — the set is non-empty only when the newest-first pass has
+        fallen behind.
+
+        Shaped like :func:`_stranded_candidate_runs_sql`: aggregate the bounded
+        non-terminal scan into runs first, then one ``sb_run_gate_idx`` probe
+        per candidate run. Gating the raw batch rows instead turns the failed
+        probe into a hash anti-join whose hash side is every failed batch in the
+        window, which is exactly the shape that melted down under a failure
+        storm.
+        """
+        async with conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                f"""
+                WITH stuck_runs AS (
+                    SELECT
+                        b.run_uuid,
+                        b.team_id,
+                        b.schema_id,
+                        MIN(b.created_at) AS oldest_created_at,
+                        count(*) AS non_terminal_batches
+                    FROM {BATCH_TABLE} b
+                    WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                      AND b.latest_state IN ('pending', 'waiting', 'waiting_retry', 'executing')
+                    GROUP BY b.run_uuid, b.team_id, b.schema_id
+                )
+                SELECT r.run_uuid, r.team_id, r.schema_id, r.non_terminal_batches
+                FROM stuck_runs r
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM {BATCH_TABLE} bf
+                    WHERE bf.run_uuid = r.run_uuid
+                      AND bf.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                      AND bf.latest_state = 'failed'
+                    OFFSET 0
+                )
+                ORDER BY r.oldest_created_at ASC
+                LIMIT %(limit)s
+                """,
+                {"limit": limit},
+            )
+            rows = await cur.fetchall()
+
+        return [
+            OrphanedRunRef(
+                run_uuid=row["run_uuid"],
+                team_id=row["team_id"],
+                schema_id=row["schema_id"],
+                non_terminal_batches=row["non_terminal_batches"],
             )
             for row in rows
         ]

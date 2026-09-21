@@ -1041,6 +1041,65 @@ class TestGetRunActivitySummary:
 
 
 @pytest.mark.django_db(transaction=True)
+class TestGetRunsWithOrphanedBatches:
+    """The orphan drain: runs holding a failed batch that still have non-terminal batches behind it."""
+
+    @pytest.mark.asyncio
+    async def test_returns_nothing_when_no_run_has_failed(self, conn):
+        await _insert_batch(conn, run_uuid="run-live", batch_index=0)
+
+        assert await BatchQueue.get_runs_with_orphaned_batches(conn, limit=10) == []
+
+    @pytest.mark.asyncio
+    async def test_returns_nothing_when_a_failed_run_has_no_leftovers(self, conn):
+        # fail_run already retired everything: there is nothing left to drain.
+        failed = await _insert_batch(conn, batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
+
+        assert await BatchQueue.get_runs_with_orphaned_batches(conn, limit=10) == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("leftover_state", ["pending", "waiting_retry", "executing"])
+    async def test_finds_every_non_terminal_leftover_state(self, conn, leftover_state):
+        failed = await _insert_batch(conn, batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
+        leftover = await _insert_batch(conn, batch_index=1)
+        await conn.execute(f"UPDATE {BATCH_TABLE} SET latest_state = %s WHERE id = %s", (leftover_state, leftover))
+
+        orphaned = await BatchQueue.get_runs_with_orphaned_batches(conn, limit=10)
+
+        assert [(r.run_uuid, r.non_terminal_batches) for r in orphaned] == [("run-1", 1)]
+
+    @pytest.mark.asyncio
+    async def test_oldest_run_first_so_the_limit_cannot_starve_the_backlog(self, conn):
+        # get_failed_runs is newest-first inside a lookback, which is exactly how a run's
+        # leftovers become unreachable. This pass must walk the other way.
+        for run_uuid, age_hours in (("run-new", 1), ("run-old", 48), ("run-mid", 12)):
+            failed = await _insert_batch(conn, run_uuid=run_uuid, batch_index=0)
+            await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
+            leftover = await _insert_batch(conn, run_uuid=run_uuid, batch_index=1)
+            await conn.execute(
+                f"UPDATE {BATCH_TABLE} SET created_at = now() - make_interval(hours => %s) WHERE id = %s",
+                (age_hours, leftover),
+            )
+
+        orphaned = await BatchQueue.get_runs_with_orphaned_batches(conn, limit=2)
+
+        assert [r.run_uuid for r in orphaned] == ["run-old", "run-mid"]
+
+    @pytest.mark.asyncio
+    async def test_another_runs_failure_does_not_pull_in_a_healthy_run(self, conn):
+        failed = await _insert_batch(conn, run_uuid="run-dead", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
+        await _insert_batch(conn, run_uuid="run-dead", batch_index=1)
+        await _insert_batch(conn, run_uuid="run-live", batch_index=0)
+
+        orphaned = await BatchQueue.get_runs_with_orphaned_batches(conn, limit=10)
+
+        assert [r.run_uuid for r in orphaned] == ["run-dead"]
+
+
+@pytest.mark.django_db(transaction=True)
 class TestGetStaleStrandedRuns:
     """The abandoned-run query: non-terminal batches, no live lease, no loader progress past the threshold."""
 
