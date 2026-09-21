@@ -1469,7 +1469,11 @@ class CSPMiddleware:
 
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
             csp_parts = [
-                "default-src 'self'",
+                # Firefox checks <link rel="modulepreload"> against default-src instead of script-src,
+                # so without the static host it refuses the preloads index.html emits for the boot
+                # chain. The fetch directives below each set their own sources, so only a load a
+                # browser cannot map to one of them falls back to this list.
+                f"default-src 'self' {resource_url}",
                 f"style-src 'self' 'unsafe-inline' {resource_url} https://fonts.googleapis.com",
                 # 'wasm-unsafe-eval' permits WebAssembly compilation and nothing else. It is not
                 # 'unsafe-eval': it does not permit eval() or the Function constructor. Compiling a
