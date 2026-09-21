@@ -26,6 +26,7 @@
 <!-- Don't recite pass counts for suites CI runs; the checks report those with more authority. Link the evidence instead (run, permalink, error tracking issue), and say what you did not check. Long transcripts go in a <details> block. -->
 
 👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._
+
 ## Release status
 
 <!-- Select exactly one. Agents must inspect the changed code for feature flag checks before choosing. -->
@@ -33,7 +34,6 @@
 - [ ] No feature flag controls this change <!-- release-status: no-feature-flag -->
 - [ ] This change is behind a feature flag and is not available to users <!-- release-status: behind-feature-flag -->
 - [ ] This change makes a previously flagged feature available to everyone <!-- release-status: fully-available -->
-
 
 ## Automatic notifications
 
