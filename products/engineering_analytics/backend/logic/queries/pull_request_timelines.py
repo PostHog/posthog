@@ -25,7 +25,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PullRequestTimelines,
     RepoRef,
 )
-from products.engineering_analytics.backend.logic.delivery_scope import DeliveryScope
+from products.engineering_analytics.backend.logic.delivery_scope import CI_LOOKBACK, DeliveryScope
 from products.engineering_analytics.backend.logic.merge_queue import gate_attempt_expr
 from products.engineering_analytics.backend.logic.pr_timeline import (
     GateAttempt,
@@ -43,7 +43,6 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     run_started_floor_constant,
     run_windowed_job_created_floor_constant,
 )
-from products.engineering_analytics.backend.logic.queries.delivery_summary import CI_LOOKBACK
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_costs_since
 from products.engineering_analytics.backend.logic.views import issue_events
 
@@ -289,7 +288,7 @@ class PullRequestTimelinesQuery:
             date_to_clause = "AND pr.merged_at <= {date_to}"
         window = "1 = 1" if self._scope.kind == DeliveryScopeKind.PULL_REQUEST else _LIST_WINDOW
         sql = (
-            _PRS_SELECT.replace("__SCOPE__", self._scope.pr_predicate(members_source=self._curated.members_source()))
+            _PRS_SELECT.replace("__SCOPE__", self._scope.pr_predicate(self._curated))
             .replace("__WINDOW__", window)
             .replace("__PR_SOURCE__", self._curated.pr_source())
             .replace("__DATE_TO__", date_to_clause)

@@ -30,7 +30,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     ScopeRepoFigure,
 )
 from products.engineering_analytics.backend.logic.cost import PRCostAggregate
-from products.engineering_analytics.backend.logic.delivery_scope import DeliveryScope
+from products.engineering_analytics.backend.logic.delivery_scope import CI_LOOKBACK, DeliveryScope, SummaryScope
 from products.engineering_analytics.backend.logic.merge_queue import GATE_RUN_LOOKBACK, gate_attempt_expr
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
@@ -41,10 +41,6 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
 from products.engineering_analytics.backend.logic.queries.dora import DeployedPR, query_deployed_prs
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_costs_since
 from products.engineering_analytics.backend.logic.views.reviews import APPROVED_STATE
-
-# How far before the window a merged PR's CI is still counted. A PR merged in the window usually
-# ran its CI days before; older runs are left out so the runs and jobs scans stay bounded.
-CI_LOOKBACK = timedelta(days=30)
 
 _MERGED_SELECT = f"""
     SELECT
@@ -324,7 +320,7 @@ class DeliverySummaryAggregator:
 def _lead_time(
     curated: CuratedGitHubSource,
     *,
-    scope: DeliveryScope,
+    scope: SummaryScope,
     date_from: datetime,
     date_to: datetime | None,
     scope_merged_count: int,
@@ -333,7 +329,7 @@ def _lead_time(
         curated=curated,
         date_from=date_from,
         date_to=date_to,
-        scope_predicate=scope.pr_predicate(members_source=curated.members_source(), prefix=""),
+        scope_predicate=scope.pr_predicate(curated, prefix=""),
         scope_placeholders=scope.placeholders(),
     )
     empty = duration_distribution([])
@@ -397,7 +393,7 @@ def _query_merged_rows(
         date_to_clause = "AND pr.merged_at <= {date_to}"
     ready = curated.ready_to_merge_sql()
     sql = ready.with_clause + (
-        _MERGED_SELECT.replace("__SCOPE__", scope.pr_predicate(members_source=curated.members_source()))
+        _MERGED_SELECT.replace("__SCOPE__", scope.pr_predicate(curated))
         .replace("__READY_TO_MERGE__", ready.expr)
         .replace("__READY_JOIN__", ready.join)
         .replace("__DATE_TO__", date_to_clause)
@@ -464,7 +460,7 @@ def query_ready_to_merge_facts(
 
 
 def _query_merged_facts(
-    curated: CuratedGitHubSource, *, scope: DeliveryScope, date_from: datetime, date_to: datetime | None
+    curated: CuratedGitHubSource, *, scope: SummaryScope, date_from: datetime, date_to: datetime | None
 ) -> list[MergedPRFacts]:
     rows = _query_merged_rows(curated, scope=scope, date_from=date_from, date_to=date_to)
     pr_numbers = sorted({row.number for row in rows})
@@ -519,7 +515,7 @@ def _query_merged_facts(
 
 
 def query_delivery_summary(
-    *, curated: CuratedGitHubSource, scope: DeliveryScope, date_from: datetime, date_to: datetime | None
+    *, curated: CuratedGitHubSource, scope: SummaryScope, date_from: datetime, date_to: datetime | None
 ) -> DeliverySummary:
     facts = _query_merged_facts(curated, scope=scope, date_from=date_from, date_to=date_to)
     aggregator = DeliverySummaryAggregator(facts)
@@ -531,7 +527,7 @@ def query_delivery_summary(
         placeholders["date_to"] = ast.Constant(value=date_to)
         date_to_clause = "AND pr.created_at <= {date_to}"
     counts = curated.run(
-        _SCOPE_COUNTS_SELECT.replace("__SCOPE__", scope.pr_predicate(members_source=curated.members_source()))
+        _SCOPE_COUNTS_SELECT.replace("__SCOPE__", scope.pr_predicate(curated))
         .replace("__DATE_TO__", date_to_clause)
         .replace("__PR_SOURCE__", curated.pr_source()),
         query_type="engineering_analytics.delivery_summary_counts",
