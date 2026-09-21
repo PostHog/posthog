@@ -117,6 +117,18 @@ describe('trace redaction', () => {
         expect(debugData.$ai_model).toBe('gpt-4')
     })
 
+    it.each([[[{ authorization: 'Bearer invented-token-value' }]], ['Bearer invented-token-value']])(
+        'withholds a raw-event snapshot that is not a property bag: %s',
+        (sent) => {
+            const { results } = redactTraceResults([traceWithProperties({ $ai_debug_data: sent })]) as any
+            const properties = results[0].events[0].properties
+
+            expect(JSON.stringify(results)).not.toContain('invented-token-value')
+            expect(properties).not.toHaveProperty('$ai_debug_data')
+            expect(properties._redactedKeys).toContain('$ai_debug_data')
+        }
+    )
+
     it('redacts the person properties a trace carries, not only its events', () => {
         const { results } = redactTraceResults([
             {

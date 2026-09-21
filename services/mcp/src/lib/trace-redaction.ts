@@ -72,6 +72,12 @@ export function redactTraceResults(results: unknown): RedactedTraceResults {
                 continue
             }
             if (key === RAW_EVENT_SNAPSHOT_KEY) {
+                // Anything but a bag of properties is withheld whole: the filter has no
+                // rule for it, and the snapshot is a bag on every path that writes one.
+                if (!isRecord(value)) {
+                    withheld.push(key)
+                    continue
+                }
                 assignKey(kept, key, redactProperties(value))
                 continue
             }
