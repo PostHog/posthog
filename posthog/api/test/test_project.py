@@ -236,6 +236,32 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         ]
         self.organization.save()
 
+    def test_project_creation_drops_ai_context_account_property_ids(self):
+        self._set_unlimited_projects()
+        from products.customer_analytics.backend.facade.testing import create_custom_property_definition
+
+        definition = create_custom_property_definition(team_id=self.team.id, name="Plan", target_type="account")
+
+        created = self.client.post(
+            "/api/projects/",
+            {
+                "name": "Fresh",
+                "conversations_settings": {"ai_context_account_property_ids": [str(definition.id)]},
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        # The new project's team owns no property definition, so an id borrowed from another
+        # team must not survive creation.
+        assert created.json()["conversations_settings"]["ai_context_account_property_ids"] == []
+
+        malformed = self.client.post(
+            "/api/projects/",
+            {"name": "Malformed", "conversations_settings": {"ai_context_account_property_ids": ["not-a-uuid"]}},
+            format="json",
+        )
+        assert malformed.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_project_creation_rejects_paid_logs_retention_without_feature(self):
         self._set_unlimited_projects()
 
