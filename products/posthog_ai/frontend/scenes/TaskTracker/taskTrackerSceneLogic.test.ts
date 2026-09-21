@@ -453,6 +453,34 @@ describe('taskTrackerSceneLogic', () => {
         }
     )
 
+    // A billing gate on the create path cleared the optimistic thread with no message, so the composer
+    // looked like it had ignored the send.
+    it('explains an AI credit limit and keeps the draft', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/': () => [
+                    402,
+                    {
+                        code: 'quota_limit_exceeded',
+                        detail: 'Your organization reached its billing limit for this resource.',
+                    },
+                ],
+            },
+        })
+        const toast = jest.spyOn(lemonToast, 'error')
+        logic.mount()
+        logic.actions.setNewTaskData({ description: 'Explain this insight' })
+        await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+        expect(toast).toHaveBeenCalledWith(
+            'Your organization reached its AI credit usage limit. Raise the limit in billing, or ask an organization admin to do it.',
+            expect.objectContaining({ button: expect.objectContaining({ label: 'Go to billing' }) })
+        )
+        expect(logic.values.activeCreation).toBeNull()
+        expect(logic.values.newTaskData.description).toBe('Explain this insight')
+        toast.mockRestore()
+    })
+
     // The seeded first message wraps the on-screen context, and the wrapped non-text refs must be marked
     // sent under the created task's id — otherwise the run's first follow-up (sent via
     // `runInteractionLogic`, which prunes against the task-scoped store) re-wraps the same refs.
