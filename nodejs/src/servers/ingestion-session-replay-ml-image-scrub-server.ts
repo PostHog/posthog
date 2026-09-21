@@ -108,7 +108,6 @@ export class IngestionSessionReplayMlImageScrubServer extends MlMirrorConsumerSe
                 scrubConcurrency: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY,
                 dedupMaxRefs: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_DEDUP_MAX_REFS,
             },
-            Date.now(),
             deadLetters,
             this.keyManager
         )
@@ -122,12 +121,11 @@ export class IngestionSessionReplayMlImageScrubServer extends MlMirrorConsumerSe
             id: 'session-replay-ml-image-scrub',
             // batcher.stop() first: disconnect() waits on the running batch, and a batch waiting on an
             // unresponsive sidecar never returns, so without the interrupt a graceful stop runs to the
-            // termination grace period and ends in a SIGKILL. Then disconnect() stops the poll loop and
-            // commits stored offsets. The un-flushed buffer's offsets were never stored, so those
-            // messages just replay on restart — a final flush here would only race the still-running
-            // loop over the shared buffer.
+            // termination grace period and ends in a SIGKILL. stop() also waits for the write lane, so
+            // the offsets of every written image are stored before disconnect() stops the poll loop
+            // and commits them. Whatever was still scrubbing was never stored and replays on restart.
             onShutdown: async () => {
-                batcher.stop()
+                await batcher.stop()
                 await consumer.disconnect()
             },
             healthcheck: () => consumer.isHealthy(),
