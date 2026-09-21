@@ -5,6 +5,7 @@ name: Privileged Depot backend controls
 # nosemgrep: semgrep.rules.github-actions-pull-request-target
 on:
     pull_request_target:
+        branches: [master]
         types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:

@@ -134,6 +134,11 @@ function requiredGate(wf: Workflow, cwd: string, context: Context): SpawnSyncRet
 }
 
 describe('Backend CI comparison boundaries', () => {
+    it('restricts privileged backend updates to master', () => {
+        const privileged = loadWorkflow(path.join(REPO_ROOT, '.depot/workflows/ci-backend-privileged.yml'))
+        expect(privileged.on).toMatchObject({ pull_request_target: { branches: ['master'] } })
+    })
+
     it.each(WORKFLOWS)('%s selects a stack layer without counting newer trunk files', (file) => {
         const repo = createGraph()
         try {
