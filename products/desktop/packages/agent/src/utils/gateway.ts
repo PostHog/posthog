@@ -1,4 +1,4 @@
-import { getCloudTaskGatewayUrl } from "@posthog/shared";
+import { getCloudTaskGatewayUrl } from "@posthog/agent-contracts";
 
 export type GatewayProduct =
   | "posthog_code"

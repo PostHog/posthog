@@ -1,5 +1,5 @@
 import * as fs from "node:fs/promises";
-import { Saga } from "@posthog/shared";
+import { Saga } from "@posthog/agent-contracts";
 import { createGitClient } from "../client";
 import { getCleanEnv, getGitOperationManager } from "../operation-manager";
 

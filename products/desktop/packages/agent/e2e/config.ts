@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { Adapter } from "@posthog/shared";
+import type { Adapter } from "@posthog/agent-contracts";
 
 export type { Adapter };
 

@@ -3,6 +3,10 @@ import {
   type InlineExtension,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import type {
+  McpToolPermissionDecision,
+  McpToolPermissionRequest,
+} from "@posthog/agent-contracts";
 import { createHarnessRuntime, runRpcMode } from "@posthog/harness";
 import { createAutoPublishExtension } from "@posthog/harness/extensions/auto-publish";
 import { createPiContextWikiExtension } from "@posthog/harness/extensions/context-wiki";
@@ -11,10 +15,6 @@ import {
   createPiTaskSystemPromptExtension,
   resolvePiTaskContext,
 } from "@posthog/harness/extensions/task-system-prompt";
-import type {
-  McpToolPermissionDecision,
-  McpToolPermissionRequest,
-} from "@posthog/shared";
 import {
   POSTHOG_PI_QUEUE_ENTRY_TYPE,
   readPersistedPiQueue,

@@ -1,4 +1,4 @@
-import type { TaskContext } from "@posthog/shared/task-context";
+import type { TaskContext } from "@posthog/agent-contracts/task-context";
 import { buildTaskSummaryInstructions } from "./task-summary";
 
 export interface TaskPromptCapabilities {

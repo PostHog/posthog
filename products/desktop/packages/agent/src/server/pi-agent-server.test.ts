@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentConversationEvent } from "@posthog/shared";
+import type { AgentConversationEvent } from "@posthog/agent-contracts";
 import { describe, expect, it, vi } from "vitest";
 import { PiAgentServer } from "./pi-agent-server";
 import type { AgentServerConfig } from "./types";
