@@ -9,8 +9,8 @@ compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes:
   read-only analytics plus signal_scout_internal:write (scratchpad) +
   signal_scout_report:write (report channel). Assumes the signals-scout MCP tool family plus
-  execute-sql over `system.accounts` and the billing warehouse sources named in Orient, the
-  customer analytics account tools (`accounts-notebooks-list`,
+  execute-sql over `system.accounts` and the billing warehouse tables discovered at Orient, the
+  customer analytics account tools (`accounts-relationships-list`, `accounts-notebooks-list`,
   `accounts-summaries-list`), `read-data-schema`, and the inbox tools listed in the MCP tools
   section.
 allowed_tools:
@@ -38,10 +38,10 @@ Note that the `account_owner` property is NOT staking — it names the champion 
 
 **Two data planes — never confuse them:**
 
-- **Billed usage** (your target): the traffic the account's own customers generate through the account's PostHog SDKs, pre-aggregated in the billing views. This is what you score.
-- **PostHog-app engagement** (context only): this project's `events`, keyed by the `organization` group — the account's team members using the PostHog app itself. It can tell you whether humans are still logging in; it can never confirm or deny a billed-usage move, because billed traffic does not flow through this project's event stream.
+- **Billed usage** (your target): the metered volume the account is charged for, pre-aggregated in the billing tables you discover at Orient. This is what you score.
+- **In-product engagement** (context only): this project's `events`, keyed by the account group type — the account's own team members using the product. It can tell you whether humans are still logging in; it can never confirm or deny a billed-usage move, because billed volume is metered elsewhere and does not flow through this project's event stream.
 
-The linchpin is therefore the **account→billing join**: `system.accounts.external_id` must match `organization_id` in the billing views.
+The linchpin is therefore the **account→billing join**: `system.accounts.external_id` must match the billing tables' account key.
 Verify it before trusting any per-account number (see Orient).
 No join → config-gap memory, close out empty.
 
@@ -63,9 +63,9 @@ The generic report mechanics live in the harness prompt; this body carries only 
 Close out empty (after one scratchpad entry) if any of these hold:
 
 - `customer_analytics` not in the profile's `products_in_use`, or `system.accounts` is empty → `not-in-use:customer_analytics_billing_and_usage:team{team_id}`.
-- The billing views are unreachable → `pattern:customer_analytics_billing_and_usage:no-billing-source:team{team_id}`.
+- No warehouse table carries the daily per-account usage shape, or the revenue shapes are missing → `pattern:customer_analytics_billing_and_usage:no-billing-source:team{team_id}`.
   Without MRR share you cannot weight severity or apply the <5% suppression — don't guess; close out and let the entry mark the gap.
-- The roster doesn't join to billing (Orient's overlap check finds ~0 `external_id` ↔ `organization_id` matches) → `pattern:customer_analytics_billing_and_usage:billing-join-unlinked:team{team_id}`.
+- The roster doesn't join to billing (Orient's overlap check finds ~0 `external_id` ↔ account-key matches) → `pattern:customer_analytics_billing_and_usage:billing-join-unlinked:team{team_id}`.
 
 Re-running with the same key idempotently refreshes the timestamp.
 
@@ -81,18 +81,30 @@ Coverage builds across runs instead of restarting cold.
 - `scout-runs-list` (last 7d) — what prior runs scored and ruled out.
 - `scout-project-profile-get` — `products_in_use`, `top_events` for fleet context, `existing_inbox_reports`.
 - `inbox-reports-list` (`ordering=-updated_at`, `search`=account name / external_id) — your own reports persist under `source_product=signals_scout`; a live shift you've reported is an edit, not a fresh report.
-- **Verify the billing views and their account join.**
-  Three org-clustered materialized views are the billing source; all key on `organization_id`:
-  - `billing_usage_by_org_date` — one row per org per day, one typed usage column per product (`event_count_in_period`, `recording_count_in_period`, `billable_feature_flag_requests_count_in_period`, `exceptions_captured_in_period`, `survey_responses_count_in_period`, `ai_event_count_in_period`, `rows_synced_in_period`, `cdp_billable_invocations_in_period`, `rows_exported_in_period`, `ai_credits_used_in_period`, `workflow_emails_sent_in_period`, `workflow_billable_invocations_in_period`, `logs_mb_in_period`). Daily grain — the divergence scorer.
-  - `billing_invoice_line_items_by_org` — one row per org/period/product (`cleaned_description`, `amount` in cents, `period_end`). Monthly grain — the per-product MRR share. Exclude `cleaned_description LIKE 'PostHog Cloud Credit%'`.
-  - `billing_invoices_by_org` — one row per invoice (`mrr`, `type`, `credits_used`, `amount_refunded`, `period_end`); `type LIKE '%upcoming%'` is the forecast. The account-total MRR contrast.
+- **Discover the billing source, then verify its account join.**
+  The project keeps its own billing data in the warehouse under its own names, so find the tables before you score anything: list candidates with `SELECT table_name FROM system.information_schema.tables`, then read their columns from `system.information_schema.columns`.
+  You need three shapes, and all three must carry an account key you can match to `system.accounts.external_id`:
+  - **Daily per-account usage** — one row per account per day, carrying a usage measure per product, either as one typed column per product or as a product dimension plus a measure column. Daily grain — this is the divergence scorer, and the only shape the scout cannot work without.
+  - **Per-product revenue lines** — one row per account, period, and product, with an amount and a period end. Monthly grain — this gives the product's share of the account's bill. Exclude credit, discount, and adjustment lines; check the units, since amounts are often stored in cents.
+  - **Account-total revenue** — one row per account and period, with the account's total or forecast MRR. The account-total contrast that makes a mix shift visible.
 
-  Confirm the account join: `countIf(external_id IN (SELECT DISTINCT toString(organization_id) FROM billing_usage_by_org_date))` over `system.accounts`.
-  Record the verified mapping, plus the observed usage-column ↔ `cleaned_description` product pairing, as `pattern:customer_analytics_billing_and_usage:billing-source` so future runs skip rediscovery.
+  Confirm the account join before you trust a number: `countIf(external_id IN (SELECT DISTINCT toString(<account_key>) FROM <daily_usage_table>))` over `system.accounts`.
+  Record the resolved table names, the account key, and the product mapping between the usage measures and the revenue-line descriptions as `pattern:customer_analytics_billing_and_usage:billing-source` so future runs skip rediscovery.
+  Nothing in the warehouse carries these shapes → quick close-out; this scout has no other source of billed usage.
 
-- **The account grain for app-engagement context is configured, not discovered.**
-  It lives in `TeamCustomerAnalyticsConfig.account_group_type_index`; on this project that is the `organization` group type, so `system.accounts.external_id` = `$group_0` on `events`.
-  Use it only for the PostHog-app engagement context reads — never as a billed-usage source.
+- **Discover the account grain for the in-product engagement context reads.**
+  Do not assume a group-type index. Find which `$group_N` the roster keys to:
+
+  ```sql
+  SELECT countIf(external_id IN (SELECT DISTINCT $group_0 FROM events WHERE timestamp > now() - INTERVAL 30 DAY AND $group_0 != '')) AS g0,
+         countIf(external_id IN (SELECT DISTINCT $group_1 FROM events WHERE timestamp > now() - INTERVAL 30 DAY AND $group_1 != '')) AS g1,
+         countIf(external_id IN (SELECT DISTINCT $group_2 FROM events WHERE timestamp > now() - INTERVAL 30 DAY AND $group_2 != '')) AS g2,
+         count() AS total
+  FROM system.accounts WHERE external_id != ''
+  ```
+
+  The index with meaningful overlap is the account grain — record it as `pattern:customer_analytics_billing_and_usage:group-type`.
+  Use it only for the in-product engagement context reads — never as a billed-usage source.
 
 ### Profile shape — what's worth a look?
 
@@ -108,35 +120,34 @@ Coverage builds across runs instead of restarting cold.
 ### Explore
 
 Patterns to watch — starting points, not a checklist.
-All scoring queries join `system.accounts` to the billing views on `external_id` = `organization_id`.
+All scoring queries join `system.accounts` to the billing tables on `external_id` = the account key you resolved at Orient.
+The shapes below use `<daily_usage>`, `<revenue_lines>`, `<account_revenue>`, and `<account_key>` for what Orient found — substitute the project's own names and measure columns.
 
 #### Masked per-product divergence (the core scorer)
 
 Score the latest complete week per account+product against the same-weekday trailing 4-week baseline, alongside the account's total for the mask check.
-`billing_usage_by_org_date` is daily, so a same-weekday window is the latest complete week vs the median of the four prior aligned weeks (35 days of data: one scored week + four baseline weeks).
-Shape (per staked account on the watchlist; swap the column list for the full product set once the scratchpad's product map exists):
+The usage table is daily, so a same-weekday window is the latest complete week vs the median of the four prior aligned weeks (35 days of data: one scored week + four baseline weeks).
+Shape (per staked account on the watchlist; the measures below stand in for the project's own per-product columns, and a source with a product dimension instead of typed columns pivots with `sumIf(<measure>, product = '...')`):
 
 ```sql
 WITH weekly AS (
-    SELECT organization_id,
+    SELECT <account_key>,
            toStartOfWeek(date) AS wk,
-           sum(event_count_in_period) AS analytics,
-           sum(recording_count_in_period) AS replay,
-           sum(billable_feature_flag_requests_count_in_period) AS flags,
-           sum(exceptions_captured_in_period) AS errors,
-           sum(ai_event_count_in_period) AS llm
-    FROM billing_usage_by_org_date
+           sum(<product_a_measure>) AS product_a,
+           sum(<product_b_measure>) AS product_b
+           -- one measure per product the account uses, from the Orient mapping
+    FROM <daily_usage>
     WHERE date >= toStartOfWeek(today()) - INTERVAL 35 DAY
       AND date < toStartOfWeek(today())
-      AND organization_id IN ({watchlist_org_ids})
-    GROUP BY organization_id, wk
+      AND <account_key> IN ({watchlist_account_keys})
+    GROUP BY <account_key>, wk
 )
-SELECT organization_id,
-       anyIf(flags, wk = toStartOfWeek(today()) - INTERVAL 7 DAY) AS flags_current,
-       medianIf(flags, wk < toStartOfWeek(today()) - INTERVAL 7 DAY) AS flags_baseline
-       -- repeat per product column; compute each product's own pct_change in the same pass
+SELECT <account_key>,
+       anyIf(product_a, wk = toStartOfWeek(today()) - INTERVAL 7 DAY) AS product_a_current,
+       medianIf(product_a, wk < toStartOfWeek(today()) - INTERVAL 7 DAY) AS product_a_baseline
+       -- repeat per product; compute each product's own pct_change in the same pass
 FROM weekly
-GROUP BY organization_id
+GROUP BY <account_key>
 ```
 
 **Never sum raw meters across products** — events, requests, rows, credits, recordings, and MB are incompatible units, and a raw sum is just whichever meter is numerically largest.
@@ -145,29 +156,29 @@ For the money-denominated "account total flat" evidence, use the MRR contrast qu
 Then weight by MRR share from the latest complete month:
 
 ```sql
-SELECT cleaned_description,
-       sum(amount) / 100.0 AS product_mrr,
+SELECT <product_label>,
+       sum(<amount>) AS product_mrr,   -- scale to currency units if the source stores cents
        product_mrr / sum(product_mrr) OVER () AS share
-FROM billing_invoice_line_items_by_org
-WHERE organization_id = {org_id}
+FROM <revenue_lines>
+WHERE <account_key> = {account_key}
   AND period_end >= toStartOfMonth(today() - INTERVAL 1 MONTH)
-  AND cleaned_description NOT LIKE 'PostHog Cloud Credit%'
-GROUP BY cleaned_description
+  AND <product_label> NOT LIKE '%Credit%'   -- and any other credit / adjustment label the source uses
+GROUP BY <product_label>
 ```
 
 And pull the total-MRR contrast (confirmed + forecasted) for the evidence prose:
 
 ```sql
 SELECT toStartOfMonth(period_end) AS period,
-       sumIf(mrr, type NOT LIKE '%upcoming%') AS confirmed_mrr,
-       sumIf(mrr, type LIKE '%upcoming%') AS forecasted_mrr
-FROM billing_invoices_by_org
-WHERE organization_id = {org_id} AND period_end >= today() - INTERVAL 90 DAY
+       sum(<mrr>) AS total_mrr
+       -- split confirmed from forecast here when the source marks upcoming periods
+FROM <account_revenue>
+WHERE <account_key> = {account_key} AND period_end >= today() - INTERVAL 90 DAY
 GROUP BY period ORDER BY period
 ```
 
 Never score a partial window.
-Check the view's freshness first (`SELECT max(date) FROM billing_usage_by_org_date`) — aggregation lag at the window edge fakes a drop, and there is no event-stream cross-check for billed usage (see the two-planes rule).
+Check the source's freshness first (`SELECT max(date) FROM <daily_usage>`) — aggregation lag at the window edge fakes a drop, and there is no event-stream cross-check for billed usage (see the two-planes rule).
 
 #### Spike triage: adoption vs instrumentation loop
 
@@ -176,7 +187,7 @@ For an upward move, decide which story the **daily billing series** tells before
 - **Real adoption:** a gradual ramp across days, following the account's weekday/weekend rhythm; related products often tick up too, since more end-user traffic lifts several meters at once.
 - **Instrumentation loop:** a step function — flat, then N× overnight and pinned there; runs flat through weekends (machines don't rest); one product moving alone while everything else holds.
 
-PostHog-app engagement is the supporting witness, not the scorer: if the account's team activity (`$group_0`-keyed `events`) is unchanged while their billed volume doubled, nobody is rolling out a feature — lean loop.
+In-product engagement is the supporting witness, not the scorer: if the account's team activity (group-keyed `events` on the index you discovered) is unchanged while their billed volume doubled, nobody is rolling out a feature — lean loop.
 If you have access to GitHub in the sandbox (`gh`), try to correlate the spike's onset with a release or commit in the account's public repositories.
 An unexplained loop that inflates the bill is severity-ranked with drops.
 
@@ -195,7 +206,8 @@ An unexplained one files with the sweep's negative result stated — "no noteboo
 
 ### Save memory as you go
 
-- `pattern:customer_analytics_billing_and_usage:billing-source` — the billing tables, account key, product-column ↔ line-item pairing.
+- `pattern:customer_analytics_billing_and_usage:billing-source` — the resolved billing tables, the account key, and the usage-measure ↔ revenue-line product pairing.
+- `pattern:customer_analytics_billing_and_usage:group-type` — the account group-type index for the in-product engagement context reads.
 - `watchlist:customer_analytics_billing_and_usage:account:<external_id>` — staked accounts worth scoring (staked per the definition above), their product mix, `last_scored` + `next_due`.
 - `baseline:customer_analytics_billing_and_usage:account:<external_id>:product:<p>` — the learned same-weekday band (median + MAD) per pair, so re-scoring is cheap.
 - `dedupe:customer_analytics_billing_and_usage:account:<external_id>:product:<p>` — a shift already surfaced, with the re-escalation condition (further move, or recovery then relapse).
@@ -213,19 +225,9 @@ The product-mix judgment on top:
   Evidence must carry: product name, direction, current vs baseline volume, the product's share of account MRR, and the total-MRR delta for contrast.
   Attach `charts`: the product's weekly series against the account's total series, window wide enough to show the mask.
   These are account-manager conversations, not code fixes → `actionability=requires_human_input`.
-  **Route `suggested_reviewers` to the account's managers** — the users holding an _active relationship_ on the account:
-
-  ```sql
-  SELECT rel.user_id, d.name AS relationship, u.uuid AS user_uuid, u.email
-  FROM system.account_relationships AS rel
-  JOIN system.account_relationship_definitions AS d ON d.id = rel.definition_id
-  JOIN postgres.posthog_user AS u ON u.id = rel.user_id
-  JOIN system.accounts AS a ON a.id = rel.account_id
-  WHERE a.external_id = {org_id}
-    AND a.team_id = {team_id} AND rel.team_id = {team_id}
-    AND isNull(rel.ended_at) AND isNotNull(rel.user_id)
-    AND u.is_active
-  ```
+  **Route `suggested_reviewers` to the account's managers** — the users holding an _active relationship_ on the account.
+  `accounts-relationships-list` on the account id returns each active assignment with its `definition` and the assigned `user` (`id` and `email`); match that email against `scout-members-list` to get the routable `user_uuid`.
+  For a bulk sweep across accounts, `system.account_relationships` (joined to `system.account_relationship_definitions` on `definition_id`, filtered to `isNull(ended_at)`) covers the same assignments, but its `user_id` is an internal integer that does not route on its own — come back through `accounts-relationships-list` for the account you are filing on.
 
   Pass each as a reviewer entry with `user_uuid` and a `reason` naming the relationship ("active account manager on Acme").
   Never route from the account's CRM `properties` fields — `account_owner` names the champion inside the customer's own org, never a notification target; only relationship rows are PostHog-side assignments, and the emit path validates each `user_uuid` is a project member anyway.
@@ -262,16 +264,17 @@ A false "their bill is about to spike" alarm on a named account erodes an accoun
 
 Direct (read-only):
 
-- `execute-sql` — the primary scorer: `system.accounts` (roster, staking, CRM ids), the billing views from Orient, `system.account_relationships` + `system.account_relationship_definitions` + `postgres.posthog_user` (reviewer routing), and `$group_0`-keyed `events` for app-engagement context only.
+- `execute-sql` — the primary scorer: `system.accounts` (roster, staking, CRM ids), the billing tables discovered at Orient, `system.account_relationships` + `system.account_relationship_definitions` (which accounts are staked), and group-keyed `events` on the discovered index for in-product engagement context only.
+- `accounts-relationships-list` — the account's active relationship assignments, with the holder's email for reviewer routing.
 - `accounts-notebooks-list` / `accounts-notebooks-retrieve` — the account's notebooks (context sweep, recent-human-touch check).
 - `accounts-summaries-list` — the account's Slack channel summaries (context sweep).
-- `read-data-schema` — confirm event names for the app-engagement context reads before any SQL.
+- `read-data-schema` — confirm event names for the in-product engagement context reads before any SQL.
 
-Inbox & routing: `inbox-reports-list` / `inbox-reports-retrieve`, `inbox-report-artefacts-list`, `scout-members-list`.
+Inbox & routing: `inbox-reports-list` / `inbox-reports-retrieve`, `inbox-report-artefacts-list`, `scout-members-list` (resolves a relationship holder's email to a routable `user_uuid`).
 Harness-level: `scout-project-profile-get`, `scout-scratchpad-search`, `scout-runs-list`, `scout-runs-retrieve`, `scout-emit-report` / `scout-edit-report`, `scout-scratchpad-remember`, `scout-scratchpad-forget`.
 
 ## When to stop
 
-- No roster, no billing views, or a broken billing join → close out empty (after the quick-close-out memory).
+- No roster, no billing source, or a broken billing join → close out empty (after the quick-close-out memory).
 - Due watchlist pairs scored plus a couple of new ones explored → close out, even if more remain.
 - A candidate is covered by memory or an existing report → edit-or-skip with a one-line note.

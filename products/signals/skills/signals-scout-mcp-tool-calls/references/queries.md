@@ -6,7 +6,7 @@ throughout:
 - Use **only** `event = '$mcp_tool_call'` — never `IN ('$mcp_tool_call', 'mcp_tool_call')`,
   which double-counts via the transition-shim alias.
 - Filter `properties.$mcp_source = 'posthog_mcp_analytics'` — keeps SDK-instrumented events
-  (both PostHog's hono server and external customer servers), excludes pre-SDK legacy events.
+  (both PostHog's first-party MCP server and other servers using the SDK), excludes pre-SDK legacy events.
   If a project's counts look suspiciously low, re-run the coverage probe without this filter
   to check for legacy-only instrumentation.
 - Effective tool name (always use this — unwraps the single-exec `exec` dispatcher):
@@ -20,7 +20,7 @@ throughout:
   group showed as absent). Two formulations tested consistent and are the only ones to use:
   - **Classified failures (positive membership):**
     `toString(properties.$mcp_error_type) IN ('internal', 'validation', 'api_4xx', 'api_5xx', 'permission', 'timeout', 'rate_limited', 'missing_context')`.
-    In the hono regime the classified share can be a few percent.
+    In the first-party regime the classified share can be a few percent.
   - **Unclassified failures:** compute by **subtraction**, not `NOT IN` (which mishandles the absent
     value): `countIf(toBool($mcp_is_error)) - countIf(toBool($mcp_is_error) AND <the IN whitelist>)`.
     The remainder are tool-result errors (handler returned `{isError:true}` without a class) — ~96% here.
@@ -31,7 +31,7 @@ throughout:
   `''` to Float64). Read them with `toFloat(...)`.
 - The `$mcp_exec_tool_call_name` fallback is genuinely empty/NULL when absent, so the coalesce above is
   correct as written.
-- **`$mcp_error_message` does not exist in the hono regime** — it's an external-SDK-only field.
+- **`$mcp_error_message` does not exist in the first-party regime** — it's an external-SDK-only field.
   Referencing it there yields a taxonomy warning and empty results, not an error.
 - **Category derivation:** never group rows directly by `properties.$mcp_tool_category` (some rows
   for a tool lack it — notably exec-routed calls captured before dispatch attribution). Derive per-tool
@@ -72,7 +72,7 @@ WHERE event = '$mcp_tool_call'
 
 Read the result:
 
-- `pct_failures_classified` high → **hono regime with useful classes**: use query 3a. But don't assume
+- `pct_failures_classified` high → **first-party regime with useful classes**: use query 3a. But don't assume
   this is high just because the project is in that regime — most `$mcp_is_error` failures are _tool-result_
   errors (the handler returned `{isError:true}` gracefully) which never get classified, so `error_type`
   stays `'None'`, and the classified share can be a few percent. When
@@ -87,7 +87,7 @@ Read the result:
   errors) carry no category, so don't expect 100% and don't read ~70% as "coverage is broken".
   ~0 → external-SDK regime, fall back to the
   per-tool report grain.
-- `pct_with_intent` ≥ ~20 → intent lens (query 5) is worth running. (In the hono regime it is usually near 100%.)
+- `pct_with_intent` ≥ ~20 → intent lens (query 5) is worth running. (In the first-party regime it is usually near 100%.)
 - `distinct_clients` > 1 → the per-client split (query 6) can localize a client-specific break.
 
 ---
@@ -219,7 +219,7 @@ LIMIT 15
 ## 4. Latency leaderboard (Tier-1 — always available)
 
 Slow tools need improvement even at 0% error rate; sustained high p95 also drives `timeout`
-failures in the hono regime.
+failures in the first-party regime.
 
 ```sql
 SELECT
@@ -283,7 +283,7 @@ HAVING calls >= 20
 ORDER BY error_rate_pct DESC
 ```
 
-In the hono regime you can additionally split by `properties.$mcp_mode` (`'cli'` = single-exec,
+In the first-party regime you can additionally split by `properties.$mcp_mode` (`'cli'` = single-exec,
 `'tools'` = multi-tool): a tool that fails only in `cli` mode points at the `exec`-wrapper
 schema rather than the tool itself.
 
@@ -291,7 +291,7 @@ schema rather than the tool itself.
 
 Tools that fail materially but carry no diagnosable detail — the improvement is to add error
 instrumentation (or a clearer returned-error message) so failures become debuggable. The
-"no detail" marker is `error_type IN ('', 'None')` **and** no message — in the hono regime
+"no detail" marker is `error_type IN ('', 'None')` **and** no message — in the first-party regime
 this is usually the _majority_ of failures (tool-result errors), so tune the ratio/floor to surface the
 worst offenders rather than every tool.
 
@@ -319,7 +319,7 @@ is populated (external-SDK regime), subtract those too or lower the ratio.
 
 Tools that return oversized responses bloat agent context — a pagination/summarization
 improvement. Token fields are the bare keys `input_tokens` / `output_tokens` (no `$` prefix),
-and are estimates, hono-only.
+and are estimates, first-party only.
 
 ```sql
 SELECT

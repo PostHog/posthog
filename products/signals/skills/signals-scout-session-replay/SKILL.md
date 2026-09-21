@@ -9,8 +9,8 @@ compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the session-replay tools in
   the MCP tools section (execute-sql over raw_session_replay_events / session_replay_features /
-  events, read-data-schema, advanced-activity-logs-list, query-session-recordings-list, the
-  feature-gated heatmaps and replay vision tools).
+  events, read-data-schema, advanced-activity-logs-list, query-session-recordings-list, plus
+  the heatmaps and replay vision tools when the run's toolset carries them).
 allowed_tools:
   - emit_report
   - edit_report
@@ -255,7 +255,7 @@ Compare each URL against its own prior-13-day rate (same query, earlier window) 
 
 #### Replay vision watch layer
 
-Replay vision scanners (LLM probes the team configures over recordings) write their results to the events stream, so **SQL is the primary route** — it works even where the `vision-*` MCP tools aren't registered. Discover the roster and its pulse in one read:
+Replay vision scanners (LLM probes the team configures over recordings) write their results to the events stream, so **SQL is the primary route** — it works whether or not the `vision-*` MCP tools are in your toolset. Discover the roster and its pulse in one read:
 
 ```sql
 SELECT properties.scanner_name AS scanner, properties.scanner_type AS type,
@@ -342,7 +342,7 @@ Direct calls (read-only):
 - `query-session-recordings-list` — resolve `$session_id`s to watchable recordings (pass `session_ids` + a matching `date_from`); order by `console_error_count` or `activity_score` when shortlisting.
 - `session-recording-get` — one recording's metadata for a finding's example links.
 - `heatmaps-list` / `heatmaps-events` — spatial corroboration for a cluster.
-- `vision-scanners-list` / `vision-scanners-observations-list` / `vision-observations-list` / `vision-quota-retrieve` — scanner config, observation health, and quota. Feature-gated and often absent even where replay vision is in use — lead with `$recording_observed` SQL; these are the optional mechanism-confirmation layer.
+- `vision-scanners-list` / `vision-scanners-observations-list` / `vision-observations-list` / `vision-quota-retrieve` — scanner config, observation health, and quota. Optional: read your toolset at run time and use them only when they are there. Lead with `$recording_observed` SQL either way; these are the mechanism-confirmation layer on top of it.
 - `advanced-activity-logs-list` (`scopes: ["Team"]` + `start_date`/`end_date`) — dating recording-config changes against capture cliffs.
 - `read-data-schema` — confirm `$rageclick` / `$dead_click` / replay SDK properties exist before aggregating. Inbox & reviewer routing (mechanics in `authoring-scouts` → `references/report-contract.md`):
 

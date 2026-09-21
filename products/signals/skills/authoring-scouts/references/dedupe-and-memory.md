@@ -86,9 +86,9 @@ These are noise across essentially all PostHog projects — list the relevant on
   Almost always a personal browser quirk.
 - **Dev-environment bursts** — high counts whose `service` / `properties.env` is `dev` / `local` / `test`.
   Filter before weighing.
-- **Sandbox-internal errors** — Docker `TimeoutExpired`, sandbox sync failures, `agentsh` errors.
-  Internal harness operations, not user-facing.
-- **Single-session frontend state quirks** — e.g. KEA store-path errors; not user-impacting unless distinct-user counts climb.
+- **Exceptions the project's own tooling raises** — build, test, deploy, and agent tooling the team runs itself.
+  Read the project's own error inventory to learn which those are; internal operations are not something a user experienced.
+- **Single-session frontend state quirks** — a state-management or router error seen in one session; not user-impacting unless distinct-user counts climb.
 - **Known upstream provider errors** — Anthropic / OpenAI rate limits, third-party outages already covered by past memory.
   Don't re-file unless volume or shape changes meaningfully.
 
