@@ -46,7 +46,8 @@
             "maxItems": 8,
             "uniqueItems": true,
             "items": { "type": "string", "minLength": 1, "not": { "pattern": "[/\\\\]|^\\.{1,2}$|^owners\\.yaml$" } },
-            "description": "Repository settings: other bare file names that count as ownership files."
+            "default": ["product.yaml"],
+            "description": "Repository settings: other bare file names that count as ownership files. Undeclared means [product.yaml]; a declared list replaces that default, and [] turns alias files off."
         },
         "codeowners": {
             "type": "object",

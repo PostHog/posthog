@@ -378,7 +378,8 @@ class OwnersResolver:
         return self._teams_cache
 
     def settings(self) -> RepoSettings:
-        """Repo-wide settings from the root ``owners.yaml``. Defaults when there is no root file."""
+        """Repo-wide settings from the root ``owners.yaml``. Defaults when there is no root file,
+        so a repo without one still reads the default alias files."""
         root = self._load_dir_file("")
         return root.settings if root is not None else RepoSettings()
 

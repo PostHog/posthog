@@ -25,7 +25,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 1. An ownership file applies to the directory that contains it and to everything below that directory.
 2. A directory MUST NOT contain more than one ownership file.
-3. A tool MUST read only the file named `owners.yaml` and the alias files the root file declares (section 6). It MUST NOT read other file names as ownership files.
+3. A tool MUST read only the file named `owners.yaml` and the alias files of section 6. It MUST NOT read other file names as ownership files.
 4. An `owners.yaml` MUST NOT be placed in a directory where other tooling reads every YAML file. `.github/workflows/` and its subdirectories are always reserved. The root file MAY reserve more locations with `reserved_dirs` (section 5).
 
 ## 3. Fields
@@ -177,7 +177,7 @@ Only the root file MAY carry these fields. A tool MUST report them as errors in 
 | `github_org`    | string           | The GitHub organization of the team slugs.                                                                |
 | `producers`     | list of strings  | The automation names a team can address in `notifications`.                                               |
 | `reserved_dirs` | list of patterns | Extra locations where `owners.yaml` MUST NOT be placed. The patterns are relative to the repository root. |
-| `alias_files`   | list of strings  | The other file names that count as ownership files (section 6).                                           |
+| `alias_files`   | list of strings  | The other file names that count as ownership files (section 6). Defaults to `[product.yaml]`.             |
 | `codeowners`    | mapping          | How a CODEOWNERS export spells test file paths. This field is specific to `owners-yaml` (section 8).      |
 
 ### 5.1 `github_org`
@@ -221,14 +221,17 @@ The root file declares the alias files in `alias_files` (section 5).
 1. Each entry of `alias_files` MUST be a bare file name. It MUST NOT contain `/` or `\`, and it MUST NOT be `.` or `..`.
 2. An entry MUST NOT be `owners.yaml`. An entry MUST NOT appear twice.
 3. `alias_files` MUST NOT hold more than 8 entries. A tool MUST ignore the whole list when it does.
-4. A tool MUST NOT read a file as an ownership file unless the file is named `owners.yaml` or the root file declares its name in `alias_files`.
-5. A tool MUST read only the `owners` field of an alias file. All other fields have no effect on ownership.
-6. The `owners` field MUST be a list of non-empty strings. Otherwise the file counts as absent.
-7. An `owners.yaml` in the same directory takes precedence. A linter SHOULD report a directory that has both.
-8. When a directory holds more than one alias file, the first name in `alias_files` decides. A linter SHOULD report that directory.
-9. An alias file in the repository root has no effect. The names come from the root `owners.yaml`, and that file takes precedence over any alias file next to it.
+4. When the root file does not declare `alias_files`, the alias file names MUST be `product.yaml` and nothing else.
+5. When the root file declares `alias_files` and the declaration is valid, the alias file names MUST be exactly the declared entries. A tool MUST NOT add `product.yaml` to a declared list. An empty declared list means the repository has no alias file.
+6. When the root file declares `alias_files` and a tool ignores the declaration as invalid, the repository MUST have no alias file. A tool MUST NOT fall back to `product.yaml` there.
+7. A tool MUST NOT read a file as an ownership file unless the file is named `owners.yaml` or its name is one of the alias file names.
+8. A tool MUST read only the `owners` field of an alias file. All other fields have no effect on ownership.
+9. The `owners` field MUST be a list of non-empty strings. Otherwise the file counts as absent.
+10. An `owners.yaml` in the same directory takes precedence. A linter SHOULD report a directory that has both.
+11. When a directory holds more than one alias file, the first name in `alias_files` decides. A linter SHOULD report that directory.
+12. An alias file in the repository root has no effect. The names come from the root `owners.yaml`, and that file takes precedence over any alias file next to it.
 
-A repository with no root file, or with no `alias_files`, has no alias files. Only `owners.yaml` decides ownership there.
+A repository with no root file has the default alias file name. A repository whose root file declares an empty `alias_files` has none, and only `owners.yaml` decides ownership there.
 
 ## 7. Resolver interface
 
@@ -413,9 +416,10 @@ rules:
 - **Nearest file wins, per field.** Kubernetes OWNERS files add approvers from every ancestor, which fits "someone must approve". For routing, the union tags too many teams, so the nearest file wins. The merge is per field, so a child file that sets only `owners` keeps the `status` of its ancestors.
 - **Rules stay in their file.** In a single CODEOWNERS file, a broad pattern added late can take over earlier specific lines. Here a rule changes only its own directory, so a new rule cannot take over paths in another directory.
 - **Unowned is a decision.** `owners: null` records that nobody owns a path on purpose. A missing owner fails the coverage check.
+- **The alias default is for old trees.** `product.yaml` is the default alias file name so that a repository written before `alias_files` existed resolves the same as it did then. A repository with no alias files sets `alias_files: []` and pays no lookups for it.
 - **Routing, not approval.** The format answers "who owns this path" for review requests, alerts, and reports. It does not replace a platform's required-approval rules.
 
 ## Changelog
 
 - **1** (2026-09): First published version.
-- **1**, amended (2026-09): Section 3.5 adds `[...]` character classes. No pattern that was valid before the amendment changes meaning.
+- **1**, amended (2026-09): Section 3.5 adds `[...]` character classes. No pattern that was valid before the amendment changes meaning. Section 6 gives `alias_files` the default `[product.yaml]`, so a root file that does not declare the key now has one alias file instead of none.

@@ -29,6 +29,10 @@ _RULE_KEYS = {"match", "owners", "status", "inherit"}
 # Every alias name is one more file to read per directory, and a hosted resolver reads a root file
 # it does not control, so the list has a ceiling.
 MAX_ALIAS_FILES = 8
+# A root file written before `alias_files` existed still expects its product manifests to own
+# their trees, so an undeclared list means this rather than no aliases at all. `alias_files: []`
+# turns aliases off.
+DEFAULT_ALIAS_FILES: tuple[str, ...] = ("product.yaml",)
 _TEAMS_ENTRY_KEYS = {"slack", "notifications"}
 _CODEOWNERS_KEYS = {"jest_root", "jest_root_tests", "jest_root_packages"}
 
@@ -100,13 +104,14 @@ class RepoSettings:
     declared no list, so any name is accepted. ``reserved_dirs`` lists
     globs where an ``owners.yaml`` must not live, because other tooling reads every YAML file there.
     ``alias_files`` lists the other file names that count as ownership files, in the order that
-    decides which one wins when a directory holds several.
+    decides which one wins when a directory holds several. A root file that does not declare it
+    gets ``DEFAULT_ALIAS_FILES``; an empty list turns aliases off.
     """
 
     github_org: str | None = None
     producers: frozenset[str] | None = None
     reserved_dirs: tuple[str, ...] = ()
-    alias_files: tuple[str, ...] = ()
+    alias_files: tuple[str, ...] = DEFAULT_ALIAS_FILES
     codeowners: CodeownersSettings = field(default_factory=CodeownersSettings)
 
 
@@ -292,7 +297,10 @@ def _validate_settings(data: dict[object, object], errors: list[str]) -> RepoSet
             continue
         reserved_dirs.append(pattern)
 
-    alias_files: list[str] = []
+    # A declaration replaces the default outright, including an empty list, because an author who
+    # writes the key has decided which names count. An invalid declaration is also a decision, so
+    # it yields no aliases and a lint error rather than falling back to the default.
+    alias_files: list[str] = [] if "alias_files" in data else list(DEFAULT_ALIAS_FILES)
     declared_aliases = (
         _validate_string_list(data["alias_files"], "alias_files", errors) if "alias_files" in data else []
     )

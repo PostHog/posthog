@@ -1,5 +1,5 @@
 # These cases apply only to an implementation that supports alias files (SPEC section 6).
-# They declare product.yaml as the alias file, which is what owners-yaml's host repository uses.
+# product.yaml is the default alias file name, and most cases here declare it explicitly.
 cases:
     - name: a product.yaml owners list decides ownership
       files:
@@ -137,11 +137,29 @@ cases:
               source: owners.yaml
               slack: '#team-root'
 
-    - name: an undeclared product.yaml is not an ownership file
+    - name: product.yaml is the alias file when the root file declares no alias_files
       files:
           owners.yaml: |
               version: 1
               owners: team-root
+          products/foo/product.yaml: |
+              name: Foo
+              owners:
+                - team-foo
+      expect:
+          products/foo/backend/x.py:
+              owners: [team-foo]
+              unowned_by_design: false
+              status: active
+              source: products/foo/product.yaml
+              slack: '#team-foo'
+
+    - name: an empty alias_files list leaves product.yaml as an ordinary file
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              alias_files: []
           products/foo/product.yaml: |
               name: Foo
               owners:
@@ -153,6 +171,33 @@ cases:
               status: active
               source: owners.yaml
               slack: '#team-root'
+
+    - name: a declared alias_files list without product.yaml leaves product.yaml as an ordinary file
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              alias_files: [package.yaml]
+          products/foo/product.yaml: |
+              name: Foo
+              owners:
+                - team-foo
+          products/bar/package.yaml: |
+              owners:
+                - team-bar
+      expect:
+          products/foo/backend/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+          products/bar/backend/x.py:
+              owners: [team-bar]
+              unowned_by_design: false
+              status: active
+              source: products/bar/package.yaml
+              slack: '#team-bar'
 
     - name: the first declared alias file in a directory decides
       files:

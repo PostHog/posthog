@@ -21,7 +21,14 @@ from owners_yaml import (
 from owners_yaml.cli import _consolidation_suggestions, _live_scope, _reserved_location_error, main
 from owners_yaml.fmt import CanonicalPlacer, CanonicalPlan
 from owners_yaml.resolver import OwnersResolver, team_channel
-from owners_yaml.schema import TOP_LEVEL_KEYS, CodeownersSettings, TeamEntry, is_simple_owners_file, parse_owners_file
+from owners_yaml.schema import (
+    DEFAULT_ALIAS_FILES,
+    TOP_LEVEL_KEYS,
+    CodeownersSettings,
+    TeamEntry,
+    is_simple_owners_file,
+    parse_owners_file,
+)
 
 
 def _write(root: Path, rel: str, text: str) -> None:
@@ -180,6 +187,9 @@ def test_invalid_repo_settings_are_schema_errors(tmp_path: Path, settings_yaml: 
     )
     assert any(needle in e for e in errors), errors
     assert file is not None
+    if settings_yaml.startswith("alias_files:"):
+        # A rejected declaration keeps the entries that were valid; it never falls back to the default.
+        assert file.settings.alias_files != DEFAULT_ALIAS_FILES
 
 
 @pytest.mark.parametrize(
@@ -699,9 +709,9 @@ def test_resolver_reads_through_an_injected_source() -> None:
 @pytest.mark.parametrize(
     "root_text,expected_prefetch",
     [
-        ("version: 1\nowners: [team-root]\n", ["a/b/owners.yaml", "a/owners.yaml", "owners.yaml"]),
+        ("version: 1\nowners: [team-root]\nalias_files: []\n", ["a/b/owners.yaml", "a/owners.yaml", "owners.yaml"]),
         (
-            "version: 1\nowners: [team-root]\nalias_files: [product.yaml]\n",
+            "version: 1\nowners: [team-root]\n",
             [
                 "a/b/owners.yaml",
                 "a/b/product.yaml",
@@ -710,7 +720,18 @@ def test_resolver_reads_through_an_injected_source() -> None:
                 "owners.yaml",
             ],
         ),
+        (
+            "version: 1\nowners: [team-root]\nalias_files: [package.yaml]\n",
+            [
+                "a/b/owners.yaml",
+                "a/b/package.yaml",
+                "a/owners.yaml",
+                "a/package.yaml",
+                "owners.yaml",
+            ],
+        ),
     ],
+    ids=["aliases-off", "default-alias", "declared-alias"],
 )
 def test_map_prefetches_a_batch_through_read_all_before_the_per_path_reads(
     root_text: str, expected_prefetch: list[str]
