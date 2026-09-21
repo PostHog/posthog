@@ -13,6 +13,31 @@ Production consumes `team_event_partitioned_events_json`, set via `KAFKA_CONSUME
 That topic is produced by a WarpStream Bento pipeline that repartitions `clickhouse_events_json` by team, under the separate `property-defs-rs-ws` consumer group.
 The in-code default is `clickhouse_events_json`, which is what a local run gets.
 
+AI ingestion removes heavy properties such as `$ai_input` from the shared events output.
+Definition discovery must also consume the full `clickhouse_ai_events_json` output, either through the same repartitioning pipeline or through another instance of this service with its own consumer group.
+The payload uses the same event format and creates the same canonical event-property definitions.
+The writer's conflict keys and caches deduplicate ordinary properties received from both streams and preserve existing definition IDs and access rules.
+Never send the full AI payload back to the shared ClickHouse events input to repair discovery.
+
+The local process configuration and Docker Compose configurations run `property-defs-ai` alongside `property-defs-rs`.
+It uses `KAFKA_CONSUMER_TOPIC=clickhouse_ai_events_json` and `KAFKA_CONSUMER_GROUP=property-defs-ai`.
+Hosted installations must include the AI output in their definition-discovery input configuration too; deploying application code alone does not change that configuration.
+
+## Repair missing AI property definitions
+
+Enabling the AI input fixes discovery for subsequent events.
+For projects whose older events are outside Kafka retention, preview a bounded metadata repair:
+
+```bash
+python manage.py repair_ai_property_definitions --team-id 123
+```
+
+Add `--apply` to create missing definitions for the six supported heavy AI properties in that team's project.
+The command only operates on projects with an existing AI event definition, and repeated runs preserve existing IDs, types, and access rules.
+It does not read event payloads or create event-property associations: the existing metadata cannot prove which heavy fields each event carried.
+New definitions have no inferred value type; full-stream ingestion fills the observed types and event associations.
+Replay retained AI events through the definitions input when historical associations are required, using a separate bounded replay job rather than resetting the live consumer group.
+
 ## Dependencies worth knowing about
 
 - **personhog** resolves group names to group type indexes over gRPC. With `PERSONHOG_ADDR` unset there is no client, resolution fails, and every group property definition is dropped before the write. Definitions for events and non-group properties are unaffected.

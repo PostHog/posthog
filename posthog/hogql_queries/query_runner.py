@@ -3008,6 +3008,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         restricted = self._get_property_access_restrictions()
         if restricted:
             payload["restricted_properties"] = restricted
+            # A cache hit skips masking, so enforcement revisions must invalidate restricted results.
+            payload["property_access_control_version"] = 1
 
         # Vary the cache key by the events-retention floor: a cache hit returns before the printer applies the floor,
         # so without this a result cached pre-enforcement (or at a longer period) would keep surfacing events past

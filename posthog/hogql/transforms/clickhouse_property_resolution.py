@@ -542,7 +542,13 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
     # JSONDropKeys strips the key, so extracting it always yields '' which scrubs to NULL — so return that constant
     # directly and skip the wasted drop-then-extract. (The column resolvers also decline, so comparisons over a
     # restricted property never read the backing column either; their operand falls through to this same NULL.)
-    if first_key in restricted_property_keys_for_table_type(field_type.table_type, context):
+    resolved_field = field_type.resolve_database_field(context)
+    source_property = (
+        mirrored_property_for_column(field_type.table_type, resolved_field.name, context)
+        if isinstance(resolved_field, DatabaseField)
+        else None
+    )
+    if (source_property or first_key) in restricted_property_keys_for_table_type(field_type.table_type, context):
         _record_property_usage(context, None)
         return ast.Constant(value=None, type=ast.StringType(nullable=True))
 

@@ -221,6 +221,7 @@ class TestCountSessionEvents:
 
 class TestFetchSessionForEvaluation:
     def test_queries_in_evaluation_mode_with_both_date_bounds(self):
+        user = Mock()
         with (
             patch("posthog.temporal.ai_observability.run_session_evaluation.Team"),
             patch(
@@ -238,10 +239,11 @@ class TestFetchSessionForEvaluation:
             mock_session_query_runner.return_value.calculate.return_value = Mock(
                 results=[_trace("t1", cost=0, latency=0)], hasMore=False
             )
-            fetch_session_for_evaluation(1, "s-1", datetime(2026, 7, 20, tzinfo=UTC))
+            fetch_session_for_evaluation(1, "s-1", datetime(2026, 7, 20, tzinfo=UTC), user=user)
 
         kwargs = mock_session_query_runner.call_args.kwargs
         assert kwargs["for_evaluation"] is True
+        assert kwargs["user"] is user
         assert kwargs["query"].dateRange.date_from is not None
         assert kwargs["query"].dateRange.date_to is not None
         # SessionQueryRunner defaults to 100 rows under LimitContext.QUERY, which would drop the

@@ -8,7 +8,7 @@ only the fetch-and-evaluate half is session-specific.
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import temporalio
 import posthoganalytics
@@ -63,6 +63,10 @@ JUDGE_SESSION_MAX_CHARS = 500_000
 
 # Floor so a session with many traces still renders each one readably instead of one line each.
 _MIN_TRACE_CHARS_IN_SESSION = 2_000
+
+if TYPE_CHECKING:
+    from posthog.models import User
+
 
 _SESSION_SKIP_REASONING = {
     "session_not_found": "No session events were found within the evaluation window; evaluation skipped.",
@@ -148,7 +152,9 @@ WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$a
 """
 
 
-def _sum_session_payload_bytes(team: Team, session_id: str, date_from: datetime, date_to: datetime) -> int:
+def _sum_session_payload_bytes(
+    team: Team, session_id: str, date_from: datetime, date_to: datetime, *, user: "User | None" = None
+) -> int:
     with tags_context(product=Product.LLM_ANALYTICS):
         result = query_ai_events(
             query=parse_select(_SESSION_PAYLOAD_BYTES_SQL),
@@ -158,6 +164,7 @@ def _sum_session_payload_bytes(team: Team, session_id: str, date_from: datetime,
                 "date_to": ast.Constant(value=date_to),
             },
             team=team,
+            user=user,
             query_type="SessionEvaluationPayloadBytes",
             fall_back_to_events=False,
             workload=Workload.OFFLINE,
@@ -192,7 +199,9 @@ class _SessionEventCount:
     first_seen: datetime | None
 
 
-def _count_session_events(team: Team, session_id: str, date_from: datetime, date_to: datetime) -> _SessionEventCount:
+def _count_session_events(
+    team: Team, session_id: str, date_from: datetime, date_to: datetime, *, user: "User | None" = None
+) -> _SessionEventCount:
     """Cheap preflight so a runaway session id is skipped before pulling its payload, and the
     source of the session's real start time (see `fetch_session_for_evaluation`).
 
@@ -209,6 +218,7 @@ def _count_session_events(team: Team, session_id: str, date_from: datetime, date
                 "date_to": ast.Constant(value=date_to),
             },
             team=team,
+            user=user,
             query_type="SessionEvaluationEventCount",
             fall_back_to_events=False,
             workload=Workload.OFFLINE,
@@ -220,7 +230,12 @@ def _count_session_events(team: Team, session_id: str, date_from: datetime, date
 
 
 def fetch_session_for_evaluation(
-    team_id: int, session_id: str, window_start: datetime, window_end: datetime | None = None
+    team_id: int,
+    session_id: str,
+    window_start: datetime,
+    window_end: datetime | None = None,
+    *,
+    user: "User | None" = None,
 ) -> SessionFetchOutcome:
     """Fetch every trace of a session for an online evaluation, bounded by retention.
 
@@ -237,14 +252,14 @@ def fetch_session_for_evaluation(
     retention_floor = window_start - timedelta(days=AI_EVENTS_RETENTION_DAYS)
     date_to = window_end or datetime.now(UTC)
 
-    preflight = _count_session_events(team, session_id, retention_floor, date_to)
+    preflight = _count_session_events(team, session_id, retention_floor, date_to, user=user)
     if preflight.event_count == 0:
         return SessionFetchOutcome(traces=None, skip_reason="session_not_found", event_count=0)
     if preflight.event_count > MAX_SESSION_EVAL_EVENTS:
         return SessionFetchOutcome(traces=None, skip_reason="session_too_large", event_count=preflight.event_count)
 
     # Only now that the row count looks plausible is it worth reading the payload columns to size it.
-    payload_bytes = _sum_session_payload_bytes(team, session_id, retention_floor, date_to)
+    payload_bytes = _sum_session_payload_bytes(team, session_id, retention_floor, date_to, user=user)
     if should_skip_for_payload(
         target="session",
         payload_bytes=payload_bytes,
@@ -262,6 +277,7 @@ def fetch_session_for_evaluation(
 
     runner = SessionQueryRunner(
         team=team,
+        user=user,
         query=SessionQuery(
             sessionId=session_id,
             dateRange=DateRange(date_from=date_from.isoformat(), date_to=date_to.isoformat()),
@@ -568,6 +584,8 @@ def _sample_quiet_sessions(
     date_from: datetime,
     date_to: datetime,
     quiet_cutoff: datetime,
+    *,
+    user: "User | None" = None,
 ) -> list[str]:
     with tags_context(product=Product.LLM_ANALYTICS):
         response = query_ai_events(
@@ -580,6 +598,7 @@ def _sample_quiet_sessions(
                 "condition_filter": condition_filter if condition_filter is not None else ast.Constant(value=True),
             },
             team=team,
+            user=user,
             query_type="EvaluationTestHogSessionSample",
             fall_back_to_events=True,
         )
@@ -611,6 +630,7 @@ def run_hog_eval_over_recent_sessions(
     allows_na: bool,
     quiet_period_seconds: int,
     lookback_days: int = EVALUATION_TEST_LOOKBACK_DAYS,
+    user: "User | None" = None,
 ) -> list[SessionHogTestResult]:
     """Sample sessions that have gone quiet and run session-level Hog bytecode against each.
 
@@ -622,11 +642,11 @@ def run_hog_eval_over_recent_sessions(
     now = datetime.now(UTC)
     quiet_cutoff = now - timedelta(seconds=quiet_period_seconds)
     date_from = now - timedelta(days=lookback_days)
-    session_ids = _sample_quiet_sessions(team, condition_filter, sample_count, date_from, now, quiet_cutoff)
+    session_ids = _sample_quiet_sessions(team, condition_filter, sample_count, date_from, now, quiet_cutoff, user=user)
 
     results: list[SessionHogTestResult] = []
     for session_id in session_ids:
-        outcome = fetch_session_for_evaluation(team.pk, session_id, now)
+        outcome = fetch_session_for_evaluation(team.pk, session_id, now, user=user)
         if outcome.skip_reason or outcome.traces is None:
             results.append(
                 SessionHogTestResult(

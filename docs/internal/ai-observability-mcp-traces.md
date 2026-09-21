@@ -22,6 +22,21 @@ and searches for content that a preview may omit. A known trace can be read in f
 The [exploring-llm-traces skill](../../products/ai_observability/skills/exploring-llm-traces/SKILL.md)
 teaches this workflow and includes scripts for parsing saved full-detail responses.
 
+## Property permissions
+
+Trace queries run with the authenticated user's property access rules in both detail modes.
+A rule for an event property such as `$ai_input` applies to its shared `events` representation and its dedicated `ai_events.input` column.
+Set the rule once on the property definition.
+Denied values are omitted from returned event properties; explicit SQL reads return `NULL`.
+MCP response compaction runs after the backend applies these rules.
+
+Configure these rules in **Data management > Properties**, then open the property and select **Edit > Access control**.
+Heavy AI properties need definition discovery to consume the full AI event stream, since the shared events stream no longer contains those values.
+For missing definitions from older events, see the [bounded metadata repair](../../rust/property-defs-rs/README.md#repair-missing-ai-property-definitions).
+
+Property access is separate from AI observability resource access.
+These rules restrict individual values and do not establish who may execute a trace query.
+
 ## Response limits
 
 Both modes compact large responses before returning them to the MCP client. The compactor accounts

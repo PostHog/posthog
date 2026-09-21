@@ -446,6 +446,7 @@ class TestRunHogEvalOverRecentTraces:
     @time_machine.travel(FROZEN_NOW, tick=False)
     def test_uses_the_sampled_trigger_and_configured_aggregation_window(self):
         team = MagicMock(spec=Team)
+        user = MagicMock()
         trigger_timestamp = FROZEN_NOW - timedelta(hours=2)
         trace = create_trace(
             [
@@ -468,6 +469,7 @@ class TestRunHogEvalOverRecentTraces:
             ) as mock_fetch:
                 results = run_hog_eval_over_recent_traces(
                     team=team,
+                    user=user,
                     bytecode=bytecode,
                     condition_filter=None,
                     sample_count=1,
@@ -481,12 +483,14 @@ class TestRunHogEvalOverRecentTraces:
             1,
             FROZEN_NOW - timedelta(seconds=120, days=7),
             FROZEN_NOW - timedelta(seconds=120),
+            user=user,
         )
         mock_fetch.assert_called_once_with(
             team,
             "trace-123",
             trigger_timestamp - TRACE_EVENTS_LOOKBACK,
             trigger_timestamp + timedelta(seconds=120),
+            user=user,
         )
         assert results[0].verdict is True
         assert results[0].input_preview == "first"

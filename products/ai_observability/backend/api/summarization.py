@@ -11,7 +11,7 @@ Endpoints:
 
 import time
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.core.cache import cache
 
@@ -60,6 +60,9 @@ from products.ai_observability.backend.text_repr.formatters import (
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 logger = structlog.get_logger(__name__)
 
@@ -293,6 +296,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
         )
         runner = TraceQueryRunner(
             team=self.team,
+            user=cast("User", self.request.user),
             query=TraceQuery(traceId=trace_id, dateRange=date_range),
         )
         response = runner.calculate()
@@ -344,6 +348,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
                     "date_to": date_to_expr,
                 },
                 team=self.team,
+                user=cast("User", self.request.user),
             )
 
         if not result.results:
@@ -400,6 +405,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
                 query=query,
                 placeholders=placeholders,
                 team=self.team,
+                user=cast("User", self.request.user),
                 query_type="LLMAnalyticsSummarizationHeavyFetch",
             )
         except AIEventsExpiredError:
