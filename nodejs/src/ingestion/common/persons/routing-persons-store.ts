@@ -1,3 +1,4 @@
+import { ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
 import { errorClassLabel } from '~/common/personhog/metrics'
@@ -14,13 +15,21 @@ import { PersonMessage } from '~/common/persons/person-message'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult } from '~/common/utils/db/db'
 import { logger } from '~/common/utils/logger'
+import { promiseRetry } from '~/common/utils/retries'
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'
 
 import { EventOps } from './person-update'
 import { PersonhogPersonsStore } from './personhog-persons-store'
-import { FlushResult, MergePersonsRequest, MergePersonsResult, PersonsBackend, PersonsStore } from './persons-store'
+import {
+    FlushResult,
+    MergePersonsRequest,
+    MergePersonsResult,
+    PersonsBackend,
+    PersonsStore,
+    isFoldRequest,
+} from './persons-store'
 import { BatchBoundPersonsStore, PersonsStoreForBatch } from './persons-store-for-batch'
 
 export type PersonsStoreMode = 'pg' | 'personhog' | 'shadow'
@@ -160,14 +169,18 @@ export class RoutingPersonsStore implements PersonsStore {
                 }),
             ])
         } catch (error) {
-            // Labelled by class as well as verb: the failures a rollout
-            // must tell apart read identically under one number.
-            personhogStoreShadowErrorsCounter.labels({ verb, error: errorClassLabel(error) }).inc()
-            logger.warn('personhog shadow verb failed', { verb, error: String(error) })
+            this.recordShadowFailure(verb, error)
         } finally {
             clearTimeout(timer)
             stopTimer()
         }
+    }
+
+    private recordShadowFailure(verb: string, error: unknown): void {
+        // Labelled by class as well as verb: the failures a rollout
+        // must tell apart read identically under one number.
+        personhogStoreShadowErrorsCounter.labels({ verb, error: errorClassLabel(error) }).inc()
+        logger.warn('personhog shadow verb failed', { verb, error: String(error) })
     }
 
     /**
@@ -422,15 +435,41 @@ export class RoutingPersonsStore implements PersonsStore {
             () => this.pg.mergePersons(request, batchId),
             () => this.personhog.mergePersons(request, batchId),
             {
+                shadow: () => this.shadowMerge(request, batchId),
                 compare: (authoritative, shadow) => this.compareMerge(authoritative, shadow),
                 after: (authoritative, shadow) => this.redriveShadowFoldPairs(request, batchId, authoritative, shadow),
             }
         )
     }
 
+    /** The merge service's retries wrap the routed call, which never throws for the shadow side. */
+    private retriedShadowMerge(request: MergePersonsRequest, batchId: number): Promise<MergePersonsResult> {
+        return promiseRetry(
+            () => this.personhog.mergePersons(request, batchId),
+            'shadow_merge_persons',
+            undefined,
+            undefined,
+            undefined,
+            [ConnectError]
+        )
+    }
+
+    /** A fold is never retried as a fold: one that throws aborts, and its pairs take the re-drive. */
+    private async shadowMerge(request: MergePersonsRequest, batchId: number): Promise<MergePersonsResult> {
+        if (!isFoldRequest(request)) {
+            return this.retriedShadowMerge(request, batchId)
+        }
+        try {
+            return await this.personhog.mergePersons(request, batchId)
+        } catch (error) {
+            this.recordShadowFailure('mergePersons', error)
+            return { survivor: null, results: [], foldAborted: 'error' }
+        }
+    }
+
     /**
-     * A fold only the shadow aborted gets its pairs re-driven, single
-     * shot, as the fallback merges the service cannot issue (it sees only
+     * A fold only the shadow aborted gets its pairs re-driven, as the
+     * fallback merges the service cannot issue (it sees only
      * the executed authoritative result). Per-pair op ids let the pair's
      * own event attach on redelivery; ops stay empty because plan events
      * route theirs through the shadowed update path regardless.
@@ -447,7 +486,7 @@ export class RoutingPersonsStore implements PersonsStore {
         }
         for (const source of request.sources) {
             try {
-                const result = await this.personhog.mergePersons(
+                const result = await this.retriedShadowMerge(
                     {
                         teamId: request.teamId,
                         targetDistinctId: request.targetDistinctId,
