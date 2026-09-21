@@ -32,8 +32,10 @@ from products.tasks.backend.temporal.process_task.utils import (
     is_bot_authorship_fallback,
     is_caller_token_run,
     loop_mcp_installation_allowlist,
+    mcp_exclude_tools_from_state,
     mcp_exec_skills_env_vars,
     parse_run_state,
+    sanitize_mcp_exclude_tools,
     upgrade_run_to_user_authorship,
 )
 
@@ -397,6 +399,34 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
                     description=POSTHOG_MCP_DESCRIPTION,
                 )
             ]
+
+    def test_exclude_tools_header(self) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            mock_settings.SANDBOX_MCP_URL = None
+            mock_settings.SITE_URL = "https://app.posthog.com"
+            configs = get_sandbox_ph_mcp_configs(
+                self.TOKEN, self.PROJECT_ID, exclude_tools=["docs-search", "DOCS-SEARCH", "not a tool"]
+            )
+            assert {"name": "x-posthog-exclude-tools", "value": "docs-search"} in configs[0].headers
+            omitted = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
+            assert all(header["name"] != "x-posthog-exclude-tools" for header in omitted[0].headers)
+
+
+class TestMcpExcludeTools(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (["docs-search", "DOCS-SEARCH", "not a tool"], ["docs-search"]),
+            (None, []),
+            ([], []),
+        ]
+    )
+    def test_sanitize_mcp_exclude_tools(self, names, expected) -> None:
+        assert sanitize_mcp_exclude_tools(names) == expected
+
+    def test_mcp_exclude_tools_from_state_requires_a_string_list(self) -> None:
+        assert mcp_exclude_tools_from_state({"mcp_exclude_tools": ["docs-search", 1]}) == ["docs-search"]
+        assert mcp_exclude_tools_from_state({"mcp_exclude_tools": "docs-search"}) == []
+        assert mcp_exclude_tools_from_state(None) == []
 
 
 class TestMcpServerConfigToDict(TestCase):
