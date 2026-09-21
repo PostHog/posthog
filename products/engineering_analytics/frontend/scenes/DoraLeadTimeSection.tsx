@@ -41,7 +41,7 @@ export function DoraLeadTimeSection(): JSX.Element {
             }
         >
             <div className="flex flex-col gap-4">
-                {showUnattributedWarning && (
+                {!doraLoading && showUnattributedWarning && (
                     <div data-attr="engineering-analytics-dora-unattributed">
                         <LemonBanner type="warning">
                             More than {percent(UNATTRIBUTED_WARNING_SHARE)} of PRs merged in this window have no
