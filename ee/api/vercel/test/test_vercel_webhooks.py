@@ -109,7 +109,7 @@ class TestVercelWebhooks(VercelTestBase):
             assert response.json()["status"] == "ignored"
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
-    @patch("ee.api.vercel.vercel_webhooks.VercelIntegration")
+    @patch("ee.api.vercel.webhook_events.VercelIntegration")
     def test_deauthorization_native_calls_delete_installation(self, mock_vercel_integration):
         assert OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
@@ -203,7 +203,7 @@ class TestVercelWebhooks(VercelTestBase):
         REGION_US_DOMAIN="us.posthog.com",
         REGION_EU_DOMAIN="eu.posthog.com",
     )
-    @patch("ee.api.vercel.vercel_webhooks.outbound_requests.post")
+    @patch("ee.api.vercel.webhook_events.outbound_requests.post")
     def test_deauthorization_unknown_config_on_us_proxies_to_eu(self, mock_post):
         mock_eu_response = MagicMock()
         mock_eu_response.status_code = 200
@@ -231,7 +231,7 @@ class TestVercelWebhooks(VercelTestBase):
         REGION_US_DOMAIN="us.posthog.com",
         REGION_EU_DOMAIN="eu.posthog.com",
     )
-    @patch("ee.api.vercel.vercel_webhooks.outbound_requests.post")
+    @patch("ee.api.vercel.webhook_events.outbound_requests.post")
     def test_deauthorization_unknown_config_on_eu_does_not_proxy(self, mock_post):
         payload = {
             "type": "integration-configuration.removed",
@@ -250,7 +250,7 @@ class TestVercelWebhooks(VercelTestBase):
         REGION_US_DOMAIN="us.posthog.com",
         REGION_EU_DOMAIN="eu.posthog.com",
     )
-    @patch("ee.api.vercel.vercel_webhooks.outbound_requests.post")
+    @patch("ee.api.vercel.webhook_events.outbound_requests.post")
     def test_deauthorization_unknown_config_on_dev_does_not_proxy(self, mock_post):
         payload = {
             "type": "integration-configuration.removed",
@@ -269,7 +269,7 @@ class TestVercelWebhooks(VercelTestBase):
         REGION_US_DOMAIN="us.posthog.com",
         REGION_EU_DOMAIN="eu.posthog.com",
     )
-    @patch("ee.api.vercel.vercel_webhooks.outbound_requests.post")
+    @patch("ee.api.vercel.webhook_events.outbound_requests.post")
     def test_billing_event_unknown_config_does_not_proxy(self, mock_post):
         payload = {
             "type": "marketplace.invoice.paid",
@@ -283,8 +283,8 @@ class TestVercelWebhooks(VercelTestBase):
         mock_post.assert_not_called()
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
-    @patch("ee.api.vercel.vercel_webhooks.BillingManager")
-    @patch("ee.api.vercel.vercel_webhooks.License")
+    @patch("ee.api.vercel.webhook_events.BillingManager")
+    @patch("ee.api.vercel.webhook_events.License")
     def test_billing_event_forwarded_to_billing_service(self, mock_license_model, mock_billing_manager_class):
         mock_license = MagicMock()
         mock_license_model.objects.first.return_value = mock_license
@@ -311,8 +311,8 @@ class TestVercelWebhooks(VercelTestBase):
         )
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
-    @patch("ee.api.vercel.vercel_webhooks.BillingManager")
-    @patch("ee.api.vercel.vercel_webhooks.License")
+    @patch("ee.api.vercel.webhook_events.BillingManager")
+    @patch("ee.api.vercel.webhook_events.License")
     def test_billing_error_returns_500(self, mock_license_model, mock_billing_manager_class):
         mock_license = MagicMock()
         mock_license_model.objects.first.return_value = mock_license
@@ -333,7 +333,7 @@ class TestVercelWebhooks(VercelTestBase):
         assert "Processing failed" in response.json()["error"]
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
-    @patch("ee.api.vercel.vercel_webhooks.License")
+    @patch("ee.api.vercel.webhook_events.License")
     def test_no_license_returns_500(self, mock_license_model):
         mock_license_model.objects.first.return_value = None
 
