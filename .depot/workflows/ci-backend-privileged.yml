@@ -164,7 +164,9 @@ jobs:
                           all(.additions[]; type == "object" and ((keys | sort) == ["contents", "path", "sha256"]) and (.path | type == "string") and (.contents | type == "string") and (.sha256 | test("^[0-9a-f]{64}$"))) and
                           all(.deletions[]; type == "object" and (keys == ["path"]) and (.path | type == "string")) and
                           ([.additions[].path, .deletions[].path] | length) == ([.additions[].path, .deletions[].path] | unique | length) and
-                          all((.additions[].path, .deletions[].path); test("^(ee|posthog|products)/[A-Za-z0-9_./-]+\\.ambr$"))
+                          all((.additions[].path, .deletions[].path);
+                              (test("(^|/)\\.\\.(/|$)") | not) and
+                              test("^(ee|posthog|products)/[A-Za-z0-9_./-]+\\.ambr$"))
                       ' "$update" > /dev/null || { echo "::error::Snapshot update metadata or paths are invalid"; exit 1; }
 
                   total=0
@@ -362,15 +364,16 @@ jobs:
                           all(.deletions[]; type == "object" and (keys == ["path"]) and (.path | type == "string")) and
                           ([.additions[].path, .deletions[].path] | length) == ([.additions[].path, .deletions[].path] | unique | length) and
                           all(.additions[].path, .deletions[].path;
-                              test("^frontend/src/generated/[A-Za-z0-9_./-]+$") or
-                              . == "frontend/src/lib/agentScopes.generated.ts" or
-                              test("^products/[a-z0-9_]+/frontend/generated/(api|api\\.schemas|api\\.zod)\\.ts$") or
-                              test("^products/[a-z0-9_]+/mcp/tools\\.yaml$") or
-                              . == "services/mcp/definitions/core.yaml" or
-                              . == "services/mcp/src/api/generated.ts" or
-                              test("^services/mcp/src/generated/[a-z0-9_]+/api\\.ts$") or
-                              test("^services/mcp/src/tools/generated/[a-z0-9_-]+\\.ts$") or
-                              test("^services/mcp/schema/(generated-tool-definitions|tool-definitions-all)\\.json$"))
+                              (test("(^|/)\\.\\.(/|$)") | not) and
+                              (test("^frontend/src/generated/core/(api|api\\.schemas|api\\.zod)\\.ts$") or
+                                  . == "frontend/src/lib/agentScopes.generated.ts" or
+                                  test("^products/[a-z0-9_]+/frontend/generated/(api|api\\.schemas|api\\.zod)\\.ts$") or
+                                  test("^products/[a-z0-9_]+/mcp/tools\\.yaml$") or
+                                  . == "services/mcp/definitions/core.yaml" or
+                                  . == "services/mcp/src/api/generated.ts" or
+                                  test("^services/mcp/src/generated/[a-z0-9_]+/api\\.ts$") or
+                                  test("^services/mcp/src/tools/generated/[a-z0-9_-]+\\.ts$") or
+                                  test("^services/mcp/schema/(generated-tool-definitions|tool-definitions-all)\\.json$")))
                       ' "$update" > /dev/null || { echo "::error::OpenAPI update metadata or paths are invalid"; exit 1; }
 
                   total=0
