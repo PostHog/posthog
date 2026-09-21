@@ -174,9 +174,9 @@ DESCRIBE_RETRY_BUDGET_SECONDS = 90
 def chdb_set_statements(describe_settings: dict[str, str | int]) -> str:
     """Render settings as SET statements to prefix a chdb query with.
 
-    chdb does not honour the CSV double-quote setting in any other form. The upstream fix
-    (https://github.com/chdb-io/chdb/pull/374) is merged but is not in the pinned 3.3.0, so these
-    SET statements stay until chdb is upgraded past that release.
+    `chdb.query` takes only SQL text, so query-level settings such as the CSV double-quote
+    flag can only travel inside the statement; a SET prefix applies them to every statement
+    that follows without splicing a SETTINGS clause into each one.
     """
     return "".join(
         f"SET {name} = {escape_param_clickhouse(value) if isinstance(value, str) else int(value)}; "
@@ -548,11 +548,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         # column count. ClickHouse reads the same files fine; only chdb refuses the mixed set.
         "reading from files with different schema is not possible",
     )
+    # chdb 4 links delta-kernel only in its Linux wheels, so macOS dev boxes have no deltaLake().
+    # On Linux the same error means the engine lost Delta support and has to reach error tracking.
+    _MACOS_ONLY_SUPPRESSED_CHDB_ERROR_SUBSTRING = "unknown table function deltalake"
 
     def _is_suppressed_chdb_error(self, err: Exception) -> bool:
         if not isinstance(err, RuntimeError):
             return False
         message = str(err).lower()
+        if sys.platform == "darwin" and self._MACOS_ONLY_SUPPRESSED_CHDB_ERROR_SUBSTRING in message:
+            return True
         return any(substring in message for substring in self._SUPPRESSED_CHDB_ERROR_SUBSTRINGS)
 
     def set_columns(self, columns: dict[str, Any]) -> None:
