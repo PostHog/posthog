@@ -134,6 +134,25 @@ describe('stripChromeExtensionDataFromNode', () => {
         expect(matched.has('aitopia')).toBe(true)
     })
 
+    it.each([
+        ['undefined', undefined],
+        ['null', null],
+        ['an object', { 0: { type: NodeType.Text, textContent: 'text', id: 2 } }],
+        ['a number', 3],
+    ])('does not throw when childNodes is %s', (_label, childNodes) => {
+        const node = {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {},
+            childNodes,
+            id: 1,
+        } as unknown as serializedNodeWithId
+
+        const matched = new Set<string>()
+        expect(stripChromeExtensionDataFromNode(node, needles, matched)).toBe(false)
+        expect(matched.size).toBe(0)
+    })
+
     it('does not throw when a nested child has undefined attributes', () => {
         const node = {
             type: NodeType.Element,
