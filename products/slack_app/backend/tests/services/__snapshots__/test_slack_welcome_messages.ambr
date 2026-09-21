@@ -14,7 +14,7 @@
   *A few things worth knowing*
   • Tag me again in the thread while I'm working and I'll pick up what you say.
   • Want a different model? Say so: `@PostHog use fable for this one`, or `@PostHog run this on opus 5 at high effort`.
-  • Answering from the wrong project? Name the one you want: `@PostHog give me DAU for Staging please`. `@PostHog project` shows your default.
+  • Answering from the wrong project? Name the one you want: `@PostHog give me DAU for Staging please`. `/posthog project` shows your default.
   • You can DM me instead of tagging me here.
   
   *Tell me when I get it wrong*

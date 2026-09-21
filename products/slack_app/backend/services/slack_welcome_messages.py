@@ -98,7 +98,7 @@ def build_channel_welcome(integration: Integration) -> tuple[str, list[dict[str,
                 "Want a different model? Say so: `@PostHog use fable for this one`, or "
                 "`@PostHog run this on opus 5 at high effort`.",
                 "Answering from the wrong project? Name the one you want: `@PostHog give me DAU for "
-                "Staging please`. `@PostHog project` shows your default.",
+                "Staging please`. `/posthog project` shows your default.",
                 "You can DM me instead of tagging me here.",
             ),
         ),
