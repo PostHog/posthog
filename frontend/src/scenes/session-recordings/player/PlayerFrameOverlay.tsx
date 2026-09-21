@@ -196,7 +196,12 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
     }
     if (isLoadingState) {
         content = (
-            <div className="flex items-center gap-2 text-white" data-attr="replay-overlay-loading">
+            <div
+                className="flex items-center gap-2 text-white"
+                data-attr="replay-overlay-loading"
+                role="status"
+                aria-live="polite"
+            >
                 <Spinner textColored className="text-3xl" />
                 <div className="text-3xl italic font-medium">Loading recording…</div>
             </div>
