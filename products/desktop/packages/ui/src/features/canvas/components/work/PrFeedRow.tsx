@@ -113,7 +113,7 @@ export function PrFeedRow({
       type="button"
       onClick={open}
       title={label}
-      className="group relative flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors hover:bg-fill-hover"
+      className="group relative flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors hover:bg-fill-selected"
     >
       <span className="flex size-3.5 shrink-0 items-center justify-center">
         {icon}
