@@ -426,7 +426,6 @@ export interface engineeringAnalyticsLogicValues {
     pullRequestsStatus: LoaderStatus
     quarantine: QuarantineData | null
     quarantineLoading: boolean
-    quarantineStatus: LoaderStatus
     readyCount: number
     readyOnly: boolean
     repo: string | null
@@ -937,14 +936,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadCards: () => 'ok',
                     loadCardsSuccess: () => 'ok',
                     loadCardsFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
-                },
-            ],
-            quarantineStatus: [
-                'ok' as LoaderStatus,
-                {
-                    loadQuarantine: () => 'ok',
-                    loadQuarantineSuccess: () => 'ok',
-                    loadQuarantineFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
                 },
             ],
             // Whole-row click toggles a team's slice open (controlled LemonTable expansion, like the

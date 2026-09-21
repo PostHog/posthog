@@ -59,8 +59,11 @@ export function DeliveryPipeline({
     /** The post-merge leg, read from the DORA endpoint. Null while loading or when deploy data is not synced. */
     mergeToDeploy: MergeToDeployLeg | null
     loading?: boolean
-}): JSX.Element {
+}): JSX.Element | null {
     if (!pipeline && mergeToDeploy?.medianSeconds == null) {
+        if (!loading) {
+            return null
+        }
         return (
             <LemonCard hoverEffect={false} className="flex h-full flex-col gap-3 p-3">
                 {[0, 1, 2].map((row) => (

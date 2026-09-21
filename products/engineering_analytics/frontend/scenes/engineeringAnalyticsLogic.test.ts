@@ -724,12 +724,12 @@ describe('engineeringAnalyticsLogic', () => {
         [500, 'error'],
     ])('maps a quarantine %i response to %s', async (statusCode, expectedStatus) => {
         silenceKeaLoadersErrors()
-        mockQuarantine.mockRejectedValue(new ApiError('Quarantine request failed.', statusCode))
+        mockTrunkQuarantine.mockRejectedValue(new ApiError('Quarantine request failed.', statusCode))
 
         logic = engineeringAnalyticsLogic()
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadQuarantineFailure'])
+        await expectLogic(logic).toDispatchActions(['loadTrunkQuarantineFailure'])
 
-        expect(logic.values.quarantineStatus).toBe(expectedStatus)
+        expect(logic.values.trunkQuarantineStatus).toBe(expectedStatus)
     })
 })

@@ -142,7 +142,7 @@ export const QuarantineLoadError: Story = {
     },
     decorators: [
         mswDecorator({
-            get: { 'api/projects/:team_id/engineering_analytics/quarantine/': () => [500, null] },
+            get: { 'api/projects/:team_id/engineering_analytics/trunk_quarantine/': () => [500, null] },
         }),
     ],
 }

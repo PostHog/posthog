@@ -72,6 +72,7 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
         return (
             <CIAnalyticsLoadError
                 onRetry={loadTrunkQuarantine}
+                loading={trunkQuarantineLoading}
                 title="Couldn't load Trunk quarantine data"
                 description="Loading quarantined tests from Trunk failed. Retry, or check the Trunk source's sync status."
             />

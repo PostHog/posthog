@@ -93,7 +93,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
             <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />
             <Section id="team-ci-health" title="Team CI health">
                 {teamsFailed ? (
-                    <CIAnalyticsLoadError onRetry={loadTeams} />
+                    <CIAnalyticsLoadError onRetry={loadTeams} loading={teamsLoading} />
                 ) : (
                     <div className="flex flex-col gap-2">
                         <LemonTable
