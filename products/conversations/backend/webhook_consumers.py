@@ -1,4 +1,4 @@
-"""Conversations' consumers on the customer-facing GitHub App, the SupportHog Slack app and the Mailgun email routes.
+"""Conversations' consumers on the customer-facing GitHub App, the SupportHog Slack and Teams bots and the Mailgun email routes.
 
 The registry imports this module on the first delivery, so it stays cheap: every callable defers
 its own product import.
@@ -6,6 +6,7 @@ its own product import.
 
 from posthog.ingress.contracts import DeliveryOwnership, WebhookConsumer, WebhookDelivery
 from posthog.ingress.slack.provider import SLACK_EVENT_TYPES, SLACK_INTERACTIVITY_APP, SLACK_INTERACTIVITY_TYPES
+from posthog.ingress.teams.provider import TEAMS_ACTIVITY_TYPES
 
 
 def _run_conversations(delivery: WebhookDelivery) -> None:
@@ -30,6 +31,18 @@ def _slack_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
     from products.conversations.backend.facade.api import slack_delivery_ownership  # noqa: PLC0415
 
     return slack_delivery_ownership(delivery)
+
+
+def _run_teams_events(delivery: WebhookDelivery) -> None:
+    from products.conversations.backend.facade.api import accept_teams_event  # noqa: PLC0415
+
+    accept_teams_event(delivery)
+
+
+def _teams_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    from products.conversations.backend.facade.api import teams_delivery_ownership  # noqa: PLC0415
+
+    return teams_delivery_ownership(delivery)
 
 
 def _run_email_inbound(delivery: WebhookDelivery) -> None:
@@ -95,6 +108,14 @@ WEBHOOK_CONSUMERS = (
         # The same workspace lookup as the events consumer: an interactive payload names the
         # workspace too, so a click on a workspace the other region holds is forwarded there.
         ownership=_slack_ownership,
+    ),
+    WebhookConsumer(
+        name="conversations_teams",
+        provider="teams",
+        app="supporthog",
+        event_types=TEAMS_ACTIVITY_TYPES,
+        handler=_run_teams_events,
+        ownership=_teams_ownership,
     ),
     WebhookConsumer(
         name="conversations_email_inbound",

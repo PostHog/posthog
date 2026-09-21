@@ -73,6 +73,7 @@ export class LegacyWebhookService {
                 headers: { 'Content-Type': 'application/json' },
             },
             templateId: 'legacy-zapier-webhook',
+            teamId: team.id,
         })
 
         if (response.fetchError) {
