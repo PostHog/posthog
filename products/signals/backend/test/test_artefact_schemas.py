@@ -145,6 +145,14 @@ class TestValidateArtefactContent(SimpleTestCase):
             ("task_run", {"task_id": "t1", "run_id": None, "product": "signals", "type": "implementation"}),
             ("title_change", {"old_title": "before", "new_title": "after"}),
             ("summary_change", {"old_summary": None, "new_summary": "after"}),
+            (
+                "report_link",
+                {
+                    "kind": "depends_on",
+                    "report_id": "00000000-0000-0000-0000-000000000002",
+                    "reason": "the fix lands second",
+                },
+            ),
         ]
     )
     def test_accepts_valid_content_for_type(self, artefact_type, content):
@@ -165,6 +173,8 @@ class TestValidateArtefactContent(SimpleTestCase):
             ("note", {"note": "   "}),
             ("commit", {"repository": "PostHog/posthog", "branch": "b", "commit_sha": "  ", "message": "m"}),
             ("task_run", {"task_id": "t1", "product": "Not Safe!", "type": "research"}),
+            ("report_link", {"kind": "blocks", "report_id": "00000000-0000-0000-0000-000000000002"}),
+            ("report_link", {"kind": "depends_on", "report_id": "report-2"}),
         ]
     )
     def test_rejects_invalid_content_for_type(self, artefact_type, content):

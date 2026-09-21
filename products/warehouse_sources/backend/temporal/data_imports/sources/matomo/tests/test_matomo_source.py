@@ -25,6 +25,9 @@ class TestMatomoSource:
             "401 Client Error: Unauthorized for url: https://myorg.matomo.cloud/index.php",
             "403 Client Error: Forbidden for url: https://myorg.matomo.cloud/index.php",
             "Matomo API error: You can't access this resource",
+            "HTTPSConnectionPool(host='myorg.matomo.cloud', port=443): Max retries exceeded with url: "
+            "/index.php (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] "
+            "certificate verify failed: certificate has expired (_ssl.c:1032)')))",
         ],
     )
     def test_non_retryable_errors_match_known_failures(self, observed_error):
@@ -48,6 +51,14 @@ class TestMatomoSource:
         # exhausts; keeps this benign, self-recovering failure out of error tracking.
         retryable_errors = self.source.get_retryable_errors()
         assert any(key in observed_error for key in retryable_errors)
+
+    def test_retry_exhausted_message_replaces_the_internal_marker(self):
+        # Without this the job stores the raw marker, HTTP status and all, as what the customer reads.
+        error = "Matomo API error (retryable): status=502"
+        messages = [message for key, message in self.source.get_retry_exhausted_errors().items() if key in error]
+        assert messages, "An exhausted Matomo retry should store a customer-facing message"
+        assert "502" not in messages[0]
+        assert "next sync runs on schedule" in messages[0]
 
     def test_get_schemas(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
