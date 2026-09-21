@@ -7,11 +7,11 @@
  * production error. Any other failure keeps its current crash behaviour.
  */
 
-const QUIET_EXIT_CODES = new Set(["EPIPE", "ERR_STREAM_DESTROYED"]);
+const CLOSED_PIPE_CODES = new Set(["EPIPE", "ERR_STREAM_DESTROYED"]);
 
 function isClosedPipe(err: unknown): boolean {
   const code = (err as NodeJS.ErrnoException | undefined)?.code;
-  return typeof code === "string" && QUIET_EXIT_CODES.has(code);
+  return typeof code === "string" && CLOSED_PIPE_CODES.has(code);
 }
 
 export function installStdioShutdownGuards(proc: NodeJS.Process): void {
@@ -19,19 +19,8 @@ export function installStdioShutdownGuards(proc: NodeJS.Process): void {
     proc.exit(0);
   };
 
-  for (const stream of [proc.stdout, proc.stderr]) {
-    stream.on("error", (err: unknown) => {
-      if (isClosedPipe(err)) {
-        exitQuietly();
-        return;
-      }
-      throw err;
-    });
-  }
-
-  proc.stdin.on("end", exitQuietly);
-  proc.stdin.on("close", exitQuietly);
-
+  // A failure that is not a closed pipe keeps crashing the process: drop the
+  // guards, then throw so the default handling reports it.
   const rethrowUnlessClosedPipe = (err: unknown): void => {
     if (isClosedPipe(err)) {
       exitQuietly();
@@ -42,6 +31,10 @@ export function installStdioShutdownGuards(proc: NodeJS.Process): void {
     throw err;
   };
 
+  proc.stdout.on("error", rethrowUnlessClosedPipe);
+  proc.stderr.on("error", rethrowUnlessClosedPipe);
+  proc.stdin.on("end", exitQuietly);
+  proc.stdin.on("close", exitQuietly);
   proc.on("uncaughtException", rethrowUnlessClosedPipe);
   proc.on("unhandledRejection", rethrowUnlessClosedPipe);
 }
