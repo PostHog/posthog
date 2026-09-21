@@ -5313,11 +5313,11 @@ snapshots:
     products-alerts-alert-history-chart--default--light:
         hash: v1.k794b7964.4d8a15cf51dd6c06f611bd30c470bebb3c69955a6593e0c9ddce1b5629b1a6f2.C2yasNUgK8nubifj4YkYkm6YGNtTBtDFtuKNO1LS7xg
     products-alerts-alert-history-chart--percentage-thresholds--dark:
-        hash: v1.k794b7964.72dd845cdab5ccd82db26845a87e59e0494e507f65a2f7b7130c6cace3dbb29b.g8zQTIiMKNrsTMiDHLa6zyr2Vpl3IkLP3-JeN-JV0BM
+        hash: v1.k794b7964.361b71e1699431985f9cbd1bdf253f087b3da522ee71bc3fa6e0a70de5a10339.lwp3EM5CfB1uN7s_xsNQsQ-JRr8Nq8WCABunCtWaWV0
     products-alerts-alert-history-chart--percentage-thresholds--light:
         hash: v1.k794b7964.6b7544374f39f178d262ab4ab80c4b231d50c88d8a927fa0b032780e2e0ef1ac.d0sc4qztPZ29DYbDvJuVS8LSyXHslNtwpuTZkh4grEQ
     products-alerts-alert-history-chart--threshold-changed--dark:
-        hash: v1.k794b7964.a86779583b6f5eaab783be87b59da34298e177569483fa444b6ae114d97b067f.pa9QcCFp4qZiwobjNTtz6reNKwo9WYjR1P3Yvt53LQE
+        hash: v1.k794b7964.ebe43a17d72b7267d8eda85955c83a22c3a0285412122b1d82c8457736f861dd.VvXgLYOB5CHxnFqlFY1DztH5Gr-QBKUsQoOraULkBqI
     products-alerts-alert-history-chart--threshold-changed--light:
         hash: v1.k794b7964.1897da3225f075e1d05f9c9468ef7122b4fd30740ae5e0c36184627315cc7a49.oRj-D7gnq-TSK4NhqB6GJvbZn52jkUv_r34jdKoAFuE
     products-alerts-alert-history-chart--truncated-history--dark:
