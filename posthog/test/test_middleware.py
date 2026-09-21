@@ -2182,6 +2182,12 @@ class TestCSPMiddleware(APIBaseTest):
         response = self.client.get("/")
         assert "frame-src 'self' https:" in response["Content-Security-Policy-Report-Only"]
 
+    def test_app_policy_lets_firefox_preload_the_app_bundle(self):
+        # Firefox judges <link rel="modulepreload"> by default-src, not script-src. A default-src of
+        # 'self' alone refuses every preload index.html emits for the boot chain.
+        response = self.client.get("/")
+        assert "default-src 'self' http://localhost:8234" in response["Content-Security-Policy-Report-Only"]
+
     def test_replay_player_frame_serves_the_mount_node_without_a_session(self):
         # Shared recordings render the player for logged-out viewers.
         self.client.logout()
