@@ -44,7 +44,12 @@ import {
     llmPromptsNameRetrieve,
     llmPromptsResolveNameRetrieve,
 } from '../generated/api'
-import type { LLMPromptLabelApi, LLMPromptPublicApi, LLMPromptResolveResponseApi } from '../generated/api.schemas'
+import type {
+    LLMPromptLabelApi,
+    LLMPromptPublicApi,
+    LLMPromptReferencedByApi,
+    LLMPromptResolveResponseApi,
+} from '../generated/api.schemas'
 import { llmPromptsLogic } from './llmPromptsLogic'
 import { LLM_PROMPTS_FORCE_RELOAD_PARAM } from './llmPromptsLogic'
 import { LLMPrompt, LLMPromptVersionSummary } from './types'
@@ -123,6 +128,7 @@ export interface ResolvedLLMPrompt extends LLMPrompt {
     versions: LLMPromptVersionSummary[]
     has_more: boolean
     labels: LLMPromptLabelApi[]
+    referenced_by: LLMPromptReferencedByApi[]
 }
 
 export function isPrompt(prompt: LLMPrompt | ResolvedLLMPrompt | PromptFormValues | null): prompt is ResolvedLLMPrompt {
@@ -180,6 +186,7 @@ function getResolvedPrompt(response: LLMPromptResolveResponseApi): ResolvedLLMPr
         versions: response.versions as unknown as LLMPromptVersionSummary[],
         has_more: response.has_more,
         labels: response.labels ?? [],
+        referenced_by: response.referenced_by ?? [],
     }
 }
 
@@ -256,6 +263,7 @@ export interface llmPromptLogicValues {
     promptUsageTrendQuery: InsightVizNode
     promptVariables: string[]
     publishConflict: PublishConflict | null
+    referencedBy: LLMPromptReferencedByApi[]
     relatedTracesQuery: DataTableNode | null
     relatedTracesQueryOverride: DataTableNode | null
     resolvedPreview: LLMPromptPublicApi | null
@@ -472,6 +480,7 @@ export interface llmPromptLogicMeta {
         isEditMode: (mode: PromptMode, arg: any) => boolean
         versions: (prompt: PromptFormValues | ResolvedLLMPrompt | null) => LLMPromptVersionSummary[]
         canLoadMoreVersions: (prompt: PromptFormValues | ResolvedLLMPrompt | null) => boolean
+        referencedBy: (prompt: PromptFormValues | ResolvedLLMPrompt | null) => LLMPromptReferencedByApi[]
         promptLabels: (prompt: PromptFormValues | ResolvedLLMPrompt | null) => LLMPromptLabelApi[]
         labelsByVersion: (promptLabels: LLMPromptLabelApi[]) => Record<number, LLMPromptLabelApi[]>
         isDiffVisible: (compareVersion: number | null) => boolean
@@ -803,6 +812,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                             versions: optimisticVersions,
                             has_more: currentPrompt.has_more,
                             labels: currentPrompt.labels,
+                            referenced_by: currentPrompt.referenced_by,
                         })
                         actions.setPromptFormValues(getPromptFormDefaults(savedPrompt))
                         actions.setMode(PromptMode.View)
@@ -821,6 +831,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                             versions: [],
                             has_more: false,
                             labels: [],
+                            referenced_by: [],
                         })
                         actions.setPromptFormValues(getPromptFormDefaults(savedPrompt))
                     }
@@ -971,6 +982,11 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             (prompt: PromptFormValues | ResolvedLLMPrompt | null) => (isPrompt(prompt) ? prompt.has_more : false),
         ],
 
+        referencedBy: [
+            (s) => [s.prompt],
+            (prompt: PromptFormValues | ResolvedLLMPrompt | null): LLMPromptReferencedByApi[] =>
+                prompt && isPrompt(prompt) ? (prompt.referenced_by ?? []) : [],
+        ],
         promptLabels: [
             (s) => [s.prompt],
             (prompt: PromptFormValues | ResolvedLLMPrompt | null): LLMPromptLabelApi[] =>
@@ -1266,6 +1282,9 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                     labelName,
                     fromVersion: existing.version,
                     toVersion: version,
+                    followedBy: values.referencedBy
+                        .filter((reference) => reference.label === labelName)
+                        .map((reference) => reference.name),
                     onMove: () => asyncActions.setLabel(labelName, version),
                 })
                 return
@@ -1479,7 +1498,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
 
             if (existingPrompt) {
                 return {
-                    prompt: { ...existingPrompt, versions: [], has_more: false, labels: [] },
+                    prompt: { ...existingPrompt, versions: [], has_more: false, labels: [], referenced_by: [] },
                     promptForm: getPromptFormDefaults(existingPrompt),
                     versionsLoading: false,
                 }

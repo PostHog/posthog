@@ -1,3 +1,4 @@
+import { useActiveTabTiled } from "@posthog/ui/features/tab-tiling/useActiveTabTiled";
 import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/TaskHeaderActions";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
@@ -25,6 +26,7 @@ const BREADCRUMB_VIEWS = new Set(["task-detail", "loops", "inbox", "report"]);
 export function ContentHeader() {
   const content = useHeaderStore((state) => state.content);
   const view = useAppView();
+  const tiled = useActiveTabTiled();
 
   const activeTaskId = view.type === "task-detail" ? view.taskId : undefined;
   const { data: tasks } = useTasks();
@@ -33,7 +35,7 @@ export function ContentHeader() {
     : undefined;
   const showTaskSection = view.type === "task-detail" && Boolean(activeTask);
 
-  if (!BREADCRUMB_VIEWS.has(view.type)) return null;
+  if (tiled || !BREADCRUMB_VIEWS.has(view.type)) return null;
 
   if (!content && !showTaskSection) return null;
 

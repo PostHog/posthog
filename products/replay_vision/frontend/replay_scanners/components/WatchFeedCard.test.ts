@@ -10,6 +10,38 @@ describe('WatchFeedCard helpers', () => {
                 expected: 'The scanner raised 3 signals from this session.',
             },
             {
+                name: 'names a single signal problem type',
+                reason: { kind: 'signal_emitted', signals_count: 1, problem_types: ['bug'] } as WatchFeedReasonApi,
+                expected: 'The scanner raised a bug signal from this session.',
+            },
+            {
+                name: 'names and counts one repeated problem type',
+                reason: {
+                    kind: 'signal_emitted',
+                    signals_count: 3,
+                    problem_types: ['bug', 'bug', 'bug'],
+                } as WatchFeedReasonApi,
+                expected: 'The scanner raised 3 bug signals from this session.',
+            },
+            {
+                name: 'breaks mixed problem types down by count',
+                reason: {
+                    kind: 'signal_emitted',
+                    signals_count: 2,
+                    problem_types: ['bug', 'ux_friction'],
+                } as WatchFeedReasonApi,
+                expected: 'The scanner raised 2 signals from this session: 1 bug signal, 1 UX friction signal.',
+            },
+            {
+                name: 'pluralizes and orders each type in a mixed breakdown',
+                reason: {
+                    kind: 'signal_emitted',
+                    signals_count: 3,
+                    problem_types: ['bug', 'bug', 'ux_friction'],
+                } as WatchFeedReasonApi,
+                expected: 'The scanner raised 3 signals from this session: 2 bug signals, 1 UX friction signal.',
+            },
+            {
                 name: 'rounds the score and window average',
                 reason: { kind: 'outlier_score', score: 9.53846, window_mean: 5.1428 } as WatchFeedReasonApi,
                 expected: "Scored 9.54, far from this scanner's recent average of 5.14.",

@@ -6,7 +6,7 @@ from typing import Any, Union, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, F, Max, QuerySet
+from django.db.models import Count, Exists, F, Max, OuterRef, QuerySet
 from django.db.models.query_utils import Q
 from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
@@ -97,6 +97,7 @@ from posthog.models.activity_logging.activity_page import (
     parse_activity_page_params,
 )
 from posthog.models.organization import Organization
+from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.permissions import TeamMemberStrictManagementPermission
@@ -874,7 +875,8 @@ class InsightSerializer(InsightBasicSerializer):
         else:
             dashboard_ids = validated_data.pop("dashboards", None)
             if dashboard_ids is not None:
-                self._update_insight_dashboards(dashboard_ids, instance)
+                # The membership write runs before the query is saved, so gate on the incoming one.
+                self._update_insight_dashboards(dashboard_ids, instance, validated_data.get("query", instance.query))
 
         updated_insight = super().update(instance, validated_data)
         # Delete linked alerts only when the insight can no longer carry any alert. A switch between
@@ -947,7 +949,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         return []
 
-    def _update_insight_dashboards(self, dashboard_ids: list[int], instance: Insight) -> None:
+    def _update_insight_dashboards(self, dashboard_ids: list[int], instance: Insight, query: Any) -> None:
         # Counts the field being accepted as write input — before the no-op early return, so
         # integrations that round-trip an unchanged dashboards list still register as writers.
         _record_deprecated_dashboards_field_used(self.context, usage="write")
@@ -956,6 +958,7 @@ class InsightSerializer(InsightBasicSerializer):
             change = update_insight_dashboard_membership(
                 insight=instance,
                 dashboard_ids=dashboard_ids,
+                query=query,
                 user=self.context["request"].user,
                 user_permissions=self.user_permissions,
                 user_access_control=self.user_access_control,
@@ -2091,7 +2094,10 @@ class InsightViewSet(
                 if tags_filter:
                     tags_list = json.loads(tags_filter)
                     if tags_list:
-                        queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
+                        # A semi-join returns one row per insight, so the list needs no
+                        # `.distinct()` sort over the wide insight JSON columns.
+                        matching_tags = TaggedItem.objects.filter(insight_id=OuterRef("pk"), tag__name__in=tags_list)
+                        queryset = queryset.filter(Exists(matching_tags))
             elif key == "created_by":
                 created_by_filter = request.GET["created_by"]
                 if created_by_filter:

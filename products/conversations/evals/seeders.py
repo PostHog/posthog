@@ -85,6 +85,11 @@ def seed_ticket(*, team: Team, fixture: SupportReplyFixture) -> Ticket:
 
 
 def seed_case(*, eval_team: EvalTeam, fixture: SupportReplyFixture) -> SeededCase:
+    if fixture.docs_source:
+        settings = dict(eval_team.team.conversations_settings or {})
+        settings["docs_source"] = fixture.docs_source
+        eval_team.team.conversations_settings = settings
+        eval_team.team.save(update_fields=["conversations_settings"])
     chunks_by_source = seed_corpus(team_id=eval_team.team.id, created_by_id=eval_team.user.id)
     ticket = seed_ticket(team=eval_team.team, fixture=fixture)
     source_by_chunk = {

@@ -676,6 +676,8 @@ The AI assistant uses the MCP tools to query phrocs directly and provide you wit
 
 If you're a PostHog employee, you can get access to paid features on your local instance to make development easier. [Learn how to do so in our internal billing guide](https://github.com/PostHog/billing?tab=readme-ov-file#licensing-your-local-instance).
 
+Instance licenses are configured through `PATCH /api/billing/license/`. The legacy `/api/license/` activation and deactivation endpoints are no longer available.
+
 ## Extra: Resetting your local database
 
 If you need to start fresh with a clean database (for example, if your local data is corrupted or you want to test the initial setup), follow these steps:

@@ -5055,7 +5055,9 @@ describe('runStreamLogic', () => {
                     baseUrl: 'https://proxy.example/',
                     token: 'tok-1',
                 })
-                expect(tasksRunsStreamTokenRetrieve).toHaveBeenCalledWith('997', 'task-1', 'run-1')
+                expect(tasksRunsStreamTokenRetrieve).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
+                    resync: true,
+                })
             })
 
             it('falls back to Django when the server resolves no base URL', async () => {
@@ -5082,7 +5084,7 @@ describe('runStreamLogic', () => {
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()
 
-            expect(tasksRunsStreamTokenRetrieve).toHaveBeenCalledWith('997', 'task-1', 'run-1')
+            expect(tasksRunsStreamTokenRetrieve).toHaveBeenCalledWith('997', 'task-1', 'run-1', { resync: true })
             expect(MockStream.latest().options.proxyTarget).toEqual({
                 baseUrl: 'https://proxy.example',
                 token: 'tok-1',

@@ -28,17 +28,9 @@
       "types": "./dist/posthog-api.d.ts",
       "import": "./dist/posthog-api.js"
     },
-    "./posthog-products": {
-      "types": "./dist/posthog-products.d.ts",
-      "import": "./dist/posthog-products.js"
-    },
     "./pi/rpc-client": {
       "types": "./dist/pi/rpc-client.d.ts",
       "import": "./dist/pi/rpc-client.js"
-    },
-    "./pi/task-system-prompt": {
-      "types": "./dist/pi/task-system-prompt.d.ts",
-      "import": "./dist/pi/task-system-prompt.js"
     },
     "./pi/rpc-transport": {
       "types": "./dist/pi/rpc-transport.d.ts",
@@ -168,7 +160,6 @@
   "devDependencies": {
     "@posthog/shared": "workspace:*",
     "@posthog/git": "workspace:*",
-    "@posthog/enricher": "workspace:*",
     "@posthog/harness": "workspace:*",
     "@types/bun": "1.3.14",
     "msw": "^2.12.7",
