@@ -223,7 +223,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         ),
     },
     "messages": {
-        "description": "A change event recorded for a resource, such as OrderStateChanged or CustomerCreated. Only recorded while the Messages Query feature is enabled for the project.",
+        "description": "A change event recorded for a resource, such as OrderStateChanged or CustomerCreated. Only recorded while the Messages Query feature is enabled for the project, and only kept until the project's message retention period expires, so this table covers that window rather than all history.",
         "docs_url": "https://docs.commercetools.com/api/projects/messages",
         "columns": _columns(
             type="Type of the message, naming the change it records (for example OrderStateChanged).",

@@ -104,6 +104,8 @@ COMMERCETOOLS_ENDPOINTS: dict[str, CommercetoolsEndpointConfig] = {
     ),
     # Rows only exist once the Messages Query feature is switched on for the
     # project; before that commercetools persists no messages and the table syncs empty.
+    # commercetools also deletes messages past the project's retention period, so this
+    # table can only ever cover that window.
     "messages": CommercetoolsEndpointConfig(
         name="messages",
         path="/messages",
