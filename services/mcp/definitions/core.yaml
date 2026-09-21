@@ -346,6 +346,36 @@ tools:
             `already_enabled`. Turning on `session_replay` flips the server-side recording toggle only. The app still
             needs a PostHog SDK installed before recordings arrive. Enabling a product starts collecting data and
             spending quota, so always confirm with the user before calling this.
+    project-create:
+        operation: organizations_projects_create
+        enabled: true
+        scopes:
+            - project:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create project
+        description: >
+            Create a project in the caller's active organization. A project is a separate data container with its own
+            API token, so use it to keep unrelated data apart, for example staging and production. Creating a project
+            adds to the organization's plan usage, so always confirm the name with the user before calling this. The new
+            project does not become active: call `switch-project` with the returned ID to work in it. The response
+            carries the project API token, which is safe to put in client-side code.
+        include_params:
+            - name
+        param_overrides:
+            name:
+                description: >
+                    Name for the new project. Must be unique within the organization, ignoring case. If omitted, PostHog
+                    generates a default name.
+        response:
+            include:
+                - id
+                - name
+                - organization
+                - api_token
+                - created_at
     project-get:
         operation: organizations_projects_retrieve
         enabled: true
@@ -426,9 +456,6 @@ tools:
             id:
                 description: Project ID, or `@current` to target the caller's active project.
                 cast: string-int
-    projects-create:
-        operation: organizations_projects_create
-        enabled: false
     projects-destroy:
         operation: organizations_projects_destroy
         enabled: false

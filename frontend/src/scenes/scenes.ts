@@ -618,7 +618,7 @@ export const redirects: Record<
     '/annotations': () => urls.annotations(),
     '/annotations/:id': ({ id }) => urls.annotation(id),
     '/batch_exports/:id': ({ id }) => urls.batchExport(id),
-    '/batch_exports': urls.destinations(),
+    '/batch_exports': urls.destinations('batch'),
     // Billing lives at /organization/billing. A bare /billing has no scene, so send it there.
     // /billing/authorization_status keeps its own scene route, so it must not be caught here.
     '/billing': urls.organizationBilling(),

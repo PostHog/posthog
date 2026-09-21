@@ -57,6 +57,7 @@ from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     mint_scoped_token,
     resolve_sandbox_ai_product,
     sandbox_product_routed,
+    token_cap_usd,
 )
 
 if TYPE_CHECKING:
@@ -1374,6 +1375,7 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
     if not _record_pinned_gateway_product(ctx.run_id, ctx.state, env_vars.get("AI_GATEWAY_PRODUCT")):
         # The model-change guard reads that stamp; unstamped, a run can move off its pin with no fallback.
         env_vars.pop("AI_GATEWAY_TOKEN", None)
+        env_vars.pop("AI_GATEWAY_TOKEN_CAP_USD", None)
     return env_vars
 
 
@@ -1442,6 +1444,7 @@ def ai_gateway_env_vars(
             token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id)
             if token:
                 env_vars["AI_GATEWAY_TOKEN"] = token
+                env_vars["AI_GATEWAY_TOKEN_CAP_USD"] = token_cap_usd(team_id, ai_product)
                 env_vars["AI_GATEWAY_PRODUCT"] = ai_product
                 if ai_stage:
                     env_vars["AI_GATEWAY_AI_STAGE"] = ai_stage

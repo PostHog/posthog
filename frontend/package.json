@@ -214,6 +214,7 @@
         "dompurify": "^3.4.0",
         "elkjs": "^0.10.0",
         "emoji-regex": "^10.4.0",
+        "emojibase-data": "17.0.0",
         "eventsource-parser": "^3.0.0",
         "fast-equals": "catalog:",
         "fastpriorityqueue": "^0.7.5",

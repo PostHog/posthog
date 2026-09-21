@@ -23,7 +23,7 @@ COPPER_SESSION_PATCH = (
 )
 
 
-def _response(items: list[dict[str, Any]] | None, status_code: int = 200) -> Response:
+def _response(items: Any, status_code: int = 200) -> Response:
     resp = Response()
     resp.status_code = status_code
     resp._content = json.dumps(items).encode() if items is not None else b""
@@ -159,13 +159,14 @@ class TestPagination:
 class TestSearchBody:
     @parameterized.expand(
         [
-            ("date_modified", "minimum_modified_date", "date_modified"),
-            ("date_created", "minimum_created_date", "date_created"),
+            ("people", "date_modified", "minimum_modified_date"),
+            ("people", "date_created", "minimum_created_date"),
+            ("activities", "activity_date", "minimum_activity_date"),
         ]
     )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_sets_filter_and_sort(
-        self, incremental_field: str, min_param: str, sort_field: str, MockSession
+    def test_incremental_sets_endpoint_filter_param(
+        self, endpoint: str, incremental_field: str, min_param: str, MockSession
     ) -> None:
         session = MockSession.return_value
         bodies = _wire(session, [_response([])])
@@ -173,7 +174,7 @@ class TestSearchBody:
 
         _rows(
             _source(
-                "people",
+                endpoint,
                 manager,
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=1700000000,
@@ -183,9 +184,78 @@ class TestSearchBody:
 
         body = bodies[0]
         assert body[min_param] == 1700000000
-        assert body["sort_by"] == sort_field
-        assert body["sort_direction"] == "asc"
         assert body["page_size"] == COPPER_DEFAULT_PAGE_SIZE
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_sorts_on_the_chosen_field(self, MockSession) -> None:
+        session = MockSession.return_value
+        bodies = _wire(session, [_response([])])
+
+        _rows(
+            _source(
+                "people",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=1700000000,
+                incremental_field="date_modified",
+            )
+        )
+
+        assert bodies[0]["sort_by"] == "date_modified"
+        assert bodies[0]["sort_direction"] == "asc"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_activities_search_sends_no_sort_params(self, MockSession) -> None:
+        session = MockSession.return_value
+        bodies = _wire(session, [_response([])])
+
+        _rows(
+            _source(
+                "activities",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=1700000000,
+                incremental_field="activity_date",
+            )
+        )
+
+        # `/activities/search` documents no sort params, so sending one risks a rejected request.
+        assert "sort_by" not in bodies[0]
+        assert "sort_direction" not in bodies[0]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_activities_full_refresh_omits_the_watermark(self, MockSession) -> None:
+        session = MockSession.return_value
+        bodies = _wire(session, [_response([])])
+
+        _rows(_source("activities", _make_manager(), should_use_incremental_field=False))
+
+        assert "minimum_activity_date" not in bodies[0]
+        assert bodies[0]["page_size"] == COPPER_DEFAULT_PAGE_SIZE
+
+    @parameterized.expand([("incremental", True), ("full_refresh", False)])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_activities_cap_the_window_at_the_sync_start(
+        self, _name: str, should_use_incremental_field: bool, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        bodies = _wire(session, [_response([])])
+
+        before = int(datetime.now(UTC).timestamp())
+        _rows(
+            _source(
+                "activities",
+                _make_manager(),
+                should_use_incremental_field=should_use_incremental_field,
+                db_incremental_field_last_value=1700000000,
+                incremental_field="activity_date",
+            )
+        )
+        after = int(datetime.now(UTC).timestamp())
+
+        # `activity_date` is customer-editable, so a row dated far ahead would otherwise become the
+        # watermark and hide every later activity behind it.
+        assert before <= bodies[0]["maximum_activity_date"] <= after
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_full_refresh_sorts_by_created_for_searchable(self, MockSession) -> None:
@@ -215,6 +285,31 @@ class TestReferenceEndpoint:
         # GET reference endpoints carry no request body and never consult the resumable manager.
         assert bodies[0] == {}
         manager.can_resume.assert_not_called()
+
+
+class TestActivityTypes:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_flattens_the_category_envelope(self, MockSession) -> None:
+        session = MockSession.return_value
+        envelope = {
+            "user": [{"id": 0, "category": "user", "name": "Note"}],
+            "system": [{"id": 1, "category": "system", "name": "Property Changed"}],
+        }
+        _wire(session, [_response(envelope)])
+
+        response = _source("activity_types", _make_manager())
+        rows = _rows(response)
+
+        assert rows == [envelope["user"][0], envelope["system"][0]]
+        # Ids repeat across the two categories, so the category has to be part of the key.
+        assert response.primary_keys == ["id", "category"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_envelope_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"user": [], "system": []})])
+
+        assert _rows(_source("activity_types", _make_manager())) == []
 
 
 class TestRetries:
@@ -258,6 +353,17 @@ class TestSourceResponseMetadata:
         assert response.partition_keys == ["date_created"]
         assert response.sort_mode == "asc"
         assert [r["id"] for r in rows] == [1]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_activities_declare_descending_arrival_order(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(_records([1]))])
+
+        response = _source("activities", _make_manager())
+
+        # `/activities/search` answers newest-first and takes no sort param to change that.
+        assert response.sort_mode == "desc"
+        assert response.partition_keys == ["date_created"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_metadata_for_reference(self, MockSession) -> None:

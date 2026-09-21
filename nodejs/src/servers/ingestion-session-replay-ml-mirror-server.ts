@@ -6,6 +6,7 @@ import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
+import { threadpoolConcurrency } from '~/common/utils/threadpool-concurrency'
 import { AllowListFetcher, loadAllowLists } from '~/ingestion/pipelines/sessionreplay/anonymize/allow-list-loader'
 import { type SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
 import {
@@ -14,10 +15,7 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/consumer'
 import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
 import { DynamoDBCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/dynamodb-crawl-history'
-import {
-    resolveMlAnonymizeMaxConcurrency,
-    resolveMlMirrorRedisConnection,
-} from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
+import { resolveMlMirrorRedisConnection } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import { MlBlockMetadataSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-block-metadata-sink'
 import { resolvePseudonymKey } from '~/ingestion/pipelines/sessionreplay/ml-mirror/pseudonym-key'
@@ -131,9 +129,7 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
             runner: new MlMirrorStagedBatchRunner(
                 {
                     keyManager,
-                    anonymizeMaxConcurrency: resolveMlAnonymizeMaxConcurrency(
-                        this.config.SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY
-                    ),
+                    anonymizeMaxConcurrency: threadpoolConcurrency(),
                 },
                 this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED
                     ? {
