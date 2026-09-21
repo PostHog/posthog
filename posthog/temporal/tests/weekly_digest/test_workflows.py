@@ -299,7 +299,7 @@ async def test_generate_digest_data_replays_pre_patch_history(caplog: pytest.Log
 
         return generator
 
-    activities = [
+    activities: list[Callable[..., Awaitable[object]]] = [
         list_team_id_ranges_mocked,
         count_organizations_mocked,
         generate_organization_digest_batch_mocked,
