@@ -245,14 +245,7 @@ export function WorkspaceModeSelect({
                 key={item.mode}
                 onClick={() => onChange(item.mode)}
                 render={
-                  <ItemMenuItem
-                    size="xs"
-                    className={cn(
-                      "w-full",
-                      item.mode === "local" && "bg-warning/5",
-                    )}
-                    render={<div />}
-                  >
+                  <ItemMenuItem size="xs" className="w-full" render={<div />}>
                     <ItemMedia variant="icon" className="mt-2 ml-2">
                       <span>{item.icon}</span>
                     </ItemMedia>
