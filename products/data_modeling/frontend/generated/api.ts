@@ -147,6 +147,12 @@ export const getDataModelingEdgesListUrl = (projectId: string, params?: DataMode
         : `/api/projects/${projectId}/data_modeling_edges/`
 }
 
+/**
+ * Keeps the nodes and edges of objects the reader may not read out of every response.
+ *
+ * The resource-level warehouse check decides whether a reader gets the DAG at all. Object grants
+ * decide which of its nodes they get.
+ */
 export const dataModelingEdgesList = async (
     projectId: string,
     params?: DataModelingEdgesListParams,
@@ -162,6 +168,12 @@ export const getDataModelingEdgesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_modeling_edges/`
 }
 
+/**
+ * Keeps the nodes and edges of objects the reader may not read out of every response.
+ *
+ * The resource-level warehouse check decides whether a reader gets the DAG at all. Object grants
+ * decide which of its nodes they get.
+ */
 export const dataModelingEdgesCreate = async (
     projectId: string,
     edgeApi: NonReadonly<EdgeApi>,
@@ -179,6 +191,12 @@ export const getDataModelingEdgesRetrieveUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/data_modeling_edges/${id}/`
 }
 
+/**
+ * Keeps the nodes and edges of objects the reader may not read out of every response.
+ *
+ * The resource-level warehouse check decides whether a reader gets the DAG at all. Object grants
+ * decide which of its nodes they get.
+ */
 export const dataModelingEdgesRetrieve = async (
     projectId: string,
     id: string,
@@ -194,6 +212,12 @@ export const getDataModelingEdgesUpdateUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/data_modeling_edges/${id}/`
 }
 
+/**
+ * Keeps the nodes and edges of objects the reader may not read out of every response.
+ *
+ * The resource-level warehouse check decides whether a reader gets the DAG at all. Object grants
+ * decide which of its nodes they get.
+ */
 export const dataModelingEdgesUpdate = async (
     projectId: string,
     id: string,
@@ -212,6 +236,12 @@ export const getDataModelingEdgesPartialUpdateUrl = (projectId: string, id: stri
     return `/api/projects/${projectId}/data_modeling_edges/${id}/`
 }
 
+/**
+ * Keeps the nodes and edges of objects the reader may not read out of every response.
+ *
+ * The resource-level warehouse check decides whether a reader gets the DAG at all. Object grants
+ * decide which of its nodes they get.
+ */
 export const dataModelingEdgesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -230,6 +260,12 @@ export const getDataModelingEdgesDestroyUrl = (projectId: string, id: string) =>
     return `/api/projects/${projectId}/data_modeling_edges/${id}/`
 }
 
+/**
+ * Keeps the nodes and edges of objects the reader may not read out of every response.
+ *
+ * The resource-level warehouse check decides whether a reader gets the DAG at all. Object grants
+ * decide which of its nodes they get.
+ */
 export const dataModelingEdgesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getDataModelingEdgesDestroyUrl(projectId, id), {
         ...options,
@@ -253,6 +289,12 @@ export const getDataModelingNodesListUrl = (projectId: string, params?: DataMode
         : `/api/projects/${projectId}/data_modeling_nodes/`
 }
 
+/**
+ * Keeps the nodes and edges of objects the reader may not read out of every response.
+ *
+ * The resource-level warehouse check decides whether a reader gets the DAG at all. Object grants
+ * decide which of its nodes they get.
+ */
 export const dataModelingNodesList = async (
     projectId: string,
     params?: DataModelingNodesListParams,
@@ -268,6 +310,12 @@ export const getDataModelingNodesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_modeling_nodes/`
 }
 
+/**
+ * Keeps the nodes and edges of objects the reader may not read out of every response.
+ *
+ * The resource-level warehouse check decides whether a reader gets the DAG at all. Object grants
+ * decide which of its nodes they get.
+ */
 export const dataModelingNodesCreate = async (
     projectId: string,
     nodeApi: NonReadonly<NodeApi>,
@@ -285,6 +333,12 @@ export const getDataModelingNodesRetrieveUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/data_modeling_nodes/${id}/`
 }
 
+/**
+ * Keeps the nodes and edges of objects the reader may not read out of every response.
+ *
+ * The resource-level warehouse check decides whether a reader gets the DAG at all. Object grants
+ * decide which of its nodes they get.
+ */
 export const dataModelingNodesRetrieve = async (
     projectId: string,
     id: string,
@@ -300,6 +354,12 @@ export const getDataModelingNodesUpdateUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/data_modeling_nodes/${id}/`
 }
 
+/**
+ * Keeps the nodes and edges of objects the reader may not read out of every response.
+ *
+ * The resource-level warehouse check decides whether a reader gets the DAG at all. Object grants
+ * decide which of its nodes they get.
+ */
 export const dataModelingNodesUpdate = async (
     projectId: string,
     id: string,
@@ -318,6 +378,12 @@ export const getDataModelingNodesPartialUpdateUrl = (projectId: string, id: stri
     return `/api/projects/${projectId}/data_modeling_nodes/${id}/`
 }
 
+/**
+ * Keeps the nodes and edges of objects the reader may not read out of every response.
+ *
+ * The resource-level warehouse check decides whether a reader gets the DAG at all. Object grants
+ * decide which of its nodes they get.
+ */
 export const dataModelingNodesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -336,6 +402,12 @@ export const getDataModelingNodesDestroyUrl = (projectId: string, id: string) =>
     return `/api/projects/${projectId}/data_modeling_nodes/${id}/`
 }
 
+/**
+ * Keeps the nodes and edges of objects the reader may not read out of every response.
+ *
+ * The resource-level warehouse check decides whether a reader gets the DAG at all. Object grants
+ * decide which of its nodes they get.
+ */
 export const dataModelingNodesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getDataModelingNodesDestroyUrl(projectId, id), {
         ...options,

@@ -39,21 +39,45 @@ export const DataModelingDagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Keeps the nodes and edges of objects the reader may not read out of every response.
+ *
+ * The resource-level warehouse check decides whether a reader gets the DAG at all. Object grants
+ * decide which of its nodes they get.
+ */
 export const DataModelingEdgesCreateBody = /* @__PURE__ */ zod.object({
     dag: zod.uuid(),
     properties: zod.unknown().optional(),
 })
 
+/**
+ * Keeps the nodes and edges of objects the reader may not read out of every response.
+ *
+ * The resource-level warehouse check decides whether a reader gets the DAG at all. Object grants
+ * decide which of its nodes they get.
+ */
 export const DataModelingEdgesUpdateBody = /* @__PURE__ */ zod.object({
     dag: zod.uuid(),
     properties: zod.unknown().optional(),
 })
 
+/**
+ * Keeps the nodes and edges of objects the reader may not read out of every response.
+ *
+ * The resource-level warehouse check decides whether a reader gets the DAG at all. Object grants
+ * decide which of its nodes they get.
+ */
 export const DataModelingEdgesPartialUpdateBody = /* @__PURE__ */ zod.object({
     dag: zod.uuid().optional(),
     properties: zod.unknown().optional(),
 })
 
+/**
+ * Keeps the nodes and edges of objects the reader may not read out of every response.
+ *
+ * The resource-level warehouse check decides whether a reader gets the DAG at all. Object grants
+ * decide which of its nodes they get.
+ */
 export const dataModelingNodesCreateBodyNameMax = 2048
 
 export const dataModelingNodesCreateBodyDescriptionMax = 1024
@@ -70,6 +94,12 @@ export const DataModelingNodesCreateBody = /* @__PURE__ */ zod.object({
     description: zod.string().max(dataModelingNodesCreateBodyDescriptionMax).optional(),
 })
 
+/**
+ * Keeps the nodes and edges of objects the reader may not read out of every response.
+ *
+ * The resource-level warehouse check decides whether a reader gets the DAG at all. Object grants
+ * decide which of its nodes they get.
+ */
 export const dataModelingNodesUpdateBodyNameMax = 2048
 
 export const dataModelingNodesUpdateBodyDescriptionMax = 1024
@@ -86,6 +116,12 @@ export const DataModelingNodesUpdateBody = /* @__PURE__ */ zod.object({
     description: zod.string().max(dataModelingNodesUpdateBodyDescriptionMax).optional(),
 })
 
+/**
+ * Keeps the nodes and edges of objects the reader may not read out of every response.
+ *
+ * The resource-level warehouse check decides whether a reader gets the DAG at all. Object grants
+ * decide which of its nodes they get.
+ */
 export const dataModelingNodesPartialUpdateBodyNameMax = 2048
 
 export const dataModelingNodesPartialUpdateBodyDescriptionMax = 1024
