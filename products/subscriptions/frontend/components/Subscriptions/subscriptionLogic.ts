@@ -138,7 +138,7 @@ const teamsWebhookUrlSchema = z
                 url
             ) ||
             /^https:\/\/(?:[a-z0-9-]+\.)+(?:powerautomate\.com|flow\.microsoft\.com)(?::443)?\/.+/i.test(url) ||
-            /^https:\/\/(?:[a-z0-9-]+\.)+environment\.api\.powerplatform\.com(?::443)?\/powerautomate\/automations\/direct\/.+\/workflows\/.+/i.test(
+            /^https:\/\/(?:[a-z0-9-]+\.)+environment\.api\.powerplatform\.com(?::443)?\/powerautomate\/automations\/direct(?:\/[^/]+)*\/workflows\/.+/i.test(
                 url
             ),
         TEAMS_WEBHOOK_URL_ERROR

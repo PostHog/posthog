@@ -36,6 +36,7 @@ const TEAMS_WEBHOOK_URLS = [
     'https://tenant.webhook.office.com/webhookb2/id/IncomingWebhook/id/id',
     'https://region.powerautomate.com/workflows/id',
     'https://tenant.environment.api.powerplatform.com:443/powerautomate/automations/direct/cluster/workflows/id',
+    'https://tenant.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/id',
 ]
 
 export const fixtureSubscriptionResponse = (id: number, args: Partial<SubscriptionType> = {}): SubscriptionType =>
