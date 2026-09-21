@@ -29,6 +29,9 @@ TOKEN_FIELD = "token"
 _APP_EVENT_TYPES: Mapping[str, str] = {
     "inbound": "message_received",
     "outbound": "message_sent",
+    # A catch-all route carries both directions, so the consumer reads the recipient address to
+    # tell them apart.
+    "capture": "message_received",
 }
 
 SPECS = tuple(
@@ -53,6 +56,10 @@ def _files_in_request(request: HttpRequest) -> dict[str, UploadedFile]:
 
 class MailgunProvider(WebhookProvider):
     provider = "mailgun"
+    # Mailgun retries a route delivery on any status but 2xx and 406, over several hours. So a
+    # forward that never landed, or a consumer whose write raised, must not be receipted: the
+    # message is only held by Mailgun's own queue, and nothing else can hand it back.
+    retry_status = 502
     # A route delivery carries the whole mail message, including up to MAX_FILES attachments, and
     # the forward rebuilds and re-sends every part. Three seconds is not enough for that.
     forward_timeout_seconds = 10.0
