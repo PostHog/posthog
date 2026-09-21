@@ -21,6 +21,7 @@ Lag grows while that happens, which is correct and is what the drain-time panels
 
 Because the batch has no time limit, its duration is set by how many images it holds, so this lane runs a small `CONSUMER_BATCH_SIZE` (150, against a default of 500).
 It is not smaller than that because every batch ends with a window drain, where the last few images finish unevenly while the other scrub slots idle, and a larger batch spreads that fixed cost over more images.
+The consumer caps the poll below the configured size so that every image can time out once at the sidecar and the batch still returns inside `max.poll.interval.ms`: with a 45s scrub timeout that is six waves of `SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY` images, 84 at the production concurrency of 14.
 A batch that outlives `max.poll.interval.ms` (300s) gets the pod evicted mid-batch, and that is not a clean retry: the evicted pod loses the offsets for work it already did, and the partition lands on a pod whose sidecar is equally busy and redoes the same images, so offered load rises while throughput falls.
 Keeping batches far inside the interval is what stops ordinary saturation reaching that point.
 If a revoke does land mid-batch, the batch stops as soon as a write finds it no longer owns the partitions, rather than scrubbing on and writing a second shard for a span the new owner is already writing.

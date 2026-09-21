@@ -1,4 +1,8 @@
-import { IngestionSessionReplayMlImageScrubServer } from './ingestion-session-replay-ml-image-scrub-server'
+import {
+    IngestionSessionReplayMlImageScrubServer,
+    buildImageScrubConsumerConfig,
+} from './ingestion-session-replay-ml-image-scrub-server'
+import { buildMlMirrorServerConfig } from './ml-mirror-server-config'
 
 class TestImageScrubServer extends IngestionSessionReplayMlImageScrubServer {
     public override startServices(): Promise<void> {
@@ -16,6 +20,25 @@ describe('image scrub server startup', () => {
                 SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC: topic,
             })
             await expect(server.startServices()).rejects.toThrow('requires SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC')
+        }
+    )
+
+    it.each([
+        // A batch is ceil(size / concurrency) waves of at most one scrub timeout, and every image must
+        // be able to time out once with the batch still inside Kafka's 300s max.poll.interval.ms.
+        { batchSize: 150, concurrency: 14, timeoutMs: 45_000, expected: 84 },
+        { batchSize: 150, concurrency: 8, timeoutMs: 45_000, expected: 48 },
+        { batchSize: 50, concurrency: 14, timeoutMs: 45_000, expected: 50 },
+        { batchSize: 150, concurrency: 14, timeoutMs: 15_000, expected: 150 },
+    ])(
+        'polls at most the messages that can each time out once inside the poll interval (%p)',
+        ({ batchSize, concurrency, timeoutMs, expected }) => {
+            const config = buildMlMirrorServerConfig({
+                SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE: batchSize,
+                SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY: concurrency,
+                SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: timeoutMs,
+            })
+            expect(buildImageScrubConsumerConfig(config).fetchBatchSize).toBe(expected)
         }
     )
 

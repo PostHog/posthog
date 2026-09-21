@@ -211,7 +211,9 @@ export type MlMirrorConfig = {
      * Messages per poll. Bounds batch wall time against Kafka's max.poll.interval.ms (300s), and sets
      * how much of a batch the window drain at its end costs: the last scrubConcurrency images finish
      * unevenly with slots idling, so a larger batch amortizes that tail over more images. A saturated
-     * sidecar scrubs a 150-message batch in tens of seconds, far inside the interval.
+     * sidecar scrubs a 150-message batch in tens of seconds, far inside the interval. The server caps
+     * the poll below this so that every image can time out once at the sidecar and the batch still
+     * returns inside the interval (boundedImageScrubBatchSize).
      */
     SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE: number
     // Per-write timeout (the S3 client has no built-in one). A hand-off writes its shard groups concurrently, each as a shard, an index and per-image lookups, so a hand-off bounds at 3x this plus the lookup budget.
