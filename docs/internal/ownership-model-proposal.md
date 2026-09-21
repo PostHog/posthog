@@ -114,7 +114,7 @@ owners: team-ingestion
 
 ### `product.yaml` as an accepted alias
 
-`products/<name>/product.yaml` with an `owners:` key is read by the resolver as an `owners.yaml` with that same `owners:` list, because the root `owners.yaml` enables it with `alias_files: [product.yaml]`. Every other field in `product.yaml` (`name:` today, anything added later) is ignored for ownership purposes — `product.yaml` remains free to grow product metadata without touching the ownership schema. Rules:
+`products/<name>/product.yaml` with an `owners:` key is read by the resolver as an `owners.yaml` with that same `owners:` list, because the root `owners.yaml` enables it with `alias_files: [product.yaml]`, which is also the default when a root file does not declare the setting. Every other field in `product.yaml` (`name:` today, anything added later) is ignored for ownership purposes — `product.yaml` remains free to grow product metadata without touching the ownership schema. Rules:
 
 - A directory may have `product.yaml`-with-`owners` **or** `owners.yaml`, never both — lint error.
 - Sub-folder overrides inside a product use nested `owners.yaml` as anywhere else (e.g. `products/x/backend/migrations/owners.yaml`).
@@ -229,7 +229,7 @@ If the first consumer (say the auto-assigner) is ever replaced, the resolver, sc
 ### Portability: repo = data, app = resolver
 
 Nothing in the resolver is PostHog-specific — `owners.yaml` is a repo-agnostic format, and the library needs only pyyaml and a way to load files.
-That is why it ships as the standalone, installable `packages/owners-yaml` package (`owners-yaml`), which any repo can run without vendoring: `uvx --from "git+https://github.com/PostHog/posthog#subdirectory=packages/owners-yaml" owners lint`.
+That is why it ships as the standalone, installable `packages/owners-yaml` package (`owners-yaml`), which any repo can run without vendoring: `uvx owners-yaml lint` (pin the version in CI).
 That last part is the seam: resolution walks an abstract file map, not the filesystem (the `owners:fmt` equivalence proof already runs the real resolver over an in-memory layout).
 So when a consumer like stamphog becomes a hosted app that other repos enable without adding any code, the model is: **the repo contributes only ownership data; the resolver ships inside the app.**
 A hosted reviewer fetches the default-branch tree (one API call), pulls just the ownership files (a few dozen blobs, cacheable per commit SHA), and resolves in-process.

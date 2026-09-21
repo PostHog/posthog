@@ -221,7 +221,7 @@ def _build_hogli_resolver(repo_root: Path, source: OwnershipSource) -> _HogliRes
     except ImportError as exc:
         raise RuntimeError(
             "ownership format 'hogli-resolver' requires the owners-yaml package: "
-            "vendor the owners package alongside this directory, or drop the "
+            "add a pinned owners-yaml from PyPI to this script's dependencies, or drop the "
             "hogli-resolver source from .stamphog/policy.yml"
         ) from exc
     assert source.path is not None  # validated by the loader (hogli-resolver uses `path`)

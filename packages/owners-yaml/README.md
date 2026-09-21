@@ -111,7 +111,9 @@ teams:
 
 `alias_files` names the other files that count as ownership files, such as a package manifest that already lists owners.
 Only the `owners` field of such a file is read, and an `owners.yaml` next to it wins.
-Without the setting, only `owners.yaml` decides ownership.
+The default is `[product.yaml]`, so a repository that never declares the setting still reads its product manifests.
+A declared list replaces the default, and `alias_files: []` turns alias files off.
+A reader that fetches files over a network should set `alias_files: []` in a repository that has no alias files, so it does not probe two names per directory.
 
 [SPEC.md](https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/SPEC.md) lists every field and the full resolution algorithm.
 For editor completion, point your YAML language server at [`owners.schema.json`](https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/owners.schema.json).
@@ -145,7 +147,7 @@ To list what nobody owns, run `owners unowned`. Paths under `owners: null` are l
 ### Lint in CI
 
 ```console
-$ owners lint
+$ uvx owners-yaml==0.2.0 lint
 ⚠ coverage: 0 of 5 tracked file(s) resolve to unowned
 
 ✓ owners.yaml lint passed (1 warning(s))
@@ -172,11 +174,13 @@ resolution.owners  # ['team-billing', '@alice']
 The names exported from the top-level `owners_yaml` package are the public API.
 Submodules can change between minor releases.
 
-From any language, with only PyYAML installed:
+From any language, pipe paths to the JSON entrypoint. `uvx` fetches the package from PyPI, so the machine needs only `uv`:
 
 ```bash
-echo "billing/api/invoices.py" | PYTHONPATH=path/to/packages/owners-yaml python3 -m owners_yaml --repo-root path/to/repo
+echo "billing/api/invoices.py" | uvx --from owners-yaml==0.2.0 python -m owners_yaml --repo-root path/to/repo
 ```
+
+The entrypoint imports only PyYAML. A tool that already has the source can run it with no install: `PYTHONPATH=path/to/packages/owners-yaml python3 -m owners_yaml`.
 
 It prints one JSON object keyed by path, in the same shape as `owners resolve --json`.
 `--repo-root` lets a tool resolve against a directory that holds only the ownership files, such as a sparse fetch.
