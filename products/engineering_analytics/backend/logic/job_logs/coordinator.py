@@ -5,7 +5,7 @@ job's log is fetched and emitted at most once, re-running only after a failed at
 
 Discovery queries the raw ``{prefix}github_workflow_jobs`` table (the curated read layer doesn't
 expose jobs yet). The coordinator is registered on the schedule but no-ops until
-``OTLP_LOGS_INGEST_ENDPOINT`` is set (see ``_discover_failed_jobs``), so it activates automatically
+``OTLP_LOGS_INGEST_ENDPOINT`` is set (see ``_discover_jobs_with_diagnostics``), so it activates automatically
 once the Logs endpoint is deployed, regardless of deploy order.
 """
 
@@ -34,6 +34,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.engineering_analytics.backend.logic.job_logs.activity import FetchGithubJobLogWorkflow, FetchJobLogInputs
+from products.engineering_analytics.backend.logic.queries._test_spans import rerun_recovered_job_attempts
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
@@ -52,7 +53,7 @@ _PREFIX = re.compile(r"^[A-Za-z0-9_]*$")  # warehouse source prefixes; guards th
 MAX_DISCOVERED_JOBS = 2000
 
 
-def _query_failed_jobs(team: Team, prefix: str, cutoff_iso: str, repo: str) -> list[dict[str, Any]]:
+def _query_jobs_with_diagnostics(team: Team, prefix: str, cutoff_iso: str, repo: str) -> list[dict[str, Any]]:
     # Window on completed_at (when the job finished), not created_at: a queued or long-running job
     # can be created well before it fails, and a created_at window would miss it. completed_at is an
     # ISO-8601 string and is always set for a failed (completed) job, so a lexical comparison against
@@ -65,6 +66,13 @@ def _query_failed_jobs(team: Team, prefix: str, cutoff_iso: str, repo: str) -> l
     # limit can never rise back into view and would be silently dropped. Matches
     # MAX_DISCOVERED_JOBS; the high-water-mark cursor (deferred) removes the cap concern entirely.
     # Run, attempt, and runner restrict successful-job downloads to runners with retry evidence.
+    recovered = rerun_recovered_job_attempts(
+        scan_from=f"""
+            SELECT min(parseDateTimeBestEffort(started_at))
+            FROM {table}
+            WHERE completed_at > {{cutoff}} AND conclusion = 'success'
+        """
+    )
     sql = f"""
         SELECT id AS job_id, run_id, head_branch AS branch, conclusion,
                name AS job_name, workflow_name, run_attempt, head_sha
@@ -73,20 +81,7 @@ def _query_failed_jobs(team: Team, prefix: str, cutoff_iso: str, repo: str) -> l
             conclusion = 'failure'
             OR (
                 conclusion = 'success'
-                AND (toString(run_id), toString(run_attempt), runner_name) IN (
-                    SELECT resource_attributes['ci.run_id'], resource_attributes['ci.run_attempt'],
-                           attributes['test.runner_name']
-                    FROM posthog.trace_spans
-                    WHERE service_name = 'ci-backend'
-                      AND lower(resource_attributes['ci.repository']) = lower({{repo}})
-                      AND timestamp >= (
-                          SELECT min(parseDateTimeBestEffort(started_at))
-                          FROM {table}
-                          WHERE completed_at > {{cutoff}} AND conclusion = 'success'
-                      )
-                      AND attributes['test.outcome'] = 'rerun_passed'
-                      AND notEmpty(coalesce(attributes['test.runner_name'], ''))
-                )
+                AND (toString(run_id), toString(run_attempt), runner_name) IN ({recovered})
             )
         )
         ORDER BY completed_at DESC
@@ -95,7 +90,8 @@ def _query_failed_jobs(team: Team, prefix: str, cutoff_iso: str, repo: str) -> l
     with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=team.pk):
         response = execute_hogql_query(
             query=parse_select(
-                sql, placeholders={"cutoff": ast.Constant(value=cutoff_iso), "repo": ast.Constant(value=repo)}
+                sql,
+                placeholders={"cutoff": ast.Constant(value=cutoff_iso), "repository": ast.Constant(value=repo)},
             ),
             team=team,
             query_type="GithubJobLogsDiscovery",
@@ -135,7 +131,7 @@ def _github_source_params(job_inputs: dict[str, Any] | None) -> tuple[int, str] 
         return None
 
 
-def _discover_failed_jobs(cutoff_iso: str) -> list[dict[str, Any]]:
+def _discover_jobs_with_diagnostics(cutoff_iso: str) -> list[dict[str, Any]]:
     if not settings.OTLP_LOGS_INGEST_ENDPOINT:
         # No Logs sink configured yet (charts sets the endpoint per region): discover nothing so the
         # registered schedule is inert until the sink exists, then activates automatically. Mirrors
@@ -159,7 +155,7 @@ def _discover_failed_jobs(cutoff_iso: str) -> list[dict[str, Any]]:
         try:
             # Row handling stays inside the try so a single bad row (e.g. a null job_id) skips this
             # source rather than failing discovery for every team.
-            for row in _query_failed_jobs(source.team, prefix, cutoff_iso, repo):
+            for row in _query_jobs_with_diagnostics(source.team, prefix, cutoff_iso, repo):
                 job_id = row.get("job_id")
                 if job_id is None:
                     continue
@@ -210,7 +206,7 @@ def _discover_failed_jobs(cutoff_iso: str) -> list[dict[str, Any]]:
 @activity.defn
 async def discover_failed_jobs_activity(cutoff_iso: str) -> list[dict[str, Any]]:
     """Failed or retry-recovered CI jobs with a connected GitHub source, as FetchJobLogInputs dicts."""
-    return await database_sync_to_async(_discover_failed_jobs, thread_sensitive=False)(cutoff_iso)
+    return await database_sync_to_async(_discover_jobs_with_diagnostics, thread_sensitive=False)(cutoff_iso)
 
 
 @workflow.defn(name="github-job-logs-coordinator")

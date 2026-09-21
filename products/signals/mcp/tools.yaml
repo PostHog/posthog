@@ -908,9 +908,11 @@ tools:
             which keeps compare mode off already. Use `agent` for a claim no single number settles: pass `instructions`
             saying what a later run must establish and `probe_hints` naming the issue ids, services, or queries to look
             at; it runs on the scout you name in `skill_name`, or on the fleet's follow-up scout when you name none.
-            `next_run_at` is when to first look, so allow deploy and soak time. The verdict lands on the report as a
-            `check_result` entry people read in the inbox. Check `scout-report-check-list` first: a report holds at most
-            five open checks, and a second check for the same claim is noise.
+            `next_run_at` is when to first look, so allow deploy and soak time. On a report that has not resolved yet,
+            the check is stored `pending` instead of running on that date. The gap you left becomes the wait that starts
+            when the report resolves, so a check never measures the days before the fix shipped. The verdict lands on
+            the report as a `check_result` entry people read in the inbox. Check `scout-report-check-list` first: a
+            report holds at most five open checks, and a second check for the same claim is noise.
     scout-report-check-list:
         operation: signals_scout_report_checks_list
         enabled: true
@@ -1002,10 +1004,10 @@ tools:
         title: List a scout run's emitted findings
         description: >
             Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit with its
-            `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, `tags`, and the
-            deterministic `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal.
-            Use this to see *what* a run actually surfaced, not just how many (`emitted_count`) or which ids
-            (`emitted_finding_ids`). Strictly team-scoped — a run UUID belonging to another team returns 404.
+            `description` (the finding text as surfaced), `confidence`, `severity`, `tags`, and the deterministic
+            `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal. Use this to see
+            *what* a run actually surfaced, not just how many (`emitted_count`) or which ids (`emitted_finding_ids`).
+            Strictly team-scoped — a run UUID belonging to another team returns 404.
     scout-runs-findings-summary:
         operation: signals_scout_runs_findings_summary
         enabled: false
@@ -1047,7 +1049,7 @@ tools:
         description: >
             Return the team's recently emitted scout findings across *every* `SignalScoutRun`, newest first — the
             cross-run counterpart to `scout-runs-emissions-list` (which is scoped to one run). Each row carries its
-            `run_id`, `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, `tags`, and the
+            `run_id`, `description` (the finding text as surfaced), `confidence`, `severity`, `tags`, and the
             deterministic `source_id` (`run:<run_id>:finding:<finding_id>`). Use this to answer "what has the fleet
             surfaced lately?" in one call instead of listing runs and fanning out an emissions request per run. Pass
             `skill_name` to scope to a single scout, and `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive

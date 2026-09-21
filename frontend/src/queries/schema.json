@@ -22532,6 +22532,9 @@
         "ErrorTrackingExternalReference": {
             "additionalProperties": false,
             "properties": {
+                "external_id": {
+                    "type": "string"
+                },
                 "external_url": {
                     "type": "string"
                 },
@@ -22540,9 +22543,12 @@
                 },
                 "integration": {
                     "$ref": "#/definitions/ErrorTrackingExternalReferenceIntegration"
+                },
+                "title": {
+                    "type": "string"
                 }
             },
-            "required": ["id", "external_url", "integration"],
+            "required": ["id", "external_url", "external_id", "title", "integration"],
             "type": "object"
         },
         "ErrorTrackingExternalReferenceIntegration": {
@@ -31550,6 +31556,19 @@
             "required": ["type"],
             "type": "object"
         },
+        "MCPAnalyticsPropertyFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/PersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/SessionPropertyFilter"
+                }
+            ]
+        },
         "MCPHarnessBreakdownItem": {
             "additionalProperties": false,
             "description": "One row of the MCP harness (client) breakdown: a resolved customer label and its activity.",
@@ -31594,7 +31613,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -31870,7 +31889,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -31999,7 +32018,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -32124,7 +32143,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -32214,6 +32233,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolCategoriesQuery",
                     "type": "string"
@@ -32221,6 +32243,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolCategoriesQueryResponse"
@@ -32322,6 +32350,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolCategoryCountsQuery",
                     "type": "string"
@@ -32329,6 +32360,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolCategoryCountsQueryResponse"
@@ -33207,6 +33244,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
                     "description": "Bucket granularity; the frontend passes getDefaultInterval. Defaults to day."
@@ -33218,6 +33258,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolQualityDailyStatsQueryResponse"
@@ -33369,6 +33415,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolQualityRowsQuery",
                     "type": "string"
@@ -33384,6 +33433,12 @@
                 "offset": {
                     "$ref": "#/definitions/integer",
                     "description": "Number of matching tools to skip."
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolQualityRowsQueryResponse"

@@ -354,7 +354,20 @@ export class CookielessManager {
                 team.cookieless_server_hash_mode === CookielessServerHashMode.Disabled
             ) {
                 // if the specific team doesn't have cookieless enabled, drop the event
-                results[i] = drop('cookieless_team_disabled')
+                results[i] = drop(
+                    'cookieless_team_disabled',
+                    [],
+                    [
+                        {
+                            type: 'cookieless_team_disabled',
+                            details: {
+                                eventUuid: event.uuid,
+                                event: event.event,
+                                distinctId: event.distinct_id,
+                            },
+                        },
+                    ]
+                )
                 continue
             }
 

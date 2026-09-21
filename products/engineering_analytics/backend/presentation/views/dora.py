@@ -1,14 +1,14 @@
 """DORA deploy-metrics read."""
 
-from functools import partial
-
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from rest_framework import serializers
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from products.engineering_analytics.backend.facade import api
+from products.engineering_analytics.backend.facade.contracts import UnknownDoraEnvironmentError
 from products.engineering_analytics.backend.presentation.serializers.dora import (
     DoraEnvironmentQuerySerializer,
     DoraOverviewSerializer,
@@ -29,8 +29,8 @@ _ENVIRONMENT = OpenApiParameter(
     location=OpenApiParameter.QUERY,
     required=False,
     # Explicit explode: the generated client only emits repeated `environment=` keys for params the
-    # spec marks explode, and Django's getlist needs repeated keys — a comma-joined value matches no
-    # environment.
+    # spec marks explode, and Django's getlist needs repeated keys, because a comma-joined value matches
+    # no environment.
     explode=True,
     description="Deploy environment(s) to scope to, repeatable (from the response's `environments` list). Omit "
     "to include all persistent environments marked production or named prod/production (including regional "
@@ -88,33 +88,26 @@ class DoraActionsMixin(EngineeringAnalyticsViewSetBase):
     )
     @action(detail=False, methods=["get"], pagination_class=None)
     def dora(self, request: Request, **kwargs) -> Response:
+        query = DoraEnvironmentQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
         try:
-            query = DoraEnvironmentQuerySerializer(
-                data=request.query_params,
-                context={
-                    "get_environment_choices": partial(
-                        api.get_dora_environment_choices,
-                        team=self.team,
-                        date_from=request.query_params.get("date_from") or None,
-                        date_to=request.query_params.get("date_to") or None,
-                        source_id=request.query_params.get("source_id") or None,
-                        repo=request.query_params.get("repo") or None,
-                        user_access_control=self.user_access_control,
-                    )
-                },
-            )
-            query.is_valid(raise_exception=True)
             result = api.get_dora_overview(
                 team=self.team,
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
-                validated_environments=query.validated_data.get("environment"),
+                environments=query.validated_data.get("environment"),
                 github_team=request.query_params.get("github_team") or None,
                 granularity=request.query_params.get("granularity") or None,
                 source_id=request.query_params.get("source_id") or None,
                 repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
+        except UnknownDoraEnvironmentError as exc:
+            # doraLogic recovers the environment picker only from a 400 whose attr is ``environment``.
+            raise serializers.ValidationError(
+                {"environment": [f'"{name}" is not a valid choice.' for name in exc.environments]},
+                code="invalid_choice",
+            ) from exc
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid date_from, date_to, granularity, or source_id")
         return Response(DoraOverviewSerializer(instance=result).data)
