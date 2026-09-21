@@ -12,6 +12,7 @@ import featureFlags from './__mocks__/feature_flags.json'
 import { featureFlagLogic } from './featureFlagLogic'
 
 const STALE_FLAG_ID = 1498
+const DELETED_FLAG_ID = 1526
 
 const meta: Meta = {
     component: App,
@@ -51,6 +52,9 @@ const meta: Meta = {
                 ],
                 '/api/projects/:team_id/feature_flags/:flagId/': ({ params }) => {
                     const flag = featureFlags.results.find((r) => r.id === Number(params['flagId']))
+                    if (flag?.id === DELETED_FLAG_ID) {
+                        return [200, { ...flag, deleted: true, can_edit: true }]
+                    }
                     if (flag?.id !== STALE_FLAG_ID) {
                         return [200, flag]
                     }
@@ -177,6 +181,12 @@ export const EditEncryptedRemoteConfigFeatureFlag: Story = {
 export const StaleFeatureFlag: Story = {
     parameters: {
         pageUrl: urls.featureFlag(STALE_FLAG_ID),
+    },
+}
+
+export const DeletedFeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(DELETED_FLAG_ID),
     },
 }
 
