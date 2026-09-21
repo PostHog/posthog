@@ -77,9 +77,9 @@ MAX_PREVIEWS_PER_CYCLE = 500
 # out keeps its due time.
 MAX_COHORTS_PER_CYCLE = 4
 
-# The whole batch's ClickHouse time. `EVALUATE_START_TO_CLOSE` in the workflow sits above this,
-# so an overrunning query is ended by ClickHouse rather than by the activity timing out with the
-# query still running on the cluster and its retry starting a second copy of it.
+# The batch's ClickHouse time, which `EVALUATE_START_TO_CLOSE` in the workflow sits above, so an
+# overrunning query is ended by ClickHouse rather than by the activity. It bounds the cohort
+# queries only: the per-alert destination lookups below are not inside it.
 BATCH_QUERY_BUDGET_SECONDS = 25
 # No single cohort query may spend the whole batch budget, or the first slow one starves the rest.
 MAX_QUERY_SECONDS = 20
@@ -269,21 +269,25 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
     omitted = 0
     deadline = started_at + BATCH_QUERY_BUDGET_SECONDS
     unqueried = 0
-    for key, cohort in list(cohorts.items())[:MAX_COHORTS_PER_CYCLE]:
-        # Capped the way the production cohort query requires: one batched query carries one
-        # countIf column per alert, so an uncapped cohort is an unbounded query.
-        for chunk in batched(cohort, MAX_ALERT_COHORT_SIZE, strict=False):
-            query_seconds = min(MAX_QUERY_SECONDS, int(deadline - time.monotonic()))
-            if query_seconds < MIN_QUERY_SECONDS:
-                unqueried += len(chunk)
+    # Capped the way the production cohort query requires: one batched query carries one countIf
+    # column per alert, so an uncapped cohort is an unbounded query.
+    chunks = [
+        (cohort_key, list(chunk))
+        for cohort_key, cohort in list(cohorts.items())[:MAX_COHORTS_PER_CYCLE]
+        for chunk in batched(cohort, MAX_ALERT_COHORT_SIZE, strict=False)
+    ]
+    for cohort_key, chunk in chunks:
+        query_seconds = min(MAX_QUERY_SECONDS, int(deadline - time.monotonic()))
+        if query_seconds < MIN_QUERY_SECONDS:
+            unqueried += len(chunk)
+            continue
+        for outcome, preview in _evaluate_cohort(team, chunk, cohort_key, now=cutoff, query_seconds=query_seconds):
+            if preview is not None and len(previews) >= MAX_PREVIEWS_PER_CYCLE:
+                omitted += 1
                 continue
-            for outcome, preview in _evaluate_cohort(team, list(chunk), key, now=cutoff, query_seconds=query_seconds):
-                if preview is not None and len(previews) >= MAX_PREVIEWS_PER_CYCLE:
-                    omitted += 1
-                    continue
-                outcomes.append(outcome)
-                if preview is not None:
-                    previews.append(preview)
+            outcomes.append(outcome)
+            if preview is not None:
+                previews.append(preview)
 
     if unqueried:
         logger.warning(

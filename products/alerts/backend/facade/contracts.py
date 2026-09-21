@@ -204,9 +204,11 @@ class TickPage:
     run_id: str
     dispatched: int
     remaining: int
-    # Sources whose dispatcher failed on this page. Their keys keep their due time, so a later
-    # tick rediscovers them; the page reports them rather than ending the tick.
+    # Sources whose dispatcher failed on this page, and the keys they never took. Those keys keep
+    # their due time, so a later tick rediscovers them; the page reports them rather than ending
+    # the tick.
     failed_sources: int = 0
+    undispatched: int = 0
 
 
 @frozen
@@ -220,7 +222,6 @@ class OrchestrateInputs:
     demand: dict[SourceKind, list[AlertBatchKey]] | None = None
     pages: list[TickPage] | None = None
     omitted: int = 0  # due work discovery left out of the bounded manifest; counted as remaining
-    undispatched: int = 0  # keys a failed dispatcher never took; also counted as remaining
 
 
 @frozen

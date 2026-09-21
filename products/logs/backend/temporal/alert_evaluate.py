@@ -15,7 +15,8 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
-    from django.db import close_old_connections
+
+    from posthog.temporal.common.utils import close_db_connections
 
     from products.alerts.backend.facade.contracts import (
         RECORD_OUTCOMES_ACTIVITY,
@@ -26,19 +27,20 @@ with workflow.unsafe.imports_passed_through():
 
 WORKFLOW_NAME = "logs-alert-evaluate"
 
-# Above `BATCH_QUERY_BUDGET_SECONDS`, which is above the cap on any one cohort query. That order
-# matters: with the activity below the query, the activity times out while ClickHouse is still
-# running the query, the attempt's thread stays on it, and the retry starts an identical query
-# alongside. Keeping ClickHouse the thing that ends a query means a timeout arrives as a failed
-# cohort the batch can report, not as a lost attempt.
+# Above `BATCH_QUERY_BUDGET_SECONDS`, which is above the cap on any one cohort query. With the
+# activity below the query, the activity times out while ClickHouse still runs the query, the
+# attempt's thread stays on it, and the retry starts an identical query alongside. The ordering is
+# asserted by `test_clickhouse_ends_a_slow_cohort_query_before_the_activity_does`.
 EVALUATE_START_TO_CLOSE = dt.timedelta(seconds=30)
-# Room for both attempts. The evaluation writes nothing, so a lost one costs only its queries.
-EVALUATE_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=64)
+# One attempt. A second is another full query budget spent on a batch whose keys are still due, so
+# the next tick reaches it anyway, and holding the key meanwhile blocks its own re-dispatch.
+EVALUATE_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=34)
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
 
 
 @activity.defn
+@close_db_connections
 def evaluate_logs_alerts_activity(inputs: SourceEvaluationInputs) -> SourceBatchEvaluation:
     """Sync, so the thread this blocks is a slot Temporal is accounting for. An async activity
     handing the work to its own thread pool releases its slot the moment the activity times out,
@@ -47,18 +49,9 @@ def evaluate_logs_alerts_activity(inputs: SourceEvaluationInputs) -> SourceBatch
     # this module to evaluate inside Temporal's sandbox, which a Django model import trips.
     from products.logs.backend.alert_source_cycle import evaluate_logs_batch
 
-    # The executor's threads outlive the activity and nothing else recycles their connections,
-    # which is what `database_sync_to_async_pool` did for this before it was sync. Left alone in
-    # tests, where closing the connection would drop the surrounding test transaction.
-    if not settings.TEST:
-        close_old_connections()
-    try:
-        return evaluate_logs_batch(
-            inputs.batch_key.team_id, inputs.batch_key.slot, dt.datetime.fromisoformat(inputs.cutoff)
-        )
-    finally:
-        if not settings.TEST:
-            close_old_connections()
+    return evaluate_logs_batch(
+        inputs.batch_key.team_id, inputs.batch_key.slot, dt.datetime.fromisoformat(inputs.cutoff)
+    )
 
 
 @workflow.defn(name=WORKFLOW_NAME)
@@ -78,7 +71,7 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
             inputs,
             start_to_close_timeout=EVALUATE_START_TO_CLOSE,
             schedule_to_close_timeout=EVALUATE_SCHEDULE_TO_CLOSE,
-            retry_policy=RetryPolicy(maximum_attempts=2),
+            retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
         if evaluation.outcomes:

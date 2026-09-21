@@ -84,7 +84,7 @@ The empty `--input '{}'` becomes an `OrchestrateInputs` with every field default
 Watch orchestration, its source dispatcher children, their evaluation children, and the delivery great-grandchildren in the Temporal UI at <http://localhost:8081>.
 
 Evaluation and delivery accept an empty `AlertsProductInputs` dataclass; orchestration accepts `OrchestrateInputs` with all fields defaulted.
-Orchestration pages source dispatchers, which start evaluation children with a 90-second execution timeout and one workflow attempt.
+Orchestration pages source dispatchers, which start evaluation children with a 60-second execution timeout and one workflow attempt.
 Evaluation child IDs carry the tick ID, source and page, so each tick starts distinct evaluations.
 Evaluation runs a Postgres connectivity probe; delivery runs an empty activity with no I/O.
 Evaluation and delivery activities each have a 10-second start-to-close timeout and a 30-second schedule-to-close timeout.
@@ -118,13 +118,13 @@ The hard stop is the run's own execution timeout when it has one, and the budget
 The orchestrator passes a dispatcher every remaining ID for its source. The dispatcher decides how much to take and returns the rest.
 Today it takes everything: no adapter has said yet how many alerts one evaluation can hold, so nothing remains and a tick is one page.
 The limit that will matter is the evaluation workflow's own history, which depends on the adapter's query shape; it arrives with the first real adapter.
-It starts one `alerts-product-evaluate` child, ID `{dispatcher_id}-eval`, with `ParentClosePolicy.ABANDON`, a 90-second execution timeout (`SOURCE_EVALUATION_TIMEOUT`) and one attempt.
+It starts one `alerts-product-evaluate` child, ID `{dispatcher_id}-eval`, with `ParentClosePolicy.ABANDON`, a 60-second execution timeout (`SOURCE_EVALUATION_TIMEOUT`) and one attempt.
 The timeout has to hold every attempt a source's activities allow, because an attempt cut off here is a batch that decided something and recorded nothing.
 Evaluations are abandoned rather than awaited, so it does not have to fit inside the tick.
 It waits for the child to start, never for it to finish, then returns the dispatched count and the remaining IDs.
 Members are not passed to evaluation yet: evaluation keeps the probe path until claims exist.
 
-After every page the orchestrator records a `TickPage` (page, run ID, dispatched, remaining, failed sources).
+After every page the orchestrator records a `TickPage` (page, run ID, dispatched, remaining, failed sources, undispatched).
 When nothing remains it returns `OrchestrateResult(remaining=0, deadline_reached=False)`.
 Before each page after the first, it checks the deadline. When work remains and the deadline has passed, or fewer than two seconds remain before the hard stop, it returns cleanly with the remaining count and `deadline_reached=True`; the next minute's tick discovers that work again.
 A tick always runs its first page: the deadline is a stop rule, not an admission rule.
@@ -134,9 +134,9 @@ The schedule's execution timeout spans continued runs, so a rollover cannot exte
 
 A dispatcher that overruns times out before the tick's hard stop rather than the tick being terminated mid-page. Evaluations already started by earlier dispatchers, and their delivery children, are abandoned and complete on their own.
 The orchestrator settles its pages rather than failing on the first error, so one source's dispatcher failing or timing out does not stop the sources dispatching alongside it in the same minute.
-A failed source is counted in the page's `failed_sources` and logged with its error. Nothing advanced its keys' due time, and discovery orders by that time,
+A failed source is counted in the page's `failed_sources`, its keys in `undispatched`, and it is logged with its error.
+Only a `ChildWorkflowError` counts as a source failure. Anything else, a cancellation or a bug in the orchestrator included, still fails the tick rather than being absorbed on every tick behind a report that says it completed. Nothing advanced its keys' due time, and discovery orders by that time,
 so those keys are rediscovered and win a later tick; the tick reports them in `remaining` rather than re-paging them.
-Cancellation is the one outcome that still propagates: swallowing it would let a tick ignore a cancel request.
 If the tick is terminated or times out anyway, Temporal terminates its in-flight dispatchers after the tick closes.
 The previous `workflow.patched` gate around discovery is gone: the loop cannot run without discovery, and dev histories live under a minute.
 
@@ -212,7 +212,7 @@ can have been disabled, snoozed or broken since.
 `evaluate_logs_alerts_activity` reads and decides; it writes nothing.
 It is a sync `def`, so Temporal runs it on the worker's own activity executor and the thread it blocks is a slot Temporal is accounting for.
 An async activity handing the work to its own thread pool releases its slot the moment the activity times out, while the thread stays on a query Temporal can no longer see.
-Being sync also means Django's connection recycling is the activity's own job, which it does around the call.
+Being sync also means Django's connection recycling is the activity's own job, which `@close_db_connections` does for it.
 The workflow then calls `alerts_product_record_outcomes`, the platform's own activity, which persists the batch.
 Order matters more than the split does: Temporal holds the deliveries the batch decided on before any write
 can advance a schedule past them, so an attempt lost between the two costs its queries and nothing else.
@@ -240,6 +240,7 @@ Above it, a slow query arrives as one failed cohort the batch reports and the re
 A batch can run several cohort queries one after another, so a single per-query limit does not bound the batch.
 Each query is given the time left before the batch deadline, capped at `MAX_QUERY_SECONDS`; below `MIN_QUERY_SECONDS` no further query starts
 and the cohort keeps its due time, counted in an `unqueried` log line.
+The budget covers the cohort queries only. The per-alert destination lookup is outside it, so a wide fan-out can still spend the activity's own timeout.
 The cap reaches ClickHouse as `max_execution_time` on `BatchedAlertCheckQuery`, with `timeout_overflow_mode` set to throw,
 because a partial count could resolve an alert that is actually breaching.
 
