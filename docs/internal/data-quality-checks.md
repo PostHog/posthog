@@ -4,7 +4,9 @@ Data quality checks audit warehouse tables, saved views, and catalog metrics. Ch
 
 ## Authorization
 
-Check and run routes require project membership, query access, and access to the subject. The static check-type catalog does not require query access. Metric checks use catalog permissions. Table and view checks use their respective warehouse object permissions, including explicit object grants and inherited source grants. A resource-wide denial does not discard a more specific grant that the canonical access-control rules permit.
+Every check is authored, read, run and scheduled through the project-wide `data_quality_checks` and `data_quality_runs` routes, whichever kind of subject it audits. A request names its subject in the body on create, and by check id after that; `subject_type` and `subject_uuid` query parameters narrow a listing, a health rollup, a run history, or a schedule to one subject.
+
+Check and run routes require project membership, query access, and access to the subject. The static check-type catalog needs no access to any subject. Metric checks use catalog permissions. Table and view checks use their respective warehouse object permissions, including explicit object grants and inherited source grants. A resource-wide denial does not discard a more specific grant that the canonical access-control rules permit.
 
 Reading checks, health, and run history requires viewer access. Creating, editing, deleting, or manually running checks requires editor access to their subject. Referenced subjects require viewer access. These checks apply even when the warehouse query-enforcement feature flag is disabled.
 
@@ -18,17 +20,15 @@ A check that reads more than its own subject executes as a user. A manual run ex
 
 All routes below also require `query:read`. Write scopes include read access; read-only scopes do not authorize writes. Token scopes limit access independently of the user's grants, including for organization administrators.
 
-| Route                                            | Read scope               | Write scope               |
-| ------------------------------------------------ | ------------------------ | ------------------------- |
-| Nested warehouse table checks and suite runs     | `warehouse_table:read`   | `warehouse_table:write`   |
-| Nested warehouse view checks and suite runs      | `warehouse_view:read`    | `warehouse_view:write`    |
-| Nested catalog metric checks and suite runs      | `data_catalog:read`      | `data_catalog:write`      |
-| Project-wide checks and runs, warehouse subjects | `warehouse_objects:read` | `warehouse_objects:write` |
-| Project-wide checks and runs, metric subjects    | `data_catalog:read`      | `data_catalog:write`      |
+| Subject kind     | Read scope                                         | Write scope                                          |
+| ---------------- | -------------------------------------------------- | ---------------------------------------------------- |
+| Warehouse tables | `warehouse_objects:read` or `warehouse_table:read` | `warehouse_objects:write` or `warehouse_table:write` |
+| Warehouse views  | `warehouse_objects:read` or `warehouse_view:read`  | `warehouse_objects:write` or `warehouse_view:write`  |
+| Catalog metrics  | `data_catalog:read`                                | `data_catalog:write`                                 |
 
-A project-wide token may select only the subject types its scopes permit. An unnamed manual sweep skips inaccessible checks; an explicitly selected inaccessible check is rejected. Cross-subject references must also fall within the caller's permitted subject types.
+The family scope `warehouse_objects` reaches every warehouse kind. A per-kind scope reaches its own kind only, which is what a key minted by the Agent CLI carries. A token may select only the subject kinds its scopes permit. An unnamed manual sweep skips inaccessible checks; an explicitly selected inaccessible check is rejected. Cross-subject references must also fall within the caller's permitted subject types.
 
-The table above applies to the REST routes only. A raw HogQL query against `system.information_schema.data_quality_*` needs `query:read` and no other scope. The user's own permissions still apply to each row. A token with `query:read` reads metric checks only if its user has catalog access.
+The table above applies to the REST routes only. The MCP tools declare `query:read` alone, because a tool's scope list must be met in full and the two subject families are authorized independently; a token with no subject family is refused by the route. A raw HogQL query against `system.information_schema.data_quality_*` needs `query:read` and no other scope. The user's own permissions still apply to each row. A token with `query:read` reads metric checks only if its user has catalog access.
 
 ## Custom SQL
 
@@ -48,15 +48,15 @@ Notification recipient checks retain the existing global warehouse-resource poli
 
 Catalog access is a project permission resource. Notification visibility follows that permission, including after access is revoked.
 
-## Metric schedules
+## Subject schedules
 
-Each metric with checks has one Temporal Schedule in its canonical project. The first check creates an enabled daily schedule after the check transaction commits and starts an initial run. Available intervals are one hour, six hours, twelve hours, one day, and one week. A deterministic offset spreads recurring executions across each interval.
+A subject whose checks run on a recurring schedule has one Temporal Schedule in its canonical project. Metrics are the only such subject today; a table's and a view's checks run when their data changes instead. The first check creates an enabled daily schedule after the check transaction commits and starts an initial run. Available intervals are one hour, six hours, twelve hours, one day, and one week. A deterministic offset spreads recurring executions across each interval.
 
 Temporal owns the interval, pause state, and next execution time. The schedule endpoint reads and updates Temporal directly. Paused schedules return `next_run_at: null`. An unavailable schedule service returns HTTP 503; reload the schedule before retrying an update whose outcome is unknown. Last scheduled run information comes from the caller's readable suite history. Manual runs do not change it.
 
 Scheduled executions skip an occurrence when the previous scheduled workflow is still running. Temporal catches up missed occurrences within 15 minutes and does not pause a schedule after a failed run. Manual runs keep their existing behavior. A scheduled activity rechecks schedule existence and pause state before selecting current enabled checks. An executing check can finish after the schedule is paused. Feature flags, subject existence, and execution permissions are checked in activities.
 
-A reconciler runs every 15 minutes, processing bounded pages of checks and product-filtered Temporal schedules. It performs up to 10 independent repairs or deletions at a time within a page, then advances only after the whole page succeeds. It repairs missing schedules without changing existing intervals or pause states, and deletes schedules whose metrics no longer exist. Deleting or disabling all checks retains the metric's schedule preferences and executes no check queries. Deleted metrics stop producing check queries immediately, even if schedule cleanup needs a retry.
+A reconciler runs every 15 minutes, processing bounded pages of checks and product-filtered Temporal schedules. It performs up to 10 independent repairs or deletions at a time within a page, then advances only after the whole page succeeds. It repairs missing schedules without changing existing intervals or pause states, and deletes schedules whose subject no longer exists. Deleting or disabling all checks retains the metric's schedule preferences and executes no check queries. Deleted metrics stop producing check queries immediately, even if schedule cleanup needs a retry.
 
 In the metric Tests tab, a failed schedule edit refreshes the persisted state and offers Reload before another edit. Schedule controls stay disabled while a request is pending or its outcome is uncertain.
 
