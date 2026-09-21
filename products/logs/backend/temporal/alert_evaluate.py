@@ -15,8 +15,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
-
-    from posthog.sync import database_sync_to_async_pool
+    from django.db import close_old_connections
 
     from products.alerts.backend.facade.contracts import (
         RECORD_OUTCOMES_ACTIVITY,
@@ -27,24 +26,39 @@ with workflow.unsafe.imports_passed_through():
 
 WORKFLOW_NAME = "logs-alert-evaluate"
 
-# The dispatcher gives this workflow 40 seconds. Both activities have to fit inside that with
-# room to start the delivery children, so a slow evaluation cannot leave the write no budget and
-# hand the whole batch back to the next tick.
-EVALUATE_START_TO_CLOSE = dt.timedelta(seconds=20)
-EVALUATE_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=24)
+# Above `BATCH_QUERY_BUDGET_SECONDS`, which is above the cap on any one cohort query. That order
+# matters: with the activity below the query, the activity times out while ClickHouse is still
+# running the query, the attempt's thread stays on it, and the retry starts an identical query
+# alongside. Keeping ClickHouse the thing that ends a query means a timeout arrives as a failed
+# cohort the batch can report, not as a lost attempt.
+EVALUATE_START_TO_CLOSE = dt.timedelta(seconds=30)
+# Room for both attempts. The evaluation writes nothing, so a lost one costs only its queries.
+EVALUATE_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=64)
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
 
 
 @activity.defn
-async def evaluate_logs_alerts_activity(inputs: SourceEvaluationInputs) -> SourceBatchEvaluation:
+def evaluate_logs_alerts_activity(inputs: SourceEvaluationInputs) -> SourceBatchEvaluation:
+    """Sync, so the thread this blocks is a slot Temporal is accounting for. An async activity
+    handing the work to its own thread pool releases its slot the moment the activity times out,
+    while the thread stays on the query Temporal can no longer see."""
     # Imported in the activity body, not at module scope. The workflow class below forces
     # this module to evaluate inside Temporal's sandbox, which a Django model import trips.
     from products.logs.backend.alert_source_cycle import evaluate_logs_batch
 
-    return await database_sync_to_async_pool(evaluate_logs_batch)(
-        inputs.batch_key.team_id, inputs.batch_key.slot, dt.datetime.fromisoformat(inputs.cutoff)
-    )
+    # The executor's threads outlive the activity and nothing else recycles their connections,
+    # which is what `database_sync_to_async_pool` did for this before it was sync. Left alone in
+    # tests, where closing the connection would drop the surrounding test transaction.
+    if not settings.TEST:
+        close_old_connections()
+    try:
+        return evaluate_logs_batch(
+            inputs.batch_key.team_id, inputs.batch_key.slot, dt.datetime.fromisoformat(inputs.cutoff)
+        )
+    finally:
+        if not settings.TEST:
+            close_old_connections()
 
 
 @workflow.defn(name=WORKFLOW_NAME)

@@ -386,6 +386,7 @@ class BatchedAlertCheckQuery:
         date_from: dt.datetime,
         date_to: dt.datetime,
         projection_eligible: bool | None = None,
+        max_execution_time: int | None = None,
     ) -> None:
         if not alerts:
             raise ValueError("BatchedAlertCheckQuery requires at least one alert")
@@ -395,6 +396,16 @@ class BatchedAlertCheckQuery:
         self.alerts = list(alerts)
         self.date_from = date_from
         self.date_to = date_to
+        # A caller that runs several of these inside one deadline needs each query to end before
+        # the deadline does. Throw rather than break: a partial count could resolve an alert that
+        # is actually breaching, and the caller already handles a failed cohort.
+        self._settings = (
+            self.SETTINGS
+            if max_execution_time is None
+            else self.SETTINGS.model_copy(
+                update={"max_execution_time": max_execution_time, "timeout_overflow_mode": "throw"}
+            )
+        )
         self._alert_where_exprs: list[ast.Expr] = [
             build_alert_where_expr(team=team, alert=alert, date_from=date_from, date_to=date_to)
             for alert in self.alerts
@@ -559,7 +570,7 @@ class BatchedAlertCheckQuery:
             query=query,
             team=self.team,
             workload=Workload.LOGS,
-            settings=self.SETTINGS,
+            settings=self._settings,
             limit_context=LimitContext.QUERY,
             modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         )

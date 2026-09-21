@@ -537,6 +537,24 @@ async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) 
     assert result == OrchestrateResult(pages=[], remaining=0, deadline_reached=False)
 
 
+def test_the_dispatcher_is_registered_on_the_fleet_the_tick_starts_it_on() -> None:
+    import temporalio.workflow
+
+    from posthog.management.commands.start_temporal_worker import WORKFLOWS_DICT
+
+    from products.alerts.backend.temporal.workflows import AlertsProductSourceDispatchWorkflow
+
+    dispatcher = temporalio.workflow._Definition.from_class(AlertsProductSourceDispatchWorkflow)
+    assert dispatcher is not None
+    definitions = (
+        temporalio.workflow._Definition.from_class(registered_workflow)
+        for registered_workflow in WORKFLOWS_DICT[settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE]
+    )
+    # The tick awaits its dispatchers. One registered on a fleet the tick does not dispatch to
+    # leaves every page queued until it times out, and fails the tick with it.
+    assert dispatcher.name in {definition.name for definition in definitions if definition is not None}
+
+
 def test_every_source_evaluation_binding_names_a_registered_workflow() -> None:
     import temporalio.workflow
 

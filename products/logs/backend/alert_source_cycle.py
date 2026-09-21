@@ -72,10 +72,19 @@ logger = structlog.get_logger(__name__)
 # the preview it belongs to, so a breach this batch cannot announce keeps its due time.
 MAX_PREVIEWS_PER_CYCLE = 500
 
-# Cohorts run one after another inside a twenty-second activity, and the production runner
-# measures about four seconds each. A higher bound times out and returns nothing, which costs
-# every alert in the batch; a cohort left out keeps its due time.
+# Cohorts run one after another, and the production runner measures about four seconds each. A
+# higher bound spends the query budget below and returns fewer cohorts, not more; a cohort left
+# out keeps its due time.
 MAX_COHORTS_PER_CYCLE = 4
+
+# The whole batch's ClickHouse time. `EVALUATE_START_TO_CLOSE` in the workflow sits above this,
+# so an overrunning query is ended by ClickHouse rather than by the activity timing out with the
+# query still running on the cluster and its retry starting a second copy of it.
+BATCH_QUERY_BUDGET_SECONDS = 25
+# No single cohort query may spend the whole batch budget, or the first slow one starves the rest.
+MAX_QUERY_SECONDS = 20
+# Below this there is no point starting another query; the cohort keeps its due time instead.
+MIN_QUERY_SECONDS = 2
 
 _NOTIFICATION_EVENT_KINDS: dict[NotificationAction, EventKind] = {
     NotificationAction.FIRE: "firing",
@@ -177,7 +186,7 @@ def _evaluate_one(
 
 
 def _evaluate_cohort(
-    team: Team, checks: Sequence[PlatformAlertCheck], key: tuple, *, now: datetime
+    team: Team, checks: Sequence[PlatformAlertCheck], key: tuple, *, now: datetime, query_seconds: int
 ) -> list[tuple[PlatformAlertOutcome, AlertDeliveryPreview | None]]:
     window_minutes, evaluation_periods, cadence_minutes, projection_eligible, date_to = key
     lookback = rolling_check_lookback_minutes(window_minutes, cadence_minutes, evaluation_periods)
@@ -189,6 +198,7 @@ def _evaluate_cohort(
             date_from=date_to - timedelta(minutes=lookback),
             date_to=date_to,
             projection_eligible=projection_eligible,
+            max_execution_time=query_seconds,
         ).execute_rolling_checks(date_to, window_minutes, cadence_minutes, evaluation_periods)
     except Exception as error:
         # One cohort's query must not end the batch, which is how the production cohort runner
@@ -257,11 +267,17 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
     outcomes: list[PlatformAlertOutcome] = []
     previews: list[AlertDeliveryPreview] = []
     omitted = 0
+    deadline = started_at + BATCH_QUERY_BUDGET_SECONDS
+    unqueried = 0
     for key, cohort in list(cohorts.items())[:MAX_COHORTS_PER_CYCLE]:
         # Capped the way the production cohort query requires: one batched query carries one
         # countIf column per alert, so an uncapped cohort is an unbounded query.
         for chunk in batched(cohort, MAX_ALERT_COHORT_SIZE, strict=False):
-            for outcome, preview in _evaluate_cohort(team, list(chunk), key, now=cutoff):
+            query_seconds = min(MAX_QUERY_SECONDS, int(deadline - time.monotonic()))
+            if query_seconds < MIN_QUERY_SECONDS:
+                unqueried += len(chunk)
+                continue
+            for outcome, preview in _evaluate_cohort(team, list(chunk), key, now=cutoff, query_seconds=query_seconds):
                 if preview is not None and len(previews) >= MAX_PREVIEWS_PER_CYCLE:
                     omitted += 1
                     continue
@@ -269,6 +285,14 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
                 if preview is not None:
                     previews.append(preview)
 
+    if unqueried:
+        logger.warning(
+            "Left logs alert cohorts unqueried on the batch query budget",
+            team_id=team_id,
+            slot=slot,
+            unqueried=unqueried,
+            budget_seconds=BATCH_QUERY_BUDGET_SECONDS,
+        )
     if omitted:
         logger.warning(
             "Deferred logs alert deliveries over the batch payload bound",

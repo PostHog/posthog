@@ -60,6 +60,11 @@ TICK_HARD_STOP_MARGIN = dt.timedelta(seconds=5)
 SOURCE_DISPATCH_TIMEOUT = dt.timedelta(seconds=30)
 # Time kept between a dispatcher's timeout and the hard stop, so the child closes first.
 SOURCE_DISPATCH_HEADROOM = dt.timedelta(seconds=1)
+# What an evaluation gets end to end: its reads, its write, and the delivery children it starts.
+# It has to hold every attempt a source's activities allow, because an attempt cut off here is a
+# batch that decided something and recorded nothing. Evaluations are abandoned rather than
+# awaited, so this does not have to fit inside the tick.
+SOURCE_EVALUATION_TIMEOUT = dt.timedelta(seconds=90)
 
 
 @frozen
@@ -198,7 +203,7 @@ class AlertsProductSourceDispatchWorkflow(PostHogWorkflow):
                         id=evaluation_workflow_id,
                         task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
                         parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                        execution_timeout=dt.timedelta(seconds=40),
+                        execution_timeout=SOURCE_EVALUATION_TIMEOUT,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
                 else:
@@ -208,7 +213,7 @@ class AlertsProductSourceDispatchWorkflow(PostHogWorkflow):
                         id=evaluation_workflow_id,
                         task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
                         parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                        execution_timeout=dt.timedelta(seconds=40),
+                        execution_timeout=SOURCE_EVALUATION_TIMEOUT,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
             except WorkflowAlreadyStartedError:
@@ -288,8 +293,11 @@ class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
             page_timeout = min(SOURCE_DISPATCH_TIMEOUT, hard_deadline - now - SOURCE_DISPATCH_HEADROOM)
             if (pages and now >= deadline) or page_timeout < SOURCE_DISPATCH_HEADROOM:
                 workflow.logger.info("Tick dispatch budget spent with work remaining; the next tick takes it")
-                remaining = sum(len(keys) for keys in demand.values()) + inputs.omitted
+                remaining = sum(len(keys) for keys in demand.values()) + inputs.omitted + inputs.undispatched
                 return OrchestrateResult(pages=pages, remaining=remaining, deadline_reached=True)
+            # One list, so the settled results below can be read back against the source that
+            # produced each one.
+            paged = sorted(demand.items())
             handles = [
                 await workflow.start_child_workflow(
                     AlertsProductSourceDispatchWorkflow.run,
@@ -301,13 +309,35 @@ class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
                         cutoff=cutoff_iso,
                     ),
                     id=f"{info.workflow_id}-{source.value}-p{page}",
-                    task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+                    # The tick awaits these, so they run on its own fleet. An evaluation fleet with
+                    # no free slots would otherwise leave the dispatcher unpicked and stall the tick.
+                    task_queue=settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE,
                     execution_timeout=page_timeout,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
-                for source, batch_keys in sorted(demand.items())
+                for source, batch_keys in paged
             ]
-            reports: list[SourceDispatchReport] = await asyncio.gather(*handles)
+            settled = await asyncio.gather(*handles, return_exceptions=True)
+            reports: list[SourceDispatchReport] = []
+            undispatched = 0
+            for (dispatched_source, dispatched_keys), outcome in zip(paged, settled):
+                if isinstance(outcome, asyncio.CancelledError):
+                    # The tick itself is being cancelled. Reporting that as a source failure would
+                    # let the workflow ignore the cancellation.
+                    raise outcome
+                if isinstance(outcome, BaseException):
+                    # A broken adapter must not stop the sources dispatching alongside it. Nothing
+                    # advanced these keys' due time, and discovery orders by it, so they win a later
+                    # tick rather than being lost here.
+                    undispatched += len(dispatched_keys)
+                    workflow.logger.warning(
+                        "Dispatching %s failed; its keys stay due for a later tick: %s",
+                        dispatched_source.value,
+                        outcome,
+                    )
+                    continue
+                reports.append(outcome)
+            inputs = replace(inputs, undispatched=inputs.undispatched + undispatched)
             demand = {report.source: report.remaining_keys for report in reports if report.remaining_keys}
             pages.append(
                 TickPage(
@@ -315,18 +345,22 @@ class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
                     run_id=info.run_id,
                     dispatched=sum(report.dispatched for report in reports),
                     remaining=sum(len(report.remaining_keys) for report in reports),
+                    failed_sources=len(settled) - len(reports),
                 )
             )
             page += 1
             if demand and _should_continue_as_new():
                 workflow.continue_as_new(replace(inputs, page=page, demand=demand, pages=pages))
 
-        return OrchestrateResult(pages=pages, remaining=inputs.omitted, deadline_reached=False)
+        return OrchestrateResult(pages=pages, remaining=inputs.omitted + inputs.undispatched, deadline_reached=False)
 
 
-SHARED_ORCHESTRATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsProductOrchestrateWorkflow]
+SHARED_ORCHESTRATION_WORKFLOWS: list[type[PostHogWorkflow]] = [
+    AlertsProductOrchestrateWorkflow,
+    AlertsProductSourceDispatchWorkflow,
+]
 SHARED_ORCHESTRATION_ACTIVITIES: list[Callable[..., object]] = [alerts_product_discover_demand_activity]
-EVALUATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsProductEvaluateWorkflow, AlertsProductSourceDispatchWorkflow]
+EVALUATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsProductEvaluateWorkflow]
 EVALUATION_ACTIVITIES: list[Callable[..., object]] = [
     alerts_product_probe_postgres_activity,
     alerts_product_record_outcomes_activity,

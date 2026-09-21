@@ -11,7 +11,7 @@ from products.alerts.backend.facade.contracts import SourceBatchEvaluation
 from products.alerts.backend.facade.platform_alerts import record_outcomes
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
 from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
-from products.logs.backend.alert_source_cycle import evaluate_logs_batch
+from products.logs.backend.alert_source_cycle import BATCH_QUERY_BUDGET_SECONDS, MAX_QUERY_SECONDS, evaluate_logs_batch
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 
 _MODULE = "products.logs.backend.alert_source_cycle"
@@ -74,6 +74,17 @@ class TestLogsAlertEvaluation(APIBaseTest):
         # The schedule advanced, so the next tick does not rediscover this configuration.
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
+
+    def test_clickhouse_ends_a_slow_cohort_query_before_the_activity_does(self) -> None:
+        from products.logs.backend.temporal.alert_evaluate import EVALUATE_START_TO_CLOSE
+
+        _, query = self._run(self._configuration())
+
+        # With the activity below the query, the activity times out while ClickHouse is still
+        # running it, and the retry starts a second copy of the same query.
+        assert EVALUATE_START_TO_CLOSE.total_seconds() > BATCH_QUERY_BUDGET_SECONDS > MAX_QUERY_SECONDS
+        capped = query.call_args.kwargs["max_execution_time"]
+        assert 0 < capped <= MAX_QUERY_SECONDS
 
     def test_the_evaluation_writes_nothing_until_its_outcomes_are_recorded(self) -> None:
         configuration = self._configuration()
