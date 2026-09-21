@@ -28,11 +28,15 @@ _CAST_TYPE_PREFIXES = (
     ("date", "Date"),
     ("string", "String"),
     ("float", "Float"),
-    ("decimal", "Float"),
     ("double", "Float"),
     ("bool", "Boolean"),
     ("int", "Int"),
 )
+
+# Decimal is deliberately absent above. HogQL accepts no Decimal cast, but Float is the wrong
+# substitute: it swaps exact decimal arithmetic for binary floating point, which moves the result of
+# a money query rather than failing. `toDecimal` is the exact equivalent, so point at that instead.
+_DECIMAL_PREFIX = "decimal"
 
 # ClickHouse decorations that carry no meaning for a HogQL cast.
 _CAST_WRAPPER_RE = re.compile(r"^(?:nullable|lowcardinality)\((.*)\)$")
@@ -51,15 +55,18 @@ def _nested_call(name: str, arity: int) -> str:
     return call
 
 
-def suggest_cast_type(type_name: str) -> str | None:
-    """Map a rejected ClickHouse cast type name onto the HogQL spelling, if one matches."""
+def _normalize_cast_type(type_name: str) -> str:
+    """Strip the decorations that carry no meaning for a HogQL cast: wrappers, width, unsignedness."""
     normalized = type_name.strip().lower()
     if wrapper := _CAST_WRAPPER_RE.match(normalized):
-        return suggest_cast_type(wrapper.group(1))
+        return _normalize_cast_type(wrapper.group(1))
     width = _CAST_WIDTH_RE.match(normalized)
-    if width is None:
-        return None
-    bare = width.group(1)
+    return width.group(1) if width else normalized
+
+
+def suggest_cast_type(type_name: str) -> str | None:
+    """Map a rejected ClickHouse cast type name onto the HogQL spelling, if one matches."""
+    bare = _normalize_cast_type(type_name)
     for prefix, accepted in _CAST_TYPE_PREFIXES:
         if bare.startswith(prefix):
             return accepted
@@ -105,10 +112,14 @@ def _cast_rewrite(error_message: str) -> str | None:
     if match is None:
         return None
     type_name = match.group(1)
-    accepted = ", ".join(ACCEPTED_CAST_TYPES)
-    suggestion = suggest_cast_type(type_name)
     lead = (
         f"HogQL casts do not take width-suffixed ClickHouse type names such as `{type_name}`. "
-        f"Accepted type names are: {accepted}."
+        f"Accepted type names are: {', '.join(ACCEPTED_CAST_TYPES)}."
     )
+    if _normalize_cast_type(type_name).startswith(_DECIMAL_PREFIX):
+        return (
+            f"{lead} None of them holds an exact decimal, so do not cast to Float here: that changes "
+            "the arithmetic and can move the result. Use `toDecimal(x, scale)` instead."
+        )
+    suggestion = suggest_cast_type(type_name)
     return f"{lead} Use `CAST(x AS {suggestion})` or `to{suggestion}(x)`." if suggestion else lead

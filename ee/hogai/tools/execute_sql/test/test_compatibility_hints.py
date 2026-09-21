@@ -21,7 +21,7 @@ class TestSuggestCastType:
     def test_maps_clickhouse_spelling_to_hogql(self, type_name: str, expected: str) -> None:
         assert suggest_cast_type(type_name) == expected
 
-    @parameterized.expand([("Map(String, String)",), ("Tuple",), ("Enum8",), ("d",)])
+    @parameterized.expand([("Map(String, String)",), ("Tuple",), ("Enum8",), ("d",), ("Decimal(10, 2)",)])
     def test_no_suggestion_for_unmappable_type(self, type_name: str) -> None:
         assert suggest_cast_type(type_name) is None
 
@@ -65,6 +65,15 @@ class TestBuildCompatibilityHint:
         assert hint is not None
         assert "CAST(x AS Float)" in hint
         assert "toFloat(x)" in hint
+
+    @parameterized.expand([("Decimal(10, 2)",), ("Decimal64(4)",), ("Nullable(Decimal(10, 2))",)])
+    def test_decimal_cast_points_at_todecimal_and_warns_off_float(self, type_name: str) -> None:
+        # Float is an accepted cast name and the nearest spelling, so a prefix match would suggest
+        # it. That silently swaps exact decimal arithmetic for binary floating point.
+        hint = build_compatibility_hint(f"Unsupported type cast to '{type_name}'")
+        assert hint is not None
+        assert "toDecimal(x, scale)" in hint
+        assert "CAST(x AS Float)" not in hint
 
     def test_unmappable_cast_still_lists_accepted_types(self) -> None:
         hint = build_compatibility_hint("Unsupported type cast to 'Enum8'")

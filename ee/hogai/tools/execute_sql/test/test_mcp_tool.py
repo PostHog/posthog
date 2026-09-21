@@ -290,6 +290,42 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
             {"query": captured["query"].model_dump(mode="json", exclude_none=True)},
         )
 
+    async def test_deferred_execution_error_gains_the_compatibility_hint(self):
+        # A connection query skips local validation, so a compatibility rejection arrives from the
+        # runner. It has to gain the same rewrite the validation path attaches.
+        async def fake_execute_and_format(self, *args, **kwargs):
+            raise MaxToolRetryableError("Function 'greatest' expects 2 arguments, found 3")
+
+        with patch(
+            "ee.hogai.tools.execute_sql.mcp_tool.InsightContext.execute_and_format",
+            new=fake_execute_and_format,
+        ):
+            with self.assertRaises(MaxToolRetryableError) as ctx:
+                await self.tool.execute(
+                    ExecuteSQLMCPToolArgs(query="SELECT greatest(1, 2, 3) FROM t", connectionId="conn_abc"),
+                )
+
+        message = str(ctx.exception)
+        self.assertIn("Function 'greatest' expects 2 arguments, found 3", message)
+        self.assertIn("greatest(x1, greatest(x2, x3))", message)
+
+    async def test_deferred_execution_error_without_a_rule_is_left_alone(self):
+        # Most runner failures match no rule. Those must reach the caller unchanged rather than
+        # gaining an empty or misleading block.
+        async def fake_execute_and_format(self, *args, **kwargs):
+            raise MaxToolRetryableError("Connection refused by the upstream source")
+
+        with patch(
+            "ee.hogai.tools.execute_sql.mcp_tool.InsightContext.execute_and_format",
+            new=fake_execute_and_format,
+        ):
+            with self.assertRaises(MaxToolRetryableError) as ctx:
+                await self.tool.execute(
+                    ExecuteSQLMCPToolArgs(query="SELECT 1 FROM t", connectionId="conn_abc"),
+                )
+
+        self.assertEqual(str(ctx.exception), "Connection refused by the upstream source")
+
     async def test_send_raw_query_without_a_connection_raises(self):
         # There is nothing to send it to, and silently compiling it as HogQL instead would run
         # something other than what the caller asked for.
