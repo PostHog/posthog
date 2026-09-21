@@ -171,6 +171,79 @@ class HmacSha256:
 
 
 @frozen
+class StripeSignature:
+    """Stripe's compound signature header, ``t=<timestamp>,v1=<hex>``, over ``"{timestamp}.{body}"``.
+
+    One header carries the timestamp and every signature, where `HmacSha256` reads two, and it
+    can carry several ``v1`` entries at once. A sender rotating its secret signs the request with
+    the old one and the new one, so matching any entry keeps verification working across the
+    switch-over instead of breaking the moment the secret changes.
+
+    The replay window bounds only how old a timestamp may be. A timestamp in the future passes,
+    which is what Stripe's own verifier does, so a sender whose clock runs ahead keeps working.
+    """
+
+    secret_getter: Callable[[], str | None]
+    signature_header: str = "stripe-signature"
+    timestamp_max_age_seconds: int = 300
+
+    def _parse(self, header: str) -> tuple[int, list[str]] | None:
+        """Read the timestamp and every ``v1`` signature, or `None` when the header is malformed."""
+        timestamp: int | None = None
+        signatures: list[str] = []
+        for item in header.split(","):
+            key, _, value = item.partition("=")
+            if key == "t" and timestamp is None:
+                try:
+                    # ValueError also covers an absurdly long run of digits, which CPython
+                    # refuses to convert, so an unauthenticated caller cannot buy that work.
+                    timestamp = int(value)
+                except ValueError:
+                    return None
+            elif key == "v1":
+                signatures.append(value)
+        if timestamp is None or not signatures:
+            return None
+        return timestamp, signatures
+
+    def _fresh_header(self, headers: Mapping[str, str]) -> tuple[int, list[str]] | None:
+        header = header_value(headers, self.signature_header)
+        if not header:
+            return None
+        parsed = self._parse(header)
+        if parsed is None or time.time() - parsed[0] > self.timestamp_max_age_seconds:
+            return None
+        return parsed
+
+    def rejects_headers(self, headers: Mapping[str, str]) -> bool:
+        # An unconfigured endpoint keeps answering NOT_CONFIGURED, whatever the headers carry.
+        if not self.secret_getter():
+            return False
+        return self._fresh_header(headers) is None
+
+    def _outcome(self, *, body: bytes, headers: Mapping[str, str]) -> VerificationOutcome:
+        secret = self.secret_getter()
+        if not secret:
+            return VerificationOutcome.NOT_CONFIGURED
+        parsed = self._fresh_header(headers)
+        if parsed is None:
+            return VerificationOutcome.INVALID
+
+        timestamp, signatures = parsed
+        # Assembled as bytes rather than through a decoded string, so a body that is not valid
+        # UTF-8 fails the comparison instead of raising.
+        expected = hmac_sha256_signature(secret, f"{timestamp}.".encode() + body)
+        if any(signatures_match(expected, provided) for provided in signatures):
+            return VerificationOutcome.VERIFIED
+        return VerificationOutcome.INVALID
+
+    def verify(self, *, body: bytes, headers: Mapping[str, str]) -> Verification:
+        # No facts: an HMAC over the timestamp and the raw body proves the sender holds the
+        # secret and says nothing else about the request.
+        return Verification(outcome=self._outcome(body=body, headers=headers))
+
+
+@frozen
 class SnsSignature:
     """AWS SNS message signature plus a topic-ARN allowlist.
 

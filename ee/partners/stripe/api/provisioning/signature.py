@@ -5,12 +5,18 @@ t=<timestamp>,v1=<hex>`` where the signature is HMAC-SHA256 over
 ``"{timestamp}.{body}"``, verified against the global
 ``settings.STRIPE_SIGNING_SECRET`` with a 300s drift tolerance.
 
+The signature check itself is ``posthog.ingress``'s: see
+``posthog/ingress/stripe/README.md``. This module keeps the spec's part - which
+endpoint checks what, in which order, and the flat error envelope each failure
+answers - because these endpoints are a signed request/response API rather than
+a webhook, so nothing dispatches here.
+
 Future work: the spec also defines a preferred ``Stripe-Signature-V2`` scheme -
 an EdDSA-signed JWT (``alg=EdDSA``, ``typ=JWT``, ``kid``) verified against
 Ed25519 keys fetched from ``GET <orchestrator>/v2/provisioning/public_keys``.
 
-When Stripe moves off legacy HMAC, that verification slots in here, next to
-``verify_stripe_signature``. See the Authentication section of
+When Stripe moves off legacy HMAC, that verification slots in as a second
+ingress scheme. See the Authentication section of
 https://github.com/agentic-provisioning/posthog-spec/blob/master/docs/spec.md.
 
 The verify helpers return a DRF ``Response`` (flat error envelope) on failure
@@ -20,9 +26,6 @@ explicit with ``if error := verify_...(request): return error``.
 
 from __future__ import annotations
 
-import hmac
-import hashlib
-
 from django.conf import settings
 from django.http.request import RawPostDataException
 
@@ -31,11 +34,19 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.exceptions_capture import capture_exception
+from posthog.ingress.stripe.scheme import build_stripe_provisioning_scheme
+from posthog.ingress.verify.schemes import VerificationOutcome
 
 from ee.partners.stripe.api.provisioning.analytics import capture_signature_event
 from ee.partners.stripe.api.provisioning.constants import MAX_TIMESTAMP_DRIFT_SECONDS, SUPPORTED_VERSIONS
 
 logger = structlog.get_logger(__name__)
+
+# The getter reads the setting on each request, so a rotation takes effect without a restart.
+_SCHEME = build_stripe_provisioning_scheme(
+    lambda: settings.STRIPE_SIGNING_SECRET,
+    timestamp_max_age_seconds=MAX_TIMESTAMP_DRIFT_SECONDS,
+)
 
 
 def verify_api_version(request: Request) -> Response | None:
@@ -62,19 +73,8 @@ def verify_stripe_signature(request: Request) -> Response | None:
     """Verify the Stripe-Signature HMAC against the global signing secret.
 
     Returns None if verification passes, or an error Response if it fails.
-
-    Delegates to the Stripe SDK, which checks the timestamp and every ``v1``
-    signature in the header. During a ``STRIPE_SIGNING_SECRET`` rotation the
-    sender dual-signs each request, so the header carries the old and new
-    signatures at once; matching against any of them keeps verification working
-    across the switch-over instead of breaking the moment the secret changes.
     """
     endpoint = request.path
-
-    secret = settings.STRIPE_SIGNING_SECRET
-    if not secret:
-        _log_and_capture_event("server_error", 500, endpoint)
-        return Response({"error": {"code": "server_error", "message": "Signing secret not configured"}}, status=500)
 
     body = _get_raw_body(request)
     if body is None:
@@ -90,7 +90,9 @@ def verify_stripe_signature(request: Request) -> Response | None:
         )
 
     try:
-        decoded_body = body.decode("utf-8")
+        # The scheme signs over the raw bytes, so this decides nothing about the signature.
+        # The spec gives a non-UTF-8 body its own error code, which the endpoints keep answering.
+        body.decode("utf-8")
     except UnicodeDecodeError as e:
         _log_and_capture_event("body_not_decodable", 400, endpoint, reason=str(e))
         return Response(
@@ -98,28 +100,18 @@ def verify_stripe_signature(request: Request) -> Response | None:
             status=400,
         )
 
-    # Deferred: the stripe SDK is ~0.45s to import and is only needed on this verify path.
-    import stripe  # noqa: PLC0415
-
-    sig_header = request.headers.get("stripe-signature", "")
-    try:
-        stripe.WebhookSignature.verify_header(decoded_body, sig_header, secret, tolerance=MAX_TIMESTAMP_DRIFT_SECONDS)
-    except stripe.SignatureVerificationError as e:
-        _log_and_capture_event("invalid_signature", 401, endpoint, reason=str(e))
+    outcome = _SCHEME.verify(body=body, headers=request.headers).outcome
+    if outcome is VerificationOutcome.NOT_CONFIGURED:
+        _log_and_capture_event("server_error", 500, endpoint)
+        return Response({"error": {"code": "server_error", "message": "Signing secret not configured"}}, status=500)
+    if outcome is not VerificationOutcome.VERIFIED:
+        _log_and_capture_event("invalid_signature", 401, endpoint, reason=outcome.value)
         return Response(
             {"error": {"code": "invalid_signature", "message": "Signature verification failed"}}, status=401
         )
 
     _log_and_capture_event("success", 200, endpoint)
     return None
-
-
-def compute_signature(secret: str, timestamp: int, body: bytes) -> str:
-    """Compute HMAC-SHA256 signature for a request body. Exposed for testing."""
-    mac = hmac.new(secret.encode(), digestmod=hashlib.sha256)
-    mac.update(f"{timestamp}.".encode())
-    mac.update(body)
-    return mac.digest().hex()
 
 
 def _get_raw_body(request: Request) -> bytes | None:

@@ -13,7 +13,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
 from posthog.ingress.verify.jwt import _JWKS_CLIENTS, BearerJwt, _jwks_client
-from posthog.ingress.verify.schemes import HmacSha256, SnsSignature, Verification, VerificationOutcome
+from posthog.ingress.verify.schemes import HmacSha256, SnsSignature, StripeSignature, Verification, VerificationOutcome
 
 SECRET = "s3cret"
 BODY = b'{"action":"opened"}'
@@ -173,6 +173,98 @@ class TestHmacSha256(SimpleTestCase):
         scheme = HmacSha256(secret_getter=lambda: SECRET, signature_header="X-Signature")
         with patch("hmac.compare_digest", wraps=hmac.compare_digest) as compare:
             scheme.verify(body=BODY, headers={"X-Signature": _digest().hex()})
+        compare.assert_called_once()
+
+
+class TestStripeSignature(SimpleTestCase):
+    def _scheme(self, *, secret: str | None = SECRET) -> StripeSignature:
+        return StripeSignature(secret_getter=lambda: secret, timestamp_max_age_seconds=300)
+
+    def _header(self, *, offset_seconds: int = 0, secrets: tuple[str, ...] = (SECRET,)) -> str:
+        timestamp = int(time.time()) + offset_seconds
+        signed = f"{timestamp}.".encode() + BODY
+        entries = ",".join(f"v1={_digest(signed, secret).hex()}" for secret in secrets)
+        return f"t={timestamp},{entries}"
+
+    def test_accepts_a_freshly_signed_body(self) -> None:
+        verification = self._scheme().verify(body=BODY, headers={"Stripe-Signature": self._header()})
+        self.assertEqual(verification.outcome, VerificationOutcome.VERIFIED)
+        # An HMAC over the timestamp and the raw body proves the sender holds the secret, nothing more.
+        self.assertEqual(verification.facts, {})
+
+    def test_accepts_a_dual_signed_header_during_a_rotation(self) -> None:
+        # The sender signs with the retired secret and the current one at once. Refusing the
+        # header because its first entry does not match would break every request mid-rotation.
+        header = self._header(secrets=("retired", SECRET))
+        self.assertEqual(
+            self._scheme().verify(body=BODY, headers={"Stripe-Signature": header}).outcome,
+            VerificationOutcome.VERIFIED,
+        )
+
+    def test_accepts_a_timestamp_from_a_clock_that_runs_ahead(self) -> None:
+        # Stripe's own verifier bounds only how old a timestamp may be. A future bound here
+        # would reject a sender whose clock is fast, which nothing on this path can fix.
+        self.assertEqual(
+            self._scheme().verify(body=BODY, headers={"Stripe-Signature": self._header(offset_seconds=3600)}).outcome,
+            VerificationOutcome.VERIFIED,
+        )
+
+    def test_rejects_a_replay_of_a_correctly_signed_old_request(self) -> None:
+        self.assertEqual(
+            self._scheme().verify(body=BODY, headers={"Stripe-Signature": self._header(offset_seconds=-600)}).outcome,
+            VerificationOutcome.INVALID,
+        )
+
+    def test_the_timestamp_is_part_of_the_signed_input(self) -> None:
+        # A signature over the body alone must not pass, or the replay window is decorative.
+        timestamp = int(time.time())
+        self.assertEqual(
+            self._scheme()
+            .verify(body=BODY, headers={"Stripe-Signature": f"t={timestamp},v1={_digest().hex()}"})
+            .outcome,
+            VerificationOutcome.INVALID,
+        )
+
+    @parameterized.expand(
+        [
+            ("missing_header", ""),
+            ("no_timestamp", "v1=" + "0" * 64),
+            ("no_signature", "t=1700000000"),
+            ("unparseable_timestamp", "t=yesterday,v1=" + "0" * 64),
+            ("absurdly_long_timestamp", "t=" + "9" * 5000 + ",v1=" + "0" * 64),
+            ("bare_word", "nonsense"),
+        ]
+    )
+    def test_a_malformed_header_is_refused_rather_than_raising(self, _name: str, header: str) -> None:
+        headers = {"Stripe-Signature": header} if header else {}
+        scheme = self._scheme()
+
+        self.assertEqual(scheme.verify(body=BODY, headers=headers).outcome, VerificationOutcome.INVALID)
+        # The same verdict without reading the body, so an unauthenticated caller cannot make
+        # the endpoint read a body of up to the request limit for it.
+        self.assertTrue(scheme.rejects_headers(headers))
+
+    def test_a_non_ascii_signature_fails_rather_than_raising(self) -> None:
+        # compare_digest raises TypeError on a str holding a non-ASCII code point, which an
+        # unauthenticated caller could otherwise turn into a 500.
+        header = f"t={int(time.time())},v1=ÿ" + "0" * 63
+        self.assertEqual(
+            self._scheme().verify(body=BODY, headers={"Stripe-Signature": header}).outcome,
+            VerificationOutcome.INVALID,
+        )
+
+    def test_missing_secret_is_not_configured_rather_than_invalid(self) -> None:
+        scheme = self._scheme(secret=None)
+        self.assertEqual(
+            scheme.verify(body=BODY, headers={"Stripe-Signature": self._header()}).outcome,
+            VerificationOutcome.NOT_CONFIGURED,
+        )
+        # An unconfigured endpoint keeps that answer, so the operator signal survives.
+        self.assertFalse(scheme.rejects_headers({}))
+
+    def test_compares_in_constant_time(self) -> None:
+        with patch("hmac.compare_digest", wraps=hmac.compare_digest) as compare:
+            self._scheme().verify(body=BODY, headers={"Stripe-Signature": self._header()})
         compare.assert_called_once()
 
 
