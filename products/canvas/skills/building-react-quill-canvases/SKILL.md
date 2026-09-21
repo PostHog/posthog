@@ -88,7 +88,9 @@ text-card-foreground`; borders `border-border`. Never a hardcoded hex or light-o
 - Some recharts defaults are hardcoded for a light theme and go wrong on a dark canvas. The
   platform stylesheet corrects them, so do not work around one in canvas code. Pie slice outlines
   are one: recharts strokes every sector white, and the stylesheet removes the outline. The
-  antialiasing seam between stacked bar segments is another.
+  antialiasing seam between stacked bar segments is another, and so is the default tooltip, which
+  the stylesheet inverts against the page so its text always meets contrast. A bare `<Tooltip />`
+  is the right thing to write.
 - Write Unicode glyphs (curly quotes, ellipsis, arrows, emoji) as literal characters in JSX —
   `\uXXXX` escapes render verbatim in JSX text.
 

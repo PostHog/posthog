@@ -252,6 +252,29 @@ const platformStylesheet = `
 .recharts-bar-rectangle path {
   shape-rendering: crispEdges;
 }
+
+/* Recharts colors each tooltip row with that row's series color over an inline white panel, so
+   the text fails contrast on any theme and is unreadable on a dark one. Inverting the panel
+   against the page is the highest contrast pair the theme defines, whatever the series colors
+   are, and it needs !important to beat the inline background. Each row keeps its inline series
+   color so the dot can read it through currentColor, while the text spans take the inverted
+   color. Everything else about the panel stays at the recharts default. */
+.recharts-default-tooltip {
+  background-color: var(--foreground) !important;
+}
+.recharts-tooltip-label,
+.recharts-tooltip-item > span {
+  color: var(--background);
+}
+.recharts-tooltip-item::before {
+  content: "";
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.375rem;
+  border-radius: 9999px;
+  background: currentColor;
+}
 `
 
 // Entry references (module scripts, stylesheets) parsed attribute-order-
