@@ -17,7 +17,13 @@ from posthog.dags.common.staged_dictionary import (
     load_and_verify_on_every_cluster,
 )
 from posthog.dataclasses import frozen
-from posthog.models.deletion_targets import EVENTS_TARGETS, FLAG_EVALUATIONS, resolve_placements, sweep_clusters
+from posthog.models.deletion_targets import (
+    EVENTS_TARGETS,
+    FLAG_EVALUATIONS,
+    DeletionTarget,
+    resolve_placements,
+    sweep_clusters,
+)
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
 # Every table the squash rewrites person_id on. sharded_flag_evaluations is not an events table,
@@ -28,6 +34,10 @@ from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 # Deliberately not PERSONAL_DATA_TARGETS: registering a table for deletion should not silently make
 # it a squash target as well.
 SQUASH_TARGETS = (*EVENTS_TARGETS, FLAG_EVALUATIONS)
+
+# How far back a snapshot reaches, so every override it selects has been written and replicated
+# everywhere by the time the rewrite joins it.
+SNAPSHOT_LAG_DAYS = 2
 
 
 def _squash_clusters(cluster: ClickhouseCluster) -> list[ClickhouseCluster]:
@@ -178,7 +188,7 @@ class PopulateSnapshotTableConfig(dagster.Config):
         "value can be provided in any format that is can be parsed by ClickHouse. This value should be far enough in "
         "the past that there is no reasonable likelihood that events or overrides prior to this time have not yet been "
         "written to the database and replicated to all hosts in the cluster.",
-        default=(datetime.datetime.now() - datetime.timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S"),
+        default=(datetime.datetime.now() - datetime.timedelta(days=SNAPSHOT_LAG_DAYS)).strftime("%Y-%m-%d %H:%M:%S"),
     )
     limit: int | None = pydantic.Field(
         description="The number of rows to include in the snapshot. If provided, this can be used to limit the total "
@@ -278,28 +288,42 @@ def load_and_verify_snapshot_dictionary(
 # Mutation Management
 
 
-@dagster.op
-def run_person_id_update_mutations(
-    cluster: dagster.ResourceParam[ClickhouseCluster],
-    dictionary: PersonOverridesSnapshotDictionary,
-) -> PersonOverridesSnapshotDictionary:
-    """Rewrite person_id on every squash target, each on the cluster whose shards carry it.
+def _build_person_id_update_mutations_op(name: str, targets: tuple[DeletionTarget, ...]) -> dagster.OpDefinition:
+    """Build the person_id rewrite op for a fixed set of targets.
 
-    A target's storage table can sit on a cluster whose shards only its own handle enumerates, so
-    the dispatch follows the resolved placement rather than the handle in hand. Skipping one would
-    leave its rows on a person_id this run squashed away, and the overrides that record the correct
-    one are deleted in the very next op.
+    The targets are bound here rather than read from run config, so a run cannot point the rewrite
+    at a table its job was never meant to touch.
     """
-    enqueued: list[tuple[ClickhouseCluster, dict[int, MutationWaiter]]] = []
-    for placement in resolve_placements(cluster, SQUASH_TARGETS):
-        runner = dictionary.update_mutation_runner_for(placement.target.data_table)
-        enqueued.append((placement.cluster, runner.enqueue_on_shards(placement.cluster)))
 
-    # Every mutation is already in flight, so these waits overlap and cost the longest rather than
-    # their sum. The capacity wait inside enqueue_on_shards is still per table and serial.
-    for handle, shard_mutations in enqueued:
-        wait_for_mutations_on_shards(handle, shard_mutations)
-    return dictionary
+    @dagster.op(name=name)
+    def run_mutations(
+        cluster: dagster.ResourceParam[ClickhouseCluster],
+        dictionary: PersonOverridesSnapshotDictionary,
+    ) -> PersonOverridesSnapshotDictionary:
+        """Rewrite person_id on every target, each on the cluster whose shards carry it.
+
+        A target's storage table can sit on a cluster whose shards only its own handle enumerates,
+        so the dispatch follows the resolved placement rather than the handle in hand. Skipping one
+        would leave its rows on a person_id this run squashed away.
+        """
+        enqueued: list[tuple[ClickhouseCluster, dict[int, MutationWaiter]]] = []
+        for placement in resolve_placements(cluster, targets):
+            runner = dictionary.update_mutation_runner_for(placement.target.data_table)
+            enqueued.append((placement.cluster, runner.enqueue_on_shards(placement.cluster)))
+
+        # Every mutation is already in flight, so these waits overlap and cost the longest rather
+        # than their sum. The capacity wait inside enqueue_on_shards is still per table and serial.
+        for handle, shard_mutations in enqueued:
+            wait_for_mutations_on_shards(handle, shard_mutations)
+        return dictionary
+
+    return run_mutations
+
+
+run_person_id_update_mutations = _build_person_id_update_mutations_op("run_person_id_update_mutations", SQUASH_TARGETS)
+run_flag_evaluations_person_id_update_mutations = _build_person_id_update_mutations_op(
+    "run_flag_evaluations_person_id_update_mutations", (FLAG_EVALUATIONS,)
+)
 
 
 @dagster.op
@@ -365,6 +389,20 @@ def squash_person_overrides():
 
 
 @dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
+def rewrite_flag_evaluations_person_id():
+    """Apply the person overrides to flag_evaluations, without consuming them.
+
+    A merge leaves flag_evaluations rows on the person it absorbed until a rewrite moves them, and
+    the weekly squash is the only job that does that today. This one runs the same rewrite daily on
+    that table alone, and stops before the delete: the squash still has to apply the overrides to
+    the events tables, and it is the only job allowed to delete them afterwards.
+    """
+    prepared_snapshot_table = wait_for_snapshot_table_replication(populate_snapshot_table(create_snapshot_table()))
+    prepared_dictionary = load_and_verify_snapshot_dictionary(create_snapshot_dictionary(prepared_snapshot_table))
+    cleanup_snapshot_resources(run_flag_evaluations_person_id_update_mutations(prepared_dictionary))
+
+
+@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
 def cleanup_orphaned_person_overrides_snapshot():
     """
     Cleans up overrides snapshot resources after an irrecoverable job failure. This should only be run manually when the
@@ -388,3 +426,32 @@ squash_schedule = dagster.ScheduleDefinition(
     # weekly run (downstream deletes only trigger on success)
     run_config={"resources": {"cluster": {"config": {"retry_max_attempts": 20}}}},
 )
+
+
+@dagster.schedule(
+    job=rewrite_flag_evaluations_person_id,
+    cron_schedule=settings.FLAG_EVALUATIONS_PERSON_ID_REWRITE_SCHEDULE,
+    execution_timezone="UTC",
+    name="flag_evaluations_person_id_rewrite_schedule",
+)
+def flag_evaluations_person_id_rewrite_schedule(context: dagster.ScheduleEvaluationContext) -> dagster.RunRequest:
+    """Run the rewrite against the overrides written before this tick.
+
+    The snapshot timestamp comes from the tick rather than from the config default, which is a
+    literal evaluated when the module is imported. A daily job that read it would snapshot the same
+    window on every run for as long as the code server stays up, and so would never see a merge
+    recorded after that import.
+    """
+    snapshot_timestamp = context.scheduled_execution_time - datetime.timedelta(days=SNAPSHOT_LAG_DAYS)
+    return dagster.RunRequest(
+        run_config={
+            "ops": {
+                populate_snapshot_table.name: {
+                    "config": {"timestamp": snapshot_timestamp.strftime("%Y-%m-%d %H:%M:%S")}
+                }
+            },
+            # Same allowance as the squash: a mutation wait can span hours and a transient host
+            # failure should not fail the run.
+            "resources": {"cluster": {"config": {"retry_max_attempts": 20}}},
+        }
+    )

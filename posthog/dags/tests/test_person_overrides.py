@@ -19,8 +19,10 @@ from posthog.dags.person_overrides import (
     PersonOverridesSnapshotTable,
     PopulateSnapshotTableConfig,
     cleanup_orphaned_person_overrides_snapshot,
+    flag_evaluations_person_id_rewrite_schedule,
     get_existing_dictionary_for_run_id,
     populate_snapshot_table,
+    rewrite_flag_evaluations_person_id,
     run_person_id_update_mutations,
     squash_person_overrides,
     wait_for_overrides_delete_mutations,
@@ -197,6 +199,83 @@ def test_a_person_deletion_after_a_merge_reaches_flag_evaluations(cluster: Click
     )
 
     assert cluster.any_host(surviving_flag_evaluation_person_ids).result() == set()
+
+
+def test_the_daily_rewrite_applies_overrides_to_flag_evaluations_and_leaves_them_in_place(
+    cluster: ClickhouseCluster,
+):
+    # The daily job closes the window in which flag_evaluations rows still carry the person a merge
+    # absorbed. It must leave the overrides it applies behind: the weekly squash is what applies
+    # them to the events tables, and it deletes them only after it has. A daily run that deleted
+    # them, or that rewrote the events tables as well, would take work away from the weekly one.
+    timestamp = datetime(2025, 6, 1)
+    team_id = 4243
+    absorbed_person, surviving_person = UUID(int=9101), UUID(int=9102)
+    row_uuid = UUID(int=9103)
+
+    cluster.any_host(
+        partial(
+            insert_flag_evaluations,
+            [(team_id, "merged", absorbed_person, row_uuid, timestamp - timedelta(hours=2))],
+        )
+    ).result()
+
+    def insert_event(client: Client) -> None:
+        client.execute(
+            "INSERT INTO writable_events (distinct_id, person_id, timestamp) VALUES",
+            [("merged", absorbed_person, timestamp - timedelta(hours=2))],
+        )
+
+    def insert_override(client: Client) -> None:
+        client.execute(
+            "INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, _timestamp, version) VALUES",
+            [(team_id, "merged", surviving_person, timestamp - timedelta(hours=1), 1)],
+        )
+
+    cluster.any_host(insert_event).result()
+    cluster.any_host(insert_override).result()
+
+    def flag_evaluation_person_ids(client: Client) -> set[UUID]:
+        rows = client.execute("SELECT person_id FROM flag_evaluations WHERE uuid = %(uuid)s", {"uuid": row_uuid})
+        return {person_id for [person_id] in rows}
+
+    def event_person_ids(client: Client) -> set[UUID]:
+        rows = client.execute("SELECT person_id FROM events WHERE distinct_id = 'merged'")
+        return {person_id for [person_id] in rows}
+
+    def overrides(client: Client) -> set[tuple[str, UUID]]:
+        rows = client.execute("SELECT distinct_id, person_id FROM person_distinct_id_overrides FINAL")
+        return {(distinct_id, person_id) for [distinct_id, person_id] in rows}
+
+    run_result = rewrite_flag_evaluations_person_id.execute_in_process(
+        run_config=dagster.RunConfig(
+            {populate_snapshot_table.name: PopulateSnapshotTableConfig(timestamp=timestamp.isoformat())}
+        ),
+        resources={"cluster": cluster},
+    )
+
+    assert cluster.any_host(flag_evaluation_person_ids).result() == {surviving_person}
+    assert cluster.any_host(event_person_ids).result() == {absorbed_person}
+    assert cluster.any_host(overrides).result() == {("merged", surviving_person)}
+
+    table = PersonOverridesSnapshotTable(UUID(run_result.dagster_run.run_id))
+    dictionary = PersonOverridesSnapshotDictionary(source=table)
+    assert not any(cluster.map_all_hosts(table.exists).result().values())
+    assert not any(cluster.map_all_hosts(dictionary.exists).result().values())
+
+
+def test_the_daily_schedule_snapshots_the_window_ending_at_its_own_tick():
+    # The op's config default is a literal evaluated at import, so a job that took it would snapshot
+    # the same window on every run for as long as the code server lives, and never see a merge
+    # recorded after that import. The schedule has to carry the timestamp instead.
+    ticks = [dagster.build_schedule_context(scheduled_execution_time=datetime(2025, 6, day, 4, 0)) for day in (1, 2)]
+    timestamps = [
+        request.run_config["ops"][populate_snapshot_table.name]["config"]["timestamp"]
+        for tick in ticks
+        for request in [flag_evaluations_person_id_rewrite_schedule(tick)]
+    ]
+
+    assert timestamps == ["2025-05-30 04:00:00", "2025-05-31 04:00:00"]
 
 
 def test_cleanup_job(cluster: ClickhouseCluster) -> None:

@@ -45,6 +45,7 @@ defs = dagster.Definitions(
         fix_missing_person_overrides.fix_missing_person_overrides_job,
         fix_person_id_overrides.fix_person_id_overrides_job,
         person_overrides.cleanup_orphaned_person_overrides_snapshot,
+        person_overrides.rewrite_flag_evaluations_person_id,
         person_overrides.squash_person_overrides,
         person_pg_cleanup_drain.person_pg_cleanup_drain_job,
         postgres_to_clickhouse_etl.postgres_to_clickhouse_etl_job,
@@ -59,6 +60,7 @@ defs = dagster.Definitions(
     ],
     schedules=[
         export_query_log_archive_to_s3.query_log_archive_export_schedule,
+        person_overrides.flag_evaluations_person_id_rewrite_schedule,
         person_overrides.squash_schedule,
         postgres_to_clickhouse_etl.postgres_to_clickhouse_hourly_schedule,
         property_definitions.property_definitions_hourly_schedule,

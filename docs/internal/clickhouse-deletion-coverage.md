@@ -88,6 +88,9 @@ Skipping one of those tables is worse than under-deleting: the overrides that re
 `SQUASH_TARGETS` is deliberately its own list rather than `PERSONAL_DATA_TARGETS`, so registering a table for deletion does not silently enroll it in the squash as well.
 `posthog/dags/common/staged_dictionary.py` holds the piece both jobs share.
 
+`rewrite_flag_evaluations_person_id` runs the same rewrite daily, on `sharded_flag_evaluations` alone, and stops before the delete.
+It shortens the window in which a merged row still reads under the absorbed person; the weekly squash stays the only job that applies the overrides to the events tables and the only one that deletes them.
+
 ## Covered tables
 
 - `sharded_events` — all sweeps.
