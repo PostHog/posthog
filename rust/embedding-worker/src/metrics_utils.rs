@@ -14,6 +14,7 @@ pub const EMBEDDING_REQUEST_TIME: &str = "embedding_worker_embedding_request_tim
 pub const EMBEDDING_TOTAL_TOKENS: &str = "embedding_worker_embedding_total_tokens";
 pub const REQUESTS_SENT: &str = "embedding_worker_requests_sent";
 pub const RESPONSES_RECEIVED: &str = "embedding_worker_responses_received";
+pub const RESPONSE_DECODE_FAILED: &str = "embedding_worker_response_decode_failed";
 pub const RECENTLY_SEEN_DOCUMENTS: &str = "embedding_worker_recently_seen_documents";
 pub const RECENTLY_SEEN_OPERATIONS: &str = "embedding_worker_recently_seen_operations";
 pub const RECENTLY_SEEN_OPERATION_TIME: &str = "embedding_worker_recently_seen_operation_time";
