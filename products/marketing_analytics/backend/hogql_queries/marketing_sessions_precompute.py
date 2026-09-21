@@ -137,7 +137,7 @@ def ensure_marketing_sessions_precomputed(
             "max_session_seconds": ast.Constant(value=MAX_PRECOMPUTED_SESSION_SECONDS),
         },
     )
-    if unsupported.results is None:
+    if unsupported.error:
         return LazyComputationResult(ready=False, job_ids=[], errors=["Could not verify session precompute coverage"])
     if unsupported.results:
         return LazyComputationResult(

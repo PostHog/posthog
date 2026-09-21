@@ -4,15 +4,19 @@ from datetime import UTC, datetime, timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import HogQLQueryModifiers
+from posthog.schema import HogQLQueryModifiers, HogQLQueryResponse
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models import Team
 from posthog.schema_enums import SessionTableVersion
 from posthog.test.persons import create_person
 from posthog.uuidt import uuid7
@@ -141,3 +145,23 @@ class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
         cached = ensure_marketing_sessions_precomputed(self.team, start, end, run_inserts=False)
         assert not cached.ready
         assert not cached.job_ids
+
+
+class TestSessionPrecomputeCoverageFailure(SimpleTestCase):
+    def test_query_error_does_not_prove_session_coverage(self) -> None:
+        with (
+            patch(
+                "products.marketing_analytics.backend.hogql_queries.marketing_sessions_precompute.create_default_modifiers_for_team",
+                return_value=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2),
+            ),
+            patch(
+                "products.marketing_analytics.backend.hogql_queries.marketing_sessions_precompute.execute_hogql_query",
+                return_value=HogQLQueryResponse(results=[], error="Coverage query failed"),
+            ),
+        ):
+            result = ensure_marketing_sessions_precomputed(
+                Team(id=1), datetime(2026, 9, 1, tzinfo=UTC), datetime(2026, 9, 2, tzinfo=UTC)
+            )
+        self.assertFalse(result.ready)
+        self.assertEqual(result.job_ids, [])
+        self.assertEqual(result.errors, ["Could not verify session precompute coverage"])
