@@ -53,7 +53,7 @@ export { useAnimatedNumber } from './components/MetricCard/useAnimatedNumber'
 export { useHoverIntent } from './components/MetricCard/useHoverIntent'
 
 // Tooltip teardown (hosts call this when a page goes away without unmounting its charts)
-export { dismissChartTooltips, HOG_CHARTS_DISMISS_TOOLTIPS_EVENT } from './core/tooltip-dismiss'
+export { dismissChartTooltips } from './core/tooltip-dismiss'
 
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'

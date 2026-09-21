@@ -331,10 +331,9 @@ function clearHoverNow(): void {
 }
 
 export function cleanupTooltip(id: string): void {
-    // The hover surface hides whoever owns it. It is shared and lives on the body, so an
-    // owner that can no longer hide it — one that unmounted while the pointer was over the
-    // tooltip — would otherwise leave it on screen for good. Hover content is transient and
-    // comes back on the next mousemove; a pin is deliberate, so only its owner drops it.
+    // Hide the hover surface whoever owns it: an owner that unmounted under the pointer can
+    // no longer hide it, and the element stays on the body. Hover content returns on the next
+    // mousemove, but a pin is deliberate, so only its owner drops that.
     clearHoverNow()
     if (pinned.owner === id) {
         unpinTooltip(id)

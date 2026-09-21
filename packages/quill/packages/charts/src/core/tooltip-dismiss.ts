@@ -5,8 +5,5 @@
 export const HOG_CHARTS_DISMISS_TOOLTIPS_EVENT = 'hog-charts:dismiss-tooltips'
 
 export function dismissChartTooltips(): void {
-    if (typeof document === 'undefined') {
-        return
-    }
     document.dispatchEvent(new Event(HOG_CHARTS_DISMISS_TOOLTIPS_EVENT))
 }
