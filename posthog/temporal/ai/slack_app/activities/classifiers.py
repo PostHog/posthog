@@ -26,7 +26,6 @@ from products.slack_app.backend.facade.run_preferences import (
     find_model_choice,
     group_by_runtime,
 )
-from products.slack_app.backend.feature_flags import is_slack_app_project_routing_enabled
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.prompt_templates import PromptTemplates
 from products.slack_app.backend.services.integration_resolver import format_project_candidate_list, routable_projects
@@ -645,7 +644,7 @@ def classify_slack_app_project_route_activity(input: SlackAppProjectRouteInput) 
     if not input.event_text.strip():
         return None
     # Cheapest gate first, and the one that answers most workspaces. Everything below is
-    # two queries and a blocking flag call, and a workspace connected to one project has
+    # two queries and an access scan, and a workspace connected to one project has
     # nothing to route between however they come out.
     if Integration.objects.filter(kind="slack", integration_id=input.slack_team_id).count() < 2:
         return None
@@ -657,8 +656,6 @@ def classify_slack_app_project_route_activity(input: SlackAppProjectRouteInput) 
     )
     user = User.objects.filter(id=input.user_id).first()
     if user is None:
-        return None
-    if not is_slack_app_project_routing_enabled(integration, distinct_id=user.distinct_id):
         return None
 
     projects = routable_projects(
