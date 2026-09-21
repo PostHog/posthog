@@ -49,6 +49,12 @@ export interface ConnectionSelectOptionGroup {
     options: ConnectionSelectOption[]
 }
 
+const LOADING_CONNECTIONS_OPTION: ConnectionSelectOption = {
+    value: LOADING_CONNECTIONS,
+    label: 'Loading...',
+    disabledReason: 'Connections are still loading',
+}
+
 type ConnectionEngine =
     | 'duckdb'
     | 'postgres'
@@ -163,17 +169,15 @@ export function addSelectedConnectionOption(
             ...sourceGroup,
             options: [
                 ...sourceGroup.options,
-                isUnavailable
-                    ? {
-                          value: selectedConnectionId,
-                          label: 'Connection no longer available',
-                          disabledReason: 'This connection was deleted, or you lost access to it',
-                      }
-                    : {
-                          value: selectedConnectionId,
-                          label: 'Selected connection (hidden)',
-                          hidden: true,
-                      },
+                {
+                    value: selectedConnectionId,
+                    ...(isUnavailable
+                        ? {
+                              label: 'Connection no longer available',
+                              disabledReason: 'This connection was deleted, or you lost access to it',
+                          }
+                        : { label: 'Selected connection (hidden)', hidden: true }),
+                },
             ],
         },
         ...remainingGroups,
@@ -349,13 +353,7 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
                 directConnectionOptionsLoading: boolean
             ): ConnectionSelectOptionGroup[] => {
                 const sourceOptions = connectionOptionsLoading
-                    ? [
-                          {
-                              value: LOADING_CONNECTIONS,
-                              label: 'Loading...',
-                              disabledReason: 'Connections are still loading',
-                          },
-                      ]
+                    ? [LOADING_CONNECTIONS_OPTION]
                     : (connectionOptions ?? []).map((source) => {
                           const isManagedWarehouse = isManagedWarehouseConnection(source)
                           return {
@@ -371,13 +369,7 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
                 // Driven by the backend direct-SQL capability surface so the menu never drifts from
                 // the engines we actually support (a new direct source shows up with no frontend change).
                 const directConnectionSubmenu = directConnectionOptionsLoading
-                    ? [
-                          {
-                              value: LOADING_CONNECTIONS,
-                              label: 'Loading...',
-                              disabledReason: 'Connections are still loading',
-                          },
-                      ]
+                    ? [LOADING_CONNECTIONS_OPTION]
                     : (directConnectionOptions ?? []).map((option) => ({
                           value: `${ADD_DIRECT_CONNECTION_PREFIX}${option.source_type}`,
                           label: option.label,
