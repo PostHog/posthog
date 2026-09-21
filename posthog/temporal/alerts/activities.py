@@ -271,6 +271,7 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                 if insight.query is None:
                     raise ValueError("Alert's insight has no valid query")
                 threshold_config = alert.threshold.configuration if alert.threshold else None
+                validate_alert_insight_query(insight.query, team=alert.team, user=alert.created_by)
                 validate_alert_config(
                     insight.query,
                     alert.condition,
@@ -279,7 +280,6 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                     alert.calculation_interval,
                     detector_config=alert.detector_config,
                 )
-                validate_alert_insight_query(insight.query, team=alert.team, user=alert.created_by)
         except ValueError as e:
             disable_invalid_alert(alert, str(e))
             return PrepareAlertResult(action=PrepareAction.AUTO_DISABLE, reason=str(e))

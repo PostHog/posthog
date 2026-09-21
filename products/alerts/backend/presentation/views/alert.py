@@ -855,7 +855,15 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 attrs["config"] = config
 
         request_user = self.context["request"].user
+        creating_user = request_user if isinstance(request_user, User) else None
         try:
+            validate_alert_insight_query(
+                query,
+                team=self.context["get_team"](),
+                # The alert evaluates as its creator, so an update validates as that user rather
+                # than as whoever is editing it.
+                user=self.instance.created_by if self.instance is not None else creating_user,
+            )
             validate_alert_config(
                 query,
                 condition,
@@ -864,11 +872,6 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 calculation_interval,
                 detector_config=detector_config,
                 require_threshold_bounds=require_threshold_bounds,
-            )
-            validate_alert_insight_query(
-                query,
-                team=self.context["get_team"](),
-                user=request_user if isinstance(request_user, User) else None,
             )
         except ValueError as e:
             if str(e) == THRESHOLD_BOUNDS_REQUIRED_MESSAGE:

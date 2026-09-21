@@ -10,7 +10,7 @@ import logging
 from typing import Any
 
 from pydantic import BaseModel
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ErrorDetail, ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner_or_none
@@ -41,8 +41,9 @@ def first_query_rule_violation(
         runner.validate()
     except ValidationError as error:
         detail = _first_detail(error)
+        code = detail.code if isinstance(detail, ErrorDetail) else None
         return QueryRuleViolation(
-            code=str(getattr(detail, "code", "invalid")),
+            code=code or "invalid",
             message=str(detail),
             query_kind=str(getattr(runner.query, "kind", "unknown")),
         )
@@ -69,11 +70,11 @@ def _runner_or_none(query: dict[str, Any] | BaseModel, *, team: Team, user: User
         return None
 
 
-def _first_detail(error: ValidationError) -> Any:
+def _first_detail(error: ValidationError) -> ErrorDetail | str:
     # DRF coerces detail to a list, or to a dict of lists when the rule named a field.
-    detail: Any = error.detail
+    detail: ErrorDetail | list | dict | str = error.detail
     if isinstance(detail, dict):
         detail = next(iter(detail.values()), "")
     if isinstance(detail, list):
         detail = detail[0] if detail else ""
-    return detail
+    return detail if isinstance(detail, ErrorDetail | str) else str(detail)
