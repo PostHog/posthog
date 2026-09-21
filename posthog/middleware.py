@@ -995,7 +995,9 @@ class PostHogTokenCookieMiddleware(MiddlewareMixin):
                         path=default_cookie_options["path"],
                         domain=default_cookie_options["domain"],
                         secure=default_cookie_options["secure"],
-                        samesite=default_cookie_options["samesite"],
+                        # Strict, used above, is withheld on the cross-site top-level navigation
+                        # an OAuth client sends the visitor to oauth.posthog.com by.
+                        samesite="Lax",
                     )
 
             auth_backend = request.session.get("_auth_user_backend")

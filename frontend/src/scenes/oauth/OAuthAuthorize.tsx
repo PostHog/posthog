@@ -13,6 +13,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
@@ -261,7 +262,21 @@ export const OAuthAuthorize = (): JSX.Element => {
                         </>
                     }
                     sub={`${appName} is requesting access to your data.`}
+                    className="mb-3"
                 />
+                {user && (
+                    <div className="flex items-center justify-center gap-2 text-sm">
+                        <ProfilePicture user={user} size="md" className="shrink-0" />
+                        <div className="min-w-0 text-left">
+                            <div className="truncate font-semibold">{user.email}</div>
+                            <div className="truncate text-muted">
+                                {[currentOrganization?.name ?? user.organization?.name, window.location.host]
+                                    .filter(Boolean)
+                                    .join(' · ')}
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Nothing in the column grows: the card hugs a short permission list, and only
