@@ -228,9 +228,10 @@ jobs:
                   PY
                   echo "validated=true" >> "$GITHUB_OUTPUT"
 
-            - name: Checkout trusted report scripts
+            - name: Checkout trusted report scripts # nosemgrep: yaml.github-actions.security.pull-request-target-code-checkout.pull-request-target-code-checkout
               if: steps.validate.outputs.validated == 'true'
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # v6.0.2 checks out only the trusted base SHA below, never pull request code.
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
               with:
                   repository: ${{ github.repository }}
                   ref: ${{ github.event.pull_request.base.sha }}
