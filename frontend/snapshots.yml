@@ -2149,13 +2149,13 @@ snapshots:
     components-sample-data-state--wizard-installing--light:
         hash: v1.k794b7964.2052c49beff2e0a5c5c533ae05c73bacc2619a04053b4529acf93574160c3a66.sTXp62J02o4EVCFfSt9_QV7YwS6UN87FpVxkPGrmZ3o
     components-search--default--dark:
-        hash: v1.k794b7964.c64022f19628ca8dfabca47c504f62fe5a054fb8bf0de1ca796a9ce4e289ede9.Z_Lw7lh23XTX9hmTfd39b0hLD2gK35M7mLLjyOPjAIQ
+        hash: v1.k794b7964.abf8e5fe5a52626201b08319a1b8a7c8479d74e5d5dff48b1200c058ceba8d19.cZxilZJAJ6U4YokzxxpdfwUkPx_zHkW_bX8V6cUkFlU
     components-search--default--light:
-        hash: v1.k794b7964.8307816a710b634b4f755c0f584e7f778df593e71a7cb09ba78e62cf8bba5f57.hBPSJcqGMoi4cRbXv50OKANFPwec3pvdHyohoRI7uY4
+        hash: v1.k794b7964.6c3c0f0aedc3aaca87ac19d3a8621fee3c211b3bc11bb34ae6efcf3ab552830e.Pp1QP5qddUjAPd1ouHxGUIwHgR1RpO3C7U8zxmMNh7I
     components-search--product-recents-and-starred--dark:
-        hash: v1.k794b7964.8ad383ffceb9b13eaa277b7a9f2669f664d3baf41e6de0c88c76d7270be14528.tRgtu-HnITjd9j5SOXmx14UfUqURzHUye2BpcOYIqp0
+        hash: v1.k794b7964.8616af5fd3e8325557310511ed50f7a26edd383fc054325a6ffb3f88cf3d7756.Dr4dyF2uccPaqsLO5bnUV2NIUvo0sgr8znbs9RwZ6yY
     components-search--product-recents-and-starred--light:
-        hash: v1.k794b7964.399cb172e81803597bf57053a5b00d30c286cb5ddf1d36b124a9ee8ba0556a3f.cFfdrCFp8jWHF-Ds9CDLZJg8ZlpohmTNgH70qM-OD5w
+        hash: v1.k794b7964.b80e9acbda7b8b92cf0622d4ffbd1868a00eed4965774988cfd5319b0485c61c.TlZ-vAHn5Jc4lL5SbWmO4HqNGJhpJ4Ka_cwv-gDEpvo
     components-search--searching--dark:
         hash: v1.k794b7964.0acd271bf9ea3d0c88db1b21017625d5bb08728c7ed185696e54c4c7c6d948bf.d1iBj0uFxNNFaPvb8HpTllFJy74qfoeIhmpMgePbCdw
     components-search--searching--light:
