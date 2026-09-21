@@ -190,6 +190,7 @@ from products.signals.backend.scout_harness.tools.profile import get_project_pro
 from products.signals.backend.scout_harness.tools.report import (
     ReportChartInput,
     ReportEvidence,
+    ReportLinkInput,
     ReportMetricComparisonInput,
     ReportMetricInput,
     ReviewerInput,
@@ -475,6 +476,21 @@ def _to_report_evidence(entries: list[dict] | None) -> list[ReportEvidence] | No
             description=entry["description"],
             source_id=entry["source_id"],
             **({"weight": entry["weight"]} if entry.get("weight") is not None else {}),
+        )
+        for entry in entries
+    ]
+
+
+def _to_report_links(entries: list[dict] | None) -> list[ReportLinkInput] | None:
+    """Map validated `links` entries to `ReportLinkInput`s for the report tools, so the tool layer
+    has no DRF dependency. Empty/None yields None, which the tool reads as "no links supplied"."""
+    if not entries:
+        return None
+    return [
+        ReportLinkInput(
+            kind=entry["kind"],
+            report_id=entry["report_id"],
+            reason=entry.get("reason") or None,
         )
         for entry in entries
     ]
@@ -1299,6 +1315,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 charts=_to_report_charts(data.get("charts")),
                 metrics=_to_report_metrics(data.get("metrics")),
                 suggested_prompts=data.get("suggested_prompts"),
+                links=_to_report_links(data.get("links")),
                 supersedes_implementation=bool(data.get("supersedes_implementation")),
                 corroboration_only=bool(data.get("corroboration_only")),
             )
@@ -1311,6 +1328,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "updated_fields": result.updated_fields,
                     "note_appended": result.note_appended,
                     "evidence_appended": result.evidence_appended,
+                    "links_appended": result.links_appended,
                     "reviewers_set": result.reviewers_set,
                     "repository_set": result.repository_set,
                     "repository": result.repository,
