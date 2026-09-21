@@ -2071,7 +2071,7 @@ export interface TaskCreateApi {
      */
     channel?: string | null
     /**
-     * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 90 days. Times without an offset use UTC. Omit or send null to start immediately.
+     * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
      * @nullable
      */
     scheduled_at?: string | null
@@ -2764,7 +2764,7 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * * `own-subscription` - own-subscription */
     claude_model_access?: ClaudeModelAccessEnumApi | null
     /**
-     * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 90 days. Times without an offset use UTC. Omit or send null to start immediately.
+     * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
      * @nullable
      */
     scheduled_at?: string | null
@@ -2902,7 +2902,7 @@ export interface CodexTaskRunCreateSchemaApi {
      * * `own-subscription` - own-subscription */
     claude_model_access?: ClaudeModelAccessEnumApi | null
     /**
-     * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 90 days. Times without an offset use UTC. Omit or send null to start immediately.
+     * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
      * @nullable
      */
     scheduled_at?: string | null
@@ -2986,7 +2986,7 @@ export interface CodexTaskRunCreateSchemaApi {
 
 export interface TaskRunResumeRequestSchemaApi {
     /**
-     * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 90 days. Times without an offset use UTC. Omit or send null to start immediately.
+     * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
      * @nullable
      */
     scheduled_at?: string | null

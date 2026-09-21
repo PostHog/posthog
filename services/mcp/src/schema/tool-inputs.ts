@@ -680,7 +680,7 @@ const taskAgentRunOptions = {
         .regex(z.regexes.datetime({ offset: true, local: true }))
         .nullish()
         .describe(
-            'Earliest start time for a one-off run. Use a future ISO 8601 timestamp within 90 days. Times without an offset use UTC. Omit to start immediately.'
+            'Earliest start time for a one-off run. Use a future ISO 8601 timestamp within 30 days. Times without an offset use UTC. Omit to start immediately.'
         ),
     model: z
         .string()

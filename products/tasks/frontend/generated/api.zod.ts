@@ -1310,7 +1310,7 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .nullish()
         .describe(
-            'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 90 days. Times without an offset use UTC. Omit or send null to start immediately.'
+            'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.'
         ),
     start_run: zod
         .boolean()
@@ -1800,7 +1800,7 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .string()
                 .nullish()
                 .describe(
-                    'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 90 days. Times without an offset use UTC. Omit or send null to start immediately.'
+                    'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.'
                 ),
             mode: zod
                 .enum(['interactive', 'background'])
@@ -1970,7 +1970,7 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .string()
                 .nullish()
                 .describe(
-                    'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 90 days. Times without an offset use UTC. Omit or send null to start immediately.'
+                    'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.'
                 ),
             mode: zod
                 .enum(['interactive', 'background'])
@@ -2076,7 +2076,7 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
             .string()
             .nullish()
             .describe(
-                'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 90 days. Times without an offset use UTC. Omit or send null to start immediately.'
+                'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.'
             ),
         model: zod.string().optional(),
         reasoning_effort: zod

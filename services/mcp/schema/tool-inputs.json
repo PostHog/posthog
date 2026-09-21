@@ -1344,7 +1344,7 @@
                     ]
                 },
                 "scheduled_at": {
-                    "description": "Earliest start time for a one-off run. Use a future ISO 8601 timestamp within 90 days. Times without an offset use UTC. Omit to start immediately.",
+                    "description": "Earliest start time for a one-off run. Use a future ISO 8601 timestamp within 30 days. Times without an offset use UTC. Omit to start immediately.",
                     "anyOf": [
                         {
                             "type": "string",
@@ -1400,7 +1400,7 @@
                     "type": "string"
                 },
                 "scheduled_at": {
-                    "description": "Earliest start time for a one-off run. Use a future ISO 8601 timestamp within 90 days. Times without an offset use UTC. Omit to start immediately.",
+                    "description": "Earliest start time for a one-off run. Use a future ISO 8601 timestamp within 30 days. Times without an offset use UTC. Omit to start immediately.",
                     "anyOf": [
                         {
                             "type": "string",

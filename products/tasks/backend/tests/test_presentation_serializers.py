@@ -109,10 +109,10 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
             ("utc", "2026-09-19T12:00:00Z", "2026-09-19T12:00:00+00:00"),
             ("offset", "2026-09-19T14:00:00+02:00", "2026-09-19T12:00:00+00:00"),
             ("no_offset", "2026-09-19T12:00:00", "2026-09-19T12:00:00+00:00"),
-            ("limit", "2026-12-17T12:00:00Z", "2026-12-17T12:00:00+00:00"),
+            ("limit", "2026-10-18T12:00:00Z", "2026-10-18T12:00:00+00:00"),
             ("now", "2026-09-18T12:00:00Z", None),
             ("past", "2026-09-17T12:00:00Z", None),
-            ("too_far", "2026-12-17T12:00:01Z", None),
+            ("too_far", "2026-10-18T12:00:01Z", None),
             ("invalid", "tomorrow", None),
         ]
     )
@@ -132,7 +132,6 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
             ("interactive", {"mode": "interactive"}, "scheduled_at"),
             ("pi", {}, "scheduled_at"),
             ("token", {"github_user_token": "test-token"}, "github_user_token"),
-            ("attachments", {"pending_user_artifact_ids": ["artifact-id"]}, "pending_user_artifact_ids"),
             (
                 "imported",
                 {"imported_mcp_servers": [{"type": "http", "name": "example", "url": "https://example.com"}]},

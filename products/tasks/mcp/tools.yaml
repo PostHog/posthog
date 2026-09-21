@@ -480,7 +480,7 @@ tools:
         enrich_url: '{id}'
         title: Create task and start or schedule run
         description: >
-            Create a task and start its first background run, or set `scheduled_at` for a one-off run within 90 days.
+            Create a task and start its first background run, or set `scheduled_at` for a one-off run within 30 days.
             Times without an offset use UTC. Confirm the returned time; execution starts at or after that time. Omit
             model fields to use saved defaults. Use `tasks-models-retrieve` before an explicit model choice. Set
             `description` to the agent's instructions. For code tasks, set `repository` to `organization/repo`. Omit
@@ -667,7 +667,7 @@ tools:
         enrich_url: '{id}'
         title: Start or schedule task run
         description: >
-            Start a cloud run for an existing task, or set `scheduled_at` for a one-off run within 90 days. Times
+            Start a cloud run for an existing task, or set `scheduled_at` for a one-off run within 30 days. Times
             without an offset use UTC. Confirm the returned time; execution starts at or after that time. Omit model
             fields to use saved defaults, or the previous run's model on resume. Use `tasks-models-retrieve` before an
             explicit model choice. Use `pending_user_message` for follow-up work and `resume_from_run_id` to continue a

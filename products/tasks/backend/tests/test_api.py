@@ -102,6 +102,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskSerializer,
 )
 from products.tasks.backend.presentation.views import api as views_api
+from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
 # The catalog gates no model behind a rollout flag now, so the write paths that re-check
@@ -1628,20 +1629,102 @@ class TestTaskAPI(BaseTaskAPITest):
         assert dispatch.payload["user_id"] == self.user.id
         assert dispatch.payload["posthog_mcp_scopes"] == "read_only"
 
+    @parameterized.expand(
+        [
+            ("before_expiry", "2026-10-17T23:59:59Z", True, True),
+            ("at_expiry", "2026-10-18T00:00:00Z", True, False),
+            ("after_expiry", "2026-10-18T12:00:00Z", True, False),
+            ("missing_file", "2026-09-19T12:00:00Z", False, False),
+        ]
+    )
     @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
-    def test_schedule_rejects_attachments_before_creating_run(self) -> None:
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.head_object_strict")
+    def test_schedule_checks_attachment_lifetime(
+        self, name: str, scheduled_at: str, exists: bool, allowed: bool, head: MagicMock, tag: MagicMock
+    ) -> None:
         task = self.create_task()
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/tasks/{task.id}/run/",
-            {"scheduled_at": "2026-09-19T12:00:00Z", "pending_user_artifact_ids": [str(uuid.uuid4())]},
-            format="json",
+        artifact = build_task_artifact_entry(
+            artifact_id="artifact-123",
+            name="spec.pdf",
+            artifact_type="user_attachment",
+            source="user_attachment",
+            size=4096,
+            content_type="application/pdf",
+            storage_path=f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/artifact-123/spec.pdf",
         )
+        cache_task_staged_artifact(task, artifact)
+        head.return_value = {"LastModified": datetime(2026, 9, 18, tzinfo=UTC)} if exists else None
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["attr"] == "pending_user_artifact_ids"
-        assert not TaskRun.objects.filter(task=task).exists()
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/tasks/{task.id}/run/",
+                {"scheduled_at": scheduled_at, "pending_user_artifact_ids": ["artifact-123"]},
+                format="json",
+            )
+
+        if allowed:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            run = TaskRun.objects.get(task=task)
+            assert run.status == TaskRun.Status.NOT_STARTED
+            assert run.artifacts == [artifact]
+            assert get_task_staged_artifacts(task, ["artifact-123"]) == ([], ["artifact-123"])
+        else:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert response.json()["attr"] == "scheduled_at"
+            assert not TaskRun.objects.filter(task=task).exists()
+            assert get_task_staged_artifacts(task, ["artifact-123"]) == ([artifact], [])
+            tag.assert_not_called()
         assert not TaskWorkflowDispatch.objects.for_team(self.team.id).filter(task_run__task=task).exists()
+
+    @parameterized.expand([("retention",), ("manifest",), ("cache",)])
+    @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.head_object_strict")
+    def test_schedule_attachment_setup_failure(self, failure: str, head: MagicMock, tag: MagicMock) -> None:
+        task = self.create_task()
+        artifact = build_task_artifact_entry(
+            artifact_id="artifact-123",
+            name="spec.pdf",
+            artifact_type="user_attachment",
+            source="user_attachment",
+            size=4096,
+            content_type="application/pdf",
+            storage_path=f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/artifact-123/spec.pdf",
+        )
+        cache_task_staged_artifact(task, artifact)
+        head.return_value = {"LastModified": django_timezone.now()}
+        payload = {"scheduled_at": "2026-09-19T12:00:00Z", "pending_user_artifact_ids": ["artifact-123"]}
+        url = f"/api/projects/{self.team.id}/tasks/{task.id}/run/"
+
+        if failure == "cache":
+            with (
+                patch.object(get_tasks_cache(), "delete_many", side_effect=RuntimeError("Cache unavailable")),
+                self.captureOnCommitCallbacks(execute=True),
+            ):
+                response = self.client.post(url, payload, format="json")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert TaskRun.objects.get(task=task).artifacts == [artifact]
+        else:
+            failure_path = (
+                "posthog.storage.object_storage.tag"
+                if failure == "retention"
+                else "products.tasks.backend.facade.api._save_artifact_manifest"
+            )
+            with (
+                patch(failure_path, side_effect=RuntimeError("Attachment setup failed")),
+                self.captureOnCommitCallbacks(execute=True),
+            ):
+                response = self.client.post(url, payload, format="json")
+            assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+            assert not TaskRun.objects.filter(task=task).exists()
+            assert not TaskWorkflowDispatch.objects.for_team(self.team.id).filter(task_run__task=task).exists()
+            assert get_task_staged_artifacts(task, ["artifact-123"]) == ([artifact], [])
+
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(url, payload, format="json")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert TaskRun.objects.filter(task=task).count() == 1
 
     @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
     @patch("products.tasks.backend.facade.api._idling_warm_run_for_task")

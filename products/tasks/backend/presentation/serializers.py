@@ -1031,7 +1031,7 @@ class TaskRunScheduleSerializer(serializers.Serializer):
         default_timezone=UTC,
         help_text=(
             "Earliest start time for a one-off cloud run, in ISO 8601 format. "
-            "Must be in the future and within 90 days. Times without an offset use UTC. "
+            "Must be in the future and within 30 days. Times without an offset use UTC. "
             "Omit or send null to start immediately."
         ),
     )
@@ -1039,8 +1039,8 @@ class TaskRunScheduleSerializer(serializers.Serializer):
     def validate_scheduled_at(self, value: datetime | None) -> datetime | None:
         if value is not None:
             now = django_timezone.now()
-            if value <= now or value > now + timedelta(days=90):
-                raise serializers.ValidationError("Choose a future time within 90 days.")
+            if value <= now or value > now + timedelta(days=30):
+                raise serializers.ValidationError("Choose a future time within 30 days.")
         return value
 
 
@@ -3403,8 +3403,6 @@ class TaskRunCreateRequestSerializer(
         if attrs.get("scheduled_at") is not None:
             if is_pi_task or attrs.get("mode") != "background":
                 errors["scheduled_at"] = "Scheduling requires a background ACP run."
-            if attrs.get("pending_user_artifact_ids"):
-                errors["pending_user_artifact_ids"] = "Scheduled runs do not support new file attachments."
             for field in ("github_user_token", "imported_mcp_servers", "relayed_mcp_servers"):
                 if attrs.get(field):
                     errors[field] = "Scheduled runs cannot use credentials or connections from a connected desktop."
