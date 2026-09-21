@@ -77,17 +77,18 @@ jobs:
                         - 'package.json'
                         - 'pnpm-lock.yaml'
                         - 'pnpm-workspace.yaml'
-                      # The image-scrub lane deploys the same image under its own deploy target, and
-                      # only for these paths. Every node deploy restarted it, about eight times a day,
-                      # and each restart reloads the sidecar models, rebalances 128 partitions and
-                      # empties the dedup caches. The lane's server pulls in the session replay
-                      # pipelines and the common consumer code, so both trees are listed whole.
+                      # The image-scrub lane deploys the same image under its own deploy target, so a
+                      # node deploy for unrelated code does not restart it: a restart reloads the
+                      # sidecar models and rebalances the lane's partitions. The lane's server imports
+                      # the session replay pipelines and the common consumer code, so both trees are
+                      # listed whole.
                       image_scrub_files:
                         - 'nodejs/src/ingestion/pipelines/sessionreplay/**'
                         - 'nodejs/src/common/**'
                         - 'nodejs/src/servers/**'
                         - 'nodejs/src/index.ts'
                         - 'nodejs/src/capabilities.ts'
+                        - 'nodejs/src/types.ts'
                         - 'nodejs/package.json'
                         - 'rust/replay-anonymizer/**'
                         - 'rust/replay-anonymizer-node/**'
