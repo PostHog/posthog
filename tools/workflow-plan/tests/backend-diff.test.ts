@@ -146,8 +146,8 @@ describe('Backend CI comparison boundaries', () => {
         expect(privileged).toContain('DEPOT_CI_CANCEL_TOKEN')
         expect(privileged).not.toContain('actions/checkout')
         for (const check of [
-            'Backend CI on Depot / Cancel Backend CI after repo check failure',
-            'Backend CI on Depot / Cancel Backend CI after OpenAPI check failure',
+            'Backend CI on Depot / Request Backend CI cancellation after repo check failure',
+            'Backend CI on Depot / Request Backend CI cancellation after OpenAPI check failure',
             'Backend CI on Depot / Django Tests Pass on Depot',
         ]) {
             expect(privileged).toContain(check)

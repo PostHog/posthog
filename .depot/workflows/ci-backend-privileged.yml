@@ -61,8 +61,8 @@ jobs:
                               ;;
                       esac
 
-                      repo_signal=$(check_state "Backend CI on Depot / Cancel Backend CI after repo check failure" "$DEPOT_APP_ID")
-                      openapi_signal=$(check_state "Backend CI on Depot / Cancel Backend CI after OpenAPI check failure" "$DEPOT_APP_ID")
+                      repo_signal=$(check_state "Backend CI on Depot / Request Backend CI cancellation after repo check failure" "$DEPOT_APP_ID")
+                      openapi_signal=$(check_state "Backend CI on Depot / Request Backend CI cancellation after OpenAPI check failure" "$DEPOT_APP_ID")
                       if [ "$repo_signal" = success ]; then
                           echo "reason=repo" >> "$GITHUB_OUTPUT"
                           exit 0
@@ -97,12 +97,12 @@ jobs:
               run: |
                   set -euo pipefail
                   [ -n "$DEPOT_TOKEN" ] || { echo "::error::DEPOT_CI_CANCEL_TOKEN is not available to the trusted workflow"; exit 1; }
-                  depot ci workflow list --repo "$REPO" --pr "$PR_NUMBER" --sha "$HEAD_SHA" --status running -o json \
-                      | jq -r '.[] | select(.workflow_path == "ci-backend.yml") | "\(.run_id) \(.workflow_id)"' > "$RUNNER_TEMP/workflows"
+                  timeout --kill-after=5s 30s depot ci workflow list --repo "$REPO" --pr "$PR_NUMBER" --sha "$HEAD_SHA" --status running -o json \
+                      | jq -r '.[] | select(.workflow_path == ".depot/workflows/ci-backend.yml") | "\(.run_id) \(.workflow_id)"' > "$RUNNER_TEMP/workflows"
                   if [ ! -s "$RUNNER_TEMP/workflows" ]; then
                       echo "The matching Backend CI workflow already reached a terminal state."
                       exit 0
                   fi
                   while read -r run workflow; do
-                      depot ci cancel "$run" --workflow "$workflow" || echo "::warning::Workflow $workflow reached a terminal state before cancellation"
+                      timeout --kill-after=5s 30s depot ci cancel "$run" --workflow "$workflow" || echo "::warning::Workflow $workflow reached a terminal state before cancellation"
                   done < "$RUNNER_TEMP/workflows"

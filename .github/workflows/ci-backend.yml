@@ -4139,10 +4139,10 @@ jobs:
                   failed_deterministically() {
                       [ "$(check_state "$1")" = failure ] && [[ "$(check_state "$2")" =~ ^(success|cancelled|in_progress)$ ]]
                   }
-                  if failed_deterministically "Repo checks (depot-ubuntu-24.04)" "Cancel Backend CI after repo check failure"; then
+                  if failed_deterministically "Repo checks (depot-ubuntu-24.04)" "Request Backend CI cancellation after repo check failure"; then
                       echo "::error title=Repo checks failed deterministically::Open the repo checks job on Depot CI for the root failure. Retrying will not fix this."
                   fi
-                  if failed_deterministically "Validate OpenAPI types" "Cancel Backend CI after OpenAPI check failure"; then
+                  if failed_deterministically "Validate OpenAPI types" "Request Backend CI cancellation after OpenAPI check failure"; then
                       echo "::error title=OpenAPI type checks failed deterministically::Open the OpenAPI type check job on Depot CI for the root failure. Retrying will not fix this."
                   fi
             - name: Summarize dependency results

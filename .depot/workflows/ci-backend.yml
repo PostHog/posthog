@@ -1605,7 +1605,7 @@ jobs:
         timeout-minutes: 5
         permissions:
             contents: read
-        name: Cancel Backend CI after repo check failure
+        name: Request Backend CI cancellation after repo check failure
         runs-on: depot-ubuntu-24.04
         steps:
             - name: Signal deterministic repo-check failure
@@ -2129,7 +2129,7 @@ jobs:
         timeout-minutes: 5
         permissions:
             contents: read
-        name: Cancel Backend CI after OpenAPI check failure
+        name: Request Backend CI cancellation after OpenAPI check failure
         runs-on: depot-ubuntu-24.04
         steps:
             - name: Signal deterministic OpenAPI failure
@@ -3500,11 +3500,11 @@ jobs:
                     echo "| handle-snapshots | ${{ needs.handle-snapshots.result }} |"
                     if [[ "${{ needs.repo-checks.outputs.deterministic_failure }}" == "true" ]]; then
                       echo ""
-                      echo "**Root cause:** Repo checks failed deterministically. Open the repo checks job logs; downstream cancelled jobs are expected."
+                      echo "**Root cause:** Repo checks failed deterministically. Open the repo checks job logs; other Depot jobs may still be running."
                     fi
                     if [[ "${{ needs.check-openapi-types.outputs.deterministic_failure }}" == "true" ]]; then
                       echo ""
-                      echo "**Root cause:** OpenAPI type checks failed deterministically. Open the OpenAPI type check job logs; downstream cancelled jobs are expected."
+                      echo "**Root cause:** OpenAPI type checks failed deterministically. Open the OpenAPI type check job logs; other Depot jobs may still be running."
                     fi
                   } | tee -a "$GITHUB_STEP_SUMMARY"
 
@@ -3595,11 +3595,11 @@ jobs:
                   PY
 
                   if [[ "${{ needs.repo-checks.outputs.deterministic_failure }}" == "true" ]]; then
-                    echo "::error title=Repo checks failed deterministically::Open the repo checks job for the root failure. Backend CI cancelled downstream jobs to save runners; retrying will not fix this."
+                    echo "::error title=Repo checks failed deterministically::Open the repo checks job for the root failure. Other Depot jobs may still be running; retrying will not fix this."
                   fi
 
                   if [[ "${{ needs.check-openapi-types.outputs.deterministic_failure }}" == "true" ]]; then
-                    echo "::error title=OpenAPI type checks failed deterministically::Open the OpenAPI type check job for the root failure. Backend CI cancelled downstream jobs to save runners; retrying will not fix this."
+                    echo "::error title=OpenAPI type checks failed deterministically::Open the OpenAPI type check job for the root failure. Other Depot jobs may still be running; retrying will not fix this."
                   fi
 
                   check_required_result() {
