@@ -90,6 +90,8 @@ Skipping one of those tables is worse than under-deleting: the overrides that re
 
 `rewrite_flag_evaluations_person_id` runs the same rewrite daily, on `sharded_flag_evaluations` alone, and stops before the delete.
 It shortens the window in which a merged row still reads under the absorbed person; the weekly squash stays the only job that applies the overrides to the events tables and the only one that deletes them.
+The schedule ships disabled, so the owning team decides when the daily cadence starts.
+Until an operator enables it, the weekly squash stays the only rewrite, and the window stays one week.
 
 ## Covered tables
 
