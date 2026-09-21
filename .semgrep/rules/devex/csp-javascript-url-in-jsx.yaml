@@ -1,0 +1,51 @@
+rules:
+    - id: csp-javascript-url-in-jsx
+      message: |
+          This `javascript:` URL never runs for a viewer whose app policy is enforced. The policy in
+          `CSPMiddleware` sets `script-src` to a nonce with no `'unsafe-inline'`, and a browser
+          treats a `javascript:` URL as an inline script. React 18 renders the URL and only warns in
+          development, so nothing stops it before the browser does. The link does nothing, and the
+          user sees no error.
+
+          Use an `onClick` handler on a `LemonButton`, or a real URL on a `Link`.
+      severity: ERROR
+      # First-party UI code is TypeScript. The only `.js` files under these paths are generated
+      # validators and test mocks, which render nothing.
+      languages: [typescript]
+      paths:
+          include:
+              - /frontend/src
+              - /products/*/frontend
+          exclude:
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+              - '**/*.stories.tsx'
+      patterns:
+          - pattern-either:
+                - patterns:
+                      - pattern-either:
+                            - pattern: <$EL ... $ATTR=$URL ... />
+                            - pattern: <$EL ... $ATTR={$URL} ... />
+                      - metavariable-regex:
+                            metavariable: $ATTR
+                            regex: ^(href|src|action|formAction|to|xlinkHref)$
+                - pattern: $OBJ.href = $URL
+                - pattern: $OBJ.location = $URL
+                - pattern: location = $URL
+                - pattern: location.assign($URL)
+                - pattern: location.replace($URL)
+                - pattern: $OBJ.location.assign($URL)
+                - pattern: $OBJ.location.replace($URL)
+                - pattern: window.open($URL, ...)
+                - pattern: open($URL, ...)
+          # Bind the whole literal and read the scheme off its source text, so a plain string and
+          # a template literal both match.
+          - metavariable-regex:
+                metavariable: $URL
+                regex: '^[''"`]\s*(?i:javascript):'
+      metadata:
+          category: correctness
+          technology:
+              - react
+          references:
+              - https://legacy.reactjs.org/blog/2019/08/08/react-v16.9.0.html#deprecating-javascript-urls
