@@ -32,6 +32,9 @@ Django remains authoritative for authentication, team membership, entitlements, 
 resolution. The Go service does not read PostHog permission tables or accept browser-selected identity without an
 authenticated internal request.
 
+The shared catalog excludes direct-connection table rows because those rows belong only to an explicit `connectionId` database.
+This keeps a direct table's raw dotted name from replacing a synced table that resolves to the same catalog key.
+
 Django adds resolver-confirmed `tableAliases` to the same permission-filtered catalog snapshot.
 For example, a catalog can map `demo_postgres_orders` to `postgres.demo.orders` when both names resolve to the same visible warehouse table.
 Aliases from another project or hidden tables are not published.
