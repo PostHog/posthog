@@ -2239,10 +2239,12 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         uac = self.user_access_control
 
         # Access-filter before the Python-side expansion so denied flags are never
-        # loaded or expanded.
+        # loaded or expanded. Active flags sort first because only they block a delete, and the
+        # page below is truncated: a cohort behind more flags than the cap would otherwise report
+        # no blocker while the deletion guard still refuses.
         flags_qs = uac.filter_queryset_by_access_level(
             _flags_with_cohort_filters(cohort), include_all_if_admin=True
-        ).order_by("id")
+        ).order_by("-active", "id")
         flags = _filter_flags_referencing_cohort(flags_qs, cohort, stop_traversal_at_static=True)
         flags_data = [{"id": flag.id, "key": flag.key, "name": flag.name, "active": flag.active} for flag in flags]
 
