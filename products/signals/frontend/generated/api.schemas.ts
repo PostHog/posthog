@@ -2472,6 +2472,11 @@ export interface SignalReportCheckApi {
      * * `failed` - Failed
      * * `errored` - Errored */
     readonly last_outcome: SignalReportCheckOutcomeEnumApi | null
+    /**
+     * When the `agent` check's scout run started, cleared as soon as a verdict is recorded. A non-null value is what tells a reader the check is running rather than waiting, because dispatch also pushes `next_run_at` out to the result window. Always null on a `metric_threshold` check, which is measured in the tick that collects it.
+     * @nullable
+     */
+    readonly dispatched_at: string | null
     /** Runs that could not be measured since the last clean one. */
     readonly consecutive_errors: number
     readonly created_at: string
@@ -4652,12 +4657,6 @@ export interface SignalScoutEmissionApi {
     finding_id: string
     /** The emitted finding prose — the signal's `description` as surfaced to the inbox. */
     description: string
-    /**
-     * Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.
-     * @minimum 0
-     * @maximum 1
-     */
-    weight: number
     /**
      * Agent's confidence the finding is real in [0, 1].
      * @minimum 0

@@ -28,6 +28,7 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
+import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
 import { isRestorableVisitHref } from "@posthog/ui/features/canvas/railPane";
 import {
   activityReportIdFromHref,
@@ -161,6 +162,11 @@ function BrowserTabStripImpl() {
     reportId?: string;
   };
   const routeFeedId = params.feedId ?? null;
+  // The canvases page names its open canvas in its SEARCH, not in a path
+  // param, so fold the two sources into one id. Without this the tab keeps
+  // whatever label it had before you picked a canvas.
+  const selectedCanvasId = useSelectedCanvasId();
+  const routeCanvasId = params.dashboardId ?? selectedCanvasId ?? null;
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   // What the effect reconciles against: the settled href and the tab that entry
   // belongs to, read from one snapshot (see settledLocation for why that
@@ -266,7 +272,7 @@ function BrowserTabStripImpl() {
   // Only poll the all-tasks list when a task tab actually needs a title.
   const hasTaskTab = snapshot.tabs.some((t) => t.taskId != null);
   const { dashboards } = useDashboards(params.channelId);
-  const { dashboard: activeRecord } = useDashboard(params.dashboardId);
+  const { dashboard: activeRecord } = useDashboard(routeCanvasId ?? undefined);
   const { data: allTasks } = useTasks(undefined, { enabled: hasTaskTab });
   // Keyed on the active SESSION, not the path param: on Activity the session
   // comes from the route's search, and without this its title would wait on the
@@ -305,9 +311,9 @@ function BrowserTabStripImpl() {
       if (activeTaskRecord?.id === sessionId) return activeTaskRecord.title;
       return allTasks?.find((t) => t.id === sessionId)?.title ?? null;
     }
-    if (params.dashboardId) {
-      if (activeRecord?.id === params.dashboardId) return activeRecord.name;
-      return dashboards.find((d) => d.id === params.dashboardId)?.name ?? null;
+    if (routeCanvasId) {
+      if (activeRecord?.id === routeCanvasId) return activeRecord.name;
+      return dashboards.find((d) => d.id === routeCanvasId)?.name ?? null;
     }
     if (activeReportId) {
       if (activeReportRecord?.id !== activeReportId) return null;
@@ -316,7 +322,7 @@ function BrowserTabStripImpl() {
     return null;
   }, [
     activeSession.taskId,
-    params.dashboardId,
+    routeCanvasId,
     activeReportId,
     activeTaskRecord,
     allTasks,
@@ -392,7 +398,7 @@ function BrowserTabStripImpl() {
     // decision is made on: it is all-null outside its vocabulary, so two
     // unrelated routes look identical through it.
     const identity: TabIdentity = {
-      dashboardId: params.dashboardId ?? null,
+      dashboardId: routeCanvasId,
       // `activeSession`, not `params`: Activity and a feed read a session into
       // the pane from their route's SEARCH rather than a path param, so the tab
       // would otherwise show "New tab" over an open session.
@@ -516,7 +522,7 @@ function BrowserTabStripImpl() {
     locationIsCurrent,
     settledTabId,
     params.channelId,
-    params.dashboardId,
+    routeCanvasId,
     routeChannelSection,
     routeAppView,
     locationHref,
@@ -568,7 +574,7 @@ function BrowserTabStripImpl() {
       const pinned = pinnedSet.has(t.id);
       const isActive = t.id === (settledTabId ?? activeTabId);
       const taskId = isActive ? (activeSession.taskId ?? null) : t.taskId;
-      const dashId = isActive ? (params.dashboardId ?? null) : t.dashboardId;
+      const dashId = isActive ? routeCanvasId : t.dashboardId;
       const channelId = isActive
         ? (params.channelId ?? activeSession.channelId ?? null)
         : t.channelId;
@@ -704,7 +710,7 @@ function BrowserTabStripImpl() {
     activeTabId,
     settledTabId,
     params.channelId,
-    params.dashboardId,
+    routeCanvasId,
     activeSession.taskId,
     activeSession.channelId,
     activeReportId,

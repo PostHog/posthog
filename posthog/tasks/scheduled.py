@@ -85,7 +85,7 @@ from products.approvals.backend.tasks import (
 from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.conversations.backend.tasks.email import flush_pending_email_replies
 from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
-from products.conversations.backend.tasks.slack import sweep_inbound_events
+from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.customer_analytics.backend.facade.tasks import schedule_task_digests
 from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
@@ -1064,6 +1064,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         sweep_inbound_events.s(),
         name="sweep conversation inbound events",
+    )
+
+    # Re-drive due Slack outbound delivery parts. Celery on_commit is only a wake-up hint.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        sweep_delivery_parts.s(),
+        name="sweep conversation delivery parts",
     )
 
     # Pull ambient messages from MS Teams shared channels (which never push them
