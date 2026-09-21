@@ -25,6 +25,9 @@ class TestMatomoSource:
             "401 Client Error: Unauthorized for url: https://myorg.matomo.cloud/index.php",
             "403 Client Error: Forbidden for url: https://myorg.matomo.cloud/index.php",
             "Matomo API error: You can't access this resource",
+            "HTTPSConnectionPool(host='myorg.matomo.cloud', port=443): Max retries exceeded with url: "
+            "/index.php (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] "
+            "certificate verify failed: certificate has expired (_ssl.c:1032)')))",
         ],
     )
     def test_non_retryable_errors_match_known_failures(self, observed_error):
