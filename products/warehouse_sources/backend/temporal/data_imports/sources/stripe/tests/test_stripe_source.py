@@ -274,6 +274,22 @@ class TestStripeSource:
         assert messages[0] is not None
         assert "isn't authorized for the configured Stripe account" in messages[0]
 
+    def test_connect_account_topology_rejection_has_actionable_message(self):
+        # Stripe's own text names no fix a customer can act on — the guidance has to say what will,
+        # which is turning the Account table off, since the rejection depends on the account's
+        # Connect role rather than anything about the request.
+        observed_error = (
+            "InvalidRequestError: You cannot access the connected accounts of your platform's connected accounts."
+        )
+        messages = [
+            message
+            for pattern, message in self.source.get_non_retryable_errors().items()
+            if error_message_matches(observed_error, [pattern])
+        ]
+        assert messages
+        assert messages[0] is not None
+        assert "Account" in messages[0]
+
     @pytest.mark.parametrize(
         "other_error",
         [
