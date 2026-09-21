@@ -1415,7 +1415,7 @@ def get_report_run(
 
     return json.dumps(
         {
-            "run_id": _report_run_handle(state, str(run.id)),
+            "run_id": run_id,
             "period_start": str(run.period_start),
             "period_end": str(run.period_end),
             "content": content,
