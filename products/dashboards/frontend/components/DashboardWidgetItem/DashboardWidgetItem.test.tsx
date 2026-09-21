@@ -167,6 +167,25 @@ describe('DashboardWidgetItem', () => {
         expect(container.querySelector('[data-attr="widget-tile-filters"]')).toBeNull()
     })
 
+    it('keeps tile filters visible when widget data fails to load', () => {
+        const { container } = render(
+            <DashboardWidgetItem
+                tile={tile}
+                placement={DashboardPlacement.Dashboard}
+                dashboardId={99}
+                result={null}
+                loading={false}
+                error="Failed to load widget data."
+                onRefresh={jest.fn()}
+                onUpdateWidgetTile={jest.fn()}
+                showEditingControls
+            />
+        )
+
+        expect(container.querySelector('[data-attr="widget-tile-filters"]')).toBeInTheDocument()
+        expect(screen.getByText('Failed to load widget data.')).toBeInTheDocument()
+    })
+
     it('renders insight-style more menu with view, dashboard section, and refresh data', async () => {
         const onRefresh = jest.fn()
         render(
