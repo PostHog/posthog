@@ -34,8 +34,10 @@ export function OtherIntegrations(): JSX.Element {
     // way IntegrationChoice does and only renders the modal it opened.
     const modalId = useId()
     const openKind =
-        newIntegrationModalId === modalId && newIntegrationModalKind
-            ? CREATABLE_KINDS.find((kind) => kind === newIntegrationModalKind)
+        newIntegrationModalId === modalId &&
+        newIntegrationModalKind &&
+        CREATABLE_KINDS.includes(newIntegrationModalKind)
+            ? newIntegrationModalKind
             : undefined
     const SetupModal = openKind ? getIntegrationSetup(openKind)?.SetupModal : undefined
 

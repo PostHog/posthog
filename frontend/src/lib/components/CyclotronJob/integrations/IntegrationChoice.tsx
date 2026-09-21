@@ -114,25 +114,23 @@ export function IntegrationChoice({
     // as a bug. Say it in the label so the reason is visible before the user tries to click.
     const restrictedLabel = (label: string): string =>
         integrationManagementRestriction ? `${label} (needs project admin)` : label
-    const setupMenuItem = setupDef
-        ? (() => {
-              const item = setupDef.menuItem({
-                  kind,
-                  openModal: (modalKind) => openNewIntegrationModal(modalKind, modalId),
-                  uploadKey,
-              })
-              return {
-                  ...item,
-                  label: restrictedLabel(item.label),
-                  onClick: item.onClick
-                      ? () => {
-                            reportIntegrationConnectClicked(kind, kind, 'pipeline_config')
-                            item.onClick?.()
-                        }
-                      : undefined,
-                  disabledReason: integrationManagementRestriction ?? undefined,
-              }
-          })()
+    const setupItem = setupDef?.menuItem({
+        kind,
+        openModal: (modalKind) => openNewIntegrationModal(modalKind, modalId),
+        uploadKey,
+    })
+    const setupMenuItem = setupItem
+        ? {
+              ...setupItem,
+              label: restrictedLabel(setupItem.label),
+              onClick:
+                  setupItem.onClick &&
+                  (() => {
+                      reportIntegrationConnectClicked(kind, kind, 'pipeline_config')
+                      setupItem.onClick?.()
+                  }),
+              disabledReason: integrationManagementRestriction ?? undefined,
+          }
         : oauthUnavailable
           ? {
                 to: urls.settings('project-integrations'),
