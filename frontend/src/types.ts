@@ -808,6 +808,7 @@ export interface ConversationsSettings {
     ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
     ai_reply_custom_instructions?: string | null
     docs_source?: 'posthog' | null
+    ai_context_account_property_ids?: string[] | null
 }
 
 export interface LogsSettings {
