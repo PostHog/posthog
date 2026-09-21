@@ -46,13 +46,17 @@ import { isSurveyableFunnelInsight, SurveyableFunnelInsight } from 'scenes/surve
 import { urls } from 'scenes/urls'
 
 import { insightsModel } from '~/models/insightsModel'
-import { copyTableData, getInsightExportAdapter } from '~/queries/nodes/InsightViz/exportAdapters'
-import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
-import { DashboardFilter, Node, ProductKey, TileFilters } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isDataVisualizationNodeWithHogQLQuery, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { queryScanHasActionableFinding } from '~/queries/nodes/DataNode/queryScan'
 import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTooltip'
-
+import { copyTableData, getInsightExportAdapter } from '~/queries/nodes/InsightViz/exportAdapters'
+import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
+import { Node, ProductKey } from '~/queries/schema/schema-general'
+import {
+    isDataVisualizationNode,
+    isDataVisualizationNodeWithHogQLQuery,
+    isInsightVizNode,
+    isTrendsQuery,
+} from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -170,7 +174,15 @@ export function InsightMeta({
     }
     const { insightFeedback } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
-    const { exportContext, insightData, insightDataRaw, query, savingDisplayOptions, savingSqlVisualization, sqlVisualizationVersion } = useValues(insightDataLogic(insightLogicProps))
+    const {
+        exportContext,
+        insightData,
+        insightDataRaw,
+        query,
+        savingDisplayOptions,
+        savingSqlVisualization,
+        sqlVisualizationVersion,
+    } = useValues(insightDataLogic(insightLogicProps))
     const { persistSqlVisualization } = useActions(insightDataLogic(insightLogicProps))
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
     const { loadAlerts: loadDeferredInsightAlerts } = useActions(
