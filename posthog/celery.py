@@ -2,7 +2,6 @@ import os
 import time
 import errno
 import threading
-from collections.abc import Callable
 
 from django.dispatch import receiver
 
@@ -25,92 +24,15 @@ from opentelemetry import trace
 from prometheus_client import Counter, Histogram, start_http_server
 
 from posthog.celery_task_names import LIVENESS_ALERTED_TASK_NAMES
+from posthog.prometheus_multiproc import LockedMultiProcessCollector, PrometheusMultiprocDir
 
 # When PROMETHEUS_MULTIPROC_DIR is set (by bin/docker-worker-celery),
 # prometheus_client uses file-backed storage so all prefork children's
 # metrics are aggregated into a single /metrics endpoint.  Without it,
 # only the one child that binds port 8001 is visible to Prometheus.
-_PROMETHEUS_MULTIPROC_DIR = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
-if _PROMETHEUS_MULTIPROC_DIR:
-    os.makedirs(_PROMETHEUS_MULTIPROC_DIR, exist_ok=True)
+_PROMETHEUS_MULTIPROC = PrometheusMultiprocDir.from_environment()
 
 logger = structlog.get_logger(__name__)
-
-
-class PrometheusMultiprocDir:
-    """Housekeeping for the file-backed prometheus metrics of the prefork children.
-
-    prometheus_client writes one ``<type>_<pid>.db`` file per metric type per process, and
-    ``multiprocess.mark_process_dead`` removes the live gauge files only. Every other file a
-    recycled child wrote (``--max-tasks-per-child``) stays on disk, so the volume fills up and
-    the next metric any task on that pod creates fails with ENOSPC.
-    """
-
-    _SUFFIX = ".db"
-
-    def __init__(self, path: str) -> None:
-        self.path = path
-
-    @classmethod
-    def _file_pid(cls, filename: str) -> int | None:
-        if not filename.endswith(cls._SUFFIX):
-            return None
-        try:
-            return int(filename[: -len(cls._SUFFIX)].rsplit("_", 1)[-1])
-        except ValueError:
-            return None
-
-    @staticmethod
-    def _is_alive(pid: int) -> bool:
-        # Only ProcessLookupError means the process is gone. Any other answer keeps the files,
-        # because a file we cannot judge is cheaper than a file we delete under a live writer.
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return False
-        except OSError:
-            return True
-        return True
-
-    def _remove(self, should_remove: Callable[[int], bool]) -> int:
-        try:
-            entries = list(os.scandir(self.path))
-        except OSError as e:
-            logger.warning("prometheus_multiproc_scan_failed", directory=self.path, error=str(e))
-            return 0
-        removed = 0
-        for entry in entries:
-            file_pid = self._file_pid(entry.name)
-            if file_pid is None or not entry.is_file(follow_symlinks=False) or not should_remove(file_pid):
-                continue
-            try:
-                os.unlink(entry.path)
-            except FileNotFoundError:
-                continue
-            except OSError as e:
-                logger.warning("prometheus_multiproc_remove_failed", file=entry.name, error=str(e))
-                continue
-            removed += 1
-        return removed
-
-    def purge_all(self) -> int:
-        """Remove every metric file. Only safe before the children write their own."""
-        return self._remove(lambda _pid: True)
-
-    def purge_pid(self, pid: int) -> int:
-        """Remove every metric file one process wrote, not the live gauge files alone."""
-        return self._remove(lambda file_pid: file_pid == pid)
-
-    def sweep_orphans(self) -> int:
-        """Remove the files of processes that are gone, so a pod recovers without a restart.
-
-        A child that is killed (OOM, SIGKILL) never runs its shutdown handler, and a pod whose
-        disk is already full must come back on its own.
-        """
-        return self._remove(lambda file_pid: not self._is_alive(file_pid))
-
-
-_PROMETHEUS_MULTIPROC = PrometheusMultiprocDir(_PROMETHEUS_MULTIPROC_DIR) if _PROMETHEUS_MULTIPROC_DIR else None
 
 
 # set the default Django settings module for the 'celery' program.
@@ -121,7 +43,7 @@ app = Celery("posthog")
 
 CELERY_PROMETHEUS_ORPHANED_METRIC_FILES_COUNTER = Counter(
     "posthog_celery_prometheus_orphaned_metric_files_removed",
-    "Prometheus multiprocess files removed for a child that died without a shutdown signal.",
+    "Prometheus multiprocess files retired for a child that died without a shutdown signal.",
 )
 
 CELERY_TASK_PRE_RUN_COUNTER = Counter(
@@ -303,20 +225,20 @@ def on_worker_start(**kwargs) -> None:
     task_prerun.connect(_celery_team_id_prerun_receiver, weak=False)
 
     if _PROMETHEUS_MULTIPROC is not None:
-        # Children that are killed never run their shutdown handler, so sweep as each
-        # replacement child starts: a pod whose disk is already full recovers on its own.
-        orphans_removed = _PROMETHEUS_MULTIPROC.sweep_orphans()
-        if orphans_removed:
-            CELERY_PROMETHEUS_ORPHANED_METRIC_FILES_COUNTER.inc(orphans_removed)
-            logger.info("prometheus_multiproc_orphan_sweep_done", removed=orphans_removed)
+        # Children that are killed never run their shutdown handler, so each replacement child
+        # clears up after them: a pod whose disk is already full recovers on its own.
+        retired = _PROMETHEUS_MULTIPROC.retire_dead_processes()
+        if retired:
+            CELERY_PROMETHEUS_ORPHANED_METRIC_FILES_COUNTER.inc(retired)
+            logger.info("prometheus_multiproc_dead_process_sweep_done", retired=retired)
 
     port = int(os.getenv("CELERY_METRICS_PORT", "8001"))
     try:
-        if _PROMETHEUS_MULTIPROC_DIR:
-            from prometheus_client import CollectorRegistry, multiprocess
+        if _PROMETHEUS_MULTIPROC is not None:
+            from prometheus_client import CollectorRegistry
 
             registry = CollectorRegistry()
-            multiprocess.MultiProcessCollector(registry)
+            registry.register(LockedMultiProcessCollector(_PROMETHEUS_MULTIPROC))
             start_http_server(port, registry=registry)
         else:
             start_http_server(port)
@@ -335,8 +257,8 @@ _ANALYTICS_METRICS_FLUSH_TIMEOUT_SECONDS = 5.0
 def on_worker_process_shutdown(**kwargs) -> None:
     """Remove metric files for this child so recycled workers don't leak stale data."""
     if _PROMETHEUS_MULTIPROC is not None:
-        removed = _PROMETHEUS_MULTIPROC.purge_pid(os.getpid())
-        logger.info("prometheus_multiproc_child_cleanup_done", removed=removed)
+        retired = _PROMETHEUS_MULTIPROC.retire_pids([os.getpid()])
+        logger.info("prometheus_multiproc_child_cleanup_done", retired=retired)
 
     # Flush the posthoganalytics SDK's final metrics window: `client.metrics`
     # aggregates in memory and flushes on an interval, so a recycled child
