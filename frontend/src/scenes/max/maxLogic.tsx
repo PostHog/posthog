@@ -862,7 +862,13 @@ export const maxLogic = kea<maxLogicType>([
          * Polls the conversation status until it's idle or reaches a max recursion depth.
          */
         pollConversation: async ({ conversationId, currentRecursionDepth, leadingTimeout }, breakpoint) => {
-            if (currentRecursionDepth > 10 || values.conversationIdsNotFound[conversationId]) {
+            // Only a fresh poll is skipped for a chat known to be missing. A chain already running
+            // holds a live answer from the detail endpoint, so a mark an older request left behind
+            // must not stop it.
+            if (
+                currentRecursionDepth > 10 ||
+                (currentRecursionDepth === 0 && values.conversationIdsNotFound[conversationId])
+            ) {
                 return
             }
 

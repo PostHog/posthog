@@ -387,6 +387,50 @@ describe('maxLogic', () => {
         expect(requests).toBe(2)
     })
 
+    it('keeps a running poll chain going after an older request marked the chat missing', async () => {
+        const chainedConversationId = 'chained-conversation-id'
+        let requests = 0
+
+        useMocks({
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                '/api/environments/:team_id/conversations/': { results: [] },
+                [`/api/environments/:team_id/conversations/${chainedConversationId}`]: () => {
+                    requests += 1
+                    return requests === 1
+                        ? [404, { detail: 'Not found' }]
+                        : [200, { ...MOCK_CONVERSATION, id: chainedConversationId }]
+                },
+            },
+        })
+
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+
+        logic.actions.setConversationId(chainedConversationId)
+        await expectLogic(logic, () => {
+            logic.actions.pollConversation(chainedConversationId, 0, 0)
+        }).toFinishAllListeners()
+
+        expect(requests).toBe(1)
+
+        // A fresh poll is skipped, so the repeat this branch removes stays removed.
+        await expectLogic(logic, () => {
+            logic.actions.pollConversation(chainedConversationId, 0, 0)
+        }).toFinishAllListeners()
+
+        expect(requests).toBe(1)
+
+        // A continuation of a chain that already reached the endpoint is not.
+        await expectLogic(logic, () => {
+            logic.actions.pollConversation(chainedConversationId, 1, 0)
+        }).toFinishAllListeners()
+
+        expect(requests).toBe(2)
+    })
+
     it('manages suggestion group selection correctly', async () => {
         logic = maxLogic({ panelId: 'test' })
         logic.mount()
