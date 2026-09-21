@@ -67,21 +67,11 @@ Handoff locks the private channel before the task. It fails if the task moved to
 ## Task API
 
 `POST /tasks/` with `start_run: true` and `POST /tasks/{task_id}/run/` accept `scheduled_at`.
-The MCP tools `tasks-create-and-run` and `tasks-run-create` accept the same field.
-Use a future ISO 8601 timestamp within 90 days. Times without an offset use UTC.
-Omit the field or send null to start immediately. Scheduling is one-off, with no recurrence.
-The run stays `not_started` until the dispatcher queues it at or after the requested time.
-Run responses include `scheduled_at` in UTC. This time is not an exact execution guarantee.
-Before dispatch, scheduled runs recheck current project access and the cloud usage gate.
-The dispatcher fails the run if the usage gate blocks it.
-
-Omit model fields to use saved defaults. A resumed run inherits the previous run's model.
-For an explicit choice, call `tasks-models-retrieve`, then send `model` and an optional supported `reasoning_effort`.
-The server derives `runtime_adapter` when omitted and stores the resolved selection when it creates the run.
-Scheduling supports background ACP runs. It does not support Pi runs, Desktop-imported or relayed MCP servers, supplied GitHub tokens, or Claude subscriptions.
-Use server-managed GitHub credentials and the PostHog gateway.
-Cancel a scheduled run through `POST /tasks/{task_id}/runs/{run_id}/cancel/`.
-Check existing tasks and runs before a retry: repeated creation calls can create duplicate runs.
+So do `tasks-create-and-run` and `tasks-run-create` in MCP.
+Use a future ISO 8601 time within 90 days; missing offsets mean UTC. Omit or send null to start immediately.
+Scheduled runs require background ACP execution, server-managed credentials, and the PostHog gateway. Dispatch rechecks project access and usage limits.
+Model settings use saved defaults or the previous run on resume. Use `tasks-models-retrieve` for explicit model and effort choices.
+The existing run cancellation endpoint also supports scheduled runs.
 
 - `TaskCreateSerializer` accepts a channel UUID from the same project. The requester must have access to the channel.
 - An ordinary user task without a channel goes into the user's `#me` space.
