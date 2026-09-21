@@ -56,6 +56,7 @@ import { productAnalyticsNotificationsLogic } from 'products/product_analytics/f
 
 import { isDraftInsightRow } from './draftInsight'
 import { DraftInsightMoreMenu, DraftInsightNameCell } from './DraftInsightRow'
+import { HomeTab } from './HomeTab'
 import { QUERY_TYPES_METADATA } from './insightTypesMetadata'
 import { NewInsightButton } from './NewInsightMenu'
 import { SavedInsightListItem, savedInsightsLogic } from './savedInsightsLogic'
@@ -105,6 +106,7 @@ export function SavedInsights(): JSX.Element {
         usingFilters,
         bulkDeleteResponseLoading,
         draftInsightRow,
+        showHomeTab,
     } = useValues(savedInsightsLogic)
 
     const { currentProjectId } = useValues(projectLogic)
@@ -344,6 +346,7 @@ export function SavedInsights(): JSX.Element {
                     setSavedInsightsFilters({ tab })
                 }}
                 tabs={[
+                    ...(showHomeTab ? [{ key: SavedInsightsTabs.Home, label: 'Home' }] : []),
                     { key: SavedInsightsTabs.All, label: 'All insights' },
                     { key: SavedInsightsTabs.Yours, label: 'My insights' },
                     { key: SavedInsightsTabs.Alerts, label: 'Alerts' },
@@ -365,7 +368,9 @@ export function SavedInsights(): JSX.Element {
                 sceneInset
             />
 
-            {tab === SavedInsightsTabs.Notifications ? (
+            {tab === SavedInsightsTabs.Home && showHomeTab ? (
+                <HomeTab />
+            ) : tab === SavedInsightsTabs.Notifications ? (
                 <ProductAnalyticsNotifications />
             ) : tab === SavedInsightsTabs.History ? (
                 <ActivityLog scope={ActivityScope.INSIGHT} />

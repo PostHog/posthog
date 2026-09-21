@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import posthoganalytics
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
+from pydantic import ValidationError as PydanticValidationError
 from temporalio import activity
 from temporalio.api.enums.v1 import EventType
 from temporalio.exceptions import ApplicationError, CancelledError
@@ -610,10 +611,18 @@ class TestRunEvaluationWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_emit_evaluation_event_activity_skipped_omits_cost_attribution(self, setup_data):
-        """Skipped evaluations never made an API call, so the emitted event must not attribute
-        a model, provider, or token usage. The skip is surfaced via dedicated properties so
-        consumers can still distinguish a skip from a regular result."""
+    @pytest.mark.parametrize(
+        "skip_reason, model, provider, input_tokens, output_tokens, expects_attribution",
+        [
+            # Nothing reached a provider, so attributing a model would invent a call that never ran.
+            pytest.param("trace_errored", None, None, 0, 0, False, id="no_call_made"),
+            # The model ran and billed before its answer turned out to be unreadable.
+            pytest.param("unparsable_response", "gpt-5-mini", "openai", 11, 7, True, id="call_billed"),
+        ],
+    )
+    async def test_emit_evaluation_event_activity_attributes_only_a_skip_that_called_a_model(
+        self, setup_data, skip_reason, model, provider, input_tokens, output_tokens, expects_attribution
+    ):
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
 
@@ -628,16 +637,19 @@ class TestRunEvaluationWorkflow:
         result: EvaluationActivityResult = {
             "result_type": "boolean",
             "verdict": False,
-            "reasoning": "Source trace errored before producing output; evaluation skipped.",
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "total_tokens": 0,
+            "reasoning": "Evaluation skipped.",
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
             "is_byok": False,
             "key_id": None,
             "allows_na": False,
             "skipped": True,
-            "skip_reason": "trace_errored",
+            "skip_reason": skip_reason,
         }
+        if model is not None and provider is not None:
+            result["model"] = model
+            result["provider"] = provider
 
         with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token") as mock_team_get:
             with patch("posthog.temporal.ai_observability.team_capture.capture_ai_internal") as mock_capture:
@@ -656,20 +668,26 @@ class TestRunEvaluationWorkflow:
                 props = mock_capture.call_args[1]["properties"]
 
         assert props["$ai_evaluation_skipped"] is True
-        assert props["$ai_evaluation_skip_reason"] == "trace_errored"
+        assert props["$ai_evaluation_skip_reason"] == skip_reason
         assert props["$ai_evaluation_result_type"] == "boolean"
         assert props["$ai_evaluation_result"] is False
-        for cost_key in (
-            "$ai_model",
-            "$ai_provider",
-            "$ai_input_tokens",
-            "$ai_output_tokens",
-            "$ai_evaluation_model",
-            "$ai_evaluation_provider",
-            "$ai_evaluation_key_type",
-            "$ai_evaluation_key_id",
-        ):
-            assert cost_key not in props, f"{cost_key} must be omitted for skipped evaluations"
+        if expects_attribution:
+            assert props["$ai_model"] == model
+            assert props["$ai_provider"] == provider
+            assert props["$ai_input_tokens"] == input_tokens
+            assert props["$ai_output_tokens"] == output_tokens
+        else:
+            for cost_key in (
+                "$ai_model",
+                "$ai_provider",
+                "$ai_input_tokens",
+                "$ai_output_tokens",
+                "$ai_evaluation_model",
+                "$ai_evaluation_provider",
+                "$ai_evaluation_key_type",
+                "$ai_evaluation_key_id",
+            ):
+                assert cost_key not in props, f"{cost_key} must be omitted when no model was called"
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -1269,7 +1287,7 @@ class TestRunEvaluationWorkflow:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
 
-            mock_parsed = BooleanWithNAEvalResult(verdict=True, applicable=True, reasoning="The answer is correct")
+            mock_parsed = BooleanWithNAEvalResult(outcome="pass", reasoning="The answer is correct")
 
             mock_response = MagicMock()
             mock_response.parsed = mock_parsed
@@ -1312,7 +1330,7 @@ class TestRunEvaluationWorkflow:
             mock_client_class.return_value = mock_client
 
             mock_parsed = BooleanWithNAEvalResult(
-                verdict=None, applicable=False, reasoning="This is a greeting, not a math problem"
+                outcome="not_applicable", reasoning="This is a greeting, not a math problem"
             )
 
             mock_response = MagicMock()
@@ -1640,7 +1658,60 @@ class TestRunEvaluationWorkflow:
         evaluation.refresh_from_db()
         assert evaluation.enabled is True
 
-    def test_execute_llm_judge_activity_parse_error_raises_non_retryable(self):
+    @pytest.mark.parametrize(
+        "output_config, expected_verdict, expected_applicable",
+        [
+            pytest.param({}, False, None, id="allows_na_false"),
+            pytest.param({"allows_na": True}, None, False, id="allows_na_true"),
+        ],
+    )
+    def test_execute_llm_judge_activity_parse_error_skips_item(
+        self, output_config, expected_verdict, expected_applicable
+    ):
+        evaluation = {
+            "id": "eval-123",
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response factually accurate?"},
+            "output_type": "boolean",
+            "output_config": output_config,
+            "team_id": 1,
+        }
+
+        event_data = create_mock_event_data(
+            1,
+            properties={
+                "$ai_input": [{"role": "user", "content": "What is 2+2?"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "4"}],
+            },
+        )
+
+        with (
+            patch(
+                "posthog.temporal.ai_observability.model_resolution.EvaluationConfig.objects.get_or_create"
+            ) as mock_get_or_create,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_errors") as mock_increment_errors,
+        ):
+            mock_get_or_create.return_value = (_mock_config_with_active_key("openai"), False)
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.complete.side_effect = StructuredOutputParseError(
+                "Failed to parse structured output: I need to fetch your bundles..."
+            )
+
+            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        mock_increment_errors.assert_called_once_with("parse_error", provider="openai")
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "unparsable_response"
+        assert result["verdict"] is expected_verdict
+        assert result.get("applicable") is expected_applicable
+        # The exception drops the provider's counts, but the call still happened on a known model.
+        assert result["provider"] == "openai"
+        assert result["input_tokens"] == 0
+
+    def test_execute_llm_judge_activity_empty_structured_response_skips_item(self):
         evaluation = {
             "id": "eval-123",
             "name": "Test Evaluation",
@@ -1669,16 +1740,18 @@ class TestRunEvaluationWorkflow:
             mock_get_or_create.return_value = (_mock_config_with_active_key("openai"), False)
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
-            mock_client.complete.side_effect = StructuredOutputParseError(
-                "Failed to parse structured output: I need to fetch your bundles..."
-            )
+            mock_response = MagicMock()
+            mock_response.parsed = None
+            mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
+            mock_client.complete.return_value = mock_response
 
-            with pytest.raises(ApplicationError, match="Failed to parse structured output") as exc_info:
-                execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
-        mock_increment_errors.assert_called_once_with("parse_error", provider="openai")
-        assert exc_info.value.non_retryable is True
-        assert exc_info.value.details[0] == {"error_type": "parse_error"}
+        mock_increment_errors.assert_called_once_with("empty_structured_response", provider="openai")
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "unparsable_response"
+        assert result["provider"] == "openai"
+        assert (result["input_tokens"], result["output_tokens"]) == (10, 5)
 
     @pytest.mark.parametrize(
         "raised_exception, expected_label",
@@ -2427,24 +2500,26 @@ class TestEvalResultModels:
         assert result.reasoning == "Test reasoning"
         assert result.verdict is True
 
-    def test_boolean_with_na_eval_result_applicable(self):
-        """Test BooleanWithNAEvalResult model when applicable"""
-        result = BooleanWithNAEvalResult(reasoning="Test reasoning", applicable=True, verdict=True)
-        assert result.reasoning == "Test reasoning"
-        assert result.applicable is True
-        assert result.verdict is True
+    @pytest.mark.parametrize(
+        "outcome, expected_verdict, expected_applicable",
+        [
+            pytest.param("pass", True, True, id="pass"),
+            pytest.param("fail", False, True, id="fail"),
+            pytest.param("not_applicable", None, False, id="not_applicable"),
+            pytest.param("Pass", True, True, id="capitalized"),
+            pytest.param(" FAIL ", False, True, id="padded_uppercase"),
+            pytest.param("Not Applicable", None, False, id="spaced"),
+            pytest.param("N/A", None, False, id="n_slash_a"),
+        ],
+    )
+    def test_boolean_with_na_eval_result_maps_outcome(self, outcome, expected_verdict, expected_applicable):
+        result = BooleanWithNAEvalResult(reasoning="Test reasoning", outcome=outcome)
+        assert result.verdict is expected_verdict
+        assert result.applicable is expected_applicable
 
-    def test_boolean_with_na_eval_result_not_applicable(self):
-        """Test BooleanWithNAEvalResult model when not applicable"""
-        result = BooleanWithNAEvalResult(reasoning="Not applicable", applicable=False, verdict=None)
-        assert result.reasoning == "Not applicable"
-        assert result.applicable is False
-        assert result.verdict is None
-
-    def test_boolean_with_na_eval_result_rejects_verdict_when_not_applicable(self):
-        """Test that verdict must be null when applicable is false"""
-        with pytest.raises(ValueError, match="verdict must be null when applicable is false"):
-            BooleanWithNAEvalResult(reasoning="Not applicable", applicable=False, verdict=True)
+    def test_boolean_with_na_eval_result_rejects_unknown_outcome(self):
+        with pytest.raises(PydanticValidationError):
+            BooleanWithNAEvalResult(reasoning="Test reasoning", outcome="maybe")
 
 
 class TestRunHogEvalAllowsNA:
