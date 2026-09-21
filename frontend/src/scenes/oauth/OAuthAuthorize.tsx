@@ -253,7 +253,7 @@ export const OAuthAuthorize = (): JSX.Element => {
 
     return (
         <OAuthAuthorizeLayout>
-            <div className="shrink-0 mb-4">
+            <div className="shrink-0 mb-3">
                 <AuthCardTitle
                     title={
                         <>
@@ -262,19 +262,18 @@ export const OAuthAuthorize = (): JSX.Element => {
                         </>
                     }
                     sub={`${appName} is requesting access to your data.`}
-                    className="mb-3"
+                    className="mb-2"
                 />
                 {user && (
-                    <div className="flex items-center justify-center gap-2 text-sm">
-                        <ProfilePicture user={user} size="md" className="shrink-0" />
-                        <div className="min-w-0 text-left">
-                            <div className="truncate font-semibold">{user.email}</div>
-                            <div className="truncate text-muted">
-                                {[currentOrganization?.name ?? user.organization?.name, window.location.host]
-                                    .filter(Boolean)
-                                    .join(' · ')}
-                            </div>
-                        </div>
+                    <div className="flex items-center justify-center gap-1.5 min-w-0 text-sm text-muted">
+                        <ProfilePicture user={user} size="sm" className="shrink-0" />
+                        <span className="truncate">
+                            <span className="font-semibold text-primary">{user.email}</span>
+                            {[currentOrganization?.name ?? user.organization?.name, window.location.host]
+                                .filter(Boolean)
+                                .map((part) => ` · ${part}`)
+                                .join('')}
+                        </span>
                     </div>
                 )}
             </div>
