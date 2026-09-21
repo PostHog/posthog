@@ -9,14 +9,6 @@ from posthog.models.raw_sessions.sessions_v3 import (
 )
 from posthog.run_mode import run_mode
 
-# Recreates the sessions v3 live ingestion pipeline on the ingestion-events cluster under
-# fresh ws2 names. Consumption starts when this migration applies: the MV attaches to the
-# Kafka table and writes through the writable into the sessions cluster.
-#
-# The writable already exists in prod (hand-created, repointed at the sessions cluster), so
-# its CREATE no-ops there and the ALTERs bring it up to the current column set. Local and
-# hobby have no ingestion-events nodes and no WarpStream, so the pipeline is cloud-only,
-# like the events_json_ws pipeline it mirrors.
 operations = (
     []
     if not run_mode().is_deployed_cloud
