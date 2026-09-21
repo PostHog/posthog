@@ -64,12 +64,12 @@ export function WorkflowsHealthHeader({
                 className
             )}
         >
-            <div className="flex flex-col">
+            <div className="flex flex-col gap-1.5">
                 <div className="flex items-center gap-2">
                     <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', meta.dotClass)} />
                     <span className={cn('text-xl font-semibold leading-none', meta.wordClass)}>{meta.word}</span>
                 </div>
-                <span className="mt-1.5 text-xs text-secondary">
+                <span className="text-xs text-secondary">
                     {summary.workflowCount === 0
                         ? 'No workflow runs in this window'
                         : summary.settledWorkflows === 0
@@ -79,9 +79,14 @@ export function WorkflowsHealthHeader({
                             : summary.flakyNow > 0
                               ? `${summary.flakyNow} flaky · below 90% pass rate`
                               : truncated
-                                ? `Top ${summary.workflowCount} by runs · none failing`
+                                ? 'All shown workflows healthy'
                                 : `All ${summary.workflowCount} workflows healthy`}
                 </span>
+                {truncated && (
+                    <span className="text-xs text-tertiary">
+                        Top {summary.workflowCount} workflows by run count. All summary values use this set.
+                    </span>
+                )}
             </div>
 
             <div className="flex flex-col border-l border-primary pl-6">
