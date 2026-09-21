@@ -40,7 +40,7 @@ LangchainTools = Sequence[dict[str, Any] | type | Callable | BaseTool]
 
 class InsertionResult(BaseModel):
     messages: Sequence[AssistantMessageUnion]
-    updated_start_id: str
+    updated_start_id: str | None
     updated_window_start_id: str
 
 
@@ -148,8 +148,10 @@ class ConversationCompactionManager(ABC):
         retained_messages = messages[boundary_idx:]
         inserted_messages: list[AssistantMessageUnion] = [summary_message]
         if not any(message is start_message for message in retained_messages):
-            start_message = start_message.model_copy(update={"id": str(uuid4())}, deep=True)
-            inserted_messages.append(start_message)
+            # The original request stays in the archived history, and the thread renders every HumanMessage,
+            # so the copy the model needs is a ContextMessage: it reaches the model as a user turn but never
+            # reaches the rendered thread or the stream.
+            inserted_messages.append(ContextMessage(content=start_message.content, id=str(uuid4())))
 
         # Keep the display history intact; only the model's window moves past archived messages.
         updated_messages: Sequence[AssistantMessageUnion] = [
