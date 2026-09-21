@@ -1331,6 +1331,13 @@ describe("AgentServer HTTP Mode", () => {
       expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
     });
 
+    function usageUpdateWithBudget(budget: Record<string, unknown>) {
+      return {
+        method: POSTHOG_NOTIFICATIONS.USAGE_UPDATE,
+        params: { sessionId: "s", usage: {}, budget },
+      };
+    }
+
     function createUsageTestServer() {
       const testServer = new AgentServer({
         port,
@@ -1346,6 +1353,7 @@ describe("AgentServer HTTP Mode", () => {
         session: { payload: JwtPayload } | null;
         posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
         recordTurnUsage(usage: unknown): void;
+        handleAcpTransportMessage(message: unknown): void;
       };
       testServer.posthogAPI = { updateTaskRun: vi.fn(async () => ({})) };
       testServer.session = {
@@ -1423,14 +1431,26 @@ describe("AgentServer HTTP Mode", () => {
       expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
     });
 
-    it("resets run usage on session cleanup so a later run starts from zero", async () => {
+    it("resets run usage and the budget snapshot on session cleanup so a later run starts from zero", async () => {
       const testServer = createUsageTestServer();
       const turnUsage = {
         inputTokens: 100,
         outputTokens: 50,
         totalTokens: 150,
       };
+      testServer.handleAcpTransportMessage(
+        usageUpdateWithBudget({ stage: "critical", steers: [] }),
+      );
       testServer.recordTurnUsage(turnUsage);
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenLastCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({
+          state: expect.objectContaining({
+            budget_guard: { stage: "critical", steers: [] },
+          }),
+        }),
+      );
 
       const cleanupServer = stubSessionCleanup(testServer);
       await cleanupServer.cleanupSession();
@@ -1463,6 +1483,32 @@ describe("AgentServer HTTP Mode", () => {
             },
           },
         },
+      );
+    });
+
+    it("retries a budget snapshot whose write failed, and skips one that landed", async () => {
+      const testServer = createUsageTestServer();
+      testServer.posthogAPI.updateTaskRun
+        .mockRejectedValueOnce(new Error("503"))
+        .mockResolvedValue({});
+      const budget = { stage: "warn", steers: [{ stage: "warn" }] };
+
+      const settled = () => new Promise((resolve) => setImmediate(resolve));
+
+      testServer.handleAcpTransportMessage(usageUpdateWithBudget(budget));
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(1);
+      await settled();
+      testServer.handleAcpTransportMessage(usageUpdateWithBudget(budget));
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(2);
+      await settled();
+      testServer.handleAcpTransportMessage(usageUpdateWithBudget(budget));
+      testServer.handleAcpTransportMessage(usageUpdateWithBudget(budget));
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(2);
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenLastCalledWith(
+        "task-1",
+        "run-1",
+        { state: { budget_guard: budget } },
+        expect.any(AbortSignal),
       );
     });
 
