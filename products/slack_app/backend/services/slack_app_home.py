@@ -2474,20 +2474,15 @@ def _filter_accessible_integrations(
 ) -> list[Integration]:
     """The candidates this Slack identity can reach.
 
-    A viewer we cannot identify is narrowed to the one project the tab is already being
-    rendered for, rather than shown the whole list. A Slack workspace can carry several
-    organizations, so the old behaviour of returning every candidate published the
-    project and organization names of orgs the viewer has no membership in to anyone in
-    the workspace. Narrowing keeps every card working and the routing picker usable,
-    which is what returning the full list was protecting, without that disclosure.
+    `views.publish` answers whoever opens the tab, including a Slack Connect guest with no
+    PostHog account, so a viewer this cannot resolve must reach no project at all.
 
-    `_apply_project_pick` gates on this too, so the same narrowing stops an unidentified
-    viewer saving a personal default for any team in the workspace, which the old
-    behaviour allowed. Such a default is rejected on the mention path anyway.
+    `_apply_project_pick` gates on this too, so an unidentified viewer also cannot save a
+    default for any team in the workspace.
     """
     user = _resolve_home_user(integration, slack_user_id)
     if user is None:
-        return [c for c in candidates if c.id == integration.id]
+        return []
     permissions = UserPermissions(user=user)
     return [c for c in candidates if permissions.team(c.team).effective_membership_level is not None]
 
