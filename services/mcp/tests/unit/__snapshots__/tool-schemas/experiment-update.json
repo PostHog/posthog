@@ -7309,7 +7309,8 @@
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
-                                                "enum": ["EventsNode", "ActionsNode"],
+                                                "description": "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset.",
+                                                "enum": ["EventsNode", "ActionsNode", "ExperimentExposureNode"],
                                                 "type": "string"
                                             },
                                             "math": {
@@ -7509,16 +7510,6 @@
                                             }
                                         },
                                         "required": ["kind"],
-                                        "type": "object"
-                                    },
-                                    {
-                                        "properties": {
-                                            "kind": {
-                                                "const": "ExperimentExposureNode",
-                                                "default": "ExperimentExposureNode",
-                                                "type": "string"
-                                            }
-                                        },
                                         "type": "object"
                                     },
                                     {
@@ -9016,7 +9007,8 @@
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
-                                                "enum": ["EventsNode", "ActionsNode"],
+                                                "description": "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset.",
+                                                "enum": ["EventsNode", "ActionsNode", "ExperimentExposureNode"],
                                                 "type": "string"
                                             },
                                             "math": {
@@ -9216,16 +9208,6 @@
                                             }
                                         },
                                         "required": ["kind"],
-                                        "type": "object"
-                                    },
-                                    {
-                                        "properties": {
-                                            "kind": {
-                                                "const": "ExperimentExposureNode",
-                                                "default": "ExperimentExposureNode",
-                                                "type": "string"
-                                            }
-                                        },
                                         "type": "object"
                                     },
                                     {
