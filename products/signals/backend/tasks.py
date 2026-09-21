@@ -37,7 +37,8 @@ from products.signals.backend.models import (
     SignalScoutRun,
     SignalScratchpad,
 )
-from products.signals.backend.pr_origin import OriginWriteOutcome, write_origin_section
+from products.signals.backend.pr_origin import write_origin_section
+from products.signals.backend.pull_request_body import BodyEditOutcome
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_KEEP_WARM_WINDOW,
     rebuild_repository_activity,
@@ -179,7 +180,7 @@ def link_report_tracker_issues(self, team_id: int, task_id: str, pr_url: str) ->
     retry_needed = False
     for report_id in report_ids:
         origin = write_origin_section(team_id=team_id, report_id=str(report_id), task_id=task_id, pr_url=pr_url)
-        retry_needed = retry_needed or origin == OriginWriteOutcome.FAILED
+        retry_needed = retry_needed or origin == BodyEditOutcome.FAILED
         linked = link_pull_request_to_tracker_issue(team_id=team_id, report_id=str(report_id), pr_url=pr_url)
         if not linked:
             retry_needed = (

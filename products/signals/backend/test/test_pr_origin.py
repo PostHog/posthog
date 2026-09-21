@@ -34,6 +34,11 @@ class TestPlaceOriginSection(SimpleTestCase):
                 f"## Problem\n\n- broken\n\n{SECTION}\n\n## Changes\n",
             ),
             (
+                "replaces_agent_written_origin",
+                "## Problem\n\n- broken\n\n## Origin\n\nFrom an inbox report.\n\n## Changes\n",
+                f"## Problem\n\n- broken\n\n{SECTION}\n\n## Changes\n",
+            ),
+            (
                 "appended_without_problem",
                 "Fixes the thing.\n",
                 f"Fixes the thing.\n\n{SECTION}\n",

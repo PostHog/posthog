@@ -14,20 +14,20 @@ from __future__ import annotations
 
 import re
 from datetime import date
-from enum import StrEnum
+from typing import TypeVar
 
 from django.conf import settings
 
 import structlog
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
-from posthog.models.github_integration_base import GitHubIntegrationBase
-from posthog.models.integration import GitHubIntegration
 
 from products.signals.backend.artefact_schemas import PriorityAssessment, SignalFinding, TaskRunArtefact
+from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReportArtefact
+from products.signals.backend.pull_request_body import BodyEditOutcome, edit_pull_request_body
 from products.signals.backend.signal_metadata import (
     OriginSignal,
     fetch_origin_signals_for_report,
@@ -45,27 +45,29 @@ _SOURCE_PRODUCT_RE = re.compile(r"^[a-z0-9_]{1,40}$")
 _SCOUT_NAME_RE = re.compile(r"^[a-z0-9-]{1,64}$")
 _COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 _PROBLEM_HEADING_RE = re.compile(r"^##[ \t]+Problem[ \t]*$", re.MULTILINE | re.IGNORECASE)
+_ORIGIN_HEADING_RE = re.compile(r"^##[ \t]+Origin[ \t]*$", re.MULTILINE | re.IGNORECASE)
 _HEADING_RE = re.compile(r"^##[ \t]", re.MULTILINE)
 
 # Linear and GitHub signals come from `fetch_source_references_for_report`, which already
 # validates their public links.
 _ISSUE_TRACKER_PRODUCTS = frozenset({"linear", "github"})
 
+ArtefactModel = TypeVar("ArtefactModel", bound=BaseModel)
+
 
 @frozen
-class SourceKind:
-    label: str
+class EntityPage:
     link_label: str
-    # Path under the project, with `{id}` for the entity. None when the product has no entity page.
-    path: str | None
+    # Path under the project, with `{id}` for the entity.
+    path: str
 
 
-_SOURCE_KINDS: dict[str, SourceKind] = {
-    "error_tracking": SourceKind(label="Error tracking", link_label="issue", path="/error_tracking/{id}"),
-    "session_replay": SourceKind(label="Session replay", link_label="recording", path="/replay/{id}"),
-    "conversations": SourceKind(label="Support", link_label="ticket", path="/support/tickets/{id}"),
-    "llm_analytics": SourceKind(label="AI observability", link_label="trace", path="/ai-observability/traces/{id}"),
-    "logs": SourceKind(label="Logs", link_label="logs", path=None),
+# Sources whose signals point at one entity with its own page in PostHog.
+_ENTITY_PAGES: dict[str, EntityPage] = {
+    SignalSourceProduct.ERROR_TRACKING: EntityPage(link_label="issue", path="/error_tracking/{id}"),
+    SignalSourceProduct.SESSION_REPLAY: EntityPage(link_label="recording", path="/replay/{id}"),
+    SignalSourceProduct.CONVERSATIONS: EntityPage(link_label="ticket", path="/support/tickets/{id}"),
+    SignalSourceProduct.LLM_ANALYTICS: EntityPage(link_label="trace", path="/ai-observability/traces/{id}"),
 }
 
 
@@ -96,23 +98,25 @@ class OriginSource:
 
 
 def _source_label(source_product: str) -> str:
-    kind = _SOURCE_KINDS.get(source_product)
-    if kind is not None:
-        return kind.label
+    if source_product in SIGNAL_SOURCE_PRODUCT_LABELS:
+        return SIGNAL_SOURCE_PRODUCT_LABELS[SignalSourceProduct(source_product)]
     if _SOURCE_PRODUCT_RE.match(source_product):
         return source_product.replace("_", " ").capitalize()
     return "Other"
 
 
+def _entity_id(signal: OriginSignal) -> str:
+    # A support ticket page resolves the readable ticket number as well as the uuid.
+    return str(signal.ticket_number) if signal.ticket_number > 0 else signal.source_id
+
+
 def _entity_link(team_id: int, signal: OriginSignal, index: int, total: int) -> OriginLink | None:
-    kind = _SOURCE_KINDS.get(signal.source_product)
-    if kind is None or kind.path is None:
+    page = _ENTITY_PAGES.get(signal.source_product)
+    entity_id = _entity_id(signal)
+    if page is None or not _SOURCE_ID_RE.match(entity_id):
         return None
-    entity_id = str(signal.ticket_number) if signal.ticket_number > 0 else signal.source_id
-    if not _SOURCE_ID_RE.match(entity_id):
-        return None
-    label = kind.link_label if total == 1 else f"{kind.link_label} {index}"
-    path = kind.path.format(id=entity_id)
+    label = page.link_label if total == 1 else f"{page.link_label} {index}"
+    path = page.path.format(id=entity_id)
     return OriginLink(label=label, url=f"{settings.SITE_URL}/project/{team_id}{path}")
 
 
@@ -126,7 +130,7 @@ def _product_sources(team_id: int, signals: list[OriginSignal]) -> list[OriginSo
 
     sources: list[OriginSource] = []
     for source_product, group in grouped.items():
-        unique = list({signal.ticket_number or signal.source_id: signal for signal in group}.values())
+        unique = list({_entity_id(signal): signal for signal in group}.values())
         links: list[OriginLink] = []
         for index, signal in enumerate(unique[:MAX_LINKS_PER_SOURCE], start=1):
             link = _entity_link(team_id, signal, index, len(unique))
@@ -136,22 +140,26 @@ def _product_sources(team_id: int, signals: list[OriginSignal]) -> list[OriginSo
     return sources
 
 
-def _latest_artefact(team_id: int, report_id: str, artefact_type: str) -> SignalReportArtefact | None:
-    return (
+def _latest_artefact_as(
+    team_id: int, report_id: str, artefact_type: str, model: type[ArtefactModel]
+) -> ArtefactModel | None:
+    artefact = (
         SignalReportArtefact.objects.filter(team_id=team_id, report_id=report_id, type=artefact_type)
         .order_by("-created_at", "-id")
         .first()
     )
+    if artefact is None:
+        return None
+    try:
+        return model.model_validate_json(artefact.content)
+    except ValidationError:
+        return None
 
 
 def _cause_commit(team_id: int, report_id: str, repository: str) -> OriginLink | None:
     """The first commit of the newest finding, which the research prompt orders causative first."""
-    artefact = _latest_artefact(team_id, report_id, SignalReportArtefact.ArtefactType.SIGNAL_FINDING)
-    if artefact is None:
-        return None
-    try:
-        finding = SignalFinding.model_validate_json(artefact.content)
-    except ValidationError:
+    finding = _latest_artefact_as(team_id, report_id, SignalReportArtefact.ArtefactType.SIGNAL_FINDING, SignalFinding)
+    if finding is None:
         return None
     for sha in finding.relevant_commit_hashes:
         if _COMMIT_SHA_RE.match(sha):
@@ -174,13 +182,10 @@ def _started_automatically(team_id: int, report_id: str, task_id: str) -> bool |
 
 
 def _priority(team_id: int, report_id: str) -> str | None:
-    artefact = _latest_artefact(team_id, report_id, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT)
-    if artefact is None:
-        return None
-    try:
-        return PriorityAssessment.model_validate_json(artefact.content).priority.value
-    except ValidationError:
-        return None
+    judgment = _latest_artefact_as(
+        team_id, report_id, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, PriorityAssessment
+    )
+    return judgment.priority.value if judgment else None
 
 
 @frozen
@@ -200,7 +205,6 @@ class PullRequestOrigin:
     @classmethod
     def for_report(cls, *, team: Team, report_id: str, task_id: str, repository: str) -> PullRequestOrigin:
         signals = fetch_origin_signals_for_report(team, report_id)
-        scout_names = [signal.scout_name for signal in signals if _SCOUT_NAME_RE.match(signal.scout_name)]
         return cls(
             report_id=report_id,
             report_url=f"{settings.SITE_URL}/project/{team.pk}/inbox/reports/{report_id}",
@@ -209,7 +213,7 @@ class PullRequestOrigin:
                 OriginLink(label=reference.label, url=reference.url)
                 for reference in fetch_source_references_for_report(team, report_id)
             ),
-            scout_name=scout_names[0] if scout_names else None,
+            scout_name=next((s.scout_name for s in signals if _SCOUT_NAME_RE.match(s.scout_name)), None),
             first_seen=signals[0].timestamp.date() if signals else None,
             cause_commit=_cause_commit(team.pk, report_id, repository),
             started_automatically=_started_automatically(team.pk, report_id, task_id),
@@ -260,6 +264,14 @@ def place_origin_section(body: str, *, report_id: str, section: str) -> str:
     if start_index != -1 and end_index != -1:
         return body[:start_index] + section + body[end_index + len(end) :]
 
+    # An agent can write its own Origin section despite the prompt. Replace it rather than add a second one.
+    agent_origin = _ORIGIN_HEADING_RE.search(body)
+    if agent_origin is not None:
+        next_heading = _HEADING_RE.search(body, agent_origin.end())
+        rest = body[next_heading.start() :] if next_heading else ""
+        before = body[: agent_origin.start()].rstrip()
+        return f"{before}\n\n{section}\n\n{rest}" if rest else f"{before}\n\n{section}\n"
+
     problem = _PROBLEM_HEADING_RE.search(body)
     if problem is None:
         return f"{body.rstrip()}\n\n{section}\n"
@@ -270,53 +282,23 @@ def place_origin_section(body: str, *, report_id: str, section: str) -> str:
     return f"{before}\n\n{section}\n\n{body[next_heading.start() :]}"
 
 
-class OriginWriteOutcome(StrEnum):
-    WRITTEN = "written"
-    # Nothing to write to, such as a pull request outside GitHub. A retry cannot change that.
-    SKIPPED = "skipped"
-    # GitHub refused or the body changed under us. A retry can succeed.
-    FAILED = "failed"
-
-
-def write_origin_section(*, team_id: int, report_id: str, task_id: str, pr_url: str) -> OriginWriteOutcome:
+def write_origin_section(*, team_id: int, report_id: str, task_id: str, pr_url: str) -> BodyEditOutcome:
     """Write or refresh the Origin section of a pull request.
 
     Never raises: a missing section must not stop the tracker cross-link that runs beside it.
     """
     try:
-        parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
-        if parsed is None:
-            return OriginWriteOutcome.SKIPPED
-        github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
-        if github is None:
-            logger.info("signals.pr_origin_no_integration", report_id=report_id, pr_url=pr_url)
-            return OriginWriteOutcome.SKIPPED
-
         team = Team.objects.get(pk=team_id)
-        origin = PullRequestOrigin.for_report(
-            team=team, report_id=report_id, task_id=task_id, repository=parsed.repository
-        )
 
-        pull_request = github.get_pull_request(parsed.repository, parsed.number)
-        if not pull_request.get("success"):
-            logger.warning(
-                "signals.pr_origin_fetch_failed", report_id=report_id, pr_url=pr_url, error=pull_request.get("error")
+        def add_origin(body: str, repository: str) -> str:
+            origin = PullRequestOrigin.for_report(
+                team=team, report_id=report_id, task_id=task_id, repository=repository
             )
-            return OriginWriteOutcome.FAILED
+            return place_origin_section(body, report_id=report_id, section=origin.render())
 
-        body = pull_request.get("body") or ""
-        updated = place_origin_section(body, report_id=report_id, section=origin.render())
-        if updated == body:
-            return OriginWriteOutcome.WRITTEN
-        outcome = github.update_pull_request_body(
-            parsed.repository, parsed.number, updated, expected_etag=pull_request.get("etag")
+        return edit_pull_request_body(
+            team_id=team_id, report_id=report_id, pr_url=pr_url, edit=add_origin, log_event="signals.pr_origin"
         )
-        if not outcome.get("success"):
-            logger.warning(
-                "signals.pr_origin_update_failed", report_id=report_id, pr_url=pr_url, error=outcome.get("error")
-            )
-            return OriginWriteOutcome.FAILED
-        return OriginWriteOutcome.WRITTEN
     except Exception:
         logger.exception("signals.pr_origin_unexpected_error", report_id=report_id, team_id=team_id)
-        return OriginWriteOutcome.FAILED
+        return BodyEditOutcome.FAILED
