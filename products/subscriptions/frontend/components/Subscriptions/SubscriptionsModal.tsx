@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { userLogic } from 'scenes/userLogic'
@@ -25,7 +24,6 @@ export interface SubscriptionsModalProps {
     isOpen: boolean
     closeModal: () => void
     subscriptionId?: number | null
-    isCreating?: boolean
     inline?: boolean
     insightShortId?: InsightShortId
     insightName?: string
@@ -39,7 +37,6 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
         dashboard,
         insightShortId,
         insightName,
-        isCreating = false,
         subscriptionId,
         isOpen,
         inline,
@@ -48,27 +45,26 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
     const { push } = useActions(router)
     const { userLoading } = useValues(userLogic)
     const { searchParams } = useValues(router)
-    const subscriptionWizardExperimentEnabled = useFeatureFlag('SUBSCRIPTION_CREATION_WIZARD', 'test')
 
     const dashboardId = dashboard?.id
     const isAiPrompt = searchParams.resource_type === SubscriptionResourceTypes.AiPrompt
     const baseProps: SubscriptionBaseProps = { insightShortId, dashboardId }
-    const isWizard = isCreating && (insightShortId || dashboard || isAiPrompt) && subscriptionWizardExperimentEnabled
+    const isWizard = subscriptionId === undefined
     const modalWasOpen = useRef(false)
     useEffect(() => {
         if (!isOpen) {
             modalWasOpen.current = false
             return
         }
-        if (!isCreating || modalWasOpen.current) {
+        if (!isWizard || modalWasOpen.current) {
             return
         }
         modalWasOpen.current = true
         posthog.capture('subscription creation modal opened', {
-            creation_source: isWizard ? 'wizard' : 'editor',
+            creation_source: 'wizard',
             resource_type: isAiPrompt ? 'ai' : dashboard ? 'dashboard' : 'insight',
         })
-    }, [dashboard, isAiPrompt, isCreating, isOpen, isWizard])
+    }, [dashboard, isAiPrompt, isOpen, isWizard])
     const cancelWizard = (): void => push(urlForSubscriptions(baseProps))
     const requestWizardCancel = (): void => {
         const wizardForm = subscriptionLogic.findMounted({
@@ -104,7 +100,22 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
             inline={inline}
             data-attr={dataAttr}
         >
-            {!isCreating && subscriptionId === null ? (
+            {isWizard ? (
+                <SubscriptionWizard
+                    insightShortId={insightShortId}
+                    insightName={insightName}
+                    dashboard={dashboard}
+                    onCancel={cancelWizard}
+                />
+            ) : subscriptionId != null ? (
+                <EditSubscription
+                    id={subscriptionId}
+                    insightShortId={insightShortId}
+                    dashboard={dashboard}
+                    onCancel={() => push(urlForSubscriptions(baseProps))}
+                    onDelete={() => push(urlForSubscriptions(baseProps))}
+                />
+            ) : (
                 <TabbedManageSubscriptions
                     {...baseProps}
                     activeTab={activeTab}
@@ -116,21 +127,6 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
                             resourceType ? { resource_type: resourceType } : undefined
                         )
                     }
-                />
-            ) : isWizard ? (
-                <SubscriptionWizard
-                    insightShortId={insightShortId}
-                    insightName={insightName}
-                    dashboard={dashboard}
-                    onCancel={cancelWizard}
-                />
-            ) : (
-                <EditSubscription
-                    id={subscriptionId ?? 'new'}
-                    insightShortId={insightShortId}
-                    dashboard={dashboard}
-                    onCancel={() => push(urlForSubscriptions(baseProps))}
-                    onDelete={() => push(urlForSubscriptions(baseProps))}
                 />
             )}
         </LemonModal>
