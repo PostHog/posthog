@@ -6,13 +6,18 @@ set -euo pipefail
 cd "$1"
 . bin/helpers/worktree-borrow.sh
 
-# A linked worktree without node_modules borrows the main clone's when pnpm-lock.yaml matches.
-PATH="$PWD/node_modules/.bin:$PATH"
+# A linked worktree without node_modules borrows the main clone's when pnpm-lock.yaml
+# matches. Never fall back to a tsgo on PATH, which could be any version.
+TSGO="$PWD/node_modules/.bin/tsgo"
+unset POSTHOG_BORROW_NODE
 posthog_worktree_borrow node
+if [ -n "${POSTHOG_BORROW_NODE:-}" ]; then
+    TSGO="$(posthog_main_repo "$PWD")/node_modules/.bin/tsgo"
+fi
 
-if ! command -v tsgo >/dev/null; then
-    echo "posthog-lsp: tsgo not found, run 'pnpm install' to get the TypeScript LSP" >&2
+if [ ! -x "$TSGO" ]; then
+    echo "posthog-lsp: $TSGO is missing, run 'pnpm install' to get the TypeScript LSP" >&2
     exit 1
 fi
 
-exec tsgo --lsp --stdio
+exec "$TSGO" --lsp --stdio
