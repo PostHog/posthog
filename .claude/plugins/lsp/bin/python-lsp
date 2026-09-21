@@ -11,7 +11,7 @@ unset VIRTUAL_ENV
 posthog_worktree_borrow all
 VENV="${VIRTUAL_ENV:-$(posthog_find_venv "$PWD")}"
 
-if [ ! -x "$VENV/bin/ty" ]; then
+if [ -z "$VENV" ] || [ ! -x "$VENV/bin/ty" ]; then
     echo "posthog-lsp: no venv with ty found, run 'uv sync' to get the Python LSP" >&2
     exit 1
 fi

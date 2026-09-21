@@ -1,7 +1,7 @@
 {
     "name": "posthog-lsp",
     "description": "Language servers for this repo: tsgo for TypeScript/JavaScript and ty for Python, both taken from the pinned dev dependencies.",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": {
         "name": "PostHog"
     },
