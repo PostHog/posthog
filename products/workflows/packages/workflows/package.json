@@ -1,0 +1,40 @@
+{
+    "name": "@posthog/workflows",
+    "version": "0.0.0",
+    "private": true,
+    "description": "Declare a PostHog workflow in TypeScript, review it as a diff, and deploy it from CI.",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/PostHog/posthog.git",
+        "directory": "products/workflows/packages/workflows"
+    },
+    "files": [
+        "dist",
+        "src"
+    ],
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js",
+            "require": "./dist/index.js",
+            "default": "./dist/index.js"
+        },
+        "./package.json": "./package.json"
+    },
+    "scripts": {
+        "build": "tsc -p tsconfig.build.json",
+        "typecheck": "tsc -p tsconfig.json",
+        "test": "tsc -p tsconfig.test.json && node --test \".test-build/tests/**/*.test.js\""
+    },
+    "devDependencies": {
+        "@types/node": "^25.8.0",
+        "typescript": "catalog:"
+    },
+    "engines": {
+        "node": ">=22.12"
+    }
+}
