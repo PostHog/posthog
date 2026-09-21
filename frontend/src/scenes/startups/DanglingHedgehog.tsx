@@ -1,4 +1,4 @@
-import './ClimbingClimber.scss'
+import './DanglingHedgehog.scss'
 
 import * as climber2Png from '@posthog/brand/hoggies/png/climber-2'
 
@@ -28,7 +28,7 @@ const HOG_REST_POSITION = '62%'
  * The rope crop holds an image box twice its own height, which stretches the rope alone, and a
  * straight line looks the same when it is stretched vertically.
  */
-export function ClimbingClimber({ className }: { className?: string }): JSX.Element {
+export function DanglingHedgehog({ className }: { className?: string }): JSX.Element {
     // The visual-regression runner pins every animation to its last keyframe, and Storybook has
     // no reason to animate at all, so both render the hedgehog at rest.
     const animated = !inStorybook() && !inStorybookTestRunner()
@@ -36,20 +36,20 @@ export function ClimbingClimber({ className }: { className?: string }): JSX.Elem
     return (
         <div
             className={cn(
-                'ClimbingClimber sticky top-0 self-start w-75 shrink-0 overflow-hidden pointer-events-none',
+                'DanglingHedgehog sticky top-0 self-start w-75 shrink-0 overflow-hidden pointer-events-none',
                 className
             )}
             aria-hidden
         >
             <div
-                className={cn('absolute inset-x-0', animated && 'ClimbingClimber__rig')}
+                className={cn('absolute inset-x-0', animated && 'DanglingHedgehog__rig')}
                 style={{ top: `-${ROPE_OVERSHOOT}px`, height: `calc(${HOG_REST_POSITION} + ${ROPE_OVERSHOOT}px)` }}
             >
                 {/* Rope and hedgehog turn together around the top of the rope, the way a climber on a
                     fixed line does, so the rope stays straight through the hand that holds it. */}
                 <div
                     className={cn(
-                        'ClimbingClimber__pendulum flex flex-col justify-end h-full',
+                        'DanglingHedgehog__pendulum flex flex-col justify-end h-full',
                         animated && 'is-swinging'
                     )}
                 >
@@ -60,7 +60,7 @@ export function ClimbingClimber({ className }: { className?: string }): JSX.Elem
                             loading="eager"
                         />
                     </div>
-                    <div className="ClimbingClimber__hog relative w-full aspect-[2/1]">
+                    <div className="DanglingHedgehog__hog relative w-full aspect-[2/1]">
                         <HedgehogClimber className="absolute bottom-0 left-0 w-full" loading="eager" />
                     </div>
                 </div>

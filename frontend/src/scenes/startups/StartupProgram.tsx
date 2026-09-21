@@ -40,12 +40,12 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2Type, StartupProgramLabel } from '~/types'
 
-import { ClimbingClimber } from './ClimbingClimber'
+import { DanglingHedgehog } from './DanglingHedgehog'
 import { StartupProgramForm } from './StartupProgramForm'
 import { StartupProgramLogicProps, startupProgramLogic } from './startupProgramLogic'
 
 const HedgehogHogpatch = pngHoggie(hogpatchPng)
-const HedhehogClimber1 = pngHoggie(climber1Png)
+const HedgehogClimber = pngHoggie(climber1Png)
 
 /** A page that says why the application is unavailable, and sends the reader back to the app. */
 function StartupProgramNotice({ title, children }: { title: ReactNode; children: ReactNode }): JSX.Element {
@@ -193,7 +193,7 @@ export function StartupProgram(): JSX.Element {
                             {isYC ? (
                                 <HedgehogHogpatch className="h-auto w-full" />
                             ) : (
-                                <HedhehogClimber1 className="h-auto w-full" />
+                                <HedgehogClimber className="h-auto w-full" />
                             )}
                         </div>
                         <div className="flex flex-col gap-2 text-center">
@@ -501,7 +501,7 @@ export function StartupProgram(): JSX.Element {
                     </div>
                 </div>
             </div>
-            <ClimbingClimber className="hidden @min-[80rem]/startup-page:block" />
+            <DanglingHedgehog className="hidden @min-[80rem]/startup-page:block" />
         </div>
     )
 }

@@ -1,10 +1,10 @@
-.ClimbingClimber {
+.DanglingHedgehog {
     // The column tracks the window rather than the page, so the hedgehog stays in view while the
     // page scrolls past it.
     height: calc(100dvh - var(--minimal-navigation-height));
 
     &__rig {
-        animation: ClimbingClimber__climb 11s ease-in-out infinite;
+        animation: DanglingHedgehog__climb 11s ease-in-out infinite;
     }
 
     &__pendulum {
@@ -13,7 +13,7 @@
         transform-origin: 32.5% 0;
 
         &.is-swinging {
-            animation: ClimbingClimber__sway 7s ease-in-out infinite;
+            animation: DanglingHedgehog__sway 7s ease-in-out infinite;
         }
     }
 
@@ -32,7 +32,7 @@
     }
 }
 
-@keyframes ClimbingClimber__climb {
+@keyframes DanglingHedgehog__climb {
     0%,
     100% {
         transform: translateY(0);
@@ -46,7 +46,7 @@
 // Only the two ends of the swing are keyframes. The easing curve runs between each pair of
 // keyframes, so a third keyframe at the middle would stop the hedgehog there twice a cycle, which
 // reads as a swing that keeps stalling. A pendulum turns at its ends and is fastest in the middle.
-@keyframes ClimbingClimber__sway {
+@keyframes DanglingHedgehog__sway {
     0%,
     100% {
         transform: rotate(-2deg);
