@@ -7400,10 +7400,6 @@ SQL
     column "_offset" {
       type = "UInt64"
     }
-    column "retention_days_explicit" {
-      type    = "Int32"
-      default = "0"
-    }
     engine "null" {
     }
   }
@@ -21089,7 +21085,16 @@ SELECT
   cityHash64(mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))) AS resource_fingerprint,
   timestamp,
   observed_timestamp,
-  timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(90))) AS original_expiry_timestamp,
+  timestamp
+  + toIntervalDay(
+    assumeNotNull(
+      if(
+        (retention_days IS NOT NULL) AND (retention_days > 0),
+        retention_days,
+        toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(30))
+      )
+    )
+  ) AS original_expiry_timestamp,
   ifNull(service_name, '') AS service_name,
   ifNull(metric_type, '') AS metric_type,
   ifNull(value, 0) AS value,
@@ -21116,14 +21121,7 @@ SELECT
   ) AS attributes,
   _partition,
   _topic,
-  _offset,
-  assumeNotNull(
-    if(
-      (retention_days IS NOT NULL) AND (retention_days > 0),
-      retention_days,
-      toInt32OrZero(_headers.value[indexOf(_headers.name, 'retention-days')])
-    )
-  ) AS retention_days_explicit
+  _offset
 FROM posthog.kafka_metrics_avro2
 WHERE kafka_metrics_avro2.series_fingerprint IS NOT NULL
 SETTINGS
@@ -21211,9 +21209,6 @@ SQL
     }
     column "_offset" {
       type = "UInt64"
-    }
-    column "retention_days_explicit" {
-      type = "Int32"
     }
   }
 
@@ -22249,11 +22244,7 @@ FROM
       team_id AS team_id,
       metric_name AS metric_name,
       toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-      toStartOfInterval(
-        timestamp
-        + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(30))),
-        toIntervalHour(1)
-      ) AS original_expiry_time_bucket,
+      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
       service_name AS service_name,
       mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS filtered_attributes,
       arrayJoin(filtered_attributes) AS attribute,
@@ -22304,13 +22295,9 @@ SELECT
   team_id,
   metric_name,
   toStartOfHour(timestamp) AS time_bucket,
-  toStartOfHour(
-    timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(30)))
-  ) AS original_expiry_time_bucket,
-  maxSimpleState(
-    timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(30)))
-  ) AS original_expiry_timestamp
-FROM posthog.metrics2_input
+  toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
+  maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp
+FROM posthog.metrics2_input AS input
 WHERE has_labels
 GROUP BY
   team_id, time_bucket, metric_name, original_expiry_time_bucket
@@ -22352,11 +22339,7 @@ FROM
       team_id AS team_id,
       metric_name AS metric_name,
       toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-      toStartOfInterval(
-        timestamp
-        + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(30))),
-        toIntervalHour(1)
-      ) AS original_expiry_time_bucket,
+      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
       service_name AS service_name,
       resource_attributes AS filtered_attributes,
       arrayJoin(filtered_attributes) AS attribute,
@@ -22408,9 +22391,7 @@ SELECT
   metric_name,
   toDateTime(toStartOfHour(timestamp)) AS time_bucket,
   series_fingerprint,
-  toDate32(
-    timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(30)))
-  ) AS original_expiry_date,
+  toDate32(original_expiry_timestamp) AS original_expiry_date,
   any(resource_fingerprint) AS resource_fingerprint,
   any(service_name) AS service_name,
   any(metric_type) AS metric_type,
@@ -22529,7 +22510,7 @@ SELECT
   resource_attributes,
   attributes,
   timestamp,
-  timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(30))) AS original_expiry_timestamp
+  original_expiry_timestamp
 FROM posthog.metrics2_input
 WHERE has_labels
 SQL

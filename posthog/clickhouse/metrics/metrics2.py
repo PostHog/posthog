@@ -22,7 +22,7 @@ METRIC_SERIES_DISTRIBUTED_TABLE_NAME = "metric_series_distributed"
 METRIC_ATTRIBUTES2_TABLE_NAME = "metric_attributes2"
 METRIC_ATTRIBUTES_DISTRIBUTED_TABLE_NAME = "metric_attributes_distributed"
 
-DEFAULT_RETENTION_DAYS = 90
+DEFAULT_RETENTION_DAYS = 30
 
 
 def _db() -> str:
@@ -97,8 +97,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS2_INPUT_TABLE_NAME}
     `attributes` Map(LowCardinality(String), String),
     `_partition` UInt32,
     `_topic` String,
-    `_offset` UInt64,
-    `retention_days_explicit` Int32 DEFAULT 0
+    `_offset` UInt64
 )
 ENGINE = Null
 """
@@ -257,12 +256,6 @@ def KAFKA_METRICS_AVRO2_MV_SELECT() -> str:
     sorted_resource_attributes = "mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))"
     sorted_attributes = "mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes))"
     labelled = "toBool(ifNull(has_labels, 1))"
-    # The retention the producer asked for: the record field, else the `retention-days` header,
-    # else 0. `metrics2` applies the 90-day default here; the metrics4 views apply their own.
-    explicit_retention = (
-        "assumeNotNull(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, "
-        "toInt32OrZero(_headers.value[indexOf(_headers.name, 'retention-days')])))"
-    )
     # Retention counts from the sample's own timestamp, so late samples expire with their series.
     # Capture already replaces a timestamp far from the ingest time, so no clock guard is needed here.
     return f"""SELECT
@@ -273,7 +266,7 @@ def KAFKA_METRICS_AVRO2_MV_SELECT() -> str:
     cityHash64({sorted_resource_attributes}) AS resource_fingerprint,
     timestamp,
     observed_timestamp,
-    timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32({DEFAULT_RETENTION_DAYS}))) AS original_expiry_timestamp,
+    timestamp + toIntervalDay(assumeNotNull(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32({DEFAULT_RETENTION_DAYS}))))) AS original_expiry_timestamp,
     ifNull(service_name, '') AS service_name,
     ifNull(metric_type, '') AS metric_type,
     ifNull(value, 0) AS value,
@@ -292,8 +285,7 @@ def KAFKA_METRICS_AVRO2_MV_SELECT() -> str:
     if({labelled}, {sorted_attributes}, CAST(map(), 'Map(String, String)')) AS attributes,
     _partition,
     _topic,
-    _offset,
-    {explicit_retention} AS retention_days_explicit
+    _offset
 FROM {db}.{KAFKA_TABLE_NAME}
 WHERE {KAFKA_TABLE_NAME}.series_fingerprint IS NOT NULL
 SETTINGS
@@ -366,13 +358,6 @@ def METRICS2_ADD_TIMESTAMP_INDEX_SQL() -> str:
     return (
         f"ALTER TABLE {_db()}.{METRICS2_TABLE_NAME} "
         "ADD INDEX IF NOT EXISTS idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1"
-    )
-
-
-def METRICS2_INPUT_ADD_RETENTION_DAYS_EXPLICIT_SQL() -> str:
-    return (
-        f"ALTER TABLE {_db()}.{METRICS2_INPUT_TABLE_NAME} "
-        "ADD COLUMN IF NOT EXISTS retention_days_explicit Int32 DEFAULT 0"
     )
 
 
