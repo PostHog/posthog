@@ -19,6 +19,8 @@ All events captured via `Task.capture_event()` automatically include:
 | `title`          | `str`  | Task title                                 |
 | `description`    | `str`  | Task description (truncated to 500 chars)  |
 | `origin_product` | `str`  | Origin product enum value                  |
+| `internal`       | `bool` | Task is hidden from the default task list  |
+| `is_platform_origin` | `bool` | Origin is in `PLATFORM_ORIGIN_PRODUCTS` — a PostHog-operated pipeline started the run, not a person |
 | `repository`     | `str?` | Repository in `org/repo` format (nullable) |
 
 ### TaskRun events
@@ -35,6 +37,8 @@ All events captured via `TaskRun.capture_event()` automatically include:
 | `loop_trigger_id` | `str?` | UUID of the loop trigger that fired this run, from run state (nullable) |
 | `environment`     | `str`  | `cloud` or `local` (defaults to `cloud`)                                |
 | `mode`            | `str`  | Execution mode (e.g. `background`)                                      |
+| `internal`        | `bool` | Task is hidden from the default task list                               |
+| `is_platform_origin` | `bool` | Origin is in `PLATFORM_ORIGIN_PRODUCTS`                              |
 
 ## Task Model Events
 

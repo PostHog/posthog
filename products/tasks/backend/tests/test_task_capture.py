@@ -2,11 +2,13 @@ from unittest.mock import MagicMock
 
 from django.test import TestCase
 
+from parameterized import parameterized
+
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.tasks.backend.models import Channel, Task
+from products.tasks.backend.models import PLATFORM_ORIGIN_PRODUCTS, Channel, Task
 
 
 class TestTaskCaptureEvent(TestCase):
@@ -20,9 +22,8 @@ class TestTaskCaptureEvent(TestCase):
             team=self.team,
             title="Getting set up",
             description="prompt",
-            origin_product=Task.OriginProduct.USER_CREATED,
             created_by=self.user,
-            **kwargs,
+            **{"origin_product": Task.OriginProduct.USER_CREATED, **kwargs},
         )
 
     def test_origin_key_reaches_analytics_only_when_set(self):
@@ -48,3 +49,26 @@ class TestTaskCaptureEvent(TestCase):
         task.capture_event("task_created", capture_fn=capture)
 
         self.assertEqual(capture.call_args.kwargs["properties"]["channel_id"], str(channel.id))
+
+    @parameterized.expand(
+        [
+            (Task.OriginProduct.USER_CREATED, False, False),
+            (Task.OriginProduct.WORKFLOW, False, False),
+            # Non-internal on purpose — the posture also selects which MCP grants the sandbox
+            # mounts — so only the origin marks a scout run as fleet traffic.
+            (Task.OriginProduct.SIGNALS_SCOUT, False, True),
+            (Task.OriginProduct.SIGNAL_REPORT, True, True),
+        ]
+    )
+    def test_origin_marks_fleet_traffic_in_analytics(self, origin_product, internal, is_platform_origin):
+        capture = MagicMock()
+
+        task = self._task(origin_product=origin_product, internal=internal)
+        task.capture_event("task_run_created", capture_fn=capture)
+
+        properties = capture.call_args.kwargs["properties"]
+        self.assertEqual(properties["internal"], internal)
+        self.assertEqual(properties["is_platform_origin"], is_platform_origin)
+
+    def test_every_platform_origin_is_a_real_origin_product(self):
+        self.assertLessEqual(PLATFORM_ORIGIN_PRODUCTS, {choice.value for choice in Task.OriginProduct})

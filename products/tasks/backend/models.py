@@ -78,6 +78,23 @@ PRIOR_RUN_SUMMARY_STATE_KEY = "prior_run_summary"
 # gateway product. Keyed by origin value.
 INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN: dict[str, str] = {"signal_report": "inbox", "signals_chat": "chat"}
 
+# Origins whose runs a PostHog-operated pipeline starts for itself, not a person and not a
+# customer-configured automation. Analytics splits fleet traffic from customer traffic on the
+# `is_platform_origin` property this set feeds, so an alert population does not depend on a
+# hand-kept origin list that goes stale when a new pipeline origin lands. `internal` alone does
+# not cover it: a scout task stays non-internal because that posture also selects which MCP
+# grants its sandbox mounts.
+PLATFORM_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
+    {
+        "signal_report",
+        "signals_scout",
+        "scout_suggestions",
+        "support_reply",
+        "review_hog",
+        "task_analysis",
+    }
+)
+
 MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
     "support_reply": "support",
     "signals_scout": "scout",
@@ -636,6 +653,8 @@ class Task(DeletedMetaFields, models.Model):
                 "title": self.title,
                 "description": self.description[:500] if self.description else "",
                 "origin_product": self.origin_product,
+                "internal": self.internal,
+                "is_platform_origin": self.origin_product in PLATFORM_ORIGIN_PRODUCTS,
                 "repository": self.repository,
                 "repositories": self.repositories or ([self.repository] if self.repository else []),
             }
@@ -2930,6 +2949,8 @@ class TaskRun(models.Model):
             or self.task.repositories
             or ([self.task.repository] if self.task.repository else []),
             "origin_product": self.task.origin_product,
+            "internal": self.task.internal,
+            "is_platform_origin": self.task.origin_product in PLATFORM_ORIGIN_PRODUCTS,
             "title": self.task.title,
             "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
             "loop_id": (self.state or {}).get("loop_id"),
