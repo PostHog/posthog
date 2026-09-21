@@ -2,6 +2,8 @@
 
 People can select **Send feedback…** from the account menu, use the command menu, or press `Cmd+Shift+F` on macOS and `Ctrl+Shift+F` on other systems.
 In the form, press `Cmd+Enter` or `Ctrl+Enter` to send feedback.
+Select **Bug**, **Feature**, or **General** from **Feedback type**. The default is **General**.
+The form shown before opening PostHog web does not ask for a feedback type.
 
 The form sends one authenticated request to the Desktop feedback endpoint. The endpoint records the response in the Desktop feedback survey only after it accepts the full submission. Each response includes the current view, app version, session, and related task or folder ID when available.
 
