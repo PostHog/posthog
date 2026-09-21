@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -6,6 +7,7 @@ from rest_framework import status
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.workflows.backend.api.hog_flow import HogFlowViewSet
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 TRIGGER_ACTION = {
@@ -86,6 +88,28 @@ class TestCodeManagedHogFlow(APIBaseTest):
         assert set(body["extra"]) == {"why", "fix", "source_repository", "source_path"}
         assert body["extra"]["source_repository"] == "github.com/example/flows"
         assert body["extra"]["source_path"] == "workflows/welcome.ts"
+
+    def test_a_push_that_lands_mid_request_still_refuses_the_write(self) -> None:
+        # The race the locked re-read exists for: the permission check passes on a workflow the app
+        # owns, a push claims it, and the write lands on a row that is now code-managed. The flip runs
+        # after get_object() returns, which is the moment between the check and the row lock.
+        gui_workflow = self._create_workflow(managed_by=HogFlow.ManagedBy.GUI)
+        original_get_object = HogFlowViewSet.get_object
+
+        def get_object_then_push(viewset):
+            hog_flow = original_get_object(viewset)
+            HogFlow.objects.filter(pk=hog_flow.pk).update(managed_by=HogFlow.ManagedBy.CODE)
+            return hog_flow
+
+        with patch.object(HogFlowViewSet, "get_object", get_object_then_push):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{gui_workflow.id}", {"name": "Renamed in the UI"}
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert response.json()["code"] == "immutable", response.json()
+        gui_workflow.refresh_from_db()
+        assert gui_workflow.name == "Welcome"
 
     def test_bulk_delete_is_refused(self) -> None:
         self.workflow.status = HogFlow.State.ARCHIVED
