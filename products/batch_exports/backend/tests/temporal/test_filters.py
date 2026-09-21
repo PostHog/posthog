@@ -133,14 +133,15 @@ def test_compose_filters_clause_uses_legacy_events_schema(settings, ateam):
         ("Boolean", '{"value":true}', "properties.value = true"),
     ],
 )
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
-async def test_legacy_filters_preserve_property_types(ateam, property_type, document, predicate):
+@pytest.mark.parametrize("use_new_events_schema", [False, True])
+async def test_filters_preserve_property_types(ateam, property_type, document, predicate, use_new_events_schema):
     await database_sync_to_async(PropertyDefinition.objects.create)(
         team=ateam, name="value", type=PropertyDefinition.Type.EVENT, property_type=property_type
     )
-    clause, values = await database_sync_to_async(compose_filters_clause)(
-        [{"key": predicate, "type": "hogql"}], team_id=ateam.id
-    )
+    with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema):
+        clause, values = await database_sync_to_async(compose_filters_clause)(
+            [{"key": predicate, "type": "hogql"}], team_id=ateam.id
+        )
 
     result = await database_sync_to_async(sync_execute)(
         f"SELECT {clause} FROM (SELECT %(document)s AS properties) AS events",
