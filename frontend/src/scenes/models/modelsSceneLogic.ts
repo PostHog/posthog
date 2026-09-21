@@ -36,6 +36,8 @@ export interface AttentionModel {
 
 export interface modelsSceneLogicValues {
     dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[] // dataWarehouseViewsLogic
+    dataWarehouseSavedQueriesFailed: boolean // dataWarehouseViewsLogic
+    dataWarehouseSavedQueriesLoaded: boolean // dataWarehouseViewsLogic
     dataWarehouseSavedQueriesLoading: boolean // dataWarehouseViewsLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     receivedFeatureFlags: boolean // featureFlagLogic
@@ -43,6 +45,8 @@ export interface modelsSceneLogicValues {
     dataQualityTabEnabled: boolean
     nodes: DataModelingNode[] // lineageDataLogic
     nodesLoading: boolean // lineageDataLogic
+    nodesLoaded: boolean // lineageDataLogic
+    nodesFailed: boolean // lineageDataLogic
     edges: DataModelingEdge[] // lineageDataLogic
     now: number
     savedQueryIdToNodeId: Record<string, string>
@@ -51,10 +55,14 @@ export interface modelsSceneLogicValues {
     suspensionBySavedQueryId: Record<string, NodeSuspensionApi | undefined>
     attentionModels: AttentionModel[]
     behindSchedule: BehindScheduleModel[]
+    modelsResolved: boolean
+    modelsFailed: boolean
+    noModelsYet: boolean
 }
 
 export interface modelsSceneLogicActions {
     loadDataWarehouseSavedQueries: () => any // dataWarehouseViewsLogic
+    loadNodes: () => any // lineageDataLogic
     setFeatureFlags: (flags: string[], variants: Record<string, boolean | string>) => any // featureFlagLogic
     setActiveTab: (tab: ModelsSceneTab) => { tab: ModelsSceneTab }
     setNow: (now: number) => { now: number }
@@ -79,6 +87,9 @@ export interface modelsSceneLogicMeta {
             attentionModels: AttentionModel[],
             now: number
         ) => BehindScheduleModel[]
+        modelsResolved: (nodesLoaded: boolean, dataWarehouseSavedQueriesLoaded: boolean) => boolean
+        modelsFailed: (nodesFailed: boolean, dataWarehouseSavedQueriesFailed: boolean) => boolean
+        noModelsYet: (nodes: DataModelingNode[], savedQueries: DataWarehouseSavedQuerySummary[]) => boolean
     }
 }
 
@@ -94,13 +105,25 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
     connect(() => ({
         values: [
             dataWarehouseViewsLogic,
-            ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueriesLoading'],
+            [
+                'dataWarehouseSavedQueries',
+                'dataWarehouseSavedQueriesFailed',
+                'dataWarehouseSavedQueriesLoaded',
+                'dataWarehouseSavedQueriesLoading',
+            ],
             featureFlagLogic,
             ['featureFlags', 'receivedFeatureFlags'],
             lineageDataLogic,
-            ['nodes', 'nodesLoading', 'edges'],
+            ['nodes', 'nodesLoading', 'nodesLoaded', 'nodesFailed', 'edges'],
         ],
-        actions: [dataWarehouseViewsLogic, ['loadDataWarehouseSavedQueries'], featureFlagLogic, ['setFeatureFlags']],
+        actions: [
+            dataWarehouseViewsLogic,
+            ['loadDataWarehouseSavedQueries'],
+            featureFlagLogic,
+            ['setFeatureFlags'],
+            lineageDataLogic,
+            ['loadNodes'],
+        ],
     })),
     actions({
         setActiveTab: (tab: ModelsSceneTab) => ({ tab }),
@@ -213,6 +236,21 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
                 const reported = new Set(attentionModels.map((row) => row.node.id))
                 return modelsBehindSchedule(nodes, now).filter((row) => !reported.has(row.node.id))
             },
+        ],
+        modelsResolved: [
+            (s) => [s.nodesLoaded, s.dataWarehouseSavedQueriesLoaded],
+            (nodesLoaded: boolean, dataWarehouseSavedQueriesLoaded: boolean): boolean =>
+                nodesLoaded && dataWarehouseSavedQueriesLoaded,
+        ],
+        modelsFailed: [
+            (s) => [s.nodesFailed, s.dataWarehouseSavedQueriesFailed],
+            (nodesFailed: boolean, dataWarehouseSavedQueriesFailed: boolean): boolean =>
+                nodesFailed || dataWarehouseSavedQueriesFailed,
+        ],
+        noModelsYet: [
+            (s) => [s.nodes, s.dataWarehouseSavedQueries],
+            (nodes: DataModelingNode[], savedQueries: DataWarehouseSavedQuerySummary[]): boolean =>
+                nodes.length === 0 && savedQueries.length === 0,
         ],
         dataQualityTabEnabled: [
             (s) => [s.featureFlags],

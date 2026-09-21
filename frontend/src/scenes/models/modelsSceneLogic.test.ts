@@ -168,6 +168,44 @@ describe('modelsSceneLogic', () => {
         expect(broken.skippedCount).toEqual(2)
     })
 
+    it.each<[string, string, any, string]>([
+        ['the model list', '/api/environments/:team_id/data_modeling_nodes/', lineageDataLogic, 'loadNodesFailure'],
+        [
+            'the view list',
+            '/api/projects/:team_id/warehouse_saved_queries/',
+            dataWarehouseViewsLogic,
+            'loadDataWarehouseSavedQueriesFailure',
+        ],
+    ])('reports a failure instead of resolving when %s fails to load', async (_case, path, failedLogic, action) => {
+        useMocks({ get: { [path]: () => [500, {}] } })
+        await mount('/models')
+        await expectLogic(failedLogic).toDispatchActions([action])
+
+        expect(logic.values.modelsFailed).toBe(true)
+        expect(logic.values.modelsResolved).toBe(false)
+    })
+
+    it.each<[string, Record<string, any>[], boolean]>([
+        ['neither models nor views', [], true],
+        ['a view that is not a model yet', [{ id: 'query-1', name: 'a_view', columns: [] }], false],
+    ])('reports a project with %s as new: %s', async (_case, savedQueries, expected) => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/': { count: 0, results: [] },
+                '/api/projects/:team_id/warehouse_saved_queries/': {
+                    count: savedQueries.length,
+                    results: savedQueries,
+                },
+            },
+        })
+        await mount('/models')
+        await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess'])
+        await expectLogic(dataWarehouseViewsLogic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
+
+        expect(logic.values.modelsResolved).toBe(true)
+        expect(logic.values.noModelsYet).toBe(expected)
+    })
+
     it('lists models behind schedule, minus the ones already listed as broken', async () => {
         await mount('/models')
         await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess', 'loadEdgesSuccess'])
