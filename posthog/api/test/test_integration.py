@@ -9,6 +9,7 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
 from django.test import override_settings
@@ -17,6 +18,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import requests
+from fakeredis import FakeConnection
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
@@ -2281,6 +2283,78 @@ class TestIntegrationAPIKeyAccess:
         assert data["has_more"] is True
 
         mock_slack_instance.list_channels.assert_called_once()
+
+    @pytest.mark.parametrize("owns_integration", [True, False])
+    @pytest.mark.parametrize("cache_state", ["present", "missing", "expires_during_lookup"])
+    @override_settings(
+        CACHES={
+            **settings.CACHES,
+            "default": {
+                "BACKEND": "django_redis.cache.RedisCache",
+                "LOCATION": "redis://slack-channel-cache-test:6379/0",
+                "OPTIONS": {"CONNECTION_POOL_KWARGS": {"connection_class": FakeConnection}},
+            },
+        }
+    )
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_channels_action_id_lookup_updates_existing_search_cache(
+        self, mock_slack_class: MagicMock, owns_integration: bool, cache_state: str, client: HttpClient
+    ) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_CACHE_TEST",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token"},
+            created_by=self.user if owns_integration else None,
+        )
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value("test_key_slack_cache"),
+            scopes=["integration:read"],
+        )
+        headers = {"HTTP_AUTHORIZATION": "Bearer test_key_slack_cache"}
+        base_url = f"/api/environments/{self.team.pk}/integrations/{integration.id}/channels/"
+        cache_key = f"slack/{integration.id}/{owns_integration}/channels"
+        other_cache_key = f"slack/{integration.id}/{not owns_integration}/channels"
+        cached_data = {"channels": [], "lastRefreshedAt": timezone.now().isoformat()}
+        cache.set(other_cache_key, cached_data, 30)
+        if cache_state != "missing":
+            cache.set(cache_key, cached_data, 30)
+        channel: dict[str, str | bool] = {
+            "id": "C_CACHE_TEST",
+            "name": "release-updates",
+            "is_private": owns_integration,
+            "is_member": True,
+            "is_ext_shared": False,
+            "is_private_without_access": False,
+        }
+
+        def resolve_channel(*args: object) -> dict[str, str | bool]:
+            if cache_state == "expires_during_lookup":
+                cache.delete(cache_key)
+            return channel
+
+        mock_slack_class.return_value.get_channel_by_id.side_effect = resolve_channel
+        response = client.get(base_url, {"channel_id": channel["id"]}, **headers)
+        assert response.status_code == status.HTTP_200_OK
+        resolved_channel = response.json()["channels"][0]
+        assert resolved_channel["name"] == "release-updates"
+        assert cache.get(other_cache_key) == cached_data
+        mock_slack_class.return_value.get_channel_by_id.assert_called_once_with(
+            channel["id"], owns_integration, "test_user_id"
+        )
+
+        if cache_state == "present":
+            response = client.get(base_url, {"search": "release-updates"}, **headers)
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["channels"] == [resolved_channel]
+            assert response.json()["lastRefreshedAt"] == cached_data["lastRefreshedAt"]
+            assert 0 < cache.ttl(cache_key) <= 30
+        else:
+            assert cache.get(cache_key) is None
+        mock_slack_class.return_value.list_channels.assert_not_called()
 
     @pytest.mark.parametrize(
         "query_string,expected_ids,expected_has_more",

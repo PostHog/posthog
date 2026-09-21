@@ -270,6 +270,14 @@ should react 👀 → 🦔 (or ❌ if the sandbox is gone). Expected from the co
   lines, and Slack's app **Event Deliveries** page shows delivery failures — neither was needed in
   our run, but they're there if you get stuck.
 
+### Channel search cache
+
+Channel name search uses the cached channel list.
+If name search does not find a channel, paste its ID to look it up directly in Slack.
+A successful ID lookup also adds the channel to an existing search cache with the same access scope.
+This update retains the cache refresh time and uses its remaining lifetime, rather than starting a new one-hour lifetime.
+It does not load other missing channels or create a channel list from a single lookup.
+
 ## Troubleshooting
 
 The walls we actually hit and fixed:

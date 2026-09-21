@@ -1525,7 +1525,20 @@ class IntegrationViewSet(
             except SlackApiError as e:
                 _reraise_slack_api_error(e)
             if channel:
-                return Response({"channels": [self._serialize_slack_channel(channel)]})
+                serialized_channel = self._serialize_slack_channel(channel)
+                data = cache.get(key)
+                if data is not None:
+                    remaining_ttl = cache.ttl(key)
+                    if remaining_ttl is not None and remaining_ttl > 0:
+                        channels_by_id = {item["id"]: item for item in data["channels"]}
+                        channels_by_id[channel_id] = serialized_channel
+                        cache.set(
+                            key,
+                            {**data, "channels": list(channels_by_id.values())},
+                            timeout=remaining_ttl,
+                            xx=True,
+                        )
+                return Response({"channels": [serialized_channel]})
             return Response({"channels": []})
 
         query_serializer = SlackChannelsQuerySerializer(data=request.query_params)
