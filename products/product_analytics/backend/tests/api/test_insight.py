@@ -54,6 +54,7 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.project import Project
 from posthog.query_scan.findings import build_warning
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
@@ -3091,6 +3092,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.dashboard_api.get_insight(insight_id=insight_id, expected_status=status.HTTP_404_NOT_FOUND)
 
         self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
+        deletion_log = ActivityLog.objects.get(
+            team_id=self.team.id, scope="Subscription", item_id=str(subscription.pk), activity="deleted"
+        )
+        self.assertEqual(deletion_log.user_id, self.user.id)
         unrelated.refresh_from_db()
         self.assertFalse(unrelated.deleted)
 
@@ -4324,6 +4329,10 @@ class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         self.assertFalse(AlertConfiguration.objects.filter(id=alert.id).exists())
 
         self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
+        deletion_log = ActivityLog.objects.get(
+            team_id=self.team.id, scope="Subscription", item_id=str(subscription.pk), activity="deleted"
+        )
+        self.assertEqual(deletion_log.user_id, self.user.id)
         unrelated.refresh_from_db()
         self.assertFalse(unrelated.deleted)
 
