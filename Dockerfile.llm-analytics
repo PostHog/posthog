@@ -62,7 +62,9 @@ ENV PATH=/python-runtime/bin:$PATH \
 # entrypoint dies on `import owners_yaml` at runtime instead of here. The root Dockerfile asserts
 # the same invariant with `test -d packages/owners-yaml/owners_yaml`; this image never copies that source
 # tree, so assert importability instead of presence. personhog-proto is installed from a bind mount
-# the same way, and posthog/models/person/util.py imports it when Django loads.
+# the same way. Django loads posthog.models at startup, which imports posthog.personhog_client and
+# through it the generated personhog package, so a stale or editable install breaks every Django
+# entrypoint.
 RUN python -c "import owners_yaml, personhog.service.v1.service_pb2_grpc"
 
 # Pre-warm the tiktoken BPE encoding cache into the image so runtime token counting reads the
