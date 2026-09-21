@@ -19,8 +19,10 @@ degraded, never raised to users).
 from __future__ import annotations
 
 import re
+import math
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
+from decimal import Decimal
 from enum import Enum
 from typing import Any, Literal, cast
 from uuid import UUID
@@ -711,6 +713,103 @@ class PullRequestLink(BaseModel):
     url: str = Field(description="Canonical GitHub pull request URL.")
 
 
+class VerificationQueryResult(BaseModel):
+    """A bounded, JSON-safe result returned by one successful HogQL execution."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    window_start: datetime = Field(description="Inclusive UTC start of the measured window.")
+    window_end: datetime = Field(description="Exclusive UTC end of the measured window.")
+    columns: list[str] = Field(max_length=50, description="Column names returned by the query.")
+    rows: list[list[Any]] = Field(max_length=100, description="At most 100 result rows, in column order.")
+
+    @model_validator(mode="after")
+    def window_and_rows_are_consistent(self) -> VerificationQueryResult:
+        if self.window_start.tzinfo is None or self.window_end.tzinfo is None:
+            raise ValueError("window bounds must include a timezone")
+        if self.window_start >= self.window_end:
+            raise ValueError("window_start must be before window_end")
+        if self.window_end - self.window_start > timedelta(days=90):
+            raise ValueError("verification windows must be at most 90 days")
+        if any(len(row) != len(self.columns) for row in self.rows):
+            raise ValueError("every row must have one value per column")
+        normalized_rows: list[list[Any]] = []
+        for row in self.rows:
+            normalized_row: list[Any] = []
+            for value in row:
+                if value is not None and not isinstance(value, bool | int | float | Decimal):
+                    raise ValueError("verification results must contain aggregate numbers, booleans, or nulls only")
+                if isinstance(value, Decimal):
+                    if not value.is_finite():
+                        raise ValueError("verification results must contain finite numbers")
+                    value = float(value)
+                if isinstance(value, float) and not math.isfinite(value):
+                    raise ValueError("verification results must contain finite numbers")
+                normalized_row.append(value)
+            normalized_rows.append(normalized_row)
+        self.rows = normalized_rows
+        return self
+
+
+class VerificationQuery(BaseModel):
+    """A reproducible query and trusted pre-fix snapshot for verifying one report."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    description: str = Field(
+        min_length=1,
+        max_length=2_000,
+        description="What the query measures and why it demonstrates the reported problem.",
+    )
+    query: str = Field(
+        min_length=1,
+        max_length=20_000,
+        description=(
+            "Read-only HogQL containing both `{window_start}` and `{window_end}` placeholders. "
+            "The verifier binds those placeholders as constants."
+        ),
+    )
+    snapshot_result: VerificationQueryResult = Field(
+        description="Result captured by the research session before the fix."
+    )
+    success_criteria: str = Field(
+        min_length=1,
+        max_length=2_000,
+        description="The observable comparison that means the issue is solved.",
+    )
+    inconclusive_conditions: list[str] = Field(
+        min_length=1,
+        max_length=10,
+        description="Conditions that prevent a solved or not-solved conclusion, including missing opportunity.",
+    )
+    mcp_commands: list[str] = Field(
+        min_length=1,
+        max_length=10,
+        description="MCP command names used to discover and execute this query.",
+    )
+    documentation_urls: list[str] = Field(
+        default_factory=list,
+        max_length=10,
+        description="Relevant MCP or product documentation consulted during research.",
+    )
+
+    @field_validator("query")
+    @classmethod
+    def query_must_have_bounded_window_placeholders(cls, value: str) -> str:
+        query = value.strip()
+        if "{window_start}" not in query or "{window_end}" not in query:
+            raise ValueError("query must contain {window_start} and {window_end}")
+        return query
+
+    @field_validator("inconclusive_conditions", "mcp_commands", "documentation_urls")
+    @classmethod
+    def string_lists_must_not_contain_empty_values(cls, values: list[str]) -> list[str]:
+        stripped = [value.strip() for value in values]
+        if any(not value for value in stripped):
+            raise ValueError("values must not be empty")
+        return stripped
+
+
 class CheckResult(BaseModel):
     """Content schema for a `check_result` artefact: one run of a `SignalReportCheck`.
 
@@ -746,6 +845,21 @@ class CheckResult(BaseModel):
         return v
 
 
+class VerificationResult(BaseModel):
+    """The latest stored attempt to decide whether a pull request fixed the report."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    check_id: UUID
+    verification_query_id: UUID
+    pull_request_id: UUID
+    outcome: Literal["solved", "not_solved", "inconclusive", "errored"]
+    explanation: str = Field(min_length=1)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    model: str | None = None
+    current_result: VerificationQueryResult | None = None
+
+
 # ── Type mapping ─────────────────────────────────────────────────────────────────
 
 # Content models that describe the report's current state (latest row of each type wins) vs
@@ -760,6 +874,7 @@ StatusArtefactContent = (
     | ChannelAssignment
     | ImplementationDecision
     | ImplementationDispatch
+    | VerificationQuery
 )
 LogArtefactContent = (
     CodeReference
@@ -774,6 +889,7 @@ LogArtefactContent = (
     | WorkRelease
     | PullRequestLink
     | CheckResult
+    | VerificationResult
     | ImplementationReplacement
     | ImplementationHandover
 )
@@ -807,6 +923,8 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "implementation_dispatch": ImplementationDispatch,
     "implementation_replacement": ImplementationReplacement,
     "implementation_handover": ImplementationHandover,
+    "verification_query": VerificationQuery,
+    "verification_result": VerificationResult,
 }
 
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
@@ -840,6 +958,8 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "implementation_dispatch",
         "implementation_replacement",
         "implementation_handover",
+        "verification_query",
+        "verification_result",
     }
 )
 

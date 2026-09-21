@@ -93,6 +93,39 @@ export const RevisionLimit: Story = {
         ],
     },
 }
+export const VerificationLifecycle: Story = {
+    args: {
+        artefacts: [
+            {
+                id: 'verification-query',
+                type: 'verification_query',
+                created_at: '2026-09-14T10:00:00Z',
+                content: {
+                    description: 'Measures failed imports and all import attempts in the same window.',
+                    query: "SELECT countIf(event = 'failed') AS failures, count() AS attempts FROM events WHERE timestamp >= {window_start} AND timestamp < {window_end}",
+                    snapshot_result: {
+                        window_start: '2026-09-01T00:00:00Z',
+                        window_end: '2026-09-08T00:00:00Z',
+                        columns: ['failures', 'attempts'],
+                        rows: [[12, 40]],
+                    },
+                    success_criteria: 'Import attempts continue and the failure rate falls to zero.',
+                },
+            },
+            {
+                id: 'verification-result',
+                type: 'verification_result',
+                created_at: '2026-09-18T10:00:00Z',
+                content: {
+                    outcome: 'inconclusive',
+                    explanation: 'The current window had no import attempts.',
+                    confidence: 0.42,
+                    model: 'jev-1.13.0',
+                },
+            },
+        ],
+    },
+}
 export const Narrow: Story = {
     decorators: [
         (Story) => (

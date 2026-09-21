@@ -21683,6 +21683,7 @@ export namespace Schemas {
     /**
      * * `metric_threshold` - Metric Threshold
      * * `agent` - Agent
+     * * `verification_query` - Verification Query
      */
     export type SignalReportCheckKindEnum = typeof SignalReportCheckKindEnum[keyof typeof SignalReportCheckKindEnum];
 
@@ -21690,6 +21691,7 @@ export namespace Schemas {
     export const SignalReportCheckKindEnum = {
       MetricThreshold: 'metric_threshold',
       Agent: 'agent',
+      VerificationQuery: 'verification_query',
     } as const;
 
     /**
@@ -21722,7 +21724,22 @@ export namespace Schemas {
       baseline_value?: number | null;
     }
 
-    export type SignalReportCheckConfig = MetricThresholdConfig | AgentCheckConfig;
+    /**
+     * A post-merge run of one trusted verification-query artefact.
+     */
+    export interface VerificationQueryConfig {
+      /** UUID of the verification_query artefact to execute. */
+      verification_query_id: string;
+      /** UUID of the merged pull request being verified. */
+      pull_request_id: string;
+      /**
+         * @minimum 0
+         * @maximum 1
+         */
+      min_confidence?: number;
+    }
+
+    export type SignalReportCheckConfig = MetricThresholdConfig | AgentCheckConfig | VerificationQueryConfig;
 
     /**
      * Request body for `scout-report-check-create`: one forward-looking check on a report.
@@ -21744,7 +21761,8 @@ export namespace Schemas {
       /** How the check is evaluated.
        *
        * * `metric_threshold` - Metric Threshold
-       * * `agent` - Agent */
+       * * `agent` - Agent
+       * * `verification_query` - Verification Query */
       kind: SignalReportCheckKindEnum;
       /** What the check measures and what the result must satisfy; the shape depends on `kind`. */
       config: SignalReportCheckConfig;
@@ -61806,6 +61824,8 @@ export namespace Schemas {
      * * `work_release` - Work Release
      * * `pull_request` - Pull Request
      * * `check_result` - Check Result
+     * * `verification_query` - Verification Query
+     * * `verification_result` - Verification Result
      * * `implementation_decision` - Implementation Decision
      * * `implementation_dispatch` - Implementation Dispatch
      * * `implementation_replacement` - Implementation Replacement
@@ -61836,6 +61856,8 @@ export namespace Schemas {
       WorkRelease: 'work_release',
       PullRequest: 'pull_request',
       CheckResult: 'check_result',
+      VerificationQuery: 'verification_query',
+      VerificationResult: 'verification_result',
       ImplementationDecision: 'implementation_decision',
       ImplementationDispatch: 'implementation_dispatch',
       ImplementationReplacement: 'implementation_replacement',
@@ -61949,7 +61971,8 @@ export namespace Schemas {
       /** How the check is evaluated.
        *
        * * `metric_threshold` - Metric Threshold
-       * * `agent` - Agent */
+       * * `agent` - Agent
+       * * `verification_query` - Verification Query */
       readonly kind: SignalReportCheckKindEnum;
       /** `pending` while the check waits for the report to resolve, `active` while it still runs; every other value is terminal.
        *

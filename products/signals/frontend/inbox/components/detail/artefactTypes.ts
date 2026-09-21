@@ -91,6 +91,30 @@ export interface CheckResultContent {
     baseline_value?: number | null
     threshold?: string | null
     run_id?: string | null
+    confidence?: number | null
+    model?: string | null
+}
+
+export interface VerificationQueryContent {
+    description?: string
+    query?: string
+    snapshot_result?: {
+        window_start?: string
+        window_end?: string
+        columns?: string[]
+        rows?: unknown[][]
+    }
+    success_criteria?: string
+    inconclusive_conditions?: string[]
+    mcp_commands?: string[]
+    documentation_urls?: string[]
+}
+
+export interface VerificationResultContent {
+    outcome?: 'solved' | 'not_solved' | 'inconclusive' | 'errored'
+    explanation?: string
+    confidence?: number | null
+    model?: string | null
 }
 
 export interface TitleChangeContent {
@@ -159,6 +183,8 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     related_to: 'Related report',
     code_review: 'Code review',
     check_result: 'Follow-up check',
+    verification_query: 'Verification query prepared',
+    verification_result: 'Fix verification attempted',
     implementation_decision: 'Open PR assessed',
     implementation_replacement: 'Replacement started',
     implementation_handover: 'Replacement outcome',

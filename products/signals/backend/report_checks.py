@@ -24,6 +24,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
@@ -48,6 +49,10 @@ MAX_CHECK_HORIZON = timedelta(days=90)
 # The horizon bounds the gap as well as the schedule. A gap wider than the horizon can never produce
 # a second run, and an unbounded one overflows the date arithmetic that plans the runs.
 MAX_CHECK_INTERVAL_MINUTES = int(MAX_CHECK_HORIZON.total_seconds() // 60)
+# Verification is a short-lived polling loop, not an authored monitor. Fixed timing keeps the
+# research artefact and check config independent of repository-specific deployment guesses.
+VERIFICATION_RETRY_INTERVAL = timedelta(hours=1)
+VERIFICATION_HORIZON = timedelta(days=14)
 # A soak needs the fix to have been live a while. A week is the default first look; an author who
 # knows the window says so.
 DEFAULT_FIRST_RUN_AFTER = timedelta(days=7)
@@ -255,9 +260,20 @@ class AgentCheckConfig(BaseModel):
         return hints
 
 
+class VerificationQueryConfig(BaseModel):
+    """A post-merge run of one trusted verification-query artefact."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    verification_query_id: UUID = Field(description="UUID of the verification_query artefact to execute.")
+    pull_request_id: UUID = Field(description="UUID of the merged pull request being verified.")
+    min_confidence: float = Field(default=0.6, ge=0, le=1)
+
+
 CHECK_CONFIG_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "metric_threshold": MetricThresholdConfig,
     "agent": AgentCheckConfig,
+    "verification_query": VerificationQueryConfig,
 }
 
 

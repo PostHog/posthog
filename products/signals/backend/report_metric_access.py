@@ -140,6 +140,22 @@ class ReportMetricAccessPolicy:
         # shared result when the materializer had a different property-access fingerprint.
         return not self._materializer_property_restrictions
 
+    def may_read_hogql_snapshot(self) -> bool:
+        """Whether raw HogQL and its userless result are safe for this viewer.
+
+        HogQL is not structurally inspectable like a Trends node, so this is intentionally stricter:
+        the viewer needs query scope and neither viewer nor materializer may have property restrictions.
+        The query executor still applies the report team's tenant boundary when the snapshot is made.
+        """
+
+        return (
+            self._user is not None
+            and self._team is not None
+            and self._token_grants("query")
+            and not self._viewer_property_restrictions
+            and not self._materializer_property_restrictions
+        )
+
     @cached_property
     def _viewer_property_restrictions(self) -> frozenset[RestrictedProperty]:
         if self._user is None or self._team is None:

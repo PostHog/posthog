@@ -46,23 +46,38 @@ from products.alerts.backend.facade.evaluation import (
     evaluate_threshold,
 )
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import CheckResult
+from products.signals.backend.artefact_schemas import (
+    ArtefactContentValidationError,
+    CheckResult,
+    VerificationQuery,
+    VerificationQueryResult,
+    VerificationResult,
+    parse_artefact_content,
+)
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportCheck,
+    SignalReportPullRequest,
+)
 from products.signals.backend.report_check_telemetry import (
     capture_report_check_evaluated,
     capture_report_checks_expired,
 )
 from products.signals.backend.report_checks import (
     MAX_CONSECUTIVE_CHECK_ERRORS,
+    VERIFICATION_RETRY_INTERVAL,
     CheckComparison,
     CheckConfigValidationError,
     CheckOutcome,
     MetricThresholdConfig,
+    VerificationQueryConfig,
     parse_check_config,
 )
 from products.signals.backend.report_metric_refresh import measure_metric
 from products.signals.backend.report_metrics import validate_live_metric_query
+from products.signals.backend.report_verification import ask_jev_for_verdict, execute_verification_query
 
 logger = structlog.get_logger(__name__)
 
@@ -110,6 +125,12 @@ class CheckVerdict:
     outcome: CheckOutcome
     explanation: str
     observed_value: float | None = None
+    verification_query_id: str | None = None
+    pull_request_id: str | None = None
+    confidence: float | None = None
+    model: str | None = None
+    current_result: VerificationQueryResult | None = None
+    verification_outcome: str | None = None
 
 
 @frozen
@@ -224,12 +245,100 @@ def measure_check(check: SignalReportCheck, *, deadline: float) -> CheckVerdict:
     return evaluate_check_value(comparison=config.comparison, observed_value=measurement.value, subject=check.title)
 
 
+def measure_verification_check(check: SignalReportCheck, *, now: datetime) -> CheckVerdict:
+    """Run the trusted query over available post-merge data, then ask Jev for a verdict."""
+
+    try:
+        config = parse_check_config(check.kind, check.config)
+        assert isinstance(config, VerificationQueryConfig)
+        artefact = SignalReportArtefact.objects.filter(
+            id=config.verification_query_id,
+            team_id=check.team_id,
+            report_id=check.report_id,
+            type=SignalReportArtefact.ArtefactType.VERIFICATION_QUERY,
+        ).first()
+        pull_request = (
+            SignalReportPullRequest.objects.for_team(check.team_id)
+            .filter(
+                id=config.pull_request_id,
+                state=SignalReportPullRequest.State.MERGED,
+            )
+            .first()
+        )
+        if artefact is None or pull_request is None or pull_request.merged_at is None:
+            raise ValueError("the verification query or merged pull request is no longer available")
+        if not check.report.team.organization.is_ai_data_processing_approved:
+            raise ValueError("AI data processing is not approved for this organization")
+        parsed = parse_artefact_content(artefact.type, artefact.content)
+        assert isinstance(parsed, VerificationQuery)
+        window = parsed.snapshot_result.window_end - parsed.snapshot_result.window_start
+        current_result = execute_verification_query(
+            parsed,
+            team=check.report.team,
+            window_start=max(now - window, pull_request.merged_at),
+            window_end=now,
+        )
+        decision, model = ask_jev_for_verdict(parsed, current_result)
+        if decision.confidence < config.min_confidence or decision.choice == "insufficient_evidence":
+            outcome: CheckOutcome = "errored"
+            verification_outcome = "inconclusive"
+            explanation = f"{check.title} is inconclusive ({decision.confidence:.0%} confidence)."
+        elif decision.choice == "solved":
+            outcome = "passed"
+            verification_outcome = "solved"
+            explanation = f"{check.title} indicates the issue is solved ({decision.confidence:.0%} confidence)."
+        else:
+            outcome = "failed"
+            verification_outcome = "not_solved"
+            explanation = f"{check.title} indicates the issue is not solved ({decision.confidence:.0%} confidence)."
+        return CheckVerdict(
+            outcome=outcome,
+            explanation=explanation,
+            verification_query_id=str(artefact.id),
+            pull_request_id=str(pull_request.id),
+            confidence=decision.confidence,
+            model=model,
+            current_result=current_result,
+            verification_outcome=verification_outcome,
+        )
+    except Exception as error:
+        logger.exception("signals.report_check.verification_failed", check_id=str(check.id), team_id=check.team_id)
+        raw_config = check.config if isinstance(check.config, dict) else {}
+        return CheckVerdict(
+            outcome="errored",
+            explanation=_errored_explanation(error, subject=check.title),
+            verification_query_id=str(raw_config.get("verification_query_id") or ""),
+            pull_request_id=str(raw_config.get("pull_request_id") or ""),
+            verification_outcome="errored",
+        )
+
+
 def _next_state(check: SignalReportCheck, verdict: CheckVerdict, now: datetime) -> _CheckTransition:
     """The check's status after this verdict, its next run time, and its remaining runs.
 
     Re-arming anchors on `now` rather than the missed slot, so a coordinator outage cannot leave a
     recurring check owing a burst of catch-up runs.
     """
+    if check.kind == SignalReportCheck.Kind.VERIFICATION_QUERY and verdict.outcome != "passed":
+        retry_at = now + VERIFICATION_RETRY_INTERVAL
+        if retry_at < check.expires_at:
+            return _CheckTransition(
+                status=SignalReportCheck.Status.ACTIVE,
+                next_run_at=retry_at,
+                runs_remaining=check.runs_remaining,
+            )
+        if verdict.verification_outcome == "not_solved":
+            terminal_status = SignalReportCheck.Status.FAILED
+        elif verdict.verification_outcome == "inconclusive":
+            terminal_status = SignalReportCheck.Status.EXPIRED
+        else:
+            terminal_status = SignalReportCheck.Status.ERRORED
+        return _CheckTransition(
+            status=terminal_status,
+            next_run_at=None,
+            runs_remaining=check.runs_remaining,
+        )
+
     if verdict.outcome == "failed":
         return _CheckTransition(
             status=SignalReportCheck.Status.FAILED, next_run_at=None, runs_remaining=check.runs_remaining
@@ -268,13 +377,15 @@ def record_check_verdict(
     attribution: ArtefactAttribution | None = None,
     run_id: str | None = None,
 ) -> None:
-    """The single persistence funnel: append the result artefact and advance or retire the check.
+    """The single persistence funnel: store the result artefact and advance or retire the check.
 
     One transaction, and the row is re-read under a lock so a check cancelled while its query ran
     records nothing.
 
-    `attribution` and `run_id` name the scout run that decided an `agent` check. A deterministic run
-    has neither, so it keeps the `system()` attribution the executor writes under.
+    Verification replaces its latest result while no other report activity has intervened. All
+    other results append. `attribution` and `run_id` name the scout run that decided an `agent`
+    check. A deterministic run has neither, so it keeps the `system()` attribution the executor
+    writes under.
     """
     now = now or timezone.now()
     # The result's context is best-effort. A stored config can stop parsing part-way through a soak,
@@ -320,10 +431,20 @@ def record_check_verdict(
                 "updated_at",
             ]
         )
-        SignalReportArtefact.add_log(
-            team_id=current.team_id,
-            report_id=str(current.report_id),
-            content=CheckResult(
+        result_content: VerificationResult | CheckResult
+        if current.kind == SignalReportCheck.Kind.VERIFICATION_QUERY:
+            result_content = VerificationResult(
+                check_id=str(current.id),
+                verification_query_id=verdict.verification_query_id or "",
+                pull_request_id=verdict.pull_request_id or "",
+                outcome=verdict.verification_outcome or "errored",
+                explanation=verdict.explanation,
+                confidence=verdict.confidence,
+                model=verdict.model,
+                current_result=verdict.current_result,
+            )
+        else:
+            result_content = CheckResult(
                 check_id=str(current.id),
                 kind=current.kind,
                 title=current.title,
@@ -333,9 +454,42 @@ def record_check_verdict(
                 baseline_value=config.baseline_value if config is not None else None,
                 threshold=_describe_comparison(config.comparison) if config is not None else None,
                 run_id=run_id,
-            ),
-            attribution=attribution or ArtefactAttribution.system(),
-        )
+            )
+        result_artefact: SignalReportArtefact | None = None
+        if isinstance(result_content, VerificationResult):
+            latest_artefact = (
+                SignalReportArtefact.objects.filter(team_id=current.team_id, report_id=current.report_id)
+                .order_by("-created_at", "-id")
+                .first()
+            )
+            if (
+                latest_artefact is not None
+                and latest_artefact.type == SignalReportArtefact.ArtefactType.VERIFICATION_RESULT
+            ):
+                try:
+                    latest_result = parse_artefact_content(latest_artefact.type, latest_artefact.content)
+                except ArtefactContentValidationError:
+                    latest_result = None
+                if (
+                    isinstance(latest_result, VerificationResult)
+                    and latest_result.verification_query_id == result_content.verification_query_id
+                    and latest_result.pull_request_id == result_content.pull_request_id
+                ):
+                    latest_artefact.content = result_content.model_dump_json()
+                    latest_artefact.pull_request_id = verdict.pull_request_id
+                    latest_artefact.created_at = now
+                    latest_artefact.save(update_fields=["content", "pull_request", "created_at", "updated_at"])
+                    result_artefact = latest_artefact
+        if result_artefact is None:
+            result_artefact = SignalReportArtefact.add_log(
+                team_id=current.team_id,
+                report_id=str(current.report_id),
+                content=result_content,
+                attribution=attribution or ArtefactAttribution.system(),
+            )
+        if verdict.pull_request_id is not None and str(result_artefact.pull_request_id) != verdict.pull_request_id:
+            result_artefact.pull_request_id = verdict.pull_request_id
+            result_artefact.save(update_fields=["pull_request"])
         if _should_resurface(current, verdict):
             baseline = config.baseline_value if config is not None else None
             threshold = _describe_comparison(config.comparison) if config is not None else None
@@ -478,7 +632,7 @@ def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -
             expires_at__gt=now,
             report__status__in=CHECKABLE_REPORT_STATUSES,
         )
-        .select_related("report", "report__team", "team__organization")
+        .select_related("report", "report__team", "report__team__organization", "team__organization")
         # Rank each team's rows against its own, then read those ranks in order, so every team's
         # oldest check sorts ahead of any team's second. Ordering by `next_run_at` alone would let
         # one team's backlog fill the whole prefix and starve every other team behind it.
@@ -507,9 +661,9 @@ def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -
 def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK_RUNS_PER_TICK) -> CheckRunSummary:
     """Expire what timed out, then advance every check due this tick by one step.
 
-    A `metric_threshold` check is measured and recorded here. An `agent` check is dispatched (or
-    its overdue dispatch is written off), and the run it started records the verdict later, so the
-    tick's time budget bounds the dispatch and not the investigation.
+    `metric_threshold` and `verification_query` checks are measured and recorded here. An `agent`
+    check is dispatched (or its overdue dispatch is written off), and the run it started records
+    the verdict later, so the tick's time budget bounds the dispatch and not the investigation.
     """
 
     now = now or timezone.now()
@@ -531,9 +685,13 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
                     "signals.report_check.agent_step_failed", check_id=str(check.id), team_id=check.team_id
                 )
             continue
-        verdict = measure_check(check, deadline=deadline)
+        verdict = (
+            measure_verification_check(check, now=now)
+            if check.kind == SignalReportCheck.Kind.VERIFICATION_QUERY
+            else measure_check(check, deadline=deadline)
+        )
         try:
-            record_check_verdict(check, verdict)
+            record_check_verdict(check, verdict, now=now)
         except Exception:
             logger.exception("signals.report_check.persist_failed", check_id=str(check.id), team_id=check.team_id)
             continue

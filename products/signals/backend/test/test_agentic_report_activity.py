@@ -27,6 +27,8 @@ from products.signals.backend.artefact_schemas import (
     ImplementationAssessment,
     ImplementationTarget,
     NoteArtefact,
+    VerificationQuery,
+    VerificationQueryResult,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutNote
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
@@ -583,6 +585,61 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
 
         finding_contents = [json.loads(artefact.content) for artefact in artefacts[4:]]
         assert [finding["signal_id"] for finding in finding_contents] == ["sig-1", "sig-2"]
+
+
+@pytest.mark.parametrize(("snapshot_matches", "expected_count"), [(True, 1), (False, 0)])
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_agentic_report_activity_only_persists_reproducible_verification_queries(
+    monkeypatch, ateam, snapshot_matches, expected_count
+):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+    )
+    output = _build_research_output().model_copy(
+        update={
+            "verification_note": None,
+            "verification_query": VerificationQuery(
+                description="Measures failed onboarding completions and all attempts.",
+                query=(
+                    "SELECT countIf(event = 'failed'), count() FROM events "
+                    "WHERE timestamp >= {window_start} AND timestamp < {window_end}"
+                ),
+                snapshot_result=VerificationQueryResult(
+                    window_start=datetime(2026, 6, 1, tzinfo=UTC),
+                    window_end=datetime(2026, 6, 8, tzinfo=UTC),
+                    columns=["failures", "attempts"],
+                    rows=[[12, 40]],
+                ),
+                success_criteria="Attempts continue and failures fall to zero.",
+                inconclusive_conditions=["No attempts occur."],
+                mcp_commands=["query-run"],
+            ),
+        }
+    )
+    scheduled: list[dict] = []
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.verification_snapshot_matches",
+        lambda *args, **kwargs: snapshot_matches,
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.schedule_report_verification_checks",
+        lambda **kwargs: scheduled.append(kwargs),
+    )
+
+    await _run_activity_with_output(monkeypatch, ateam, report, output)
+
+    count = await database_sync_to_async(
+        SignalReportArtefact.objects.filter(
+            report=report,
+            type=SignalReportArtefact.ArtefactType.VERIFICATION_QUERY,
+        ).count
+    )()
+    assert count == expected_count
+    assert len(scheduled) == expected_count
 
 
 @pytest.mark.asyncio
