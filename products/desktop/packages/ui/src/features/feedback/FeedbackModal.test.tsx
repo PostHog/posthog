@@ -103,6 +103,7 @@ describe("FeedbackModal", () => {
     const user = userEvent.setup();
     await renderModal("feedback");
     const selector = screen.getByRole("combobox", { name: "Feedback type" });
+    expect(screen.getByLabelText("Feedback type")).toBe(selector);
     expect(selector).toHaveTextContent("General");
     await user.click(selector);
     await user.click(screen.getByRole("option", { name: label }));

@@ -11,6 +11,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  Field,
+  FieldLabel,
   Kbd,
   Select,
   SelectContent,
@@ -213,8 +215,8 @@ function FeedbackModalForm({
       <DialogBody>
         <div className="flex flex-col gap-3">
           {mode === "feedback" && (
-            <div className="flex flex-col gap-1">
-              <Text size="xs">Feedback type</Text>
+            <Field className="gap-1">
+              <FieldLabel htmlFor="feedback-type">Feedback type</FieldLabel>
               <Select
                 value={feedbackType}
                 items={FEEDBACK_TYPES}
@@ -223,7 +225,7 @@ function FeedbackModalForm({
                   if (next) setFeedbackType(next);
                 }}
               >
-                <SelectTrigger aria-label="Feedback type" className="w-full">
+                <SelectTrigger id="feedback-type" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -234,7 +236,7 @@ function FeedbackModalForm({
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </Field>
           )}
           <Textarea
             value={value}
