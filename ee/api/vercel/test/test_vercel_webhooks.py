@@ -168,7 +168,8 @@ class TestVercelWebhooks(VercelTestBase):
             mock_request.assert_not_called()
             return
         assert mock_request.call_args.kwargs["url"] == f"https://{EU_HOST}/webhooks/vercel"
-        assert mock_request.call_args.kwargs["headers"]["x-vercel-signature"] == self._sign_payload(payload)
+        forwarded_headers = {key.lower(): value for key, value in mock_request.call_args.kwargs["headers"].items()}
+        assert forwarded_headers["x-vercel-signature"] == self._sign_payload(payload)
 
     @patch("posthog.ingress.dispatch.forward.requests.request")
     def test_a_billing_event_is_never_forwarded(self, mock_request):
