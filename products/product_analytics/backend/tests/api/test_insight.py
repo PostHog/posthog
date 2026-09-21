@@ -66,7 +66,7 @@ from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscr
 from products.dashboards.backend.facade.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
-from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.models.insight import InsightViewed
 
@@ -3078,16 +3078,24 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team=self.team, insight_id=insight_id, start_date=timezone.now(), frequency="daily"
         )
         unrelated = Subscription.objects.create(team=self.team, start_date=timezone.now(), frequency="daily")
+        deleted_subscription = Subscription.objects.create(
+            team=self.team, insight_id=insight_id, start_date=timezone.now(), frequency="daily", deleted=True
+        )
+        delivery = SubscriptionDelivery.objects.create(
+            team=self.team, subscription=subscription, idempotency_key="insight-delete-test", status="completed"
+        )
 
         update_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
         self.dashboard_api.get_insight(insight_id=insight_id, expected_status=status.HTTP_404_NOT_FOUND)
 
-        subscription.refresh_from_db()
+        self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
         unrelated.refresh_from_db()
-        self.assertTrue(subscription.deleted)
         self.assertFalse(unrelated.deleted)
+
+        self.assertFalse(Subscription.objects.filter(pk=deleted_subscription.pk).exists())
+        self.assertFalse(SubscriptionDelivery.objects.filter(pk=delivery.pk).exists())
 
     def test_soft_delete_can_be_reversed_by_patch(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "an insight"})
@@ -3137,8 +3145,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "type": "Insight",
         }
 
-        subscription.refresh_from_db()
-        self.assertTrue(subscription.deleted)
+        self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
 
     def test_soft_delete_cannot_be_reversed_for_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other team")
@@ -4316,9 +4323,8 @@ class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         self.assertTrue(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)
         self.assertFalse(AlertConfiguration.objects.filter(id=alert.id).exists())
 
-        subscription.refresh_from_db()
+        self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
         unrelated.refresh_from_db()
-        self.assertTrue(subscription.deleted)
         self.assertFalse(unrelated.deleted)
 
     def test_bulk_delete_reports_unknown_ids_as_skipped(self) -> None:

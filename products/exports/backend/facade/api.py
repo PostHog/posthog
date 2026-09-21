@@ -104,11 +104,8 @@ def save_export_asset_content_from_file(
 
 
 def delete_insight_subscriptions(*, project_id: int, insight_ids: Collection[int]) -> None:
-    for subscription in Subscription.objects.filter(
-        team__project_id=project_id, insight_id__in=insight_ids, deleted=False
-    ):
-        subscription.deleted = True
-        subscription.save(update_fields=["deleted"])
+    for subscription in Subscription.objects.filter(team__project_id=project_id, insight_id__in=insight_ids):
+        subscription.delete()
 
 
 def insight_ids_with_subscriptions(insight_ids: Collection[int]) -> set[int]:
