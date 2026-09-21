@@ -450,20 +450,35 @@ class ImportSurfaceCheck(ProductCheck):
     That is a live view outside presentation/ that the narrowed contract-check inputs do not
     watch. This check reads the same imports straight from the AST, honors the same
     ignore_imports deferrals, and fails on what grimp cannot see.
+
+    The webhook_consumers surface is the one exception to the isolated-only rule: posthog/ingress/
+    imports that module by name and must not reach a product's internals through it, which holds
+    for every product that registers a consumer, sealed or not.
     """
 
     label = "import surface"
     for_lenient = False
 
     # (source subtree or module, allowed destination subtrees)
+    WEBHOOK_CONSUMERS_SURFACE = ("webhook_consumers", ("facade",))
     SURFACES = (
         ("routes", ("presentation",)),
         ("presentation", ("presentation", "facade")),
-        ("webhook_consumers", ("facade",)),
+        WEBHOOK_CONSUMERS_SURFACE,
     )
 
+    def _has_webhook_consumers(self, ctx: CheckContext) -> bool:
+        return (ctx.backend_dir / "webhook_consumers.py").exists()
+
     def should_run(self, ctx: CheckContext) -> bool:
-        return super().should_run(ctx) and ctx.backend_dir.is_dir()
+        if not ctx.backend_dir.is_dir():
+            return False
+        return super().should_run(ctx) or self._has_webhook_consumers(ctx)
+
+    def _surfaces(self, ctx: CheckContext) -> tuple[tuple[str, tuple[str, ...]], ...]:
+        """A product that is not sealed yet has no routes/presentation contract to hold, so
+        only its ingress entry point is checked."""
+        return self.SURFACES if ctx.is_isolated else (self.WEBHOOK_CONSUMERS_SURFACE,)
 
     def _module_name(self, ctx: CheckContext, path: Path) -> str:
         rel = path.relative_to(ctx.backend_dir).with_suffix("")
@@ -474,7 +489,7 @@ class ImportSurfaceCheck(ProductCheck):
         prefix = f"products.{ctx.name}.backend"
         ignored = ignored_import_edges()
         issues = []
-        for source, allowed in self.SURFACES:
+        for source, allowed in self._surfaces(ctx):
             root = ctx.backend_dir / source
             files = [root.with_suffix(".py")] if root.with_suffix(".py").exists() else []
             if root.is_dir():
@@ -489,8 +504,9 @@ class ImportSurfaceCheck(ProductCheck):
                         continue
                     issues.append(
                         f"{f.relative_to(ctx.product_dir)}:{line} imports {target} — {source} may only import "
-                        f"{'/'.join(allowed)}. If import-linter did not flag this, the target sits under a "
-                        "directory without __init__.py, which grimp cannot see"
+                        f"{'/'.join(allowed)}. If import-linter did not flag this, either the target sits "
+                        "under a directory without __init__.py, which grimp cannot see, or this product "
+                        "carries no contract yet"
                     )
         if issues:
             return CheckResult(
