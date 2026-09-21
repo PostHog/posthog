@@ -72,7 +72,7 @@ The mechanics of each rung (commands, paging, table naming, the detail fetch) ar
 
 1. **Pinned checkout**: the trees the harness cloned, for diffs and touched paths; the listing still comes from `gh`.
 2. **GitHub warehouse source**: `engineering-analytics-sources`, then `pull-requests` and the `<prefix>github_*` tables.
-3. **Connected GitHub integration**: `integrations-list`, then `integrations-github-repos-retrieve`, then `gh pr list` paged to the window.
+3. **Connected GitHub integration**: `integrations-list`, then `integrations-github-repos-retrieve` paged with `has_more`, then one update-sorted REST pull listing paged to the window.
 4. **PRs the inbox already knows**: the pull requests linked from resolved reports (`inbox-reports-list`).
 
 Every bounded listing is paged to the 14-day boundary under the paging rule in that reference, and a run that stops early records where in `cursor:` rather than closing out as covered.
