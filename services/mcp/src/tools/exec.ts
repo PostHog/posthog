@@ -651,6 +651,26 @@ function subfieldPlacements(
 }
 
 /**
+ * Whether a field of the rebuilt call is already filled, counting an object and its own
+ * fields as the same place.
+ *
+ * Two caller keys can name one field: `date_from` and `dateFrom` both answer to
+ * `dateRange.date_from`, and `dateRange` and `date_range` both answer to `dateRange`. The
+ * second one to arrive would overwrite the first, so it is left unplaced and the rebuild
+ * stands down rather than choosing a value for the caller.
+ */
+function isTaken(taken: ReadonlySet<string>, destination: string): boolean {
+    if (taken.has(destination)) {
+        return true
+    }
+    const separator = destination.indexOf('.')
+    if (separator > 0) {
+        return taken.has(destination.slice(0, separator))
+    }
+    return [...taken].some((filled) => filled.startsWith(`${destination}.`))
+}
+
+/**
  * Sorts a flattened payload into the call the caller meant.
  *
  * Keys the outer schema declares beside the wrapper stay at the top level, and keys the
@@ -680,15 +700,18 @@ function splitFlattenedPayload(
     const rebuilt: Record<string, unknown> = {}
     const nested: Record<string, unknown> = {}
     const objects = new Map<string, Record<string, unknown>>()
+    const taken = new Set<string>()
     const unplaced: string[] = []
     for (const [name, value] of Object.entries(input)) {
         const field = fields.get(matchableName(name))
         const placement = placements.get(matchableName(name))
         if (name !== key && siblings.has(name)) {
             rebuilt[name] = value
-        } else if (field !== undefined) {
+        } else if (field !== undefined && !isTaken(taken, field)) {
+            taken.add(field)
             nested[field] = value
-        } else if (placement !== undefined && !(placement.object in input)) {
+        } else if (placement !== undefined && !isTaken(taken, `${placement.object}.${placement.field}`)) {
+            taken.add(`${placement.object}.${placement.field}`)
             const object = objects.get(placement.object) ?? {}
             object[placement.field] = value
             objects.set(placement.object, object)
@@ -726,7 +749,7 @@ function looksLikeUnwrappedPayload(
         return false
     }
     const key = String(issuePath[0])
-    if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    if (!isRecord(input)) {
         return false
     }
     const keys = Object.keys(input)
@@ -908,9 +931,18 @@ function acceptedWrapperShape(
     if (!schema || !isRecord(input)) {
         return { shape: `{"${key}": {...}}`, unplaced: [] }
     }
-    const { nested, unplaced } = splitFlattenedPayload(input, key, schema)
+    const { rebuilt, nested, unplaced } = splitFlattenedPayload(input, key, schema)
     const named = Object.keys(nested)
-    return { shape: named.length > 0 ? `{"${key}": ${renderFieldShape(named)}}` : `{"${key}": {...}}`, unplaced }
+    // Siblings ride along: a caller that copies the shape without them loses the `name` or
+    // the baseline window it sent, and its retry asks a different question.
+    const fields = [
+        `"${key}": ${named.length > 0 ? renderFieldShape(named) : '{...}'}`,
+        ...Object.keys(rebuilt)
+            .filter((sibling) => sibling !== key)
+            .slice(0, MAX_KEYS_NAMED)
+            .map((sibling) => `"${sibling}": ...`),
+    ]
+    return { shape: `{${fields.join(', ')}}`, unplaced }
 }
 
 /**

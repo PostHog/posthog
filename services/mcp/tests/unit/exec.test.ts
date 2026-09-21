@@ -2429,6 +2429,22 @@ describe('exec tool', () => {
                 )
             })
 
+            it('keeps a top-level sibling in the shape it tells the caller to resend', () => {
+                // A caller that copies a shape without `baselineDateRange` diffs against the
+                // default baseline, so the retry answers a different question.
+                const tool = GENERATED_TOOL_MAP['logs-patterns-diff']!()
+                const input = {
+                    serviceNames: ['api'],
+                    dateRange: { date_from: '-1d' },
+                    baselineDateRange: { date_from: '-2d', date_to: '-1d' },
+                }
+                const result = tool.schema.safeParse(input, { reportInput: true })
+
+                expect(formatInputValidationError('logs-patterns-diff', result.error!, input, tool.schema)).toContain(
+                    '"baselineDateRange": ...'
+                )
+            })
+
             describe('rewrapping it into the call the caller meant', () => {
                 const rewrapFor = (schema: ZodObjectAny, input: unknown): Record<string, unknown> | undefined => {
                     const result = schema.safeParse(input, { reportInput: true })
@@ -2528,6 +2544,20 @@ describe('exec tool', () => {
                     expect(rewrapFor(tool.schema, input)).toMatchObject({
                         query: { metricName: 'http_requests', dateFrom: '2026-09-01T00:00:00Z' },
                     })
+                })
+
+                it.each([
+                    ['two spellings of one field', { date_from: '-1h', dateFrom: '-7d' }],
+                    [
+                        'two spellings of one object',
+                        { dateRange: { date_from: '-1h' }, date_range: { date_from: '-7d' } },
+                    ],
+                ])('leaves a payload alone when it carries %s', (_label, input) => {
+                    // Both keys answer to the same place, so placing them would keep one value
+                    // and drop the other without telling the caller which.
+                    const tool = GENERATED_TOOL_MAP['query-logs']!()
+
+                    expect(rewrapFor(tool.schema, input)).toBeUndefined()
                 })
 
                 it('leaves a loose date key alone when the caller also sent a dateRange', () => {
