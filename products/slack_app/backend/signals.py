@@ -23,11 +23,10 @@ def invalidate_repo_list_on_user_github_change(sender: Any, instance: UserIntegr
 
 @receiver(post_save, sender=Integration)
 def onboard_slack_install(sender: Any, instance: Integration, created: bool, **kwargs) -> None:
-    """Fresh Slack install -> greet the installer once, on commit.
+    """Fresh Slack install -> onboard the installer once, on commit.
 
     Re-auth uses update_or_create (created=False), so only first installs onboard. The
-    ``channels:manage`` gate is read here, while the row is in hand, and decides which
-    greeting ``_onboard_install`` sends.
+    ``channels:manage`` gate is read here, while the row is in hand.
     """
     if not created or instance.kind != "slack":
         return
@@ -35,26 +34,28 @@ def onboard_slack_install(sender: Any, instance: Integration, created: bool, **k
     # Deferred: keep the import lazy since this receiver is wired from AppConfig.ready().
     from products.slack_app.backend.inbox_channel import has_inbox_scopes  # noqa: PLC0415
 
+    if not has_inbox_scopes(instance):
+        return
+
     integration_id = instance.id
-    wants_inbox = has_inbox_scopes(instance)
-    transaction.on_commit(lambda: _onboard_install(integration_id, wants_inbox=wants_inbox))
+    transaction.on_commit(lambda: _onboard_install(integration_id))
 
 
-def _onboard_install(integration_id: int, *, wants_inbox: bool) -> None:
-    """Send the installer exactly one greeting.
+def _onboard_install(integration_id: int) -> None:
+    """Run the onboarding on a Temporal worker, or on Celery when the server refuses the enqueue.
 
-    The inbox onboarding DMs them its own four-step setup, so the plain welcome would be a
-    second message from a bot they just installed. It is the fallback rather than the
-    alternative: an install that cannot reach Temporal still gets greeted.
+    Both routes run ``run_install_onboarding``, so the installer gets the same one message either
+    way. Celery is the fallback rather than a second path: an install that cannot reach Temporal
+    still gets onboarded.
     """
-    if wants_inbox and _start_inbox_onboarding_workflow(integration_id):
+    if _start_inbox_onboarding_workflow(integration_id):
         return
 
     # Deferred: `tasks` imports `api`, which pulls the whole agent stack onto whatever
     # process imports it, and this receiver is wired from AppConfig.ready().
-    from products.slack_app.backend.tasks import send_slack_install_welcome  # noqa: PLC0415
+    from products.slack_app.backend.tasks import run_slack_install_onboarding  # noqa: PLC0415
 
-    send_slack_install_welcome.delay(integration_id=integration_id)
+    run_slack_install_onboarding.delay(integration_id=integration_id)
 
 
 def _start_inbox_onboarding_workflow(integration_id: int) -> bool:

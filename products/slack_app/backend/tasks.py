@@ -35,13 +35,13 @@ def mirror_slack_message_event(
 
 
 @shared_task(ignore_result=True)
-def send_slack_install_welcome(*, integration_id: int) -> None:
-    """DM whoever installed the Slack app their onboarding, dispatched from the install signal.
+def run_slack_install_onboarding(*, integration_id: int) -> None:
+    """Onboard whoever installed the Slack app, when Temporal refused the workflow.
 
-    The same onboarding the Temporal workflow runs, and the route for an install that has no
-    channel to open, or whose workflow the server refused. Off the OAuth callback's request path
-    because the installer is waiting on a redirect. No retries: a greeting that arrives late is
-    worth less than a duplicate would cost, and the post is already best-effort.
+    Runs the same ``run_install_onboarding`` the workflow does, so the installer gets one message
+    either way. Off the OAuth callback's request path because the installer is waiting on a
+    redirect. No retries: a greeting that arrives late is worth less than a duplicate would cost,
+    and the post is already best-effort.
     """
     integration = Integration.objects.filter(id=integration_id, kind=SLACK_INTEGRATION_KIND).first()
     if integration is None:
