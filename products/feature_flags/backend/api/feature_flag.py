@@ -1436,6 +1436,7 @@ class FeatureFlagSerializer(
         attrs = super().validate(attrs)
 
         if self._v2_update_limits is not None:
+            self._reject_lossy_v2_request_json()
             self._reject_unsupported_v2_operations(attrs)
 
         # Run universal validations before any early returns so they always apply,
@@ -1719,7 +1720,11 @@ class FeatureFlagSerializer(
 
     def _reject_unsupported_v2_operations(self, attrs: dict) -> None:
         """Deny everything about an admitted v2 update that this milestone does not own."""
-        unsupported = sorted(set(attrs) - V2_UPDATE_FIELDS)
+        submitted_fields = set(self.initial_data) if isinstance(self.initial_data, Mapping) else set()
+        # DRF drops unknown and read-only input fields. original_flag remains an ignored
+        # v1 compatibility field; the required row-version token still forbids merging.
+        allowed_input_fields = (V2_UPDATE_FIELDS - {"get_filters"}) | {"filters", "original_flag"}
+        unsupported = sorted((set(attrs) - V2_UPDATE_FIELDS) | (submitted_fields - allowed_input_fields))
         if unsupported:
             names = ", ".join("filters" if field == "get_filters" else field for field in unsupported)
             raise serializers.ValidationError(
@@ -1799,13 +1804,15 @@ class FeatureFlagSerializer(
         replacement is a conflict even when its individual fields do not clash, because the
         document replaces the whole configuration.
         """
+        # Use the submitted token: IntegerField coerces strings and defaults missing PUT
+        # values, while facade callers' ServiceRequest.data contains no submitted fields.
         token = self.initial_data.get("version") if isinstance(self.initial_data, dict) else None
         if token is None:
             raise serializers.ValidationError({"version": "This field is required for this flag."}, code="required")
         if isinstance(token, bool) or not isinstance(token, int):
             raise serializers.ValidationError({"version": "Must be an integer."})
         if token != locked_version:
-            raise Conflict("The feature flag was updated since you started editing it. Please refresh and try again.")
+            raise Conflict(flag_version_conflict_message(token, locked_version))
         if "filters" not in validated_data:
             return  # a metadata update; the stored config is not rewritten or normalized
         stored = locked_instance.filters or {}
@@ -1828,7 +1835,6 @@ class FeatureFlagSerializer(
             # An admitted v2 replacement passes through untouched — no v1 merge, no
             # normalization. It is resolved and validated in update(), against the locked
             # state it actually replaces; nothing this side of the lock can decide it.
-            self._reject_lossy_v2_request_json()
             return filters
 
         # Unknown keys survive normalization during the validation rollout. Reserve the
@@ -2417,7 +2423,7 @@ class FeatureFlagSerializer(
 
         return instance
 
-    @approval_gate(["feature_flag.enable", "feature_flag.disable", "feature_flag.update"])
+    @approval_gate(list(V2_APPROVAL_ACTIONS))
     def update(self, instance: FeatureFlag, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         # Service-layer callers may carry no body, and an endpoint that declares no request schema
@@ -2506,7 +2512,7 @@ class FeatureFlagSerializer(
             with transaction.atomic():
                 v2_limits = self._v2_update_limits
                 if v2_limits is not None:
-                    lock_approval_policies(instance.team.organization_id)
+                    lock_approval_policies(instance.team.organization_id, shared=True)
                 # select_for_update locks the database row so we ensure version updates are atomic.
                 # Uses objects_including_soft_deleted so that restoring a soft-deleted flag
                 # (setting deleted=False) can acquire the lock.
@@ -3808,6 +3814,14 @@ class FeatureFlagViewSet(
         from products.feature_flags.backend.facade.api import update_flag
 
         instance = self.get_object()
+        if (
+            config_writes.v2_update_limits() is not None
+            and detect_config_format(instance.filters).kind == "v2"
+            and request.content_type.startswith("application/json")
+        ):
+            # Cache the bytes before DRF consumes the stream, so validation can detect
+            # duplicate keys even when middleware has not already read the body.
+            _ = request.body
         flag = update_flag(
             instance,
             request.data,

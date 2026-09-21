@@ -7,7 +7,6 @@ exist, and these flags are invented test rows.
 """
 
 import copy
-import json
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -23,9 +22,10 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.utils import ServiceRequest
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team
 
-from products.approvals.backend.models import ApprovalPolicy
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.approvals.backend.serializers import ApprovalPolicySerializer
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.facade import (
@@ -134,9 +134,12 @@ class TestV2UpdatesAreClosed(V2UpdateTestCase):
 
     def test_system_write_is_rejected(self) -> None:
         flag = self.flag()
-        with self.assertRaises(Exception):
+        stored = copy.deepcopy(flag.filters)
+        with self.assertRaises(ValidationError) as caught:
             flag_facade.update_flag(flag, {"version": 3, "filters": config(targeted())}, team=self.team, user=None)
+        assert caught.exception.get_codes() == {"filters": ["reserved_config_version"]}
         flag.refresh_from_db()
+        assert flag.filters == stored
         assert flag.version == 3
 
     def test_direct_serializer_is_rejected(self) -> None:
@@ -158,10 +161,29 @@ class TestV2UpdatesAreClosed(V2UpdateTestCase):
 
 
 @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES={"*"})
-class TestAdmittedV2Updates(V2UpdateTestCase):
+class AdmittedV2TestCase(V2UpdateTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.enterContext(admit_v2_updates())
+
+
+class TestAdmittedV2Updates(AdmittedV2TestCase):
+    def test_v1_update_keeps_v1_behavior_when_v2_is_admitted(self) -> None:
+        flag = self.flag({"groups": [{"properties": [], "rollout_percentage": 25}]}, active=True)
+        response = self.patch_flag(flag, {"active": False})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert not flag.active
+        assert flag.filters == {"groups": [{"properties": [], "rollout_percentage": 25}]}
+        assert flag.version == 4
+
+    def test_v2_create_stays_reserved_when_updates_are_admitted(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/", {"key": "new-v2", "filters": config()}, format="json"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "reserved_config_version"
+        assert not FeatureFlag.objects.filter(team=self.team, key="new-v2").exists()
 
     def test_full_document_replaces_and_saves_once(self) -> None:
         flag = self.flag()
@@ -246,12 +268,7 @@ class TestAdmittedV2Updates(V2UpdateTestCase):
         assert flag.filters["rules"][0]["rollout_percentage"] == percentage
 
 
-@override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES={"*"})
-class TestServerOwnedIdentity(V2UpdateTestCase):
-    def setUp(self) -> None:
-        super().setUp()
-        self.enterContext(admit_v2_updates())
-
+class TestServerOwnedIdentity(AdmittedV2TestCase):
     def test_new_rules_get_server_identity(self) -> None:
         flag = self.flag(config())
         submitted = config(targeted(rule_id=None), rollout(rule_id=None, seed=None))
@@ -309,12 +326,7 @@ class TestServerOwnedIdentity(V2UpdateTestCase):
         assert flag.version == 3
 
 
-@override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES={"*"})
-class TestV2Concurrency(V2UpdateTestCase):
-    def setUp(self) -> None:
-        super().setUp()
-        self.enterContext(admit_v2_updates())
-
+class TestV2Concurrency(AdmittedV2TestCase):
     @parameterized.expand([("missing", {}), ("null", {"version": None}), ("string", {"version": "3"})])
     def test_an_absent_or_malformed_token_is_rejected(self, _name: str, data: dict) -> None:
         flag = self.flag()
@@ -336,6 +348,10 @@ class TestV2Concurrency(V2UpdateTestCase):
             },
         )
         assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["detail"] == (
+            "This feature flag has changed since version 2; it is now at version 3. "
+            "Nothing was written. Read the flag again and decide the change against its current definition."
+        )
         flag.refresh_from_db()
         assert flag.version == 3
 
@@ -387,6 +403,29 @@ class TestV2Concurrency(V2UpdateTestCase):
 
 class TestV2ApprovalPolicyLocking(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
+
+    def test_different_flags_in_an_organization_can_update_concurrently(self) -> None:
+        first = FeatureFlag.objects.create(team=self.team, key="v2-first", filters=config(), version=3)
+        second = FeatureFlag.objects.create(team=self.team, key="v2-second", filters=config(), version=3)
+
+        def update_second_flag() -> None:
+            try:
+                with transaction.atomic():
+                    with connection.cursor() as cursor:
+                        cursor.execute("SET LOCAL lock_timeout = '100ms'")
+                    flag_facade.update_flag(second, {"version": 3, "name": "Second"}, team=self.team, user=self.user)
+            finally:
+                connection.close()
+
+        with admit_v2_updates(), transaction.atomic():
+            flag_facade.update_flag(first, {"version": 3, "name": "First"}, team=self.team, user=self.user)
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                executor.submit(update_second_flag).result(timeout=10)
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        assert (first.name, first.version) == ("First", 4)
+        assert (second.name, second.version) == ("Second", 4)
 
     @parameterized.expand(
         [
@@ -449,12 +488,7 @@ class TestV2ApprovalPolicyLocking(NonAtomicBaseTest):
         assert ApprovalPolicy.objects.filter(organization=self.organization, team=team, enabled=True).exists()
 
 
-@override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES={"*"})
-class TestV2AdmissionBoundary(V2UpdateTestCase):
-    def setUp(self) -> None:
-        super().setUp()
-        self.enterContext(admit_v2_updates())
-
+class TestV2AdmissionBoundary(AdmittedV2TestCase):
     @parameterized.expand(
         [
             ("malformed", {"version": 2, "rules": "broken"}),
@@ -489,6 +523,8 @@ class TestV2AdmissionBoundary(V2UpdateTestCase):
             ("encrypted", {"has_encrypted_payloads": True}),
             ("continuity", {"ensure_experience_continuity": True}),
             ("runtime", {"evaluation_runtime": "server"}),
+            ("unknown", {"naem": "Renamed"}),
+            ("read_only", {"created_at": "2026-01-01T00:00:00Z"}),
         ]
     )
     def test_unsupported_metadata_operations_are_rejected(self, _name: str, data: dict) -> None:
@@ -506,20 +542,27 @@ class TestV2AdmissionBoundary(V2UpdateTestCase):
         flag.refresh_from_db()
         assert (flag.name, flag.key, flag.version) == ("Renamed", "v2-renamed", 4)
 
-    def test_a_row_with_encrypted_payloads_is_not_admitted(self) -> None:
+    @parameterized.expand(["has_encrypted_payloads", "is_remote_configuration"])
+    def test_unsupported_flag_families_are_not_admitted(self, field: str) -> None:
         # Not in the admitted family, so the write falls back to the closed path rather
         # than gaining a v2 route through it.
-        flag = self.flag(has_encrypted_payloads=True)
+        flag = self.flag(**{field: True})
         response = self.patch_flag(flag, {"version": 3, "filters": config(targeted())})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "reserved_config_version"
+        flag.refresh_from_db()
+        assert flag.version == 3
 
     def test_an_enabled_approval_policy_denies_the_update(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
         ApprovalPolicy.objects.create(
             organization=self.organization,
             team=self.team,
             action_key="feature_flag.update",
-            approver_config={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
             enabled=True,
         )
         flag = self.flag()
@@ -528,6 +571,7 @@ class TestV2AdmissionBoundary(V2UpdateTestCase):
         assert response.json()["code"] == "unsupported_config_version"
         flag.refresh_from_db()
         assert flag.version == 3
+        assert not ChangeRequest.objects.filter(organization=self.organization).exists()
 
     def test_a_context_less_caller_cannot_skip_the_approval_check(self) -> None:
         # A serializer built without a get_team context must still see the policy: the
@@ -577,24 +621,32 @@ class TestV2AdmissionBoundary(V2UpdateTestCase):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-@override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES={"*"})
-class TestV2RequestBytes(V2UpdateTestCase):
-    def setUp(self) -> None:
-        super().setUp()
-        self.enterContext(admit_v2_updates())
-
+class TestV2RequestBytes(AdmittedV2TestCase):
     def post_bytes(self, flag: FeatureFlag, body: str):
         return self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", body, content_type="application/json"
         )
 
-    def test_duplicate_keys_in_the_request_bytes_are_rejected(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "filters",
+                '{"version": 3, "filters": {"version": 1, "version": 2, "return_type": "boolean", "default_value": false, "rules": []}}',
+                "version",
+            ),
+            ("metadata", '{"version": 3, "name": "First", "name": "Second"}', "name"),
+        ]
+    )
+    @override_settings(MIDDLEWARE=[])
+    def test_duplicate_keys_in_the_request_bytes_are_rejected(self, _name: str, body: str, key: str) -> None:
+        self.client.force_authenticate(user=self.user)
         flag = self.flag()
-        body = '{"version": 3, "filters": {"version": 1, "version": 2, "return_type": "boolean", "default_value": false, "rules": []}}'
-        assert json.loads(body)["filters"]["version"] == 2  # normalization would hide the first key
+        stored = copy.deepcopy(flag.filters)
         response = self.post_bytes(flag, body)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert f'"{key}"' in response.json()["detail"]
         flag.refresh_from_db()
+        assert flag.filters == stored
         assert flag.version == 3
 
     @parameterized.expand([("nan", "NaN"), ("infinity", "Infinity"), ("precision", "33.333")])
@@ -611,11 +663,31 @@ class TestV2RequestBytes(V2UpdateTestCase):
         flag.refresh_from_db()
         assert flag.version == 3
 
+    @parameterized.expand(
+        [
+            ("config", config(targeted(description="x" * 400)), 200),
+            ("metadata", config(targeted(metadata={"note": "x" * 4000})), ADMITTED_LIMITS.max_config_bytes),
+        ]
+    )
+    def test_an_oversized_stored_document_can_be_replaced_within_the_limits(
+        self, _name: str, stored: dict, max_config_bytes: int
+    ) -> None:
+        flag = self.flag(stored)
+        replacement = config(targeted())
+        with override_settings(MAX_FEATURE_FLAG_FILTER_SIZE_BYTES=max_config_bytes):
+            response = self.patch_flag(flag, {"version": 3, "filters": replacement})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert flag.filters == replacement
+        assert flag.version == 4
+
     def test_the_deployment_byte_limit_applies(self) -> None:
         flag = self.flag()
         with override_settings(MAX_FEATURE_FLAG_FILTER_SIZE_BYTES=200):
             response = self.patch_flag(flag, {"version": 3, "filters": config(targeted(description="x" * 400))})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "limit_exceeded"
+        assert "configuration is too large" in response.json()["detail"]
         flag.refresh_from_db()
         assert flag.version == 3
 

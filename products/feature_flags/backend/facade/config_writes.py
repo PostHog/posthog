@@ -4,20 +4,20 @@ Three things a v2 update needs that the pure validator deliberately does not do:
 
 - **Admission.** ``v2_update_limits`` is the closed seam the writer asks before it looks at
   a request. It answers ``None`` in every deployed configuration, so no v2 write is
-  reachable in production through any entrypoint. PH-GATE-001 owns the real per-team
-  writer policy; this is not that, and a ``None`` here is not the common safety gate
-  (final plan section 14.3.1) or OQ-12 being satisfied.
+  reachable in production through any entrypoint. The production admission requirements
+  are documented in ``docs/internal/feature-flags/api-writes.md``.
 - **Identity.** Rule ids and assignment seeds are server-owned and identify rules, not
   list positions. ``resolve_identity`` echoes back existing identity, allocates it for
   genuinely new rules, and rejects a client that tries to choose it.
-- **Comparison.** ``review_update`` validates the stored document and the candidate under
-  the same limits, so warnings describe the real before/proposed pair and a stored family
-  this milestone cannot judge is rejected instead of being replaced wholesale.
+- **Comparison.** ``review_update`` validates both documents' shape and semantics, so
+  warnings describe the real before/proposed pair and unsupported stored families are
+  rejected. Byte limits apply only to the candidate so oversized rows can be reduced.
 
 Deliberately free of Django ORM and DRF imports: the endpoint owns HTTP error shapes and
 the row lock, this module owns the document.
 """
 
+import sys
 import json
 from collections.abc import Mapping
 from typing import Any
@@ -35,11 +35,10 @@ from products.feature_flags.backend.facade.rule_warnings import review_config
 from products.feature_flags.backend.facade.warnings import ManagementWarning
 
 # The trusted writer policy for admitted v2 updates. ``None`` denies every one of them and
-# is the only value any deployed configuration has: PH-GATE-001 has not landed, and the
-# per-rule metadata byte bound (final plan section 5.3) has no agreed production value, so
-# there is nothing honest to put here yet. Tests patch this attribute to exercise the
-# dormant path; nothing reads a request field, a serializer context flag, staff status or a
-# missing user as permission to write v2.
+# is the only value any deployed configuration has: per-team admission is not implemented,
+# and the per-rule metadata byte bound has no agreed production value (see api-writes.md).
+# Tests patch this attribute to exercise the dormant path; nothing reads a request field,
+# a serializer context flag, staff status or a missing user as permission to write v2.
 V2_UPDATE_LIMITS: ValidationLimits | None = None
 
 _SEEDED_RULE_TYPE = "percentage_rollout"
@@ -69,12 +68,19 @@ def reject_duplicate_json_keys(body: bytes) -> None:
     """
 
     def object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-        if len({key for key, _ in pairs}) != len(pairs):
-            raise ValueError("duplicate key")
-        return dict(pairs)
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ConfigValidationError(
+                    [ConfigError(code="invalid", detail=f"Must not repeat the key {json.dumps(key)}.", attr="filters")]
+                )
+            result[key] = value
+        return result
 
     try:
         json.loads(body, object_pairs_hook=object_pairs)
+    except ConfigValidationError:
+        raise
     except ValueError as exc:
         raise ConfigValidationError(
             [ConfigError(code="invalid", detail="Must not repeat a key.", attr="filters")]
@@ -176,7 +182,11 @@ def review_update(
     can judge.
     """
     try:
-        current = validate_config(stored, limits=limits)
+        # Stored rows may predate lower byte caps; validate their semantics without
+        # preventing a replacement that brings them back within the write limits.
+        current = validate_config(
+            stored, limits=ValidationLimits(max_config_bytes=sys.maxsize, max_metadata_bytes=sys.maxsize)
+        )
     except ConfigValidationError as exc:
         raise ConfigValidationError(
             [
