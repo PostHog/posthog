@@ -2071,6 +2071,51 @@ describe('LogsIngestionConsumer', () => {
         })
     })
 
+    describe('JSON attribute extraction', () => {
+        it.each([
+            ['disabled', '', 'payload', false],
+            ['different team', 'other_team', 'payload', false],
+            ['allowlisted team', 'this_team', 'payload', true],
+            ['wildcard', '*', 'payload', true],
+            ['missing setting', '*', undefined, false],
+            ['empty setting', '*', '', false],
+        ] as const)('%s only re-encodes eligible logs', async (_, allowlist, key, enabled) => {
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub, {
+                LOGS_JSON_ATTRIBUTE_EXTRACTION_ENABLED_TEAMS:
+                    allowlist === 'this_team'
+                        ? ` ${team.id}, ${team2.id} `
+                        : allowlist === 'other_team'
+                          ? String(team2.id)
+                          : allowlist,
+            })
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                ...team,
+                logs_settings: { json_parse_logs_attribute_key: key },
+            })
+            const message = await createKafkaMessage(
+                createLogMessage(),
+                { token: team.api_token },
+                { payload: JSON.stringify('{"count":7}') }
+            )
+            if (!enabled) {
+                message.value = Buffer.from('disabled extraction must not decode')
+            }
+            await waitForBackgroundTasks(consumer.processKafkaBatch([message]))
+            const output = getProducedKafkaMessages().filter((entry) => entry.topic === KAFKA_LOGS_CLICKHOUSE)
+            expect(output).toHaveLength(1)
+            if (enabled) {
+                const [, , records] = await decodeLogRecords(output[0].value as Buffer)
+                expect(records[0].attributes).toMatchObject({
+                    payload: JSON.stringify('{"count":7}'),
+                    'payload.count': '7',
+                })
+            } else {
+                expect(output[0].value).toEqual(message.value)
+            }
+        })
+    })
+
     describe('metric rules (generate metrics from logs)', () => {
         let mockEmitter: { emit: jest.Mock }
         let mockMetricRulesCache: Pick<MetricRulesCache, 'getCompiledRules'>
@@ -2273,7 +2318,10 @@ describe('LogsIngestionConsumer', () => {
 
         it('never sniffs or decodes traces for a configured JSON attribute on a wildcard allowlist', async () => {
             await consumer.stop()
-            consumer = createTracesIngestionConsumer({ LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS: '*' })
+            consumer = createTracesIngestionConsumer({
+                LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS: '*',
+                LOGS_JSON_ATTRIBUTE_EXTRACTION_ENABLED_TEAMS: '*',
+            })
             await consumer.start()
             jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
                 ...team,

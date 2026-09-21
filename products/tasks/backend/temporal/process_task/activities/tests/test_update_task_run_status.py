@@ -432,9 +432,9 @@ class TestUpdateTaskRunStatusActivity:
             # An earlier prewarm nobody typed into does not — the next message resumes into a
             # successor, so counting it would report the first real chat as a continuation.
             ({"prewarmed": True, "await_user_message": True}, {}, True),
-            # A conversation carried over from LangGraph is continued, however little sandbox
-            # history it has: the conversion starts it on a fresh task with no earlier run.
-            (None, {"converted_from_langgraph": True}, False),
+            # A chat copied from LangGraph is an earlier run that held a chat, so the conversation
+            # is continued however little sandbox history it has.
+            ({"imported_from": "conversation"}, {}, False),
             (None, {}, True),
         ],
     )

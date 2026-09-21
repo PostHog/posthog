@@ -196,6 +196,56 @@ export const ExperimentRecordingsDroppedMetricNarrow: Story = {
 }
 
 /**
+ * A flag that aggregates by group exposes groups rather than people, and the backend refuses to
+ * match those exposures to recordings. The tab states that instead of mounting a list, so none of
+ * the facet controls render either: every one of them describes a list.
+ */
+export const ExperimentRecordingsUnavailableGroupAggregated: Story = {
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="experiment-recordings-unavailable-group-aggregated"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [EXPERIMENT_PATH]: {
+                    ...EXPERIMENT_WITH_FUNNEL_METRIC,
+                    feature_flag: {
+                        ...EXPERIMENT_WITH_FUNNEL_METRIC.feature_flag,
+                        filters: {
+                            ...EXPERIMENT_WITH_FUNNEL_METRIC.feature_flag.filters,
+                            aggregation_group_type_index: 0,
+                        },
+                    },
+                },
+            },
+        }),
+    ],
+}
+
+/**
+ * A list load the backend refused for a reason that passes on its own. The caption carries the
+ * backend's own message and a retry, where the playlist's banner below it can only say that
+ * something failed.
+ */
+export const ExperimentRecordingsListLoadFailed: Story = {
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="experiment-recordings-list-error-caption"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/session_recordings': [
+                    400,
+                    {
+                        detail: 'Exposed users for this experiment are still being computed. Try again in a few minutes.',
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
+/**
  * The same matched-nothing state, reached by a results-row link rather than by hand. This is the
  * one place the whole deep link runs end to end: the scene keeps the params through its first URL
  * pass, and the tab applies them on mount, so the variant facet and the drop-off trigger label are

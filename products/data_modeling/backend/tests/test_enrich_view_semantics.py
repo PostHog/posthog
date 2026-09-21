@@ -4,6 +4,8 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
 from posthog.llm.semantic_enrichment import MAX_OUTPUT_TOKENS
@@ -235,6 +237,26 @@ class TestEnrichViewSemanticsSync:
         assert result["status"] == "partial"
         assert result["error"] == "llm_failed"
         assert result["ai_annotations"] > 0, "the first batch's columns are already persisted"
+        sq.refresh_from_db()
+        assert not sq.semantic_enrichment_hash
+
+    def test_an_unconfigured_gateway_is_not_reported_as_a_failure(self):
+        # A deployment with no LLM gateway fails identically for every view, so it stays out of error
+        # tracking, while the hash stays unstored so a later trigger enriches once one is configured.
+        team = _team()
+        sq = _saved_query(team, columns=_columns("amount"))
+
+        with (
+            patch.object(enrich, "get_team_business_context", return_value=""),
+            patch.object(enrich, "_gather_lineage", return_value=[]),
+            patch.object(enrich, "_get_row_sample", return_value=[]),
+            patch.object(enrich, "capture_exception") as mock_capture,
+            override_settings(LLM_GATEWAY_URL="", LLM_GATEWAY_API_KEY="", AI_GATEWAY_URL="", AI_GATEWAY_API_KEY=""),
+        ):
+            result = enrich_view_semantics_sync(team.pk, str(sq.id))
+
+        mock_capture.assert_not_called()
+        assert result["status"] == "partial"
         sq.refresh_from_db()
         assert not sq.semantic_enrichment_hash
 

@@ -112,6 +112,16 @@ def _is_admin_shutdown_error(error: BaseException) -> bool:
     return isinstance(error, psycopg.errors.AdminShutdown)
 
 
+# SQLSTATE 42703/42P01: a column or table a sweep query references does not exist yet on the
+# queue DB. The migration adding it and the code querying it ship in the same commit, but a
+# worker can roll out ahead of the migration completing, so this is a self-healing race, not a
+# bug — the sweep already retries every interval, and the query succeeds once the migration
+# lands. Mirrors the schema-lag handling in posthog/tasks/alerts/utils.py and
+# products/tasks/backend/loop_retention.py.
+def _is_schema_lag_error(error: BaseException) -> bool:
+    return isinstance(error, psycopg.errors.UndefinedColumn | psycopg.errors.UndefinedTable)
+
+
 class OwnershipLostError(Exception):
     """Raised when the group lease for a (team_id, schema_id) is no longer held by this consumer."""
 
@@ -471,8 +481,11 @@ class BatchConsumer:
                     logger.exception(self._event("startup_sweep_error"))
                     capture_exception(e)
             except Exception as e:
-                logger.exception(self._event("startup_sweep_error"))
-                capture_exception(e)
+                if _is_schema_lag_error(e):
+                    logger.warning(self._event("startup_sweep_schema_lag"), error=str(e))
+                else:
+                    logger.exception(self._event("startup_sweep_error"))
+                    capture_exception(e)
             self._recovery_task = asyncio.create_task(self._recovery_loop())
 
             while not self._shutdown.is_set():
@@ -1149,8 +1162,11 @@ class BatchConsumer:
                     logger.exception(self._event("recovery_sweep_error"))
                     capture_exception(e)
             except Exception as e:
-                logger.exception(self._event("recovery_sweep_error"))
-                capture_exception(e)
+                if _is_schema_lag_error(e):
+                    logger.warning(self._event("recovery_sweep_schema_lag"), error=str(e))
+                else:
+                    logger.exception(self._event("recovery_sweep_error"))
+                    capture_exception(e)
 
             now = time.monotonic()
             if now - self._last_reconcile_monotonic >= self._config.reconcile_interval_seconds:

@@ -1,0 +1,27 @@
+{
+    "letter": "GA",
+    "id": "GA25",
+    "cluster": 16,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "receivers.py:222 does import `queue_inbox_pr_review` from `products.stamphog.backend.facade.api` before the `try` at line 224. But the failure the finding names, `products.stamphog.backend.tasks.tasks` failing to import because it pulls in the GitHub and temporal clients, cannot happen at line 222. That import is deferred inside the function body at stamphog/backend/facade/api.py:147, so it only runs when `queue_inbox_pr_review(...)` is called at receivers.py:225. That call is inside the try, and the except at lines 233-234 catches and logs any error. At module level, facade/api.py only imports stamphog models, `contracts` and `enums` (api.py:11-13). The models are already loaded by the app registry at `ready()`, so the import at line 222 is light and first-party. The only way it could fail is a broken build, which would fail deterministically everywhere, not at runtime. Also, when there is no surrounding atomic block, `transaction.on_commit` runs the callback right away, inside `handle_task_run_saved`'s try/except (receivers.py:81, 131, 140).",
+            "refutation": "The finding's premise is wrong. The heavy import it blames (the tasks module) is not at receivers.py:222. It is deferred inside `queue_inbox_pr_review` (facade/api.py:147), which runs inside the try at receivers.py:224-234, so any ImportError from it is caught and logged. What stays outside the try is the import of the light facade module, which cannot fail at runtime in a working deploy. There is no trigger that can be reached."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "receivers.py:222 imports only `products.stamphog.backend.facade.api` outside the try. That module's top-level imports are light: stamphog models plus `.contracts` and `.enums` (facade/api.py:11-13). The heavy import the finding names, `products.stamphog.backend.tasks.tasks` (the GitHub and temporal clients), is deferred inside `queue_inbox_pr_review` itself (facade/api.py:144-147). It runs at call time, inside the `try` at receivers.py:224, so an ImportError there is caught and logged at receivers.py:233-234. The comment at facade/api.py:144-146 also says review_hog's API serializer imports this facade for `has_reviewable_repo_config`, so the web process already loads the module. test_inbox_trigger.py:23-24 patches `facade.api.queue_inbox_pr_review` at call time, so the tests import the module on this path too.",
+            "refutation": "The finding's premise is wrong. It claims the import outside the try pulls in stamphog `tasks.tasks` with its GitHub and temporal clients. It does not: that import sits inside the facade function, which runs inside the try. The only statement outside the try imports a light in-repo facade module. That module loads alongside models that are already loaded, and other code paths import it too, so it has no reachable runtime import failure beyond a broken deploy, which the tests would catch. This is the same accepted pattern as `_start_review`, and nothing can realistically trigger it."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The finding's trigger is \"products.stamphog.backend.tasks.tasks fails to import\", but that module is not imported by the line outside the try. receivers.py:222 imports only `products.stamphog.backend.facade.api`, and that module's top-level imports are just stamphog models, contracts and enums (facade/api.py:11-13). The heavy `from products.stamphog.backend.tasks.tasks import process_inbox_pr_review` is deferred inside `queue_inbox_pr_review` (facade/api.py:147), and the receiver calls that function inside its `try/except Exception` (receivers.py:224-234). So an ImportError in the tasks module, including the GitHub and Temporal client imports, is caught and logged by `logger.exception(\"review_hog_stamphog_inbox_review_queue_failed\")`.",
+            "refutation": "The premise is wrong. The only import outside the try is facade.api, and it pulls in stamphog models and enums. stamphog is an installed app (posthog/settings/web.py:45), so Django already loads those models at setup. In a production build that import cannot fail at on_commit time unless stamphog's own app loading is broken, and then the process would not boot at all. The failure the finding describes, a broken tasks-module import, happens inside `queue_inbox_pr_review`, which runs inside the try. The trigger does not occur in production."
+        }
+    ]
+}

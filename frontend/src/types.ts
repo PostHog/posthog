@@ -235,6 +235,7 @@ export enum AvailableFeature {
     DATA_COLOR_THEMES = 'data_color_themes',
     ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
     ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
+    TOOLBAR_HEATMAPS = 'toolbar_heatmaps',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -805,6 +806,8 @@ export interface ConversationsSettings {
     ai_diagnostics_enabled?: boolean
     ai_resolution_channels?: string[] | null
     ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
+    ai_reply_custom_instructions?: string | null
+    docs_source?: 'posthog' | null
 }
 
 export interface LogsSettings {
@@ -5233,6 +5236,8 @@ export interface AppContext {
     oauth_application?: OAuthApplicationPublicMetadata
     /** Server-resolved MCP scopes for OAuth consent when the client omits `scope`. */
     oauth_mcp_consent?: OAuthMcpConsentContext
+    /** One of the user's organizations has the access-control feature and at least one rule, so a granted scope can reach less. */
+    oauth_consent_access_controls_apply?: boolean
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
 }
@@ -6356,6 +6361,8 @@ export interface DataWarehouseSavedQuery {
     user_access_level?: AccessControlLevel
     incremental?: DataWarehouseSavedQueryIncremental | null
     incremental_state?: DataWarehouseSavedQueryIncrementalState | null
+    /** Whether incremental settings participated in any materialization run. */
+    has_incremental_history?: boolean
 }
 
 export interface DataWarehouseSavedQueryIncremental {
@@ -7480,6 +7487,8 @@ export type HogFunctionConfigurationContextId =
     | 'logs-alerting'
     | 'health-alerts'
     | 'batch-export-alerts'
+    | 'billing-alerts'
+    | 'replay-vision-alerts'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'

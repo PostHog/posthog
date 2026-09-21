@@ -1,9 +1,14 @@
 from collections.abc import Sequence
+from datetime import datetime, time
+from typing import Any
 from uuid import UUID
+
+from django.db import transaction
 
 from posthog.models.scoping.manager import resolve_effective_team_id
 
-from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
+from products.customer_analytics.backend.facade import contracts
+from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind, TaskDigestCadence
 from products.customer_analytics.backend.models import (
     AccountRelationshipDefinition,
     CustomPropertyDefinition,
@@ -14,6 +19,9 @@ from products.customer_analytics.backend.models import (
 PINNED_PROPERTIES_KEY = "pinned_properties"
 MAX_PINNED_PROPERTIES = 50
 
+TASK_DIGEST_KEY = "task_digest"
+DEFAULT_TASK_DIGEST = contracts.TaskDigestPreferences()
+
 
 class InvalidPinnedAccountProperties(ValueError):
     def __init__(self, errors: list[str]) -> None:
@@ -21,6 +29,7 @@ class InvalidPinnedAccountProperties(ValueError):
         self.errors = errors
 
 
+@transaction.atomic
 def get_or_create_config(*, team_id: int, user_id: int) -> UserCustomerAnalyticsConfig:
     # Resolve an environment (child team) id to its root team once. `for_team` canonicalizes its
     # filter but not the create kwargs, so a raw id makes the lookup never match, and the unique
@@ -30,6 +39,11 @@ def get_or_create_config(*, team_id: int, user_id: int) -> UserCustomerAnalytics
         team_id=canonical_team_id,
         user_id=user_id,
         defaults={"properties": {PINNED_PROPERTIES_KEY: []}},
+    )
+    config = (
+        UserCustomerAnalyticsConfig.objects.for_team(canonical_team_id, canonical=True)
+        .select_for_update()
+        .get(pk=config.pk)
     )
     if PINNED_PROPERTIES_KEY in config.properties:
         return config
@@ -43,6 +57,7 @@ def get_or_create_config(*, team_id: int, user_id: int) -> UserCustomerAnalytics
     return config
 
 
+@transaction.atomic
 def update_pinned_properties(
     *, team_id: int, user_id: int, references: Sequence[tuple[AccountPropertyPinKind, UUID]]
 ) -> UserCustomerAnalyticsConfig:
@@ -57,6 +72,58 @@ def update_pinned_properties(
     ]
     config.save(update_fields=["properties", "pinned_custom_property_definition_ids", "updated_at"])
     return config
+
+
+def read_task_digest(config: UserCustomerAnalyticsConfig) -> contracts.TaskDigestPreferences:
+    """Read the digest preferences, filling in a disabled default for anything the row does not
+    hold. A row written before this key existed, or holding only some of the three values, still
+    reads as a complete set."""
+    stored = config.properties.get(TASK_DIGEST_KEY)
+    if not isinstance(stored, dict):
+        stored = {}
+    cadence = stored.get("cadence")
+    return contracts.TaskDigestPreferences(
+        enabled=stored.get("enabled") is True,
+        send_time=_read_send_time(stored),
+        cadence=cadence if cadence in TaskDigestCadence.values else DEFAULT_TASK_DIGEST.cadence,
+    )
+
+
+@transaction.atomic
+def update_task_digest(
+    *,
+    team_id: int,
+    user_id: int,
+    enabled: bool | None = None,
+    send_time: time | None = None,
+    cadence: TaskDigestCadence | None = None,
+) -> UserCustomerAnalyticsConfig:
+    """Replace the values the caller passed and keep the rest of the digest preferences."""
+    config = get_or_create_config(team_id=team_id, user_id=user_id)
+    current = read_task_digest(config)
+    config.properties = {
+        **config.properties,
+        TASK_DIGEST_KEY: {
+            "enabled": current.enabled if enabled is None else enabled,
+            "send_time": current.send_time
+            if send_time is None
+            else send_time.strftime(contracts.TASK_DIGEST_SEND_TIME_FORMAT),
+            "cadence": current.cadence if cadence is None else cadence.value,
+        },
+    }
+    config.save(update_fields=["properties", "updated_at"])
+    return config
+
+
+def _read_send_time(stored: dict[str, Any]) -> str:
+    value = stored.get("send_time")
+    if isinstance(value, str):
+        try:
+            parsed = datetime.strptime(value, contracts.TASK_DIGEST_SEND_TIME_FORMAT)
+        except ValueError:
+            return DEFAULT_TASK_DIGEST.send_time
+        return parsed.strftime(contracts.TASK_DIGEST_SEND_TIME_FORMAT)
+    return DEFAULT_TASK_DIGEST.send_time
 
 
 def _validate_pinned_properties(*, team_id: int, references: Sequence[tuple[AccountPropertyPinKind, UUID]]) -> None:
