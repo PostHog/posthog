@@ -29,7 +29,19 @@ def _db() -> str:
     return settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 
 
-def kafka_metrics_avro_table_sql(table_name: str, group: str) -> str:
+def kafka_metrics_avro_table_sql(
+    table_name: str,
+    group: str,
+    flush_interval_ms: int | None = None,
+    max_block_size: int | None = None,
+) -> str:
+    # The aggregation views group one insert block at a time, so a longer flush interval
+    # packs more samples of a series into each row before the merge.
+    block_settings = ""
+    if flush_interval_ms is not None:
+        block_settings += f"\n    kafka_flush_interval_ms = {flush_interval_ms},"
+    if max_block_size is not None:
+        block_settings += f"\n    kafka_max_block_size = {max_block_size},"
     return f"""
 CREATE TABLE IF NOT EXISTS {_db()}.{table_name}
 (
@@ -62,7 +74,7 @@ SETTINGS
     kafka_thread_per_consumer = 1,
     kafka_num_consumers = {kafka_num_consumers(8)},
     kafka_poll_timeout_ms = 3000,
-    kafka_poll_max_batch_size = 1000,
+    kafka_poll_max_batch_size = 1000,{block_settings}
     input_format_avro_allow_missing_fields = 1
 """
 

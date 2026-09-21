@@ -2735,7 +2735,7 @@ SQL
     partition_by = "toStartOfWeek(original_expiry_timestamp)"
     ttl          = "original_expiry_timestamp"
     settings = {
-      index_granularity   = "8192"
+      index_granularity   = "1024"
       ttl_only_drop_parts = "1"
     }
     column "team_id" {

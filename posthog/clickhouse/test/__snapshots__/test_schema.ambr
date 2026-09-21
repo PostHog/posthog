@@ -536,6 +536,8 @@
       kafka_num_consumers = 1,
       kafka_poll_timeout_ms = 3000,
       kafka_poll_max_batch_size = 1000,
+      kafka_flush_interval_ms = 30000,
+      kafka_max_block_size = 1000000,
       input_format_avro_allow_missing_fields = 1
   
   '''
@@ -2887,6 +2889,8 @@
       kafka_num_consumers = 1,
       kafka_poll_timeout_ms = 3000,
       kafka_poll_max_batch_size = 1000,
+      kafka_flush_interval_ms = 30000,
+      kafka_max_block_size = 1000000,
       input_format_avro_allow_missing_fields = 1
   
   '''
@@ -5277,7 +5281,7 @@
   ORDER BY (team_id, metric_name, series_fingerprint, time_bucket)
   TTL original_expiry_timestamp
   SETTINGS
-      index_granularity = 8192,
+      index_granularity = 1024,
       ttl_only_drop_parts = 1
   
   '''
@@ -12613,7 +12617,7 @@
   ORDER BY (team_id, metric_name, series_fingerprint, time_bucket)
   TTL original_expiry_timestamp
   SETTINGS
-      index_granularity = 8192,
+      index_granularity = 1024,
       ttl_only_drop_parts = 1
   
   '''

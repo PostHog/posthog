@@ -30,9 +30,11 @@ database "posthog" {
       group_name           = "clickhouse-metrics-avro4"
       format               = "Avro"
       num_consumers        = 8
+      max_block_size       = 1000000
       skip_broken_messages = 100
       poll_timeout_ms      = 3000
       poll_max_batch_size  = 1000
+      flush_interval_ms    = 30000
       thread_per_consumer  = true
     }
     settings = {

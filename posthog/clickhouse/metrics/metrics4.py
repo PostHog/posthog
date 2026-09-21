@@ -15,6 +15,11 @@ All tables use `original_expiry_timestamp` from `metrics4_input`. The Kafka view
 calculates this value from the sample timestamp. The default retention period is
 30 days.
 
+Each view aggregates one insert block at a time. The Kafka table flushes a block
+every 30 seconds, so one row in `metrics4_samples` holds several samples of a
+series and the tables receive fewer parts. `metrics4_series` uses a small index
+granularity so that a lookup by primary key does not read a whole fresh part.
+
 Each `groupArray` function reads the same rows in the same order within one
 insert block. Thus, the fields for a source point use the same array index.
 During a merge, the engine reads equal-key rows in the same sequence for each
@@ -30,6 +35,8 @@ from .metrics2 import kafka_metrics_avro_mv_select, kafka_metrics_avro_table_sql
 
 KAFKA_METRICS4_TABLE_NAME = "kafka_metrics_avro4"
 KAFKA_METRICS4_GROUP = "clickhouse-metrics-avro4"
+KAFKA_METRICS4_FLUSH_INTERVAL_MS = 30_000
+KAFKA_METRICS4_MAX_BLOCK_SIZE = 1_000_000
 METRICS4_INPUT_TABLE_NAME = "metrics4_input"
 METRICS4_SAMPLES_TABLE_NAME = "metrics4_samples"
 METRICS4_SERIES_TABLE_NAME = "metrics4_series"
@@ -72,7 +79,12 @@ def _db() -> str:
 
 
 def KAFKA_METRICS_AVRO4_TABLE_SQL() -> str:
-    return kafka_metrics_avro_table_sql(KAFKA_METRICS4_TABLE_NAME, KAFKA_METRICS4_GROUP)
+    return kafka_metrics_avro_table_sql(
+        KAFKA_METRICS4_TABLE_NAME,
+        KAFKA_METRICS4_GROUP,
+        flush_interval_ms=KAFKA_METRICS4_FLUSH_INTERVAL_MS,
+        max_block_size=KAFKA_METRICS4_MAX_BLOCK_SIZE,
+    )
 
 
 def METRICS4_INPUT_TABLE_SQL() -> str:
@@ -250,7 +262,7 @@ PARTITION BY toStartOfWeek(original_expiry_timestamp)
 ORDER BY (team_id, metric_name, series_fingerprint, time_bucket)
 TTL original_expiry_timestamp
 SETTINGS
-    index_granularity = 8192,
+    index_granularity = 1024,
     ttl_only_drop_parts = 1
 """
 
