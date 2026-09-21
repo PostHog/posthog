@@ -2444,8 +2444,6 @@ jobs:
                       exit 1
                   fi
                   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-                  echo "::error::Triggering deterministic OpenAPI failure for self-cancel proof"
-                  exit 1
                   mapfile -t DRIFTED_FILES < <(
                       git ls-files --modified --deleted --others --exclude-standard | LC_ALL=C sort -u
                   )
