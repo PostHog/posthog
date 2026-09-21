@@ -33,12 +33,7 @@ from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult, V
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
-from ee.hogai.tools.upsert_dashboard.tool import (
-    AddDashboardInsightsToolArgs,
-    CreateDashboardToolArgs,
-    UpdateDashboardToolArgs,
-    UpsertDashboardTool,
-)
+from ee.hogai.tools.upsert_dashboard.tool import CreateDashboardToolArgs, UpdateDashboardToolArgs, UpsertDashboardTool
 from ee.hogai.utils.types import AssistantState
 
 DEFAULT_TRENDS_QUERY = TrendsQuery(series=[EventsNode(name="$pageview")])
@@ -204,23 +199,57 @@ class TestUpsertDashboardTool(BaseTest):
         soft_deleted_tiles = [t for t in all_tiles if t.deleted]
         self.assertEqual(len(soft_deleted_tiles), 2)
 
-    @parameterized.expand([("unique", 1), ("duplicate", 2)])
-    async def test_add_insights_preserves_existing_dashboard_tiles(self, _name: str, repeat_count: int):
+    @parameterized.expand([("saved",), ("state",), ("artifact",)])
+    @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
+    async def test_add_insights_preserves_existing_dashboard_tiles(self, source: str, mock_report: MagicMock) -> None:
         dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
         existing_insight = await self._create_insight("Existing insight")
-        new_insight = await self._create_insight("New insight")
-        await DashboardTile.objects.acreate(dashboard=dashboard, insight=existing_insight, layouts={})
-
-        tool = self._create_tool()
-        await tool._arun_impl(
-            AddDashboardInsightsToolArgs(
-                dashboard_id=str(dashboard.id),
-                insight_ids=[new_insight.short_id] * repeat_count,
-            )
+        layouts = {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
+        existing_tile = await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=existing_insight, layouts=layouts, color="blue"
         )
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        if source == "saved":
+            new_insight = await self._create_insight("New insight")
+            insight_id = new_insight.short_id
+        elif source == "state":
+            insight_id = str(uuid4())
+            state.messages = [VisualizationMessage(id=insight_id, answer=DEFAULT_TRENDS_QUERY)]
+        else:
+            conversation = await Conversation.objects.acreate(team=self.team, user=self.user)
+            artifact = await AgentArtifact.objects.acreate(
+                team=self.team,
+                conversation=conversation,
+                name="New insight",
+                type=AgentArtifact.Type.VISUALIZATION,
+                data={"query": DEFAULT_TRENDS_QUERY.model_dump(), "name": "New insight"},
+            )
+            insight_id = artifact.short_id
 
-        active_tiles = [tile async for tile in DashboardTile.objects.filter(dashboard=dashboard)]
-        self.assertEqual({tile.insight_id for tile in active_tiles}, {existing_insight.id, new_insight.id})
+        action = {
+            "action": {"action": "add_insights", "dashboard_id": str(dashboard.id), "insight_ids": [insight_id] * 2}
+        }
+        first_tile_ids = None
+        for _ in range(2):
+            tool = UpsertDashboardTool(team=self.team, user=self.user, state=state)
+            await tool.ainvoke(action)
+            tile_ids = [
+                tile_id
+                async for tile_id in DashboardTile.objects.filter(dashboard=dashboard)
+                .order_by("id")
+                .values_list("id", flat=True)
+            ]
+            self.assertEqual(len(tile_ids), 2)
+            if first_tile_ids is not None:
+                self.assertEqual(tile_ids, first_tile_ids)
+            first_tile_ids = tile_ids
+
+        await existing_tile.arefresh_from_db()
+        self.assertEqual(existing_tile.layouts, layouts)
+        self.assertEqual(existing_tile.color, "blue")
+        self.assertEqual(await Insight.objects.filter(team=self.team).acount(), 2)
+        insight_created_events = [call for call in mock_report.call_args_list if call.args[1] == "insight created"]
+        self.assertEqual(len(insight_created_events), 0 if source == "saved" else 1)
 
     @parameterized.expand(
         [

@@ -1,3 +1,5 @@
+import hashlib
+from base64 import urlsafe_b64encode
 from typing import Any, Literal, TypedDict, cast
 
 from django.db import transaction
@@ -232,9 +234,10 @@ class UpsertDashboardTool(MaxTool):
         dashboard = await self._get_dashboard(action.dashboard_id)
         insight_ids = list(dict.fromkeys(action.insight_ids))
         artifacts = await self._get_visualization_artifacts(insight_ids)
-        dashboard, resolved_insights = await self._add_dashboard_insights(dashboard, artifacts)
+        created_insights = await self._add_dashboard_insights(dashboard, insight_ids, artifacts)
         await self._report_dashboard_action(dashboard, "dashboard updated", {"operation": "add_insights"})
-        await self._report_new_insights(cast(list[VisualizationWithSourceResult], artifacts), resolved_insights)
+        for artifact, insight in created_insights:
+            await self._report_new_insights([artifact], [insight])
 
         sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
         insights = [tile.insight for tile in sorted_tiles if tile.insight is not None]
@@ -342,12 +345,32 @@ class UpsertDashboardTool(MaxTool):
     @database_sync_to_async
     @transaction.atomic
     def _add_dashboard_insights(
-        self, dashboard: Dashboard, artifacts: list[VisualizationWithSourceResult]
-    ) -> tuple[Dashboard, list[Insight]]:
+        self, dashboard: Dashboard, insight_ids: list[str], artifacts: list[VisualizationWithSourceResult]
+    ) -> list[tuple[VisualizationWithSourceResult, Insight]]:
         """Add or restore insight tiles without changing any other dashboard tiles."""
-        insights = self._create_resolved_insights(self._resolve_insights(artifacts))
+        created_insights: list[tuple[VisualizationWithSourceResult, Insight]] = []
+        for artifact_id, artifact, insight in zip(insight_ids, artifacts, self._resolve_insights(artifacts)):
+            if not isinstance(artifact, ModelArtifactResult):
+                # Stable IDs let the database deduplicate artifact retries, including concurrent calls.
+                identity = f"dashboard:{dashboard.id}:{artifact.source.value}:{artifact_id}"
+                short_id = urlsafe_b64encode(hashlib.sha256(identity.encode()).digest()[:9]).decode()
+                insight, created = Insight.objects_including_soft_deleted.get_or_create(
+                    team=self._team,
+                    short_id=short_id,
+                    defaults={
+                        "created_by": self._user,
+                        "name": insight.name,
+                        "description": insight.description,
+                        "query": insight.query,
+                        "saved": True,
+                    },
+                )
+                if created:
+                    created_insights.append((artifact, insight))
+                elif insight.deleted:
+                    insight.deleted = False
+                    insight.save(update_fields=["deleted"])
 
-        for insight in insights:
             tile, created = DashboardTile.objects_including_soft_deleted.get_or_create(
                 dashboard=dashboard,
                 insight=insight,
@@ -357,7 +380,7 @@ class UpsertDashboardTool(MaxTool):
                 tile.deleted = False
                 tile.save(update_fields=["deleted"])
 
-        return dashboard, insights
+        return created_insights
 
     @database_sync_to_async
     @transaction.atomic
