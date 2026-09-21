@@ -411,17 +411,17 @@ class AutoProjectMiddleware:
         We serve the user's own team for such an address. Rendering the app there leaves the address
         bar naming one project while every link in the app names another, so one click on the sidebar
         moves the person into a different project without saying so. Send the browser to the project
-        we do serve instead, and carry the refused project in the query string so that the app can
+        we do serve instead, and name the refused project in the query string so that the app can
         explain the refusal.
 
         Staff keep the page in place, because it renders the impersonation shortcut that support uses
         to open a customer's link.
         """
+        if request.method == "GET" and not user.is_staff:
+            query = urlencode({"project_access_denied": refused_project})
+            return redirect(f"/project/{cast(Team, user.team).pk}/?{query}")
         request.project_access_denied = refused_project  # type: ignore
-        if request.method != "GET" or user.is_staff:
-            return None
-        query = urlencode({"project_access_denied": refused_project})
-        return redirect(f"/project/{cast(Team, user.team).pk}/?{query}")
+        return None
 
     def get_target_queryset(self, request: HttpRequest) -> Optional[QuerySet]:
         # TODO: Remove this method, as all relevant links now have `project_id_in_url``

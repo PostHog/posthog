@@ -565,10 +565,9 @@ export const sceneLogic = kea<sceneLogicType>([
                 const appContext = getAppContext()
                 const effectiveResourceAccessControl = appContext?.effective_resource_access_control
 
-                // The server refused the project a link named. It either sent the browser here, to
-                // the project we do serve, and named the refused one in the query, or it served the
-                // refused address in place, which it still does for staff. Either way the page
-                // cannot load, and any later navigation drops the query and loads the scene.
+                // The server refused the project a link named. It either sent the browser to the
+                // project we do serve and named the refused one in the query, or, for staff, served
+                // the refused address in place. A later navigation drops both and loads the scene.
                 if (
                     sceneId &&
                     sceneConfigurations[sceneId]?.projectBased &&
@@ -773,7 +772,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 // server rendered. A client-side move into another project leaves those pointing at
                 // the project the person came from, so load the address instead of routing to it.
                 // The server switches the team for it, or refuses and says so.
-                window.location.href = pathname + (search || '') + (hash || '')
+                window.location.href = pathname + search + hash
                 return
             }
 
