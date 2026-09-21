@@ -146,6 +146,20 @@ class TestSerializeHogQLQueryToBatchExportSchema(BaseTest):
         assert field["alias"] == "`x, (SELECT query FROM another_table LIMIT 100) AS leaked`"
         assert field["expression"] == "events.uuid"
 
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_native_query_keeps_property_type_casts(self):
+        PropertyDefinition.objects.create(
+            team=self.team, name="amount", type=PropertyDefinition.Type.EVENT, property_type="Numeric"
+        )
+        query = "SELECT e.properties.amount AS amount FROM events AS e"
+
+        schema = self._make_serializer().serialize_hogql_query_to_batch_export_schema(
+            prepare_query(query, self.team.pk)
+        )
+
+        assert schema["fields"][0]["expression"].startswith("accurateCastOrNull(")
+        assert schema["values"]["hogql_val_1"] == "Float64"
+
     @parameterized.expand([("unrestricted", False), ("restricted", True)])
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_materialized_columns_are_kept_out_of_a_query_that_cannot_be_recompiled(self, _name: str, restricted: bool):

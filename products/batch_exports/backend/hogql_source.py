@@ -144,14 +144,17 @@ class SerializedExportProperties(CloningVisitor):
         index = 1 if node.chain[0] == "events" else 0
         if len(node.chain) <= index:
             return node
-        if node.chain[index : index + 2] in (["person", "properties"], ["poe", "properties"]):
-            node.chain[index : index + 2] = ["person_properties"]
-        restrictions = {
-            "properties": self.event_restrictions,
-            "person_properties": self.person_restrictions,
-        }.get(str(node.chain[index]))
+        if node.chain[index : index + 2] == ["person", "properties"]:
+            # `poe.properties` is the events table's own copy of the person properties.
+            node.chain[index : index + 2] = ["poe", "properties"]
+        if node.chain[index : index + 2] == ["poe", "properties"]:
+            restrictions, property_chain = self.person_restrictions, node.chain[index + 2 :]
+        elif str(node.chain[index]) == "properties":
+            restrictions, property_chain = self.event_restrictions, node.chain[index + 1 :]
+        else:
+            return node
         if restrictions:
-            property_path = ".".join(str(part) for part in node.chain[index + 1 :])
+            property_path = ".".join(str(part) for part in property_chain)
             if not property_path:
                 raise QueryError("Batch export queries cannot select a restricted properties object")
             if any(
@@ -163,15 +166,16 @@ class SerializedExportProperties(CloningVisitor):
 
 
 def prepare_serialized_export_query(query: ast.SelectQuery, context: HogQLContext) -> ast.SelectQuery:
-    """Resolve a HogQL query against the serialized native-events projection."""
+    """Resolve a HogQL query the way the export SQL reads it."""
     assert query.select_from is not None
     query = SerializedExportProperties(query.select_from.alias or "events", context).visit(query)
     assert query.select_from is not None
-    query.select_from.table = parse_select(
-        "SELECT event, team_id, timestamp, distinct_id, uuid, created_at, elements_chain, person_id, "
-        "properties, poe.properties AS person_properties FROM events"
-    )
-    query.select_from.alias = "events"
+    # The export SQL names its source `events`, so a user alias must not reach the printed fields.
+    query.select_from.alias = None
+    # Every export template hands the fields a String `properties`, the native source included, so
+    # the legacy shape is the one form valid on both. Resolving against the events table rather than
+    # a subquery is also what lets the swapper keep the cast a typed property needs.
+    context.use_new_events_schema = False
     return typing.cast(ast.SelectQuery, prepare_ast_for_printing(query, context=context, dialect="clickhouse"))
 
 
