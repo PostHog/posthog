@@ -859,6 +859,31 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_emit.assert_not_called()
 
+    def test_emit_finding_without_confidence_leaves_it_unset(self) -> None:
+        # `confidence` is retired from the emit contract: an emit that omits it succeeds, keeps the
+        # key out of the signal's `extra`, and records NULL on the emission row.
+        run = _make_run(self.team)
+        payload = self._payload()
+        payload.pop("confidence")
+        with patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock) as mock_emit:
+            response = self.client.post(self._emit_signal_url(str(run.id)), data=payload, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_emit.await_args is not None
+        assert "confidence" not in mock_emit.await_args.kwargs["extra"]
+        assert SignalScoutEmission.objects.get(scout_run=run).confidence is None
+
+    @parameterized.expand([("below_range", -0.1), ("above_range", 1.1)])
+    def test_emit_finding_rejects_out_of_range_confidence(self, _name: str, confidence: float) -> None:
+        # A custom scout still sending the retired field gets the same error it got before, not a
+        # silently accepted value.
+        run = _make_run(self.team)
+        with patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock) as mock_emit:
+            response = self.client.post(
+                self._emit_signal_url(str(run.id)), data=self._payload(confidence=confidence), format="json"
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_emit.assert_not_called()
+
     def test_emit_finding_rejects_non_in_progress_run(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")
         run = _make_run(self.team, task_run_status=TaskRun.Status.COMPLETED)

@@ -1433,10 +1433,18 @@ class CSPMiddleware:
             admin_report_endpoint = csp_report_endpoint()
             if admin_report_endpoint:
                 csp_parts += [f"report-uri {admin_report_endpoint}", "report-to posthog"]
+                # Without a distinct_id the report endpoint mints a new one for every report, so a
+                # single staff session reads as a crowd of users. Only this header carries it, as in
+                # the app policy below.
+                user = getattr(request, "user", None)
+                distinct_id = getattr(user, "distinct_id", None) if user is not None and user.is_authenticated else None
+                reporting_endpoint = (
+                    csp_report_endpoint(distinct_id=distinct_id) if distinct_id else admin_report_endpoint
+                )
                 # Browsers only deliver crash reports to the endpoint named `default`; the CSP
                 # `report-to posthog` directive keeps routing violations to `posthog`.
                 response.headers["Reporting-Endpoints"] = (
-                    f'posthog="{admin_report_endpoint}", default="{admin_report_endpoint}"'
+                    f'posthog="{reporting_endpoint}", default="{reporting_endpoint}"'
                 )
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
         elif "Content-Security-Policy" in response.headers:
@@ -1461,7 +1469,11 @@ class CSPMiddleware:
 
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
             csp_parts = [
-                "default-src 'self'",
+                # Firefox checks <link rel="modulepreload"> against default-src instead of script-src,
+                # so without the static host it refuses the preloads index.html emits for the boot
+                # chain. The fetch directives below each set their own sources, so only a load a
+                # browser cannot map to one of them falls back to this list.
+                f"default-src 'self' {resource_url}",
                 f"style-src 'self' 'unsafe-inline' {resource_url} https://fonts.googleapis.com",
                 # 'wasm-unsafe-eval' permits WebAssembly compilation and nothing else. It is not
                 # 'unsafe-eval': it does not permit eval() or the Function constructor. Compiling a
@@ -1765,6 +1777,15 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
         re.compile(
             r"^/api/(environments|projects)/([0-9]+|@current)/external_data_schemas/[^/]+/incremental_fields/?$"
         ),
+    ),
+    # POST but read-only: parses the query's SQL to report whether it can be materialized
+    # incrementally, and writes nothing. The editor calls it on every open of a model's
+    # materialization panel, so blocking it hides the whole Refresh mode section with no error.
+    # The action is named exactly, because the same prefix hosts the mutating saved-query
+    # actions (materialize, run, cancel, resume).
+    (
+        "POST",
+        re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/warehouse_saved_queries/check_incremental/?$"),
     ),
     # POST but read-only: kicks off insight/dashboard/session replay export renders (e.g. MP4)
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/exports/?$")),
