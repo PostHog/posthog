@@ -1,5 +1,10 @@
 /** Fires the same requests at the Django view and this prototype and diffs status and body.
  *
+ * One divergence is deliberate and not covered here: Django still accepts an HS256 identity token
+ * signed with the team's deprecated secret API key, and this service accepts ES256 only. No external
+ * channel in either region relies on that fallback, and Django's copy is being removed separately.
+ * Exercising it needs a team with a populated secret, so the unit tests carry that case instead.
+ *
  * Usage: tsx compare-with-django.ts <django-url> <node-url> <project-token> [app-id]
  */
 import { gzipSync } from 'zlib'

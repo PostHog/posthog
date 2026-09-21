@@ -226,7 +226,6 @@ export class PushSubscriptionsService {
                     distinctId,
                     appId,
                     publicKeys,
-                    secrets: [team.secret_api_token, team.secret_api_token_backup],
                 })
             identityVerification = {
                 mode: verificationMode,

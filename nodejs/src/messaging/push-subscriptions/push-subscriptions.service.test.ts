@@ -3,7 +3,7 @@ import { gzipSync } from 'zlib'
 import { PushSubscriptionsService } from './push-subscriptions.service'
 
 describe('PushSubscriptionsService', () => {
-    const team = { id: 7, api_token: 'phc_real', secret_api_token: null, secret_api_token_backup: null }
+    const team = { id: 7, api_token: 'phc_real', secret_api_token: null }
 
     let teamManager: any
     let postgres: any
