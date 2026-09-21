@@ -1,12 +1,16 @@
 from typing import Optional
 
 from django.core.management import call_command
+from django.db.models import Count, Q, Value
+from django.db.models.fields.json import JSONField
 from django.utils import timezone
 
 from celery import shared_task
+from prometheus_client import Gauge
 from structlog import get_logger
 
 from posthog.celery_queues import CeleryQueue
+from posthog.metrics import pushed_metrics_registry
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
@@ -135,3 +139,42 @@ def queue_sync_hog_function_templates() -> None:
             logger.info("Not queuing sync_hog_function_templates task: lock already set")
     except Exception as e:
         logger.exception(f"Failed to queue sync_hog_function_templates celery task: {e}")
+
+
+@skip_team_scope_audit
+def uncompilable_filter_counts() -> dict[str, tuple[int, int]]:
+    """Per type, how many enabled functions recorded a compile error, split on whether bytecode survived."""
+    from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+
+    # `__isnull=True` on a JSON key means the key is absent, which is a different row from one
+    # holding a JSON null, so both spellings are matched.
+    no_bytecode = Q(filters__bytecode__isnull=True) | Q(filters__bytecode=Value(None, JSONField()))
+
+    rows = (
+        HogFunction.objects.filter(deleted=False, enabled=True)
+        .exclude(filters__bytecode_error__isnull=True)
+        .values("type")
+        .annotate(total=Count("id"), dead=Count("id", filter=no_bytecode))
+    )
+    return {row["type"]: (row["dead"], row["total"] - row["dead"]) for row in rows}
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+def count_uncompilable_hog_function_filters() -> None:
+    from products.cdp.backend.models.hog_functions.hog_function import HogFunctionType
+
+    counts = uncompilable_filter_counts()
+
+    with pushed_metrics_registry("celery_cdp_uncompilable_hog_function_filters") as registry:
+        gauge = Gauge(
+            "posthog_cdp_uncompilable_hog_function_filters",
+            "Enabled hog functions whose filters recorded a compile error, by whether bytecode survived.",
+            labelnames=["type", "state"],
+            registry=registry,
+        )
+        # Every type is written, including the zeros. The push deletes the previous job's metrics,
+        # so a type left out would disappear from the series rather than read as none broken.
+        for hog_type in HogFunctionType.values:
+            dead, kept = counts.get(hog_type, (0, 0))
+            gauge.labels(type=hog_type, state="no_bytecode").set(dead)
+            gauge.labels(type=hog_type, state="kept_bytecode").set(kept)

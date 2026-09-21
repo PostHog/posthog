@@ -12,7 +12,7 @@ from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
-from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
+from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions, uncompilable_filter_counts
 from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
@@ -363,6 +363,26 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             cohort.name = "Updated name"
             cohort.save()
             mock_delay.assert_not_called()
+
+    def test_uncompilable_filter_counts_splits_dead_from_still_delivering(self):
+        def broken(name, enabled, filters, hog_type=HogFunctionType.DESTINATION):
+            fn = HogFunction.objects.create(team=self.team, name=name, enabled=enabled, type=hog_type)
+            # Past save(), which recompiles and clears the error.
+            HogFunction.objects.filter(id=fn.id).update(filters=filters)
+
+        error = {"bytecode_error": "Cohort membership cannot be evaluated"}
+        broken("Dead", True, {"bytecode": None, **error})
+        broken("Still delivering", True, {"bytecode": ["_H", 1], **error})
+        broken("Healthy", True, {"bytecode": ["_H", 1]})
+        broken("Switched off", False, {"bytecode": None, **error})
+        broken("A transformation", True, {"bytecode": None, **error}, HogFunctionType.TRANSFORMATION)
+
+        # Since a save can keep the last working bytecode beside the error, the error alone no
+        # longer separates a destination that is on and dead from one that is on and delivering.
+        assert uncompilable_filter_counts() == {
+            HogFunctionType.DESTINATION: (1, 1),
+            HogFunctionType.TRANSFORMATION: (1, 0),
+        }
 
     def test_cohort_refresh_finds_affected_teams_and_recompiles(self):
         cohort = Cohort.objects.create(

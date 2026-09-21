@@ -83,6 +83,7 @@ from products.approvals.backend.tasks import (
     validate_pending_change_requests,
 )
 from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
+from products.cdp.backend.tasks.hog_functions import count_uncompilable_hog_function_filters
 from products.conversations.backend.tasks.email import flush_pending_email_replies
 from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
 from products.conversations.backend.tasks.slack import sweep_inbound_events
@@ -1006,6 +1007,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/2"),
         sweep_canvas_builds.s(),
         name="recover stuck canvas builds",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        count_uncompilable_hog_function_filters.s(),
+        name="count hog functions with uncompilable filters",
     )
 
     sender.add_periodic_task(
