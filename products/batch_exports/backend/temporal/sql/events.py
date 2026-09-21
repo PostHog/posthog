@@ -538,6 +538,10 @@ FROM (
     {order}
 ) AS events
 {"" if s3_function else "FORMAT ArrowStream"}
-SETTINGS max_bytes_before_external_sort=50000000000, optimize_aggregation_in_order=1
+SETTINGS
+    max_bytes_before_external_sort=50000000000,
+    max_replica_delay_for_distributed_queries=60,
+    fallback_to_stale_replicas_for_distributed_queries=0,
+    optimize_aggregation_in_order=1
 {", log_comment={log_comment}" if s3_function else ""}
 """
