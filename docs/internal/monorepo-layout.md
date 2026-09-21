@@ -71,6 +71,7 @@ The backend matches labels to the company and prompt version, checks AI consent,
 `EnrichmentPromptConfig` holds versioned labeler prompts; `IcpScoringConfig` holds immutable versions of the curated lists and scoring rules.
 Operators can clone a scoring configuration in Django admin, change points, thresholds or accepted AI labels, and save an inactive version.
 Preview that version against archived company data with `preview_icp_scoring_config` before using the separate activation action.
+The preview does not lock prompt configurations. In `enrichment_label_batch`, `--limit` separately bounds new classifications and repairs of stored scores.
 Scores record the configuration version in `icp_fit_lists_version`; activation affects subsequent evaluations, and `backfill_icp_fit_scores` reapplies the rules to archived data.
 Failed label-driven score updates retry the stored label without another model request.
 
