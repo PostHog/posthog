@@ -11,6 +11,8 @@ from unittest.mock import patch
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
+from .paths import SPEC_DIR
+
 Consumer = Literal["browser", "backend", "mcp"]
 
 
@@ -22,7 +24,7 @@ class Flag(BaseModel):
 
 
 def flag_values(consumer: Consumer) -> dict[str, bool]:
-    manifest = TypeAdapter(dict[str, Flag]).validate_json(Path(__file__).with_name("flags.json").read_text())
+    manifest = TypeAdapter(dict[str, Flag]).validate_json((SPEC_DIR / "flags.json").read_text())
     return {key: flag.value for key, flag in manifest.items() if consumer in flag.consumers}
 
 

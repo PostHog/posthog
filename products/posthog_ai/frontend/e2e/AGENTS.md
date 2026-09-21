@@ -1,6 +1,6 @@
 # Adding AI E2E cases
 
-Read [architecture.md](architecture.md) before changing the launcher, fixtures, controls, or CI job.
+Read [architecture.md](../../e2e_harness/architecture.md) before changing the launcher, fixtures, controls, or CI job.
 
 - Reuse the text and insight-update fixtures first. Store new model events as one provider event per NDJSON line under
   `fixtures/<provider>/`. The mock emits SSE; do not send NDJSON to an SDK.

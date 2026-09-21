@@ -219,12 +219,16 @@ The provisioner leaves that empty, migrated database as a template. `AI_E2E_SCHE
 handoff to the launcher, which rejects a template containing tasks and clones it into its launch-owned database. This
 avoids repeating schema restore and migrations for the browser phase. Standalone launches restore and migrate their own database.
 
-Regular Playwright discovery and spec selection exclude `*.ai.spec.ts`; the AI config selects them explicitly. The AI path filter
-covers frontend, tasks, agent, MCP, harness, and build inputs. Older checkouts missing the tooling skip the new job's steps.
-The existing required check includes AI failures and prerequisite failures. Normal triggers and the regular suite's
-selection, reporting, and retry behavior remain in place. The AI job also defaults to one CI retry.
-The job runs alongside regular Playwright, with one AI browser worker and one active sandbox. It does not create a provider
-matrix or duplicate stack setup. The normal AI job timeout is 30 minutes, including provisioning and artifact steps.
+Regular Playwright discovery, spec selection, and the new-spec flake verifier exclude `*.ai.spec.ts`. The shared
+`playwright/playwright.config.ts` defines an `ai` project that matches them, and only when `AI_E2E_OUTPUT` is set, because a
+plain `playwright test` runs every project it finds and this one needs the launcher's stack. The launcher runs
+`--project=ai` with one worker, so the suite keeps the shared quarantine reporter, the JUnit output with retries, and the
+Trunk ownership map. The AI path filter covers the PostHog AI and tasks products, the MCP and agent-proxy services, the
+sandbox image inputs, the shared Playwright tree, and the environment manifests; a change elsewhere in the app is left to
+the regular suite. Older checkouts missing the tooling skip the new job's steps.
+The AI job reports its own check and does not feed the required Playwright gate. It runs alongside regular Playwright,
+with one AI browser worker and one active sandbox, and defaults to one CI retry. It does not create a provider matrix or
+duplicate stack setup. The normal AI job timeout is 30 minutes, including provisioning and artifact steps.
 
 For runner validation, dispatch the workflow on the tested branch with `ai_repeat_each=10`. This selects a 90-minute job
 and forces zero AI retries; an explicit nonzero retry override is rejected. `ai_repeat_each=1` selects the normal job.
@@ -258,6 +262,79 @@ The `ai-playwright-results` artifact contains the traces, service logs, timeline
 ID is `sha256:1321279cd7c3336e9e57372ff9eac70b5f26ec284bfd9d202e0ab6de6b2459a8`, with source fingerprint
 `cad1caba2fcb4e286eadce155f2aa5d7e8bba69cf30177a0679f331c5bfa3410` and frozen lockfile fingerprint
 `2b77ed7bbdd14a4f43d814786400020705ba3b2eff6720db93d742b8c450cb2e`.
+
+## Runner notes
+
+Run from the repository root through `.codex/with-flox hogli test:e2e:ai`. `--attach` reuses infrastructure while still
+creating a fresh application database. The Postgres role must have database creation privileges. The runner drops only
+its own application database; it does not dispatch another developer's queued tasks. Configure auxiliary stores and
+Temporal before attaching. The launcher starts its own Django, MCP, agent-proxy, dispatcher, and tasks worker.
+
+The committed [flag manifest](../frontend/e2e/flags.json) selects the proxy and durable dispatcher path. Browser, backend,
+and MCP consumers derive their values from that file. Add an explicit entry when introducing a flag on the exercised
+path. CI does not contact production feature-flag evaluation or import production targeting data.
+
+Manual `ai_repeat_each=10` selects the 90-minute stability run and requires zero retries. Artifacts include browser traces,
+proxy and dispatcher logs, effective flags, observed backend flag decisions, image provenance, per-stage timings, and peak
+memory. Ten zero-retry repetitions on the actual CI runner establish stability; cold and warm normal runs establish
+whether the suite fits its timeout. Historical Django-stream results do not establish stability or runtime for the proxy
+profile.
+
+The production `run_task_workflow_dispatcher` command accepts `--metrics-port` and `--health-directory`. Defaults remain
+port `8001` and `/tmp`, producing `dispatcher-ready` and `dispatcher-heartbeat`. The E2E bootstrap uses an allocated
+metrics port and its artifact directory so it does not collide with another dispatcher. Readiness files are removed on
+shutdown.
+
+## Readiness behavior
+
+The browser handles two explicit startup rejections:
+
+- Task creation and resume return `503 warm_run_activation_unavailable` with a signed retry token when Temporal confirms
+  nondelivery. The browser retries the identical payload for up to 20 seconds, including the first request, and reuses
+  the first token to pin the original run, workflow, and message.
+- Approval delivery returns `503 agent_session_not_ready` for the exact upstream HTTP 400 no-active-session rejection.
+  The browser retries for up to ten seconds and requires confirmed approval resolution.
+
+Submission exhaustion preserves the draft, attachments, and unsent context for manual retry.
+Approval submission immediately reveals the composer; failed delivery restores the approval with its answers, feedback,
+and selections. An ended approval target returns `409 permission_target_ended` and clears the stale card.
+Cancellation or replacement of the owning run or approval stops retries.
+
+Transport errors, unrelated 503 responses, and JSON-RPC errors inside HTTP 200 do not qualify for automatic readiness
+retries. An ambiguous transport failure could follow successful execution; replaying it could execute a tool twice.
+
+## Coverage and remaining flows
+
+The browser suite runs three cases for each of Claude and Codex:
+
+- Submit from the new-chat composer while a seeded warm workflow waits for registration, recover on the original run,
+  send a follow-up, and reload without duplicate messages.
+- Submit while the worker is held, then release it and verify one persisted message and response on the original run.
+- Submit one approval through an explicit startup rejection, keep the composer available, and verify exactly one real
+  insight update.
+
+The following flows still need browser coverage across the real services.
+Existing Kea, component, and backend tests cover many individual transitions; they do not establish end-to-end behavior.
+
+| Area                       | Flow and expected result                                                                                                                                          |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cold start                 | Create a chat without a warm run, complete a turn, and send an idle follow-up. Preserve model, permission mode, attachments, and selected context.                |
+| Warm resume                | Resume a completed conversation while the successor workflow starts. Preserve history and attachments; deliver once to the intended successor.                    |
+| Optimistic approvals       | Answer a question, submit permission feedback, or approve a plan. Queue a follow-up while delivery waits. Restore the same inputs on failure.                     |
+| Approval and turn ordering | Hold a follow-up in **Up next** until both approval resolution and turn completion. Exercise either event arriving first.                                         |
+| Steering                   | Use **Steer** or Escape to submit the saved queue during an active turn. Preserve the separate draft and verify the agent consumes the queued text once.          |
+| Deferred steering          | Request steering while approval delivery waits. Submit only after confirmation; clear the deferred action on failure or replacement.                              |
+| Failed queue delivery      | Restore older queued text ahead of newer text and preserve context. Require explicit retry; editing or removing the failed queue allows fresh delivery.           |
+| Stopping                   | With no saved queue, Escape or Stop cancels the active turn. Show the Stop spinner and block sends, steering, and approvals until completion.                     |
+| Startup stopping           | Request cancellation before attachment or agent readiness. Wait for the current agent and prompt, then cancel once. Leaving the chat cancels the pending intent.  |
+| Focus ownership            | Main chat handles Escape while composing or reading. The sidebar handles it only in its composer or approval controls. Menus, dialogs, and editors retain Escape. |
+| Sidebar attachment         | Type during startup and retain the draft and focus when the attached run replaces the startup view. Check normal and narrow scenes.                               |
+| History and reconnects     | Reload a pending approval, reconnect, or resolve it from another client. Only the owning run's unresolved approval remains actionable.                            |
+
+Keep deadline, token-validation, error-classification, duplicate-click, and stale-completion matrices in the existing
+backend and Kea tests with controlled clocks. The browser cases should prove delivery, visible recovery, and persisted
+effects across service boundaries. Run runtime-sensitive journeys with both Claude and Codex; test focus and layout
+variations with the cheaper component or browser surface harness.
 
 ## Troubleshooting
 

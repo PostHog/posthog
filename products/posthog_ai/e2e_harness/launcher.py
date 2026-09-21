@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import json
+import shutil
 import socket
 import asyncio
 import logging
@@ -14,6 +15,8 @@ from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from pathlib import Path
 from uuid import uuid4
+
+from .paths import ARTIFACTS_DIR, REPO_ROOT
 
 
 def build_skills() -> None:
@@ -36,6 +39,17 @@ def build_skills() -> None:
         organization.delete()
 
 
+def collect_reports(root: Path, output: Path) -> None:
+    """Copy the shared reporters' output next to the traces so one artifact holds the whole run."""
+    playwright = root / "playwright"
+    junit = playwright / "junit-results.xml"
+    if junit.exists():
+        shutil.copyfile(junit, output / "junit.xml")
+    report = playwright / "playwright-report"
+    if report.is_dir():
+        shutil.copytree(report, output / "report", dirs_exist_ok=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run AI browser tests with real services and replayed model responses")
     parser.add_argument(
@@ -51,8 +65,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.repeat_each < 1 or (args.retries is not None and args.retries < 0):
         parser.error("Repetitions must be positive and retries cannot be negative")
-    root = Path(__file__).resolve().parents[4]
-    output = root / "products/posthog_ai/frontend/e2e/artifacts" / uuid4().hex
+    root = REPO_ROOT
+    output = ARTIFACTS_DIR / uuid4().hex
     output.mkdir(parents=True)
     logging.basicConfig(
         level=logging.INFO, handlers=[logging.FileHandler(output / "services.log"), logging.StreamHandler()]
@@ -301,7 +315,7 @@ def main() -> int:
             with monitor.stage("dispatcher_startup"):
                 processes.start(
                     "dispatcher",
-                    [sys.executable, "-m", "products.posthog_ai.frontend.e2e.dispatcher"],
+                    [sys.executable, "-m", "products.posthog_ai.e2e_harness.dispatcher"],
                     dict(os.environ),
                     configuration=json.dumps(
                         {
@@ -329,8 +343,7 @@ def main() -> int:
                 "exec",
                 "playwright",
                 "test",
-                "--config",
-                str(Path(__file__).with_name("playwright.config.ts")),
+                "--project=ai",
                 "--workers=1",
                 f"--repeat-each={args.repeat_each}",
             ]
@@ -340,6 +353,7 @@ def main() -> int:
                 command.extend(["--grep", args.grep])
             with monitor.stage("browser"):
                 result = processes.run_browser(command, env)
+            collect_reports(root, output)
         return result or int(bool(controller.errors))
     finally:
         if "controller" in locals():

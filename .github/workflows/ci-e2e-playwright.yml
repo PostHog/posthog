@@ -609,7 +609,7 @@ jobs:
             - name: Check checkout supports the AI suite
               id: tooling
               run: |
-                  if [[ -f products/posthog_ai/frontend/e2e/ci.py && -x .codex/with-flox ]]; then
+                  if [[ -f products/posthog_ai/e2e_harness/ci.py && -x .codex/with-flox ]]; then
                       echo "available=true" >> "$GITHUB_OUTPUT"
                   else
                       echo "::notice::AI E2E tooling is absent on this older checkout; skipping the AI suite."
@@ -627,7 +627,7 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: /tmp/ai-e2e-image-cache
-                  key: ai-e2e-image-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.dockerignore', 'products/desktop/package.json', 'products/desktop/pnpm-lock.yaml', 'products/desktop/pnpm-workspace.yaml', 'products/desktop/.npmrc', 'products/desktop/patches/**', 'products/desktop/scripts/rimraf.mjs', 'products/desktop/packages/agent/**', 'products/desktop/packages/agent-shadow/**', 'products/desktop/packages/harness/**', 'products/desktop/packages/shared/**', 'products/desktop/packages/git/**', 'products/desktop/packages/enricher/**', 'products/tasks/backend/sandbox/images/**', 'products/tasks/backend/logic/services/docker_sandbox.py', 'products/posthog_ai/skills/**', 'products/posthog_ai/frontend/e2e/image.py') }}
+                  key: ai-e2e-image-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.dockerignore', 'products/desktop/package.json', 'products/desktop/pnpm-lock.yaml', 'products/desktop/pnpm-workspace.yaml', 'products/desktop/.npmrc', 'products/desktop/patches/**', 'products/desktop/scripts/rimraf.mjs', 'products/desktop/packages/agent/**', 'products/desktop/packages/agent-shadow/**', 'products/desktop/packages/harness/**', 'products/desktop/packages/shared/**', 'products/desktop/packages/git/**', 'products/desktop/packages/enricher/**', 'products/tasks/backend/sandbox/images/**', 'products/tasks/backend/logic/services/docker_sandbox.py', 'products/posthog_ai/skills/**', 'products/posthog_ai/e2e_harness/image.py') }}
 
             - name: Prepare development environment
               if: steps.tooling.outputs.available == 'true'
@@ -648,7 +648,7 @@ jobs:
                   AI_RETRIES: ${{ steps.mode.outputs.retries }}
                   AI_REPETITIONS: ${{ steps.mode.outputs.repetitions }}
               run: |
-                  .codex/with-flox env CI=true python -m products.posthog_ai.frontend.e2e.ci \
+                  .codex/with-flox env CI=true python -m products.posthog_ai.e2e_harness.ci \
                       --retries "$AI_RETRIES" --repeat-each "$AI_REPETITIONS" --image-cache /tmp/ai-e2e-image-cache
 
             - name: Save sandbox image
@@ -663,18 +663,26 @@ jobs:
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: ai-playwright-results
-                  path: products/posthog_ai/frontend/e2e/artifacts/
+                  path: products/posthog_ai/e2e_harness/artifacts/
                   retention-days: 14
                   if-no-files-found: warn
+
+            # Same ownership map as the regular suite, so Trunk attributes these cases to their team.
+            - name: Build the Trunk ownership map
+              if: ${{ !cancelled() && steps.tooling.outputs.available == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
+              shell: bash
+              run: |
+                  script=.github/scripts/trunk-codeowners.sh
+                  if [ -x "$script" ]; then "$script" "$RUNNER_TEMP/trunk-codeowners" "playwright/junit-results.xml"; fi
 
             - name: Report AI test results to Trunk
               if: ${{ !cancelled() && steps.tooling.outputs.available == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               continue-on-error: true
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
-                  junit-paths: products/posthog_ai/frontend/e2e/artifacts/*/junit.xml
+                  junit-paths: playwright/junit-results.xml
                   org-slug: posthog-inc
-                  cli-version: '0.13.7'
+                  cli-version: '0.15.4'
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
     playwright:

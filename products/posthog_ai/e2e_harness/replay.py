@@ -3,10 +3,11 @@ from __future__ import annotations
 import re
 import json
 import threading
-from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, JsonValue
+
+from .paths import SPEC_DIR
 
 
 class ToolResult(BaseModel):
@@ -45,7 +46,7 @@ def fixture_events(step: ResponseStep) -> list[dict[str, JsonValue]]:
     allowed = {"message_id", "tool_call_id", "resource_id", "text", "model", "arguments", "tool_name", "tool_namespace"}
     if set(step.substitutions) - allowed:
         raise ValueError("Unknown fixture substitution")
-    path = Path(__file__).parent / "fixtures" / step.provider / f"{step.fixture}.ndjson"
+    path = SPEC_DIR / "fixtures" / step.provider / f"{step.fixture}.ndjson"
     return [object_value(substitute(json.loads(line), step.substitutions)) for line in path.read_text().splitlines()]
 
 

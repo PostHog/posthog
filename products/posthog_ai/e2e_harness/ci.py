@@ -5,14 +5,14 @@ import sys
 import json
 import shutil
 import subprocess
-from pathlib import Path
 
 from .metrics import ResourceMonitor
+from .paths import ARTIFACTS_DIR, REPO_ROOT
 
 
 def main() -> int:
-    root = Path(__file__).resolve().parents[4]
-    output = root / "products/posthog_ai/frontend/e2e/artifacts/ci"
+    root = REPO_ROOT
+    output = ARTIFACTS_DIR / "ci"
     output.mkdir(parents=True, exist_ok=True)
     os.environ.update(
         {
