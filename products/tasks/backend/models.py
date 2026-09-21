@@ -2740,7 +2740,14 @@ class TaskRun(models.Model):
     # expiry — user history must not silently vanish after 30 days.
     DEFAULT_LOG_TTL_DAYS = 30
 
-    def append_log(self, entries: list[dict], *, ttl_days: int | None = DEFAULT_LOG_TTL_DAYS, lock_attempts: int = 3):
+    def append_log(
+        self,
+        entries: list[dict],
+        *,
+        ttl_days: int | None = DEFAULT_LOG_TTL_DAYS,
+        lock_attempts: int = 3,
+        batch_id: str | None = None,
+    ):
         """Append log entries to S3 storage.
 
         `ttl_days` tags a newly-created log file for expiry; pass `None` to write a log that is
@@ -2753,7 +2760,7 @@ class TaskRun(models.Model):
         if not entries:
             return
 
-        is_new_file = append_jsonl_object(self.log_url, entries, lock_attempts=lock_attempts)
+        is_new_file = append_jsonl_object(self.log_url, entries, lock_attempts=lock_attempts, batch_id=batch_id)
 
         self._mirror_logs_to_posthog_logs(entries)
 
@@ -2894,6 +2901,22 @@ class TaskRun(models.Model):
         benjamin_version = state.get("benjamin_version")
         if isinstance(benjamin_version, str) and benjamin_version:
             props["benjamin_version"] = benjamin_version
+        budget = state.get("budget_guard")
+        if isinstance(budget, dict):
+            for key in ("cap_usd", "spent_usd", "estimated_usd", "sdk_total_usd"):
+                value = budget.get(key)
+                if isinstance(value, int | float) and not isinstance(value, bool):
+                    props[f"budget_{key}"] = value
+            for key in ("stage", "mode"):
+                value = budget.get(key)
+                if isinstance(value, str) and value:
+                    props[f"budget_{key}"] = value
+            steers = budget.get("steers")
+            if isinstance(steers, list):
+                props["budget_steers"] = len(steers)
+                props["budget_steers_delivered"] = sum(
+                    1 for steer in steers if isinstance(steer, dict) and steer.get("delivered") is True
+                )
         return props
 
     def analytics_properties(self) -> dict:
