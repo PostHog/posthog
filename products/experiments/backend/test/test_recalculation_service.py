@@ -23,9 +23,9 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.recalculation import (
-    build_timeseries_cold_start_payload,
     get_active_recalculation,
     get_latest_recalculation,
+    get_latest_timeseries,
     get_live_query_progress,
     get_recalculation_by_id,
     get_run_results,
@@ -467,7 +467,7 @@ class TestTimeseriesColdStartPayload(BaseTest):
 
     def test_returns_none_when_no_timeseries_data(self):
         exp = self._experiment("ts-none", ["m1"])
-        assert build_timeseries_cold_start_payload(exp) is None
+        assert get_latest_timeseries(exp).payload is None
 
     def test_builds_completed_fallback_from_latest_point(self):
         exp = self._experiment("ts-one", ["m1"])
@@ -476,7 +476,7 @@ class TestTimeseriesColdStartPayload(BaseTest):
         self._timeseries_point(exp, "m1", older, {"stale": True})
         self._timeseries_point(exp, "m1", latest, {"ok": True})
 
-        payload = build_timeseries_cold_start_payload(exp)
+        payload = get_latest_timeseries(exp).payload
         assert payload is not None
         assert payload["result_source"] == "timeseries_fallback"
         assert payload["status"] == "completed"
@@ -493,7 +493,7 @@ class TestTimeseriesColdStartPayload(BaseTest):
         self._timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC), {"ok": True})
         # m2 has no point.
 
-        payload = build_timeseries_cold_start_payload(exp)
+        payload = get_latest_timeseries(exp).payload
         assert payload is not None
         assert payload["total_metrics"] == 2
         assert payload["completed_metrics"] == 1
@@ -506,7 +506,7 @@ class TestTimeseriesColdStartPayload(BaseTest):
         self._timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC), {"ok": True})
         exp.exposure_criteria = {"filterTestAccounts": True}
         exp.save()
-        assert build_timeseries_cold_start_payload(exp) is None
+        assert get_latest_timeseries(exp).payload is None
 
 
 @pytest.mark.django_db(transaction=True)

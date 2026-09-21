@@ -24,6 +24,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping import get_current_team_id, team_scope
 from posthog.models.user import User
@@ -471,32 +472,31 @@ def _latest_timeseries_points(
         return metrics, points
 
 
-def get_latest_timeseries(experiment: Experiment) -> datetime | None:
-    """The window end the timeseries data covers for EVERY metric of the experiment, or None.
+@frozen
+class LatestTimeseries:
+    """What the daily timeseries data offers the latest endpoint, read once per request.
 
-    Returns the oldest of the per-metric newest completed points, so a caller comparing it against a
-    recalculation's query_to knows the timeseries payload is newer for all metrics, not only some. A partial
-    refresh returns None: mixing a fresh point for one metric with an older recalculation for another would
-    show two data windows in one view, which the one-query_to-per-run contract exists to prevent.
+    complete_until is the oldest of the per-metric newest completed points when every metric has one, else None:
+    a caller comparing it against a recalculation's query_to knows the payload is newer for all metrics, not only
+    some. A partial refresh would mix a fresh point for one metric with an older recalculation for another, which
+    the one-query_to-per-run contract exists to prevent. payload is the synthetic 'completed' recalculation built
+    from the same points, or None when no metric has a point (the caller then keeps the 404).
+    """
+
+    complete_until: datetime | None
+    payload: dict | None
+
+
+def get_latest_timeseries(experiment: Experiment) -> LatestTimeseries:
+    """Pure read. Serves GET /metrics_recalculation/latest as the cold-start placeholder when no run exists, and
+    as the fresher result when the daily data is newer than the latest run for every metric.
+
+    The payload's query_to and completed_at both pin to the freshest point so the frontend's staleness path can
+    fire its own recompute trigger (GET never triggers anything itself).
     """
     metrics, points = _latest_timeseries_points(experiment)
-    if not metrics or len(points) < len(metrics):
-        return None
-    return min(row.query_to for row in points.values())
 
-
-def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
-    """Synthetic 'completed' recalculation payload built from each metric's latest completed timeseries point.
-
-    Pure read. Used by GET /metrics_recalculation/latest as a cold-start placeholder when no real
-    metrics-recalculation run exists yet, and when the daily timeseries data is newer than the latest run for
-    every metric (see get_latest_timeseries).
-
-    Returns None when no metric has a completed timeseries point (caller then keeps the 404). query_to and
-    completed_at both pin to the freshest point's date so the frontend's >24h staleness path fires its own
-    recompute trigger (GET never triggers anything itself).
-    """
-    metrics, points = _latest_timeseries_points(experiment)
+    complete_until = min(row.query_to for row in points.values()) if metrics and len(points) == len(metrics) else None
 
     results: list[dict] = []
     latest_query_to = None
@@ -513,9 +513,9 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
             latest_query_to = row.query_to
 
     if not results:
-        return None
+        return LatestTimeseries(complete_until=complete_until, payload=None)
 
-    return {
+    payload = {
         "id": "timeseries-fallback",
         "experiment_id": experiment.id,
         "status": ExperimentMetricsRecalculation.Status.COMPLETED,
@@ -531,3 +531,4 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
         "results": results,
         "result_source": "timeseries_fallback",
     }
+    return LatestTimeseries(complete_until=complete_until, payload=payload)
