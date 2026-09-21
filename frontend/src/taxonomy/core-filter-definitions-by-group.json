@@ -2887,9 +2887,29 @@
             "type": "Numeric",
             "used_for_debug": true
         },
+        "$sdk_debug_pending_queue_size": {
+            "description": "Useful for debugging. The depth of the mobile SDK's single disk-backed event queue, which handles both normal batching and retry backoff. Mobile SDKs report this instead of the retry queue size.",
+            "examples": [
+                "100"
+            ],
+            "ignored_in_assistant": true,
+            "label": "Pending queue size",
+            "system": true,
+            "used_for_debug": true
+        },
         "$sdk_debug_recording_script_not_loaded": {
             "description": "Recording script not loaded. This can be caused by ad blockers.",
             "label": "Recording script not loaded",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_capture_mode": {
+            "description": "How the mobile SDK captures the screen for session replay.",
+            "examples": [
+                "screenshot",
+                "wireframe"
+            ],
+            "label": "Replay capture mode",
+            "type": "String",
             "used_for_debug": true
         },
         "$sdk_debug_replay_event_trigger_status": {
@@ -2900,6 +2920,18 @@
                 "trigger_matched"
             ],
             "label": "event trigger status",
+            "type": "String",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_flush_hold_reason": {
+            "description": "Why session replay is holding its buffer instead of flushing. Mobile SDKs attach it only while the recording status is buffering.",
+            "examples": [
+                "awaiting_remote_config",
+                "below_minimum_duration",
+                "no_interaction_since_recording_started",
+                "no_interaction_since_session_rotated"
+            ],
+            "label": "Replay flush hold reason",
             "type": "String",
             "used_for_debug": true
         },
@@ -2950,6 +2982,11 @@
             "label": "Matched recording trigger groups",
             "used_for_debug": true
         },
+        "$sdk_debug_replay_pending_trigger_conditions": {
+            "description": "The configured recording trigger conditions that are not yet satisfied, such as a linked flag or an event trigger.",
+            "label": "Replay pending trigger conditions",
+            "used_for_debug": true
+        },
         "$sdk_debug_replay_remote_trigger_matching_config": {
             "description": "Whether to match on all or any triggers.",
             "examples": [
@@ -2963,6 +3000,15 @@
         "$sdk_debug_replay_rrweb_error": {
             "description": "An error reported by the rrweb session recording library while capturing the replay.",
             "label": "Replay rrweb error",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_throttle_delay_ms": {
+            "description": "The configured session replay throttle delay in milliseconds on mobile SDKs.",
+            "examples": [
+                1000
+            ],
+            "label": "Replay throttle delay (ms)",
+            "type": "Numeric",
             "used_for_debug": true
         },
         "$sdk_debug_replay_trigger_groups_count": {
@@ -8104,9 +8150,29 @@
             "type": "Numeric",
             "used_for_debug": true
         },
+        "$sdk_debug_pending_queue_size": {
+            "description": "Useful for debugging. The depth of the mobile SDK's single disk-backed event queue, which handles both normal batching and retry backoff. Mobile SDKs report this instead of the retry queue size.",
+            "examples": [
+                "100"
+            ],
+            "ignored_in_assistant": true,
+            "label": "Pending queue size",
+            "system": true,
+            "used_for_debug": true
+        },
         "$sdk_debug_recording_script_not_loaded": {
             "description": "Recording script not loaded. This can be caused by ad blockers.",
             "label": "Recording script not loaded",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_capture_mode": {
+            "description": "How the mobile SDK captures the screen for session replay.",
+            "examples": [
+                "screenshot",
+                "wireframe"
+            ],
+            "label": "Replay capture mode",
+            "type": "String",
             "used_for_debug": true
         },
         "$sdk_debug_replay_event_trigger_status": {
@@ -8117,6 +8183,18 @@
                 "trigger_matched"
             ],
             "label": "event trigger status",
+            "type": "String",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_flush_hold_reason": {
+            "description": "Why session replay is holding its buffer instead of flushing. Mobile SDKs attach it only while the recording status is buffering.",
+            "examples": [
+                "awaiting_remote_config",
+                "below_minimum_duration",
+                "no_interaction_since_recording_started",
+                "no_interaction_since_session_rotated"
+            ],
+            "label": "Replay flush hold reason",
             "type": "String",
             "used_for_debug": true
         },
@@ -8167,6 +8245,11 @@
             "label": "Matched recording trigger groups",
             "used_for_debug": true
         },
+        "$sdk_debug_replay_pending_trigger_conditions": {
+            "description": "The configured recording trigger conditions that are not yet satisfied, such as a linked flag or an event trigger.",
+            "label": "Replay pending trigger conditions",
+            "used_for_debug": true
+        },
         "$sdk_debug_replay_remote_trigger_matching_config": {
             "description": "Whether to match on all or any triggers.",
             "examples": [
@@ -8180,6 +8263,15 @@
         "$sdk_debug_replay_rrweb_error": {
             "description": "An error reported by the rrweb session recording library while capturing the replay.",
             "label": "Replay rrweb error",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_throttle_delay_ms": {
+            "description": "The configured session replay throttle delay in milliseconds on mobile SDKs.",
+            "examples": [
+                1000
+            ],
+            "label": "Replay throttle delay (ms)",
+            "type": "Numeric",
             "used_for_debug": true
         },
         "$sdk_debug_replay_trigger_groups_count": {
