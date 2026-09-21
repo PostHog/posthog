@@ -4,6 +4,7 @@ from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog import regions
 from posthog.ingress.vercel.provider import build_vercel_provider
 from posthog.ingress.verify.schemes import VerificationOutcome
 
@@ -39,6 +40,11 @@ class TestVercelProvider(SimpleTestCase):
     )
     def test_the_digest_decides(self, _name: str, signature: str | None, expected: VerificationOutcome) -> None:
         self.assertEqual(build_vercel_provider().verify(_request(signature)).outcome, expected)
+
+    def test_deliveries_arrive_on_the_secondary_region(self) -> None:
+        # Vercel registered one marketplace URL, against the secondary region. Reading this as the
+        # primary region would forward every unowned deauthorization to the wrong place.
+        self.assertEqual(build_vercel_provider().receiving_region_domain(), regions.SECONDARY_REGION_DOMAIN)
 
     def test_a_missing_secret_is_not_configured_rather_than_a_bad_signature(self) -> None:
         with override_settings(VERCEL_CLIENT_INTEGRATION_SECRET=""):

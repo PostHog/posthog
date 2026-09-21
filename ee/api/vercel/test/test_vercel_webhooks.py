@@ -25,6 +25,12 @@ class TestVercelWebhooks(VercelTestBase):
         super().setUp()
         self.url = "/webhooks/vercel"
         self.secret = "test_webhook_secret"
+        # `pytest.ini` sets DEBUG=1, and `posthog.regions` then resolves both domains to local
+        # ones. Pinning them here is what makes the request host below mean a region at all.
+        for name, domain in (("PRIMARY_REGION_DOMAIN", EU_HOST), ("SECONDARY_REGION_DOMAIN", US_HOST)):
+            region = patch(f"posthog.regions.{name}", domain)
+            region.start()
+            self.addCleanup(region.stop)
         reset_consumer_registry()
         cache.clear()
 
