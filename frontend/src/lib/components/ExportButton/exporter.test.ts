@@ -1,25 +1,30 @@
+import { ApiConfig } from 'lib/api'
+
 import { ExportedAssetType } from '~/types'
 
-import { downloadExportedAsset } from './exporter'
+import { downloadExportedAsset, exportedAssetBlob } from './exporter'
 
 const getResponse = jest.fn()
 
-jest.mock('lib/api', () => ({
-    __esModule: true,
-    default: {
-        getResponse: (...args: any[]) => getResponse(...args),
-        exports: {
-            determineExportUrl: jest.fn((id: number) => `/api/environments/1/exports/${id}/content?download=true`),
+jest.mock('lib/api', () => {
+    const actual = jest.requireActual('lib/api')
+    return {
+        ...actual,
+        __esModule: true,
+        default: {
+            ...actual.default,
+            getResponse: (...args: any[]) => getResponse(...args),
         },
-    },
-}))
+    }
+})
 
-describe('downloadExportedAsset', () => {
+describe('exporter', () => {
     let fakeAnchor: HTMLAnchorElement
     let appendSpy: jest.SpyInstance
     let removeSpy: jest.SpyInstance
 
     beforeEach(() => {
+        ApiConfig.setCurrentTeamId(1)
         jest.useFakeTimers()
         fakeAnchor = { style: {}, click: jest.fn() } as unknown as HTMLAnchorElement
         jest.spyOn(document, 'createElement').mockReturnValue(fakeAnchor)
@@ -48,5 +53,13 @@ describe('downloadExportedAsset', () => {
         expect(removeSpy).not.toHaveBeenCalled()
         jest.runOnlyPendingTimers()
         expect(removeSpy).toHaveBeenCalledWith(fakeAnchor)
+    })
+
+    it('fetches the bytes for the editor without following the object storage redirect', async () => {
+        getResponse.mockResolvedValue({ blob: async () => new Blob(['png']) })
+
+        await exportedAssetBlob({ id: 123 } as ExportedAssetType)
+
+        expect(getResponse).toHaveBeenCalledWith('/api/environments/1/exports/123/content?direct=true')
     })
 })
