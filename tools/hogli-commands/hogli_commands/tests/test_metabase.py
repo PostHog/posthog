@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+import plistlib
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from unittest.mock import patch
@@ -142,53 +144,37 @@ def test_ordered_browsers_ignores_default_when_explicit_browser_given(monkeypatc
     assert metabase._ordered_browsers("chrome") == ("chrome",)
 
 
-def test_default_https_browser_maps_known_bundle_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    import plistlib
-    from types import SimpleNamespace
+def _plist_stub(bundle_id: str) -> Callable[..., SimpleNamespace]:
+    plist = plistlib.dumps({"LSHandlers": [{"LSHandlerURLScheme": "https", "LSHandlerRoleAll": bundle_id}]})
+    return lambda *args, **kwargs: SimpleNamespace(stdout=plist)
 
+
+def _failing_subprocess_run(*args: object, **kwargs: object) -> SimpleNamespace:
+    raise OSError("no defaults binary")
+
+
+@pytest.mark.parametrize(
+    ("platform", "run_stub", "expected"),
+    [
+        pytest.param("darwin", _plist_stub("org.mozilla.firefox"), "firefox", id="known-bundle-id"),
+        pytest.param("darwin", _plist_stub("com.example.unknownbrowser"), None, id="unknown-bundle-id"),
+        pytest.param("linux", _plist_stub("org.mozilla.firefox"), None, id="non-darwin"),
+        pytest.param("darwin", _failing_subprocess_run, None, id="subprocess-failure"),
+    ],
+)
+def test_default_https_browser(
+    monkeypatch: pytest.MonkeyPatch,
+    platform: str,
+    run_stub: Callable[..., SimpleNamespace],
+    expected: str | None,
+) -> None:
     metabase._default_https_browser.cache_clear()
-    plist = plistlib.dumps({"LSHandlers": [{"LSHandlerURLScheme": "https", "LSHandlerRoleAll": "org.mozilla.firefox"}]})
-    monkeypatch.setattr(metabase.sys, "platform", "darwin")
-    monkeypatch.setattr(metabase.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout=plist))
-
-    assert metabase._default_https_browser() == "firefox"
-    metabase._default_https_browser.cache_clear()
-
-
-def test_default_https_browser_returns_none_for_unknown_bundle_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    import plistlib
-    from types import SimpleNamespace
-
-    metabase._default_https_browser.cache_clear()
-    plist = plistlib.dumps(
-        {"LSHandlers": [{"LSHandlerURLScheme": "https", "LSHandlerRoleAll": "com.example.unknownbrowser"}]}
-    )
-    monkeypatch.setattr(metabase.sys, "platform", "darwin")
-    monkeypatch.setattr(metabase.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout=plist))
-
-    assert metabase._default_https_browser() is None
-    metabase._default_https_browser.cache_clear()
-
-
-def test_default_https_browser_none_on_non_darwin(monkeypatch: pytest.MonkeyPatch) -> None:
-    metabase._default_https_browser.cache_clear()
-    monkeypatch.setattr(metabase.sys, "platform", "linux")
-
-    assert metabase._default_https_browser() is None
-    metabase._default_https_browser.cache_clear()
-
-
-def test_default_https_browser_none_on_subprocess_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    metabase._default_https_browser.cache_clear()
-
-    def boom(*args: object, **kwargs: object) -> None:
-        raise OSError("no defaults binary")
-
-    monkeypatch.setattr(metabase.sys, "platform", "darwin")
-    monkeypatch.setattr(metabase.subprocess, "run", boom)
-
-    assert metabase._default_https_browser() is None
-    metabase._default_https_browser.cache_clear()
+    monkeypatch.setattr(metabase.sys, "platform", platform)
+    monkeypatch.setattr(metabase.subprocess, "run", run_stub)
+    try:
+        assert metabase._default_https_browser() == expected
+    finally:
+        metabase._default_https_browser.cache_clear()
 
 
 def test_load_cookies_unsupported_browser_raises(monkeypatch: pytest.MonkeyPatch) -> None:
