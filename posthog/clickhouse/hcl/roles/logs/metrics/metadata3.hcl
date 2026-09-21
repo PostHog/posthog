@@ -130,7 +130,7 @@ database "posthog" {
   }
   table "metric_series4" {
     partition_by = "toDate(original_expiry_timestamp)"
-    order_by     = ["team_id", "metric_name", "series_fingerprint"]
+    order_by     = ["team_id", "metric_name", "series_fingerprint", "time_bucket"]
     ttl          = "original_expiry_timestamp"
     settings = {
       index_granularity = "8192"
@@ -177,6 +177,10 @@ database "posthog" {
     column "timestamp" {
       type = "DateTime64(6)"
     }
+    column "time_bucket" {
+      type         = "DateTime"
+      materialized = "toStartOfHour(timestamp)"
+    }
     column "original_expiry_timestamp" {
       type = "DateTime64(6)"
     }
@@ -205,9 +209,10 @@ database "posthog" {
       type        = "minmax"
       granularity = 1
     }
-    engine "replicated_merge_tree" {
-      zoo_path     = "/clickhouse/tables/noshard/posthog.metric_series4"
-      replica_name = "{replica}-{shard}"
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.metric_series4"
+      replica_name   = "{replica}-{shard}"
+      version_column = "timestamp"
     }
   }
   table "metric_attributes3" {
