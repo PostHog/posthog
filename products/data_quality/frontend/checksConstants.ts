@@ -1,5 +1,7 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag'
+import { humanFriendlyDuration } from 'lib/utils/durations'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { CheckTypeEnumApi } from './generated/api.schemas'
 import type { DataQualityCheckApi, DataQualityCheckRunApi } from './generated/api.schemas'
@@ -122,4 +124,33 @@ export function checkRunDisplayName(
     run: Pick<DataQualityCheckRunApi, 'check_name' | 'check_type' | 'column_name'>
 ): string {
     return checkDisplayName({ name: run.check_name, check_type: run.check_type, column_name: run.column_name })
+}
+
+const SECONDS_PER_MINUTE = 60
+const DURATION_UNITS = 2
+
+export interface ObservedValueCell {
+    label: string
+    tooltip: string | null
+}
+
+export function observedValueCell(
+    run: Pick<DataQualityCheckRunApi, 'check_type' | 'observed_value' | 'check_config'>
+): ObservedValueCell {
+    if (run.observed_value === null) {
+        return { label: '-', tooltip: null }
+    }
+    if (run.check_type !== CheckTypeEnumApi.Freshness) {
+        return { label: humanFriendlyNumber(run.observed_value), tooltip: null }
+    }
+    const stalenessSeconds = run.observed_value
+    const maxAgeMinutes = run.check_config?.max_age_minutes
+    const limit =
+        typeof maxAgeMinutes === 'number'
+            ? ` The limit is ${humanFriendlyDuration(maxAgeMinutes * SECONDS_PER_MINUTE, { maxUnits: DURATION_UNITS })}.`
+            : ''
+    return {
+        label: `${humanFriendlyDuration(stalenessSeconds, { maxUnits: DURATION_UNITS })} old`,
+        tooltip: `Newest row is ${humanFriendlyNumber(stalenessSeconds)} seconds old.${limit}`,
+    }
 }

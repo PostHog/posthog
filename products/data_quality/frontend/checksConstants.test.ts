@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { byStatusAttention, checkRunDisplayName, failingForLabel } from './checksConstants'
+import { byStatusAttention, checkRunDisplayName, failingForLabel, observedValueCell } from './checksConstants'
 import { CheckTypeEnumApi } from './generated/api.schemas'
 
 describe('checksConstants', () => {
@@ -61,5 +61,30 @@ describe('checksConstants', () => {
             'skipped',
             'passed',
         ])
+    })
+
+    it.each<[string, CheckTypeEnumApi, number | null, Record<string, unknown> | null, string, string | null]>([
+        [
+            'a freshness run reads as a duration with its limit',
+            CheckTypeEnumApi.Freshness,
+            147117,
+            { max_age_minutes: 2160 },
+            '1d\u00a016h old',
+            'Newest row is 147,117 seconds old. The limit is 1d\u00a012h.',
+        ],
+        [
+            'a freshness run without a config snapshot omits the limit',
+            CheckTypeEnumApi.Freshness,
+            147117,
+            null,
+            '1d\u00a016h old',
+            'Newest row is 147,117 seconds old.',
+        ],
+        ['a row count run stays a plain number', CheckTypeEnumApi.RowCount, 1493355, { min: 1 }, '1,493,355', null],
+        ['a run with nothing observed shows a dash', CheckTypeEnumApi.Freshness, null, null, '-', null],
+    ])('%s', (_case, checkType, observedValue, checkConfig, label, tooltip) => {
+        expect(
+            observedValueCell({ check_type: checkType, observed_value: observedValue, check_config: checkConfig })
+        ).toEqual({ label, tooltip })
     })
 })
