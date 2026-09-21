@@ -1,8 +1,11 @@
 import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
+import { useActions } from 'kea'
+import { useEffect } from 'react'
 
 import { RestrictionType } from 'lib/logic/eventIngestionRestrictionLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
@@ -29,16 +32,16 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
     render: ({ optedOut, restricted, withCohort }: StoryProps) => {
         useStorybookMocks({
             get: {
-                '/api/environments/@current/': () => [
-                    200,
-                    { ...MOCK_DEFAULT_TEAM, person_processing_opt_out: optedOut },
-                ],
                 [`/api/environments/${MOCK_TEAM_ID}/event_ingestion_restrictions/`]: () => [
                     200,
                     restricted ? [{ restriction_type: RestrictionType.SKIP_PERSON_PROCESSING }] : [],
                 ],
             },
         })
+        const { loadCurrentTeamSuccess } = useActions(teamLogic)
+        useEffect(() => {
+            loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, person_processing_opt_out: optedOut })
+        }, [loadCurrentTeamSuccess, optedOut])
 
         return <FeatureFlagPersonlessWarning properties={withCohort ? [...PROPERTIES, COHORT_PROPERTY] : PROPERTIES} />
     },

@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { RestrictionType } from 'lib/logic/eventIngestionRestrictionLogic'
+import { RestrictionType, eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -44,7 +44,7 @@ describe('featureFlagPersonlessWarningLogic', () => {
         const logic = featureFlagPersonlessWarningLogic({ properties: [personProperty('email')] })
         logic.mount()
         teamLogic.actions.updateCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, person_processing_opt_out: optedOut })
-        logic.values.eventIngestionRestrictions
+        eventIngestionRestrictionLogic().values.eventIngestionRestrictions
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ personlessReason: expected })
     })
