@@ -1404,7 +1404,7 @@ export const DashboardsRunInsightsRetrieveQueryParams = () => zod.object({
         .number()
         .optional()
         .describe(
-            "Per-tile character budget for 'optimized' output. A longer table keeps its header and both ends, and names how many rows were dropped from the middle. Defaults to 2000; pass 0 for the whole table. Ignored when output_format is 'json'. Any value above zero is also held down to what the response has left of its 30000 character budget, and tiles past that budget are not run."
+            "Per-tile character budget for 'optimized' output, truncation marker included. A longer table keeps its header and both ends, and names how many rows were dropped from the middle. Defaults to 2000; pass 0 for the whole table, or 200 or more, since a smaller budget cannot carry the marker. Ignored when output_format is 'json'. Any value above zero is also held down to what the response has left of its 30000 character budget, and tiles past that budget are not run."
         ),
     output_format: zod
         .enum(['json', 'optimized'])

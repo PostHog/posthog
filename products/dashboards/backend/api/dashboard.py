@@ -124,6 +124,7 @@ from products.dashboards.backend.constants import (
     MAX_WIDGETS_BATCH_SIZE,
     RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS,
     RUN_INSIGHTS_MAX_TOTAL_CHARS,
+    RUN_INSIGHTS_MIN_TILE_CHARS,
 )
 from products.dashboards.backend.facade.api import DashboardTileBasicSerializer
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
@@ -3278,12 +3279,13 @@ class DashboardsViewSet(
                 "max_result_chars",
                 OpenApiTypes.INT,
                 description=(
-                    "Per-tile character budget for 'optimized' output. A longer table keeps its header and "
-                    "both ends, and names how many rows were dropped from the middle. Defaults to "
-                    f"{RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS}; pass 0 for the whole table. Ignored when "
-                    "output_format is 'json'. Any value above zero is also held down to what the response has "
-                    f"left of its {RUN_INSIGHTS_MAX_TOTAL_CHARS} character budget, and tiles past that budget "
-                    "are not run."
+                    "Per-tile character budget for 'optimized' output, truncation marker included. A longer "
+                    "table keeps its header and both ends, and names how many rows were dropped from the "
+                    f"middle. Defaults to {RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS}; pass 0 for the whole table, "
+                    f"or {RUN_INSIGHTS_MIN_TILE_CHARS} or more, since a smaller budget cannot carry the marker. "
+                    "Ignored when output_format is 'json'. Any value above zero is also held down to what the "
+                    f"response has left of its {RUN_INSIGHTS_MAX_TOTAL_CHARS} character budget, and tiles past "
+                    "that budget are not run."
                 ),
             ),
             VARIABLES_OVERRIDE_PARAM,

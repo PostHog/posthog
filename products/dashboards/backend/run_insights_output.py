@@ -43,7 +43,12 @@ def parse_tile_ids(raw: str | None) -> list[int]:
 
 
 def parse_max_result_chars(raw: str | None) -> int:
-    """Parse the `max_result_chars` query param. Zero means no per-tile limit."""
+    """Parse the `max_result_chars` query param. Zero means no per-tile limit.
+
+    A budget below the floor is rejected rather than served, because a tile that cannot hold its
+    truncation marker would have to either overrun the budget or drop the marker, and a caller
+    that cannot see data was dropped reads a cut table as the whole one.
+    """
     if raw is None or not raw.strip():
         return RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS
     try:
@@ -52,6 +57,10 @@ def parse_max_result_chars(raw: str | None) -> int:
         raise exceptions.ValidationError("max_result_chars must be an integer.") from exc
     if max_chars < 0:
         raise exceptions.ValidationError("max_result_chars must be zero or greater.")
+    if 0 < max_chars < RUN_INSIGHTS_MIN_TILE_CHARS:
+        raise exceptions.ValidationError(
+            f"max_result_chars must be {RUN_INSIGHTS_MIN_TILE_CHARS} or greater, or zero for the whole table."
+        )
     return max_chars
 
 
@@ -76,9 +85,9 @@ def bound_formatted_result(formatted: str, *, tile_id: int, max_chars: int) -> s
     runs first step first and a paths table runs most-travelled first. Dropping the tail would
     hand an agent the opening of a date range and read as the whole of it.
 
-    The marker counts against `max_chars`, so the result never grows past it. A caller can ask
-    for a budget too small to hold the marker, and the marker still has to be there for the
-    caller to know data was dropped, so the floor on the result is the marker by itself.
+    The marker counts against `max_chars`, so the result never grows past it. That holds for
+    every budget the API accepts, because `parse_max_result_chars` rejects one too small to
+    hold a marker.
     """
     if max_chars <= 0 or len(formatted) <= max_chars:
         return formatted

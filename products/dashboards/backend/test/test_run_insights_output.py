@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from rest_framework import exceptions
 
 from products.dashboards.backend.constants import (
     RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS,
@@ -12,6 +13,8 @@ from products.dashboards.backend.constants import (
     RUN_INSIGHTS_MIN_TILE_CHARS,
 )
 from products.dashboards.backend.run_insights_output import (
+    CUT_NOTE,
+    ELISION_NOTE,
     bound_formatted_result,
     parse_max_result_chars,
     parse_tile_ids,
@@ -60,7 +63,7 @@ class TestBoundFormattedResult(SimpleTestCase):
         [
             # One long row must still be cut, otherwise a wide table bypasses the budget entirely.
             ("single_row_wider_than_the_budget", "x" * 500, 300),
-            ("header_wider_than_the_budget", _table(20), 130),
+            ("header_wider_than_the_budget", "H" * 300 + "\nr1\nr2", 250),
         ]
     )
     def test_cuts_text_it_cannot_hold_by_whole_rows(self, _name: str, formatted: str, max_chars: int) -> None:
@@ -70,10 +73,15 @@ class TestBoundFormattedResult(SimpleTestCase):
         self.assertTrue(formatted.startswith(bounded.splitlines()[0]))
         self.assertIn("tile_ids=7", bounded)
 
-    def test_keeps_the_marker_when_the_budget_cannot_hold_it(self) -> None:
-        bounded = bound_formatted_result(_table(20), tile_id=7, max_chars=10)
+    def test_the_floor_leaves_room_for_the_widest_marker(self) -> None:
+        # The per-tile bound only holds unconditionally while the smallest budget the API accepts
+        # can still carry a marker, so this guards the two against drifting apart.
+        widest = max(
+            len(ELISION_NOTE.format(omitted=2**63, total=2**63, tile_id=2**63)),
+            len(CUT_NOTE.format(max_chars=2**63, tile_id=2**63)),
+        )
 
-        self.assertIn("tile_ids=7", bounded)
+        self.assertLess(widest, RUN_INSIGHTS_MIN_TILE_CHARS)
 
 
 class TestParseQueryParams(SimpleTestCase):
@@ -87,6 +95,15 @@ class TestParseQueryParams(SimpleTestCase):
 
     def test_max_result_chars_defaults(self) -> None:
         self.assertGreater(parse_max_result_chars(None), 0)
+
+    @parameterized.expand([("below_the_floor", "10"), ("just_below_the_floor", str(RUN_INSIGHTS_MIN_TILE_CHARS - 1))])
+    def test_max_result_chars_rejects_a_budget_too_small_for_a_marker(self, _name: str, raw: str) -> None:
+        with self.assertRaises(exceptions.ValidationError):
+            parse_max_result_chars(raw)
+
+    @parameterized.expand([("the_floor", str(RUN_INSIGHTS_MIN_TILE_CHARS)), ("unbounded", "0")])
+    def test_max_result_chars_accepts_the_floor_and_zero(self, _name: str, raw: str) -> None:
+        self.assertEqual(parse_max_result_chars(raw), int(raw))
 
 
 class TestRenderUnsupportedResult(SimpleTestCase):

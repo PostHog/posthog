@@ -3,6 +3,7 @@ import json
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import DateRange, EventsNode, InsightVizNode, TrendsFilter, TrendsQuery
@@ -146,12 +147,13 @@ class TestDashboardRunInsights(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
         self.assertIn(str(tile.id + 1000), response.json()["detail"])
 
-    def test_rejects_a_negative_max_result_chars(self) -> None:
+    @parameterized.expand([("negative", "-1"), ("too_small_to_hold_a_marker", "10")])
+    def test_rejects_an_unusable_max_result_chars(self, _name: str, max_result_chars: str) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/run_insights/",
-            data={"max_result_chars": "-1"},
+            data={"max_result_chars": max_result_chars},
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
