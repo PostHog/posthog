@@ -6,6 +6,7 @@
     },
     "ignorePatterns": [
         "products/desktop",
+        "packages/agent",
         "node_modules",
         "dist",
         "build",

@@ -74,11 +74,11 @@ The desktop app bundles Codex 0.154.0 and Claude Code 2.1.280 from Claude Agent 
 Codex 0.154.0 includes GPT-6-Astra support.
 Updating a separately installed CLI does not update the app's bundled agents.
 
-When changing Codex versions, update both `packages/agent/package.json` and `apps/code/scripts/download-binaries.mjs` so Codex and its code-mode host stay on the same release.
+When changing Codex versions, update both `packages/agent/packages/agent/package.json` (agent workspace, from the repo root) and `apps/code/scripts/download-binaries.mjs` so Codex and its code-mode host stay on the same release.
 The downloader skips existing binaries, so remove `apps/code/resources/codex-acp/codex` and `apps/code/resources/codex-acp/codex-code-mode-host` before running it again after a version change (use the `.exe` filenames on Windows).
-For Claude Code, keep the Claude Agent SDK versions in `packages/agent/package.json` and `packages/workspace-server/package.json` aligned and regenerate the desktop lockfile.
+For Claude Code, keep the Claude Agent SDK versions in `packages/agent/packages/agent/package.json` (agent workspace, from the repo root) and `packages/workspace-server/package.json` aligned and regenerate the desktop lockfile.
 
-The agent bundles `@posthog/harness` through `noExternal` in `packages/agent/tsup.config.ts` and copies its runtime assets during the build.
+The agent bundles `@posthog/harness` through `noExternal` in `packages/agent/packages/agent/tsup.config.ts` and copies its runtime assets during the build.
 Keep it in the agent's `devDependencies`, alongside the other bundled workspace packages.
 Adding it to production dependencies makes Electron packaging expand the harness dependency tree repeatedly and fail with `Invalid string length`.
 

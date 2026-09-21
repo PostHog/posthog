@@ -289,8 +289,8 @@ For local Docker, the worker builds the packages inside the sandbox image. The f
 ```bash
 # In your .env:
 SANDBOX_PROVIDER=docker
-# The desktop source lives in this repo at products/desktop
-LOCAL_POSTHOG_CODE_MONOREPO_ROOT=./products/desktop
+# The agent workspace lives in this repo at packages/agent
+LOCAL_POSTHOG_CODE_MONOREPO_ROOT=./packages/agent
 ```
 
 Restart the temporal worker after changing `.env`.
@@ -298,7 +298,7 @@ Restart the temporal worker after changing `.env`.
 For local Modal, set `SANDBOX_PROVIDER=MODAL_DOCKER`, build the packages, and restart the temporal worker:
 
 ```bash
-pnpm --dir products/desktop --filter @posthog/agent... build
+pnpm --dir packages/agent build
 ```
 
 ### Sandbox providers
@@ -404,7 +404,7 @@ When both `SANDBOX_PROVIDER=MODAL_DOCKER` and `LOCAL_POSTHOG_CODE_MONOREPO_ROOT`
 After changing agent-server code, rebuild and restart the worker:
 
 ```bash
-cd products/desktop/packages/agent && pnpm build
+cd packages/agent/packages/agent && pnpm build
 ```
 
 > **Note:** The build context is cached for the lifetime of the worker process (`lru_cache`).

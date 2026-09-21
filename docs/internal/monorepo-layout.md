@@ -30,7 +30,7 @@ services/              # Independent services NOT owned by any one product
 
 packages/              # Libraries shared across more than one product/service (e.g. quill)
   owners/              # owners.yaml resolver (owners_yaml) — Python uv workspace member, RUNTIME dependency
-  agent/               # Sandbox agent runtime; agent-shadow/ is the Go observer the sandbox base image builds
+  agent/               # Agent runtime: a standalone pnpm workspace (@posthog/agent and the packages it bundles) plus agent-shadow/, the Go observer the sandbox base image builds
 
 common/                # Shared code — holding pen, NOT a destination (goal: shrink it)
   hogql_parser/        # HogQL parser
@@ -68,6 +68,10 @@ User-facing features with their own backend (Django app) and frontend (React). E
 See [products/README.md](/products/README.md) for how to create products. For new isolated products, see [products/architecture.md](/products/architecture.md) for design principles (DTOs, facades, isolation rules).
 
 One exception to the Django-plus-React shape: `products/desktop/` is the PostHog desktop app (Electron, plus mobile and web hosts), imported from the PostHog/code repo. It is a nested standalone pnpm workspace with its own lockfile, Node version and Biome toolchain, deliberately excluded from the root pnpm workspace, with its own `desktop-*` CI. Its `AGENTS.md` covers the architecture. Day to day, drive it through `hogli desktop:*` commands, or `cd products/desktop` and use pnpm directly.
+
+The agent runtime the desktop app bundles is a second nested workspace at `packages/agent/` (`@posthog/agent` plus `agent-contracts`, `enricher`, `git` and `harness`), because cloud task sandboxes boot the published agent without the desktop app.
+Desktop depends on it through `link:` paths, since turbo rejects a workspace member outside its root.
+Turbo cannot hash files behind a path link, so `products/desktop/scripts/build-agent-workspace.mjs` builds that workspace and writes a stamp that desktop's `turbo.json` lists as a global dependency.
 
 #### What a product can own
 

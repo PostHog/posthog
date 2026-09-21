@@ -16,7 +16,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AGENT_DIR="$(cd "$HERE/.." && pwd)"
-POSTHOG_REPO="${POSTHOG_REPO:-$(cd "$AGENT_DIR/../../.." && pwd)/posthog}"
+POSTHOG_REPO="${POSTHOG_REPO:-$(cd "$AGENT_DIR/../../.." && pwd)}"
 
 if [[ -z "${POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY:-}" ]]; then
   SETTINGS="$POSTHOG_REPO/ee/settings.py"

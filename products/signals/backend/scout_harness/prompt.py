@@ -1151,7 +1151,7 @@ def _mcp_tool_prefix_name(name: str) -> str:
     """The `<server>` spelling in a runtime's `mcp__<server>__<tool>` keys.
 
     Mirrors `sanitizeMcpServerName` in the desktop agent adapters
-    (`products/desktop/packages/agent/src/adapters/claude/mcp/tool-metadata.ts`), which both
+    (`packages/agent/packages/agent/src/adapters/claude/mcp/tool-metadata.ts`), which both
     runtimes key MCP servers by. Display names are free text ("Datadog (EU)", "Linear (Jane Doe)"),
     so printing one raw in the example would hand the scout a prefix that cannot exist and steer it
     into the "didn't mount" verdict below.

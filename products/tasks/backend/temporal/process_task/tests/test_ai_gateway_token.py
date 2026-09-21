@@ -29,7 +29,7 @@ from products.tasks.backend.temporal.process_task.utils import ai_gateway_env_va
 
 class TestResolveSandboxAiProduct:
     """Must agree with resolveAiProduct/resolveGatewayProduct in
-    products/desktop/packages/agent/src/utils/gateway.ts — a disagreement makes a
+    packages/agent/packages/agent/src/utils/gateway.ts — a disagreement makes a
     routed run mint no token (degrades to Python) or mint an unused token."""
 
     @pytest.mark.parametrize(
@@ -80,7 +80,7 @@ class TestSharedRoutingContract:
     TypeScript resolver and this Python mirror cannot drift while staying green."""
 
     _CASES = json.loads(
-        (Path(__file__).parents[6] / "products/desktop/packages/agent/src/utils/gateway-routing-cases.json").read_text()
+        (Path(__file__).parents[6] / "packages/agent/packages/agent/src/utils/gateway-routing-cases.json").read_text()
     )
 
     @pytest.mark.parametrize(

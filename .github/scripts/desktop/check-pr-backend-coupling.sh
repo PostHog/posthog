@@ -32,6 +32,8 @@ is_backend_path() {
 is_desktop_path() {
     case "$1" in
         products/desktop/*) return 0 ;;
+        # The desktop app bundles these packages, so they ship on its release schedule.
+        packages/agent/packages/*) return 0 ;;
         *) return 1 ;;
     esac
 }

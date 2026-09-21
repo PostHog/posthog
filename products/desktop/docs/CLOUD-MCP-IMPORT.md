@@ -12,11 +12,11 @@ A local task run gets all of the user's MCP servers: the PostHog MCP plus
 `packages/workspace-server/src/services/agent/auth-adapter.ts`), and — for the
 Claude adapter — the user's own servers from `~/.claude.json`
 (`loadUserClaudeJsonMcpServers` in
-`packages/agent/src/adapters/claude/session/mcp-config.ts`).
+`packages/agent/packages/agent/src/adapters/claude/session/mcp-config.ts`).
 
 A cloud run's sandbox only gets what the backend bakes into the agent server's
 `--mcpServers` flag at spawn (`remoteMcpServerSchema` in
-`packages/agent/src/server/schemas.ts`: `http`/`sse` + `url` + `headers`). The
+`packages/agent/packages/agent/src/server/schemas.ts`: `http`/`sse` + `url` + `headers`). The
 sandbox never reads `~/.claude.json`, so tasks that need the user's own MCP
 servers (Grafana, Sentry, internal tools, ...) force the user back to local
 runs.
@@ -135,10 +135,10 @@ of importables when the cap bites, since they have no other transport.
 Headers are captured at launch. For servers whose tokens expire mid-run, the
 rotation mechanism already exists on the sandbox side: the `refresh_session`
 command (`refreshSessionParamsSchema`,
-`packages/agent/src/server/schemas.ts`) pushes a fresh `mcpServers` list into
+`packages/agent/packages/agent/src/server/schemas.ts`) pushes a fresh `mcpServers` list into
 a running session, and the Claude adapter tears down and rebuilds the query
 with the new list (`refreshSession` in
-`packages/agent/src/adapters/claude/claude-agent.ts`).
+`packages/agent/packages/agent/src/adapters/claude/claude-agent.ts`).
 
 What's missing is the client half — today the desktop never sends
 `refresh_session` for cloud runs (`sendCommandInput` in

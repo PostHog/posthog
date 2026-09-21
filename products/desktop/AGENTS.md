@@ -35,6 +35,10 @@ Principle: logic is portable; hosts are thin.
 | `@posthog/electron-trpc` | tRPC-over-Electron-IPC transport. | Feature code |
 | `@posthog/git`, `@posthog/enricher`, `@posthog/agent` | Reusable domain implementation packages. | Host-specific code |
 
+`@posthog/agent`, `@posthog/agent-contracts`, `@posthog/enricher`, `@posthog/git` and `@posthog/harness` live in their own workspace at `packages/agent` in the repo root, because cloud sandboxes boot the agent without the desktop app.
+This workspace links them by path, so turbo cannot see their files: `pnpm build`, `pnpm typecheck` and `pnpm test` build that workspace first and write `.agent-workspace-stamp`, which turbo hashes.
+After changing that workspace, run `pnpm build:agent` before calling `turbo` directly, or turbo serves stale cached results.
+
 Hosts:
 
 - `apps/code`: Electron desktop host.
@@ -212,8 +216,9 @@ await boot(container);
 - `pnpm bootstrap:cloud-task`: link dependencies from the prebaked pnpm store without running unrelated app install hooks, then build the packages required before scoped typechecks in cloud tasks.
 - `pnpm bootstrap:cloud-task:wait`: in a cloud task, the backend already started `bootstrap:cloud-task` in the background. Run this before any other `pnpm` command here, so a second install does not race it. Exit code 2 means nothing was started, so run `pnpm bootstrap:cloud-task` yourself.
 - `pnpm dev`: run agent watch and desktop app.
+- `pnpm build:agent`: install if needed and build the agent workspace at `packages/agent`, then refresh the turbo stamp.
 - `pnpm build`: build all packages.
-- `pnpm typecheck`: typecheck all packages.
+- `pnpm typecheck`: typecheck all packages, including the agent workspace.
 - `pnpm lint`: run Biome lint and autofix.
 - `pnpm format`: run Biome format.
 - `pnpm test`: run unit tests.

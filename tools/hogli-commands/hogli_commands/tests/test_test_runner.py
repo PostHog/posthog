@@ -103,6 +103,11 @@ class TestDetectTestType:
                 "products/desktop/packages/ui",
                 "src/shell/logCapture.test.ts",
             ),
+            (
+                "packages/agent/packages/agent/src/utils/gateway.test.ts",
+                "packages/agent/packages/agent",
+                "src/utils/gateway.test.ts",
+            ),
         ]
     )
     def test_desktop_test_file_routes_to_package_vitest(self, file_path: str, pkg_dir: str, rel: str) -> None:
@@ -137,6 +142,8 @@ class TestDetectTestType:
             ),
             ("products/desktop", ["pnpm", "--dir", "products/desktop", "test"]),
             ("products/desktop/packages", ["pnpm", "--dir", "products/desktop", "test"]),
+            ("packages/agent", ["pnpm", "--dir", "packages/agent", "test"]),
+            ("packages/agent/packages", ["pnpm", "--dir", "packages/agent", "test"]),
         ]
     )
     def test_desktop_directories_route_to_vitest_or_turbo(self, dir_path: str, expected_command: list[str]) -> None:

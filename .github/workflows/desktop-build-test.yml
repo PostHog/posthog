@@ -18,6 +18,7 @@ on:
         types: [opened, synchronize, reopened, labeled]
         paths:
             - 'products/desktop/**'
+            - 'packages/agent/**'
             - '.github/workflows/desktop-build-test.yml'
 
 concurrency:
@@ -133,13 +134,10 @@ jobs:
 
             - name: Build workspace packages
               run: |
+                  node scripts/build-agent-workspace.mjs
                   pnpm --filter @posthog/electron-trpc run build
                   pnpm --filter @posthog/platform run build
-                  pnpm --filter @posthog/shared... run build
-                  pnpm --filter @posthog/git run build
-                  pnpm --filter @posthog/enricher run build
-                  pnpm --filter @posthog/harness run build
-                  pnpm --filter @posthog/agent run build
+                  pnpm --filter @posthog/shared run build
 
             # build/Assets.car is gitignored, so compile it here. actool only handles the .icon
             # bundle with Xcode 26, which this job gets from its macOS 26 runner's default
@@ -299,13 +297,10 @@ jobs:
               # command's exit code, silently swallowing earlier failures.
               shell: bash
               run: |
+                  node scripts/build-agent-workspace.mjs
                   pnpm --filter @posthog/electron-trpc run build
                   pnpm --filter @posthog/platform run build
-                  pnpm --filter @posthog/shared... run build
-                  pnpm --filter @posthog/git run build
-                  pnpm --filter @posthog/enricher run build
-                  pnpm --filter @posthog/harness run build
-                  pnpm --filter @posthog/agent run build
+                  pnpm --filter @posthog/shared run build
 
             # Two separate steps: in a multi-line pwsh script only the last
             # command's exit code fails the step, so a broken electron-vite
@@ -425,13 +420,10 @@ jobs:
 
             - name: Build workspace packages
               run: |
+                  node scripts/build-agent-workspace.mjs
                   pnpm --filter @posthog/electron-trpc run build
                   pnpm --filter @posthog/platform run build
-                  pnpm --filter @posthog/shared... run build
-                  pnpm --filter @posthog/git run build
-                  pnpm --filter @posthog/enricher run build
-                  pnpm --filter @posthog/harness run build
-                  pnpm --filter @posthog/agent run build
+                  pnpm --filter @posthog/shared run build
 
             - name: Build app
               env:

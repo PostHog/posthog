@@ -11,6 +11,7 @@ on:
         branches: [master]
         paths:
             - 'products/desktop/**'
+            - 'packages/agent/**'
             - '.github/workflows/desktop-build.yml'
 
 concurrency:
@@ -31,7 +32,8 @@ jobs:
             pull-requests: read
         outputs:
             # On master pushes the filter step is skipped and everything runs.
-            code: ${{ steps.filter.outputs.code || 'true' }}
+            # The desktop app bundles the agent workspace, so a change there counts as desktop code.
+            code: ${{ steps.filter.outputs.agent == 'true' && 'true' || steps.filter.outputs.code || 'true' }}
             workflow: ${{ steps.filter.outputs.workflow || 'true' }}
         steps:
             # Own rate-limit bucket; the shared GITHUB_TOKEN goes hot at merge peaks.
@@ -67,6 +69,8 @@ jobs:
                         - "!products/desktop/LICENSE"
                         - "!products/desktop/.gitignore"
                         - "!products/desktop/.env.example"
+                      agent:
+                        - "packages/agent/**"
                       workflow:
                         - ".github/workflows/desktop-build.yml"
 

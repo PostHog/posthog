@@ -434,15 +434,15 @@ while its extra reference files survived as orphans in the other source's direct
 The Desktop harness bundle is the exception: it packages context-mill alone,
 so a skill from this repo is absent there rather than overwritten.
 
-| Consumer                              | Merge site                                                                                                                    |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| PostHog Desktop build                 | `products/desktop/apps/code/vite-main-plugins.mts` (`copyPosthogPlugin`)                                                      |
-| PostHog Desktop runtime, every 30 min | `products/desktop/packages/workspace-server/src/services/posthog-plugin/update-skills-saga.ts`                                |
-| Desktop harness bundle                | `products/desktop/packages/harness/tsup.config.ts` – context-mill only, this repo's skills are absent rather than overwritten |
-| Tasks sandbox base image              | `.github/workflows/cd-sandbox-base-image.yml`                                                                                 |
-| Tasks golden snapshot                 | `.github/workflows/cd-tasks-golden-snapshot.yml`                                                                              |
-| `PostHog/skills` mirror               | that repo's `.github/workflows/sync-omnibus.yml`                                                                              |
-| `PostHog/ai-plugin` plugin            | that repo's `.github/workflows/sync-skills.yml`                                                                               |
+| Consumer                              | Merge site                                                                                                                  |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| PostHog Desktop build                 | `products/desktop/apps/code/vite-main-plugins.mts` (`copyPosthogPlugin`)                                                    |
+| PostHog Desktop runtime, every 30 min | `products/desktop/packages/workspace-server/src/services/posthog-plugin/update-skills-saga.ts`                              |
+| Desktop harness bundle                | `packages/agent/packages/harness/tsup.config.ts` – context-mill only, this repo's skills are absent rather than overwritten |
+| Tasks sandbox base image              | `.github/workflows/cd-sandbox-base-image.yml`                                                                               |
+| Tasks golden snapshot                 | `.github/workflows/cd-tasks-golden-snapshot.yml`                                                                            |
+| `PostHog/skills` mirror               | that repo's `.github/workflows/sync-omnibus.yml`                                                                            |
+| `PostHog/ai-plugin` plugin            | that repo's `.github/workflows/sync-skills.yml`                                                                             |
 
 Note what is missing from that list: local builds.
 `LocalSkillsCache.ensure_built()` renders only `products/*/skills/` and wipes the dist dir first,

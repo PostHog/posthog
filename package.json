@@ -99,6 +99,7 @@
         ],
         "{playwright,frontend,products,common,ee,services,docs}/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:js",
         "products/desktop/**/*.{js,mjs,ts,tsx,json,jsonc,css}": "pnpm --dir products/desktop exec biome check --write --no-errors-on-unmatched --files-ignore-unknown=true",
+        "packages/agent/**/*.{js,mjs,mts,ts,tsx,json,jsonc}": "pnpm --dir packages/agent exec biome check --write --no-errors-on-unmatched --files-ignore-unknown=true",
         "nodejs/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:nodejs",
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
         "!(posthog/hogql/grammar/*|products/*/skills/*/scripts/*|products/stamphog/packages/*/*)*.{py,pyi}": [

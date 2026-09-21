@@ -1,0 +1,13 @@
+node_modules/
+.pnpm-store/
+dist/
+.turbo/
+junit.xml
+
+# tsup bundled config artifacts (temporary files left behind when bundling TS configs)
+*.config.bundled_*.mjs
+# vite bundled config artifacts (left behind when a vitest run is interrupted)
+*.config.ts.timestamp-*.mjs
+
+.env
+.env.local

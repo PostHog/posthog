@@ -12,7 +12,7 @@ TypeScript consumers. After editing, run ``hogli build:object-tags`` and commit
 the regenerated files:
 
 - ``products/desktop/packages/core/src/inbox/objectKinds.generated.ts``
-- ``products/desktop/packages/agent-contracts/src/objectTagKinds.generated.ts``
+- ``packages/agent/packages/agent-contracts/src/objectTagKinds.generated.ts``
 - ``frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts``
 
 Python consumers import this module directly.

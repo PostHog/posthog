@@ -4,11 +4,15 @@ const path = require("node:path");
 
 const projectRoot = __dirname;
 const monorepoRoot = path.resolve(projectRoot, "../..");
+const agentContractsRoot = path.resolve(
+  monorepoRoot,
+  "../../packages/agent/packages/agent-contracts",
+);
 
 const config = getDefaultConfig(projectRoot);
 
-// Watch monorepo root for changes
-config.watchFolders = [monorepoRoot];
+// Metro only bundles files under a watched folder, so agent-contracts is listed too.
+config.watchFolders = [monorepoRoot, agentContractsRoot];
 
 // Let Metro find modules in both locations
 config.resolver.nodeModulesPaths = [
@@ -49,10 +53,7 @@ nativeWindConfig.resolver = {
 // imports like `@posthog/shared/domain-types`.
 const SOURCE_RESOLVED_PACKAGES = {
   "@posthog/shared": path.resolve(monorepoRoot, "packages/shared/src"),
-  "@posthog/agent-contracts": path.resolve(
-    monorepoRoot,
-    "packages/agent-contracts/src",
-  ),
+  "@posthog/agent-contracts": path.resolve(agentContractsRoot, "src"),
 };
 const upstreamResolveRequest = nativeWindConfig.resolver.resolveRequest;
 

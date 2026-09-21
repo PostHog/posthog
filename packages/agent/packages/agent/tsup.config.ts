@@ -218,14 +218,11 @@ export default defineConfig([
       // Touch a trigger file to signal electron-forge to restart
       // This file is watched by Vite, triggering main process rebuild
       // Skip in Docker/CI environments where the code app doesn't exist
-      const triggerFile = resolve(
-        import.meta.dirname,
-        "../../apps/code/src/main/.agent-trigger",
-      );
       const triggerDir = resolve(
         import.meta.dirname,
-        "../../apps/code/src/main",
+        "../../../../products/desktop/apps/code/src/main",
       );
+      const triggerFile = resolve(triggerDir, ".agent-trigger");
       if (existsSync(triggerDir)) {
         writeFileSync(triggerFile, `${Date.now()}`);
       }

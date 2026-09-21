@@ -804,6 +804,7 @@ const COMMON_FULLSTACK = ['fixtures']
 
 // The pr-approval-agent engine's home inside the stamphog product.
 const PR_APPROVAL_AGENT_DIR = 'products/stamphog/packages/pr-approval-agent'
+const AGENT_WORKSPACE_DIR = 'packages/agent'
 
 // Tools that own their whole test story and that no suite imports, so they can
 // hold a lane of their own. Everything else under tools/ falls through to the
@@ -1965,6 +1966,11 @@ function computeTargets(changedFiles, context) {
 
         if (top === 'posthog' || (top === 'ee' && segments[1] !== 'frontend')) {
             allPyProducts()
+            continue
+        }
+        // The desktop app bundles the agent workspace and the desktop-* workflows test it,
+        // so it shares the desktop lanes. Without the product it takes the frontend lanes.
+        if (file.startsWith(`${AGENT_WORKSPACE_DIR}/`) && addDesktopLanes(targets, context)) {
             continue
         }
         if (top === 'frontend' || (top === 'ee' && segments[1] === 'frontend') || top === 'packages') {

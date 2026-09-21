@@ -265,7 +265,6 @@ class DockerSandbox(AgentServerLaunchMixin):
             os.path.join(monorepo_root, "package.json"),
             os.path.join(monorepo_root, "pnpm-workspace.yaml"),
             os.path.join(monorepo_root, "pnpm-lock.yaml"),
-            os.path.join(monorepo_root, "patches"),
             os.path.join(monorepo_root, "scripts", "rimraf.mjs"),
             *[
                 os.path.join(monorepo_root, "packages", package_name, "package.json")
@@ -349,7 +348,6 @@ class DockerSandbox(AgentServerLaunchMixin):
 
             for file_name in (".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"):
                 shutil.copy2(os.path.join(monorepo_root, file_name), workspace_path)
-            shutil.copytree(os.path.join(monorepo_root, "patches"), os.path.join(workspace_path, "patches"))
             shutil.copy2(os.path.join(monorepo_root, "scripts", "rimraf.mjs"), scripts_path)
 
             for package_name in ("agent", "harness", "agent-contracts", "git", "enricher"):

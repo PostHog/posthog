@@ -52,7 +52,7 @@ from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
 from hogli_commands.lockfile_merge import LOCKFILE_GLOBS, missing_resolutions
 from hogli_commands.size_lint import SCOPE as SIZE_SCOPE
 
-Requirement = Literal["node", "desktop-node", "stack", "clickhouse", "python-env"]
+Requirement = Literal["node", "desktop-node", "agent-node", "stack", "clickhouse", "python-env"]
 
 
 @dataclass
@@ -178,6 +178,19 @@ DIFF_CHECKS: list[DiffCheck] = [
         requires=("desktop-node",),
     ),
     DiffCheck(
+        key="agent-biome",
+        label="agent workspace lint/format (Biome, what desktop-quality CI runs)",
+        triggers=[
+            "packages/agent/*.ts",
+            "packages/agent/*.mts",
+            "packages/agent/*.json",
+            "packages/agent/*.jsonc",
+        ],
+        verify=["pnpm", "--dir", "packages/agent", "exec", "biome", "ci", "."],
+        fix=["pnpm", "--dir", "packages/agent", "exec", "biome", "check", "--write", "."],
+        requires=("agent-node",),
+    ),
+    DiffCheck(
         key="type-check",
         label="Python type checking (mypy)",
         triggers=["*.py", "*.pyi"],
@@ -301,7 +314,7 @@ DIFF_CHECKS: list[DiffCheck] = [
             *BUILD_TRIGGERS["build:object-tags"],
             "bin/build-object-tags-registry.py",
             "products/desktop/packages/core/src/inbox/objectKinds.generated.ts",
-            "products/desktop/packages/agent-contracts/src/objectTagKinds.generated.ts",
+            "packages/agent/packages/agent-contracts/src/objectTagKinds.generated.ts",
             "frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts",
         ],
         verify=["hogli", "build:object-tags", "--check"],
@@ -366,6 +379,9 @@ def _capability_met(req: Requirement) -> bool:
     if req == "desktop-node":
         # products/desktop is a nested standalone workspace with its own install.
         return (REPO_ROOT / "products" / "desktop" / "node_modules" / ".pnpm").exists()
+    if req == "agent-node":
+        # packages/agent is a nested standalone workspace with its own install.
+        return (REPO_ROOT / "packages" / "agent" / "node_modules" / ".pnpm").exists()
     if req == "python-env":
         return _project_python_ready()
     if req == "stack":
@@ -387,9 +403,7 @@ _CHECK_TIMEOUT_SECONDS = 600
 
 def _pnpm_workspace_root(file_path: str) -> str:
     """Repo-relative root of the pnpm workspace owning *file_path* ("." for the root
-    workspace): the nearest ancestor directory with a pnpm-workspace.yaml. The lockfile
-    is not a workspace marker on purpose — products/desktop/packages/agent carries a
-    publish-only pnpm-lock.yaml but belongs to the desktop workspace."""
+    workspace): the nearest ancestor directory with a pnpm-workspace.yaml."""
     current = (REPO_ROOT / file_path).parent.resolve()
     root = REPO_ROOT.resolve()
     while current != root and root in current.parents:

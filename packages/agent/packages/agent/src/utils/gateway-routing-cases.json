@@ -1,5 +1,5 @@
 {
-  "comment": "Shared routing contract for the sandbox gateway matchers. Consumed by BOTH products/desktop/packages/agent/src/utils/gateway.test.ts and products/tasks/backend/temporal/process_task/tests/test_ai_gateway_token.py, so the TypeScript resolver and its Python mirror cannot drift while both suites stay green. A drift means routed runs silently stop minting (or mint unused tokens).",
+  "comment": "Shared routing contract for the sandbox gateway matchers. Consumed by BOTH packages/agent/packages/agent/src/utils/gateway.test.ts and products/tasks/backend/temporal/process_task/tests/test_ai_gateway_token.py, so the TypeScript resolver and its Python mirror cannot drift while both suites stay green. A drift means routed runs silently stop minting (or mint unused tokens).",
   "resolve_ai_product": [
     {
       "origin_product": "signals_scout",

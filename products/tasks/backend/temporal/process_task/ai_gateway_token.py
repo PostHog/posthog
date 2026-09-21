@@ -3,7 +3,7 @@
 Routed runs authenticate with a short-lived `phe_` token minted here from the worker's
 gateway credential: pinned product and on-behalf-of team, per-run spend cap, one internal
 wallet. Minting is best-effort and the matching must agree with `resolveGatewayTarget` in
-products/desktop/packages/agent/src/utils/gateway.ts; the agent routes to the Go gateway
+packages/agent/packages/agent/src/utils/gateway.ts; the agent routes to the Go gateway
 only when the product is allowlisted AND a token is present, so a mint failure or matcher
 disagreement degrades the run to the Python gateway rather than failing it.
 """
@@ -32,7 +32,7 @@ AI_GATEWAY_TOKEN_MINTS = Counter(
     labelnames=["result"],
 )
 
-# Mirrors resolveGatewayProduct in products/desktop/packages/agent/src/utils/gateway.ts.
+# Mirrors resolveGatewayProduct in packages/agent/packages/agent/src/utils/gateway.ts.
 _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
     "loop": "posthog_code",
     "onboarding": "onboarding",

@@ -77,7 +77,7 @@
     "clean": "node ../../scripts/rimraf.mjs dist .turbo"
   },
   "dependencies": {
-    "@posthog/agent-contracts": "workspace:*",
+    "@posthog/agent-contracts": "link:../../../../packages/agent/packages/agent-contracts",
     "@posthog/brand": "catalog:",
     "zod": "^4.1.12"
   },

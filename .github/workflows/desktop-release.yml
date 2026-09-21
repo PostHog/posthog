@@ -162,20 +162,11 @@ jobs:
             - name: Build platform package
               run: pnpm --filter @posthog/platform run build
 
+            - name: Build agent workspace
+              run: node scripts/build-agent-workspace.mjs
+
             - name: Build shared package
-              run: pnpm --filter @posthog/shared... run build
-
-            - name: Build git package
-              run: pnpm --filter @posthog/git run build
-
-            - name: Build enricher package
-              run: pnpm --filter @posthog/enricher run build
-
-            - name: Build harness package
-              run: pnpm --filter @posthog/harness run build
-
-            - name: Build agent package
-              run: pnpm --filter @posthog/agent run build
+              run: pnpm --filter @posthog/shared run build
 
             # build/Assets.car is gitignored, so compile it here. actool only handles the .icon
             # bundle with Xcode 26, which this job gets from its macOS 26 runner's default
@@ -393,20 +384,11 @@ jobs:
             - name: Build platform package
               run: pnpm --filter @posthog/platform run build
 
+            - name: Build agent workspace
+              run: node scripts/build-agent-workspace.mjs
+
             - name: Build shared package
-              run: pnpm --filter @posthog/shared... run build
-
-            - name: Build git package
-              run: pnpm --filter @posthog/git run build
-
-            - name: Build enricher package
-              run: pnpm --filter @posthog/enricher run build
-
-            - name: Build harness package
-              run: pnpm --filter @posthog/harness run build
-
-            - name: Build agent package
-              run: pnpm --filter @posthog/agent run build
+              run: pnpm --filter @posthog/shared run build
 
             # Two separate steps: in a multi-line pwsh script only the last
             # command's exit code fails the step, so a broken electron-vite
@@ -587,20 +569,11 @@ jobs:
             - name: Build platform package
               run: pnpm --filter @posthog/platform run build
 
+            - name: Build agent workspace
+              run: node scripts/build-agent-workspace.mjs
+
             - name: Build shared package
-              run: pnpm --filter @posthog/shared... run build
-
-            - name: Build git package
-              run: pnpm --filter @posthog/git run build
-
-            - name: Build enricher package
-              run: pnpm --filter @posthog/enricher run build
-
-            - name: Build harness package
-              run: pnpm --filter @posthog/harness run build
-
-            - name: Build agent package
-              run: pnpm --filter @posthog/agent run build
+              run: pnpm --filter @posthog/shared run build
 
             - name: Build release artifacts
               env:

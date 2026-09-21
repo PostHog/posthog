@@ -12,12 +12,12 @@ procs:
             layer: Application
 
     agent:
-        shell: 'node scripts/pnpm-run.mjs --filter agent run dev'
+        shell: 'node scripts/pnpm-run.mjs --dir ../../packages/agent --filter agent run dev'
         groups:
             layer: Packages
 
     git:
-        shell: 'node scripts/pnpm-run.mjs --filter @posthog/git run dev'
+        shell: 'node scripts/pnpm-run.mjs --dir ../../packages/agent --filter @posthog/git run dev'
         groups:
             layer: Packages
 
@@ -27,7 +27,7 @@ procs:
             layer: Packages
 
     enricher:
-        shell: 'node scripts/pnpm-run.mjs --filter @posthog/enricher run dev'
+        shell: 'node scripts/pnpm-run.mjs --dir ../../packages/agent --filter @posthog/enricher run dev'
         groups:
             layer: Packages
 
