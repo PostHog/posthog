@@ -186,6 +186,11 @@ class WidgetMessagesQuerySerializer(WidgetAuthSerializer):
     """Serializer for fetching messages from a ticket."""
 
     after = serializers.DateTimeField(required=False, allow_null=True)
+    after_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Id of the last message the caller saw. Pair it with `after` to page past messages that share a timestamp.",
+    )
     limit = serializers.IntegerField(required=False, default=500, min_value=1, max_value=500)
 
 

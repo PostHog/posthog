@@ -510,6 +510,7 @@ class WidgetMessagesView(APIView):
             )
 
         after = query_serializer.validated_data.get("after")
+        after_id = query_serializer.validated_data.get("after_id")
         limit = query_serializer.validated_data["limit"]
 
         # Get ticket
@@ -540,9 +541,10 @@ class WidgetMessagesView(APIView):
 
         # Check cache (after stays constant between polls until new message arrives)
         after_str = after.isoformat() if after else None
+        after_id_str = str(after_id) if after_id else None
         use_cache = limit == 50  # Only cache the limit used by widget polling
         if use_cache:
-            cached = get_cached_messages(team.id, ticket_id, after_str)
+            cached = get_cached_messages(team.id, ticket_id, after_str, after_id_str)
             if cached is not None:
                 return Response(cached)
 
@@ -551,8 +553,12 @@ class WidgetMessagesView(APIView):
             team=team, scope="conversations_ticket", item_id=str(ticket_id), deleted=False
         ).select_related("created_by")
 
-        # Filter by timestamp if provided
-        if after:
+        # Filter by the cursor if provided. Messages can share a created_at, so a strict
+        # timestamp filter drops every tied row that did not fit in the previous page.
+        # The id keeps the cursor unique; callers that send only a timestamp keep the old behavior.
+        if after and after_id:
+            messages_query = messages_query.filter(Q(created_at__gt=after) | Q(created_at=after, id__gt=after_id))
+        elif after:
             messages_query = messages_query.filter(created_at__gt=after)
 
         # Only return non-private messages to widget
@@ -565,7 +571,7 @@ class WidgetMessagesView(APIView):
         )
 
         # Order and limit
-        messages = messages_query.order_by("created_at")[:limit]
+        messages = list(messages_query.order_by("created_at", "id")[:limit])
 
         # Serialize messages
         message_list = []
@@ -599,11 +605,14 @@ class WidgetMessagesView(APIView):
             "unread_count": ticket.unread_customer_count,
             "messages": message_list,
             "has_more": len(messages) == limit,  # Hint if there are more messages
+            # Cursor for the next poll. Null when the page is empty, so the caller keeps its cursor.
+            "next_after": messages[-1].created_at.isoformat() if messages else None,
+            "next_after_id": str(messages[-1].id) if messages else None,
         }
 
         # Cache the response
         if use_cache:
-            set_cached_messages(team.id, ticket_id, response_data, after_str)
+            set_cached_messages(team.id, ticket_id, response_data, after_str, after_id_str)
 
         return Response(response_data)
 

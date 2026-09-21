@@ -1,11 +1,13 @@
 import time
 import uuid
+from urllib.parse import urlencode
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -305,6 +307,44 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["messages"]), 2)
         self.assertEqual(response.json()["messages"][0]["content"], "First message")
+
+    def test_get_messages_pages_past_messages_that_share_a_timestamp(self):
+        # Messages written in the same transaction can share created_at. A cursor that holds only
+        # the timestamp cannot page through a tie wider than the limit: the strict created_at filter
+        # skips every tied message that did not fit in the page, and the widget never shows them.
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+        for index in range(5):
+            Comment.objects.create(
+                team=self.team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content=f"Message {index}",
+                item_context={"author_type": "customer", "is_private": False},
+            )
+        shared_timestamp = timezone.now()
+        Comment.objects.filter(scope="conversations_ticket", item_id=str(ticket.id)).update(created_at=shared_timestamp)
+
+        seen: list[str] = []
+        cursor = ""
+        for _ in range(5):
+            response = self.client.get(
+                f"/api/conversations/v1/widget/messages/{ticket.id}"
+                f"?widget_session_id={self.widget_session_id}&limit=2{cursor}",
+                **self._get_headers(),
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            body = response.json()
+            seen.extend(m["content"] for m in body["messages"])
+            if not body["has_more"]:
+                break
+            cursor = "&" + urlencode({"after": body["next_after"], "after_id": body["next_after_id"]})
+
+        self.assertEqual(sorted(seen), [f"Message {index}" for index in range(5)])
 
     def test_get_messages_excludes_private(self):
         ticket = Ticket.objects.create_with_number(
