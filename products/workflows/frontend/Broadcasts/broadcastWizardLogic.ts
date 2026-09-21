@@ -42,6 +42,7 @@ import {
     parseRRuleToState,
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
+import { isBroadcastShaped, isEligibleWorkflow } from './broadcastsLogic'
 
 export type BroadcastWizardStep = 'recipients' | 'goal' | 'content' | 'schedule' | 'review'
 
@@ -85,7 +86,13 @@ export const DEFAULT_BROADCAST_EMAIL: BroadcastEmailValue = {
  * already sent stays read-only, and so does a recurring send, which is both sent and scheduled at once.
  */
 export function isBroadcastReadOnly(broadcast: HogFlowApi | null, batchJobs: HogFlowBatchJobApi[]): boolean {
-    if (!broadcast || broadcast.status === 'draft') {
+    if (!broadcast) {
+        return false
+    }
+    if (isEligibleWorkflow(broadcast)) {
+        return true
+    }
+    if (broadcast.status === 'draft') {
         return false
     }
     if (batchJobs.length > 0) {
@@ -918,7 +925,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             }
             // The mirror of the redirect in workflowLogic: an ordinary workflow has steps this wizard
             // cannot show, so hand it to the editor that can rather than rendering a partial view of it.
-            if (broadcast.kind !== 'broadcast' && props.id && props.id !== 'new') {
+            if (isEligibleWorkflow(broadcast) && !isBroadcastShaped(broadcast) && props.id && props.id !== 'new') {
                 router.actions.replace(urls.workflow(props.id, 'workflow'))
                 return
             }

@@ -322,6 +322,61 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert [flow["kind"] for flow in response.json()["results"]] == ["broadcast"]
 
+    def test_list_filter_by_broadcast_eligible(self):
+        email_action = {"id": "email_node", "type": "function_email", "config": {}}
+        exit_action = {"id": "exit_node", "type": "exit", "config": {}}
+
+        def trigger_action(trigger_type: str) -> dict:
+            return {"id": "trigger_node", "type": "trigger", "config": {"type": trigger_type}}
+
+        HogFlow.objects.create(team=self.team, name="Broadcast", created_by=self.user, kind="broadcast")
+        HogFlow.objects.create(
+            team=self.team,
+            name="Eligible",
+            created_by=self.user,
+            trigger={"type": "batch"},
+            actions=[trigger_action("batch"), email_action, exit_action],
+        )
+        HogFlow.objects.create(
+            team=self.team,
+            name="Two emails",
+            created_by=self.user,
+            trigger={"type": "batch"},
+            actions=[trigger_action("batch"), email_action, dict(email_action, id="email_2"), exit_action],
+        )
+        HogFlow.objects.create(
+            team=self.team,
+            name="Has a delay",
+            created_by=self.user,
+            trigger={"type": "batch"},
+            actions=[
+                trigger_action("batch"),
+                {"id": "wait", "type": "delay", "config": {"delay_duration": "1d"}},
+                email_action,
+                exit_action,
+            ],
+        )
+        HogFlow.objects.create(
+            team=self.team,
+            name="Event trigger",
+            created_by=self.user,
+            trigger={"type": "event"},
+            actions=[trigger_action("event"), email_action, exit_action],
+        )
+        # The `trigger` column is a legacy copy of the trigger action's config and real rows exist
+        # where the two disagree. The API reads the action, so the filter must read it too.
+        HogFlow.objects.create(
+            team=self.team,
+            name="Stale trigger column",
+            created_by=self.user,
+            trigger={"type": "batch"},
+            actions=[trigger_action("event"), email_action, exit_action],
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?broadcast_eligible=true")
+        assert response.status_code == 200, response.json()
+        assert {flow["name"] for flow in response.json()["results"]} == {"Broadcast", "Eligible"}
+
     @parameterized.expand(
         [
             (

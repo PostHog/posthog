@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 
 import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import { BroadcastStatus, broadcastsLogic, getBroadcastStatus } from './broadcastsLogic'
+import { BroadcastStatus, broadcastsLogic, getBroadcastStatus, isEligibleWorkflow } from './broadcastsLogic'
 
 const STATUS_CONFIG: Record<BroadcastStatus, { label: string; type: LemonTagType }> = {
     draft: { label: 'Draft', type: 'default' },
@@ -42,11 +42,18 @@ export function BroadcastsTable(): JSX.Element {
             title: 'Name',
             key: 'name',
             render: (_, item) => (
-                <LemonTableLink
-                    to={urls.broadcast(item.id)}
-                    title={item.name || 'Untitled broadcast'}
-                    description={item.description}
-                />
+                <div className="flex items-center gap-2">
+                    <LemonTableLink
+                        to={urls.broadcast(item.id)}
+                        title={item.name || 'Untitled broadcast'}
+                        description={item.description}
+                    />
+                    {isEligibleWorkflow(item) && (
+                        <LemonTag type="muted" data-attr="broadcast-workflow-tag">
+                            Workflow
+                        </LemonTag>
+                    )}
+                </div>
             ),
         },
         {
@@ -77,42 +84,55 @@ export function BroadcastsTable(): JSX.Element {
         {
             key: 'actions',
             width: 0,
-            render: (_, item) => (
-                <More
-                    overlay={
-                        <>
+            render: (_, item) =>
+                isEligibleWorkflow(item) ? (
+                    <More
+                        overlay={
                             <LemonButton
                                 fullWidth
-                                data-attr="broadcast-duplicate"
-                                onClick={() => duplicateBroadcast(item)}
+                                to={urls.workflow(item.id, 'workflow')}
+                                data-attr="broadcast-open-workflow"
                             >
-                                Duplicate
+                                Edit in the workflow editor
                             </LemonButton>
-                            <LemonDivider />
-                            <LemonButton
-                                fullWidth
-                                status={item.status === 'archived' ? 'default' : 'danger'}
-                                data-attr="broadcast-archive-restore"
-                                onClick={() =>
-                                    item.status === 'archived' ? restoreBroadcast(item) : archiveBroadcast(item)
-                                }
-                            >
-                                {item.status === 'archived' ? 'Restore' : 'Archive'}
-                            </LemonButton>
-                            {item.status === 'archived' && (
+                        }
+                    />
+                ) : (
+                    <More
+                        overlay={
+                            <>
                                 <LemonButton
                                     fullWidth
-                                    status="danger"
-                                    data-attr="broadcast-delete"
-                                    onClick={() => deleteBroadcast(item)}
+                                    data-attr="broadcast-duplicate"
+                                    onClick={() => duplicateBroadcast(item)}
                                 >
-                                    Delete permanently
+                                    Duplicate
                                 </LemonButton>
-                            )}
-                        </>
-                    }
-                />
-            ),
+                                <LemonDivider />
+                                <LemonButton
+                                    fullWidth
+                                    status={item.status === 'archived' ? 'default' : 'danger'}
+                                    data-attr="broadcast-archive-restore"
+                                    onClick={() =>
+                                        item.status === 'archived' ? restoreBroadcast(item) : archiveBroadcast(item)
+                                    }
+                                >
+                                    {item.status === 'archived' ? 'Restore' : 'Archive'}
+                                </LemonButton>
+                                {item.status === 'archived' && (
+                                    <LemonButton
+                                        fullWidth
+                                        status="danger"
+                                        data-attr="broadcast-delete"
+                                        onClick={() => deleteBroadcast(item)}
+                                    >
+                                        Delete permanently
+                                    </LemonButton>
+                                )}
+                            </>
+                        }
+                    />
+                ),
         },
     ]
 

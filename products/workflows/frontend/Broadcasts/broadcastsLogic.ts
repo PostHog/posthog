@@ -57,6 +57,27 @@ export interface BroadcastRowDetails {
     totals: Record<string, number>
 }
 
+const BROADCAST_TRIGGER_TYPE = 'batch'
+const BROADCAST_ALLOWED_ACTION_TYPES = ['trigger', 'function_email', 'exit']
+
+// Mirrors is_broadcast_shaped in the workflows API; the two have to stay in step.
+export function isBroadcastShaped(flow: { trigger?: unknown; actions?: unknown }): boolean {
+    const trigger = flow.trigger as { type?: string } | null | undefined
+    if (trigger?.type !== BROADCAST_TRIGGER_TYPE) {
+        return false
+    }
+    const flowActions = (Array.isArray(flow.actions) ? flow.actions : []) as { type?: string }[]
+    if (flowActions.some((action) => !BROADCAST_ALLOWED_ACTION_TYPES.includes(action.type ?? ''))) {
+        return false
+    }
+    return flowActions.filter((action) => action.type === 'function_email').length === 1
+}
+
+// Read-only here: the wizard would rewrite the graph, and the API refuses to change a flow's kind.
+export function isEligibleWorkflow(broadcast: { kind?: string | null }): boolean {
+    return broadcast.kind !== 'broadcast'
+}
+
 export function getBroadcastStatus(
     broadcast: HogFlowMinimalApi,
     details: BroadcastRowDetails | undefined
@@ -202,7 +223,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                     const apiStatus =
                         status === 'draft' || status === 'archived' ? status : status === 'all' ? undefined : 'active'
                     return await hogFlowsList(String(values.currentProjectId), {
-                        kind: 'broadcast',
+                        broadcast_eligible: true,
                         limit: 100,
                         ...(search ? { search } : {}),
                         ...(createdBy ? { created_by: createdBy } : {}),

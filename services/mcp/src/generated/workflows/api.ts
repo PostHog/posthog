@@ -17,6 +17,12 @@ export const HogFlowsListParams = () => zod.object({
 })
 
 export const HogFlowsListQueryParams = () => zod.object({
+    broadcast_eligible: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.'
+        ),
     created_at: zod.iso.datetime({ offset: true }).optional(),
     created_by: zod.string().optional().describe('Filter to workflows created by the user with this uuid.'),
     id: zod.string().optional(),

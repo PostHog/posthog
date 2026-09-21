@@ -15,6 +15,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import models, transaction
 from django.db.models import Q, QuerySet
+from django.db.models.expressions import RawSQL
 from django.http import Http404, HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -816,6 +817,34 @@ def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
 # the shape is enforced on every write path rather than in the wizard alone.
 BROADCAST_TRIGGER_TYPE = "batch"
 BROADCAST_ALLOWED_ACTION_TYPES = frozenset({"trigger", "function_email", "exit"})
+
+
+def is_broadcast_shaped(trigger_config: dict, actions: list[dict]) -> bool:
+    # The conditions _validate_broadcast_shape enforces, as a plain predicate.
+    if trigger_config.get("type") != BROADCAST_TRIGGER_TYPE:
+        return False
+    if any(a.get("type") not in BROADCAST_ALLOWED_ACTION_TYPES for a in actions):
+        return False
+    return len([a for a in actions if a.get("type") == "function_email"]) == 1
+
+
+# Postgres form of is_broadcast_shaped, for filtering a list without loading every graph. The trigger
+# comes from the trigger action, where mask_trigger_config reads it: the `trigger` column is a legacy
+# copy and rows exist where the two disagree.
+_BROADCAST_ALLOWED_TYPES_JSONPATH = " && ".join(
+    f'@.type != "{action_type}"' for action_type in sorted(BROADCAST_ALLOWED_ACTION_TYPES)
+)
+BROADCAST_SHAPED_SQL = f"""(
+    jsonb_typeof("posthog_hogflow"."actions") = 'array'
+    AND jsonb_path_exists(
+        "posthog_hogflow"."actions",
+        '$[*] ? (@.type == "trigger" && @.config.type == "{BROADCAST_TRIGGER_TYPE}")'
+    )
+    AND jsonb_array_length(
+        jsonb_path_query_array("posthog_hogflow"."actions", '$[*] ? (@.type == "function_email")')
+    ) = 1
+    AND NOT jsonb_path_exists("posthog_hogflow"."actions", '$[*] ? ({_BROADCAST_ALLOWED_TYPES_JSONPATH})')
+)"""
 
 
 def _validate_broadcast_shape(trigger_config: dict, actions: list[dict]) -> None:
@@ -3921,6 +3950,11 @@ WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogF
                 OpenApiTypes.STR,
                 description='Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.',
             ),
+            OpenApiParameter(
+                "broadcast_eligible",
+                OpenApiTypes.BOOL,
+                description="Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.",
+            ),
         ]
     )
 )
@@ -4079,6 +4113,11 @@ class HogFlowViewSet(
                     queryset = (
                         queryset.filter(messaging_q) if workflow_type == "messaging" else queryset.exclude(messaging_q)
                     )
+
+            if self.request.GET.get("broadcast_eligible") == "true":
+                queryset = queryset.annotate(
+                    _broadcast_shaped=RawSQL(BROADCAST_SHAPED_SQL, [], output_field=models.BooleanField())
+                ).filter(Q(kind=HogFlow.Kind.BROADCAST) | Q(kind__isnull=True, _broadcast_shaped=True))
 
             origin_product = self.request.GET.get("origin_product")
             if origin_product:

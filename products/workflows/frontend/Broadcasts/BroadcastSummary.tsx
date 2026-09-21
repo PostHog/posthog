@@ -22,7 +22,7 @@ import { EmailMetricsSummary } from '../Workflows/EmailMetricsSummary'
 import { EmailViewerModal } from '../Workflows/EmailViewerModal'
 import { type MessageAsset, getMessageAssetContentUrl } from '../Workflows/messageAssetsApi'
 import { broadcastSentLogic } from './broadcastSentLogic'
-import { broadcastsLogic } from './broadcastsLogic'
+import { broadcastsLogic, isEligibleWorkflow } from './broadcastsLogic'
 import { BroadcastSummaryTab, broadcastWizardLogic } from './broadcastWizardLogic'
 
 const BATCH_JOB_STATUS_TAG: Record<string, LemonTagType> = {
@@ -414,7 +414,17 @@ export function BroadcastSummary(): JSX.Element {
                     <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} to={urls.broadcasts()}>
                         Broadcasts
                     </LemonButton>
-                    {broadcastId && broadcast && (
+                    {broadcastId && broadcast && isEligibleWorkflow(broadcast) && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            to={urls.workflow(broadcast.id, 'workflow')}
+                            data-attr="broadcast-detail-open-workflow"
+                        >
+                            Edit in the workflow editor
+                        </LemonButton>
+                    )}
+                    {broadcastId && broadcast && !isEligibleWorkflow(broadcast) && (
                         <div className="flex items-center gap-2">
                             <More
                                 overlay={

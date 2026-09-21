@@ -17,6 +17,7 @@ import { resolveToolCall } from 'products/posthog_ai/frontend/api/tools'
 
 import { BROADCAST_AGENT_HEADLINES, buildBroadcastAgentContext } from './broadcastAgentContext'
 import { broadcastPreviewLogic } from './broadcastPreviewLogic'
+import { isBroadcastShaped, isEligibleWorkflow } from './broadcastsLogic'
 import { BroadcastStartStep } from './BroadcastStartStep'
 import { BroadcastSummary } from './BroadcastSummary'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
@@ -104,8 +105,8 @@ function BroadcastSceneContent({ id }: BroadcastWizardLogicProps): JSX.Element {
             return <NotFound object="broadcast" />
         }
         // Any workflow id resolves on this route, and the wizard would rewrite whatever graph it
-        // opened into a broadcast's trigger/email/exit on the next save. Only open real broadcasts.
-        if (broadcast.kind !== 'broadcast') {
+        // opened into a broadcast's trigger/email/exit on the next save.
+        if (isEligibleWorkflow(broadcast) && !isBroadcastShaped(broadcast)) {
             return <NotFound object="broadcast" />
         }
         if (isReadOnly) {

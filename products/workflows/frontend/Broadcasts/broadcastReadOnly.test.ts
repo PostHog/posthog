@@ -8,7 +8,9 @@ import { isBroadcastReadOnly } from './broadcastWizardLogic'
 const RECURRING_RRULE = 'FREQ=WEEKLY;BYDAY=MO'
 
 const broadcast = (status: string, schedules: { rrule: string; starts_at: string }[] = []): HogFlowApi =>
-    ({ status, schedules }) as unknown as HogFlowApi
+    ({ kind: 'broadcast', status, schedules }) as unknown as HogFlowApi
+
+const eligibleWorkflow = (status: string): HogFlowApi => ({ kind: null, status }) as unknown as HogFlowApi
 
 const future = (): string => dayjs().add(3, 'day').toISOString()
 const past = (): string => dayjs().subtract(3, 'day').toISOString()
@@ -37,6 +39,8 @@ describe('isBroadcastReadOnly', () => {
         ],
         ['an active broadcast with no schedule', broadcast('active'), [], true],
         ['an archived broadcast', broadcast('archived'), [], true],
+        ['a draft broadcast-shaped workflow', eligibleWorkflow('draft'), [], true],
+        ['an active broadcast-shaped workflow', eligibleWorkflow('active'), [], true],
     ])('returns %s -> %s', (_name, flow, jobs, expected) => {
         expect(isBroadcastReadOnly(flow, jobs as HogFlowBatchJobApi[])).toBe(expected)
     })
