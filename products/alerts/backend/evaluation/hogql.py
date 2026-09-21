@@ -10,7 +10,7 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import EventSource
-from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
+from posthog.tasks.alerts.detector import _compute_min_samples_for_detector, min_points_to_evaluate
 
 from products.alerts.backend.evaluation.contract import (
     AlertExtractionError,
@@ -260,7 +260,7 @@ def extract_hogql_detector_series(
     # exact cutoff. (Trends adds +1 to compensate for the dropped interval; SQL must not, or a query
     # returning exactly the detector's minimum would be wrongly rejected as "not enough data".)
     min_samples = _compute_min_samples_for_detector(detector_config)
-    if len(values) < min_samples:
+    if len(values) < min_points_to_evaluate(detector_config):
         return ExtractionResult(series=[], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
 
     # Score only the most recent window the detector needs (current stays last). A SQL query can

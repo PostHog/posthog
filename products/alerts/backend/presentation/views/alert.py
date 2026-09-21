@@ -680,6 +680,14 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         read_only=True,
         help_text="Display name of the insight monitored by this alert.",
     )
+    llm_detector_available = serializers.SerializerMethodField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Whether this alert can use the AI detector, judged for the person who created it, since scheduled "
+            "checks run as the creator. Only computed when retrieving a single alert; null elsewhere."
+        ),
+    )
     name = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -753,6 +761,23 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     def get_insight_display_name(self, obj: AlertConfiguration) -> str:
         return obj.insight.name or obj.insight.derived_name or "Untitled insight"
 
+    @extend_schema_field(serializers.BooleanField(allow_null=True))
+    def get_llm_detector_available(self, obj: AlertConfiguration) -> bool | None:
+        # One flag evaluation per alert is fine on the detail view and not on a list.
+        if getattr(self.context.get("view"), "action", None) != "retrieve":
+            return None
+        if obj.created_by is None:
+            return False
+        try:
+            return (
+                llm_detector_access_error(
+                    distinct_id=str(obj.created_by.distinct_id), organization=obj.team.organization
+                )
+                is None
+            )
+        except LLMDetectorUnavailableError:
+            return None
+
     class Meta:
         model = AlertConfiguration
         fields = [
@@ -762,6 +787,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "insight",
             "insight_short_id",
             "insight_display_name",
+            "llm_detector_available",
             "name",
             "subscribed_users",
             "threshold",

@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { formatDate } from 'lib/utils/datetime'
 
-import { AlertState, DetectorType } from '~/queries/schema/schema-general'
+import { AlertState, DetectorConfig, DetectorType } from '~/queries/schema/schema-general'
 
 import type { AlertCheck, AlertType } from '../types'
 import { DEFAULT_LLM_DETECTION_CONFIDENCE } from './detectorConfigDefaults'
@@ -65,6 +65,23 @@ export function llmCheckWouldFire(check: AlertCheck, threshold: number): boolean
         return false
     }
     return verdictIsAnomaly && confidence >= threshold
+}
+
+/**
+ * How a saved check reads under the alert's current detector. An AI verdict is classified against
+ * the current confidence threshold; under any other detector its folded score means nothing, so
+ * it is marked unclassifiable rather than compared with a statistical threshold. `undefined` leaves
+ * a statistical check to the chart's own threshold comparison.
+ */
+export function checkWouldFireUnderCurrentConfiguration(
+    check: AlertCheck,
+    detectorConfig: DetectorConfig | null | undefined
+): boolean | null | undefined {
+    const isModelCheck = typeof check.triggered_metadata?.verdict_is_anomaly === 'boolean'
+    if (detectorConfig?.type === DetectorType.LLM) {
+        return llmCheckWouldFire(check, detectorConfig.threshold ?? DEFAULT_LLM_DETECTION_CONFIDENCE)
+    }
+    return isModelCheck ? null : undefined
 }
 
 export function getAlertHistoryScoreName(
@@ -249,10 +266,6 @@ export const alertLogic = kea<alertLogicType>([
                     return []
                 }
                 const isAnomaly = !!alert.detector_config
-                const llmThreshold =
-                    alert.detector_config?.type === DetectorType.LLM
-                        ? (alert.detector_config.threshold ?? DEFAULT_LLM_DETECTION_CONFIDENCE)
-                        : null
                 const sortedAsc = [...(alert.checks ?? [])].sort(
                     (a, b) => dayjs(a.created_at).valueOf() - dayjs(b.created_at).valueOf()
                 )
@@ -262,13 +275,12 @@ export const alertLogic = kea<alertLogicType>([
                     if (value === null) {
                         continue
                     }
+                    const wouldFire = checkWouldFireUnderCurrentConfiguration(check, alert.detector_config)
                     points.push({
                         value,
                         label: formatDate(dayjs(check.created_at), 'MMM D, HH:mm'),
                         firedAtTime: check.state === AlertState.FIRING,
-                        ...(llmThreshold !== null
-                            ? { wouldFireUnderCurrentConfiguration: llmCheckWouldFire(check, llmThreshold) }
-                            : {}),
+                        ...(wouldFire !== undefined ? { wouldFireUnderCurrentConfiguration: wouldFire } : {}),
                     })
                 }
                 return points

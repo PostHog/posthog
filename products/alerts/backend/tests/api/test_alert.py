@@ -3142,6 +3142,27 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
         assert response.json()["code"] == "llm_detector_unavailable"
 
+    @parameterized.expand([("rolled_out", True), ("not_rolled_out", False)])
+    def test_retrieve_reports_whether_the_creator_can_use_the_ai_detector(self, _name, rolled_out) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "name": "creator access",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+
+        with mock.patch("posthoganalytics.feature_enabled", return_value=rolled_out):
+            detail = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}").json()
+            listed = self.client.get(f"/api/projects/{self.team.id}/alerts").json()["results"]
+
+        assert detail["llm_detector_available"] is rolled_out
+        assert listed[0]["llm_detector_available"] is None
+
     @parameterized.expand([("normal", False), ("impersonated", True)])
     @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
     @mock.patch("products.alerts.backend.judge.llm.LLMSeriesJudge._ask_model")
@@ -3177,8 +3198,9 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert ask.call_args.kwargs["attribution"].is_agent_billable is (not impersonated)
         series = ask.call_args.kwargs["series"]
-        assert "2026-01-01" in series.metric_description
-        assert "2026-01-06" in series.metric_description
+        # Seven points, the incomplete last one dropped, then only the 5-point window is described.
+        assert "2026-01-02 to 2026-01-06" in series.metric_description
+        assert "2026-01-01" not in series.metric_description
         assert "-1d" not in series.metric_description
 
     @parameterized.expand(

@@ -122,6 +122,20 @@ def test_flattens_nested_property_groups() -> None:
     assert "event property $host is eu.posthog.com" in described
 
 
+def test_the_alerted_formulas_inputs_survive_the_series_cap() -> None:
+    query = {
+        "kind": "TrendsQuery",
+        "series": [{"kind": "EventsNode", "event": f"event_{i}", "math": "total"} for i in range(8)],
+        "trendsFilter": {"formulas": ["A / H", "A - B"]},
+    }
+
+    described = describe_metric_definition(query, series_index=0)
+
+    assert 'Input series H (index 7): total event count of event "event_7"' in described
+    assert 'Input series A (index 0): total event count of event "event_0"' in described
+    assert "(2 further series omitted.)" in described
+
+
 def test_the_effective_range_replaces_the_insights_saved_range() -> None:
     # A detector fetches a wider span than a short saved range holds. Describing the saved range
     # next to the dated points it sends tells the model two different things about the span.

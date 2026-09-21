@@ -14,6 +14,7 @@ workflow module's import path.
 
 from __future__ import annotations
 
+import re
 import json
 from typing import Any
 
@@ -134,7 +135,8 @@ def _describe(query: Any, series_index: int, effective_date_range: MetricDateRan
         # With formulas, the alerted result is a formula over the series, and series_index
         # picks a formula, not a raw series.
         lines.extend(_describe_formulas(formulas, series_index))
-        lines.extend(_describe_series(series, series_index=None))
+        alerted = formulas[series_index][0] if 0 <= series_index < len(formulas) else ""
+        lines.extend(_describe_series(series, series_index=None, keep=_formula_inputs(alerted)))
     elif isinstance(series, list) and series:
         lines.extend(_describe_series(series, series_index))
     elif isinstance(clauses, list) and clauses:
@@ -196,12 +198,32 @@ def _describe_formulas(formulas: list[tuple[str, str | None]], series_index: int
     return lines
 
 
-def _describe_series(series: list[Any], series_index: int | None) -> list[str]:
+def _formula_inputs(expression: str) -> list[int]:
+    """The series indices a formula refers to by letter: A is 0, Z is 25, AA is 26."""
+    indices: list[int] = []
+    for letters in re.findall(r"(?<![A-Za-z])([A-Z]{1,2})(?![A-Za-z])", expression):
+        index = 0
+        for letter in letters:
+            index = index * 26 + (ord(letter) - ord("A") + 1)
+        indices.append(index - 1)
+    return indices
+
+
+def _describe_series(series: list[Any], series_index: int | None, keep: list[int] | None = None) -> list[str]:
     described = list(range(min(len(series), MAX_DESCRIBED_SERIES)))
-    if series_index is not None and MAX_DESCRIBED_SERIES <= series_index < len(series):
-        # The cap bounds the prompt, but the alerted series is what the judge is asked about,
-        # so it displaces the last capped one rather than being omitted.
-        described[-1] = series_index
+    # The cap bounds the prompt, but the alerted series, or the inputs of the alerted formula,
+    # are what the judge is asked about, so they displace capped ones rather than being omitted.
+    wanted = [i for i in ([series_index] if series_index is not None else []) + (keep or []) if i < len(series)]
+    slot = len(described) - 1
+    for index in dict.fromkeys(wanted):
+        if index in described:
+            continue
+        while slot >= 0 and described[slot] in wanted:
+            slot -= 1
+        if slot < 0:
+            break
+        described[slot] = index
+        slot -= 1
     lines: list[str] = []
     for index in described:
         if series_index is None:

@@ -879,6 +879,10 @@ export const alertFormLogic = kea<alertFormLogicType>([
     })),
 
     listeners(({ props, values, actions }) => {
+        const discardSimulation = (): void => {
+            actions.clearSimulation()
+            getParentLogic()?.actions.clearSimulationAnomalyPoints()
+        }
         const getParentLogic = (): ReturnType<typeof insightAlertsLogic.build> | undefined => {
             if (props.insightVizDataLogicProps) {
                 return insightAlertsLogic({
@@ -1017,8 +1021,15 @@ export const alertFormLogic = kea<alertFormLogicType>([
             },
             setSimulationDateFrom: () => {
                 // A preview is only valid for the range it ran over, whether it has finished or not.
-                actions.clearSimulation()
-                getParentLogic()?.actions.clearSimulationAnomalyPoints()
+                discardSimulation()
+            },
+            setAlertFormValue: ({ name }) => {
+                const field = Array.isArray(name) ? name[0] : name
+                // The evaluated series or column, and the detector settings, are inputs to the
+                // preview, so an edit to either leaves nothing the chart can honestly show.
+                if (field === 'config' || field === 'detector_config') {
+                    discardSimulation()
+                }
             },
             simulateAlertFailure: ({ error }) => {
                 const detectorConfig = values.alertForm.detector_config

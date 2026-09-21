@@ -203,6 +203,11 @@ describe('alertFormLogic', () => {
     it.each([
         ['cleared', (logic: ReturnType<typeof mountForm>) => logic.actions.clearSimulation()],
         ['run over another range', (logic: ReturnType<typeof mountForm>) => logic.actions.setSimulationDateFrom('-7d')],
+        [
+            'run against another series',
+            (logic: ReturnType<typeof mountForm>) =>
+                logic.actions.setAlertFormValue('config', { type: 'TrendsAlertConfig', series_index: 1 }),
+        ],
     ])('drops a preview that resolves after the settings it was run with were %s', async (_label, invalidate) => {
         // Neither action cancels the request the model is still judging, so its verdict must not
         // repopulate the chart against settings the model never saw.

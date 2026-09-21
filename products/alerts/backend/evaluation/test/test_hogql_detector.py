@@ -92,6 +92,14 @@ def test_large_result_is_bounded_to_the_detector_window(evaluation, label_type):
         assert [point.date for point in result.series[0].points] == expected_dates
 
 
+def test_a_short_sql_series_still_reaches_the_ai_judge():
+    llm = {"type": "llm", "threshold": 0.7, "window": 90}
+    result = _extract([1.0, 2.0, 1.0, 2.0, 1.0, 9.0], detector_config=llm)
+    assert len(result.series[0].points) == 6
+    assert _extract([1.0, 2.0, 1.0, 9.0], detector_config=llm).series == []
+    assert _extract([1.0, 2.0, 1.0, 2.0, 1.0, 9.0], detector_config=ZSCORE).series == []
+
+
 def test_last_row_truncation_guard_rejects_a_capped_result():
     # last_row scores the tail; a result at HogQL's hard cap may be truncated, so the detector path
     # must fail loud just like the threshold extractor rather than score a wrong "current" row.

@@ -86,6 +86,17 @@ def _extract_sub_detector_scores(detector_type_str: str, result: DetectionResult
     return scores or None
 
 
+def min_points_to_evaluate(detector_config: dict[str, Any]) -> int:
+    """The fewest points a detector can score at all, as opposed to the window it prefers.
+
+    The AI judge accepts its own minimum and simply sees a shorter table, so a series shorter
+    than its window is still judged. A statistical detector needs its full training window.
+    """
+    if detector_config.get("type") == DetectorType.LLM.value:
+        return DETECTOR_MIN_SAMPLES[DetectorType.LLM]
+    return _compute_min_samples_for_detector(detector_config)
+
+
 def _compute_min_samples_for_detector(detector_config: dict[str, Any]) -> int:
     """Compute the number of historical data points needed for a detector.
 

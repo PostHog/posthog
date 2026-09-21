@@ -144,7 +144,10 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     )
     const insightAlertKind = insightAlertKindForQuery(query)
     const anomalyAlertGuidanceEnabled = useFeatureFlag('ANOMALY_ALERT_GUIDANCE_EXPERIMENT', 'anomaly_guidance')
-    const llmDetectorEnabled = useFeatureFlag('ALERTS_LLM_DETECTOR')
+    const editorCanUseLlmDetector = useFeatureFlag('ALERTS_LLM_DETECTOR')
+    // Scheduled checks run as the alert's creator, so an existing alert is gated on the creator's
+    // access, which the server reports, and the editor's own flag only decides for a new alert.
+    const llmDetectorEnabled = alert?.llm_detector_available ?? editorCanUseLlmDetector
 
     const formLogicProps = {
         alert,

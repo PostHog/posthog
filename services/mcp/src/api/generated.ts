@@ -10479,6 +10479,11 @@ export namespace Schemas {
       /** Display name of the insight monitored by this alert. */
       readonly insight_display_name: string;
       /**
+         * Whether this alert can use the AI detector, judged for the person who created it, since scheduled checks run as the creator. Only computed when retrieving a single alert; null elsewhere.
+         * @nullable
+         */
+      readonly llm_detector_available: boolean | null;
+      /**
          * Human-readable name for the alert.
          * @maxLength 255
          */
@@ -66015,6 +66020,11 @@ export namespace Schemas {
       readonly insight_short_id?: string;
       /** Display name of the insight monitored by this alert. */
       readonly insight_display_name?: string;
+      /**
+         * Whether this alert can use the AI detector, judged for the person who created it, since scheduled checks run as the creator. Only computed when retrieving a single alert; null elsewhere.
+         * @nullable
+         */
+      readonly llm_detector_available?: boolean | null;
       /**
          * Human-readable name for the alert.
          * @maxLength 255

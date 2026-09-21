@@ -1,7 +1,7 @@
 import { AlertState, DetectorType } from '~/queries/schema/schema-general'
 
 import type { AlertCheck } from '../types'
-import { getAlertHistoryScoreName, llmCheckWouldFire } from './alertLogic'
+import { checkWouldFireUnderCurrentConfiguration, getAlertHistoryScoreName, llmCheckWouldFire } from './alertLogic'
 
 function check(triggered_metadata: Record<string, unknown> | null): AlertCheck {
     return {
@@ -32,6 +32,19 @@ describe('llmCheckWouldFire', () => {
         ['check without metadata', null, null],
     ])('%s', (_name, metadata, expected) => {
         expect(llmCheckWouldFire(check(metadata), 0.7)).toBe(expected)
+    })
+})
+
+describe('checkWouldFireUnderCurrentConfiguration', () => {
+    const modelCheck = check({ verdict_is_anomaly: false, confidence: 0.2 })
+    it.each<[string, AlertCheck, any, boolean | null | undefined]>([
+        // A folded "no anomaly" score sits above a statistical threshold without being a fire.
+        ['AI check under a statistical detector', modelCheck, { type: DetectorType.ZSCORE, threshold: 0.5 }, null],
+        ['AI check under the AI detector', modelCheck, { type: DetectorType.LLM, threshold: 0.7 }, false],
+        ['statistical check under a statistical detector', check(null), { type: DetectorType.ZSCORE }, undefined],
+        ['statistical check under the AI detector', check(null), { type: DetectorType.LLM }, null],
+    ])('%s', (_name, alertCheck, detectorConfig, expected) => {
+        expect(checkWouldFireUnderCurrentConfiguration(alertCheck, detectorConfig)).toBe(expected)
     })
 })
 
