@@ -38,6 +38,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
+from products.workflows.backend.models import HogFlow
 
 from ee.hogai.artifacts.handlers.base import get_handler_for_content_type
 from ee.hogai.context.context import AssistantContextManager
@@ -54,6 +55,7 @@ class EntityKind(StrEnum):
     SURVEYS = "surveys"
     ALERTS = "alerts"
     ACCOUNTS = "accounts"
+    WORKFLOWS = "workflows"
     ALL = "all"
 
 
@@ -68,6 +70,7 @@ SEARCH_KIND_TO_DATABASE_ENTITY_TYPE: dict[EntityKind, str] = {
     EntityKind.SURVEYS: "survey",
     EntityKind.ALERTS: "alert_configuration",
     EntityKind.ACCOUNTS: "account",
+    EntityKind.WORKFLOWS: "hog_flow",
 }
 
 ENTITY_MAP: dict[str, EntityConfig] = {
@@ -119,6 +122,13 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "search_fields": {"title": "A", "text_content": "C"},
         "extra_fields": ["title", "text_content"],
         "filters": {"deleted": False},
+    },
+    "hog_flow": {
+        "klass": HogFlow,
+        "search_fields": {"name": "A", "description": "C"},
+        "extra_fields": ["name", "description", "status"],
+        # Archived is the workflow equivalent of deleted; drafts stay visible so the agent can tell them apart
+        "filters": {"status__in": [HogFlow.State.DRAFT, HogFlow.State.ACTIVE]},
     },
 }
 """
@@ -546,6 +556,8 @@ class EntitySearchContext:
                 return f"{base_url}/error_tracking/{result_id}"
             case "alert_configuration":
                 return f"{base_url}/alerts?alert_id={result_id}"
+            case "hog_flow":
+                return f"{base_url}/workflows/{result_id}/workflow"
             case "account":
                 # Deep-link to the specific account (filtered + expanded) rather than the bare list.
                 return f"{base_url}{build_account_deeplink(account_id=result_id)}"
