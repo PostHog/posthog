@@ -71,6 +71,30 @@ describe('check', () => {
         )
     })
 
+    it('says nothing about recording a commit, because check records nothing either way', async (t) => {
+        const standIn = await startStandIn()
+        t.after(() => standIn.close())
+        const workspace = makeWorkspace({ 'flows/onboarding.ts': workflowFile() })
+        const env = {
+            POSTHOG_CLI_API_KEY: 'phx_test',
+            POSTHOG_CLI_PROJECT_ID: '2',
+            POSTHOG_CLI_HOST: standIn.url,
+            GITHUB_ACTIONS: 'true',
+            GITHUB_EVENT_NAME: 'push',
+            GITHUB_REPOSITORY: 'acme/flows',
+            GITHUB_SHA: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+            GITHUB_REF_NAME: 'main',
+            GITHUB_WORKSPACE: workspace.dir,
+        }
+        await runCli(['push', 'flows/onboarding.ts'], { workspace, env })
+
+        const result = await runCli(['check', 'flows/onboarding.ts'], { workspace, env })
+
+        assert.match(result.stdout, /^ {4}result {3}unchanged$/m)
+        assert.match(result.stdout, /^ {4}source {3}a1b2c3d on main$/m)
+        assert.doesNotMatch(result.stdout, /not recorded/)
+    })
+
     it('reports a workflow PostHog does not have yet as one it would create', async (t) => {
         const standIn = await startStandIn()
         t.after(() => standIn.close())

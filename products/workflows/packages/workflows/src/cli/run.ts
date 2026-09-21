@@ -53,7 +53,7 @@ function describeSource(source: Source | null): string {
     return place === undefined ? 'not detected: this version will not name a commit' : `${place}, no commit recorded`
 }
 
-function printWorkflow(report: Report, source: Source | null, io: Io): void {
+function printWorkflow(report: Report, source: Source | null, command: RunOptions['command'], io: Io): void {
     const { workflow } = report
     const definition = workflow.emitted.definition
     io.out(`  ${workflow.exportName} -> "${definition.name}"`)
@@ -65,8 +65,10 @@ function printWorkflow(report: Report, source: Source | null, io: Io): void {
         io.out(`    secret   ${secret.actionId}.${secret.inputKey} from $${secret.envName}, sent on every push`)
     }
     // A push that writes nothing records no version, so the commit it came from is not stored
-    // either. Saying so here is cheaper than a customer looking for it later.
-    const trailer = source !== null && report.outcome === 'unchanged' ? ' (not recorded: no change)' : ''
+    // either. Saying so here is cheaper than a customer looking for it later. `check` records
+    // nothing either way, so the qualifier would only read as a claim about a write it never made.
+    const trailer =
+        command === 'push' && source !== null && report.outcome === 'unchanged' ? ' (not recorded: no change)' : ''
     io.out(`    source   ${describeSource(source)}${trailer}`)
     if (source === null) {
         io.out(
@@ -233,7 +235,7 @@ export async function runFileCommand(options: RunOptions): Promise<number> {
     options.io.out(file.path)
     const record = (report: Report): void => {
         reports.push(report)
-        printWorkflow(report, source, options.io)
+        printWorkflow(report, source, options.command, options.io)
     }
 
     try {

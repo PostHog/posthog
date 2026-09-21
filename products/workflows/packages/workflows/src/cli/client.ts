@@ -97,8 +97,9 @@ export class Client {
         return this.credentials.host
     }
 
+    /** The workflow itself. Without the last segment this is the list of every workflow. */
     urlFor(id: string): string {
-        return `${this.credentials.host}/project/${this.credentials.projectId}/workflows/${id}`
+        return `${this.credentials.host}/project/${this.credentials.projectId}/workflows/${id}/workflow`
     }
 
     private get base(): string {

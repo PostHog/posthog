@@ -34,6 +34,8 @@ describe('push', () => {
         assert.equal(result.code, 0)
         assert.match(result.stdout, /^ {4}source {3}a1b2c3d on main$/m)
         assert.match(result.stdout, /^ {4}result {3}created$/m)
+        // The workflow itself. Without the last segment the link opens the list of every workflow.
+        assert.match(result.stdout, /^ {4}url {6}http:\/\/127\.0\.0\.1:\d+\/project\/2\/workflows\/[^/]+\/workflow$/m)
         assert.match(result.stdout, /^pushed 1 workflow\(s\): 1 created, 0 updated, 0 unchanged\.$/m)
 
         const created = standIn.requests.find((request) => request.method === 'POST')

@@ -6,6 +6,9 @@ This package holds the authoring surface, the compiler that turns it into the wo
 
 ## Write a workflow
 
+`posthog-workflows init flows/onboarding.ts` writes a starter file with its key already filled in, taken from the file name.
+The example below is the same file grown into a branch, two steps and a secret.
+
 ```ts
 import { branch, delay, email, onEvent, path, person, secret, webhook, workflow } from '@posthog/workflows'
 
@@ -27,7 +30,7 @@ const welcomeEmail = email({
 })
 
 export const onboarding = workflow({
-  key: 'replace-me-onboarding-nudge',
+  key: 'onboarding',
   name: 'Onboarding nudge',
   on: onEvent({ event: 'user signed up' }),
   steps: path(
@@ -53,7 +56,8 @@ export const onboarding = workflow({
 ```
 
 `key` is the workflow's identity in the file, and it must be unique in your project.
-Pick your own rather than copying the placeholder above.
+`init` takes it from the file name; pick your own if you want another, and keep it as it is afterwards.
+The push resolves the key to a workflow and then creates or updates, so one file can reach a staging project and a production project.
 
 ## What the compiler decides for you
 
@@ -82,6 +86,8 @@ A push writes nothing when nothing changed. `--force` pushes anyway, which is ho
 A push from a path the workflow was not pushed from is refused, so a copied file cannot replace a live workflow. `--allow-move` records the new path.
 
 Each push records the commit it came from, taken from GitHub Actions, GitLab CI, or the local checkout. Outside all three the push still works and says that the version will not name a commit.
+
+The recorded commit and the path guard both need a PostHog that stores the source fields. Until your PostHog does, it drops them: the commit is sent and not kept, and a copied file resolves the same workflow rather than being refused.
 
 
 ## v1 surface
