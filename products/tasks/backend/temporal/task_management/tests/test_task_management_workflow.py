@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock
 
 from temporalio.exceptions import ApplicationError
 
+from products.tasks.backend.temporal.babysit_pr.snapshot import FailingCheck
 from products.tasks.backend.temporal.constants import (
     ACK_TIMEOUT,
     DEFAULT_CI_MESSAGE,
@@ -470,6 +471,23 @@ class TestMaybeDispatchCIFollowUp:
         assert workflow._ci_repetitions == MAX_CI_REPETITIONS
         signal_mock.assert_not_awaited()
 
+    async def test_fire_names_the_failing_checks_in_the_message(self, monkeypatch, fixed_now):
+        workflow = TaskManagementWorkflow()
+        workflow._context = _build_context(ci_prompt=None)
+        workflow._run_id = "run-id"
+        workflow._pending_ci_checks = [FailingCheck(key="CI/backend", details_url="https://ci.example.com/1")]
+
+        monkeypatch.setattr(workflow, "_should_run_ci_follow_up", AsyncMock(return_value=CIFollowUpDecision.FIRE))
+        signal_mock = AsyncMock()
+        monkeypatch.setattr(workflow, "_signal_child_followup", signal_mock)
+
+        await workflow._maybe_dispatch_ci_follow_up()
+
+        signal_mock.assert_awaited_once()
+        message = signal_mock.await_args_list[0].kwargs["message"]
+        assert "CI/backend" in message
+        assert "https://ci.example.com/1" in message
+
     async def test_skip_advances_last_active_to_bound_next_check(self, monkeypatch, fixed_now):
         # When a check skips (PR unchanged or closed), we must reset
         # _last_active_time so the next _wait_for_ci_follow_up sleeps a full
@@ -492,6 +510,26 @@ class TestMaybeDispatchCIFollowUp:
 
 
 class TestDrainExternalSignals:
+    async def test_user_followup_gives_the_spent_ci_budget_back(self, monkeypatch):
+        workflow = TaskManagementWorkflow()
+        workflow._context = _build_context()
+        workflow._run_id = "run-id"
+        workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._sandbox_alive = True
+        workflow._ci_repetitions = MAX_CI_REPETITIONS
+        workflow._pr_fingerprint = "fp-1"
+        workflow._pending_external_followups.append(
+            PendingExternalFollowup(message="the CI is still red", artifact_ids=[], source="user")
+        )
+        monkeypatch.setattr(workflow, "_signal_child_followup", AsyncMock())
+        monkeypatch.setattr(workflow, "_persist_pending_followups", AsyncMock())
+
+        await workflow._drain_external_signals()
+
+        assert workflow._ci_repetitions == 0
+        assert not workflow._pr_fingerprint
+        assert workflow._ci_follow_up_enabled() is True
+
     async def test_followups_drained_before_completion(self, monkeypatch):
         # complete_task is terminal for a session — if we processed it first,
         # any pending follow-up messages would be dropped on the floor.

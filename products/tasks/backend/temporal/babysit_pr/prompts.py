@@ -27,7 +27,7 @@ END_TURN_WHEN_READY = """\
 When the PR is approved, green, and mergeable, end your turn. Report that the PR is ready and waiting for a human to merge. Do not take any action to land it."""
 
 
-def _format_checks(checks: Sequence[FailingCheck]) -> str:
+def format_failing_checks(checks: Sequence[FailingCheck]) -> str:
     lines = ["## Failing checks (fix these first unless a review comment supersedes them)"]
     for check in checks:
         suffix = f" — logs: {check.details_url}" if check.details_url else ""
@@ -83,7 +83,7 @@ def build_wake_prompt(
             )
         )
     if attention.failing_checks:
-        sections.append(_format_checks(attention.failing_checks))
+        sections.append(format_failing_checks(attention.failing_checks))
     if attention.conflict:
         sections.append(
             "## Merge conflict\n"

@@ -139,6 +139,15 @@ class BabysitJournal:
             conflict=snapshot.has_conflict and not (same_head and CONFLICT_KEY in self.head_keys),
         )
 
+    def forget_checks(self) -> "BabysitJournal":
+        """Drop the record of which failing checks and conflicts were already reported.
+
+        A user who asks for the CI again wants the current failures restated, even though the
+        loop already delivered them once. Review threads and comments stay recorded, so the
+        same feedback is not quoted back twice.
+        """
+        return BabysitJournal(threads=self.threads, comment_ids=self.comment_ids, head_sha=self.head_sha)
+
     def record(self, snapshot: PRSnapshot, attention: AttentionSet) -> "BabysitJournal":
         head_keys = list(self.head_keys) if snapshot.head_sha == self.head_sha else []
         for check in attention.failing_checks:

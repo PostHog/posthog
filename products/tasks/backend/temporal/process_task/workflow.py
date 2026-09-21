@@ -24,10 +24,11 @@ from products.tasks.backend.temporal.babysit_pr.prompts import (
     MAX_RENDERED_COMMENTS,
     MAX_RENDERED_THREADS,
     build_wake_prompt,
+    format_failing_checks,
 )
-from products.tasks.backend.temporal.babysit_pr.snapshot import AttentionSet, BabysitJournal, PRSnapshot
+from products.tasks.backend.temporal.babysit_pr.snapshot import AttentionSet, BabysitJournal, FailingCheck, PRSnapshot
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
-from products.tasks.backend.temporal.metrics import increment_pr_babysit_decision
+from products.tasks.backend.temporal.metrics import increment_ci_follow_up_dispatch, increment_pr_babysit_decision
 from products.tasks.backend.temporal.patches import ci_follow_up_actionable_gate
 from products.tasks.backend.temporal.process_task.activities.get_pr_babysit_snapshot import (
     GetPrBabysitSnapshotInput,
@@ -201,6 +202,7 @@ class ResumedSandboxState:
     dev_stack_preview_enabled: bool = False
     babysit_journal: BabysitJournal = field(default_factory=BabysitJournal)
     ci_resume_snapshot_created: bool = False
+    ci_budget_rearmed: bool = False
     accepted_message_ids: list[str] = field(default_factory=list)
     # ISO8601 start of the whole continue_as_new chain, so the wall-clock cap is not
     # reset by a continuation. None on payloads written before this field existed.
@@ -415,6 +417,17 @@ _PATCH_ID_RUN_LIFECYCLE_BOUNDS = "tasks-run-lifecycle-bounds"
 
 _PATCH_ID_SNAPSHOT_BEFORE_CI_FOLLOW_UP = "tasks-snapshot-before-ci-follow-up"
 
+# Re-arming the CI budget on a user request lets the loop schedule follow-up rounds a
+# pre-rollout history never recorded. Same two-step deprecate-then-delete lifecycle as above.
+_PATCH_ID_CI_BUDGET_REARM = "tasks-ci-budget-rearm-on-user-message"
+
+
+def _ci_budget_rearm_enabled() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_CI_BUDGET_REARM)
+
+
 AGENT_LOST_ERROR_MESSAGE = "The agent stopped before finishing its turn"
 
 # Replays of pre-rollout histories must keep recording an idle exit as completed.
@@ -528,6 +541,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._pr_progress_emitted: bool = False
         self._babysit_journal: BabysitJournal = BabysitJournal()
         self._pending_babysit: Optional[_BabysitDispatch] = None
+        # Failing checks the legacy (non-babysit) path found on the tick that decided to fire.
+        self._pending_ci_checks: list[FailingCheck] = []
+        # A user re-opened the CI budget since the last follow-up dispatch.
+        self._ci_budget_rearmed: bool = False
         self._ci_resume_snapshot_created: bool = False
         self._sandbox_ttl_expires_at: Optional[datetime] = None
         self._sandbox_ttl_snapshot_taken: bool = False
@@ -643,6 +660,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def _dispatch_followup(self, followup: PendingFollowup) -> None:
         self._last_active_time = workflow.now()
         self._first_user_message_received = True
+        if _ci_budget_rearm_enabled():
+            self._rearm_ci_follow_up()
         if self._should_skip_followup(followup.message, followup.artifact_ids):
             workflow.logger.warning(
                 "empty_followup_skipped",
@@ -668,6 +687,20 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     sequence=followup.sequence,
                 ),
             )
+
+    def _rearm_ci_follow_up(self) -> None:
+        """Give the CI loop its rounds back, because the user just asked for more work.
+
+        The counter only ever climbed, and a PR that was missing once forced it to the
+        maximum, so a run could reach a state where it never looked at CI again however
+        often the user asked. Clearing what the loop already reported about the checks
+        makes the next round restate the current failures; review feedback stays
+        deduplicated, so the agent does not get the same comments twice.
+        """
+        self._ci_repetitions = 0
+        self._pr_fingerprint = None
+        self._babysit_journal = self._babysit_journal.forget_checks()
+        self._ci_budget_rearmed = True
 
     async def _finish_active_followup(self) -> None:
         self._shutting_down = True
@@ -949,6 +982,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         agent has finished working — if no PR exists at this point, one
         won't appear later.
         """
+        self._pending_ci_checks = []
         if self.context.pr_babysit_enabled:
             decision = await self._should_run_babysit_follow_up()
             increment_pr_babysit_decision(decision.value)
@@ -983,6 +1017,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             if not fingerprint_changed:
                 return CIFollowUpDecision.SKIP
             self._pr_fingerprint = pr_context.fingerprint
+            self._pending_ci_checks = pr_context.failing_checks
             return CIFollowUpDecision.FIRE
         # New unresolved review threads are feedback for the agent, and comparing
         # against the last-seen count means its own thread replies (which never
@@ -1014,7 +1049,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "fire": fire,
             },
         )
-        return CIFollowUpDecision.FIRE if fire else CIFollowUpDecision.SKIP
+        if not fire:
+            return CIFollowUpDecision.SKIP
+        self._pending_ci_checks = pr_context.failing_checks
+        return CIFollowUpDecision.FIRE
 
     async def _emit_pr_opened_progress(self, pr_url: str) -> None:
         # First time we observe a PR: surface "Opened pull request" + "Keeping CI green" so the UI moves
@@ -1130,9 +1168,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     async def _dispatch_ci_follow_up(self) -> None:
         self._ci_repetitions += 1
+        increment_ci_follow_up_dispatch("user_rearmed" if self._ci_budget_rearmed else "scheduled")
+        self._ci_budget_rearmed = False
         pending = self._pending_babysit
         if pending is None:
             ci_message = self.context.ci_prompt or DEFAULT_CI_MESSAGE
+            if self._pending_ci_checks:
+                ci_message = f"{ci_message}\n\n{format_failing_checks(self._pending_ci_checks)}"
         else:
             ci_message = build_wake_prompt(
                 pending.snapshot.pr_url,
@@ -1147,6 +1189,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             dispatched = pending.attention.capped(MAX_RENDERED_THREADS, MAX_RENDERED_COMMENTS)
             self._babysit_journal = self._babysit_journal.record(pending.snapshot, dispatched)
             self._pending_babysit = None
+        self._pending_ci_checks = []
 
     @workflow.run
     async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
@@ -1874,6 +1917,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 babysit_journal=self._babysit_journal,
                 pr_progress_emitted=self._pr_progress_emitted,
                 ci_resume_snapshot_created=self._ci_resume_snapshot_created,
+                ci_budget_rearmed=self._ci_budget_rearmed,
                 first_user_message_received=self._first_user_message_received,
                 is_agent_design_enabled=self._is_agent_design_enabled,
                 dev_stack_preview_enabled=self._dev_stack_preview_enabled,
@@ -1917,6 +1961,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._babysit_journal = resumed.babysit_journal
         self._pr_progress_emitted = resumed.pr_progress_emitted
         self._ci_resume_snapshot_created = resumed.ci_resume_snapshot_created
+        self._ci_budget_rearmed = resumed.ci_budget_rearmed
         self._first_user_message_received = resumed.first_user_message_received
         self._accepted_message_ids = resumed.accepted_message_ids
         self._accepted_message_id_set = set(resumed.accepted_message_ids)
