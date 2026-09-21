@@ -118,9 +118,19 @@ class TestNotifyUncompilableHogFunctionFilters(BaseTest):
 
         task.delay.assert_not_called()
 
-    def test_skips_functions_that_compile_and_functions_already_off(self) -> None:
-        HogFunction.objects.create(team=self.team, name="Healthy", enabled=True)
+    def test_skips_functions_that_compile_functions_already_off_and_kept_bytecode(self) -> None:
+        # type has no default, so every fixture here has to set it or the type filter alone
+        # excludes it and the case proves nothing.
+        HogFunction.objects.create(team=self.team, name="Healthy", enabled=True, type=HogFunctionType.DESTINATION)
         self._broken(name="Already off", enabled=False)
+        # A save can record the error next to the bytecode it kept. That destination still
+        # delivers, so --disable must not turn it off and the owner must not be told it is broken.
+        kept = HogFunction.objects.create(
+            team=self.team, name="Kept working bytecode", enabled=True, type=HogFunctionType.DESTINATION
+        )
+        HogFunction.objects.filter(id=kept.id).update(
+            filters={"bytecode": ["_H", 1], "bytecode_error": "Cohort membership can't be evaluated"}
+        )
         out = StringIO()
 
         with patch(TASK) as task:

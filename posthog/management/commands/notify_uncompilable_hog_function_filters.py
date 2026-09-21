@@ -3,6 +3,8 @@ from argparse import ArgumentParser
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db.models import Q, Value
+from django.db.models.fields.json import JSONField
 
 from posthog.tasks.email import send_hog_function_filters_uncompilable
 
@@ -13,9 +15,9 @@ logger = logging.getLogger(__name__)
 
 class Command(BaseCommand):
     help = (
-        "Find enabled hog functions whose filters failed to compile, and tell their project. "
-        "A function in this state matches nothing and delivers nothing, because the filter "
-        "bytecode is null and evaluating it raises on every event."
+        "Find enabled hog functions whose filters failed to compile and left no bytecode, and tell "
+        "their project. A function in this state matches nothing and delivers nothing, because "
+        "evaluating a null bytecode raises on every event."
     )
 
     def add_arguments(self, parser: ArgumentParser) -> None:
@@ -39,14 +41,19 @@ class Command(BaseCommand):
         apply: bool = options["apply"]
         disable: bool = options["disable"]
 
-        # `bytecode` is set to null alongside every bytecode_error, so the error alone identifies
-        # the state. Matching on the message would miss the compile failures that are not about
+        # The error alone no longer identifies the state: a save can keep the last working bytecode
+        # and record the error beside it, and such a function still delivers. Both conditions are
+        # needed. Matching on the message would miss the compile failures that are not about
         # cohorts.
+        # `__isnull=True` on a JSON key means the key is absent, which is a different row from one
+        # holding a JSON null, so both spellings are matched.
         # Destinations only. Transformations, source webhooks and internal destinations compile
         # bytecode too and can carry the same error, but the email names a destination and links to
         # the destinations page, and an internal destination is ours rather than the customer's.
-        queryset = HogFunction.objects.filter(deleted=False, enabled=True, type=HogFunctionType.DESTINATION).exclude(
-            filters__bytecode_error__isnull=True
+        queryset = (
+            HogFunction.objects.filter(deleted=False, enabled=True, type=HogFunctionType.DESTINATION)
+            .exclude(filters__bytecode_error__isnull=True)
+            .filter(Q(filters__bytecode__isnull=True) | Q(filters__bytecode=Value(None, JSONField())))
         )
         team_id = options["team_id"]
         if team_id is not None:

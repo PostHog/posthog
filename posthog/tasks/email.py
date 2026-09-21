@@ -798,10 +798,12 @@ def send_hog_function_filters_uncompilable(team_id: int, hog_function_ids: list[
     hog_functions = HogFunction.objects.prefetch_related("created_by").filter(
         team_id=team_id, id__in=hog_function_ids, deleted=False
     )
+    # A save can keep the last working bytecode and record the error beside it. Such a function
+    # still delivers, so the error alone is not enough to say it is broken.
     broken = [
         UncompilableDestination(hog_function=hog_function, bytecode_error=error)
         for hog_function in hog_functions
-        if (error := (hog_function.filters or {}).get("bytecode_error"))
+        if (filters := hog_function.filters or {}).get("bytecode") is None and (error := filters.get("bytecode_error"))
     ]
     if not broken:
         return

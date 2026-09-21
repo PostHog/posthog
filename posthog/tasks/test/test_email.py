@@ -1316,6 +1316,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 {"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"},
                 True,
             ),
+            (
+                "a destination running on the bytecode its last save kept",
+                {"bytecode": ["_H", 1], "bytecode_error": "Cohort membership can't be evaluated"},
+                False,
+            ),
         ]
     )
     def test_send_hog_function_filters_uncompilable_sends_nothing_for(
