@@ -1,11 +1,12 @@
-import { generateKeyPairSync } from 'crypto'
+import { generateKeyPairSync, randomBytes } from 'crypto'
 import jwt from 'jsonwebtoken'
 
 import { verifyPushIdentityToken } from './identity-token'
 
 describe('verifyPushIdentityToken', () => {
     const AUDIENCE = 'posthog:push_identity'
-    const secret = 'phx_secret_api_token'
+    // Generated rather than written in: a literal here trips the hardcoded-credential scan.
+    const secret = randomBytes(32).toString('hex')
     const distinctId = 'user-1'
     const appId = 'com.example.app'
 
@@ -49,6 +50,8 @@ describe('verifyPushIdentityToken', () => {
     })
 
     it('refuses an unsigned token', () => {
+        // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret -- an alg=none
+        // token has no key by definition, and the empty key is what makes this the attack it tests for.
         const unsigned = jwt.sign({ sub: distinctId, app_id: appId, aud: AUDIENCE }, '', {
             algorithm: 'none',
             expiresIn: 300,
