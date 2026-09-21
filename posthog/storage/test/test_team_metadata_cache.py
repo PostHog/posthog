@@ -362,7 +362,7 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
         self.assertEqual(len(result), 0)
 
     @patch("posthog.storage.cache_expiry_manager.get_client")
-    def test_a_full_range_reports_the_limit_even_when_an_identifier_is_stale(self, mock_get_client):
+    def test_a_full_range_reports_the_limit_even_when_an_identifier_is_stale(self, mock_get_client: MagicMock) -> None:
         mock_redis = MagicMock()
         mock_get_client.return_value = mock_redis
         # The range comes back full, but one identifier belongs to a team that no longer
@@ -377,7 +377,7 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
         self.assertTrue(selection.limit_reached)
 
     @patch("posthog.storage.cache_expiry_manager.get_client")
-    def test_an_unreadable_range_reports_the_limit_as_unknown(self, mock_get_client):
+    def test_an_unreadable_range_reports_the_limit_as_unknown(self, mock_get_client: MagicMock) -> None:
         mock_get_client.side_effect = RuntimeError("redis unreachable")
 
         selection = select_expiring_teams(TEAM_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours=24)

@@ -538,7 +538,7 @@ class TestPushHypercacheTeamsProcessedMetrics(BaseTest):
         )
 
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
-    def test_a_run_that_stayed_under_its_limit_pushes_a_zero(self, mock_registry_cm):
+    def test_a_run_that_stayed_under_its_limit_pushes_a_zero(self, mock_registry_cm: MagicMock) -> None:
         registry = CollectorRegistry()
         mock_registry_cm.return_value.__enter__ = MagicMock(return_value=registry)
         mock_registry_cm.return_value.__exit__ = MagicMock(return_value=False)

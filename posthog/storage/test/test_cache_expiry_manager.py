@@ -142,11 +142,11 @@ class TestRefreshExpiringCaches(SimpleTestCase):
         assert self.mock_redis.zcount.call_args.args[0] == "test_cache_expiry"
         assert self.mock_redis.zcount.call_args.args[1] == "-inf"
 
-    def test_the_before_sample_is_taken_before_any_team_is_processed(self):
+    def test_the_before_sample_is_taken_before_any_team_is_processed(self) -> None:
         backlog = [9000]
         self.mock_redis.zcount.side_effect = lambda *args, **kwargs: backlog[0]
 
-        def route_refresh_fn(_team_id):
+        def route_refresh_fn(_team_id: int) -> bool:
             backlog[0] = 0
             return True
 
@@ -164,7 +164,7 @@ class TestRefreshExpiringCaches(SimpleTestCase):
             ("an_hour_past_expiry", -3600),
         ]
     )
-    def test_the_oldest_entry_is_reported_as_seconds_until_its_expiry(self, _name, seconds_to_expiry):
+    def test_the_oldest_entry_is_reported_as_seconds_until_its_expiry(self, _name: str, seconds_to_expiry: int) -> None:
         # The two reads are the before and after samples. Only the before one is pushed,
         # so they have to differ or forwarding the wrong sample passes this test.
         self.mock_redis.zrange.side_effect = [
@@ -180,7 +180,7 @@ class TestRefreshExpiringCaches(SimpleTestCase):
         assert self.mock_redis.zrange.call_args.args == ("test_cache_expiry", 0, 0)
         assert self.mock_redis.zrange.call_args.kwargs == {"withscores": True}
 
-    def test_an_empty_sorted_set_reports_no_oldest_entry(self):
+    def test_an_empty_sorted_set_reports_no_oldest_entry(self) -> None:
         self.mock_redis.zrange.return_value = []
 
         refresh_expiring_caches(build_config())
@@ -188,7 +188,7 @@ class TestRefreshExpiringCaches(SimpleTestCase):
         assert self.mock_push.call_args.kwargs["oldest_expiry_seconds"] is None
 
     @parameterized.expand([("saturated", True), ("drained", False)])
-    def test_the_run_reports_whether_its_selection_filled(self, _name, limit_reached):
+    def test_the_run_reports_whether_its_selection_filled(self, _name: str, limit_reached: bool) -> None:
         self.given_teams(3, limit_reached=limit_reached)
 
         refresh_expiring_caches(build_config())
@@ -218,7 +218,7 @@ class TestRefreshExpiringCaches(SimpleTestCase):
         assert push_kwargs["expiry_backlog_before"] is None
         assert push_kwargs["oldest_expiry_seconds"] is None
 
-    def test_an_unreadable_oldest_entry_still_reports_the_count(self):
+    def test_an_unreadable_oldest_entry_still_reports_the_count(self) -> None:
         self.mock_redis.zcount.return_value = 9000
         self.mock_redis.zrange.side_effect = RuntimeError("redis timed out")
 

@@ -102,7 +102,9 @@ class TestRefreshExpiringRemoteConfigCaches(BaseTest):
 
     @patch("posthog.storage.cache_expiry_manager.push_hypercache_teams_processed_metrics")
     @patch("posthog.storage.cache_expiry_manager.get_client")
-    def test_the_fork_reports_the_same_run_diagnostics_as_the_shared_sweep(self, mock_get_client, mock_push):
+    def test_the_fork_reports_the_same_run_diagnostics_as_the_shared_sweep(
+        self, mock_get_client: MagicMock, mock_push: MagicMock
+    ) -> None:
         mock_redis = MagicMock()
         mock_get_client.return_value = mock_redis
         mock_redis.zrangebyscore.return_value = []
