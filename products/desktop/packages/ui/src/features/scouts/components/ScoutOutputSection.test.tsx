@@ -81,7 +81,6 @@ describe("ScoutOutputSection", () => {
           run_id: run.run_id,
           source_id: "source-example",
           description: "A sample finding.",
-          confidence: 1,
           severity: null,
           emitted_at: "2026-01-01T00:00:00Z",
         },
@@ -95,7 +94,7 @@ describe("ScoutOutputSection", () => {
     const { rerender } = render(
       <ScoutOutputSection runs={[run]} loading={false} />,
     );
-    const toggle = screen.getByRole("button", { name: /confidence/ });
+    const toggle = screen.getByRole("button", { expanded: false });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("link", { name: "Open task run" })).toBeNull();
 

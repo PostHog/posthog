@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal
 
 from django.db.models import Q
@@ -7,6 +7,7 @@ from django.db.models import Q
 import structlog
 
 from posthog.comment.formatting import escape_slack_mrkdwn
+from posthog.dataclasses import frozen
 from posthog.helpers.slack_scopes import bot_is_ready
 from posthog.models.integration import Integration
 from posthog.models.user import User
@@ -59,24 +60,29 @@ def user_resolution_failure_reply(
     return None
 
 
-@dataclass
+def _resolved_or_oldest(integration: Integration | None, candidates: list[Integration]) -> Integration | None:
+    """The resolved integration, falling back to the oldest install in `candidates`.
+
+    Surfaces that must act on *some* integration rather than prompt for one share this
+    tie-break, so a workspace with no saved pick is answered for the same project
+    whichever surface handles it. Ordered by id rather than taken off the front of
+    `candidates`: the auth filter sorts that list freshest-verdict-first, which
+    reshuffles as cache entries expire and would make the fallback drift.
+    """
+    if integration is not None and integration in candidates:
+        return integration
+    return min(candidates, key=lambda candidate: candidate.id, default=None)
+
+
+@frozen
 class ResolutionResult:
     integration: Integration | None
     source: ResolutionSource
     candidates: list[Integration] = field(default_factory=list)
 
     def resolved_or_first(self) -> Integration | None:
-        """The resolved integration, falling back to the workspace's oldest install.
-
-        Surfaces that must act on *some* integration rather than prompt for one share this
-        tie-break, so a workspace with no saved pick is answered for the same project
-        whichever surface handles it. Ordered by id rather than taken off the front of
-        `candidates`: the auth filter sorts that list freshest-verdict-first, which
-        reshuffles as cache entries expire and would make the fallback drift.
-        """
-        if self.integration is not None and self.integration in self.candidates:
-            return self.integration
-        return min(self.candidates, key=lambda candidate: candidate.id, default=None)
+        """The resolved integration, falling back to the workspace's oldest install."""
+        return _resolved_or_oldest(self.integration, self.candidates)
 
 
 def project_label(integration: Integration) -> str:
@@ -196,7 +202,7 @@ def resolve_from_candidates(
             # Refuse a stale default whose target is no longer in the candidate
             # set — e.g. the integration's kind was changed away from the one
             # we were asked to resolve, or it was deleted+recreated. The user
-            # can overwrite the row at any time with `@PostHog project <id>`.
+            # can overwrite the row at any time with `/posthog project <id>`.
             if target.id not in candidate_ids:
                 continue
             source: ResolutionSource = "user_default" if default.slack_user_id else "workspace_default"
@@ -288,7 +294,7 @@ def routable_projects(*, slack_team_id: str, slack_user_id: str, user: User) -> 
     return reachable if len(reachable) > 1 else []
 
 
-@dataclass
+@frozen
 class UserAndIntegrationsResolution:
     """Outcome of the user identification + access-filter step.
 
@@ -307,6 +313,10 @@ class UserAndIntegrationsResolution:
     source: ResolutionSource = "needs_picker"
     failure_reason: UserResolutionFailure | None = None
     slack_email: str | None = None
+
+    def resolved_or_first(self) -> Integration | None:
+        """The integration this resolution picked, falling back to the oldest one the user can reach."""
+        return _resolved_or_oldest(self.integration, self.candidates)
 
 
 def resolve_user_for_workspace(
