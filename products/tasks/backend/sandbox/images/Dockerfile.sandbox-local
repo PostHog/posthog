@@ -2,12 +2,11 @@
 
 # Dockerfile for local agent development - builds on top of sandbox-base
 # This image should be rebuilt when the local agent package changes
-# Set LOCAL_POSTHOG_CODE_MONOREPO_ROOT to the path to the PostHog Desktop monorepo to use this in DockerSandbox
+# Set LOCAL_POSTHOG_CODE_MONOREPO_ROOT to the agent workspace (packages/agent) to use this in DockerSandbox
 
 FROM posthog-sandbox-base
 
 COPY local-workspace/.npmrc local-workspace/package.json local-workspace/pnpm-lock.yaml local-workspace/pnpm-workspace.yaml /local-workspace/
-COPY local-workspace/patches /local-workspace/patches
 COPY local-workspace/packages/agent/package.json /local-workspace/packages/agent/package.json
 COPY local-workspace/packages/enricher/package.json /local-workspace/packages/enricher/package.json
 COPY local-workspace/packages/git/package.json /local-workspace/packages/git/package.json
