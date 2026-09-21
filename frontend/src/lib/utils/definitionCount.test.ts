@@ -23,6 +23,14 @@ describe('definitionCount', () => {
         }
     )
 
+    it.each([[undefined as unknown as number], [null as unknown as number], [NaN]])(
+        'renders a missing count as 0 rather than throwing on %p',
+        (count) => {
+            expect(() => formatDefinitionCount(count, false)).not.toThrow()
+            expect(formatDefinitionCount(count, false)).toBe('0')
+        }
+    )
+
     it.each([
         [{ count: 10_000, count_is_capped: true }, true],
         [{ count: 10_000, count_is_capped: false }, false],

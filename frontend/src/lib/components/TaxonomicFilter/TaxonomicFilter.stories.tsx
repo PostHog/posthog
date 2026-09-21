@@ -248,6 +248,7 @@ export const LargeProjectCappedCount: Story = {
                 '/api/projects/:team_id/property_definitions': () => ({
                     results: Array.from({ length: 100 }, (_, i) => ({ id: `property_${i}`, name: `property_${i}` })),
                     count: 10_000,
+                    count_is_capped: true,
                 }),
             },
         }),
