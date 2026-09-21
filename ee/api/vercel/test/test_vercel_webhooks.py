@@ -26,13 +26,6 @@ def _forward_response(status_code: int) -> MagicMock:
 
 @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET=SECRET)
 class TestVercelWebhooks(VercelTestBase):
-    """The endpoint behind `/webhooks/vercel`, which `posthog/ingress` serves.
-
-    The region domains are pinned in every test, because `pytest.ini` sets DEBUG and
-    `posthog/regions.py` then rewrites both to localhost hosts, where neither branch of the
-    forward is reachable. `testserver` stands in for whichever region the test is running in.
-    """
-
     def setUp(self):
         super().setUp()
         self.url = "/webhooks/vercel"
@@ -40,8 +33,9 @@ class TestVercelWebhooks(VercelTestBase):
         self.addCleanup(reset_consumer_registry)
 
         self.addCleanup(patch.stopall)
-        # Vercel's one marketplace webhook URL points at the secondary region, so that is where
-        # deliveries land and where the forward starts.
+        # `pytest.ini` sets DEBUG, which makes `posthog/regions.py` rewrite both domains to
+        # localhost hosts where neither branch of the forward is reachable. `testserver` is the
+        # secondary region here, because that is the region Vercel's one webhook URL names.
         patch("posthog.regions.SECONDARY_REGION_DOMAIN", "testserver").start()
         patch("posthog.regions.PRIMARY_REGION_DOMAIN", "eu.posthog.com").start()
 

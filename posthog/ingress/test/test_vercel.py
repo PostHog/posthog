@@ -82,9 +82,8 @@ class TestVercelProvider(SimpleTestCase):
     def test_a_delivery_says_whether_it_arrived_in_the_region_that_forwards(
         self, _name: str, host: str, expected: str
     ) -> None:
-        # The consumer reports an installation no region holds at warning level, and only the
-        # region that looks last may do that: warning on every forwarded event would fire for
-        # every installation the other region holds.
+        # The consumer reports an installation no region holds at warning level only in the
+        # region that looks last, and this flag is how it tells the two apart.
         request = _request(self.body, host=host)
 
         with (
