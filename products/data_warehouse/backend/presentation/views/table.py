@@ -98,6 +98,11 @@ def resolve_created_via(request: request.Request) -> str:
     return created_via
 
 
+def _file_read_error_message(file_format: str) -> str:
+    hint = FILE_FORMAT_READ_HINTS.get(file_format, "")
+    return f"Couldn't read the columns from your file. {hint}".strip()
+
+
 def _delete_hosted_upload_file(table: DataWarehouseTable) -> None:
     """Best-effort removal of a self-managed table's backing file from PostHog's own bucket.
 
@@ -784,17 +789,31 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             created_by=request.user if isinstance(request.user, User) else None,
             created_via=resolve_created_via(request),
         )
+
+        # An upload carries no quote preference, unlike a self-managed source where the user picks
+        # one, so store a detected setting rather than leave the read to a ClickHouse default.
+        if table._is_csv_format():
+            try:
+                allow_double_quotes = table.detect_csv_double_quotes_setting()
+            except Exception as err:
+                capture_exception(err)
+                allow_double_quotes = None
+            if allow_double_quotes is None:
+                return response.Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": _file_read_error_message(file_format)},
+                )
+            table.options = {"csv_allow_double_quotes": allow_double_quotes}
+
         try:
             table.columns = table.get_columns()
         except Exception as err:
             # The raw column-detection failure is a ClickHouse error that's opaque to users, so keep it
             # in error tracking and hand back plain, format-specific guidance on what to check instead.
             capture_exception(err)
-            hint = FILE_FORMAT_READ_HINTS.get(file_format, "")
-            message = f"Couldn't read the columns from your file. {hint}".strip()
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": message},
+                data={"message": _file_read_error_message(file_format)},
             )
         table.save()
 
