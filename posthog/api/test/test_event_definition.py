@@ -271,6 +271,28 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert [r["name"] for r in response.json()["results"]] == expected_names
         assert response.json()["count"] == 3
 
+    def test_capped_count_is_flagged_and_still_pages(self):
+        cache.clear()
+        with (
+            patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", 2),
+            patch("posthog.api.event_definition.LARGE_PROJECT_COUNT_CAP", 3),
+        ):
+            response = self.client.get("/api/projects/@current/event_definitions/?limit=3")
+
+        body = response.json()
+        assert response.status_code == status.HTTP_200_OK
+        assert body["count"] == 3
+        assert body["count_is_capped"] is True
+        assert len(body["results"]) == 3
+        assert body["next"] is not None
+
+    def test_uncapped_count_reports_the_flag_as_false(self):
+        cache.clear()
+        response = self.client.get("/api/projects/@current/event_definitions/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count_is_capped"] is False
+
     @patch("posthoganalytics.capture")
     def test_delete_event_definition(self, mock_capture):
         event_definition: EventDefinition = EventDefinition.objects.create(team=self.demo_team, name="test_event")
@@ -485,6 +507,14 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "event_type"
+
+    @parameterized.expand([("all",), ("action_event",)])
+    def test_legacy_event_type_returns_the_same_rows_as_event(self, event_type: str):
+        baseline = self.client.get("/api/projects/@current/event_definitions/?search=app&event_type=event")
+        response = self.client.get(f"/api/projects/@current/event_definitions/?search=app&event_type={event_type}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["name"] for r in response.json()["results"]] == [r["name"] for r in baseline.json()["results"]]
 
     @patch("posthog.settings.EE_AVAILABLE", True)
     @patch("posthog.models.Organization.is_feature_available", return_value=True)

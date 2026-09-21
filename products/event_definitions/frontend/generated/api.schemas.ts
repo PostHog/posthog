@@ -125,6 +125,8 @@ export interface PaginatedEnterpriseEventDefinitionListApi {
     /** @nullable */
     previous?: string | null
     results: EnterpriseEventDefinitionApi[]
+    /** True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it. */
+    count_is_capped?: boolean
 }
 
 /**
