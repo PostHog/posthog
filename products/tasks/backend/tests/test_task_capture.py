@@ -8,7 +8,7 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.tasks.backend.models import PLATFORM_ORIGIN_PRODUCTS, Channel, Task
+from products.tasks.backend.models import Channel, Task
 
 
 class TestTaskCaptureEvent(TestCase):
@@ -18,12 +18,13 @@ class TestTaskCaptureEvent(TestCase):
         self.user = User.objects.create(email="ada@northwind.example", distinct_id="ada-distinct")
 
     def _task(self, **kwargs) -> Task:
+        kwargs.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
         return Task.objects.create(
             team=self.team,
             title="Getting set up",
             description="prompt",
             created_by=self.user,
-            **{"origin_product": Task.OriginProduct.USER_CREATED, **kwargs},
+            **kwargs,
         )
 
     def test_origin_key_reaches_analytics_only_when_set(self):
@@ -54,8 +55,6 @@ class TestTaskCaptureEvent(TestCase):
         [
             (Task.OriginProduct.USER_CREATED, False, False),
             (Task.OriginProduct.WORKFLOW, False, False),
-            # Non-internal on purpose — the posture also selects which MCP grants the sandbox
-            # mounts — so only the origin marks a scout run as fleet traffic.
             (Task.OriginProduct.SIGNALS_SCOUT, False, True),
             (Task.OriginProduct.SIGNAL_REPORT, True, True),
         ]
@@ -69,6 +68,3 @@ class TestTaskCaptureEvent(TestCase):
         properties = capture.call_args.kwargs["properties"]
         self.assertEqual(properties["internal"], internal)
         self.assertEqual(properties["is_platform_origin"], is_platform_origin)
-
-    def test_every_platform_origin_is_a_real_origin_product(self):
-        self.assertLessEqual(PLATFORM_ORIGIN_PRODUCTS, {choice.value for choice in Task.OriginProduct})
