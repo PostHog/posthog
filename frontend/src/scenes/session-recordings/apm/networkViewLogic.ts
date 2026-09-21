@@ -110,9 +110,6 @@ export interface networkViewLogicMeta {
             rangeEnd: number
         } | null
         pageUrl: (
-            currentPage: (PerformanceEvent & {
-                timeInRecording: number
-            })[],
             navigationItem:
                 | (PerformanceEvent & {
                       timeInRecording: number
@@ -232,28 +229,18 @@ export const networkViewLogic = kea<networkViewLogicType>([
             ) => pageTimingRange(currentPage),
         ],
         pageUrl: [
-            (s) => [s.currentPage, s.navigationItem, s.sessionPlayerMetaData],
+            (s) => [s.navigationItem, s.sessionPlayerMetaData],
             (
-                currentPage: (PerformanceEvent & {
-                    timeInRecording: number
-                })[],
                 navigationItem:
                     | (PerformanceEvent & {
                           timeInRecording: number
                       })
                     | null,
                 sessionPlayerMetaData: SessionRecordingType | null
-            ) => {
-                if (navigationItem) {
-                    return navigationItem.name || null
-                }
-                if (!currentPage.length) {
-                    return null
-                }
-                // without a navigation event we never learn the page URL, so we fall back
-                // to where the recording started
-                return currentPage[0].current_url || sessionPlayerMetaData?.start_url || null
-            },
+            ) =>
+                // only the first page can lack a navigation event, and that page is where the
+                // recording started, so its URL is the recording's start URL
+                navigationItem?.name || sessionPlayerMetaData?.start_url || null,
         ],
         formattedDurationFor: [
             () => [],
