@@ -27477,7 +27477,7 @@ class MCPHarnessBreakdownQuery(BaseModel):
     filterTestAccounts: bool | None = None
     kind: Literal["MCPHarnessBreakdownQuery"] = "MCPHarnessBreakdownQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[AnyPropertyFilterDiscriminated] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPHarnessBreakdownQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str | None = Field(
@@ -27528,7 +27528,7 @@ class MCPModelBreakdownQuery(BaseModel):
         default=None,
         description=("Number of individual models to skip when includeAllModels is enabled."),
     )
-    properties: list[AnyPropertyFilterDiscriminated] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPModelBreakdownQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -27546,7 +27546,7 @@ class MCPToolCallBreakdownQuery(BaseModel):
     )
     kind: Literal["MCPToolCallBreakdownQuery"] = "MCPToolCallBreakdownQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[AnyPropertyFilterDiscriminated] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolCallBreakdownQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -27564,7 +27564,7 @@ class MCPToolCallsAndErrorsQuery(BaseModel):
     )
     kind: Literal["MCPToolCallsAndErrorsQuery"] = "MCPToolCallsAndErrorsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[AnyPropertyFilterDiscriminated] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolCallsAndErrorsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -27575,8 +27575,10 @@ class MCPToolCategoriesQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolCategoriesQuery"] = "MCPToolCategoriesQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolCategoriesQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -27587,8 +27589,10 @@ class MCPToolCategoryCountsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolCategoryCountsQuery"] = "MCPToolCategoryCountsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolCategoryCountsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -27717,12 +27721,14 @@ class MCPToolQualityDailyStatsQuery(BaseModel):
         description=("Restrict to these $mcp_tool_category values; empty or omitted means all categories."),
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
         description=("Bucket granularity; the frontend passes getDefaultInterval. Defaults to day."),
     )
     kind: Literal["MCPToolQualityDailyStatsQuery"] = "MCPToolQualityDailyStatsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolQualityDailyStatsQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str | None = Field(
@@ -27741,6 +27747,7 @@ class MCPToolQualityRowsQuery(BaseModel):
         description=("Restrict to these $mcp_tool_category values; empty or omitted means all categories."),
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolQualityRowsQuery"] = "MCPToolQualityRowsQuery"
     limit: int | None = Field(
         default=None,
@@ -27748,6 +27755,7 @@ class MCPToolQualityRowsQuery(BaseModel):
     )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = Field(default=None, description="Number of matching tools to skip.")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolQualityRowsQueryResponse | None = None
     search: str | None = Field(
         default=None,
