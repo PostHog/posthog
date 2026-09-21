@@ -192,8 +192,8 @@ test.describe('Dashboards', () => {
             // Saving the variable kicks off a reload of the insightVariables list, and the
             // editor can only substitute {variables.test_number} once that list has loaded.
             // Running the query before the reload returns sends the placeholder unresolved,
-            // the backend errors with "Global variable not found: variables", and
-            // "Save as insight" never enables. Wait for the reload before using the variable.
+            // the backend rejects it because `variables` has no value, and "Save as insight"
+            // never enables. Wait for the reload before using the variable.
             const variablesReloaded = page.waitForResponse(
                 (response) =>
                     response.url().includes('/insight_variables') &&
@@ -217,7 +217,7 @@ test.describe('Dashboards', () => {
 
             // The editor attaches the variable to the query through a short debounce, so a
             // fast first Run can execute before {variables.test_number} is substituted —
-            // the query then errors with "Global variable not found: variables" and leaves
+            // the query is then rejected because `variables` has no value, and leaves
             // "Save as insight" disabled. Re-run until the variable resolves and the query
             // succeeds (a successful run is the only thing that enables "Save as insight").
             const saveAsInsight = page.getByRole('button', { name: 'Save as insight' })

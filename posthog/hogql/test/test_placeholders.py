@@ -15,8 +15,6 @@ from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.visitor import clear_locations
 
-from common.hogvm.python.utils import HogVMException
-
 
 class TestParser(BaseTest):
     def test_find_placeholders(self):
@@ -61,18 +59,20 @@ class TestParser(BaseTest):
             ast.Constant(value="bar"),
         )
 
-    def test_replace_placeholders_error(self):
+    @parameterized.expand(
+        [
+            ("no_placeholders_given", None),
+            ("empty_placeholders", {}),
+            ("other_placeholder_given", {"bar": ast.Constant(value=123)}),
+        ]
+    )
+    def test_replace_placeholders_undefined_name_is_a_query_error(self, _name, placeholders):
         expr = ast.Placeholder(expr=ast.Field(chain=["foo"]))
-        with self.assertRaises(HogVMException) as context:
-            replace_placeholders(expr, {})
+        with self.assertRaises(QueryError) as context:
+            replace_placeholders(expr, placeholders)
         self.assertEqual(
-            "Global variable not found: foo",
-            str(context.exception),
-        )
-        with self.assertRaises(HogVMException) as context:
-            replace_placeholders(expr, {"bar": ast.Constant(value=123)})
-        self.assertEqual(
-            "Global variable not found: foo",
+            'This query has no value for the placeholder "foo". '
+            "Pass a value for it with the query, or remove it from the query.",
             str(context.exception),
         )
 
@@ -122,15 +122,6 @@ class TestParser(BaseTest):
                 left=ast.Field(chain=["timestamp"]),
                 right=ast.Constant(value=123),
             ),
-        )
-
-    def test_assert_no_placeholders(self):
-        expr = ast.Placeholder(expr=ast.Field(chain=["foo"]))
-        with self.assertRaises(HogVMException) as context:
-            replace_placeholders(expr, None)
-        self.assertEqual(
-            "Global variable not found: foo",
-            str(context.exception),
         )
 
     def test_replace_placeholders_with_cte(self):
@@ -278,6 +269,6 @@ class TestBytecodePlaceholders(BaseTest):
     )
     def test_replace_placeholders_rejects_blocking_functions(self, _name, query, fn_name):
         expr = parse_expr(query)
-        with self.assertRaises((QueryError, HogVMException)) as context:
+        with self.assertRaises(QueryError) as context:
             replace_placeholders(expr, {})
         self.assertIn(fn_name, str(context.exception))

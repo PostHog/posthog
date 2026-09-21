@@ -21,6 +21,7 @@ from common.hogvm.python.stl.bytecode import BYTECODE_STL
 from common.hogvm.python.utils import (
     MAX_MEMORY,
     HogVMException,
+    HogVMGlobalNotFoundException,
     HogVMMemoryExceededException,
     HogVMRuntimeExceededException,
     UncaughtHogVMException,
@@ -349,7 +350,7 @@ def execute_bytecode(
                         )
                     )
                 else:
-                    raise HogVMException(f"Global variable not found: {chain[0]}")
+                    raise HogVMGlobalNotFoundException(chain[0])
             case Operation.POP:
                 pop_stack()
             case Operation.CLOSE_UPVALUE:
