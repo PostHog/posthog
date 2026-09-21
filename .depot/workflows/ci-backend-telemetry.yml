@@ -1,0 +1,212 @@
+name: Report backend telemetry from Depot
+
+# Security boundary: both triggers load this file and every checked-out script from the trusted
+# base revision. They never check out or execute PR code. Before enabling this workflow, scope
+# DEPOT_CI_TELEMETRY_TOKEN, POSTHOG_API_TOKEN, and POSTHOG_DEVEX_PROJECT_API_TOKEN in Depot to this
+# repository and workflow file, and remove their availability from ci-backend.yml.
+on:
+    pull_request_target:
+        types: [opened, synchronize, reopened, ready_for_review]
+    # A GitHub rerun does not emit another pull_request event. Its completed relay run triggers
+    # this trusted base workflow; attempt 1 is ignored because pull_request_target already reports it.
+    workflow_run:
+        workflows: ['Backend CI']
+        types: [completed]
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+    checks: read
+
+env:
+    SOURCE_ACTOR: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.actor.login || github.event.pull_request.user.login }}
+    SOURCE_BASE_REF: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].base.ref || github.event.pull_request.base.ref }}
+    SOURCE_BASE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].base.sha || github.event.pull_request.base.sha }}
+    SOURCE_EVENT_AT: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.updated_at || '' }}
+    SOURCE_GITHUB_RUN_FINISHED_AT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.updated_at || '' }}
+    SOURCE_GITHUB_RUN_STARTED_AT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.run_started_at || '' }}
+    SOURCE_HEAD_REF: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].head.ref || github.event.pull_request.head.ref }}
+    SOURCE_HEAD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].head.sha || github.event.pull_request.head.sha }}
+    SOURCE_PR_NUMBER: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number }}
+
+jobs:
+    report:
+        if: >-
+            (github.event_name == 'pull_request_target' &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            github.actor != 'dependabot[bot]') ||
+            (github.event_name == 'workflow_run' &&
+            github.event.workflow_run.event == 'pull_request' &&
+            github.event.workflow_run.run_attempt > 1 &&
+            github.event.workflow_run.head_repository.full_name == github.repository &&
+            github.event.workflow_run.pull_requests[0].number != null &&
+            github.event.workflow_run.actor.login != 'dependabot[bot]')
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 100
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ env.SOURCE_BASE_SHA }}
+                  sparse-checkout: |
+                      .github/scripts/ci_backend_route.py
+                      .github/scripts/capture_depot_running_time.py
+                      .github/scripts/collect_depot_backend_telemetry.py
+                      .github/scripts/report_test_timings.py
+                      owners.yaml
+                      packages/owners-yaml
+                  sparse-checkout-cone-mode: false
+
+            - name: Confirm this PR was routed to Depot
+              id: route
+              env:
+                  PERCENT: ${{ vars.CI_BACKEND_DEPOT_PERCENT }}
+                  EVENT: pull_request
+                  PR_NUMBER: ${{ env.SOURCE_PR_NUMBER }}
+                  LABELS: ${{ github.event_name == 'pull_request_target' && toJSON(github.event.pull_request.labels.*.name) || '[]' }}
+                  IS_FORK: 'false'
+                  IS_DRAFT: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.draft || 'false' }}
+                  HEAD_REF: ${{ env.SOURCE_HEAD_REF }}
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  SHA: ${{ env.SOURCE_HEAD_SHA }}
+              run: python3 .github/scripts/ci_backend_route.py
+
+            - name: Wait for the matching Backend CI run
+              id: backend
+              if: steps.route.outputs.engine == 'depot'
+              continue-on-error: true
+              env:
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_TELEMETRY_TOKEN }}
+                  EVENT_AT: ${{ env.SOURCE_EVENT_AT }}
+                  GITHUB_RUN_FINISHED_AT: ${{ env.SOURCE_GITHUB_RUN_FINISHED_AT }}
+                  GITHUB_RUN_STARTED_AT: ${{ env.SOURCE_GITHUB_RUN_STARTED_AT }}
+                  HEAD_SHA: ${{ env.SOURCE_HEAD_SHA }}
+                  PR_NUMBER: ${{ env.SOURCE_PR_NUMBER }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+                  for _ in {1..360}; do
+                      runs=$(depot ci run list --repo "$REPO" --pr "$PR_NUMBER" --sha "$HEAD_SHA" -n 10 \
+                          --status queued --status running --status finished --status failed --status cancelled \
+                          --output json)
+                      run_id=$(jq -r --arg sha "$HEAD_SHA" --arg since "$EVENT_AT" \
+                          '[.[] | select(.trigger == "pull_request" and .head_sha == $sha and ($since == "" or .created_at >= $since))] | max_by(.created_at) | .run_id // empty' \
+                          <<< "$runs")
+                      if [[ -n "$run_id" ]]; then
+                          status=$(depot ci status "$run_id" --output json)
+                          workflow=$(jq -c '.workflows[]? | select(.workflow_path == "ci-backend.yml")' <<< "$status")
+                          workflow_status=$(jq -r '.status // empty' <<< "$workflow")
+                          if [[ "$workflow_status" =~ ^(finished|failed|cancelled)$ ]]; then
+                              if [[ -n "$GITHUB_RUN_STARTED_AT" ]]; then
+                                  run_attempt=$(jq -r --arg started "$GITHUB_RUN_STARTED_AT" --arg finished "$GITHUB_RUN_FINISHED_AT" \
+                                      '[.jobs[].attempts[]? | select((.created_at // .started_at // "") >= $started and (.created_at // .started_at // "") <= $finished) | .attempt] | max // empty' \
+                                      <<< "$workflow")
+                                  if [[ -z "$run_attempt" ]]; then
+                                      echo "::notice::The GitHub rerun did not retry a Depot job; no new test telemetry to report"
+                                      echo "matched=false" >> "$GITHUB_OUTPUT"
+                                      exit 0
+                                  fi
+                              else
+                                  run_attempt=1
+                              fi
+                              {
+                                  echo "run_id=$run_id"
+                                  echo "org_id=$(jq -r '.org_id' <<< "$status")"
+                                  echo "workflow_id=$(jq -r '.workflow_id' <<< "$workflow")"
+                                  echo "run_attempt=$run_attempt"
+                                  echo "matched=true"
+                              } >> "$GITHUB_OUTPUT"
+                              exit 0
+                          fi
+                      fi
+                      sleep 15
+                  done
+                  echo "::warning::No terminal Depot Backend CI run matched PR $PR_NUMBER at $HEAD_SHA"
+                  exit 1
+
+            - name: Download validated telemetry inputs
+              id: inputs
+              if: steps.backend.outputs.matched == 'true'
+              continue-on-error: true
+              env:
+                  BACKEND_RUN_ID: ${{ steps.backend.outputs.run_id }}
+                  BACKEND_WORKFLOW_ID: ${{ steps.backend.outputs.workflow_id }}
+                  BACKEND_RUN_ATTEMPT: ${{ steps.backend.outputs.run_attempt }}
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_TELEMETRY_TOKEN }}
+                  HEAD_REF: ${{ env.SOURCE_HEAD_REF }}
+                  HEAD_SHA: ${{ env.SOURCE_HEAD_SHA }}
+                  ORG_ID: ${{ steps.backend.outputs.org_id }}
+                  PR_NUMBER: ${{ env.SOURCE_PR_NUMBER }}
+              run: |
+                  python3 .github/scripts/collect_depot_backend_telemetry.py \
+                      --run-id "$BACKEND_RUN_ID" \
+                      --workflow-id "$BACKEND_WORKFLOW_ID" \
+                      --org "$ORG_ID" \
+                      --pr-number "$PR_NUMBER" \
+                      --head-sha "$HEAD_SHA" \
+                      --head-ref "$HEAD_REF" \
+                      --run-attempt "$BACKEND_RUN_ATTEMPT" \
+                      --junit-dir ./junit-artifacts
+
+            - name: Capture running time to PostHog and DevEx PostHog
+              if: steps.backend.outcome == 'success' && steps.backend.outputs.run_attempt == '1'
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  HEAD_SHA: ${{ env.SOURCE_HEAD_SHA }}
+                  DEPOT_WORKFLOW_ID: ${{ steps.backend.outputs.workflow_id }}
+                  GATE_JOB_NAME: Django Tests Pass on Depot
+                  CI_SOURCE_REPOSITORY: ${{ github.repository }}
+                  CI_SOURCE_SHA: ${{ env.SOURCE_HEAD_SHA }}
+                  CI_SOURCE_REF: refs/pull/${{ env.SOURCE_PR_NUMBER }}/head
+                  CI_SOURCE_WORKFLOW: Backend CI on Depot
+                  CI_SOURCE_RUN_ID: ${{ steps.backend.outputs.run_id }}
+                  CI_SOURCE_RUN_ATTEMPT: ${{ steps.backend.outputs.run_attempt }}
+                  CI_SOURCE_ACTOR: ${{ env.SOURCE_ACTOR }}
+                  CI_SOURCE_EVENT_NAME: pull_request
+                  POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+              run: python3 .github/scripts/capture_depot_running_time.py
+
+            - name: Capture test selection to DevEx PostHog
+              if: steps.inputs.outputs.has_selection == 'true' && steps.backend.outputs.run_attempt == '1'
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: posthog-ci-test-selection
+                  properties: ${{ steps.inputs.outputs.selection }}
+
+            - name: Install uv
+              if: steps.inputs.outputs.has_junit == 'true'
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.12.13'
+
+            - name: Emit per-test traces
+              if: steps.inputs.outputs.has_junit == 'true'
+              continue-on-error: true
+              env:
+                  CI_ENGINE: depot
+                  CI_SOURCE_REPOSITORY: ${{ github.repository }}
+                  CI_SOURCE_SHA: ${{ env.SOURCE_HEAD_SHA }}
+                  CI_SOURCE_REF: refs/pull/${{ env.SOURCE_PR_NUMBER }}/head
+                  CI_SOURCE_REF_NAME: ${{ env.SOURCE_HEAD_REF }}
+                  CI_SOURCE_HEAD_REF: ${{ env.SOURCE_HEAD_REF }}
+                  CI_SOURCE_BASE_REF: ${{ env.SOURCE_BASE_REF }}
+                  CI_SOURCE_WORKFLOW: Backend CI on Depot
+                  CI_SOURCE_RUN_ID: ${{ steps.backend.outputs.run_id }}
+                  CI_SOURCE_RUN_ATTEMPT: ${{ steps.inputs.outputs.run_attempt }}
+                  CI_SOURCE_ACTOR: ${{ env.SOURCE_ACTOR }}
+                  CI_SOURCE_EVENT_NAME: pull_request
+                  DEPOT_JOB_URL: https://depot.dev/orgs/${{ steps.backend.outputs.org_id }}/workflows/${{ steps.backend.outputs.workflow_id }}
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  POSTHOG_CI_TRACES_EXTRA_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
+                  POSTHOG_OTLP_TRACES_ENDPOINT: ${{ vars.POSTHOG_OTLP_TRACES_ENDPOINT || 'https://us.i.posthog.com/i/v1/traces' }}
+              run: |
+                  uv run --script .github/scripts/report_test_timings.py \
+                      --min-duration-seconds=0.5 \
+                      ./junit-artifacts

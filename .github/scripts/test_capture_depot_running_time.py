@@ -100,6 +100,23 @@ def test_sends_nothing_when_this_workflow_is_ambiguous(check_runs: list[dict[str
     assert capture.build_events(check_runs, OWN_JOB, CONTEXT, "success", 1, NOW) == []
 
 
+def test_builds_events_for_a_trusted_reporter_after_the_gate_finishes() -> None:
+    runs = [
+        check_run(1, "wf1", "Django tests (1/1)", "2026-09-18T15:00:00Z", "2026-09-18T15:20:00Z"),
+        check_run(2, "wf1", "Django Tests Pass on Depot", "2026-09-18T15:20:01Z", "2026-09-18T15:20:03Z"),
+        check_run(3, "other", "Django Tests Pass on Depot", "2026-09-18T15:21:00Z", "2026-09-18T15:21:01Z"),
+    ]
+
+    events = capture.build_events_for_workflow(runs, "wf1", "Django Tests Pass on Depot", CONTEXT, 1)
+
+    assert events[0]["properties"]["duration_seconds"] == 1203
+    assert events[0]["properties"]["conclusion"] == "success"
+    assert {event["properties"].get("name") for event in events[2:]} == {
+        "Django tests (1/1)",
+        "Django Tests Pass on Depot",
+    }
+
+
 def http_error(code: int) -> urllib.error.HTTPError:
     return urllib.error.HTTPError("https://api.github.com", code, "error", Message(), None)
 

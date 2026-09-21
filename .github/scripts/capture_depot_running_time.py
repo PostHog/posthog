@@ -54,19 +54,23 @@ def as_int(value: str) -> int | None:
 
 def github_context(env: dict[str, str]) -> dict[str, Any]:
     """The properties posthog-github-action adds to every event, read from the same variables."""
-    owner, _, repository = env.get("GITHUB_REPOSITORY", "").partition("/")
-    actor = env.get("GITHUB_ACTOR", "")
+
+    def source(name: str) -> str:
+        return env.get(f"CI_SOURCE_{name}") or env.get(f"GITHUB_{name}", "")
+
+    owner, _, repository = source("REPOSITORY").partition("/")
+    actor = source("ACTOR")
     return {
-        "sha": env.get("GITHUB_SHA", ""),
-        "ref": env.get("GITHUB_REF", ""),
-        "workflow": env.get("GITHUB_WORKFLOW", ""),
-        "runNumber": as_int(env.get("GITHUB_RUN_NUMBER", "")),
-        "runId": as_int(env.get("GITHUB_RUN_ID", "")),
+        "sha": source("SHA"),
+        "ref": source("REF"),
+        "workflow": source("WORKFLOW"),
+        "runNumber": as_int(source("RUN_NUMBER")),
+        "runId": as_int(source("RUN_ID")) or source("RUN_ID"),
         "repository": repository,
         "repositoryOwner": owner,
         "actor": actor,
         "actor_type": classify_actor(actor),
-        "eventName": env.get("GITHUB_EVENT_NAME", ""),
+        "eventName": source("EVENT_NAME"),
     }
 
 
@@ -173,6 +177,43 @@ def build_events(
     return events
 
 
+def build_events_for_workflow(
+    check_runs: list[dict[str, Any]],
+    workflow_id: str,
+    gate_job: str,
+    context: dict[str, Any],
+    attempt: int,
+) -> list[dict[str, Any]]:
+    runs = [run for run in check_runs if (workflow := workflow_of(run)) and workflow[0] == workflow_id]
+    gate = max(
+        (
+            run
+            for run in runs
+            if job_name(run) == gate_job and run.get("status") == "completed" and run.get("completed_at")
+        ),
+        key=lambda run: int(run.get("id", 0)),
+        default=None,
+    )
+    if gate is None:
+        return []
+    completed_at = parse_time(str(gate["completed_at"]))
+    anchor = {
+        "id": -1,
+        "name": "Backend CI on Depot / __trusted-reporter-anchor__",
+        "status": "in_progress",
+        "started_at": gate["completed_at"],
+        "details_url": gate["details_url"],
+    }
+    return build_events(
+        [*runs, anchor],
+        "__trusted-reporter-anchor__",
+        context,
+        str(gate.get("conclusion") or ""),
+        attempt,
+        completed_at,
+    )
+
+
 def fetch_check_runs(repo: str, sha: str, token: str) -> list[dict[str, Any]]:
     check_runs: list[dict[str, Any]] = []
     for page in range(1, 11):
@@ -228,14 +269,23 @@ def main() -> int:
             if isinstance(error, urllib.error.HTTPError) and error.code < 500:
                 return 0
             continue
-        events = build_events(
-            check_runs,
-            env.get("OWN_JOB_NAME", ""),
-            github_context(env),
-            env.get("CONCLUSION", ""),
-            as_int(env.get("GITHUB_RUN_ATTEMPT", "")) or 1,
-            datetime.now(UTC),
-        )
+        if workflow_id := env.get("DEPOT_WORKFLOW_ID"):
+            events = build_events_for_workflow(
+                check_runs,
+                workflow_id,
+                env.get("GATE_JOB_NAME", "Django Tests Pass on Depot"),
+                github_context(env),
+                as_int(env.get("CI_SOURCE_RUN_ATTEMPT", "")) or 1,
+            )
+        else:
+            events = build_events(
+                check_runs,
+                env.get("OWN_JOB_NAME", ""),
+                github_context(env),
+                env.get("CONCLUSION", ""),
+                as_int(env.get("GITHUB_RUN_ATTEMPT", "")) or 1,
+                datetime.now(UTC),
+            )
         if events:
             break
     if not events:

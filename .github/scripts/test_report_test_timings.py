@@ -940,6 +940,20 @@ def test_workflow_resource_attributes_branch_on_push(monkeypatch: pytest.MonkeyP
     assert attrs["ci.branch"] == "master"
 
 
+def test_workflow_resource_attributes_prefers_trusted_source_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GITHUB_RUN_ID", "reporter")
+    monkeypatch.setenv("GITHUB_SHA", "base")
+    monkeypatch.setenv("CI_SOURCE_RUN_ID", "depot-run")
+    monkeypatch.setenv("CI_SOURCE_SHA", "pr-head")
+    monkeypatch.setenv("CI_SOURCE_RUN_ATTEMPT", "2")
+
+    attrs = report_test_timings.workflow_resource_attributes()
+
+    assert attrs["ci.run_id"] == "depot-run"
+    assert attrs["ci.sha"] == "pr-head"
+    assert report_test_timings.current_run_attempt() == 2
+
+
 # ---------- trace id ----------
 
 
