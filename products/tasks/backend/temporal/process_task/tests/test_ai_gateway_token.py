@@ -284,6 +284,7 @@ class TestAiGatewayEnvVars:
             "AI_GATEWAY_URL": "https://ai-gateway.dev.posthog.dev",
             "AI_GATEWAY_PRODUCTS": "signals_scout,signals_research",
             "AI_GATEWAY_TOKEN": "phe_abc",
+            "AI_GATEWAY_TOKEN_CAP_USD": "3",
             "AI_GATEWAY_PRODUCT": "signals_scout",
             "AI_GATEWAY_AI_STAGE": "scout:logs",
         }
@@ -311,6 +312,7 @@ class TestAiGatewayEnvVars:
     def test_reserved_keys_cover_the_pinned_product_env(self):
         assert "AI_GATEWAY_PRODUCT" in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
         assert "AI_GATEWAY_AI_STAGE" in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
+        assert "AI_GATEWAY_TOKEN_CAP_USD" in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
 
     def test_skill_qualified_allowlist_still_mints(self, mint_settings):
         """The D4-D6 batched scout flips route by skill-qualified entries alone; a mint
@@ -537,7 +539,12 @@ class TestProvisioningBoundaries:
             assert utils.run_gateway_env_vars(self._ctx(), self._task()) == {}
 
     def test_a_pinned_token_the_stamp_could_not_record_is_dropped(self, mint_settings):
-        env = {"AI_GATEWAY_URL": "url", "AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "slack_app"}
+        env = {
+            "AI_GATEWAY_URL": "url",
+            "AI_GATEWAY_TOKEN": "phe",
+            "AI_GATEWAY_TOKEN_CAP_USD": "75",
+            "AI_GATEWAY_PRODUCT": "slack_app",
+        }
         with (
             patch.object(utils, "ai_gateway_env_vars", return_value=env),
             patch(
@@ -547,6 +554,7 @@ class TestProvisioningBoundaries:
         ):
             out = utils.run_gateway_env_vars(self._ctx(), self._task())
         assert "AI_GATEWAY_TOKEN" not in out
+        assert "AI_GATEWAY_TOKEN_CAP_USD" not in out
         assert out["AI_GATEWAY_URL"] == "url"
 
     def test_an_unpinned_token_survives_a_failed_stamp_removal(self, mint_settings):

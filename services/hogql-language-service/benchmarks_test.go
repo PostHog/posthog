@@ -1,25 +1,30 @@
 package hogqllanguageservice_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/completion"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/httpapi"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/ratelimit"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/serviceauth"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/validation"
 )
 
 const (
-	syntheticTableCount      = 4096
-	syntheticFieldsPerTable  = 25
-	syntheticPropertyCount   = 100000
-	syntheticNamespaceCount  = 4
-	syntheticPropertiesPerNS = syntheticPropertyCount / syntheticNamespaceCount
-	cursorMarker             = "§"
+	syntheticTableCount     = 4096
+	syntheticFieldsPerTable = 25
+	syntheticPropertyCount  = 120000
+	cursorMarker            = "§"
 )
 
 const sessionActorQuery = `
@@ -152,7 +157,9 @@ func BenchmarkCompleteLargeCatalog(b *testing.B) {
 	eventQuery, eventPosition := queryAndPosition(eventJourneyQuery)
 	cases := []completionCase{
 		{name: "table broad prefix", query: "SELECT * FROM warehouse_table_", position: len("SELECT * FROM warehouse_table_")},
-		{name: "field broad prefix", query: "SELECT w.column_ FROM warehouse_table_2048 AS w", position: len("SELECT w.column_")},
+		{name: "alias broad prefix", query: "SELECT * FROM legacy_warehouse_table_", position: len("SELECT * FROM legacy_warehouse_table_")},
+		{name: "dotted alias broad prefix", query: "SELECT * FROM legacy.warehouse.table_", position: len("SELECT * FROM legacy.warehouse.table_")},
+		{name: "field broad prefix", query: "SELECT w. FROM warehouse_table_2048 AS w", position: len("SELECT w.")},
 		{name: "event property broad prefix", query: "SELECT properties.$event_property_ FROM events", position: len("SELECT properties.$event_property_")},
 		{name: "event property selective prefix", query: "SELECT properties.$event_property_249 FROM events", position: len("SELECT properties.$event_property_249")},
 		{name: "large session query", query: sessionQuery, position: sessionPosition},
@@ -181,11 +188,112 @@ func BenchmarkValidateLargeCatalog(b *testing.B) {
 		{name: "large event query", query: eventQuery},
 		{name: "large trace query", query: traceQuery},
 		{name: "unknown table", query: "SELECT column_00 FROM warehouse_tabel_2048"},
-		{name: "unknown event property", query: "SELECT properties.$event_property_25000 FROM events"},
+		{name: "unknown event property", query: "SELECT properties.$event_property_120000 FROM events"},
 	} {
 		b.Run(benchmark.name, func(b *testing.B) {
 			benchmarkValidation(b, schema, benchmark.query)
 		})
+	}
+}
+
+func TestLargeCatalogSupportedScale(t *testing.T) {
+	schema := largeSyntheticCatalog()
+	if len(schema.Tables) != syntheticTableCount {
+		t.Fatalf("tables = %d, want %d", len(schema.Tables), syntheticTableCount)
+	}
+	for name, table := range schema.Tables {
+		if len(table.Fields) != syntheticFieldsPerTable {
+			t.Fatalf("table %q fields = %d, want %d", name, len(table.Fields), syntheticFieldsPerTable)
+		}
+	}
+	if len(schema.Properties) != 1 || len(schema.Properties["event"]) != syntheticPropertyCount {
+		t.Fatalf("property namespaces = %d, event properties = %d", len(schema.Properties), len(schema.Properties["event"]))
+	}
+
+	update := catalogUpdate{Revision: "supported-scale", Catalog: *schema}
+	payload, err := json.Marshal(update)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := catalog.NewRegistry(1024, 8<<30, time.Hour)
+	limiterConfig := ratelimit.Config{Capacity: 10, RefillPerSec: 10, MaxEntries: 10, IdleTTL: time.Hour}
+	preAuthLimiter, err := ratelimit.New(limiterConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	principalLimiter, err := ratelimit.New(limiterConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := httpapi.NewHandler(httpapi.Config{
+		Catalogs:         registry,
+		Auth:             serviceauth.New(nil, true),
+		PreAuthLimiter:   preAuthLimiter,
+		PrincipalLimiter: principalLimiter,
+		Logger:           slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	request := httptest.NewRequest(http.MethodPut, "/teams/1/users/1/catalog", bytes.NewReader(payload))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("catalog publication returned %d: %s", response.Code, response.Body.String())
+	}
+	prepared, revision, ok := registry.Get(serviceauth.Authorization{TeamID: 1, UserID: 1})
+	if !ok {
+		t.Fatal("published catalog was not found")
+	}
+	if revision != update.Revision || prepared.TableCount() != syntheticTableCount || prepared.PropertyCount() != syntheticPropertyCount {
+		t.Fatalf("published catalog = revision %q, found %t, tables %d, properties %d", revision, ok, prepared.TableCount(), prepared.PropertyCount())
+	}
+
+	for _, test := range []struct {
+		query    string
+		position int
+		total    int
+	}{
+		{query: "SELECT * FROM warehouse_table_", total: syntheticTableCount - 3},
+		{query: "SELECT * FROM legacy_warehouse_table_", total: syntheticTableCount - 3},
+		{query: "SELECT * FROM legacy.warehouse.table_", total: syntheticTableCount - 3},
+		{query: "SELECT w. FROM warehouse_table_2048 AS w", position: len("SELECT w."), total: syntheticFieldsPerTable},
+		{query: "SELECT properties.$event_property_ FROM events", position: len("SELECT properties.$event_property_"), total: syntheticPropertyCount},
+	} {
+		position := test.position
+		if position == 0 {
+			position = len(test.query)
+		}
+		result, err := completion.Complete(prepared, test.query, position, completion.PositionEncodingUTF8, "")
+		if err != nil {
+			t.Fatalf("complete %q: %v", test.query, err)
+		}
+		if result.Total != test.total || len(result.Suggestions) != completion.PageSize {
+			t.Fatalf("complete %q returned total %d, page %d, cursor %q", test.query, result.Total, len(result.Suggestions), result.NextCursor)
+		}
+		if test.total == completion.PageSize {
+			if result.NextCursor != "" {
+				t.Fatalf("complete %q returned unexpected cursor %q", test.query, result.NextCursor)
+			}
+			continue
+		}
+		if result.NextCursor == "" {
+			t.Fatalf("complete %q did not return a second-page cursor", test.query)
+		}
+		second, err := completion.Complete(prepared, test.query, position, completion.PositionEncodingUTF8, result.NextCursor)
+		if err != nil {
+			t.Fatalf("complete second page %q: %v", test.query, err)
+		}
+		if second.Total != test.total || len(second.Suggestions) == 0 || second.Suggestions[0].Label == result.Suggestions[0].Label {
+			t.Fatalf("complete second page %q returned %#v", test.query, second)
+		}
+	}
+
+	for _, query := range []string{
+		"SELECT column_24 FROM legacy.warehouse.table_2048",
+		"SELECT properties.$event_property_119999 FROM events",
+	} {
+		if result := validation.Validate(prepared, query); !result.Valid {
+			t.Fatalf("validate %q returned %#v", query, result)
+		}
 	}
 }
 
@@ -314,6 +422,7 @@ func queryAndPosition(marked string) (string, int) {
 
 func largeSyntheticCatalog() *catalog.Catalog {
 	tables := make(map[string]catalog.Table, syntheticTableCount)
+	tableAliases := make(map[string]string, 2*(syntheticTableCount-3))
 	for tableIndex := 0; tableIndex < syntheticTableCount-3; tableIndex++ {
 		fields := make(map[string]catalog.Field, syntheticFieldsPerTable)
 		for fieldIndex := 0; fieldIndex < syntheticFieldsPerTable; fieldIndex++ {
@@ -322,37 +431,36 @@ func largeSyntheticCatalog() *catalog.Catalog {
 		}
 		name := fmt.Sprintf("warehouse_table_%04d", tableIndex)
 		tables[name] = catalog.Table{ID: fmt.Sprintf("table-%04d", tableIndex), Name: name, Type: "data_warehouse", Fields: fields}
+		tableAliases[fmt.Sprintf("legacy_warehouse_table_%04d", tableIndex)] = name
+		tableAliases[fmt.Sprintf("legacy.warehouse.table_%04d", tableIndex)] = name
 	}
-	tables["events"] = catalog.Table{Name: "events", Type: "posthog", Fields: fields(
+	tables["events"] = catalog.Table{Name: "events", Type: "posthog", Fields: scaleFields(
 		"distinct_id", "event", "person_id", "properties", "session_id", "timestamp", "uuid",
 	)}
-	tables["sessions"] = catalog.Table{Name: "sessions", Type: "posthog", Fields: fields(
+	tables["sessions"] = catalog.Table{Name: "sessions", Type: "posthog", Fields: scaleFields(
 		"$autocapture_count", "$channel_type", "$end_timestamp", "$entry_pathname", "$entry_referring_domain",
 		"$entry_utm_campaign", "$entry_utm_content", "$entry_utm_medium", "$entry_utm_source", "$entry_utm_term",
 		"$exit_pathname", "$last_external_click_url", "$num_uniq_urls", "$pageview_count", "$session_duration",
 		"$start_timestamp", "session_id",
 	)}
-	tables["posthog.trace_spans"] = catalog.Table{Name: "posthog.trace_spans", Type: "posthog", Fields: fields(
+	tables["posthog.trace_spans"] = catalog.Table{Name: "posthog.trace_spans", Type: "posthog", Fields: scaleFields(
 		"duration_nano", "name", "parent_span_id", "service_name", "span_id", "status_code", "timestamp", "trace_id",
 	)}
 
-	properties := make(map[string][]catalog.Property, syntheticNamespaceCount)
-	for _, namespace := range []struct {
-		name   string
-		prefix string
-	}{
-		{name: "event", prefix: "$event_property_"},
-		{name: "person", prefix: "$person_property_"},
-		{name: "group:0", prefix: "$group_property_"},
-		{name: "session", prefix: "$session_property_"},
-	} {
-		values := make([]catalog.Property, syntheticPropertiesPerNS)
-		for propertyIndex := range values {
-			values[propertyIndex] = catalog.Property{Name: fmt.Sprintf("%s%05d", namespace.prefix, propertyIndex), ValueType: "String"}
-		}
-		properties[namespace.name] = values
+	properties := make([]catalog.Property, syntheticPropertyCount)
+	for propertyIndex := range properties {
+		properties[propertyIndex] = catalog.Property{Name: fmt.Sprintf("$event_property_%05d", propertyIndex), ValueType: "String"}
 	}
-	return &catalog.Catalog{Tables: tables, Properties: properties}
+	return &catalog.Catalog{Tables: tables, TableAliases: tableAliases, Properties: map[string][]catalog.Property{"event": properties}}
+}
+
+func scaleFields(names ...string) map[string]catalog.Field {
+	result := fields(names...)
+	for fieldIndex := len(result); fieldIndex < syntheticFieldsPerTable; fieldIndex++ {
+		name := fmt.Sprintf("scale_column_%02d", fieldIndex)
+		result[name] = catalog.Field{Name: name, Type: "String"}
+	}
+	return result
 }
 
 func fields(names ...string) map[string]catalog.Field {
