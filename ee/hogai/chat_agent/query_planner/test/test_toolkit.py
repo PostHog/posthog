@@ -620,15 +620,25 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(type, "String")
         self.assertIsNotNone(description)
 
-    def test_retrieve_entity_properties_surfaces_stored_descriptions(self):
+    @parameterized.expand(
+        [
+            ("same_team", False),
+            ("sibling_environment", True),
+        ]
+    )
+    def test_retrieve_entity_properties_surfaces_stored_descriptions(self, _name: str, in_sibling_environment: bool):
         # Regression guard for the read_taxonomy path: a user-authored description on a custom
         # property must reach the LLM. The shared helper was wired for stored descriptions in
         # #73360, but this (query_planner) toolkit — the one read_taxonomy actually constructs —
         # was left calling it without them, so descriptions never surfaced in production.
         from ee.models.property_definition import EnterprisePropertyDefinition
 
+        owner = self.team
+        if in_sibling_environment:
+            owner = Team.objects.create(organization=self.organization, project=self.team.project)
         EnterprisePropertyDefinition.objects.create(
-            team=self.team,
+            team=owner,
+            project=self.team.project,
             type=PropertyDefinition.Type.PERSON,
             name="plan_tier",
             property_type="String",

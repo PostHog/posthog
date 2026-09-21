@@ -218,7 +218,7 @@ class TaxonomyAgentToolkit:
         names: list[str],
         group_type_index: int | None = None,
     ) -> dict[str, str]:
-        """Map property name -> sanitized user-authored description from the team's property definitions.
+        """Map property name -> sanitized user-authored description from the project's property definitions.
 
         Only the enterprise `PropertyDefinition` model carries a `description` field, so this is a
         no-op on non-EE builds. Descriptions live only in Postgres and never influence which
@@ -232,7 +232,8 @@ class TaxonomyAgentToolkit:
         )
 
         qs = (
-            EnterprisePropertyDefinition.objects.filter(team=self._team, type=property_type, name__in=names)
+            EnterprisePropertyDefinition.objects.for_project(self._team.project_id)
+            .filter(type=property_type, name__in=names)
             .exclude(description__isnull=True)
             .exclude(description="")
         )

@@ -306,13 +306,25 @@ class TestTaxonomyAgentToolkit(BaseTest):
         self.assertIn("<name>visible</name>", result.result)
         self.assertNotIn("<name>secret</name>", result.result)
 
-    async def test_person_properties_surface_stored_descriptions_sanitized(self):
+    @parameterized.expand(
+        [
+            ("same_team", False),
+            ("sibling_environment", True),
+        ]
+    )
+    async def test_person_properties_surface_stored_descriptions_sanitized(
+        self, _name: str, in_sibling_environment: bool
+    ):
         from ee.models.property_definition import EnterprisePropertyDefinition
 
         # An EnterprisePropertyDefinition also creates the base PropertyDefinition row the person path
         # discovers, so its user-authored description should ride along on the surfaced property.
+        owner = self.team
+        if in_sibling_environment:
+            owner = await Team.objects.acreate(organization=self.organization, project=self.team.project)
         await EnterprisePropertyDefinition.objects.acreate(
-            team=self.team,
+            team=owner,
+            project=self.team.project,
             type=PropertyDefinition.Type.PERSON,
             name="plan_tier",
             property_type="String",
