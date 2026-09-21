@@ -1104,17 +1104,6 @@ def send_org_usage_reports() -> None:
     send_all_org_usage_reports.delay()
 
 
-@shared_task(ignore_result=True, retries=3)
-def clickhouse_send_license_usage() -> None:
-    try:
-        if not is_cloud():
-            from ee.tasks.send_license_usage import send_license_usage
-
-            send_license_usage()
-    except ImportError:
-        pass
-
-
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
 def background_delete_model_task(
     model_name: str, team_id: int, batch_size: int = 10000, records_to_delete: int | None = None

@@ -90,7 +90,6 @@ export {
   getClaudeModelRecency,
   getCloudTaskGatewayUrl,
   getProviderName,
-  HARNESS_DISPLAY_NAMES,
   isAnthropicModel,
   isAnthropicModelId,
   isBasetenModel,
@@ -98,9 +97,6 @@ export {
   isCloudflareModel,
   isCloudflareModelId,
   isDeepseekModelId,
-  isGlm53FlashModelId,
-  isGlm53ModelId,
-  isGlmModelId,
   isModalModel,
   isModalModelId,
   isOpenAIModel,
@@ -129,6 +125,7 @@ export {
   DISMISSAL_REASON_OPTIONS,
   type DismissalReasonOptionValue,
   dismissalReasonLabel,
+  isDismissalReasonSnooze,
   RESOLVE_REASON_OPTIONS,
   type ReportStateReason,
   type ResolveReasonOptionValue,
@@ -283,11 +280,16 @@ export {
 export type { PiMessagingMode, PiRuntimeHealth } from "./pi-session";
 export {
   createPiToolCallRecord,
+  formatMcpToolLabel,
+  formatPiMcpToolName,
   isPiToolName,
   PI_TOOL_KIND_BY_NAME,
+  type PiMcpCallDetails,
   type PiToolCallInput,
   type PiToolCallRecord,
   type PiToolName,
+  parsePiMcpCallDetails,
+  readPiMcpCallDetails,
 } from "./pi-tool-call";
 export { POSTHOG_PRODUCTS, type PostHogProductId } from "./posthog-products";
 export {
@@ -391,6 +393,7 @@ export {
   posthogToolMeta,
   readAgentToolName,
   readMcpInstallationId,
+  readMcpProxyCallDetails,
   readMcpToolDescriptor,
   readMcpToolName,
   readParentToolCallId,

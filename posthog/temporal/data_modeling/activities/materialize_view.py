@@ -59,6 +59,7 @@ from products.data_modeling.backend.facade.api import (
     get_incremental_config,
     get_incremental_state,
     inject_incremental_filter,
+    record_incremental_history,
     set_incremental_state,
     window_start,
 )
@@ -1230,6 +1231,10 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         # deltalite can only open a table, never create one, so a missing table has to rebuild.
         plan = dataclasses.replace(plan, incremental=False, reason="table missing")
     await logger.ainfo(f"Materializing node {objects.node.name}: {plan.reason}")
+
+    # Record this before writing any rows. A failed first seed still belongs in mode history.
+    if plan.config is not None:
+        await database_sync_to_async_pool(record_incremental_history)(objects.saved_query)
 
     # Recorded on the job so the runs UI can tell a rebuild's row count (the whole table) apart
     # from an incremental run's (only the rows synced in its window).

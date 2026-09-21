@@ -1446,6 +1446,8 @@ export interface DataWarehouseSavedQueryApi {
     incremental?: IncrementalConfigApi | null
     /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
     readonly incremental_state: IncrementalStateApi | null
+    /** Whether incremental settings participated in any materialization run. */
+    readonly has_incremental_history: boolean
     readonly created_by: UserBasicApi
     readonly created_at: string
     /** @nullable */
@@ -1573,6 +1575,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
     incremental?: IncrementalConfigApi | null
     /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
     readonly incremental_state?: IncrementalStateApi | null
+    /** Whether incremental settings participated in any materialization run. */
+    readonly has_incremental_history?: boolean
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     /** @nullable */
@@ -3267,6 +3271,10 @@ export interface CredentialApi {
  * * `HeyReach` - HeyReach
  * * `MoEngage` - MoEngage
  * * `Monaco` - Monaco
+ * * `Oneleet` - Oneleet
+ * * `Expo` - Expo
+ * * `PostNord` - PostNord
+ * * `Commslayer` - Commslayer
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4616,6 +4624,10 @@ export const ExternalDataSourceTypeEnumApi = {
     HeyReach: 'HeyReach',
     MoEngage: 'MoEngage',
     Monaco: 'Monaco',
+    Oneleet: 'Oneleet',
+    Expo: 'Expo',
+    PostNord: 'PostNord',
+    Commslayer: 'Commslayer',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

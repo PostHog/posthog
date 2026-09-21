@@ -93,7 +93,6 @@ function TileHeader({
       className={isActive ? "bg-background" : "bg-muted"}
       actions={
         <>
-          {task && <TaskHeaderActions task={task} />}
           {isActive && activitySelection?.kind === "task" && (
             <ActivityDetailCloseButton />
           )}
@@ -108,7 +107,10 @@ function TileHeader({
         </>
       }
     >
-      <TilePill tab={tab} isActive={isActive} onActivate={onActivate} />
+      <div className="flex min-w-0 flex-1 items-center">
+        <TilePill tab={tab} isActive={isActive} onActivate={onActivate} />
+      </div>
+      {task && <TaskHeaderActions task={task} />}
     </ChromeBar>
   );
 }
