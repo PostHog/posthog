@@ -85430,12 +85430,6 @@ export namespace Schemas {
       /** The emitted finding prose — the signal's `description` as surfaced to the inbox. */
       description: string;
       /**
-         * Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.
-         * @minimum 0
-         * @maximum 1
-         */
-      weight: number;
-      /**
          * Agent's confidence the finding is real in [0, 1].
          * @minimum 0
          * @maximum 1
