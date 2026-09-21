@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { ScrollArea, ScrollBar } from 'lib/ui/quill'
 
 import { setHogFlowDragImage } from '../dragPreview'
@@ -12,11 +11,11 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import type { HogFlowEdge } from '../types'
 import { HogFlowTreeDropzone } from './HogFlowTreeDropzone'
 import { HogFlowTreeFeaturePreview } from './HogFlowTreeFeaturePreview'
+import { HogFlowTreeFocusHeader } from './HogFlowTreeFocusHeader'
 import { HogFlowTreeNode } from './HogFlowTreeNode'
 import { buildWorkflowTree } from './workflowTree'
 import {
     findWorkflowTreePath,
-    getWorkflowTreeBranchSummary,
     getWorkflowTreeContinuationPath,
     getWorkflowTreeOccurrenceKey,
     getWorkflowTreeStepId,
@@ -233,26 +232,7 @@ export function HogFlowTreeEditor(): JSX.Element {
                     onDropCapture={onTreeDropCapture}
                 >
                     {focused && (
-                        <LemonCard hoverEffect={false} className="mb-3 p-3">
-                            <LemonButton
-                                type="tertiary"
-                                size="small"
-                                onClick={returnToWorkflow}
-                                id="workflow-tree-exit-focus"
-                                data-attr="workflow-tree-exit-focus"
-                            >
-                                Back to workflow
-                            </LemonButton>
-                            <p className="my-2 break-words text-xs text-secondary">
-                                {focusedPath
-                                    .map(({ node, branch }) => `${node.action.name} › ${branch.label}`)
-                                    .join(' › ')}
-                            </p>
-                            <h3 className="mb-1">{focused.branch.label}</h3>
-                            <p className="mb-0 break-words text-xs text-secondary">
-                                {getWorkflowTreeBranchSummary(focused.node, focused.branch)}
-                            </p>
-                        </LemonCard>
+                        <HogFlowTreeFocusHeader focusedPath={focusedPath} onReturnToWorkflow={returnToWorkflow} />
                     )}
                     {(focused?.branch.sequence ?? tree).nodes.map((node) => (
                         <HogFlowTreeNode

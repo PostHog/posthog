@@ -57,15 +57,7 @@ export function HogFlowTreeStep({
     const hasValidationIssue =
         validationResult?.valid === false || Object.keys(validationResult?.warnings ?? {}).length > 0
     const isAnimationTarget = animatingEdgePair?.endsWith(`->${action.id}`) ?? false
-    const previews = (step?.previews ?? []).filter(
-        (preview) =>
-            action.type !== 'delay' ||
-            preview.label.toLowerCase().replace(/^wait for /, 'wait ') !==
-                action.name
-                    .trim()
-                    .toLowerCase()
-                    .replace(/^wait for /, 'wait ')
-    )
+    const previews = step?.previews ?? []
     const hasFooterContent = !!action.description || previews.length > 0
 
     return (
