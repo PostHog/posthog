@@ -1338,8 +1338,7 @@ class TestSandboxTaskCostThrottle:
         throttle = SandboxTaskCostThrottle(redis=None)
         context = make_context(product=product, sandbox_task_id=sandbox_task_id)
 
-        # Past every configured ceiling: an unmetered request records nothing, so the
-        # throttle has nothing to deny on.
+        # Exceeds every ceiling, so only an inert throttle still allows the next request.
         await throttle.record_cost(context, 10_000.0)
 
         assert (await throttle.allow_request(context)).allowed is True
@@ -1367,8 +1366,6 @@ class TestSandboxTaskCostThrottle:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("legacy_slug", ["array", "twig"])
     async def test_legacy_code_slugs_meter_against_the_same_run_ceiling(self, legacy_slug: str) -> None:
-        # Both aliases resolve to posthog_code, so a run cannot shed its ceiling by asking for
-        # an older path segment.
         throttle = SandboxTaskCostThrottle(redis=None)
         code = make_context(product="posthog_code", sandbox_task_id="task-1")
         legacy = make_context(product=legacy_slug, sandbox_task_id="task-1")
