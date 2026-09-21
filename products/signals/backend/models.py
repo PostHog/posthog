@@ -1727,9 +1727,10 @@ class SignalReportCheck(UUIDModel):
     days, and the check carries its own `next_run_at` rather than deriving one from a merged pull
     request — plenty of fixes land with no pull request to date the window from.
 
-    A check written before the fix exists has no date to carry, so it is stored PENDING with a
-    `soak_minutes` window and the report's transition to RESOLVED sets its `next_run_at`. That makes
-    the resolve the clock for every kind of fix, including the ones that never had a pull request.
+    A check on a report that has not resolved has no date worth carrying, because the fix it tests is
+    not live yet. Such a check is stored PENDING with a `soak_minutes` window, and the report's
+    transition to RESOLVED sets its `next_run_at`. That makes the resolve the clock for every kind of
+    fix, including the ones that never had a pull request.
 
     Terminal statuses are final. A check that passed, failed, errored out, expired, or was cancelled
     is never rescheduled; the author writes a new check instead, so a result artefact always refers
@@ -1745,8 +1746,8 @@ class SignalReportCheck(UUIDModel):
         AGENT = "agent"
 
     class Status(models.TextChoices):
-        # Written before the fix it checks exists, so it carries a soak rather than a date and
-        # waits for its report to resolve. Not due, not expired, and not terminal: the resolve
+        # Written while its report was still open, so it carries a soak rather than a date and
+        # waits for the report to resolve. Not due, not expired, and not terminal: the resolve
         # transition arms it into ACTIVE (`report_check_authoring.arm_pending_checks`).
         PENDING = "pending"
         ACTIVE = "active"

@@ -908,9 +908,12 @@ tools:
             which keeps compare mode off already. Use `agent` for a claim no single number settles: pass `instructions`
             saying what a later run must establish and `probe_hints` naming the issue ids, services, or queries to look
             at; it runs on the scout you name in `skill_name`, or on the fleet's follow-up scout when you name none.
-            `next_run_at` is when to first look, so allow deploy and soak time. The verdict lands on the report as a
-            `check_result` entry people read in the inbox. Check `scout-report-check-list` first: a report holds at most
-            five open checks, and a second check for the same claim is noise.
+            `next_run_at` is when to first look, so allow deploy and soak time. On a report that has not resolved
+            yet, the check is stored `pending` instead of running on that date. The gap you left becomes the wait
+            that starts when the report resolves, so a check never measures the days before the fix shipped. The
+            verdict lands on the report as a `check_result` entry people read in the inbox. Check
+            `scout-report-check-list` first: a report holds at most five open checks, and a second check for the
+            same claim is noise.
     scout-report-check-list:
         operation: signals_scout_report_checks_list
         enabled: true

@@ -56,6 +56,7 @@ from products.signals.backend.report_checks import (
     MAX_CHECK_PROBE_HINT_LENGTH,
     MAX_CHECK_PROBE_HINTS,
     MAX_CHECK_RUNS,
+    MAX_CHECK_SOAK_HOURS,
     MAX_CONSECUTIVE_CHECK_ERRORS,
     MIN_CHECK_INTERVAL_MINUTES,
     AgentCheckConfig,
@@ -1309,8 +1310,50 @@ class TestScoutCheckTools(APIBaseTest):
 
         check = SignalReportCheck.objects.for_team(self.team.id).get(id=summary.check_id)
         assert check.task_id == self.task.id
-        assert check.status == SignalReportCheck.Status.ACTIVE
         assert check.report_id == self.report.id
+
+    @parameterized.expand([(SignalReport.Status.READY,), (SignalReport.Status.SUPPRESSED,)])
+    def test_a_check_on_an_unresolved_report_waits_for_the_resolve(self, report_status: str) -> None:
+        self.report.status = report_status
+        self.report.save(update_fields=["status"])
+
+        check = SignalReportCheck.objects.for_team(self.team.id).get(id=self._create().check_id)
+
+        assert check.status == SignalReportCheck.Status.PENDING
+        # The gap the run left before its date is what the check waits out after the resolve.
+        assert check.soak_minutes == 3 * 24 * 60
+        assert collect_due_checks(timezone.now() + timedelta(days=7)) == []
+
+    def test_the_resolve_starts_the_clock_on_a_check_a_run_dated(self) -> None:
+        check = SignalReportCheck.objects.for_team(self.team.id).get(id=self._create().check_id)
+        before = timezone.now()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.report.status = SignalReport.Status.RESOLVED
+            self.report.save(update_fields=["status"])
+
+        check.refresh_from_db()
+        soak = timedelta(days=3)
+        assert check.status == SignalReportCheck.Status.ACTIVE
+        assert before + soak <= check.next_run_at <= timezone.now() + soak
+
+    def test_a_check_on_a_resolved_report_runs_on_the_date_the_run_named(self) -> None:
+        self.report.status = SignalReport.Status.RESOLVED
+        self.report.save(update_fields=["status"])
+        first_run = timezone.now() + timedelta(days=3)
+
+        check = SignalReportCheck.objects.for_team(self.team.id).get(id=self._create(next_run_at=first_run).check_id)
+
+        assert check.status == SignalReportCheck.Status.ACTIVE
+        assert check.next_run_at == first_run
+        assert check.soak_minutes is None
+
+    def test_a_date_beyond_the_longest_soak_becomes_the_longest_soak(self) -> None:
+        check = SignalReportCheck.objects.for_team(self.team.id).get(
+            id=self._create(next_run_at=timezone.now() + timedelta(days=60)).check_id
+        )
+
+        assert check.soak_minutes == MAX_CHECK_SOAK_HOURS * 60
 
     def test_a_run_reads_back_the_checks_it_would_otherwise_duplicate(self) -> None:
         written = self._create()
@@ -1339,7 +1382,7 @@ class TestScoutCheckTools(APIBaseTest):
             cancel_report_check(team=self.team, run=self.scout_run, check_id=written.check_id)
 
         check = SignalReportCheck.objects.for_team(self.team.id).get()
-        assert check.status == SignalReportCheck.Status.ACTIVE
+        assert check.status == SignalReportCheck.Status.PENDING
 
     def test_another_projects_report_is_not_reachable(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
@@ -1413,6 +1456,20 @@ class TestResearchAuthoredChecks(APIBaseTest):
 
         assert written == []
         assert not SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).exists()
+
+    def test_a_spec_written_after_the_report_resolved_starts_its_soak_at_once(self) -> None:
+        self.report.status = SignalReport.Status.RESOLVED
+        self.report.save(update_fields=["status"])
+        before = timezone.now()
+
+        written = create_checks_from_specs(
+            report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
+        )
+
+        # Nothing left to wait for, so the check is armed rather than held for a resolve that already happened.
+        soak = timedelta(hours=DEFAULT_CHECK_SOAK_HOURS)
+        assert written[0].status == SignalReportCheck.Status.ACTIVE
+        assert before + soak <= written[0].next_run_at <= timezone.now() + soak
 
     def test_a_longer_soak_is_honoured_for_a_fix_that_reaches_users_slowly(self) -> None:
         written = create_checks_from_specs(
