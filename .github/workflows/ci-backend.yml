@@ -4302,15 +4302,15 @@ jobs:
                   DEPOT_APP_ID: '219785'
                   DEPOT_WORKFLOW: Backend CI on Depot
               run: |
-                  conclusion() {
+                  check_state() {
                       gh api -X GET "repos/$REPO/commits/$SHA/check-runs" -f app_id="$DEPOT_APP_ID" -f check_name="$DEPOT_WORKFLOW / $1" \
                           | jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" \
-                              '[.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))] | max_by(.id) | .conclusion // ""'
+                              '[.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))] | max_by(.id) | if . == null then "" elif .status == "completed" then .conclusion // "" else .status end'
                   }
-                  # A cancel job can end cancelled by its own request. A superseded run cancels
-                  # every job, so the check itself must have failed too.
+                  # The cancel request can end its own job or leave its check in progress
+                  # while this relay starts. A superseded run does not fail the source check.
                   failed_deterministically() {
-                      [ "$(conclusion "$1")" = failure ] && [[ "$(conclusion "$2")" =~ ^(success|cancelled)$ ]]
+                      [ "$(check_state "$1")" = failure ] && [[ "$(check_state "$2")" =~ ^(success|cancelled|in_progress)$ ]]
                   }
                   if failed_deterministically "Repo checks (depot-ubuntu-24.04)" "Cancel Backend CI after repo check failure"; then
                       echo "::error title=Repo checks failed deterministically::Open the repo checks job on Depot CI for the root failure. Retrying will not fix this."
