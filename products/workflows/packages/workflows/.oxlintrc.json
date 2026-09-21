@@ -1,0 +1,18 @@
+{
+    "$schema": "../../../../node_modules/oxlint/configuration_schema.json",
+    "plugins": ["jsdoc", "typescript", "unicorn", "oxc", "import", "promise"],
+    "overrides": [
+        {
+            "files": ["src/**/*.ts"],
+            "rules": {
+                "jsdoc/check-tag-names": "error",
+                "jsdoc/empty-tags": "error",
+                "jsdoc/require-param": "error",
+                "jsdoc/require-param-description": "error",
+                "jsdoc/require-param-name": "error",
+                "jsdoc/require-returns-description": "error",
+                "jsdoc/require-throws-description": "error"
+            }
+        }
+    ]
+}

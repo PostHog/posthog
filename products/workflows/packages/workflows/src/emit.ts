@@ -42,23 +42,49 @@ const NEXT_LARGER_UNIT = { s: 'm', m: 'h', h: 'd' } as const
 
 type DurationUnit = keyof typeof MAX_VALUE_FOR_DURATION_UNIT
 
+/** The options `Workflow.emit` and `compile` take. */
 export interface EmitOptions {
-    /** The deployer's environment, where `secret('NAME')` is read from. Defaults to `process.env`. */
+    /**
+     * Where a `secret` reads its variable. Defaults to `process.env`.
+     *
+     * An object passed here replaces `process.env` rather than layering over it, so it
+     * holds every variable the workflow names. That is what makes a test independent of
+     * the ambient environment.
+     */
     readonly env?: Readonly<Record<string, string | undefined>>
 }
 
-/** One resolved secret, so a diff can exclude the keys PostHog reads back as a placeholder. */
+/**
+ * One secret that emit resolved, named by where it landed in the definition.
+ *
+ * A diff against PostHog excludes these keys on both sides, because a read returns the
+ * placeholder `{"secret": true}` rather than the value, so a workflow holding a secret
+ * would otherwise never compare equal and every push would report a change.
+ */
 export interface SecretInput {
+    /** The action that holds the input. */
     readonly actionId: string
+    /** The input key inside that action's config. */
     readonly inputKey: string
+    /** The environment variable the value came from. */
     readonly envName: string
 }
 
+/** What `Workflow.emit` and `compile` return. */
 export interface EmitResult {
+    /** The JSON body to push. */
     readonly definition: WorkflowDefinition
+    /** Every secret the emit resolved, in the order it resolved them. */
     readonly secretInputs: readonly SecretInput[]
 }
 
+/**
+ * The options `compile` takes.
+ *
+ * These are `WorkflowOptions` with the trigger under its emitted name. Prefer
+ * `workflow`, which is the authoring surface; `compile` exists for a caller that already
+ * holds a trigger config and a path.
+ */
 export interface CompileOptions {
     readonly key: string
     readonly name: string
@@ -66,6 +92,7 @@ export interface CompileOptions {
     readonly status?: WorkflowStatus
     readonly exitCondition?: ExitCondition
     readonly variables?: readonly WorkflowVariable[]
+    /** What starts a run. Build it with `onEvent` or `onSchedule`. */
     readonly trigger: TriggerConfig
     readonly steps: Path
     readonly exit: { readonly reason: string }
@@ -245,11 +272,9 @@ function unitName(unit: DurationUnit): string {
     return { d: 'days', h: 'hours', m: 'minutes', s: 'seconds' }[unit]
 }
 
-/**
- * The byte length the serializer measures, which is Python's `json.dumps`: a space
- * after every separator, and every non-ASCII character escaped. Counting the shorter
- * JavaScript form here would pass a file that the API then refuses.
- */
+// The byte length the serializer measures, which is Python's `json.dumps`: a space
+// after every separator, and every non-ASCII character escaped. Counting the shorter
+// JavaScript form here would pass a file that the API then refuses.
 function serializedSize(variable: WorkflowVariable): number {
     const escape = (value: string): string =>
         JSON.stringify(value).replace(
@@ -285,7 +310,8 @@ function checkVariables(variables: readonly WorkflowVariable[]): void {
     }
 }
 
-/** Walks a value rather than searching its JSON, so a string holding `__secret` is not a false match. */
+// Walks a value rather than searching its JSON, so a string holding `__secret` is not
+// a false match.
 function holdsSecret(value: unknown, seen = new Set<unknown>()): boolean {
     if (isSecretRef(value)) {
         return true
@@ -297,7 +323,7 @@ function holdsSecret(value: unknown, seen = new Set<unknown>()): boolean {
     return Object.values(value).some((entry) => holdsSecret(entry, seen))
 }
 
-/** A secret inside a value would reach PostHog as the name of the variable, not its value. */
+// A secret inside a value would reach PostHog as the name of the variable, not its value.
 function refuseNestedSecret(value: unknown, key: string, step: Step): void {
     if (!holdsSecret(value)) {
         return
@@ -340,11 +366,9 @@ function resolveInputs(step: Step & { kind: 'function' }, actionId: string, cont
     return resolved
 }
 
-/**
- * Assigns an id to every placement, depth first, so the order matches the order a
- * reader walks the graph. Allocating a whole path before its branches would let a step
- * appended to the trunk take the id of a placement inside an earlier branch.
- */
+// Assigns an id to every placement, depth first, so the order matches the order a
+// reader walks the graph. Allocating a whole path before its branches would let a step
+// appended to the trunk take the id of a placement inside an earlier branch.
 function place(steps: readonly Step[], ids: Ids, inBranch: boolean): Placement[] {
     if (steps.length === 0) {
         throw new WorkflowError({
@@ -365,7 +389,7 @@ function place(steps: readonly Step[], ids: Ids, inBranch: boolean): Placement[]
     })
 }
 
-/** Emits a placed path and returns the id of its first node. */
+// Returns the id of the path's first node, which the caller needs for the edge into it.
 function emitPath(placements: readonly Placement[], continuation: string, context: Context): string {
     placements.forEach((placement, position) => {
         const { step, id } = placement
@@ -420,6 +444,36 @@ function emitPath(placements: readonly Placement[], continuation: string, contex
     return placements[0]?.id ?? continuation
 }
 
+/**
+ * Turns a trigger and a path into the definition a push sends.
+ *
+ * `workflow(...).emit()` calls this, and that is the surface to use. Call `compile`
+ * directly only when the trigger config and the path are already in hand.
+ *
+ * @param options - The workflow's identity, trigger, steps and exit.
+ * @param emitOptions - Where to read a `secret` from. Defaults to `process.env`.
+ * @returns The definition, and the secret inputs it resolved.
+ * @throws {WorkflowError} The first rule the workflow breaks. The statuses are
+ * `duplicate_action_id`, `reserved_action_id`, `invalid_action_id`,
+ * `action_id_too_long`, `unnamed_action_id`, `step_name_too_long`, `invalid_duration`,
+ * `duration_over_unit_cap`, `empty_path`, `missing_secret`, `nested_secret`,
+ * `duplicate_variable_key` and `variables_too_large`.
+ * @example
+ * ```ts
+ * import { compile, delay, onSchedule, path } from '@posthog/workflows'
+ *
+ * // Replace this key with your own before you push.
+ * const { definition } = compile({
+ *     key: 'replace-me-cool-off',
+ *     name: 'Cool off',
+ *     trigger: onSchedule(),
+ *     steps: path(delay('1d', { name: 'Wait a day' })),
+ *     exit: { reason: 'Done' },
+ * })
+ *
+ * const ids = definition.actions.map((action) => action.id)
+ * ```
+ */
 export function compile(options: CompileOptions, emitOptions: EmitOptions = {}): EmitResult {
     const variables = options.variables ?? []
     checkVariables(variables)

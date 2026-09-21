@@ -26,7 +26,7 @@ const welcomeEmail = email({
 })
 
 export const onboarding = workflow({
-  key: 'REPLACE-ME-onboarding-nudge',
+  key: 'replace-me-onboarding-nudge',
   name: 'Onboarding nudge',
   on: onEvent({ event: 'user signed up' }),
   steps: path(
@@ -53,43 +53,23 @@ export const onboarding = workflow({
 
 `key` is the workflow's identity in the file, and it must be unique in your project.
 Pick your own rather than copying the placeholder above.
-The push resolves the key to a workflow and then creates or updates, so one file can reach a staging project and a production project.
-PostHog accepts `key` from a later change on, and ignores it until then.
 
 ## What the compiler decides for you
 
-- **A step is a value.** It carries no id and no position, so the same value placed two times makes two steps in the graph.
-- **An action id is the slug of the step name.** It survives an insertion or a reorder, so live runs stay on the step they are on. Two steps that slug to the same id are refused. Pass `id` on a step to pin an id through a rename.
-- **A step value placed more than once is numbered in graph order**, so the second placement of `Tell the CRM` is `tell_the_crm_2`. Adding a placement ahead of the others renumbers the ones after it, which is the one edit that moves an id without a rename.
-- **Edges come from placement**, including the branch indexes, so a condition and the edge that runs it cannot disagree.
-- **A sub-path is a non-empty tuple**, so an empty branch does not compile.
-- **The status defaults to `draft`**, so a first push sends nothing to a real person. Set `status: 'active'` in the file to turn a workflow on.
+Each rule is stated in full in the JSDoc of the symbol that owns it, which your editor shows on hover.
 
-## Secrets
-
-`secret('NAME')` names an environment variable. The name lives in your repository, the value does not.
-`emit` reads the variable from the environment that runs the push and sends the value, so PostHog never has to recover a secret it was not sent.
-An unset or empty variable is refused before anything is sent.
-
-Pass `secret()` as the value of a whole input. A secret nested inside a larger value is refused, because only the name of the variable would reach PostHog.
-
-## Errors
-
-Every refusal carries four fields:
-
-```text
-status: missing_secret
-message: The environment variable CRM_WEBHOOK_SECRET is not set.
-why: Step "Tell the CRM to follow up" names CRM_WEBHOOK_SECRET for the secret input "signing_secret". A secret is always sent rather than read back from PostHog, so there is nothing to send.
-fix: Set CRM_WEBHOOK_SECRET in the environment that runs the push, then push again.
-```
+- **A step is a value**, with no action id and no position. See `path`.
+- **An action id is the slug of the step name**, and a second placement is numbered in graph order. See `path` and `workflow`.
+- **Edges come from placement**, including the branch indexes. See `branch`.
+- **A sub-path takes at least one step.** See `Path`.
+- **The status defaults to `draft`.** See `WorkflowOptions.status`.
+- **A secret is named in the file and resolved at emit.** See `secret`.
+- **Every refusal carries `status`, `message`, `why` and `fix`.** See `WorkflowError`, and each function's `@throws` for the statuses it can produce.
 
 ## v1 surface
 
-Actions: `delay`, `fn` (any CDP template by id), `webhook`, `email`, `branch`, and the trigger and exit the compiler adds.
+Actions: `delay`, `fn` (any PostHog destination template by id), `webhook`, `email`, `branch`, and the trigger and exit the compiler adds.
 Triggers: `onEvent` and `onSchedule`.
-
-Email content is inline. There is no way to reference a saved template, because PostHog copies a referenced template into the workflow when it writes, and the stored workflow would then never match the one you pushed.
 
 ## Develop
 
@@ -100,3 +80,5 @@ pnpm --filter=@posthog/workflows test
 
 `test` runs the type rules through `tsc` first, then the unit tests on `node --test`.
 `tests/types.test-d.ts` holds the rules that the compiler enforces rather than an assertion, so a rule that relaxes fails the build.
+`.oxlintrc.json` turns the `jsdoc` rules into errors for `src/`, so a JSDoc block with a missing `@param` or a mistyped tag fails lint.
+oxlint has no rule that requires a block at all, so a new export without JSDoc is caught in review.
