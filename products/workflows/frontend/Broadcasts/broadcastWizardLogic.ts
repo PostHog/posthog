@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -892,6 +893,20 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     filters: { properties: values.audienceProperties },
                     dedupe_key: 'email',
                 })
+
+                // The resolver silently caps the batch at this limit, so dispatching an audience over
+                // it would confirm N recipients and deliver to the first slice. Stop at the step that
+                // can fix it. Mirrors the guard on the workflow editor's manual trigger.
+                if (blastRadius.limit != null && blastRadius.affected > blastRadius.limit) {
+                    actions.launchBroadcastFinished()
+                    actions.setStep('recipients')
+                    lemonToast.error(
+                        `This audience is above the project's batch limit of ${humanFriendlyNumber(
+                            blastRadius.limit
+                        )}. Add filters to narrow it, then launch again.`
+                    )
+                    return
+                }
 
                 activated = await hogFlowsPartialUpdate(projectId, broadcastId, { status: 'active' })
 

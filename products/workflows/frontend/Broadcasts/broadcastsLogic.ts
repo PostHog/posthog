@@ -24,7 +24,7 @@ import type {
     PaginatedHogFlowMinimalListApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
-export type BroadcastStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'archived'
+export type BroadcastStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed' | 'archived'
 
 // Declared structurally rather than as a Pick: the list row types `name` as required and the full
 // record types it as optional, so only a loose shape accepts both call sites.
@@ -96,6 +96,9 @@ export function getBroadcastStatus(
         if (latestJob.status === 'completed') {
             return 'sent'
         }
+        // Without this a failed or cancelled run falls through to the no-run fallback below, which
+        // tells the sender another send is still pending when nothing is coming.
+        return 'failed'
     }
     // Active with no batch job yet: it's waiting on its schedule (or a manual send).
     return 'scheduled'

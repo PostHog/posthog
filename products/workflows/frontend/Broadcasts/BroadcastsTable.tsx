@@ -20,6 +20,7 @@ const STATUS_CONFIG: Record<BroadcastStatus, { label: string; type: LemonTagType
     scheduled: { label: 'Scheduled', type: 'warning' },
     sending: { label: 'Sending', type: 'completion' },
     sent: { label: 'Sent', type: 'success' },
+    failed: { label: 'Failed', type: 'danger' },
     archived: { label: 'Archived', type: 'muted' },
 }
 
@@ -180,6 +181,7 @@ export function BroadcastsTable(): JSX.Element {
                             { label: 'Scheduled', value: 'scheduled' as const },
                             { label: 'Sending', value: 'sending' as const },
                             { label: 'Sent', value: 'sent' as const },
+                            { label: 'Failed', value: 'failed' as const },
                             { label: 'Archived', value: 'archived' as const },
                         ]}
                     />

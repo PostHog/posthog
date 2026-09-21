@@ -24,8 +24,16 @@ function PreviewRow({ label, children }: { label: string; children: React.ReactN
  */
 export function BroadcastEmailPreview(): JSX.Element {
     const { email } = useValues(broadcastWizardLogic)
-    const { persons, personsLoading, personsFailed, previewPerson, previewSubject, previewHtml, previewTo } =
-        useValues(broadcastPreviewLogic)
+    const {
+        persons,
+        personsLoading,
+        personsFailed,
+        previewPerson,
+        previewSubject,
+        previewHtml,
+        previewText,
+        previewTo,
+    } = useValues(broadcastPreviewLogic)
     const { selectPerson } = useActions(broadcastPreviewLogic)
     const { setModalOpen } = useActions(broadcastTestSendLogic)
 
@@ -93,7 +101,7 @@ export function BroadcastEmailPreview(): JSX.Element {
                         className="h-96 w-full rounded border border-border bg-white"
                     />
                 ) : (
-                    <div className="text-muted max-h-96 overflow-y-auto whitespace-pre-wrap text-sm">{email.text}</div>
+                    <div className="text-muted max-h-96 overflow-y-auto whitespace-pre-wrap text-sm">{previewText}</div>
                 )
             ) : (
                 <span className="text-muted">No content yet</span>

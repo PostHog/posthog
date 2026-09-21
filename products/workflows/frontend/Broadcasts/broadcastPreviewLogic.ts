@@ -50,6 +50,7 @@ export interface broadcastPreviewLogicValues {
     personsFailed: boolean
     personsLoading: boolean
     previewHtml: string
+    previewText: string
     previewPerson: BroadcastPreviewPerson | null
     previewSubject: string
     previewTo: string
@@ -88,6 +89,7 @@ export interface broadcastPreviewLogicMeta {
         ) => BroadcastPreviewPerson | null
         previewSubject: (email: BroadcastEmailValue, previewPerson: BroadcastPreviewPerson | null) => string
         previewHtml: (email: BroadcastEmailValue, previewPerson: BroadcastPreviewPerson | null) => string
+        previewText: (email: BroadcastEmailValue, previewPerson: BroadcastPreviewPerson | null) => string
         previewTo: (email: BroadcastEmailValue, previewPerson: BroadcastPreviewPerson | null) => string
     }
 }
@@ -178,6 +180,13 @@ export const broadcastPreviewLogic = kea<broadcastPreviewLogicType>([
             (s) => [s.email, s.previewPerson],
             (email: BroadcastEmailValue, previewPerson: BroadcastPreviewPerson | null): string =>
                 renderEmailPreview(email.html, previewPerson),
+        ],
+        // The worker renders liquid in every string of the email input, `text` included, so a
+        // text-only broadcast has to preview through the same renderer as the html one.
+        previewText: [
+            (s) => [s.email, s.previewPerson],
+            (email: BroadcastEmailValue, previewPerson: BroadcastPreviewPerson | null): string =>
+                renderEmailPreview(email.text, previewPerson),
         ],
         previewTo: [
             (s) => [s.email, s.previewPerson],
