@@ -77,7 +77,7 @@ The mechanics of each rung (commands, paging, table naming, the detail fetch) ar
 
 Every bounded listing is paged to the 14-day boundary under the paging rule in that reference, and a run that stops early records where in `cursor:` rather than closing out as covered.
 Filter on listing metadata first and hydrate only the bounded pool the reference describes (due rechecks, then deferred PRs, then the top candidates up to about twice the cap): a per-PR detail fetch for every merge in the window would spend the rate-limited token before any telemetry is read.
-A PR whose body and file paths no source can supply is judged **title-only** and its `pr:` entry says so.
+A PR whose body and file paths no source can supply is judged **title-only** and its `pr:` entry says so; when its title names no concrete entity either, nothing can be swept, so it stays in `deferred:` marked `no-scope` rather than taking a terminal verdict (the reference says how it leaves).
 
 Then split the list before you spend anything on it.
 First record the **deploy batches**, bots included, because a new error after a deploy can belong to a dependency bump, and the side-effect sweep needs the whole batch to attribute it.
