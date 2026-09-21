@@ -130,3 +130,27 @@ cases:
               source: products/new/product.yaml
               slack: '#team-new'
               additions: []
+
+    - name: a trailing-slash rule gates what enters the directory and not the directory itself
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              rules:
+                - match: '/docs/'
+                  additions: team-docs
+      expect:
+          docs/new:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+              additions: [team-docs]
+          docs:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+              additions: []

@@ -94,7 +94,7 @@ Patterns use the GitHub CODEOWNERS syntax, applied to paths relative to the dire
 1. A pattern that starts with `/` is anchored to that directory.
 2. A pattern with no `/`, or with only a trailing `/`, matches at any depth.
 3. A pattern that contains a `/` other than at the end is anchored to that directory.
-4. A trailing `/` matches the directory and everything below it.
+4. A trailing `/` matches everything below the directory. It does not match the path of the directory itself, as in GitHub CODEOWNERS.
 5. A pattern whose last segment has no wildcard also matches everything below a directory of that name.
 6. `*` matches any characters except `/`. `?` matches one character except `/`. `**` matches zero or more directories.
 7. `[abc]` matches one character from the set. `[a-z]` matches one character from the range. A `[!` or a `[^` at the start negates the set. A set MUST NOT match `/`. A `]` in the first position is a member of the set, not the end of it. An unclosed `[` is a literal `[`. GitHub CODEOWNERS has no character classes, so this rule is an extension of that syntax.
@@ -111,6 +111,7 @@ Patterns use the GitHub CODEOWNERS syntax, applied to paths relative to the dire
 3. `additions` does not change `owners`. A path with additions and no owners is still unowned.
 4. Unlike the other fields, `additions` from every file on the walk and every matching rule add up (section 4). A file MUST NOT be able to remove what an ancestor file declared, except with `inherit: false`.
 5. To ask about a new directory, a consumer resolves the path of the directory itself. The walk stops at the parent of that path (section 4, step 2), so the new directory's own ownership file does not apply, and a rule `match: '/*'` in the parent matches each direct child.
+   A rule `match: 'docs/'` therefore gates what enters `docs`, because each new entry has a path below `docs`. The directory `docs` itself is gated by its own parent.
 6. The format does not say when a directory is new or what a consumer does with the answer. A consumer decides both, for example from the change set of a pull request.
 
 ## 4. Resolution
@@ -445,4 +446,4 @@ rules:
 - **1** (2026-09): First published version.
 - **1**, amended (2026-09): Section 3.5 adds `[...]` character classes. No pattern that was valid before the amendment changes meaning. Section 6 gives `alias_files` the default `[product.yaml]`, so a root file that does not declare the key now has one alias file instead of none.
 - **1**, amended (unreleased): Section 3.4 applies every matching rule, field by field. Before, the last matching rule replaced the earlier ones entirely, so a file with two matching rules that set different fields now resolves differently.
-- **1**, amended (unreleased): Section 3.6 adds the optional `additions` field, and section 7.2 adds the `additions` member. A file without the field resolves as before. Section 4 step 1 also removes a trailing `/`, so a directory path resolves the same with or without it.
+- **1**, amended (unreleased): Section 3.6 adds the optional `additions` field, and section 7.2 adds the `additions` member. A file without the field resolves as before. Section 4 step 1 also removes a trailing `/`, so a directory path resolves the same with or without it. Section 3.5 rule 4 now states that a trailing `/` does not match the directory path itself, which is what implementations already did.
