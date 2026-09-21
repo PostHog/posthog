@@ -619,10 +619,7 @@ class TestRunEvaluationWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_emit_evaluation_event_activity_skipped_omits_cost_attribution(self, setup_data):
-        """Skipped evaluations never made an API call, so the emitted event must not attribute
-        a model, provider, or token usage. The skip is surfaced via dedicated properties so
-        consumers can still distinguish a skip from a regular result."""
+    async def test_emit_evaluation_event_activity_skip_before_model_call_omits_cost_attribution(self, setup_data):
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
 
@@ -2455,7 +2452,7 @@ class TestEvalResultModels:
             )
             client.return_value.complete.return_value = MagicMock(
                 parsed=schema.model_validate({"reasoning": "Quality", "score": score, "applicable": score is not None}),
-                usage=None,
+                usage=MagicMock(input_tokens=100, output_tokens=20, total_tokens=120),
             )
             inputs = ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=create_mock_event_data(1))
             result = _execute_llm_judge_activity(inputs)
@@ -2471,6 +2468,10 @@ class TestEvalResultModels:
             assert properties["$ai_evaluation_skipped"] is True
             assert properties["$ai_evaluation_skip_reason"] == "score_out_of_bounds"
             assert "$ai_score" not in properties
+            assert properties["$ai_input_tokens"] == 100
+            assert properties["$ai_output_tokens"] == 20
+            assert properties["$ai_model"] == "gpt-4o-mini"
+            assert properties["$ai_provider"] == "openai"
             return
         assert result["applicable"] is (score is not None)
         if score is None:

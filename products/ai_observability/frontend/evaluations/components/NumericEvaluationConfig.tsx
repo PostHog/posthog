@@ -1,3 +1,5 @@
+import { useId } from 'react'
+
 import { LemonBanner, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -12,6 +14,7 @@ export function NumericEvaluationConfig({
     config: EvaluationOutputConfig
     onChange: (patch: EvaluationOutputConfig) => void
 }): JSX.Element {
+    const id = useId()
     const rule = config.passing_rule
     const error = numericOutputConfigError(config)
     return (
@@ -21,9 +24,11 @@ export function NumericEvaluationConfig({
                 {(['min', 'max', 'step'] as const).map((field) => (
                     <LemonField.Pure
                         key={field}
+                        htmlFor={`${id}-${field}`}
                         label={{ min: 'Minimum (optional)', max: 'Maximum (optional)', step: 'Step (optional)' }[field]}
                     >
                         <LemonInput
+                            id={`${id}-${field}`}
                             type="number"
                             value={config[field] ?? undefined}
                             onChange={(value) => onChange({ [field]: Number.isFinite(value) ? value : null })}
@@ -52,8 +57,9 @@ export function NumericEvaluationConfig({
             />
             {rule ? (
                 <div className="flex flex-wrap items-end gap-4">
-                    <LemonField.Pure label="Pass when score is">
+                    <LemonField.Pure label="Pass when score is" htmlFor={`${id}-operator`}>
                         <LemonSelect
+                            id={`${id}-operator`}
                             value={rule.operator}
                             options={[
                                 { value: 'gte', label: 'At least (≥)' },
@@ -62,8 +68,9 @@ export function NumericEvaluationConfig({
                             onChange={(operator) => onChange({ passing_rule: { ...rule, operator } })}
                         />
                     </LemonField.Pure>
-                    <LemonField.Pure label="Threshold">
+                    <LemonField.Pure label="Threshold" htmlFor={`${id}-threshold`}>
                         <LemonInput
+                            id={`${id}-threshold`}
                             type="number"
                             value={rule.threshold}
                             onChange={(threshold) =>

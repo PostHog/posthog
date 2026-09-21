@@ -350,7 +350,7 @@ export function HogTestResultsPanel(): JSX.Element | null {
 
 export function EvaluationCodeEditor(): JSX.Element {
     const { evaluation, hogTestResultsLoading } = useValues(llmEvaluationLogic)
-    const { setHogSource, testHogOnSample } = useActions(llmEvaluationLogic)
+    const { setHogSource, setAllowsNA, testHogOnSample } = useActions(llmEvaluationLogic)
     const { openAi } = useOpenAi()
 
     if (!evaluation || evaluation.evaluation_type !== 'hog') {
@@ -462,12 +462,22 @@ export function EvaluationCodeEditor(): JSX.Element {
                             key={example.label}
                             type="secondary"
                             size="xsmall"
-                            onClick={() => setHogSource(example.source)}
+                            onClick={() => {
+                                if (evaluation.output_type === 'numeric') {
+                                    setAllowsNA(true)
+                                }
+                                setHogSource(example.source)
+                            }}
                         >
                             {example.label}
                         </LemonButton>
                     ))}
                 </div>
+                {evaluation.output_type === 'numeric' && (
+                    <p className="text-xs text-muted mb-3">
+                        These examples enable N/A for missing cost or latency measurements.
+                    </p>
+                )}
                 <h4 className="text-sm font-semibold mb-2">Available globals</h4>
                 <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-start gap-x-3 gap-y-2 text-sm text-muted">
                     {HOG_EVAL_COMMON_GLOBAL_DEFINITIONS.map((globalDefinition) => (

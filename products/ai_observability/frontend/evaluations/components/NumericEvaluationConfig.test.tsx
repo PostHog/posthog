@@ -1,17 +1,25 @@
-import { fireEvent, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 
 import { NumericEvaluationConfig } from './NumericEvaluationConfig'
 
 describe('NumericEvaluationConfig', () => {
-    it.each(['min', 'max', 'step', 'threshold'])('clears %s without storing NaN', (field) => {
+    afterEach(cleanup)
+
+    it.each([
+        ['min', 'Minimum (optional)'],
+        ['max', 'Maximum (optional)'],
+        ['step', 'Step (optional)'],
+        ['threshold', 'Threshold'],
+    ])('clears labeled %s without storing NaN', (field, label) => {
         const onChange = jest.fn()
-        const { container } = render(
+        const { getByRole } = render(
             <NumericEvaluationConfig
                 config={{ min: 1, max: 10, step: 1, passing_rule: { operator: 'gte', threshold: 7 } }}
                 onChange={onChange}
             />
         )
-        fireEvent.change(container.querySelector(`[data-attr="llma-evaluation-numeric-${field}"]`)!, {
+        getByRole('button', { name: 'Pass when score is' })
+        fireEvent.change(getByRole('spinbutton', { name: label }), {
             target: { value: '' },
         })
         expect(onChange).toHaveBeenLastCalledWith(

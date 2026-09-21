@@ -33,5 +33,7 @@ Unsaved rules apply only to test previews; the runs table and summary use the sa
 Pass rates are unavailable when no runs have been graded.
 
 Scores outside the configured bounds produce a visible skipped run, for both Hog and LLM judge evaluations.
+Skipped judge results retain reported token usage for cost calculation when the model call consumed tokens.
 An invalid Hog return type, such as a boolean for a numeric evaluation, disables the evaluation until its code is fixed.
+Selecting the numeric cost or latency example enables N/A so missing measurements do not disable the evaluation.
 The optional numeric `step` guides scoring and does not round or reject results.

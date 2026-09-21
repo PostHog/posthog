@@ -277,7 +277,9 @@ def build_evaluation_event_properties(
         properties["$ai_evaluation_skipped"] = True
         properties["$ai_evaluation_skip_reason"] = result.get("skip_reason")
 
-    if evaluation_type == "llm_judge" and not result.get("skipped"):
+    if evaluation_type == "llm_judge" and (
+        not result.get("skipped") or result.get("input_tokens", 0) > 0 or result.get("output_tokens", 0) > 0
+    ):
         properties["$ai_model"] = result.get("model", DEFAULT_JUDGE_MODEL)
         properties["$ai_provider"] = result.get("provider", "openai")
         properties["$ai_input_tokens"] = result.get("input_tokens", 0)
