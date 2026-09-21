@@ -66,7 +66,7 @@ from products.slack_app.backend.feature_flags import (
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping, UntaggedFollowupMode
 from products.slack_app.backend.services import inbox_interactivity, slack_welcome_messages, turn_feedback
-from products.slack_app.backend.services.commands import SLASH_COMMAND_PREFIX
+from products.slack_app.backend.services.commands import SLASH_COMMAND_PREFIX, mention_command_redirect
 from products.slack_app.backend.services.integration_resolver import (
     UserResolutionFailure,
     load_integrations,
@@ -238,14 +238,9 @@ class SlackUserContext:
 
 @dataclass
 class RulesCommand:
-    """Parsed `@PostHog <command>` mention text.
+    """Parsed `/posthog <command>` text.
 
-    Most actions (``list``, ``add``, ``remove``, ``help``, ``default_*``) are
-    dispatched post-routing inside the Temporal workflow's first activity. The
-    ``project_*`` actions are dispatched pre-routing — they decide which
-    integration the workflow runs against — so the routing layer in `api.py`
-    handles them before ``start_workflow`` and the workflow activity ignores
-    them defensively.
+    The same parser reads mention text, where a match means the mention is not a task description.
     """
 
     action: Literal[
@@ -1652,9 +1647,8 @@ def _post_pick_a_project_hint(
     """Tell the user that this workspace is connected to multiple PostHog
     projects, list the ones they can reach, and point at the two ways to pick one.
 
-    The slash command is offered rather than the `@PostHog project <id>` mention because it
-    reads the same on both surfaces this runs on: a channel mention and a DM, where there
-    is no app to mention.
+    The slash command reads the same on both surfaces this runs on: a channel mention, and a DM,
+    where there is no app to mention in the first place.
 
     Returns whether the hint was posted, so callers can record whether the user was
     left with an explanation or with silence.
@@ -2430,10 +2424,14 @@ def route_posthog_code_event_to_relevant_region(
         candidates = resolution.candidates
         target = resolution.integration
 
-        # Rules command is meaningful only when the user actually typed
-        # ``@PostHog`` — an untagged thread reply can never be a rules command.
-        if untagged_followup_mapping is None and parse_rules_command(event.get("text", "")) is not None:
-            return _start_command_workflow(event, candidates, slack_team_id, event_id, user_id=posthog_user.id)
+        # Recognised but not run: unrecognised, ``@PostHog project 452770`` becomes a task about
+        # its own syntax. Only a message addressed to the app can be a command.
+        if untagged_followup_mapping is None:
+            mention_command = parse_rules_command(event.get("text", ""))
+            if mention_command is not None:
+                return _redirect_mention_command(
+                    mention_command, event, candidates[0], slack_team_id, posthog_user=posthog_user
+                )
 
         # A tagged-thread ``message`` is bound to its mapping's integration —
         # the mapping was the user's last explicit choice in this thread, so no
@@ -2700,6 +2698,52 @@ def resolve_region_or_terminal_route(
     return None
 
 
+def _redirect_mention_command(
+    command: RulesCommand,
+    event: dict[str, Any],
+    probe: Integration,
+    slack_team_id: str,
+    *,
+    posthog_user: User,
+) -> str:
+    """Point a mention that reads as a command at the slash command, without running it.
+
+    ``probe`` is any integration the workspace has connected, because the reply is static text and
+    needs no project resolved first.
+
+    The reply goes out ephemerally with no fallback: a channel-visible one would announce the
+    integration in an externally-shared channel that has not approved it yet.
+    """
+    channel = event.get("channel")
+    slack_user_id = event.get("user")
+    if not isinstance(channel, str) or not isinstance(slack_user_id, str):
+        return ROUTE_HANDLED_LOCALLY
+
+    logger.info(
+        "slack_app_mention_command_redirected",
+        slack_team_id=slack_team_id,
+        channel=channel,
+        action=command.action,
+    )
+    capture_slack_event(
+        probe,
+        "slack app command used",
+        slack_user_id=slack_user_id,
+        posthog_user=posthog_user,
+        action=command.action,
+        source="mention",
+    )
+    thread_ts = event.get("thread_ts")
+    _post_slack_user_ephemeral(
+        SlackIntegration(probe),
+        channel,
+        slack_user_id,
+        thread_ts if isinstance(thread_ts, str) else None,
+        mention_command_redirect(command),
+    )
+    return ROUTE_HANDLED_LOCALLY
+
+
 def _start_command_workflow(
     event: dict,
     integrations: list[Integration],
@@ -2707,7 +2751,7 @@ def _start_command_workflow(
     event_id: str | None,
     *,
     user_id: int | None,
-    command_prefix: str = "@PostHog",
+    command_prefix: str,
 ) -> str:
     # ``user_id=None`` defers user resolution into the workflow — the slash entry
     # point uses it to keep its ack under Slack's 3s budget.

@@ -196,7 +196,7 @@ def resolve_from_candidates(
             # Refuse a stale default whose target is no longer in the candidate
             # set — e.g. the integration's kind was changed away from the one
             # we were asked to resolve, or it was deleted+recreated. The user
-            # can overwrite the row at any time with `@PostHog project <id>`.
+            # can overwrite the row at any time with `/posthog project <id>`.
             if target.id not in candidate_ids:
                 continue
             source: ResolutionSource = "user_default" if default.slack_user_id else "workspace_default"
