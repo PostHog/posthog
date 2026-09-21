@@ -158,7 +158,7 @@ def test_the_evaluation_timeout_ladder_holds() -> None:
     declared eighty seconds inside a forty-second workflow. A timeout cut short between deciding
     and recording loses a batch that decided to fire, and nothing else in the tree notices.
     """
-    from products.alerts.backend.temporal.workflows import SOURCE_EVALUATION_TIMEOUT
+    from products.alerts.backend.facade.temporal import SOURCE_EVALUATION_TIMEOUT
     from products.logs.backend.temporal.alert_evaluate import (
         EVALUATE_SCHEDULE_TO_CLOSE,
         EVALUATE_START_TO_CLOSE,
