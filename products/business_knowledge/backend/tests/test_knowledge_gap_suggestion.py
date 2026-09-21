@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
@@ -120,12 +121,33 @@ class TestKnowledgeGapSuggestionAPI(APIBaseTest):
 
     def test_list_per_ticket(self, _ff) -> None:
         tid = str(uuid.uuid4())
-        logic.upsert_knowledge_gaps(self.team.id, tid, ["Topic A", "Topic B"])
+        # The pipeline writes one ticket's suggestions together, so equal created_at values are normal.
+        # Insert in descending id order: only a query that breaks the tie on id can page these stably.
+        ids = [uuid.UUID(f"0000000{index}-0000-4000-8000-000000000000") for index in range(5)]
+        for index, gap_id in enumerate(reversed(ids)):
+            KnowledgeGapSuggestion.objects.for_team(self.team.id).create(
+                id=gap_id,
+                team=self.team,
+                ticket_id=tid,
+                topic=f"Topic {index}",
+                normalized_topic=f"topic {index}",
+            )
+        KnowledgeGapSuggestion.objects.for_team(self.team.id).filter(ticket_id=tid).update(
+            created_at=datetime(2026, 1, 1, tzinfo=UTC)
+        )
+
         response = self.client.get(f"{self.url}?ticket_id={tid}")
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         results = data if isinstance(data, list) else data.get("results", data)
-        assert len(results) == 2
+        assert len(results) == 5
+
+        paged: list[str] = []
+        for offset in range(0, 6, 2):
+            response = self.client.get(f"{self.url}?ticket_id={tid}&limit=2&offset={offset}")
+            assert response.status_code == status.HTTP_200_OK
+            paged.extend(row["id"] for row in response.json()["results"])
+        assert paged == [str(gap_id) for gap_id in ids]
 
     def test_dismiss_action(self, _ff) -> None:
         tid = str(uuid.uuid4())
