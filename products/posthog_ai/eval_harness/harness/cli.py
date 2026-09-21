@@ -20,6 +20,8 @@ DEFAULT_CODEX_AGENT_MODEL = "gpt-5.5"
 AGENT_RUNTIMES = ("claude", "codex")
 DEFAULT_AGENT_MODEL_BY_RUNTIME = {"claude": DEFAULT_AGENT_MODEL, "codex": DEFAULT_CODEX_AGENT_MODEL}
 SkillDelivery = Literal["bundled", "exec"]
+# Literal mirror of products.tasks' MCP_EXEC_SKILLS_FEATURE_FLAG, for the same Django-free reason.
+MCP_EXEC_SKILLS_FLAG_KEY = "mcp-exec-skills"
 DEFAULT_SKILL_DELIVERY: SkillDelivery = "bundled"
 DEFAULT_CASE_TIMEOUT_SECONDS = 60 * 15
 OFFLINE_CASE_TIMEOUT_SECONDS = 60 * 60
@@ -57,6 +59,9 @@ class HarnessOptions:
     per_case_timeout_seconds: int
     trials: int
     fail_under: float | None
+    mcp_flags: tuple[str, ...]
+    """Feature flags the MCP server treats as on, from ``--mcp-flag``."""
+
     sandbox_flags_set: tuple[str, ...]
     """Sandbox-only flags the user passed explicitly, so a run without sandboxed
     suites can reject them instead of silently ignoring them."""
@@ -131,6 +136,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Agent reasoning effort (e.g. 'low'…'xhigh'); valid values depend on runtime+model.",
     )
     parser.add_argument(
+        "--mcp-flag",
+        dest="mcp_flags",
+        action="append",
+        default=None,
+        metavar="FLAG_KEY",
+        help=(
+            "Turn on a feature flag in the MCP server, which resolves every flag to off otherwise. "
+            "Repeat for several flags. Use it to compare a flag-gated tool against a run without it."
+        ),
+    )
+    parser.add_argument(
         "--max-sandboxes",
         type=int,
         default=None,
@@ -189,6 +205,7 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
             ("--provider", args.provider is not None),
             ("--agent-runtime", args.agent_runtime is not None),
             ("--skill-delivery", args.skill_delivery is not None),
+            ("--mcp-flag", args.mcp_flags is not None),
             ("--reasoning-effort", args.reasoning_effort is not None),
             ("--max-sandboxes", args.max_sandboxes is not None),
             ("--keep-sandbox-containers", args.keep_sandbox_containers),
@@ -210,6 +227,8 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         parser.error("--trials must be at least 1")
     if args.case_timeout is not None and args.case_timeout < 1:
         parser.error("--case-timeout must be at least 1")
+    if MCP_EXEC_SKILLS_FLAG_KEY in (args.mcp_flags or ()):
+        parser.error(f"--mcp-flag {MCP_EXEC_SKILLS_FLAG_KEY}: use --skill-delivery exec instead")
 
     # A runtime/model mismatch otherwise surfaces minutes into the run as an opaque
     # gateway 403, with the agent finishing without doing anything.
@@ -245,5 +264,6 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         per_case_timeout_seconds=args.case_timeout if args.case_timeout is not None else _default_case_timeout(),
         trials=args.trials,
         fail_under=args.fail_under,
+        mcp_flags=tuple(dict.fromkeys(args.mcp_flags or ())),
         sandbox_flags_set=sandbox_flags_set,
     )

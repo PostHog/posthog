@@ -30,10 +30,11 @@ def test_package_local_skills_archive_is_deterministic_and_excludes_cache_marker
 
 
 @pytest.mark.parametrize(
-    "exec_skills_enabled,skill_archive_url,expected_flag_value",
+    "exec_skills_enabled,skill_archive_url,expected_flag_value,enabled_flags",
     [
-        (True, "http://localhost:18788/skills.zip?v=abc", True),
-        (False, None, False),
+        (True, "http://localhost:18788/skills.zip?v=abc", True, ()),
+        (False, None, False, ()),
+        (False, None, False, ("experiment-setup-context", "mcp-exec-skills")),
     ],
 )
 def test_start_mcp_server_isolates_the_selected_skill_delivery(
@@ -41,6 +42,7 @@ def test_start_mcp_server_isolates_the_selected_skill_delivery(
     exec_skills_enabled: bool,
     skill_archive_url: str | None,
     expected_flag_value: bool,
+    enabled_flags: tuple[str, ...],
 ) -> None:
     mcp_dir = tmp_path / "services" / "mcp"
     (mcp_dir / "node_modules").mkdir(parents=True)
@@ -58,6 +60,7 @@ def test_start_mcp_server_isolates_the_selected_skill_delivery(
             "http://localhost:18000",
             skill_archive_url,
             exec_skills_enabled=exec_skills_enabled,
+            enabled_flags=enabled_flags,
         )
 
     env = start.call_args.kwargs["env"]
@@ -66,6 +69,7 @@ def test_start_mcp_server_isolates_the_selected_skill_delivery(
     assert start.call_args.kwargs.get("readiness_timeout", 30) == (120 if exec_skills_enabled else 30)
     # The skill delivery switch must not displace the overrides every eval run relies on.
     assert overrides["revamped-py-notebooks"] is True
+    assert all(overrides[flag] is True for flag in enabled_flags if flag != "mcp-exec-skills")
     if skill_archive_url is None:
         assert "POSTHOG_MCP_SKILLS_URL" not in env
     else:
