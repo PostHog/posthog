@@ -67,7 +67,7 @@ This suite does not calculate recommendation precision.
 ## Running it on a GitHub runner
 
 `.github/workflows/ci-replay-vision-evals.yml` runs the same loop on an ephemeral runner.
-It fires on manual dispatch (with `per_type` and `trials` inputs) and on a pull request that changes the scanner prompts, the scan pipeline (`call_scanner_provider.py`), the model config (`gemini.py`), or the eval suite itself.
+It fires on manual dispatch (with `per_type` and `trials` inputs) and on a pull request that changes the scanner prompts, the scan pipeline (conversation assembly, tools, clocks, types, `call_scanner_provider.py`), or the eval suite itself; the workflow's path filter lists the exact files.
 A PR run collects a fixed 20 cases per type; a dispatch uses its inputs.
 
 It is advisory, never a merge gate, and it does not fire on other Replay Vision changes (UI, API, unrelated backend): the suite only measures scan quality, so it triggers on the code that changes scan output, not on every push.
@@ -76,6 +76,7 @@ Gemini is nondeterministic and the dataset is re-sampled per run, so the score i
 It collects a fresh dataset on the runner (so consent is re-verified every run; nothing is cached, uploaded, or persisted), runs the suite, and writes the aggregate scores to the job's step summary.
 The summary also links the run's `/ai-evals` offline experiment, where the harness publishes the same scores.
 Only those allowlisted summary lines are public: collector and harness output stay in runner-local files, because they carry session and observation ids.
+The job runs in the `replay-vision-evals` environment, whose required reviewers approve every run: a pull request executes its own code with those secrets, so it waits for a maintainer first.
 The job needs `REPLAY_VISION_EVAL_POSTHOG_API_KEY` (a personal API key with scanner, session recording, export, and query read access to the dogfood project) plus the `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `BRAINTRUST_API_KEY` secrets `ci-ai.yml` already uses; if any is missing the job skips green and warns which.
 
 ### The benchmark, and its one limit

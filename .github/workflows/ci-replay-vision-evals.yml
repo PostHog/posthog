@@ -15,6 +15,11 @@
 # If any required secret is missing the job skips green with a warning, so a fork or a
 # not-yet-configured environment is unaffected.
 #
+# The job runs in the `replay-vision-evals` environment, whose required reviewers gate every
+# run: a pull request executes its own checked-out code with repository secrets (the dogfood
+# PostHog key, model-provider keys, Braintrust key), so it must not run before a maintainer
+# approves it. A maintainer's own dispatch self-approves in the same queue.
+#
 # A dataset pinned to the same sessions across runs (a standing benchmark comparable over time)
 # needs an internal store plus a data-governance decision on persisting recordings; see
 # products/replay_vision/evals/README.md.
@@ -35,9 +40,24 @@ on:
         types: [opened, synchronize, reopened, ready_for_review]
         paths:
             - '.github/workflows/ci-replay-vision-evals.yml'
+            # The scan pipeline: prompts, conversation assembly, tools, clocks, and the types the
+            # schemas derive from all shape scan output. Single files rather than temporal/**
+            # so schedule plumbing and meters do not spend LLM budget; add a file here when the
+            # scan path imports a new one.
             - 'products/replay_vision/backend/temporal/scanners/**'
             - 'products/replay_vision/backend/temporal/activities/call_scanner_provider.py'
+            - 'products/replay_vision/backend/temporal/conversation.py'
+            - 'products/replay_vision/backend/temporal/events_tool.py'
+            - 'products/replay_vision/backend/temporal/network_tool.py'
+            - 'products/replay_vision/backend/temporal/network_capture.py'
+            - 'products/replay_vision/backend/temporal/video_clock.py'
+            - 'products/replay_vision/backend/temporal/team_context.py'
+            - 'products/replay_vision/backend/temporal/types.py'
+            - 'products/replay_vision/backend/temporal/state.py'
+            - 'products/replay_vision/backend/temporal/snapshots.py'
             - 'products/replay_vision/backend/temporal/gemini.py'
+            - 'products/replay_vision/backend/consent.py'
+            - 'products/replay_vision/backend/tags.py'
             - 'products/replay_vision/backend/prompt_evaluation.py'
             - 'products/replay_vision/evals/**'
 
@@ -57,6 +77,8 @@ jobs:
         name: Golden-dataset scanner eval
         timeout-minutes: 60
         runs-on: ubuntu-latest
+        # Approval-gated: the job's steps run PR-controlled code with repository secrets.
+        environment: replay-vision-evals
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
