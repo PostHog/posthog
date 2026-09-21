@@ -4,7 +4,9 @@ import { randomUUID } from 'node:crypto'
 import pLimit from 'p-limit'
 
 import { logger } from '~/common/utils/logger'
+import { MlDatasetBuckets } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-parquet-store'
 import { MlDataKey, encryptEnvelope } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/crypto'
+import { usesV3ImageDataset } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
 
 export interface ScrubbedImage {
@@ -81,7 +83,7 @@ export class ImageShardStore {
 
     constructor(
         private readonly s3: S3Client,
-        private readonly bucket: string,
+        private readonly buckets: MlDatasetBuckets,
         private readonly prefix: string,
         private readonly writeTimeoutMs: number,
         nodeId?: string,
@@ -90,6 +92,10 @@ export class ImageShardStore {
             new Promise((resolve) => setTimeout(resolve, ms).unref())
     ) {
         this.nodeId = nodeId || process.env.HOSTNAME || randomUUID().slice(0, 8)
+    }
+
+    private datasetOf(sessionMonth: string | undefined): 'v2' | 'v3' {
+        return sessionMonth && usesV3ImageDataset(sessionMonth) ? 'v3' : 'v2'
     }
 
     /**
@@ -180,8 +186,10 @@ export class ImageShardStore {
         ) {
             throw new Error('Image shards require one valid session month')
         }
+        const dataset = this.datasetOf(encryptionKey ? sessionMonth : undefined)
+        const bucket = this.buckets[dataset]
         const prefix = encryptionKey
-            ? `${this.prefix}/v2/${sessionMonth}/${encryptionKey.identity.teamId}`
+            ? `${this.prefix}/${dataset}/${sessionMonth}/${encryptionKey.identity.teamId}`
             : rawTeamIds
               ? `${this.prefix}/v2`
               : this.prefix
@@ -210,7 +218,7 @@ export class ImageShardStore {
         // Shard before index: an index pointing at a missing shard breaks reads; a dangling shard only wastes storage.
         await this.send(
             new PutObjectCommand({
-                Bucket: this.bucket,
+                Bucket: bucket,
                 Key: shardKey,
                 Body: encryptionKey
                     ? encryptEnvelope(encryptionKey, 'image-shard', shardBody, { ref: shardKey, codec: 'none' })
@@ -221,7 +229,7 @@ export class ImageShardStore {
         try {
             await this.send(
                 new PutObjectCommand({
-                    Bucket: this.bucket,
+                    Bucket: bucket,
                     Key: `${prefix}/index/${stamp}.${encryptionKey ? 'encrypted' : 'parquet'}`,
                     Body: encryptionKey
                         ? encryptEnvelope(encryptionKey, 'image-index', indexBody, { ref: shardKey, codec: 'none' })
@@ -231,7 +239,7 @@ export class ImageShardStore {
             )
         } catch (e) {
             // Reclaim the orphaned shard so a repeatedly-failing index write doesn't leak a fresh blob per replay.
-            await this.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: shardKey })).catch(() => {})
+            await this.send(new DeleteObjectCommand({ Bucket: bucket, Key: shardKey })).catch(() => {})
             throw e
         }
         if (encryptionKey) {
@@ -242,7 +250,7 @@ export class ImageShardStore {
                         const lookupKey = `${prefix}/lookup/${row.hash}.encrypted`
                         await this.send(
                             new PutObjectCommand({
-                                Bucket: this.bucket,
+                                Bucket: bucket,
                                 Key: lookupKey,
                                 Body: encryptEnvelope(
                                     encryptionKey,
@@ -284,14 +292,16 @@ export class ImageShardStore {
         if (encryptionKey && (!image.sessionMonth || !/^[0-9]{4}-(0[1-9]|1[0-2])$/.test(image.sessionMonth))) {
             throw new Error('URL images require a valid session month')
         }
+        const dataset = this.datasetOf(encryptionKey ? image.sessionMonth : undefined)
+        const bucket = this.buckets[dataset]
         const key = encryptionKey
-            ? `${this.prefix}/v2/${image.sessionMonth}/${encryptionKey.identity.teamId}/url/${image.hash}`
+            ? `${this.prefix}/${dataset}/${image.sessionMonth}/${encryptionKey.identity.teamId}/url/${image.hash}`
             : `${this.prefix}/url/${image.hash}`
         for (let attempt = 0; attempt < URL_WRITE_MAX_ATTEMPTS; attempt++) {
             try {
                 await this.send(
                     new PutObjectCommand({
-                        Bucket: this.bucket,
+                        Bucket: bucket,
                         Key: key,
                         Body: encryptionKey
                             ? encryptEnvelope(encryptionKey, 'image-url', image.bytes, { ref: key, codec: 'none' })
