@@ -786,6 +786,18 @@ export class PushNotificationService {
             timestamp: new Date().toISOString(),
             properties: { $unset: propertyKeys },
         })
+        // Drop the keys from this invocation's own snapshot too. A reschedule carries `state` forward
+        // unchanged, so a retry would read the same dead token, send to it again and queue the $unset
+        // again. `person` is replaced rather than edited in place because the object can be shared with
+        // the sibling invocations built from the same event.
+        const globals = result.invocation.state.globals
+        if (globals.person?.properties) {
+            const properties = { ...globals.person.properties }
+            for (const propertyKey of propertyKeys) {
+                delete properties[propertyKey]
+            }
+            globals.person = { ...globals.person, properties }
+        }
         pushNotificationTokenPrunedCounter.labels({ platform }).inc()
         // A dead token is a non-delivery, not a failure to fix. Record it in the reason-labeled skip
         // series too (not just the token-removal counter) so the skip metric accounts for it.

@@ -965,6 +965,31 @@ describe('PushNotificationService', () => {
             expect(unsets[0]).toMatch(/^\$device_push_subscription_test-project:/)
         })
 
+        it('does not contact a pruned device again when the step is retried', async () => {
+            // The dead key has to leave the invocation's own snapshot as well as the person. The retry
+            // reads that snapshot back, so a key left behind means another send to the dead token and a
+            // second $unset for it.
+            mockTrackedFetch.mockImplementation((opts: any) =>
+                Promise.resolve(
+                    parseJSON(opts.fetchParams.body).message.token === 'token-phone' ? unregistered() : serverError()
+                )
+            )
+
+            const first = await service.executeSendPushNotification(twoDevices())
+            expect(first.finished).toBe(false)
+
+            mockTrackedFetch.mockClear()
+            mockTrackedFetch.mockImplementation(() => Promise.resolve(ok()))
+
+            const retry = await service.executeSendPushNotification(first.invocation)
+
+            const retriedTokens = mockTrackedFetch.mock.calls.map(
+                (call: any) => parseJSON(call[0].fetchParams.body).message.token
+            )
+            expect(retriedTokens).toEqual(['token-tablet'])
+            expect(retry.capturedPostHogEvents).toEqual([])
+        })
+
         it('does not retry the step when one device failed but another was delivered to', async () => {
             // Retrying would push a second time to the device that already received it. Losing the
             // failed device's notification is the better of the two outcomes.
