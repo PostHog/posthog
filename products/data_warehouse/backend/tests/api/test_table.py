@@ -2,7 +2,7 @@ import ipaddress
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import ANY, MagicMock, Mock, patch
 
 from django.conf import settings
 from django.test import SimpleTestCase, override_settings
@@ -979,23 +979,32 @@ class TestTable(APIBaseTest):
         # Verify URL pattern was set correctly
         assert table.url_pattern == f"https://test-bucket.s3.amazonaws.com/managed/team_{self.team.id}/test_file.csv"
 
-    @patch.object(DataWarehouseTable, "detect_csv_double_quotes_setting", lambda self: None)
+    @parameterized.expand(
+        [
+            ("neither_quote_setting_parses", None, "comma-separated CSV with a header row"),
+            ("the_read_fails_outright", ServerException("Access Denied", code=499), "Failed to upload file"),
+        ]
+    )
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("boto3.client")
-    def test_file_upload_leaves_no_table_when_csv_quoting_cannot_be_detected(
-        self, mock_boto3_client, mock_feature_enabled
+    def test_file_upload_leaves_no_table_when_the_csv_cannot_be_read(
+        self, _name, detect_outcome, expected_message, mock_boto3_client, mock_feature_enabled
     ):
         mock_boto3_client.return_value = MagicMock()
 
         from django.core.files.uploadedfile import SimpleUploadedFile
 
         test_file = SimpleUploadedFile("test_file.csv", b'id,name\n1,"Test\n', content_type="text/csv")
+        detect = Mock(side_effect=detect_outcome) if isinstance(detect_outcome, Exception) else Mock(return_value=None)
 
-        with self.settings(
-            DATAWAREHOUSE_LOCAL_ACCESS_KEY="test_key",
-            DATAWAREHOUSE_LOCAL_ACCESS_SECRET="test_secret",
-            DATAWAREHOUSE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
-            DATAWAREHOUSE_BUCKET="test-warehouse-bucket",
+        with (
+            patch.object(DataWarehouseTable, "detect_csv_double_quotes_setting", detect),
+            self.settings(
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY="test_key",
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET="test_secret",
+                DATAWAREHOUSE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
+                DATAWAREHOUSE_BUCKET="test-warehouse-bucket",
+            ),
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/warehouse_tables/file/",
@@ -1004,7 +1013,7 @@ class TestTable(APIBaseTest):
             )
 
         assert response.status_code == 400
-        assert "comma-separated CSV with a header row" in response.json()["message"]
+        assert expected_message in response.json()["message"]
         assert not DataWarehouseTable.objects.filter(name="unreadable_csv").exists()
 
     @patch("posthoganalytics.feature_enabled", return_value=False)

@@ -894,10 +894,11 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 data={"message": f"File size exceeds maximum allowed size of 50MB"},
             )
 
+        created_table = table is None
+
         # Create the table record
         try:
             # Create the table if it doesn't exist, otherwise use existing one
-            created_table = table is None
             if table is None:
                 created_by = request.user if isinstance(request.user, User) else None
                 table = DataWarehouseTable.objects.create(
@@ -969,4 +970,10 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 )
         except Exception as e:
             capture_exception(e)
+            # Reading the file can fail outright rather than return an answer, in column detection
+            # and in quote detection alike. The row is already persisted by then, so a request that
+            # created it takes it back out instead of leaving a table that points at nothing
+            # readable. A table that already existed belongs to the caller, so leave it alone.
+            if created_table and table is not None:
+                table.delete()
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Failed to upload file"})
