@@ -316,11 +316,6 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
     description = serializers.CharField(
         help_text="The emitted finding prose — the signal's `description` as surfaced to the inbox.",
     )
-    weight = serializers.FloatField(
-        min_value=0.0,
-        max_value=1.0,
-        help_text="Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.",
-    )
     confidence = serializers.FloatField(
         min_value=0.0,
         max_value=1.0,
@@ -347,7 +342,6 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
             "run_id",
             "finding_id",
             "description",
-            "weight",
             "confidence",
             "severity",
             "tags",
