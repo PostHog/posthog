@@ -125,6 +125,18 @@ returns `404`; the service never falls back to another team or user.
 
 `DELETE /teams/{teamId}/users/{userId}/catalog` removes that entry.
 
+### Direct connection catalogs
+
+A direct warehouse connection exposes the live tables of one external database, not the team's PostHog schema.
+Each connection therefore holds its own catalog, reached by adding a `connections/{connectionId}` segment before the
+route: `PUT /teams/{teamId}/users/{userId}/connections/{connectionId}/catalog`, and the same for `DELETE`,
+`autocomplete`, and `validate`. A connection id is at most 64 letters, digits, dashes, or underscores; anything else
+returns `400`.
+
+The connection is part of the authorization scope, so the bearer token must carry a matching `connection_id` claim.
+A token for one connection cannot read or replace another connection's catalog, nor the team's own catalog. Rate
+limits stay per team and user, so a caller cannot widen its budget by varying the connection.
+
 Catalogs expire `CATALOG_TTL` (default `30m`) after publication so active projects periodically refresh their schema.
 When `MAX_CATALOGS` (default `1024`) or `CATALOG_CACHE_MAX_BYTES` (default `8 GiB`) is reached, the least recently used
 catalog is evicted. A catalog request is limited to `64 MiB`. Publishing a new revision replaces the old immutable

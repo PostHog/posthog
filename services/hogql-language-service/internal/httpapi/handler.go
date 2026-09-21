@@ -94,10 +94,12 @@ func NewHandler(config Config) http.Handler {
 func (s *server) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /health", requestOperation("health", http.HandlerFunc(s.health)))
-	mux.Handle("PUT /teams/{teamID}/users/{userID}/catalog", requestOperation("publish", s.authorized(serviceauth.OperationPublish, s.putCatalog)))
-	mux.Handle("DELETE /teams/{teamID}/users/{userID}/catalog", requestOperation("delete", s.authorized(serviceauth.OperationDelete, s.deleteCatalog)))
-	mux.Handle("POST /teams/{teamID}/users/{userID}/autocomplete", requestOperation("complete", s.authorized(serviceauth.OperationComplete, s.autocomplete)))
-	mux.Handle("POST /teams/{teamID}/users/{userID}/validate", requestOperation("validate", s.authorized(serviceauth.OperationValidate, s.validate)))
+	for _, prefix := range []string{"/teams/{teamID}/users/{userID}", "/teams/{teamID}/users/{userID}/connections/{connectionID}"} {
+		mux.Handle("PUT "+prefix+"/catalog", requestOperation("publish", s.authorized(serviceauth.OperationPublish, s.putCatalog)))
+		mux.Handle("DELETE "+prefix+"/catalog", requestOperation("delete", s.authorized(serviceauth.OperationDelete, s.deleteCatalog)))
+		mux.Handle("POST "+prefix+"/autocomplete", requestOperation("complete", s.authorized(serviceauth.OperationComplete, s.autocomplete)))
+		mux.Handle("POST "+prefix+"/validate", requestOperation("validate", s.authorized(serviceauth.OperationValidate, s.validate)))
+	}
 	return securityHeaders(s.logRequests(mux))
 }
 
@@ -130,6 +132,9 @@ func (s *server) logRequests(next http.Handler) http.Handler {
 		}
 		if details.authorization != nil {
 			attributes = append(attributes, "team_id", details.authorization.TeamID, "user_id", details.authorization.UserID)
+			if details.authorization.ConnectionID != "" {
+				attributes = append(attributes, "connection_id", details.authorization.ConnectionID)
+			}
 		}
 		if details.result == "catalog_published" {
 			attributes = append(attributes, "catalog_tables", details.catalogTables, "catalog_properties", details.catalogProperties)
@@ -265,7 +270,11 @@ func (s *server) putCatalog(w http.ResponseWriter, r *http.Request, authorizatio
 			details.catalogProperties += len(properties)
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"teamId": authorization.TeamID, "userId": authorization.UserID, "revision": input.Revision})
+	response := map[string]any{"teamId": authorization.TeamID, "userId": authorization.UserID, "revision": input.Revision}
+	if authorization.ConnectionID != "" {
+		response["connectionId"] = authorization.ConnectionID
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *server) deleteCatalog(w http.ResponseWriter, r *http.Request, authorization serviceauth.Authorization) {
@@ -362,7 +371,11 @@ func authorizationFromPath(r *http.Request) (serviceauth.Authorization, error) {
 	if err != nil || teamID <= 0 || userID <= 0 {
 		return serviceauth.Authorization{}, errors.New("teamID and userID must be positive integers")
 	}
-	return serviceauth.Authorization{TeamID: teamID, UserID: userID}, nil
+	authorization := serviceauth.Authorization{TeamID: teamID, UserID: userID, ConnectionID: r.PathValue("connectionID")}
+	if !authorization.Valid() {
+		return serviceauth.Authorization{}, errors.New("connectionID must be an identifier of at most " + strconv.Itoa(serviceauth.MaxConnectionIDLength) + " letters, digits, dashes or underscores")
+	}
+	return authorization, nil
 }
 
 func remoteAddress(r *http.Request) string {
@@ -373,6 +386,8 @@ func remoteAddress(r *http.Request) string {
 	return host
 }
 
+// The connection is left out on purpose: the budget belongs to the principal, so a caller cannot
+// multiply it by rotating connection ids.
 func authorizationKey(authorization serviceauth.Authorization) string {
 	return strconv.FormatInt(authorization.TeamID, 10) + ":" + strconv.FormatInt(authorization.UserID, 10)
 }

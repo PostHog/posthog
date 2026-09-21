@@ -31,12 +31,14 @@ from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.compiler.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.direct_connection import resolve_database_for_connection
+from posthog.hogql.direct_connection import get_direct_connection_source, resolve_database_for_connection
+from posthog.hogql.direct_sql import get_adapter
 from posthog.hogql.editor_assist_metrics import EDITOR_ASSIST_DURATION_SECONDS, EDITOR_ASSIST_RESPONSES_TOTAL
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.language_service import (
     WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX,
     CatalogMissing,
+    CatalogScope,
     LanguageServiceClient,
     LanguageServiceError,
     LanguageServiceResult,
@@ -101,7 +103,6 @@ def _is_alias_capable_catalog_revision(revision: object) -> bool:
 def _language_service_eligible(query: HogQLAutocomplete | HogQLMetadata) -> bool:
     common = (
         query.language.value == "hogQL"
-        and query.connectionId is None
         and query.sourceQuery is None
         and query.globals is None
         and query.filters is None
@@ -112,14 +113,42 @@ def _language_service_eligible(query: HogQLAutocomplete | HogQLMetadata) -> bool
     return common
 
 
-def _language_service_call(team: Team, user: User, query: HogQLAutocomplete | HogQLMetadata) -> _EditorAssistRoute:
+def _clickhouse_connection_id(team: Team, user: User, connection_id: str) -> str | None:
+    """The canonical id of a direct connection the Go service can answer for, else None.
+
+    The service parses and prints ClickHouse, so a connection on any other engine would be told
+    its own valid SQL is invalid. Those stay on the Python path, which prints the engine dialect.
+    """
+    source = get_direct_connection_source(team, connection_id, user=user)
+    if source is None or source.direct_engine is None:
+        return None
+    adapter = get_adapter(source.direct_engine)
+    if adapter is None or adapter.dialect != "clickhouse":
+        return None
+    return str(source.id)
+
+
+def _editor_assist_scope(team: Team, user: User, query: HogQLAutocomplete | HogQLMetadata) -> CatalogScope | None:
+    if not _language_service_eligible(query):
+        return None
+    if query.connectionId is None:
+        return CatalogScope(team_id=team.pk, user_id=user.pk)
+    connection_id = _clickhouse_connection_id(team, user, query.connectionId)
+    if connection_id is None:
+        return None
+    return CatalogScope(team_id=team.pk, user_id=user.pk, connection_id=connection_id)
+
+
+def _language_service_call(
+    team: Team, user: User, scope: CatalogScope, query: HogQLAutocomplete | HogQLMetadata
+) -> _EditorAssistRoute:
     try:
         client = LanguageServiceClient()
 
         def call() -> LanguageServiceResult:
             if isinstance(query, HogQLAutocomplete):
-                return client.autocomplete(team.pk, user.pk, query.query, query.endPosition)
-            return client.validate(team.pk, user.pk, query.query)
+                return client.autocomplete(scope, query.query, query.endPosition)
+            return client.validate(scope, query.query)
 
         result = call()
     except CatalogMissing:
@@ -137,11 +166,12 @@ def _language_service_call(team: Team, user: User, query: HogQLAutocomplete | Ho
 
     def publish_catalog() -> None:
         nonlocal publication_succeeded
-        schema_catalog = _build_database_schema_query(team, DatabaseSchemaQuery(), user=user)
+        schema_catalog = _build_database_schema_query(
+            team, DatabaseSchemaQuery(connectionId=scope.connection_id), user=user
+        )
         revision = f"{WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX}{time.time_ns()}"
         client.publish(
-            team.pk,
-            user.pk,
+            scope,
             revision,
             build_catalog(
                 team,
@@ -164,7 +194,7 @@ def _language_service_call(team: Team, user: User, query: HogQLAutocomplete | Ho
         return current
 
     try:
-        result = coordinate_catalog_publication(team.pk, user.pk, client.base_url, check_catalog, publish_catalog)
+        result = coordinate_catalog_publication(scope, client.base_url, check_catalog, publish_catalog)
     except MalformedLanguageServiceResponse:
         return _EditorAssistRoute(enabled=True, result=None, reason="invalid_response", malformed_stage="http_response")
     except (DatabaseSchemaUnavailable, LanguageServiceError):
@@ -177,9 +207,10 @@ def _language_service_call(team: Team, user: User, query: HogQLAutocomplete | Ho
 def _route_editor_assist(team: Team, user: User | None, query: HogQLAutocomplete | HogQLMetadata) -> _EditorAssistRoute:
     if user is None or not is_language_service_enabled(team, user):
         return _EditorAssistRoute(enabled=False, result=None, reason="ineligible")
-    if not _language_service_eligible(query):
+    scope = _editor_assist_scope(team, user, query)
+    if scope is None:
         return _EditorAssistRoute(enabled=True, result=None, reason="ineligible")
-    return _language_service_call(team, user, query)
+    return _language_service_call(team, user, scope, query)
 
 
 def _capture_malformed_language_service_response(

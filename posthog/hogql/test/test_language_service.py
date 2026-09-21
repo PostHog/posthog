@@ -13,6 +13,7 @@ from posthog.hogql.database.models import TableNode
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.language_service import (
     CatalogMissing,
+    CatalogScope,
     LanguageServiceClient,
     LanguageServiceError,
     LanguageServiceResult,
@@ -24,14 +25,35 @@ from posthog.hogql.language_service import (
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 
+SCOPE = CatalogScope(team_id=12, user_id=34)
+CONNECTION_SCOPE = CatalogScope(team_id=12, user_id=34, connection_id="0192f4ab-7b2c-7000-8000-a1b2c3d4e5f6")
+
 
 @override_settings(
     HOGQL_LANGUAGE_SERVICE_URL="http://language-service:8091",
     HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS=["test-language-service-signing-key"],
 )
 class TestLanguageServiceClient(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "team",
+                SCOPE,
+                "http://language-service:8091/teams/12/users/34/validate",
+                "a5c8d54c25064f11498a937f38591eba85a3e67cccc102e6c4f76bbf5377cc37",
+            ),
+            (
+                "connection",
+                CONNECTION_SCOPE,
+                "http://language-service:8091/teams/12/users/34/connections/0192f4ab-7b2c-7000-8000-a1b2c3d4e5f6/validate",
+                "f22372b27bb0c5e87b51d934667af9cb0e3578b29259a9c6beb82b1e20f1b24e",
+            ),
+        ]
+    )
     @patch("posthog.hogql.language_service.internal_requests.request")
-    def test_routes_request_and_scopes_token_to_principal_and_operation(self, request: MagicMock) -> None:
+    def test_routes_request_and_scopes_token_to_catalog_and_operation(
+        self, _name: str, scope: CatalogScope, url: str, affinity_key: str, request: MagicMock
+    ) -> None:
         response = MagicMock()
         response.ok = True
         response.status_code = 200
@@ -39,16 +61,14 @@ class TestLanguageServiceClient(SimpleTestCase):
         response.json.return_value = {"valid": True, "diagnostics": [], "durationMicros": 42}
         request.return_value = response
 
-        result = LanguageServiceClient().validate(12, 34, "SELECT 1")
+        result = LanguageServiceClient().validate(scope, "SELECT 1")
 
         request.assert_called_once()
         call = request.call_args
-        assert call.args == ("POST", "http://language-service:8091/teams/12/users/34/validate")
+        assert call.args == ("POST", url)
         assert call.kwargs["json"] == {"query": "SELECT 1"}
         assert call.kwargs["timeout"] == (0.25, 1)
-        assert call.kwargs["headers"]["X-HogQL-Affinity-Key"] == (
-            "a5c8d54c25064f11498a937f38591eba85a3e67cccc102e6c4f76bbf5377cc37"
-        )
+        assert call.kwargs["headers"]["X-HogQL-Affinity-Key"] == affinity_key
         token = call.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
         claims = decode_jwt(
             token,
@@ -57,6 +77,7 @@ class TestLanguageServiceClient(SimpleTestCase):
         )
         assert claims["team_id"] == 12
         assert claims["user_id"] == 34
+        assert claims.get("connection_id") == scope.connection_id
         assert claims["operations"] == ["validate"]
         assert result.body["valid"] is True
         assert result.response_size_bytes == len(response.content)
@@ -70,7 +91,7 @@ class TestLanguageServiceClient(SimpleTestCase):
         request.return_value = response
 
         with self.assertRaises(CatalogMissing):
-            LanguageServiceClient().autocomplete(12, 34, "SELECT ", 7)
+            LanguageServiceClient().autocomplete(SCOPE, "SELECT ", 7)
 
         assert request.call_args.kwargs["json"] == {
             "query": "SELECT ",
@@ -95,13 +116,13 @@ class TestLanguageServiceClient(SimpleTestCase):
         request.return_value = response
 
         with self.assertRaises(MalformedLanguageServiceResponse):
-            LanguageServiceClient().validate(12, 34, "SELECT event FROM events")
+            LanguageServiceClient().validate(SCOPE, "SELECT event FROM events")
 
     @patch("posthog.hogql.language_service.LANGUAGE_SERVICE_HTTP_DURATION_SECONDS")
     @patch("posthog.hogql.language_service.internal_requests.request", side_effect=requests.Timeout("timed out"))
     def test_records_latency_for_failed_requests(self, _request: MagicMock, duration: MagicMock) -> None:
         with self.assertRaises(LanguageServiceError):
-            LanguageServiceClient().validate(12, 34, "SELECT 1")
+            LanguageServiceClient().validate(SCOPE, "SELECT 1")
 
         duration.labels.assert_called_once_with(operation="validate")
         duration.labels.return_value.observe.assert_called_once()
@@ -156,7 +177,7 @@ class TestCatalogPublicationCoordination(SimpleTestCase):
         check_catalog = MagicMock(return_value=self.result)
         publish_catalog = MagicMock()
 
-        result = coordinate_catalog_publication(12, 34, "http://language-service:8091", check_catalog, publish_catalog)
+        result = coordinate_catalog_publication(SCOPE, "http://language-service:8091", check_catalog, publish_catalog)
 
         assert result is self.result
         redis_client.lock.assert_not_called()
@@ -170,7 +191,7 @@ class TestCatalogPublicationCoordination(SimpleTestCase):
         check_catalog = MagicMock(side_effect=[None, None, self.result])
         publish_catalog = MagicMock()
 
-        result = coordinate_catalog_publication(12, 34, "http://language-service:8091", check_catalog, publish_catalog)
+        result = coordinate_catalog_publication(SCOPE, "http://language-service:8091", check_catalog, publish_catalog)
 
         assert result is self.result
         publish_catalog.assert_called_once()
@@ -188,7 +209,7 @@ class TestCatalogPublicationCoordination(SimpleTestCase):
         publish_catalog = MagicMock()
 
         result = coordinate_catalog_publication(
-            12, 34, "http://language-service:8091", MagicMock(return_value=self.result), publish_catalog
+            SCOPE, "http://language-service:8091", MagicMock(return_value=self.result), publish_catalog
         )
 
         assert result is self.result
@@ -205,8 +226,7 @@ class TestCatalogPublicationCoordination(SimpleTestCase):
         publish_catalog = MagicMock()
 
         result = coordinate_catalog_publication(
-            12,
-            34,
+            SCOPE,
             "http://language-service:8091",
             MagicMock(return_value=self.result if expected_success else None),
             publish_catalog,
@@ -228,8 +248,8 @@ class TestCatalogPublicationCoordination(SimpleTestCase):
         check_catalog = MagicMock(side_effect=[None, None, self.result])
         publish_catalog = MagicMock()
 
-        first = coordinate_catalog_publication(12, 34, "http://language-service:8091", check_catalog, publish_catalog)
-        second = coordinate_catalog_publication(12, 34, "http://language-service:8091", check_catalog, publish_catalog)
+        first = coordinate_catalog_publication(SCOPE, "http://language-service:8091", check_catalog, publish_catalog)
+        second = coordinate_catalog_publication(SCOPE, "http://language-service:8091", check_catalog, publish_catalog)
 
         assert first is None
         assert second is self.result
@@ -245,7 +265,7 @@ class TestCatalogPublicationCoordination(SimpleTestCase):
 
         with self.assertRaises(LanguageServiceError):
             coordinate_catalog_publication(
-                12, 34, "http://language-service:8091", MagicMock(return_value=None), publish_catalog
+                SCOPE, "http://language-service:8091", MagicMock(return_value=None), publish_catalog
             )
 
         redis_client.set.assert_not_called()
@@ -264,7 +284,7 @@ class TestCatalogPublicationCoordination(SimpleTestCase):
         publish_catalog = MagicMock()
 
         result = coordinate_catalog_publication(
-            12, 34, "http://language-service:8091", MagicMock(return_value=self.result), publish_catalog
+            SCOPE, "http://language-service:8091", MagicMock(return_value=self.result), publish_catalog
         )
 
         assert result is self.result
@@ -281,8 +301,7 @@ class TestCatalogPublicationCoordination(SimpleTestCase):
         publish_catalog = MagicMock()
 
         result = coordinate_catalog_publication(
-            12,
-            34,
+            SCOPE,
             "http://language-service:8091",
             MagicMock(side_effect=[None, self.result]),
             publish_catalog,
@@ -297,16 +316,18 @@ class TestCatalogPublicationCoordination(SimpleTestCase):
         redis_client.get.return_value = None
         redis_client.lock.return_value.acquire.return_value = False
 
-        for team_id, user_id, target in (
-            (12, 34, "http://language-service-a:8091"),
-            (13, 34, "http://language-service-a:8091"),
-            (12, 35, "http://language-service-a:8091"),
-            (12, 34, "http://language-service-b:8091"),
+        for scope, target in (
+            (CatalogScope(team_id=12, user_id=34), "http://language-service-a:8091"),
+            (CatalogScope(team_id=13, user_id=34), "http://language-service-a:8091"),
+            (CatalogScope(team_id=12, user_id=35), "http://language-service-a:8091"),
+            (CatalogScope(team_id=12, user_id=34, connection_id="connection-a"), "http://language-service-a:8091"),
+            (CatalogScope(team_id=12, user_id=34, connection_id="connection-b"), "http://language-service-a:8091"),
+            (CatalogScope(team_id=12, user_id=34), "http://language-service-b:8091"),
         ):
-            coordinate_catalog_publication(team_id, user_id, target, MagicMock(return_value=None), MagicMock())
+            coordinate_catalog_publication(scope, target, MagicMock(return_value=None), MagicMock())
 
         lock_keys = {call.args[0] for call in redis_client.lock.call_args_list}
-        assert len(lock_keys) == 4
+        assert len(lock_keys) == 6
 
 
 class TestLanguageServiceCatalog(SimpleTestCase):
