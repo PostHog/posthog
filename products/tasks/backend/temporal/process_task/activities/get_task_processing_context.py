@@ -1440,7 +1440,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # exemption would leave them bounded only by the inactivity timer.
     interactive_max_run_duration_seconds = None
     if (
-        (state or {}).get("mode") == "interactive"
+        ((state or {}).get("mode") == "interactive" or (state or {}).get("signals_takeover_from_run_id"))
         and is_interactive_signals_run(task, state)
         and settings.TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS > 0
     ):

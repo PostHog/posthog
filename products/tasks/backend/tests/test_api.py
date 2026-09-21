@@ -6458,6 +6458,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "sandbox_gone": False,
                 "ai_stage": "research",
                 "ai_agent_name": "signals-scout-errors",
+                "signals_takeover": {"status": "pending"},
+                "signals_takeover_from_run_id": "previous-run",
                 "self_driving_head_branch": "posthog-self-driving/real-3f9a2c",
                 "runtime_adapter": "claude",
                 "provider": "anthropic",
@@ -6533,6 +6535,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "sandbox_gone": True,
                     # implementation provenance is what the self-driving review carve-outs trust
                     "ai_stage": "implementation",
+                    "signals_takeover": {},
+                    "signals_takeover_from_run_id": "forged-run",
                     # a forged agent name bills this run's spend to another agent
                     "ai_agent_name": "signals-scout-general",
                     # the stamped branch is the unforgeable run->PR link; a writable value re-aims it
@@ -6598,6 +6602,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert "timed_out_wall_clock" not in run.state
         assert run.state["sandbox_gone"] is False
         assert run.state["ai_stage"] == "research"  # cannot forge implementation provenance
+        assert run.state["signals_takeover"] == {"status": "pending"}
+        assert run.state["signals_takeover_from_run_id"] == "previous-run"
         assert run.state["self_driving_head_branch"] == "posthog-self-driving/real-3f9a2c"
         assert run.state["runtime_adapter"] == "claude"
         assert run.state["provider"] == "anthropic"
@@ -6626,6 +6632,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "state": {},
                 "state_remove_keys": [
                     "systemPrompt",
+                    "signals_takeover",
+                    "signals_takeover_from_run_id",
                     "claude_model_access",
                     "claude_subscription_user_id",
                     "github_credential_source",
@@ -6674,6 +6682,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["claude_model_access"] == "own-subscription"
         assert run.state["claude_subscription_user_id"] == self.user.id
         assert run.state["github_credential_source"] == "caller_token"  # protected key survives removal
+        assert run.state["signals_takeover"] == {"status": "pending"}
+        assert run.state["signals_takeover_from_run_id"] == "previous-run"
         assert run.state["agent_otel_telemetry_enabled"] is False  # protected key survives removal
         assert run.state["stream_presence_gated"] is True  # protected key survives removal
         assert run.state["stream_thin_tail"] is True  # protected key survives removal
@@ -12327,14 +12337,13 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
         self.assertEqual(response.json()["error"], "Failed to queue user message for task run")
 
-    def _signals_run(self, *, ai_stage: str | None):
-        """An auto-started implementation task and its live run, as the pipeline creates them."""
+    def _signals_run(self, *, ai_stage: str | None, origin_product=Task.OriginProduct.SIGNAL_REPORT):
         task = Task.objects.create(
             team=self.team,
             created_by=self.user,
             title="Implementation: fix the thing",
             description="Test Description",
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            origin_product=origin_product,
             internal=True,
         )
         state: dict[str, Any] = {"sandbox_url": "http://localhost:9999", "mode": "background"}
@@ -12345,19 +12354,33 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("pipeline_started", "implementation", None, status.HTTP_200_OK),
-            ("scout", "scout:web-analytics", None, status.HTTP_200_OK),
-            ("dispatch_failed", "implementation", "Workflow dispatch failed", status.HTTP_409_CONFLICT),
+            ("pipeline_started", Task.OriginProduct.SIGNAL_REPORT, "implementation", None, status.HTTP_200_OK),
+            ("scout", Task.OriginProduct.SIGNALS_SCOUT, "scout:web-analytics", None, status.HTTP_200_OK),
+            (
+                "dispatch_failed",
+                Task.OriginProduct.SIGNAL_REPORT,
+                "implementation",
+                "Workflow dispatch failed",
+                status.HTTP_502_BAD_GATEWAY,
+            ),
         ]
     )
     @patch("products.tasks.backend.facade.api._trigger_task_processing_workflow")
     @patch("products.tasks.backend.facade.cancellation.cancel_task_run", return_value=("accepted", None))
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_forks_instead_of_steering_a_pipeline_run(
-        self, _name, ai_stage, run_error, expected_status, mock_signal_followup, mock_cancel, mock_trigger
+        self,
+        _name,
+        origin_product,
+        ai_stage,
+        run_error,
+        expected_status,
+        mock_signal_followup,
+        mock_cancel,
+        mock_trigger,
     ):
         mock_trigger.return_value = run_error
-        task, run = self._signals_run(ai_stage=ai_stage)
+        task, run = self._signals_run(ai_stage=ai_stage, origin_product=origin_product)
 
         response = self.client.post(self._command_url(task, run), self._make_user_message(), format="json")
 
@@ -12365,8 +12388,28 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         mock_signal_followup.assert_not_called()
         mock_cancel.assert_called_once()
 
+        run.refresh_from_db()
+        run.status = TaskRun.Status.CANCELLED
+        run.save(update_fields=["status"])
+        repeat = self.client.post(self._command_url(task, run), self._make_user_message(), format="json")
+        self.assertEqual(repeat.status_code, expected_status)
+        self.assertEqual(repeat.json(), response.json())
+        self.assertEqual(task.runs.exclude(id=run.id).count(), 1)
+        mock_cancel.assert_called_once()
+        mock_trigger.assert_called_once()
+
+        another_message = self._make_user_message()
+        another_message["id"] = "req-2"
+        rejected = self.client.post(self._command_url(task, run), another_message, format="json")
+        self.assertEqual(rejected.status_code, status.HTTP_423_LOCKED)
+        self.assertEqual(task.runs.exclude(id=run.id).count(), 1)
+        mock_cancel.assert_called_once()
+        mock_trigger.assert_called_once()
+
         if run_error is not None:
-            self.assertEqual(response.json()["error"], "Task run workflow has ended")
+            self.assertEqual(
+                response.json()["error"], "The replacement run could not start. Open the task to continue."
+            )
             return
 
         successor = task.runs.exclude(id=run.id).get()
@@ -12377,6 +12420,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(successor.state["pending_user_message"], "Hello agent")
         # Interactive mode is what brings the successor under the wall-clock cap.
         self.assertEqual(successor.state["mode"], "interactive")
+        self.assertEqual(successor.state["signals_takeover_from_run_id"], str(run.id))
 
     @parameterized.expand([(None,), ("inbox",)])
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")

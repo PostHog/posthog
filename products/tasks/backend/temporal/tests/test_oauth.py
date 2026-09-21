@@ -158,6 +158,8 @@ def test_every_stamped_origin_is_an_interactive_signals_origin() -> None:
         (Task.OriginProduct.SIGNALS_CHAT, False, {"ai_stage": "chat"}, "signals", True),
         (Task.OriginProduct.SIGNALS_CHAT, False, None, "signals", True),
         (Task.OriginProduct.SIGNALS_SCOUT, True, {"ai_stage": "scout"}, "signals", False),
+        (Task.OriginProduct.SIGNALS_SCOUT, True, {"signals_takeover_from_run_id": "previous-run"}, "signals", True),
+        (Task.OriginProduct.SIGNALS_SCOUT, True, {"mode": "interactive"}, "signals", False),
         # The interactive stamp never reaches a scheduled origin, and would not make it interactive.
         (Task.OriginProduct.SIGNALS_SCOUT, True, {"ai_stage": "inbox"}, "signals", False),
         (Task.OriginProduct.USER_CREATED, False, None, "array", False),

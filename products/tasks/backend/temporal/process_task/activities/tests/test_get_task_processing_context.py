@@ -209,6 +209,26 @@ class TestIsAgentOtelTelemetryEnabled:
 
 
 class TestGetTaskProcessingContextActivity:
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize("takeover", [False, True])
+    @override_settings(TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS=120)
+    def test_scout_takeover_gets_interactive_duration(self, activity_environment, test_task, takeover):
+        test_task.origin_product = Task.OriginProduct.SIGNALS_SCOUT
+        test_task.internal = True
+        test_task.save(update_fields=["origin_product", "internal"])
+        state = {"signals_takeover_from_run_id": "previous-run"} if takeover else {"ai_stage": "scout"}
+        task_run = test_task.create_run(mode="interactive", extra_state=state)
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=False,
+        ):
+            result = async_to_sync(activity_environment.run)(
+                get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id))
+            )
+
+        assert result.interactive_max_run_duration_seconds == (120 if takeover else None)
+
     def _create_task_with_repo(self, team, user, github_integration, repo_config):
         return Task.objects.create(
             team=team,

@@ -1359,6 +1359,17 @@ async def test_sandbox_started_carries_run_attribution(origin_product, team_id, 
 
 @pytest.mark.django_db
 class TestProcessTaskWorkflowUnit:
+    @pytest.fixture(autouse=True)
+    def takeover_checkout_patch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        original_patched = process_task_workflow_module.workflow.patched
+
+        def patched(patch_id: str) -> bool:
+            if patch_id == "tasks-pipeline-takeover-checkout":
+                return True
+            return original_patched(patch_id)
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", patched)
+
     def test_quota_recheck_not_scheduled_for_non_pr_runs(self):
         # Research / repo-selection sessions run as SIGNAL_REPORT-origin tasks with
         # create_pr=False; scheduling the recheck for them would let the quota gate cancel

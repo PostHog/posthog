@@ -99,6 +99,8 @@ def is_interactive_signals_run(task: Task, state: dict[str, Any] | None) -> bool
     already trust a pipeline stage as proof a run is self-driving. An interactive stage, or
     none at all, keeps the interactive budget and its per-run ceiling as the fail-closed default.
     """
+    if task.origin_product in SIGNALS_ORIGIN_PRODUCTS and (state or {}).get("signals_takeover_from_run_id"):
+        return True
     if task.origin_product not in INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS:
         return False
     stage = (state or {}).get("ai_stage")

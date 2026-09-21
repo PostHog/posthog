@@ -1924,6 +1924,32 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
         entries = TaskThreadMessage.objects.for_team(self.team.id).filter(content="Run requested from the canvas")
         assert entries.count() == 1
 
+    @parameterized.expand([(None, 202), ("Workflow dispatch failed", 409)])
+    def test_request_agent_takes_over_pipeline_run(self, run_error, expected_status):
+        canvas_id, _, task = self._authored_canvas(agent_requests=True)
+        task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+        task.internal = True
+        task.save(update_fields=["origin_product", "internal"])
+        predecessor = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"ai_stage": "report_canvas"},
+        )
+
+        with (
+            patch("products.tasks.backend.facade.cancellation.cancel_task_run", return_value=("accepted", None)),
+            patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=run_error),
+            patch("products.tasks.backend.temporal.client.signal_task_followup_message") as signal,
+        ):
+            response = self._request_agent(canvas_id, "Make the status card blue.")
+
+        assert response.status_code == expected_status, response.json()
+        signal.assert_not_called()
+        successor = task.runs.exclude(id=predecessor.id).get()
+        assert successor.state["signals_takeover_from_run_id"] == str(predecessor.id)
+        assert "Make the status card blue." in successor.state["pending_user_message"]
+
     def test_request_agent_reports_non_creator_request_without_starting_run(self):
         canvas_id, _, task = self._authored_canvas(agent_requests=True)
         teammate = User.objects.create_and_join(self.organization, "viewer@example.com", None)

@@ -1762,6 +1762,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         outcome = tasks_facade.request_canvas_fix(
             task_id, self.team_id, prompt=prompt, acting_user_id=user.id if user else None
         )
+        if outcome in {"takeover_pending", "takeover_failed"}:
+            return Response(
+                {"detail": "The agent run is being replaced or could not restart. Open its task to continue."},
+                status=status.HTTP_409_CONFLICT,
+            )
         if outcome == "forbidden":
             return Response(
                 {"detail": "Only the authoring task's creator can dispatch a fix."},
@@ -1857,6 +1862,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             viewer_prompt=payload.validated_data["prompt"],
             acting_user_id=user.id if user else None,
         )
+        if outcome in {"takeover_pending", "takeover_failed"}:
+            return Response(
+                {"detail": "The agent run is being replaced or could not restart. Open its task to continue."},
+                status=status.HTTP_409_CONFLICT,
+            )
         if outcome == "not_found":
             return Response(
                 {"detail": "The authoring task for this canvas no longer exists."},

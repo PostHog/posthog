@@ -3014,6 +3014,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=TaskRunErrorResponseSerializer,
                 description="Task run workflow has ended; permission_target_ended for an ended approval target",
             ),
+            423: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="A replacement run was requested; open the task to continue without starting another run",
+            ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description="Organization reached its PostHog Desktop usage limit",
@@ -3160,10 +3164,24 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     TaskRunErrorResponseSerializer({"error": "Add a message to send to this run."}).data,
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            if delivery_outcome == "takeover_pending":
+                return Response(
+                    TaskRunErrorResponseSerializer(
+                        {"error": "A replacement run was requested. Open the task to continue."}
+                    ).data,
+                    status=status.HTTP_423_LOCKED,
+                )
             if delivery_outcome == "workflow_gone":
                 return Response(
                     TaskRunErrorResponseSerializer({"error": "Task run workflow has ended"}).data,
                     status=status.HTTP_409_CONFLICT,
+                )
+            if delivery_outcome == "takeover_failed":
+                return Response(
+                    TaskRunErrorResponseSerializer(
+                        {"error": "The replacement run could not start. Open the task to continue."}
+                    ).data,
+                    status=status.HTTP_502_BAD_GATEWAY,
                 )
 
             # A warm Run has now received a human message — drop the warm flag so the warm-pool cap
