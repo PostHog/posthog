@@ -1,5 +1,6 @@
 import hmac
 import json
+import importlib
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import Any, cast
@@ -18,6 +19,7 @@ from requests import RequestException
 from rest_framework.request import Request as DRFRequest
 from rest_framework.throttling import BaseThrottle, ScopedRateThrottle
 
+from posthog import regions
 from posthog.ingress.contracts import (
     DeliveryDispatch,
     DeliveryOwnership,
@@ -28,11 +30,11 @@ from posthog.ingress.contracts import (
 )
 from posthog.ingress.dispatch.dedup import INGRESS_DEDUP_CACHE_ALIAS
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
-from posthog.ingress.dispatch.forward import HOST_IDENTIFYING_HEADERS, forward_to_secondary_region
+from posthog.ingress.dispatch.forward import HOST_IDENTIFYING_HEADERS, forward_to_other_region
 from posthog.ingress.dispatch.registry import ConsumerRegistry
 from posthog.ingress.github.provider import GitHubProvider, build_github_provider
 from posthog.ingress.pandadoc.provider import build_pandadoc_provider
-from posthog.ingress.providers import InvalidPayload, WebhookProvider
+from posthog.ingress.providers import _INCARNATION_MODULES, InvalidPayload, WebhookProvider
 from posthog.ingress.slack.provider import build_slack_provider
 from posthog.ingress.test import LOCMEM_CACHES
 from posthog.ingress.vapi.provider import VapiProvider
@@ -61,6 +63,13 @@ class _RedeliveringGitHubProvider(GitHubProvider):
     # Stands in for a provider that replays a delivery the endpoint did not accept, which GitHub
     # itself does not do.
     retry_status = 502
+
+
+class _SecondaryRegionGitHubProvider(GitHubProvider):
+    # Stands in for a provider whose App is registered against the secondary region, so deliveries
+    # arrive there and the forward runs the other way.
+    def receiving_region_domain(self) -> str:
+        return regions.SECONDARY_REGION_DOMAIN
 
 
 class _SlowForwardGitHubProvider(GitHubProvider):
@@ -638,6 +647,36 @@ class TestRegionalForwarding(_DispatchingViewTestCase):
         self.handler.assert_called_once()
         self.assertEqual([call.args[0] for call in logger.warning.call_args_list], ["ingress_delivery_unowned_here"])
 
+    def test_every_provider_on_the_package_receives_in_the_primary_region(self) -> None:
+        # The forward direction is shared machinery, so a provider that quietly overrides it
+        # redirects signed deliveries for an endpoint whose owners never asked for that.
+        overriding: list[str] = []
+        for module_name in _INCARNATION_MODULES:
+            module = importlib.import_module(module_name)
+            for candidate in vars(module).values():
+                if not isinstance(candidate, type) or not issubclass(candidate, WebhookProvider):
+                    continue
+                if candidate.receiving_region_domain is not WebhookProvider.receiving_region_domain:
+                    overriding.append(f"{module_name}.{candidate.__name__}")
+
+        self.assertEqual(overriding, [])
+
+    def test_a_provider_registered_against_the_secondary_region_forwards_the_other_way(self) -> None:
+        view = self._view(
+            [_consumer(GITHUB_SPEC, name="probe", handler=self.handler, answer=DeliveryOwnership.ELSEWHERE)],
+            provider=_SecondaryRegionGitHubProvider("posthog"),
+        )
+
+        with (
+            patch("posthog.regions.PRIMARY_REGION_DOMAIN", "eu.posthog.com"),
+            patch("posthog.regions.SECONDARY_REGION_DOMAIN", "testserver"),
+        ):
+            response = view(self._github_request())
+
+        self.assertEqual(response.status_code, 202)
+        self.assertIn("eu.posthog.com", self.requests.call_args.kwargs["url"])
+        self.handler.assert_called_once()
+
     def test_a_batched_body_of_unowned_deliveries_forwards_the_request_once(self) -> None:
         view = self._view(
             [_consumer(PANDADOC_SPEC, name="probe", handler=self.handler, answer=DeliveryOwnership.ELSEWHERE)],
@@ -797,7 +836,9 @@ class TestForwardToSecondaryRegion(SimpleTestCase):
             patch("posthog.ingress.dispatch.forward.requests.request", side_effect=error, return_value=response),
             patch("posthog.ingress.dispatch.forward.observe_forward") as observe,
         ):
-            result = forward_to_secondary_region(self.request, provider="github", app="posthog")
+            result = forward_to_other_region(
+                self.request, target_domain=SECONDARY_REGION_DOMAIN, provider="github", app="posthog"
+            )
 
         self.assertEqual(result, forwarded)
         self.assertEqual(observe.call_args.kwargs["outcome"], outcome)
@@ -805,7 +846,9 @@ class TestForwardToSecondaryRegion(SimpleTestCase):
     def test_the_replay_carries_the_signed_bytes_unchanged(self) -> None:
         with patch("posthog.ingress.dispatch.forward.requests.request") as request:
             request.return_value = Mock(ok=True, status_code=202)
-            forward_to_secondary_region(self.request, provider="github", app="posthog")
+            forward_to_other_region(
+                self.request, target_domain=SECONDARY_REGION_DOMAIN, provider="github", app="posthog"
+            )
 
         kwargs = request.call_args.kwargs
         self.assertEqual(kwargs["data"], self.body)
@@ -831,7 +874,7 @@ class TestForwardToSecondaryRegion(SimpleTestCase):
 
         with patch("posthog.ingress.dispatch.forward.requests.request") as request:
             request.return_value = Mock(ok=True, status_code=202)
-            forward_to_secondary_region(multipart, provider="mailgun", app="inbound")
+            forward_to_other_region(multipart, target_domain=SECONDARY_REGION_DOMAIN, provider="mailgun", app="inbound")
 
         kwargs = request.call_args.kwargs
         self.assertIn(("token", "delivery-token"), kwargs["data"])
@@ -850,7 +893,9 @@ class TestForwardToSecondaryRegion(SimpleTestCase):
 
         with patch("posthog.ingress.dispatch.forward.requests.request") as request:
             request.return_value = Mock(ok=True, status_code=202)
-            forward_to_secondary_region(urlencoded, provider="mailgun", app="inbound")
+            forward_to_other_region(
+                urlencoded, target_domain=SECONDARY_REGION_DOMAIN, provider="mailgun", app="inbound"
+            )
 
         kwargs = request.call_args.kwargs
         self.assertEqual(kwargs["data"], body)
