@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from ipaddress import ip_address, ip_network
 from typing import Optional, cast
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
@@ -55,7 +55,13 @@ from posthog.models.utils import generate_random_token
 from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
-from posthog.utils import get_ip_address, get_trusted_client_ip
+from posthog.utils import (
+    POSTHOG_JS_CLOUD_HOST,
+    POSTHOG_JS_CLOUD_TOKEN,
+    POSTHOG_JS_E2E_TOKEN,
+    get_ip_address,
+    get_trusted_client_ip,
+)
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.models.action import Action
@@ -1284,10 +1290,12 @@ def csp_report_endpoint(**params: str) -> str:
         endpoint = _POSTHOG_CSP_REPORT_ENDPOINT if is_cloud() else ""
     if not endpoint or not params:
         return endpoint
-    # The endpoint carries the destination's project token, so it normally already has a query
-    # string; one an operator sets may not.
-    separator = "&" if "?" in endpoint else "?"
-    return f"{endpoint}{separator}{urlencode(params)}"
+    # The endpoint carries the destination's project token and report version, so a param the caller
+    # passes replaces the one already there rather than repeating it.
+    parts = urlsplit(endpoint)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query.update(params)
+    return parts._replace(query=urlencode(query)).geturl()
 
 
 # The full path, matched exactly. Django sends every unmatched path to the app catch-all, so a
@@ -1353,6 +1361,58 @@ def app_csp_header_name(request: HttpRequest) -> str:
     if csp_enforcement_enabled(request):
         return "Content-Security-Policy"
     return "Content-Security-Policy-Report-Only"
+
+
+# The app policy reports as v=2 through the endpoint above. The shadow policy below reports as v=3,
+# so its reports can be told apart.
+NARROWED_APP_POLICY_REPORT_VERSION = "3"
+_WILDCARD_SOURCES = frozenset({"https://*.posthog.com", "https://*.i.posthog.com"})
+
+
+def narrowed_app_policy(csp_parts: list[str], replacements: dict[str, list[str]]) -> list[str]:
+    """The app policy's directives that name a wildcard host, with each wildcard swapped for the exact
+    sources in `replacements`, or for none.
+
+    Sent report-only beside the app policy, it reports every load the wildcards allow and the named
+    sources do not, which is the evidence for dropping the wildcards. Every other source is kept, so
+    the shadow reports nothing the app policy would not.
+
+    Directives the shadow leaves out are unrestricted in it, which keeps it to the question it asks.
+    worker-src is the exception: without it or child-src, workers fall back to script-src, and the
+    shadow would report the blob: workers the app policy allows.
+    """
+    narrowed = []
+    for part in csp_parts:
+        name, *sources = part.split()
+        if _WILDCARD_SOURCES.intersection(sources):
+            kept = [source for source in sources if source not in _WILDCARD_SOURCES]
+            narrowed.append(" ".join([name, *dict.fromkeys([*kept, *replacements.get(name, [])])]))
+        elif name == "worker-src":
+            narrowed.append(part)
+    return narrowed
+
+
+def _app_policy_narrowed_sources() -> dict[str, list[str]]:
+    js_url = urlsplit(settings.JS_URL)
+    bundle_origin = [f"{js_url.scheme}://{js_url.netloc}"] if js_url.scheme and js_url.netloc else []
+    token = POSTHOG_JS_E2E_TOKEN if settings.E2E_TESTING else POSTHOG_JS_CLOUD_TOKEN
+    site_host = urlsplit(settings.SITE_URL).hostname or ""
+    # liveEventsHostOrigin() in the frontend picks live.<region host> for the cloud regions.
+    live_events = [f"https://live.{site_host}"] if site_host.endswith(".posthog.com") else []
+    return {
+        # posthog-js loads its extensions from /static/ and its own project's remote config. The path
+        # names our token because the same path serves every project's config, and each one carries
+        # code its project owner wrote.
+        "script-src": [
+            *bundle_origin,
+            f"{POSTHOG_JS_CLOUD_HOST}/static/",
+            f"{POSTHOG_JS_CLOUD_HOST}/array/{token}/config.js",
+        ],
+        "style-src": bundle_origin,
+        "font-src": bundle_origin,
+        "img-src": bundle_origin,
+        "connect-src": [*bundle_origin, POSTHOG_JS_CLOUD_HOST, *live_events],
+    }
 
 
 class CSPMiddleware:
@@ -1581,6 +1641,14 @@ class CSPMiddleware:
             sample_rate = "1" if is_staff else "0.1"
 
             report_uri = csp_report_endpoint(sample_rate=sample_rate)
+            shadow_parts: list[str] = []
+            if report_uri and resource_url == "https://*.posthog.com":
+                shadow_uri = csp_report_endpoint(sample_rate=sample_rate, v=NARROWED_APP_POLICY_REPORT_VERSION)
+                shadow_parts = [
+                    *narrowed_app_policy(csp_parts, _app_policy_narrowed_sources()),
+                    f"report-uri {shadow_uri}",
+                    "report-to posthog-v3",
+                ]
             if report_uri:
                 csp_parts += [f"report-uri {report_uri}", "report-to posthog"]
                 report_endpoint = report_uri
@@ -1591,9 +1659,25 @@ class CSPMiddleware:
                     report_endpoint = csp_report_endpoint(sample_rate=sample_rate, distinct_id=distinct_id)
                 # Browsers only deliver crash reports to the endpoint named `default`; the CSP
                 # `report-to posthog` directive keeps routing violations to `posthog`.
-                response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'
+                reporting_endpoints = f'posthog="{report_endpoint}", default="{report_endpoint}"'
+                if shadow_parts:
+                    shadow_endpoint = csp_report_endpoint(
+                        sample_rate=sample_rate,
+                        v=NARROWED_APP_POLICY_REPORT_VERSION,
+                        **({"distinct_id": distinct_id} if distinct_id else {}),
+                    )
+                    reporting_endpoints += f', posthog-v3="{shadow_endpoint}"'
+                response.headers["Reporting-Endpoints"] = reporting_endpoints
             header_name = app_csp_header_name(request)
             response.headers[header_name] = "; ".join(csp_parts)
+            if shadow_parts:
+                # One header can carry several policies separated by commas, and the browser checks
+                # each on its own.
+                shadow = "; ".join(shadow_parts)
+                reported = response.headers.get("Content-Security-Policy-Report-Only")
+                response.headers["Content-Security-Policy-Report-Only"] = (
+                    f"{reported}, {shadow}" if reported else shadow
+                )
             if header_name == "Content-Security-Policy-Report-Only" and not is_embeddable_document(request.path):
                 # Django owns this header. A responseHeadersPolicy on the Contour ingress replaces
                 # it, and with it the enforced app policy above, so the ingress must not set one.

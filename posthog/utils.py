@@ -484,6 +484,12 @@ def _read_preload_manifest(manifest_path: str, include_authenticated_shell: bool
         return ("", (), "")
 
 
+# PostHog's own posthog-js instance, which the app's CSP names by exact path.
+POSTHOG_JS_CLOUD_HOST = "https://internal-j.posthog.com"
+POSTHOG_JS_CLOUD_TOKEN = "sTMFPsFhdP1Ssg"
+POSTHOG_JS_E2E_TOKEN = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
+
+
 @tracer.start_as_current_span("template.context")
 def get_context_for_template(
     template_name: str,
@@ -538,8 +544,8 @@ def _build_template_context(
 
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
-        context["js_posthog_api_key"] = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
-        context["js_posthog_host"] = "https://internal-j.posthog.com"
+        context["js_posthog_api_key"] = POSTHOG_JS_E2E_TOKEN
+        context["js_posthog_host"] = POSTHOG_JS_CLOUD_HOST
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     elif settings.SELF_CAPTURE:
@@ -560,8 +566,8 @@ def _build_template_context(
             context["js_posthog_api_key"] = posthoganalytics.api_key
             context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
     else:
-        context["js_posthog_api_key"] = "sTMFPsFhdP1Ssg"
-        context["js_posthog_host"] = "https://internal-j.posthog.com"
+        context["js_posthog_api_key"] = POSTHOG_JS_CLOUD_TOKEN
+        context["js_posthog_host"] = POSTHOG_JS_CLOUD_HOST
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA

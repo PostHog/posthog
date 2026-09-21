@@ -34,6 +34,7 @@ from posthog.middleware import (
     ManagedProxyClientIPMiddleware,
     ManagedProxyClientIPOutcome,
     app_csp_header_name,
+    narrowed_app_policy,
     per_request_logging_context_middleware,
 )
 from posthog.models.organization import Organization
@@ -2346,6 +2347,29 @@ class TestCSPMiddleware(APIBaseTest):
             assert "report-to" not in policy
             assert "Reporting-Endpoints" not in response
 
+    @override_settings(
+        TEST=False,
+        DEBUG=False,
+        CLOUD_DEPLOYMENT="US",
+        SITE_URL="https://us.posthog.com",
+        JS_URL="https://app-static-prod.posthog.com",
+    )
+    def test_cloud_pages_carry_a_report_only_shadow_without_the_wildcards(self):
+        # The shadow is the evidence for dropping the wildcards, so it must report on its own version
+        # and must not quietly keep a wildcard.
+        response = self.client.get("/")
+
+        app_policy, shadow = response["Content-Security-Policy-Report-Only"].split(", ")
+        assert "https://*.posthog.com" in app_policy
+        assert "&v=2&" in app_policy
+        assert "https://*.posthog.com" not in shadow
+        assert "https://*.i.posthog.com" not in shadow
+        assert "https://internal-j.posthog.com/array/sTMFPsFhdP1Ssg/config.js" in shadow
+        assert "&v=3&" in shadow
+        assert "report-to posthog-v3" in shadow
+        assert f'posthog-v3="https://us.i.posthog.com/report/?token=' in response["Reporting-Endpoints"]
+        assert f"v=3&sample_rate=0.1&distinct_id={self.user.distinct_id}" in response["Reporting-Endpoints"]
+
 
 class TestSocialAuthExceptionMiddleware(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
@@ -2876,6 +2900,31 @@ class TestAppCspHeaderName(SimpleTestCase):
     def test_a_failing_flag_lookup_leaves_the_policy_report_only(self, _mock_flag):
         # Fail safe: an enforced policy that nobody meant to turn on breaks the page.
         assert app_csp_header_name(self._request("/")) == "Content-Security-Policy-Report-Only"
+
+
+class TestNarrowedAppPolicy(SimpleTestCase):
+    def test_swaps_the_wildcards_and_keeps_every_other_source(self) -> None:
+        app_policy = [
+            "default-src 'self'",
+            "script-src 'self' 'nonce-abc' 'wasm-unsafe-eval' https://*.posthog.com https://*.i.posthog.com https://js.stripe.com",
+            "worker-src 'self' blob:",
+            "img-src 'self' data: blob: https: https://*.posthog.com https://posthog.com",
+            "frame-src 'self' https:",
+        ]
+
+        narrowed = narrowed_app_policy(
+            app_policy,
+            {"script-src": ["https://app-static-prod.posthog.com", "https://internal-j.posthog.com/static/"]},
+        )
+
+        # A source the shadow dropped besides the wildcards would report loads the app policy allows,
+        # and a default-src would restrict every directive the shadow leaves out.
+        assert narrowed == [
+            "script-src 'self' 'nonce-abc' 'wasm-unsafe-eval' https://js.stripe.com https://app-static-prod.posthog.com https://internal-j.posthog.com/static/",
+            # Without it, workers fall back to script-src and the shadow reports the app's blob: workers.
+            "worker-src 'self' blob:",
+            "img-src 'self' data: blob: https: https://posthog.com",
+        ]
 
 
 class TestViewManagedCsp(SimpleTestCase):
