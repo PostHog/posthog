@@ -23,6 +23,8 @@ Fixture for csp-inline-js-in-template. Markup quoted in a comment never reaches 
     <span data-href="javascript:go()">A script reads this attribute; the browser does not follow it.</span>
     <!-- ok: csp-javascript-url-in-template -->
     <p>Links that start with javascript: do not run under the policy.</p>
+    <!-- ok: csp-javascript-url-in-template -->
+    <p>Do not write <code>href="javascript:go()"</code> in a template.</p>
 
     <!-- ruleid: csp-inline-event-handler-in-template -->
     <button type="button" onclick="go()">Go</button>

@@ -41,9 +41,15 @@ export function navigate(anchor: HTMLAnchorElement, url: string, code: string): 
     // ruleid: csp-javascript-url-in-jsx
     window.location = 'javascript:go()'
     // ruleid: csp-javascript-url-in-jsx
+    location = 'javascript:go()'
+    // ruleid: csp-javascript-url-in-jsx
     window.location.assign('javascript:go()')
     // ruleid: csp-javascript-url-in-jsx
+    location.replace('javascript:go()')
+    // ruleid: csp-javascript-url-in-jsx
     window.open(`javascript:${code}`, '_blank')
+    // ruleid: csp-javascript-url-in-jsx
+    open('javascript:go()')
     // ok: csp-javascript-url-in-jsx
     anchor.href = '/docs/javascript:intro'
     // ok: csp-javascript-url-in-jsx

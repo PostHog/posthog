@@ -20,8 +20,10 @@ rules:
               - /ee/**/templates/**/*.html
               - /frontend/src/**/*.html
       patterns:
-          # `data-href="javascript:..."` is data for a script to read, not a URL the browser follows.
-          - pattern-regex: '(?i)(?<![\w-])(?:href|src|action|formaction|xlink:href)\s*=\s*["'']?\s*javascript:'
+          # The match has to start inside a tag, so page text that shows `href="javascript:..."`
+          # does not match. `data-href="javascript:..."` is data for a script to read, not a URL
+          # the browser follows.
+          - pattern-regex: '(?i)<[a-z][a-z0-9-]*\b[^<>]*?(?<![\w-])(?:href|src|action|formaction|xlink:href)\s*=\s*["'']?\s*javascript:'
           # Markup quoted in a template or HTML comment never reaches the browser as a tag.
           - pattern-not-regex: '(?s)\{%\s*comment\s*%\}.*?\{%\s*endcomment\s*%\}|<!--.*?-->|\{#.*?#\}'
       metadata:

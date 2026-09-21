@@ -31,10 +31,13 @@ rules:
                             regex: ^(href|src|action|formAction|to|xlinkHref)$
                 - pattern: $OBJ.href = $URL
                 - pattern: $OBJ.location = $URL
+                - pattern: location = $URL
                 - pattern: location.assign($URL)
+                - pattern: location.replace($URL)
                 - pattern: $OBJ.location.assign($URL)
                 - pattern: $OBJ.location.replace($URL)
                 - pattern: window.open($URL, ...)
+                - pattern: open($URL, ...)
           # Bind the whole literal and read the scheme off its source text, so a plain string and
           # a template literal both match.
           - metavariable-regex:
