@@ -462,7 +462,7 @@ export function WebsiteChannelHome({
           me={isWork ? me : undefined}
           controls={
             isWork ? (
-              <div className="mb-1 flex w-full max-w-[900px] items-center justify-end">
+              <div className="mb-1 flex w-full items-center justify-end">
                 <SpaceActivityControls sources={activitySources} />
               </div>
             ) : undefined
