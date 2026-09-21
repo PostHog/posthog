@@ -639,15 +639,18 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     ):
         raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
 
-    security_shadow_check(
-        SecuritySubject(
-            email=user.email,
-            user_uuid=str(user.uuid),
-            organization_ids=(_organization_id_for_team(team_id),),
-        ),
-        SecuritySurface.AI_GATEWAY,
-        call_site="wizard_mint",
-    )
+    try:
+        security_shadow_check(
+            SecuritySubject(
+                email=user.email,
+                user_uuid=str(user.uuid),
+                organization_ids=(_organization_id_for_team(team_id),),
+            ),
+            SecuritySurface.AI_GATEWAY,
+            call_site="wizard_mint",
+        )
+    except Exception:
+        logger.exception("security_shadow_check_site_failed", call_site="wizard_mint")
 
     app = get_wizard_app()
 
