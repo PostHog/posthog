@@ -4331,14 +4331,53 @@ export interface PinnedAccountPropertyApi {
     id: string
 }
 
+/**
+ * * `weekdays` - Weekdays
+ * * `every_day` - Every day
+ */
+export type TaskDigestCadenceEnumApi = (typeof TaskDigestCadenceEnumApi)[keyof typeof TaskDigestCadenceEnumApi]
+
+export const TaskDigestCadenceEnumApi = {
+    Weekdays: 'weekdays',
+    EveryDay: 'every_day',
+} as const
+
+export interface TaskDigestPreferencesApi {
+    /** Whether the task digest email is sent to this user. */
+    enabled: boolean
+    /** Time of day to send the digest, as HH:MM in the project timezone. */
+    send_time: string
+    /** How often the digest is sent.
+     *
+     * * `weekdays` - Weekdays
+     * * `every_day` - Every day */
+    cadence: TaskDigestCadenceEnumApi
+}
+
 export interface UserCustomerAnalyticsConfigApi {
     /** Account properties pinned in sidebar display order. */
     readonly pinned_properties: readonly PinnedAccountPropertyApi[]
+    /** Task digest email preferences. Disabled until the user turns the digest on. */
+    readonly task_digest: TaskDigestPreferencesApi
+}
+
+export interface TaskDigestPreferencesUpdateApi {
+    /** Whether the task digest email is sent to this user. */
+    enabled?: boolean
+    /** Time of day to send the digest, as HH:MM in the project timezone. */
+    send_time?: string
+    /** How often the digest is sent.
+     *
+     * * `weekdays` - Weekdays
+     * * `every_day` - Every day */
+    cadence?: TaskDigestCadenceEnumApi
 }
 
 export interface PatchedUserCustomerAnalyticsConfigUpdateApi {
     /** Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them. */
     pinned_properties?: PinnedAccountPropertyApi[]
+    /** Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one. */
+    task_digest?: TaskDigestPreferencesUpdateApi
 }
 
 export type CustomerAnalyticsExternalAccountRetrieveParams = {
