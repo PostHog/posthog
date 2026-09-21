@@ -44,6 +44,14 @@ The answer is under `data.answers`, in Kev's format, with `data.probabilities_ra
 
 Prefix caching is off for this model: vLLM does not enable it for pooling models on hybrid backbones, so every row recomputes its state. Batching across rows and requests still applies.
 
+## GPU smoke test
+
+`bin/gpu-smoke.sh` does the whole loop on a fresh CUDA box: installs the `serve` environment, fetches and checksums the checkpoint, starts the server, sends one request, and runs the parity comparison.
+
+```bash
+CHECKPOINT=s3://posthog-ml-training-prod-us-east-1-base-models/posthog/kev-4b-vllm/<version> REFERENCE=reference-fp32.jsonl bin/gpu-smoke.sh
+```
+
 ## Parity
 
 ```bash

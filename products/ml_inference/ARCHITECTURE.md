@@ -121,8 +121,9 @@ Other GPU homes and their roles:
 ### Weights live in the ML training account
 
 The ML training AWS account already has a base-models bucket, described in its own Terraform as a mirror of third-party foundation-model weights for training and inference, laid out as `<vendor>/<model>/`.
-Kev's merged checkpoints go there, published by a CI job to a versioned prefix such as `jaredpalmer/kev-4b/<git sha>/` and never overwritten.
-The merge is our artifact: Kev's loader merges the LoRA in fp32 at load time, and the vLLM port needs the merged checkpoint anyway.
+The bucket mirrors upstream repos as `<vendor>/<model>/` with a `checksums.tsv` under `_provenance/`.
+A merged Kev export is our artifact rather than a mirror, so it goes under `posthog/kev-4b-vllm/<Kev Hub revision>/`, one prefix per export, never overwritten, with the same provenance file.
+`packages/kev-vllm` holds the exporter and uploader: Kev's loader merges the LoRA in fp32 at load time, and the vLLM port needs the merged checkpoint anyway.
 The apply job assumes a role in the ML account through OIDC and hands instances presigned URLs, so no Lambda instance ever holds a bucket credential and no prod account role needs a grant.
 An instance fetches weights once, on first boot, and keeps them on local disk across restarts; a replaced instance gets fresh URLs from the next apply.
 Weights stay out of the container image, so a code change does not re-push gigabytes, and the weights version is a field in the declared instance file.
@@ -167,17 +168,17 @@ The team's serving direction is the vLLM stack, with SGLang as the comparison po
 So the engine choice is vLLM, and the work is making Kev, and later Glaucon, run inside it rather than building a runner beside it.
 
 - **Bring-up.** Kev's own FastAPI server, single request at a time, on one GPU instance. Enough to wire the gateway kind, the codec, pricing, and the parity harness against known-good probabilities. Not a serving design.
-- **End state.** Kev as an out-of-tree vLLM pooling model. The base model already exists in vLLM (`Qwen3_5ForCausalLM`). The port is a merged checkpoint export, a plugin class that adds a pooler reading the option end and decide token positions and applying the pointer head, per-question row expansion before the request enters vLLM, calibration temperature as post-processing, and a parity harness with Kev's own bf16 versus fp32 gap (0.017 max on 24 records) as the bar. One to two engineer weeks for a working port, then a similar amount for parity, cache tuning, and load testing. Pin the vLLM version and re-run parity on every bump, because out-of-tree models track internal APIs.
+- **End state.** Kev as an out-of-tree vLLM pooling model. This exists as [`packages/kev-vllm`](packages/kev-vllm/README.md): `KevForDecision` subclasses vLLM's stock `Qwen3_5ForCausalLM`, its pooler finds the option-end and decide tokens in each row and applies the pointer head with the calibration temperature, and a vLLM IO-processor plugin turns a `/v1/systemone` request into one row per question on the `/pooling` endpoint and maps the probabilities back. The exporter writes the merged bf16 checkpoint, and the parity tool compares served probabilities with Kev's own fp32 path, with Kev's measured bf16 versus fp32 gap (0.017 max on 24 records) as the bar. The port is pinned to vLLM 0.29.0; re-run parity on every bump, because out-of-tree models track internal APIs.
 - **Glaucon** follows the same route as a second out-of-tree pooling model. Its custom FlexAttention masks are the part that needs design work inside vLLM's attention layer, and that is a question to settle before its training recipe hardens further.
 
 Two vLLM caveats, checked 2026-09-21, decide how much of Kev's state reuse survives the port:
 
 - vLLM's prefix cache for GDN hybrids works at a 528-token block granularity (`--mamba-cache-mode align`). A state under 528 tokens never hits, and a 772-token state reuses 528 tokens and recomputes 244. The finer `all` mode is an unmerged PR that costs 28 to 40% throughput and stores the GDN state in bf16 unless forced to fp32, which makes cold and warm answers differ slightly. See [vllm#40696](https://github.com/vllm-project/vllm/issues/40696) and [vllm#26807](https://github.com/vllm-project/vllm/pull/26807).
-- vLLM enables prefix caching for pooling models only when the pooler reads the last token. Kev's pooler reads several positions, all in the question suffix after the state, so the cache can apply in principle, but the pooling path needs that case handled.
+- vLLM disables prefix caching outright for pooling models on a hybrid backbone (`ModelConfig.is_prefix_caching_supported` returns false when a pooler config meets `attn_type == "hybrid"`), so today's port recomputes the state for every row. Batching across rows and requests still applies. Lifting that is upstream work: the check, plus a pooler that reads positions inside the cached prefix.
 
 Kev's own cache is exact, whole-state, any length, fp32 for the GDN part.
-If PostHog's real states are mostly under 528 tokens, the vLLM port needs either the `all` mode to land upstream or a whole-state cache kept by the plugin itself.
-That is the first measurement to take.
+The port therefore has no state reuse yet, only batching.
+Whether that matters is the first measurement to take: if a request averages five questions on a 772-token state, the port spends about five times the prefill of Kev's cached path on a warm state and the same on a cold one.
 
 ### Batching
 
