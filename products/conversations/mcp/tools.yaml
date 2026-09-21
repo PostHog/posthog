@@ -9,6 +9,9 @@ feature: conversations
 url_prefix: /support/tickets
 ui_apps: {}
 tools:
+    conversations-ai-context-account-properties-list:
+        operation: conversations_ai_context_account_properties_list
+        enabled: false
     conversations-ai-reply-playbook-retrieve:
         operation: conversations_ai_reply_playbook_retrieve
         enabled: false

@@ -72,8 +72,9 @@ Three duties fall on the incarnation rather than on `BearerJwt`, and none is enf
 | `teams`      | `/api/conversations/v1/teams/events`                    | `supporthog`               | `conversations_teams`                                                                                                                       | `products/conversations/backend/webhook_consumers.py`                   |
 | `pandadoc`   | `/api/legal_documents/pandadoc`                         | `default`                  | `legal_documents_signatures`                                                                                                                | `products/legal_documents/backend/webhook_consumers.py`                 |
 | `vapi`       | `/api/user_interviews/vapi_webhook/`                    | `default`                  | `user_interviews_vapi`                                                                                                                      | `products/user_interviews/backend/webhook_consumers.py`                 |
-| `mailgun`    | `/api/conversations/v1/email/inbound`                   | `inbound`                  | none yet, the endpoint still runs its own verifier                                                                                          | `products/conversations/backend/services/mailgun_events.py`             |
-| `mailgun`    | `/api/conversations/v1/email/outbound`                  | `outbound`                 | none yet, the endpoint still runs its own verifier                                                                                          | `products/conversations/backend/services/mailgun_events.py`             |
+| `mailgun`    | `/api/conversations/v1/email/inbound`                   | `inbound`                  | `conversations_email_inbound`                                                                                                               | `products/conversations/backend/webhook_consumers.py`                   |
+| `mailgun`    | `/api/conversations/v1/email/outbound`                  | `outbound`                 | `conversations_email_outbound`                                                                                                              | `products/conversations/backend/webhook_consumers.py`                   |
+| `mailgun`    | `/api/conversations/v1/email/capture`                   | `capture`                  | `conversations_email_capture`                                                                                                               | `products/conversations/backend/webhook_consumers.py`                   |
 | `sns`        | `/webhooks/workflows/ses-events`                        | `default`                  | `workflows_ses_events`                                                                                                                      | `products/workflows/backend/webhook_consumers.py`                       |
 | `customerio` | `/api/projects/<team_id>/messaging/customerio/webhook/` | none                       | none, it is the DRF adapter path                                                                                                            | `products/messaging/backend/api/customerio_webhook.py`                  |
 
@@ -82,8 +83,7 @@ The customer-facing GitHub App is shared across products, so its two endpoints a
 Every other endpoint is declared by the product that registered the App, in its own `routes.py`.
 The SES endpoint is the exception for now, because its view still lives in `backend/api/` rather than behind the ingress builders.
 
-The Vapi endpoint sits behind a per-IP throttle the product owns, from before ingress had a throttle lane.
-It moves onto `throttle_class` next.
+The Vapi endpoint is the only one that caps request volume: its provider sets `throttle_class` to a per-IP throttle, because the endpoint is public and Vapi's egress is shared across tenants.
 
 ## Non-goals
 
@@ -151,6 +151,9 @@ WEBHOOK_CONSUMERS = (
 The registry finds these through `posthog.products.load_product_modules("webhook_consumers")` on the **first delivery**, not at `django.setup()`.
 That is deliberate: eager loading would drag every product's webhook module onto the startup import path, which `posthog/test/repo_invariants/test_startup_import_budget.py` exists to keep clear.
 Keep the module itself cheap to import and defer the heavy work into the handler.
+
+The module may import its own product's `facade/` and nothing else of the product.
+An import-linter contract holds that for a sealed product, and `hogli product:lint` holds it by AST for every product that has a `webhook_consumers.py`, relative imports included.
 
 Registration is validated and fail-closed.
 A consumer that names a provider app nobody declares, reuses a name already taken for that provider, or registers for an event type the provider does not declare raises `RegistryError` at build, rather than sitting there looking registered and never running.
@@ -227,6 +230,7 @@ Add a `<provider>/` subpackage with a `provider.py` holding three things (see `g
 - `SPECS` — one `ProviderSpec` per app, naming the event types the app is subscribed to. The registry validates consumers against these.
 - A `WebhookProvider` subclass — its `scheme()` (from `verify/`), its `deliveries()` (how to read event type, delivery id and context off the request), and any status codes its protocol fixes. The defaults are 403 on a bad signature, 500 when unconfigured, and 202 on success, with a short body naming the reason on the two rejections. An incarnation that answers 404 to withhold the endpoint's existence sets `explains_rejections = False` so the body stays empty as well. Three more attributes are optional: `parse()`, which decodes the body, `throttle_class`, which caps request volume, and `retry_status`, which a provider that redelivers on a non-2xx sets so an unaccepted delivery is not receipted. See [The lanes one request runs through](#the-lanes-one-request-runs-through).
 - A `build_<provider>_provider(...)` function returning that provider, which the URLconf hands to `build_webhook_view()`.
+  A builder that takes an `app` name checks it with `require_known_app(provider, app, SPECS)` before anything else, so a typo raises `UnknownApp` at import. Without that check the endpoint builds and serves: consumers register against the declared app names, so nothing matches and every delivery is receipted and dropped, or the app has no secret getter and every delivery answers `NOT_CONFIGURED`.
 
 Add the module to `_INCARNATION_MODULES` in `posthog/ingress/providers.py`, so the registry finds its specs and any core consumers.
 
