@@ -37,10 +37,15 @@ class TitleGeneratorNode(AssistantNode):
         if not conversation or conversation.title:
             return None
 
-        if has_conversation_topic_feature_flag(self._team, self._user):
-            title, topic = self._generate_title_and_topic(human_message.content, config)
-        else:
-            title, topic = self._generate_title_only(human_message.content, config), None
+        try:
+            if has_conversation_topic_feature_flag(self._team, self._user):
+                title, topic = self._generate_title_and_topic(human_message.content, config)
+            else:
+                title, topic = self._generate_title_only(human_message.content, config), None
+        except Exception:
+            # Naming is cosmetic, so a failure here must not end the user's turn in the conversation graph.
+            logger.exception("title_generation_failed, leaving the conversation untitled")
+            return None
 
         conversation.title = title[: Conversation.TITLE_MAX_LENGTH].strip()
         if topic is not None:
