@@ -17,16 +17,13 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
     const { formulaNodes, hasFormula } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter, removeFormulaNode } = useActions(insightVizDataLogic(insightProps))
 
-    // Initialize with at least one empty value
-    const [values, setValues] = useState<TrendsFormulaNode[]>(formulaNodes)
-    const [localValues, setLocalValues] = useState<TrendsFormulaNode[]>(values)
+    const [localValues, setLocalValues] = useState<TrendsFormulaNode[]>(formulaNodes)
 
     useEffect(() => {
         // Don't clear the formulas so that the values are still there after toggling the formula switch.
         // formulaNodes is [] (truthy) when no formula is set, so check length to fall through to the
         // hasFormula branch that seeds one empty input when formula mode is toggled on.
         if (formulaNodes && formulaNodes.length > 0) {
-            setValues(formulaNodes)
             // Merge incoming formulas with existing local fields, maintaining order. The source
             // query editor can change the query while this editor stays mounted, so the counts
             // can differ.
@@ -48,12 +45,16 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
                 return merged
             })
         } else if (hasFormula) {
-            // Always ensure at least one empty value when formula mode is enabled
-            if (values.length === 0) {
-                const emptyNode = { formula: '' }
-                setValues([emptyNode])
-                setLocalValues([emptyNode])
-            }
+            // The query can lose every formula from outside this editor. Drop the fields that
+            // held them, so a later blur cannot write a formula back that the query no longer
+            // has, and keep one blank field for the user to type in.
+            setLocalValues((prev) => {
+                const blanks = prev.filter((node) => node.formula.trim() === '')
+                if (blanks.length === 0) {
+                    return [{ formula: '' }]
+                }
+                return blanks.length === prev.length ? prev : blanks
+            })
         }
     }, [formulaNodes, hasFormula]) // oxlint-disable-line react-hooks/exhaustive-deps
 

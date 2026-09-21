@@ -42,6 +42,23 @@ describe('TrendsFormula', () => {
         await waitFor(() => expect(getQuerySource().trendsFilter?.formulaNodes).toEqual([]))
     })
 
+    it('clears a field whose formula the query lost, so a blur cannot restore it', async () => {
+        renderInsightPage({ query: buildTrendsQuery() })
+
+        await userEvent.click(await screen.findByTestId('trends-formula-switch'))
+        await userEvent.type(await screen.findByPlaceholderText(FORMULA_PLACEHOLDER), 'A')
+        await userEvent.tab()
+        await waitFor(() => expect(getQuerySource().trendsFilter?.formulaNodes).toEqual(nodes('A')))
+
+        rewriteFormulasOutsideTheEditor([])
+
+        await waitFor(() => expect(formulaInputs().map((input) => input.value)).toEqual(['']))
+
+        await userEvent.click(formulaInputs()[0])
+        await userEvent.tab()
+        expect(getQuerySource().trendsFilter?.formulaNodes).toEqual([])
+    })
+
     const rewrites: [string, TrendsFormulaNode[], TrendsFormulaNode[], string[]][] = [
         ['grown', nodes('A'), nodes('A', 'B', 'C'), ['A', 'B', 'C']],
         ['shrunk', nodes('A', 'B', 'C'), nodes('B'), ['B']],
