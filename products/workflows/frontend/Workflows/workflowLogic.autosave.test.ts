@@ -107,6 +107,38 @@ describe('workflowLogic auto-save', () => {
             // The save button and the badge both show this, and it has to name the file
             expect(logic.values.workflowEditDisabledReason).toContain('workflows/welcome.ts')
         })
+
+        describe('with a staged draft', () => {
+            const staged = makeWorkflow({
+                managed_by: 'code',
+                source_repository: 'github.com/example/flows',
+                source_path: 'workflows/welcome.ts',
+                status: 'active',
+                draft: { name: 'Autosave test', actions: [], edges: [] },
+                draft_updated_at: '2026-05-01T00:01:00.000Z',
+            })
+
+            beforeEach(async () => {
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/hog_flows/:id/': staged,
+                        '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                    },
+                })
+                initKeaTests()
+                logic = workflowLogic({ id: WORKFLOW_ID })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+            })
+
+            it('refuses publish and discard, which the API rejects on a code-managed workflow', () => {
+                // Both buttons mount, because the draft is staged and the form is clean. Reading only
+                // the draft state would leave them live and send a request the API answers with a 403.
+                expect(logic.values.showDraftActions).toBe(true)
+                expect(logic.values.publishDisabledReason).toContain('workflows/welcome.ts')
+                expect(logic.values.discardDisabledReason).toContain('workflows/welcome.ts')
+            })
+        })
     })
 
     describe('disabling a workflow', () => {

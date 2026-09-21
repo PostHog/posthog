@@ -21,9 +21,7 @@ export function codeManagedReason(workflow: HogFlow | null | undefined): string 
     return `This workflow is managed by code. Edit ${workflowSourceLabel(workflow)} and push.`
 }
 
-/** Why a code-managed workflow cannot be deleted, and the three steps that let it be. */
+/** Why a code-managed workflow cannot be deleted here. */
 export function codeManagedDeleteReason(workflow: HogFlow | null | undefined): string {
-    return `This workflow is managed by code, in ${workflowSourceLabel(
-        workflow
-    )}. Hand it back to the UI first, then archive it, then delete it.`
+    return `This workflow is managed by code, in ${workflowSourceLabel(workflow)}. It cannot be deleted here.`
 }

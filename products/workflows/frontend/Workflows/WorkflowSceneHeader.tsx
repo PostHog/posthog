@@ -144,13 +144,8 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                             opensFloatingUi
                                             onClick={() => publishDraft()}
                                             data-attr="workflow-menubar-publish-draft"
-                                            disabled={!!disabledReason || hasUnsavedChanges}
-                                            tooltip={
-                                                disabledReason ??
-                                                (hasUnsavedChanges
-                                                    ? 'Save or clear your in-progress edits first'
-                                                    : undefined)
-                                            }
+                                            disabled={!!disabledReason || !!publishDisabledReason}
+                                            tooltip={disabledReason ?? publishDisabledReason}
                                         >
                                             <IconUpload />
                                             Publish draft
@@ -167,13 +162,8 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                             variant="destructive"
                                             onClick={() => discardDraft()}
                                             data-attr="workflow-menubar-discard-draft"
-                                            disabled={!!disabledReason || hasUnsavedChanges}
-                                            tooltip={
-                                                disabledReason ??
-                                                (hasUnsavedChanges
-                                                    ? 'Save or clear your in-progress edits first'
-                                                    : undefined)
-                                            }
+                                            disabled={!!disabledReason || !!discardDisabledReason}
+                                            tooltip={disabledReason ?? discardDisabledReason}
                                         >
                                             <IconTrash />
                                             Discard draft
