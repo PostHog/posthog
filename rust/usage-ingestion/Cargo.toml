@@ -25,6 +25,7 @@ rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
+subtle = "2.6"
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }

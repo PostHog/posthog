@@ -11,7 +11,8 @@ use usage_ingestion_proto::usage_ingestion::v1::usage_ingestion_server::{
     UsageIngestion, UsageIngestionServer,
 };
 use usage_ingestion_proto::usage_ingestion::v1::{
-    BillingUsageRecord, IngestBillingUsageRequest, IngestBillingUsageResponse,
+    BillingUsageRecord, GetUsageCountersRequest, GetUsageCountersResponse,
+    IngestBillingUsageRequest, IngestBillingUsageResponse,
 };
 
 /// Records every request, and answers with the queued codes before it starts accepting.
@@ -49,6 +50,15 @@ impl RecordingIngestion {
 
 #[tonic::async_trait]
 impl UsageIngestion for RecordingIngestion {
+    async fn get_usage_counters(
+        &self,
+        _request: Request<GetUsageCountersRequest>,
+    ) -> Result<Response<GetUsageCountersResponse>, Status> {
+        Err(Status::unimplemented(
+            "not exercised by billing usage tests",
+        ))
+    }
+
     async fn ingest_billing_usage(
         &self,
         request: Request<IngestBillingUsageRequest>,
