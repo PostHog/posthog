@@ -4405,9 +4405,9 @@ jobs:
               id: timing-reporter
               shell: bash
               run: |
-                  # tools/owners is a path dep of the reporter, so a base ref predating it can't resolve its deps.
                   available=false
-                  if [[ -f .github/scripts/report_test_timings.py && -d tools/owners ]]; then
+                  # The reporter depends on owners-yaml. Accept its old path so unrebased PRs can still report.
+                  if [[ -f .github/scripts/report_test_timings.py && ( -d packages/owners-yaml || -d tools/owners ) ]]; then
                     available=true
                   fi
                   # A re-run may emit only through an attempt-aware reporter: an older script would
