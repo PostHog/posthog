@@ -517,6 +517,8 @@ export interface ProxyRecordApi {
     readonly root_redirect_url: string | null
     /** Whether this managed proxy supports a redirect from its root URL. */
     readonly root_redirect_supported: boolean
+    /** Whether this managed proxy runs on the older ingress. The older ingress has no IPv6 address, so events sent through the proxy always record an IPv4 client IP. */
+    readonly is_legacy: boolean
     /** Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).
      *
      * * `waiting` - Waiting

@@ -73,6 +73,7 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
             "target_cname",
             "root_redirect_url",
             "root_redirect_supported",
+            "is_legacy",
             "status",
             "message",
             "created_at",
@@ -96,6 +97,12 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
     )
     root_redirect_supported = serializers.SerializerMethodField(
         help_text="Whether this managed proxy supports a redirect from its root URL."
+    )
+    is_legacy = serializers.SerializerMethodField(
+        help_text=(
+            "Whether this managed proxy runs on the older ingress. "
+            "The older ingress has no IPv6 address, so events sent through the proxy always record an IPv4 client IP."
+        )
     )
     status = serializers.ChoiceField(
         choices=ProxyRecord.Status.choices,
@@ -121,6 +128,10 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
     @extend_schema_field(OpenApiTypes.BOOL)
     def get_root_redirect_supported(self, record: ProxyRecord) -> bool:
         return is_cloudflare_proxy_by_cname(record.target_cname)
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_is_legacy(self, record: ProxyRecord) -> bool:
+        return not is_cloudflare_proxy_by_cname(record.target_cname)
 
     def validate_domain(self, value: str) -> str:
         # The stored value is later used both as a DNS query name and as the authority of a

@@ -81,7 +81,7 @@ class TestProxyRecordAPI(APIBaseTest):
         data = response.json()
         assert data["max_proxy_records"] == 2
 
-    def test_list_reports_root_redirect_support_for_each_proxy(self) -> None:
+    def test_list_reports_root_redirect_support_and_legacy_ingress_for_each_proxy(self) -> None:
         ProxyRecord.objects.bulk_create(
             [
                 ProxyRecord(
@@ -103,12 +103,13 @@ class TestProxyRecordAPI(APIBaseTest):
             response = self.client.get(f"/api/organizations/{self.organization.id}/proxy_records/")
 
         assert response.status_code == status.HTTP_200_OK
-        support_by_domain = {
-            record["domain"]: record["root_redirect_supported"] for record in response.json()["results"]
+        flags_by_domain = {
+            record["domain"]: (record["root_redirect_supported"], record["is_legacy"])
+            for record in response.json()["results"]
         }
-        assert support_by_domain == {
-            "cloudflare.example.com": True,
-            "legacy.example.com": False,
+        assert flags_by_domain == {
+            "cloudflare.example.com": (True, False),
+            "legacy.example.com": (False, True),
         }
 
     @patch("posthog.api.proxy_record.sync_connect")

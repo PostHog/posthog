@@ -103,6 +103,8 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                 },
                 '/api/environments/:team_id/conversations/': { results: [] },
                 '/api/user_home_settings/@me/': {},
+                // One proxy on the current ingress and one legacy proxy, so the story covers the
+                // "Legacy" tag and its IPv4-only note as well as the ordinary row.
                 '/api/organizations/:organization_id/proxy_records': {
                     results: [
                         {
@@ -110,9 +112,17 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                             domain: 't.example.com',
                             status: 'valid',
                             target_cname: 't-example-com.proxy.posthog.cc',
+                            is_legacy: false,
+                        },
+                        {
+                            id: 'proxy-2',
+                            domain: 'e.example.com',
+                            status: 'valid',
+                            target_cname: 'e-example-com.proxy.posthog.cc',
+                            is_legacy: true,
                         },
                     ],
-                    max_proxy_records: 2,
+                    max_proxy_records: 3,
                 },
                 // One bound token and one left over from before URL binding, so the story
                 // covers the warning banner and the "Not verifying" cell as well as the
