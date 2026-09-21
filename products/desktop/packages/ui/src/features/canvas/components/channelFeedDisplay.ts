@@ -1,6 +1,7 @@
 import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import { stripInjectedBlocks } from "@posthog/core/editor/injectedBlocks";
 import type { SignalReport, Task } from "@posthog/shared/domain-types";
+import type { SpacePullRequest } from "@posthog/ui/features/canvas/components/work/useSpacePullRequests";
 import type { ChannelFeedSystemMessage } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
 
 const incompleteContextBlock =
@@ -25,6 +26,12 @@ export type FeedEntry =
     }
   | { kind: "report"; id: string; createdAt: string; report: SignalReport }
   | {
+      kind: "pr";
+      id: string;
+      createdAt: string;
+      pullRequest: SpacePullRequest;
+    }
+  | {
       kind: "system";
       id: string;
       createdAt: string;
@@ -33,6 +40,23 @@ export type FeedEntry =
 
 /** Which entry kinds the feed shows. Sessions cover tasks and their system rows. */
 export type FeedKindFilter = "all" | "sessions" | "reports";
+
+export type SpaceActivityType = "task" | "canvas" | "report" | "pr";
+
+export const ALL_SPACE_ACTIVITY_TYPES: readonly SpaceActivityType[] = [
+  "task",
+  "canvas",
+  "report",
+  "pr",
+];
+
+export function feedEntryMatchesTypes(
+  entry: FeedEntry,
+  types: readonly SpaceActivityType[],
+): boolean {
+  if (entry.kind === "system") return types.includes("task");
+  return types.includes(entry.kind);
+}
 
 export function entryKey(entry: FeedEntry): string | null {
   if (entry.kind === "task") return `task:${entry.task.id}`;
@@ -70,6 +94,7 @@ export function mergeFeedEntries(
   systemMessages: ChannelFeedSystemMessage[],
   reports: SignalReport[] = [],
   canvases: readonly DashboardRecord[] = [],
+  pullRequests: readonly SpacePullRequest[] = [],
 ): FeedEntry[] {
   const merged: FeedEntry[] = [
     ...tasks.map((task) => ({
@@ -89,6 +114,12 @@ export function mergeFeedEntries(
       id: `canvas:${canvas.id}`,
       createdAt: new Date(canvas.createdAt).toISOString(),
       canvas,
+    })),
+    ...pullRequests.map((pullRequest) => ({
+      kind: "pr" as const,
+      id: `pr:${pullRequest.url}`,
+      createdAt: pullRequest.task.updated_at,
+      pullRequest,
     })),
     ...systemMessages.map((message) => ({
       kind: "system" as const,

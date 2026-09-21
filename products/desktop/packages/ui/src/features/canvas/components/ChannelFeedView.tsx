@@ -71,8 +71,10 @@ import {
   type FeedEntry,
   type FeedKindFilter,
   feedEntryMatchesKind,
+  feedEntryMatchesTypes,
   keepFilteredEntries,
   mergeFeedEntries,
+  type SpaceActivityType,
   stripContextBlocks,
 } from "@posthog/ui/features/canvas/components/channelFeedDisplay";
 import { ReportFeedRow } from "@posthog/ui/features/canvas/components/ReportFeedRow";
@@ -83,6 +85,8 @@ import {
   type TaskRowMenuProps,
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
 import { buildRows } from "@posthog/ui/features/canvas/components/taskArtifactRows";
+import { PrFeedRow } from "@posthog/ui/features/canvas/components/work/PrFeedRow";
+import type { SpacePullRequest } from "@posthog/ui/features/canvas/components/work/useSpacePullRequests";
 import type { ChannelFeedSystemMessage } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
 import type { ChannelReportsFilters } from "@posthog/ui/features/canvas/hooks/useChannelReports";
 import { useChannelTaskData } from "@posthog/ui/features/canvas/hooks/useChannelTaskData";
@@ -772,12 +776,14 @@ const FeedItem = memo(function FeedItem({
   task,
   inView,
   showRepo,
+  wide,
   onOpenTask,
   onOpenThread,
 }: {
   task: Task;
   inView: boolean;
   showRepo: boolean;
+  wide: boolean;
   onOpenTask: (task: Task) => void;
   onOpenThread: (task: Task, tab?: ThreadPanelTab) => void;
 }) {
@@ -974,7 +980,10 @@ const FeedItem = memo(function FeedItem({
         size="sm"
         role="button"
         tabIndex={0}
-        className="mx-auto my-1.5 w-full max-w-[660px] cursor-pointer rounded-xl bg-(--gray-2) py-0 transition-colors hover:border-(--gray-7) hover:bg-(--gray-3)"
+        className={cn(
+          "mx-auto my-1.5 w-full cursor-pointer rounded-xl bg-(--gray-2) py-0 transition-colors hover:border-(--gray-7) hover:bg-(--gray-3)",
+          wide ? "max-w-full" : "max-w-[660px]",
+        )}
         onClick={(event) => {
           if (
             event.target instanceof Element &&
@@ -1000,6 +1009,9 @@ const FeedItem = memo(function FeedItem({
         <CardContent className="flex flex-col px-4 pt-3.5 pb-3">
           <div className="flex items-center gap-3">
             <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
+              <span className="flex size-3.5 shrink-0 translate-y-0.5 items-center justify-center">
+                <TaskTabIcon task={task} size={14} showPrState={false} />
+              </span>
               {editingTitle ? (
                 <Input
                   autoFocus
@@ -1216,11 +1228,13 @@ const FeedItem = memo(function FeedItem({
 function FeedRow({
   task,
   showRepo,
+  wide,
   onOpenTask,
   onOpenThread,
 }: {
   task: Task;
   showRepo: boolean;
+  wide: boolean;
   onOpenTask: (task: Task) => void;
   onOpenThread: (task: Task, tab?: ThreadPanelTab) => void;
 }) {
@@ -1234,6 +1248,7 @@ function FeedRow({
         task={task}
         inView={inView}
         showRepo={showRepo}
+        wide={wide}
         onOpenTask={onOpenTask}
         onOpenThread={onOpenThread}
       />
@@ -1245,10 +1260,12 @@ const CanvasFeedRow = memo(function CanvasFeedRow({
   canvas,
   channelId,
   listRow,
+  wide,
 }: {
   canvas: DashboardRecord;
   channelId: string;
   listRow: boolean;
+  wide: boolean;
 }) {
   const open = () => navigateToChannelDashboard(channelId, canvas.id);
   const author = canvasAuthor(canvas);
@@ -1258,7 +1275,10 @@ const CanvasFeedRow = memo(function CanvasFeedRow({
         size="sm"
         role="button"
         tabIndex={0}
-        className="mx-auto my-1.5 w-full max-w-[660px] cursor-pointer rounded-xl bg-(--gray-2) py-0 transition-colors hover:border-(--gray-7) hover:bg-(--gray-3)"
+        className={cn(
+          "mx-auto my-1.5 w-full cursor-pointer rounded-xl bg-(--gray-2) py-0 transition-colors hover:border-(--gray-7) hover:bg-(--gray-3)",
+          wide ? "max-w-full" : "max-w-[660px]",
+        )}
         onClick={open}
         onKeyDown={(event) => {
           if (event.target !== event.currentTarget) return;
@@ -1303,7 +1323,7 @@ const CanvasFeedRow = memo(function CanvasFeedRow({
       type="button"
       onClick={open}
       title={canvas.name}
-      className="group relative flex h-8 w-full max-w-[900px] items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors hover:bg-fill-hover"
+      className="group relative mx-auto flex h-8 w-full max-w-[900px] items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors hover:bg-fill-hover"
     >
       <span className="flex size-3.5 shrink-0 items-center justify-center">
         {iconForTemplate(canvas.templateId, {
@@ -1329,6 +1349,8 @@ const FEED_PAGE = 30;
 const NO_CANVASES: readonly DashboardRecord[] = [];
 
 const NO_ITEMS: readonly ChannelItemModel[] = [];
+
+const NO_PULL_REQUESTS: readonly SpacePullRequest[] = [];
 
 const NOBODY = { uuid: null };
 
@@ -1387,7 +1409,7 @@ const FeedLogRow = memo(function FeedLogRow({
         ref={ref}
         role="button"
         tabIndex={0}
-        className="group relative flex h-8 w-full max-w-[900px] cursor-pointer items-center gap-2 rounded-md px-2 text-[13px] transition-colors hover:bg-fill-hover"
+        className="group relative mx-auto flex h-8 w-full max-w-[900px] cursor-pointer items-center gap-2 rounded-md px-2 text-[13px] transition-colors hover:bg-fill-hover"
         onClick={(event) => {
           if (
             event.target instanceof Element &&
@@ -1407,7 +1429,7 @@ const FeedLogRow = memo(function FeedLogRow({
           }
         }}
       >
-        <TaskTabIcon task={task} size={14} />
+        <TaskTabIcon task={task} size={14} showPrState={false} />
         <button
           type="button"
           className="min-w-0 flex-1 truncate text-left font-medium"
@@ -1442,11 +1464,20 @@ const FeedLogRow = memo(function FeedLogRow({
 // at the top of the feed the moment they submit. Deliberately dumb — no
 // per-task data hooks or polls (there's no task id to query yet); it's
 // replaced by a real FeedRow as soon as the task is created.
-function PendingFeedRow({ pending }: { pending: PendingKickoff }) {
+function PendingFeedRow({
+  pending,
+  wide,
+}: {
+  pending: PendingKickoff;
+  wide: boolean;
+}) {
   return (
     <Card
       size="sm"
-      className="mx-auto my-1.5 w-full max-w-[660px] rounded-xl bg-(--gray-2) py-0"
+      className={cn(
+        "mx-auto my-1.5 w-full rounded-xl bg-(--gray-2) py-0",
+        wide ? "max-w-full" : "max-w-[660px]",
+      )}
     >
       <CardContent className="flex flex-col px-4 pt-3.5 pb-3">
         <div className="flex items-start gap-3">
@@ -1470,9 +1501,20 @@ function PendingFeedRow({ pending }: { pending: PendingKickoff }) {
 // render as that user (initials avatar + name — e.g. "Adam L · joined mobile");
 // the rest render as "PostHog / Agent" (context lifecycle updates). Same chrome
 // as a task row, minus the task card and reply footer.
-function SystemFeedRow({ message }: { message: ChannelFeedSystemMessage }) {
+function SystemFeedRow({
+  message,
+  wide,
+}: {
+  message: ChannelFeedSystemMessage;
+  wide: boolean;
+}) {
   return (
-    <div className="mx-auto flex w-full min-w-0 max-w-[660px] items-center gap-2 px-1 py-1.5 text-(--gray-9) text-xs">
+    <div
+      className={cn(
+        "mx-auto flex w-full min-w-0 items-center gap-2 px-1 py-1.5 text-(--gray-9) text-xs",
+        wide ? "max-w-full" : "max-w-[660px]",
+      )}
+    >
       {message.author ? (
         <UserAvatar user={message.author} size="xs" />
       ) : (
@@ -1607,19 +1649,26 @@ function FeedSkeleton({ compact }: { compact: boolean }) {
 function DaySeparator({
   label,
   compact = false,
+  wide = false,
 }: {
   label: string;
   compact?: boolean;
+  wide?: boolean;
 }) {
   if (compact) {
     return (
-      <div className="sticky top-0 z-10 w-full max-w-[900px] bg-gray-1 px-2 pt-3 pb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wider">
+      <div className="sticky top-0 z-10 mx-auto w-full max-w-[900px] bg-gray-1 px-2 pt-3 pb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wider">
         {label}
       </div>
     );
   }
   return (
-    <div className="mx-auto flex w-full max-w-[660px] items-center gap-3 pt-5 pb-2 font-semibold text-(--gray-9) text-[11px] uppercase tracking-wider">
+    <div
+      className={cn(
+        "mx-auto flex w-full items-center gap-3 pt-5 pb-2 font-semibold text-(--gray-9) text-[11px] uppercase tracking-wider",
+        wide ? "max-w-full" : "max-w-[660px]",
+      )}
+    >
       <span className="h-px flex-1 bg-(--gray-5)" />
       {label}
       <span className="h-px flex-1 bg-(--gray-5)" />
@@ -1649,7 +1698,6 @@ export function ChannelFeedView({
   reports,
   onOpenReport,
   showKindFilter = true,
-  aside,
   reportFilters,
   onReportFiltersChange,
   isLoading,
@@ -1660,6 +1708,8 @@ export function ChannelFeedView({
   onOpenThread,
   compact = false,
   canvases,
+  pullRequests = NO_PULL_REQUESTS,
+  types,
   spaceItems = NO_ITEMS,
   me,
   controls,
@@ -1681,7 +1731,6 @@ export function ChannelFeedView({
   /** Off for single-kind feeds (a `type:report` saved feed), where the
    * sessions/reports tabs would only offer empty views. */
   showKindFilter?: boolean;
-  aside?: ReactNode;
   /** When provided with its setter, the Reports tab shows the same funnel
    * menu as the sidebar Reports list. The caller owns the state and filters
    * the `reports` prop with it. */
@@ -1701,6 +1750,8 @@ export function ChannelFeedView({
   onOpenThread: (task: Task, tab?: ThreadPanelTab) => void;
   compact?: boolean;
   canvases?: readonly DashboardRecord[];
+  pullRequests?: readonly SpacePullRequest[];
+  types?: readonly SpaceActivityType[];
   spaceItems?: readonly ChannelItemModel[];
   me?: ChannelItemOwner;
   controls?: ReactNode;
@@ -1750,7 +1801,10 @@ export function ChannelFeedView({
       systemMessages ?? [],
       reports ?? [],
       canvases ?? NO_CANVASES,
-    ).filter((entry) => feedEntryMatchesKind(entry, activeKindFilter));
+      pullRequests,
+    )
+      .filter((entry) => feedEntryMatchesKind(entry, activeKindFilter))
+      .filter((entry) => !types || feedEntryMatchesTypes(entry, types));
     const kept = keepFilteredEntries(merged, allowedKeys);
     if (sort === "created") return kept;
     const key = (entry: FeedEntry) =>
@@ -1762,7 +1816,9 @@ export function ChannelFeedView({
           ? entry.canvas.name
           : entry.kind === "report"
             ? entry.report.title
-            : entry.message.text;
+            : entry.kind === "pr"
+              ? (entry.pullRequest.title ?? entry.pullRequest.task.title)
+              : entry.message.text;
     return [...kept].sort((a, b) =>
       sort === "alpha"
         ? (title(a) ?? "").localeCompare(title(b) ?? "")
@@ -1773,6 +1829,8 @@ export function ChannelFeedView({
     systemMessages,
     reports,
     canvases,
+    pullRequests,
+    types,
     activeKindFilter,
     allowedKeys,
     sort,
@@ -1834,7 +1892,7 @@ export function ChannelFeedView({
 
   const listRows = rowStyle ? rowStyle === "list" : compact;
   const columnClass = compact
-    ? "w-full max-w-[900px]"
+    ? "mx-auto w-full max-w-[900px]"
     : "mx-auto w-full max-w-[660px]";
   const composerBlock = composer && (
     <div
@@ -1925,7 +1983,9 @@ export function ChannelFeedView({
           <div
             className={cn(
               "min-w-0 flex-1",
-              compact ? "px-6 pt-5 pb-10" : "mx-auto px-4 pt-4 pb-10",
+              compact
+                ? "mx-auto w-full max-w-[948px] px-6 pt-5 pb-10"
+                : "mx-auto px-4 pt-4 pb-10",
             )}
           >
             {intro && (
@@ -1934,12 +1994,6 @@ export function ChannelFeedView({
             {composerBlock}
             <FeedSkeleton compact={listRows} />
           </div>
-
-          {aside && (
-            <div className="w-[276px] shrink-0 border-border border-l">
-              {aside}
-            </div>
-          )}
         </div>
       </div>
     );
@@ -1948,7 +2002,7 @@ export function ChannelFeedView({
   const noResults = (
     <div className="flex w-full max-w-[900px] flex-col items-start gap-2 pt-6">
       <p className="text-[13px] text-muted-foreground">
-        No sessions or canvases match these filters.
+        Nothing here matches these filters.
       </p>
       {onClearFilters && (
         <Button variant="outline" size="sm" onClick={onClearFilters}>
@@ -1964,7 +2018,9 @@ export function ChannelFeedView({
         <div
           className={cn(
             "w-full",
-            compact ? "px-6 pt-5 pb-10" : "mx-auto px-4 pt-4 pb-10",
+            compact
+              ? "mx-auto w-full max-w-[948px] px-6 pt-5 pb-10"
+              : "mx-auto px-4 pt-4 pb-10",
           )}
         >
           {composerBlock}
@@ -1990,11 +2046,16 @@ export function ChannelFeedView({
   if (pending.length > 0) {
     lastDayLabel = "Today";
     rows.push(
-      <DaySeparator key="separator-pending" label="Today" compact={listRows} />,
+      <DaySeparator
+        key="separator-pending"
+        label="Today"
+        compact={listRows}
+        wide={compact}
+      />,
     );
     for (let i = pending.length - 1; i >= 0; i--) {
       const p = pending[i];
-      rows.push(<PendingFeedRow key={p.id} pending={p} />);
+      rows.push(<PendingFeedRow key={p.id} pending={p} wide={compact} />);
     }
   }
   const activityIso = (entry: FeedEntry): string => {
@@ -2008,9 +2069,12 @@ export function ChannelFeedView({
   const sectionLabel = (entry: FeedEntry): string | null => {
     if (sort === "alpha") return null;
     if (grouping === "repository") {
-      return entry.kind === "task"
-        ? (entry.task.repository ?? "No repository")
-        : "No repository";
+      if (entry.kind === "task")
+        return entry.task.repository ?? "No repository";
+      if (entry.kind === "pr") {
+        return entry.pullRequest.task.repository ?? "No repository";
+      }
+      return "No repository";
     }
     return feedDayLabel(activityIso(entry), now);
   };
@@ -2030,6 +2094,7 @@ export function ChannelFeedView({
           key={`separator-${section.key}`}
           label={section.label}
           compact={listRows}
+          wide={compact}
         />,
       );
     }
@@ -2047,6 +2112,7 @@ export function ChannelFeedView({
             <FeedRow
               key={entry.id}
               task={entry.task}
+              wide={compact}
               showRepo={
                 !!entry.task.repository &&
                 entry.task.repository !== dominantRepo
@@ -2061,15 +2127,28 @@ export function ChannelFeedView({
             canvas={entry.canvas}
             channelId={channelId}
             listRow={listRows}
+            wide={compact}
+          />
+        ) : entry.kind === "pr" ? (
+          <PrFeedRow
+            key={entry.id}
+            pullRequest={entry.pullRequest}
+            listRow={listRows}
+            wide={compact}
           />
         ) : entry.kind === "report" ? (
           <ReportFeedRow
             key={entry.id}
             report={entry.report}
             onOpenReport={onOpenReport ?? (() => {})}
+            wide={compact}
           />
         ) : (
-          <SystemFeedRow key={entry.id} message={entry.message} />
+          <SystemFeedRow
+            key={entry.id}
+            message={entry.message}
+            wide={compact}
+          />
         ),
       );
     }
@@ -2081,7 +2160,9 @@ export function ChannelFeedView({
         <div
           className={cn(
             "min-w-0 flex-1",
-            compact ? "px-6 pt-5 pb-10" : "mx-auto px-4 pt-4 pb-10",
+            compact
+              ? "mx-auto w-full max-w-[948px] px-6 pt-5 pb-10"
+              : "mx-auto px-4 pt-4 pb-10",
           )}
         >
           {intro && <div className="mx-auto w-full max-w-[660px]">{intro}</div>}
@@ -2102,11 +2183,6 @@ export function ChannelFeedView({
             )}
           </div>
         </div>
-        {aside && (
-          <div className="w-[276px] shrink-0 border-border border-l">
-            {aside}
-          </div>
-        )}
       </div>
     </div>
   );

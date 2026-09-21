@@ -4,7 +4,7 @@ import {
   deriveHeadline,
   humanizeReportTitle,
 } from "@posthog/core/inbox/reportPresentation";
-import { Button, Card, CardContent } from "@posthog/quill";
+import { Button, Card, CardContent, cn } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/types";
 import { ReportRestoreButton } from "@posthog/ui/features/inbox/components/ReportRestoreButton";
@@ -25,9 +25,11 @@ import { useMemo } from "react";
 export function ReportFeedRow({
   report,
   onOpenReport,
+  wide = false,
 }: {
   report: SignalReport;
   onOpenReport: (reportId: string) => void;
+  wide?: boolean;
 }) {
   const title = humanizeReportTitle(report.title, "Untitled report");
   const headline = useMemo(
@@ -43,7 +45,10 @@ export function ReportFeedRow({
     <>
       <Card
         size="sm"
-        className="group/report mx-auto my-1.5 w-full max-w-[660px] cursor-pointer rounded-xl py-0 transition-colors hover:bg-(--gray-2)"
+        className={cn(
+          "group/report mx-auto my-1.5 w-full cursor-pointer rounded-xl py-0 transition-colors hover:bg-(--gray-2)",
+          wide ? "max-w-full" : "max-w-[660px]",
+        )}
         onClick={() => onOpenReport(report.id)}
       >
         <CardContent className="flex flex-col gap-1 px-4 pt-3 pb-2.5">
