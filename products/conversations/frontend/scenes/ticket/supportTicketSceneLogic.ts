@@ -415,11 +415,11 @@ export interface supportTicketSceneLogicActions {
         richContent: Record<string, unknown> | null
         statusAfterSend: TicketStatus | undefined
     }
-    setAssignee: (assignee: TicketAssignee) => {
-        assignee: TicketAssignee
-    }
     setAiDraftApplying: (applying: boolean) => {
         applying: boolean
+    }
+    setAssignee: (assignee: TicketAssignee) => {
+        assignee: TicketAssignee
     }
     setDraftContent: (content: string | JSONContent | null) => {
         content: string | JSONContent | null
