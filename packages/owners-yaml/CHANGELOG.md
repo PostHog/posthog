@@ -4,7 +4,7 @@ Notable changes to the `owners-yaml` package. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-`publish-owners.yml` reads the section matching the tagged version and uses it as
+`publish-owners-yaml.yml` reads the section matching the tagged version and uses it as
 the GitHub Release body, so add the entry here before you cut the tag.
 
 ## 0.2.0
@@ -16,7 +16,7 @@ First release on PyPI, as `owners-yaml`. The package was developed in the monore
 - `SPEC.md` defines the `owners.yaml` format, version 1, with the resolution steps, a field merge table, a flow diagram, and a worked example. `owners.schema.json` describes the file for editors.
 - `SPEC.md` section 7 defines the resolver interface, and `resolution.schema.json` describes its JSON response.
 - `conformance/` holds language-neutral test cases for the resolution rules, which any implementation can run.
-- `publish-owners.yml` publishes the package to PyPI when an `owners-v*` tag is pushed.
+- `publish-owners-yaml.yml` publishes the package to PyPI when an `owners-yaml-v*` tag is pushed.
 - Root-only repo settings in `owners.yaml`: `github_org`, `producers`, `reserved_dirs`, `alias_files`, and `codeowners`.
 - `alias_files` declares the file names, besides `owners.yaml`, that count as ownership files.
 - `--repo-root` on every CLI command, and `--org` on `lint` and `codeowners`.

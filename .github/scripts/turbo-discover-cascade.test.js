@@ -163,13 +163,13 @@ test('a lib change reaches both its importers and the products that depend on th
     }
 })
 
-// The import name and the package name are independent (@posthog/owners ships
+// The import name and the package name are independent (@posthog/owners-yaml ships
 // owners_yaml), so the manifest declares it. A guess that nothing imports would
 // scan clean and read as "no consumer to test", which is why a missing or
 // malformed declaration throws instead.
 test('the lib import name is read from the package manifest, and a manifest that does not declare one throws', () => {
     const root = writeTree({
-        'owners/package.json': '{ "name": "@posthog/owners", "pythonImportName": "owners_yaml" }',
+        'owners/package.json': '{ "name": "@posthog/owners-yaml", "pythonImportName": "owners_yaml" }',
         'silent/package.json': '{ "name": "@posthog/silent" }',
         'bad/package.json': '{ "name": "@posthog/bad", "pythonImportName": "Not A Module" }',
     })
@@ -185,13 +185,13 @@ test('the lib import name is read from the package manifest, and a manifest that
 
 test('affected lib packages carry the directory from the dry-run list, and products are not lib packages', () => {
     const testTasks = [
-        { package: '@posthog/owners', directory: 'packages/owners' },
+        { package: '@posthog/owners-yaml', directory: 'packages/owners-yaml' },
         { package: '@posthog/products-stamphog', directory: 'products/stamphog' },
     ]
-    const affected = [{ package: { name: '@posthog/owners' } }, { package: { name: '@posthog/products-stamphog' } }]
+    const affected = [{ package: { name: '@posthog/owners-yaml' } }, { package: { name: '@posthog/products-stamphog' } }]
 
     assert.deepEqual(getAffectedLibPackages(testTasks, affected), [
-        { name: '@posthog/owners', directory: 'packages/owners' },
+        { name: '@posthog/owners-yaml', directory: 'packages/owners-yaml' },
     ])
 })
 
@@ -199,7 +199,7 @@ test('affected lib packages carry the directory from the dry-run list, and produ
 // cannot be scanned, so dropping it silently would skip its consumers.
 test('fail closed: an affected package missing from the dry-run list throws rather than being skipped', () => {
     assert.throws(
-        () => getAffectedLibPackages([], [{ package: { name: '@posthog/owners' } }]),
+        () => getAffectedLibPackages([], [{ package: { name: '@posthog/owners-yaml' } }]),
         /has no directory/
     )
 })

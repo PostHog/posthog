@@ -128,7 +128,7 @@ deny:
                 # runs the previous engine needs this exact literal.
                 - 'tools/pr-approval-agent/'
                 - 'products/stamphog/backend/logic/policy_defaults/'
-                - 'packages/owners/'
+                - 'packages/owners-yaml/'
                 # Transitional: branches that predate the move still carry the resolver here.
                 - 'tools/owners/'
                 - 'CODEOWNERS'

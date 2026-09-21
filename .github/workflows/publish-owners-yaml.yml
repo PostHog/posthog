@@ -3,14 +3,14 @@ name: Publish owners-yaml to PyPI
 on:
     push:
         tags:
-            - 'owners-v*'
+            - 'owners-yaml-v*'
     workflow_dispatch:
 
 permissions:
     contents: read
 
 concurrency:
-    group: publish-owners-${{ github.ref }}
+    group: publish-owners-yaml-${{ github.ref }}
     cancel-in-progress: false
 
 jobs:
@@ -18,12 +18,12 @@ jobs:
         name: Build and publish
         # Hard guard: only publish from a tag ref. workflow_dispatch is supported
         # so a failed publish can be re-run against the existing tag (via
-        # `gh workflow run publish-owners.yml --ref owners-vX.Y.Z`); dispatching
+        # `gh workflow run publish-owners-yaml.yml --ref owners-yaml-vX.Y.Z`); dispatching
         # from a branch is a no-op.
-        if: startsWith(github.ref, 'refs/tags/owners-v')
+        if: startsWith(github.ref, 'refs/tags/owners-yaml-v')
         runs-on: ubuntu-22.04
         timeout-minutes: 10
-        environment: pypi-owners
+        environment: pypi-owners-yaml
         permissions:
             id-token: write
             contents: write
@@ -44,10 +44,10 @@ jobs:
               env:
                   TAG_REF: ${{ github.ref_name }}
               run: |
-                  tag_version="${TAG_REF#owners-v}"
-                  pkg_version=$(python -c "import tomllib; print(tomllib.load(open('packages/owners/pyproject.toml','rb'))['project']['version'])")
+                  tag_version="${TAG_REF#owners-yaml-v}"
+                  pkg_version=$(python -c "import tomllib; print(tomllib.load(open('packages/owners-yaml/pyproject.toml','rb'))['project']['version'])")
                   if [[ "$tag_version" != "$pkg_version" ]]; then
-                      echo "::error::tag version ($tag_version) does not match packages/owners/pyproject.toml version ($pkg_version)"
+                      echo "::error::tag version ($tag_version) does not match packages/owners-yaml/pyproject.toml version ($pkg_version)"
                       exit 1
                   fi
 
@@ -57,11 +57,11 @@ jobs:
               env:
                   TAG_REF: ${{ github.ref_name }}
               run: |
-                  tag_version="${TAG_REF#owners-v}"
-                  python tools/hogli/scripts/release_notes.py "$tag_version" --changelog packages/owners/CHANGELOG.md > /tmp/owners-release-notes.md
+                  tag_version="${TAG_REF#owners-yaml-v}"
+                  python tools/hogli/scripts/release_notes.py "$tag_version" --changelog packages/owners-yaml/CHANGELOG.md > /tmp/owners-release-notes.md
 
             - name: Build sdist and wheel
-              run: uv build packages/owners --out-dir dist
+              run: uv build packages/owners-yaml --out-dir dist
 
             - name: Validate metadata
               run: uvx twine check dist/*.whl dist/*.tar.gz
@@ -71,7 +71,7 @@ jobs:
               env:
                   TAG_REF: ${{ github.ref_name }}
               run: |
-                  tag_version="${TAG_REF#owners-v}"
+                  tag_version="${TAG_REF#owners-yaml-v}"
                   uv venv /tmp/owners-smoke
                   # By path, never by name: the step must test the wheel this run built, not
                   # whatever the public index happens to serve under that name and version.

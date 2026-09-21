@@ -593,7 +593,7 @@ def test_owners_candidates_are_fixed_offsets_from_this_file() -> None:
     # controls. The sandbox would then import that directory, and the sandbox holds the run's LLM
     # credentials. Both candidates must stay fixed offsets from the engine's own file.
     engine_dir = Path(gates.__file__).resolve().parent
-    assert gates._OWNERS_PKG_CANDIDATES[0] == engine_dir.parents[3] / "packages" / "owners"
+    assert gates._OWNERS_PKG_CANDIDATES[0] == engine_dir.parents[3] / "packages" / "owners-yaml"
     assert gates._OWNERS_PKG_CANDIDATES[1] == engine_dir.parent / "owners"
 
 
@@ -602,7 +602,7 @@ def test_owners_candidates_are_fixed_offsets_from_this_file() -> None:
     [
         pytest.param(
             "root/products/stamphog/packages/pr-approval-agent/gates.py",
-            "root/packages/owners",
+            "root/packages/owners-yaml",
             id="monorepo",
         ),
         pytest.param("root/tools/pr-approval-agent/gates.py", "root/tools/owners", id="sandbox-and-vendored"),

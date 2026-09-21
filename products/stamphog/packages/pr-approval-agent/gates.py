@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 # ownership source.
 #
 # There are two candidate locations, and the code puts only the FIRST one that exists on the path.
-# The first entry covers a run from this repo, where the resolver is at packages/owners and the
+# The first entry covers a run from this repo, where the resolver is at packages/owners-yaml and the
 # engine's own home is under products/stamphog/packages/. The sibling `owners/` covers two cases:
 # the vendored layout that downstream repos copy, and the review sandbox, which receives this
 # directory at <checkout>/tools/pr-approval-agent with the resolver beside it at
@@ -48,7 +48,7 @@ def _owners_pkg_candidates(engine_file: Path) -> tuple[Path, ...]:
     # engine_dir is products/stamphog/packages/pr-approval-agent in this repo, so the repo root is
     # four levels up. In the sandbox and in a vendored copy that offset points outside the tree and
     # finds nothing, which is what makes the sibling the answer there.
-    return (engine_dir.parents[3] / "packages" / "owners", engine_dir.parent / "owners")
+    return (engine_dir.parents[3] / "packages" / "owners-yaml", engine_dir.parent / "owners")
 
 
 _OWNERS_PKG_CANDIDATES = _owners_pkg_candidates(Path(__file__))

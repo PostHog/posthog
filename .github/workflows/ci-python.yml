@@ -131,7 +131,7 @@ jobs:
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
-                        - 'packages/owners/**'
+                        - 'packages/owners-yaml/**'
                         # Transitional: branches that predate the move still carry the resolver
                         # at tools/owners.
                         - 'tools/owners/**'
@@ -162,7 +162,7 @@ jobs:
                         - 'uv.lock'
                         - .github/workflows/ci-python.yml
                       owners:
-                        - 'packages/owners/**'
+                        - 'packages/owners-yaml/**'
                         # Transitional: branches that predate the move still carry the resolver
                         # at tools/owners.
                         - 'tools/owners/**'
@@ -389,7 +389,7 @@ jobs:
                     shell: bash
                     run: |
                         [ "$RUN_OWNERS" = "true" ] || { echo "the owners package is unchanged — skipping"; exit 0; }
-                        pytest packages/owners/tests -v --junitxml=junit-owners.xml
+                        pytest packages/owners-yaml/tests -v --junitxml=junit-owners.xml
 
                   # A wheel in an empty venv cannot import anything else from the monorepo, so a
                   # new import of host code fails here instead of for users of the published package.
@@ -398,7 +398,7 @@ jobs:
                     run: |
                         [ "$RUN_OWNERS" = "true" ] || { echo "the owners package is unchanged — skipping"; exit 0; }
                         scratch=$(mktemp -d)
-                        uv build packages/owners --wheel --out-dir "$scratch/dist"
+                        uv build packages/owners-yaml --wheel --out-dir "$scratch/dist"
                         uv venv "$scratch/venv"
                         uv pip install --python "$scratch/venv/bin/python" "$scratch"/dist/*.whl
                         repo="$scratch/repo"

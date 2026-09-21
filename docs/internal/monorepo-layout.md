@@ -42,7 +42,7 @@ devenv/                # Developer environment config (intent map, process model
 ```
 
 `tools/` is developer and CI tooling: code no runtime process imports.
-`packages/owners` is the counterexample that used to sit there.
+`packages/owners-yaml` is the counterexample that used to sit there.
 It is installed into the production venv, because stamphog's digest resolves a team's Slack channel
 through `owners_yaml` rather than reparsing `owners.yaml` itself.
 It is also copied into the production image as source, alongside stamphog's review engine at
@@ -53,7 +53,7 @@ Inside that sandbox the engine is written to `<checkout>/tools/pr-approval-agent
 beside it at `<checkout>/tools/owners`, and that placement is a contract rather than a leftover: the
 engine finds its repo root by walking up from its own file, so the path decides which policy it
 reads, and downstream repos vendor the two directories in exactly that arrangement.
-The engine resolves the resolver by fixed offsets from its own file, `packages/owners` first and the
+The engine resolves the resolver by fixed offsets from its own file, `packages/owners-yaml` first and the
 sibling `owners/` second, so the monorepo and the vendored layout both work.
 
 ### Products
@@ -99,7 +99,7 @@ For pnpm packages, location doesn't gate who can import them (pnpm resolves by n
 #### Python packages
 
 A Python package under `packages/<name>/` is a uv workspace member with its own `pyproject.toml`, registered in the root `pyproject.toml` under `[tool.uv.workspace].members` and `[tool.uv.sources]`.
-Its import name is independent of its location (`packages/owners` ships `owners_yaml`), so a move is a path rename with no import churn, the same property pnpm packages have.
+Its import name is independent of its location (`packages/owners-yaml` ships `owners_yaml`), so a move is a path rename with no import churn, the same property pnpm packages have.
 
 Reach for one only when a consumer must install it outside the monorepo venv: a bare-python CI step, the review sandbox, another repo, PyPI.
 Reuse inside the app is not a reason on its own.
@@ -108,7 +108,7 @@ A distribution only CI and developer workflows use belongs in `tools/`, like `ho
 
 Rules that follow from being a distribution rather than a module:
 
-- It is a leaf: no imports of `posthog/`, `ee/`, `products/`, `common/`, Django, or DRF. tach resolves a uv distribution as third-party and cannot police this, so each package gets a `forbidden` contract in the root `pyproject.toml` under `[tool.importlinter]` (see `packages/owners is a leaf`), which resolves by installed import name.
+- It is a leaf: no imports of `posthog/`, `ee/`, `products/`, `common/`, Django, or DRF. tach resolves a uv distribution as third-party and cannot police this, so each package gets a `forbidden` contract in the root `pyproject.toml` under `[tool.importlinter]` (see `packages/owners-yaml is a leaf`), which resolves by installed import name.
 - It carries a `package.json` (`@posthog/<name>`, private) and a `turbo.json` whose `backend:test` inputs cover its sources, so turbo can tell when it changed. The manifest also declares `pythonImportName`. `turbo-discover` reads that name, scans `products/` for imports of it, and re-tests the importers plus their tach dependents. Consumers declare nothing.
 - Its own tests are a step in `ci-python.yml`, not a matrix entry: `turbo-discover` treats it as a cascade source only.
 - Core (`posthog/`, `ee/`, `common/`) should not import it, so that a package change re-tests its product consumers rather than the Django suite. `turbo-discover` scans those trees too, and runs the full suite when one of them imports it.

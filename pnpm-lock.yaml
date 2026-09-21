@@ -1920,7 +1920,7 @@ importers:
         specifier: 'catalog:'
         version: 2.9.0
 
-  packages/owners: {}
+  packages/owners-yaml: {}
 
   packages/quill:
     devDependencies:

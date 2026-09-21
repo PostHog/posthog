@@ -10,7 +10,7 @@
 // triggers the full test suite (all products + Django).
 //
 // Lib packages are the other kind of workspace package with a backend:test task:
-// the Python distributions under packages/ (@posthog/owners and the like). They
+// the Python distributions under packages/ (@posthog/owners-yaml and the like). They
 // never become matrix entries, because their own tests run in ci-python.yml.
 // They matter here as cascade sources. Each one is a uv distribution, so tach
 // resolves an import of it as third-party and records no edge to it, which means
@@ -739,7 +739,7 @@ const CORE_IMPORTER_SAMPLE = 3
 const SKIPPED_SCAN_DIRS = new Set(['__pycache__', 'node_modules', '.venv'])
 
 // The Python module a lib package ships, declared in its package.json rather than
-// derived from the package name: the two names are independent (@posthog/owners
+// derived from the package name: the two names are independent (@posthog/owners-yaml
 // ships owners_yaml). A missing or malformed declaration throws rather than
 // returning a guess, because a module name nothing imports scans clean, which
 // reads as "no consumer to test" and skips exactly the products the cascade

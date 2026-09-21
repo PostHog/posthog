@@ -1622,7 +1622,7 @@ def _ship_owners_package(sandbox: SandboxBase) -> None:
     """
     # Repo root rather than a sibling of the engine. owners_yaml is a distribution the production
     # venv installs, so it lives under packages/ while the engine lives in the product.
-    package_dir = Path(__file__).resolve().parents[4] / "packages" / "owners" / "owners_yaml"
+    package_dir = Path(__file__).resolve().parents[4] / "packages" / "owners-yaml" / "owners_yaml"
     if not package_dir.is_dir():
         raise RuntimeError(f"owners package source dir not found: {package_dir}")
     target = f"{STAMPHOG_SANDBOX_OWNERS_DIR}/owners_yaml"

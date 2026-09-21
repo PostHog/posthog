@@ -44,10 +44,10 @@ owners-yaml = "owners_yaml.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/PostHog/posthog"
-Documentation = "https://github.com/PostHog/posthog/tree/master/packages/owners#readme"
-Specification = "https://github.com/PostHog/posthog/blob/master/packages/owners/SPEC.md"
-Changelog = "https://github.com/PostHog/posthog/blob/master/packages/owners/CHANGELOG.md"
-Repository = "https://github.com/PostHog/posthog/tree/master/packages/owners"
+Documentation = "https://github.com/PostHog/posthog/tree/master/packages/owners-yaml#readme"
+Specification = "https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/SPEC.md"
+Changelog = "https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/CHANGELOG.md"
+Repository = "https://github.com/PostHog/posthog/tree/master/packages/owners-yaml"
 Issues = "https://github.com/PostHog/posthog/issues"
 
 [tool.hatch.build.targets.wheel]

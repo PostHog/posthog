@@ -648,7 +648,7 @@ const TRIPWIRE_RULES = [
     // owners.yaml is the fallback every path resolves through when no nearer
     // file claims it. A product's own owners.yaml is not here: it keeps its
     // product lane.
-    ['packages/owners/**', OWNERSHIP],
+    ['packages/owners-yaml/**', OWNERSHIP],
     // Transitional: branches that predate the move still carry the resolver at tools/owners,
     // where the tools/ fallback rule would give it the Python lanes only.
     ['tools/owners/**', OWNERSHIP],

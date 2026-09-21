@@ -14,7 +14,7 @@
 !common/tailwind
 !packages/quill
 !packages/llm-normalizer
-!packages/owners
+!packages/owners-yaml
 !dags
 !docs/onboarding
 !ee

@@ -55,7 +55,7 @@ jobs:
                       /bin/report-jest-timings
                       /.depot/
                       /tools/
-                      /packages/owners/
+                      /packages/owners-yaml/
                       /proto/
                       /rust/
                       /nodejs/
@@ -87,7 +87,7 @@ jobs:
             # setup-python step. defusedxml + opentelemetry + the owners resolver are
             # report_test_timings.py's script deps.
             - name: Install pytest
-              run: python3 -m pip install --quiet pytest parameterized defusedxml==0.7.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 ./packages/owners
+              run: python3 -m pip install --quiet pytest parameterized defusedxml==0.7.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 ./packages/owners-yaml
 
             # `-c /dev/null` skips the repo pytest.ini (its --reuse-db addopt needs
             # pytest-django, which we don't install here). `--noconftest` skips the

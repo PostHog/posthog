@@ -134,7 +134,7 @@ rules:
     - match: '/services/llm-gateway/'
       owners: team-agent-infrastructure
     - match:
-          - '/packages/owners/'
+          - '/packages/owners-yaml/'
           - '/tools/hogli-commands/'
           - '/tools/hogli/'
           - '/tools/phrocs/'

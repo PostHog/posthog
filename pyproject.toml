@@ -310,7 +310,7 @@ exclude-newer = "7 days"
 exclude-newer-package = { granian = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
 
 [tool.uv.workspace]
-members = ["tools/hogli", "packages/owners"]
+members = ["tools/hogli", "packages/owners-yaml"]
 
 [tool.uv.sources]
 hogli = { workspace = true }
@@ -494,10 +494,10 @@ exclude_gitignore = true
 # (both resolve to top-level module "conftest")
 # rust/deltalite/python: pytest suite for the maturin-built extension; nothing Django
 # imports it and it has its own CI (ci-deltalite-python.yml).
-# packages/owners: a standalone distribution that must build and run with no Django. This config
+# packages/owners-yaml: a standalone distribution that must build and run with no Django. This config
 # loads the Django and DRF plugins and the app's settings, so it is the wrong checker for it. ty
 # covers it repo-wide instead, and ci-python builds and exercises the wheel in an empty venv.
-exclude = ["^(bin/.*|tools/.*|packages/owners/.*|rust/deltalite/python/.*|products/desktop/.*|products/stamphog/packages/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
+exclude = ["^(bin/.*|tools/.*|packages/owners-yaml/.*|rust/deltalite/python/.*|products/desktop/.*|products/stamphog/packages/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"
@@ -562,7 +562,7 @@ include_external_packages = true
 # third-party and cannot police that boundary. import-linter resolves by installed import
 # name, so it can.
 [[tool.importlinter.contracts]]
-name = "packages/owners is a leaf"
+name = "packages/owners-yaml is a leaf"
 type = "forbidden"
 source_modules = ["owners_yaml"]
 forbidden_modules = ["posthog", "ee", "products", "common", "django", "rest_framework"]
