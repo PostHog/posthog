@@ -611,9 +611,10 @@ export function InsightValidationError({
 }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const debugWithAI = (): void => openSidePanel(SidePanelTab.Max, MEMORY_LIMIT_AI_PROMPT)
-    const isMemoryLimitError = validationErrorCode === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE
-    // A memory failure is not a broken query definition, so it gets its own heading and hoggie.
-    const errorKind: InsightErrorKind = isMemoryLimitError ? 'memory_limit' : 'invalid_query'
+    // Everything that reaches this panel is a validation status, so the kind stays invalid_query
+    // unless the code says otherwise: a memory failure is not a broken query definition.
+    const errorKind = getInsightErrorKind(400, validationErrorCode)
+    const isMemoryLimitError = errorKind === 'memory_limit'
     const displayDetail = getInsightValidationDetail(detail)
     const showQueryDebuggerInstruction =
         query &&
@@ -736,7 +737,11 @@ function InsightErrorHoggie({ kind }: { kind: InsightErrorKind }): JSX.Element {
     return <Hoggie className="w-24 h-24 mb-2" />
 }
 
-function getInsightErrorKind(status?: number | null): InsightErrorKind {
+function getInsightErrorKind(status?: number | null, code?: string | null): InsightErrorKind {
+    // The code is the surer signal: a tile failure carries it even when the status was rebuilt.
+    if (code === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE) {
+        return 'memory_limit'
+    }
     if (status === 429) {
         return 'rate_limit'
     }

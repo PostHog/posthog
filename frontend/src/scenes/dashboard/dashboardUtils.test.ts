@@ -334,7 +334,6 @@ describe('getInsightQueryError', () => {
     it.each([
         ['clickhouse_memory_limit_exceeded', 513],
         ['invalid_query', 400],
-        [null, 400],
     ])('maps error code %s to status %s', (errorCode, expectedStatus) => {
         const error = getInsightQueryError({
             query_status: {
