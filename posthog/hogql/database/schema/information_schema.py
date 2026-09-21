@@ -1088,13 +1088,15 @@ def _access_control(context: "HogQLContext") -> Any:
 def _denial_applies(context: "HogQLContext", denied: set[str]) -> bool:
     """Whether the data quality gates have anything to decide for this caller.
 
-    A non-empty denial set settles it. So does an empty one held by a member of an organization with
-    access controls, because deleting the subject they were denied is what empties it -- which is the
-    case the gates withhold for. Only a caller who could never be denied a single object skips them.
+    A denied warehouse table settles it. Denied system tables share the same database set, but their
+    resource permissions do not imply that a warehouse subject can be denied. An empty warehouse
+    denial set still applies for a member with access controls because deleting a denied subject empties
+    that set. Only a caller who could never be denied a warehouse object skips these gates.
     """
     from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
 
-    return bool(denied) or data_quality.can_be_object_denied(_access_control(context))
+    has_warehouse_denial = any(not table_name.startswith("system.") for table_name in denied)
+    return has_warehouse_denial or data_quality.can_be_object_denied(_access_control(context))
 
 
 def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
