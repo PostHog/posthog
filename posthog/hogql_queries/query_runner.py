@@ -3424,7 +3424,9 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         ):
             # Default-denied resources still distinguish privileged users when configurable access control is unavailable.
             resources = queried_resources if queried_resources is not None else set(API_SCOPE_OBJECTS)
-            queried_resources = {resource for resource in resources if default_access_level(resource) == "none"}
+            queried_resources = {
+                resource for resource in resources if default_access_level(cast(APIScopeObject, resource)) == "none"
+            }
 
         # Reads no access-controlled table -> skip the access-control preload
         if queried_resources == set():
