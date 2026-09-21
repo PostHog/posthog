@@ -109,7 +109,7 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                         variant="destructive"
                         onClick={() => {
                             openDeleteCohortDialog({
-                                cohortId: Number(cohort.id),
+                                cohortId: cohort.id,
                                 cohortName: cohort.name,
                                 onConfirm: () => deleteCohort(),
                             })

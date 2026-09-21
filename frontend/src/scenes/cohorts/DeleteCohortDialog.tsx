@@ -5,11 +5,13 @@ import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
+import { CohortType } from '~/types'
+
 import { cohortDeleteDialogLogic } from './cohortDeleteDialogLogic'
 import { CohortUsedInList } from './CohortUsedInList'
 
 interface DeleteCohortDialogProps {
-    cohortId: number
+    cohortId: CohortType['id']
     cohortName?: string | null
     onConfirm: () => void
     closeDialog: () => void
@@ -21,7 +23,7 @@ export function DeleteCohortDialog({
     onConfirm,
     closeDialog,
 }: DeleteCohortDialogProps): JSX.Element {
-    const { blockers, blockersLoading } = useValues(cohortDeleteDialogLogic({ cohortId }))
+    const { blockers, blockersLoading } = useValues(cohortDeleteDialogLogic({ cohortId: Number(cohortId) }))
     const label = cohortName ? `"${cohortName}"` : 'this cohort'
 
     return (

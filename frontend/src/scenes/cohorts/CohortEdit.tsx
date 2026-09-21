@@ -32,6 +32,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
+import { pluralize } from 'lib/utils/strings'
 import { StaticCohortMode, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
@@ -88,7 +89,7 @@ function UsedInSummary({ usedIn, isExpanded, setIsExpanded }: UsedInSummaryProps
     }
 
     // `total` counts every use, while the section's items stop at the API's truncation cap.
-    const counts = sections.map(({ total, noun }) => `${total} ${noun}${total === 1 ? '' : 's'}`)
+    const counts = sections.map(({ total, noun }) => pluralize(total, noun))
     const summary = counts.length > 1 ? `${counts.slice(0, -1).join(', ')} and ${counts[counts.length - 1]}` : counts[0]
 
     return (
@@ -309,7 +310,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                 <ButtonPrimitive
                                     onClick={() => {
                                         openDeleteCohortDialog({
-                                            cohortId: Number(cohort.id),
+                                            cohortId: cohort.id,
                                             cohortName: cohort.name,
                                             onConfirm: () => deleteCohort(),
                                         })

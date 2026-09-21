@@ -178,7 +178,7 @@ export function Cohorts(): JSX.Element {
                                     status="danger"
                                     onClick={() => {
                                         openDeleteCohortDialog({
-                                            cohortId: Number(cohort.id),
+                                            cohortId: cohort.id,
                                             cohortName: cohort.name,
                                             onConfirm: () =>
                                                 deleteCohort({ id: cohort.id, name: cohort.name, deleted: true }),
