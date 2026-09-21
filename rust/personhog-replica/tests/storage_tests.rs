@@ -565,6 +565,7 @@ async fn test_delete_persons_tombstone_mode_reports_the_versions() {
 async fn test_delete_persons_tombstone_mode_reports_versions_again_on_retry() {
     let ctx = TestContext::new().await;
     let person = ctx.insert_person("retry_versions", None).await.unwrap();
+    let live = ctx.insert_person("retry_live", None).await.unwrap();
 
     let first = ctx
         .storage
@@ -572,16 +573,31 @@ async fn test_delete_persons_tombstone_mode_reports_versions_again_on_retry() {
         .await
         .unwrap();
     // A caller that lost the first response must get the same versions back, or
-    // its ClickHouse tombstones never get published.
+    // its ClickHouse tombstones never get published. A live person in the same
+    // request is tombstoned and counted; the earlier one is reported, not counted.
     let retry = ctx
         .storage
-        .delete_persons(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
+        .delete_persons(
+            ctx.team_id,
+            &[person.uuid, live.uuid],
+            DeletePersonsMode::Tombstone,
+        )
         .await
         .unwrap();
 
     assert_eq!(first.deleted, 1);
-    assert_eq!(retry.deleted, 0);
-    assert_eq!(retry.tombstones, first.tombstones);
+    assert_eq!(retry.deleted, 1);
+    let mut expected = first.tombstones.clone().unwrap();
+    expected.push(TombstonedPerson {
+        uuid: live.uuid,
+        version: 1,
+        distinct_ids: vec![TombstonedDistinctId {
+            distinct_id: "retry_live".to_string(),
+            version: 1,
+        }],
+    });
+    expected.sort_by(|a, b| a.uuid.cmp(&b.uuid));
+    assert_eq!(retry.tombstones, Some(expected));
 
     ctx.cleanup().await.ok();
 }
