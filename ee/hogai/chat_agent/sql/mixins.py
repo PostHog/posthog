@@ -91,6 +91,26 @@ class HogQLDatabaseMixin:
         return await serialize_database_schema(database, self._get_default_hogql_context(database))
 
 
+# A parser message plus the fragment it points at is enough to locate the bad construct without
+# echoing the whole query back, which for a long query buries the one part that needs rewriting.
+_MAX_SYNTAX_DETAIL_CHARS = 200
+_MAX_SYNTAX_FRAGMENT_CHARS = 60
+
+
+def describe_syntax_error(detail: str, query: str, start: int | None, end: int | None) -> str:
+    """Turn a terse parser message into one that names the construct that failed."""
+    clipped = _clip(detail, _MAX_SYNTAX_DETAIL_CHARS).rstrip(".")
+    message = f"HogQL parsing error: this query isn't valid HogQL. Parser detail: {clipped}."
+    if start is None or end is None or not 0 <= start < end <= len(query):
+        return message
+    fragment = _clip(query[start:end].strip(), _MAX_SYNTAX_FRAGMENT_CHARS)
+    return f"{message} The query failed at character {start}, near: {fragment}" if fragment else message
+
+
+def _clip(text: str, limit: int) -> str:
+    return f"{text[:limit]}…" if len(text) > limit else text
+
+
 class HogQLOutputParserMixin(HogQLDatabaseMixin):
     def _parse_output(self, output: dict) -> SQLSchemaGeneratorOutput:
         result = parse_pydantic_structured_output(RawSQLSchemaGeneratorOutput)(output)
@@ -191,8 +211,10 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
             # Both the antlr-based cpp parser and the hand-rolled rust-py parser produce
             # terse low-level error wording on syntax failures ("no viable alternative…",
             # "trailing tokens after expression…", "unexpected token in expression…",
-            # "mismatched input … expecting …"). Replace any of them with a single
-            # human/LLM-friendly message.
+            # "mismatched input … expecting …"). Lead with a human/LLM-friendly sentence, but keep
+            # the terse detail and the offending fragment after it — alone they read as parser
+            # internals, and without them the caller cannot tell which construct was rejected, so
+            # it retries the same query instead of rewriting the one bad part.
             if err_msg.startswith(
                 (
                     "no viable alternative",
@@ -201,7 +223,7 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
                     "mismatched input",
                 )
             ):
-                err_msg = "HogQL parsing error: this query isn't valid HogQL."
+                err_msg = describe_syntax_error(err_msg, cleaned_query, err.start, err.end)
             raise PydanticOutputParserException(llm_output=cleaned_query, validation_message=err_msg)
 
         return AssistantHogQLQuery(query=cleaned_query)

@@ -2,6 +2,7 @@ from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_ev
 from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 
 from posthog.schema import HogQLNotice, HogQLQuery
 
@@ -12,6 +13,7 @@ from products.product_analytics.backend.facade.models import Insight, InsightVar
 
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tools.execute_sql.compatibility_hints import ACCEPTED_CAST_TYPES, NESTABLE_BINARY_FUNCTIONS
 from ee.hogai.tools.execute_sql.mcp_tool import (
     ExecuteSQLMCPTool,
     ExecuteSQLMCPToolArgs,
@@ -79,6 +81,64 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
             )
 
         self.assertIn("validation failed", str(ctx.exception).lower())
+
+    @parameterized.expand(
+        [
+            ("trailing_tokens", "SELECT 1 FROM events LIMIT 1 blah", "blah"),
+            ("reserved_keyword", "SELECT count() FROM events WHERE GROUP BY", "BY"),
+            ("bad_operator", "SELECT * FROM events WHERE 1 === 2", "="),
+        ]
+    )
+    async def test_syntax_error_locates_the_offending_fragment(
+        self, _name: str, query: str, expected_fragment: str
+    ) -> None:
+        # A bare "this query isn't valid HogQL" tells the caller nothing about which construct to
+        # rewrite, so it retries the same query. The parser knows the offset and the token; keep both.
+        with self.assertRaises(MaxToolRetryableError) as ctx:
+            await self.tool.execute(ExecuteSQLMCPToolArgs(query=query))
+
+        message = str(ctx.exception)
+        self.assertIn("Parser detail:", message)
+        self.assertIn("The query failed at character", message)
+        self.assertIn(expected_fragment, message)
+
+    @parameterized.expand(
+        [
+            ("variadic_greatest", "SELECT greatest(1, 2, 3) FROM events", "greatest(a, greatest(b, c))"),
+            ("variadic_least", "SELECT least(1, 2, 3) FROM events", "least(a, least(b, c))"),
+            ("like_escape", r"SELECT 1 FROM events WHERE event LIKE '%\_x%'", "position("),
+            ("width_suffixed_cast", "SELECT CAST(1 AS Float64) FROM events", "CAST(x AS Float)"),
+        ]
+    )
+    async def test_compatibility_rejection_carries_an_accepted_rewrite(
+        self, _name: str, query: str, expected_rewrite: str
+    ) -> None:
+        # Each shape is valid ClickHouse that HogQL rejects. The rejection must name the rewrite,
+        # not just the rule, or the caller has to guess what HogQL accepts instead.
+        with self.assertRaises(MaxToolRetryableError) as ctx:
+            await self.tool.execute(ExecuteSQLMCPToolArgs(query=query))
+
+        message = str(ctx.exception)
+        self.assertIn("<hogql_compatibility_hint>", message)
+        self.assertIn(expected_rewrite, message)
+
+    @parameterized.expand([(name,) for name in NESTABLE_BINARY_FUNCTIONS])
+    async def test_nesting_rewrite_is_actually_accepted(self, name: str) -> None:
+        # Pins the advice against the validator: if the arity cap is ever lifted, the flat call
+        # starts passing and this test says the nesting hint has gone stale.
+        with self.assertRaises(MaxToolRetryableError):
+            await self.tool.execute(ExecuteSQLMCPToolArgs(query=f"SELECT {name}(1, 2, 3) FROM events"))
+
+        result = await self.tool.execute(
+            ExecuteSQLMCPToolArgs(query=f"SELECT {name}(1, {name}(2, 3)) AS x FROM events")
+        )
+        self.assertIsNotNone(result.content)
+
+    @parameterized.expand([(name,) for name in ACCEPTED_CAST_TYPES])
+    async def test_suggested_cast_types_are_actually_accepted(self, type_name: str) -> None:
+        # The hint lists these as the accepted spellings, so each one has to survive validation.
+        result = await self.tool.execute(ExecuteSQLMCPToolArgs(query=f"SELECT CAST(1 AS {type_name}) AS x"))
+        self.assertIsNotNone(result.content)
 
     async def test_validation_error_for_empty_query(self):
         with self.assertRaises(MaxToolRetryableError):
