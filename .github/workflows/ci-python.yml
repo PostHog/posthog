@@ -438,11 +438,12 @@ jobs:
                           exit 1
                         fi
 
-                  - name: Run dependency detection script tests
+                  - name: Run bin script tests
                     shell: bash
                     run: |
                         [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
-                        pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
+                        pytest bin/test/test_find_python_dependencies.py bin/test/test_ci_wait_for_docker.py \
+                          -v --junitxml=junit-dependency-detection.xml
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

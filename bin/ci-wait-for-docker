@@ -7,8 +7,8 @@ set -euo pipefail
 # immediately when `--background` is used so the runner can do other work.
 # `wait` delegates readiness polling to bin/wait-for-docker. It waits for any
 # in-flight background `launch` for the same Compose context before starting
-# health timeouts and retries only when timed-out services never materialized
-# into containers.
+# health timeouts. If launched containers never materialize, it repeats the
+# complete original launch so services outside the current wait are restored.
 #
 # The workflow must pass the Compose context via standard Docker Compose env
 # such as COMPOSE_FILE, COMPOSE_PROFILES, and any image/tag overrides.
@@ -55,12 +55,34 @@ compose() {
     fi
 }
 
-background_launch_pid_file() {
+compose_state_file() {
+    local suffix="$1"
     local compose_file="${COMPOSE_FILE:-$DEFAULT_COMPOSE_FILE}"
     local state_key
 
     state_key=$(printf '%s\n%s\n%s\n' "$REPO_ROOT" "$compose_file" "${COMPOSE_PROFILES:-}" | cksum | awk '{print $1}')
-    printf '%s/ci-wait-for-docker-%s.pid\n' "${TMPDIR:-/tmp}" "$state_key"
+    printf '%s/ci-wait-for-docker-%s.%s\n' "${TMPDIR:-/tmp}" "$state_key" "$suffix"
+}
+
+background_launch_pid_file() {
+    compose_state_file pid
+}
+
+launch_services_file() {
+    compose_state_file services
+}
+
+record_launch_services() {
+    local state_file
+    local temp_file
+
+    state_file="$(launch_services_file)"
+    temp_file="${state_file}.$$"
+    : > "$temp_file"
+    if [ "$#" -gt 0 ]; then
+        printf '%s\n' "$@" > "$temp_file"
+    fi
+    mv "$temp_file" "$state_file"
 }
 
 read_background_launch_pid() {
@@ -220,6 +242,7 @@ run_launch() {
     done
 
     launch_services=("$@")
+    record_launch_services "${launch_services[@]}"
 
     launch_runner() {
         local inner_attempt=1
@@ -291,9 +314,17 @@ run_wait() {
     local current_timeout="$initial_timeout"
     local attempt=0
     local missing=()
+    local retry_services=()
+    local launch_services_state
+    local has_recorded_launch=0
     local launch_wait_status
 
     mapfile -t wait_services < <(dedupe_services "${wait_services[@]}")
+    launch_services_state="$(launch_services_file)"
+    if [ -f "$launch_services_state" ]; then
+        mapfile -t retry_services < "$launch_services_state"
+        has_recorded_launch=1
+    fi
 
     while true; do
         if wait_for_background_launch; then
@@ -334,9 +365,18 @@ run_wait() {
         fi
 
         attempt=$(( attempt + 1 ))
-        echo "Retry ${attempt}/${WAIT_RETRIES}: re-running docker compose up for missing services: ${missing[*]}"
-        if ! compose_up "${missing[@]}"; then
-            echo "Retry ${attempt}/${WAIT_RETRIES} failed while starting: ${missing[*]}"
+        if [ "$has_recorded_launch" -eq 1 ]; then
+            if [ "${#retry_services[@]}" -eq 0 ]; then
+                echo "Retry ${attempt}/${WAIT_RETRIES}: re-running docker compose up for the full launch"
+            else
+                echo "Retry ${attempt}/${WAIT_RETRIES}: re-running docker compose up for the original launch: ${retry_services[*]}"
+            fi
+        else
+            retry_services=("${missing[@]}")
+            echo "Retry ${attempt}/${WAIT_RETRIES}: re-running docker compose up for missing services: ${retry_services[*]}"
+        fi
+        if ! compose_up "${retry_services[@]}"; then
+            echo "Retry ${attempt}/${WAIT_RETRIES} failed while starting: ${retry_services[*]:-full launch}"
         fi
         current_timeout="$WAIT_RETRY_TIMEOUT"
     done
