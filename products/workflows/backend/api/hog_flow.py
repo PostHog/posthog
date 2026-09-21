@@ -15,7 +15,6 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import models, transaction
 from django.db.models import Q, QuerySet
-from django.db.models.expressions import RawSQL
 from django.http import Http404, HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -828,23 +827,44 @@ def is_broadcast_shaped(trigger_config: dict, actions: list[dict]) -> bool:
     return len([a for a in actions if a.get("type") == "function_email"]) == 1
 
 
-# Postgres form of is_broadcast_shaped, for filtering a list without loading every graph. The trigger
-# comes from the trigger action, where mask_trigger_config reads it: the `trigger` column is a legacy
-# copy and rows exist where the two disagree.
-_BROADCAST_ALLOWED_TYPES_JSONPATH = " && ".join(
-    f'@.type != "{action_type}"' for action_type in sorted(BROADCAST_ALLOWED_ACTION_TYPES)
-)
-BROADCAST_SHAPED_SQL = f"""(
-    jsonb_typeof("posthog_hogflow"."actions") = 'array'
-    AND jsonb_path_exists(
-        "posthog_hogflow"."actions",
-        '$[*] ? (@.type == "trigger" && @.config.type == "{BROADCAST_TRIGGER_TYPE}")'
+def _json_path(path: str) -> models.Func:
+    # A jsonpath bind parameter. Postgres types a plain parameter as text and the jsonb_path_*
+    # functions take jsonpath, so the cast has to be spelled out.
+    return models.Func(models.Value(path), template="%(expressions)s::jsonpath", output_field=models.TextField())
+
+
+def _jsonb_path_exists(path: str) -> models.Func:
+    return models.Func(
+        models.F("actions"),
+        _json_path(path),
+        function="jsonb_path_exists",
+        output_field=models.BooleanField(),
     )
-    AND jsonb_array_length(
-        jsonb_path_query_array("posthog_hogflow"."actions", '$[*] ? (@.type == "function_email")')
-    ) = 1
-    AND NOT jsonb_path_exists("posthog_hogflow"."actions", '$[*] ? ({_BROADCAST_ALLOWED_TYPES_JSONPATH})')
-)"""
+
+
+def annotate_broadcast_shape(queryset: QuerySet) -> QuerySet:
+    # The parts of is_broadcast_shaped, evaluated in Postgres so a list can filter on the graph
+    # without loading every row's actions. The trigger comes from the trigger action, where
+    # mask_trigger_config reads it: the `trigger` column is a legacy copy and rows exist where the
+    # two disagree. jsonpath runs in lax mode, so a row whose `actions` is not an array yields no
+    # matches rather than an error.
+    other_step = " && ".join(f'@.type != "{action_type}"' for action_type in sorted(BROADCAST_ALLOWED_ACTION_TYPES))
+    return queryset.annotate(
+        _has_batch_trigger=_jsonb_path_exists(
+            f'$[*] ? (@.type == "trigger" && @.config.type == "{BROADCAST_TRIGGER_TYPE}")'
+        ),
+        _email_step_count=models.Func(
+            models.Func(
+                models.F("actions"),
+                _json_path('$[*] ? (@.type == "function_email")'),
+                function="jsonb_path_query_array",
+                output_field=models.JSONField(),
+            ),
+            function="jsonb_array_length",
+            output_field=models.IntegerField(),
+        ),
+        _has_other_step=_jsonb_path_exists(f"$[*] ? ({other_step})"),
+    )
 
 
 def _validate_broadcast_shape(trigger_config: dict, actions: list[dict]) -> None:
@@ -4115,9 +4135,15 @@ class HogFlowViewSet(
                     )
 
             if self.request.GET.get("broadcast_eligible") == "true":
-                queryset = queryset.annotate(
-                    _broadcast_shaped=RawSQL(BROADCAST_SHAPED_SQL, [], output_field=models.BooleanField())
-                ).filter(Q(kind=HogFlow.Kind.BROADCAST) | Q(kind__isnull=True, _broadcast_shaped=True))
+                queryset = annotate_broadcast_shape(queryset).filter(
+                    Q(kind=HogFlow.Kind.BROADCAST)
+                    | Q(
+                        kind__isnull=True,
+                        _has_batch_trigger=True,
+                        _email_step_count=1,
+                        _has_other_step=False,
+                    )
+                )
 
             origin_product = self.request.GET.get("origin_product")
             if origin_product:
