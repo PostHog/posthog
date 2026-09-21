@@ -5,21 +5,16 @@ import { IconGithub } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { VisualImageDiffViewer, type VisualDiffResult } from 'lib/components/VisualImageDiffViewer'
-import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import type { QuarantinedIdentifierEntryApi, SnapshotApi, ToleratedHashEntryApi } from '../generated/api.schemas'
+import { QUARANTINE_NUDGE_WINDOW_DAYS, type RecentTolerations, shouldSuggestQuarantine } from '../lib/quarantineNudge'
 import { visualReviewPreferencesLogic } from '../scenes/visualReviewPreferencesLogic'
 import { QuarantineAction } from './QuarantineAction'
 import { QuarantineModal, type OnQuarantine } from './QuarantineModal'
-import {
-    QUARANTINE_NUDGE_WINDOW_DAYS,
-    type RecentTolerations,
-    countRecentTolerations,
-    shouldSuggestQuarantine,
-} from './quarantineNudge'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from './SnapshotChangeBadge'
 import { SnapshotClusterPanel } from './SnapshotClusterPanel'
 import { SnapshotShiftSummary } from './SnapshotShiftSummary'
@@ -40,7 +35,7 @@ function describeRecentTolerations(counts: RecentTolerations): string {
         counts.agent > 0 && `${counts.agent} by an agent`,
         counts.auto > 0 && `${counts.auto} automatic`,
     ].filter(Boolean)
-    return `Tolerated ${total} time${total === 1 ? '' : 's'} in the last ${QUARANTINE_NUDGE_WINDOW_DAYS} days (${parts.join(', ')}).`
+    return `Tolerated ${pluralize(total, 'time')} in the last ${QUARANTINE_NUDGE_WINDOW_DAYS} days (${parts.join(', ')}).`
 }
 
 function DiffMinimap({ url, onClick }: { url: string; onClick?: () => void }): JSX.Element {
@@ -71,6 +66,7 @@ interface SnapshotDiffViewerProps {
     snapshot: SnapshotApi
     toleratedHashes?: ToleratedHashEntryApi[]
     toleratedHashesLoading?: boolean
+    recentTolerations?: RecentTolerations | null
     onApprove?: () => void
     isApproving?: boolean
     onMarkTolerated?: () => void
@@ -93,6 +89,7 @@ export function SnapshotDiffViewer({
     snapshot,
     toleratedHashes,
     toleratedHashesLoading,
+    recentTolerations,
     onApprove,
     isApproving,
     onMarkTolerated,
@@ -166,13 +163,11 @@ export function SnapshotDiffViewer({
     // only covers this exact rendering. While the history loads, fall back to the
     // plain confirm so the nudge never delays the click.
     const openTolerateDialog = (): void => {
-        const counts =
-            toleratedHashes && !toleratedHashesLoading ? countRecentTolerations(toleratedHashes, dayjs()) : null
-        if (counts && onQuarantine && shouldSuggestQuarantine(counts)) {
+        if (recentTolerations && onQuarantine && shouldSuggestQuarantine(recentTolerations)) {
             LemonDialog.open({
                 title: 'This snapshot keeps changing',
                 description:
-                    `${describeRecentTolerations(counts)} A toleration only covers this exact rendering, so the next variation blocks PRs again. ` +
+                    `${describeRecentTolerations(recentTolerations)} A toleration only covers this exact rendering, so the next variation blocks PRs again. ` +
                     'If this change is unrelated to your PR, quarantine the snapshot. It stops blocking PRs until someone fixes it.',
                 primaryButton: {
                     children: 'Quarantine…',
@@ -564,13 +559,15 @@ export function SnapshotDiffViewer({
                     {hasChanges && !isQuarantined && onQuarantine && (
                         <>
                             <QuarantineAction identifier={snapshot.identifier} onQuarantine={onQuarantine} />
-                            <QuarantineModal
-                                isOpen={isNudgedQuarantineOpen}
-                                onClose={() => setIsNudgedQuarantineOpen(false)}
-                                identifier={snapshot.identifier}
-                                onQuarantine={onQuarantine}
-                                initialReason="Keeps changing in unrelated PRs"
-                            />
+                            {isNudgedQuarantineOpen && (
+                                <QuarantineModal
+                                    isOpen
+                                    onClose={() => setIsNudgedQuarantineOpen(false)}
+                                    identifier={snapshot.identifier}
+                                    onQuarantine={onQuarantine}
+                                    initialReason="Keeps changing in unrelated PRs"
+                                />
+                            )}
                         </>
                     )}
                     {isQuarantined && onUnquarantine && (

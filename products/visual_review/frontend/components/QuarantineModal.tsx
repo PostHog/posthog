@@ -114,7 +114,7 @@ export function QuarantineModal({
 
     const [reason, setReason] = useState(initialReason ?? '')
     const [includeSibling, setIncludeSibling] = useState(true)
-    const [expiresAt, setExpiresAt] = useState<dayjs.Dayjs | null>(computeDefaultExpiry(initialExpiresAt))
+    const [expiresAt, setExpiresAt] = useState<dayjs.Dayjs | null>(() => computeDefaultExpiry(initialExpiresAt))
 
     // Re-prefill if the parent swaps which entry we're acting on mid-session.
     // Skip while the modal is open so a background refresh of the underlying

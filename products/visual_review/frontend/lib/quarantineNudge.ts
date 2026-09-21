@@ -5,8 +5,8 @@ import type { ToleratedHashEntryApi } from '../generated/api.schemas'
 // Same window the baselines overview uses for `tolerate_count_30d`.
 export const QUARANTINE_NUDGE_WINDOW_DAYS = 30
 
-// Matches the backend `VARIANT_PILEUP_MIN`: at three accepted renderings a
-// baseline no longer describes one rendering.
+// Same floor as the backend `VARIANT_PILEUP_MIN`, chosen to agree with it: at
+// three accepted renderings a snapshot no longer has one rendering.
 const QUARANTINE_NUDGE_MIN_INTENTIONAL = 3
 
 // Auto tolerations cost nobody a click, so it takes more of them to mean the

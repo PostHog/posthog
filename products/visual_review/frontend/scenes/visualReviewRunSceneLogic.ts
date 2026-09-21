@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -28,6 +29,7 @@ import type {
     SnapshotApi,
     ToleratedHashEntryApi,
 } from '../generated/api.schemas'
+import { type RecentTolerations, countRecentTolerations } from '../lib/quarantineNudge'
 import { isReportingOnlyRun } from '../lib/runPredicates'
 import { visualReviewPreferencesLogic } from './visualReviewPreferencesLogic'
 
@@ -53,6 +55,7 @@ export interface visualReviewRunSceneLogicValues {
     quarantinedIdentifiers: QuarantinedIdentifierEntryApi[]
     quarantinedIdentifiersLoading: boolean
     repo: RepoApi | null
+    recentTolerations: RecentTolerations | null
     repoFullName: string | null
     repoLoading: boolean
     run: RunApi | null
@@ -221,6 +224,10 @@ export interface visualReviewRunSceneLogicMeta {
             quarantinedIdentifiers: QuarantinedIdentifierEntryApi[],
             run: RunApi | null
         ) => Set<string>
+        recentTolerations: (
+            toleratedHashes: ToleratedHashEntryApi[],
+            toleratedHashesLoading: boolean
+        ) => RecentTolerations | null
         repoFullName: (repo: RepoApi | null) => string | null
         thumbnailBasePath: (run: RunApi | null, currentProjectId: number | string) => string | null
         isRunInProgress: (run: RunApi | null) => boolean
@@ -399,6 +406,12 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 const changedNotQuarantined = changed.filter((s) => !quarantinedIdentifierSet.has(s.identifier))
                 return changedNotQuarantined[0] || changed[0] || snapshots[0] || null
             },
+        ],
+        // Null while loading, so the list of a previous snapshot never drives the quarantine nudge.
+        recentTolerations: [
+            (s) => [s.toleratedHashes, s.toleratedHashesLoading],
+            (toleratedHashes: ToleratedHashEntryApi[], toleratedHashesLoading: boolean): RecentTolerations | null =>
+                toleratedHashesLoading ? null : countRecentTolerations(toleratedHashes, dayjs()),
         ],
         changedSnapshots: [
             (s) => [s.snapshots],
