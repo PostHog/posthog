@@ -9,6 +9,7 @@ from django.conf import settings
 import structlog
 from PIL import Image
 
+from posthog.api.uploaded_media import INLINE_SAFE_IMAGE_FORMATS, is_inline_safe_content_type
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia, save_content_to_object_storage
 
@@ -37,13 +38,17 @@ def sanitize_attachment_filename(name: str | None) -> str:
     return name or "attachment"
 
 
-def is_valid_image(content: bytes) -> bool:
+def is_valid_image(content: bytes, content_type: str) -> bool:
     """Verify bytes are a real image (prevents serving disguised malicious content).
 
-    Uses the same PIL open + transpose check as the frontend upload API.
+    Only content types that the media endpoint serves inline need the check, and the decode
+    is limited to those formats. The endpoint serves every other type, including image types
+    such as TIFF or HEIC, as an opaque download, so those bytes are stored without a decode.
     """
+    if not is_inline_safe_content_type(content_type):
+        return True
     try:
-        image = Image.open(BytesIO(content))
+        image = Image.open(BytesIO(content), formats=INLINE_SAFE_IMAGE_FORMATS)
         image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
         image.close()
         return True
@@ -62,14 +67,14 @@ def save_file_to_uploaded_media(
     """Persist a file to object storage via UploadedMedia.
 
     Returns the absolute URL on success, None on failure.
-    For image content types, validates the bytes are a real image unless
-    validate_images is False.
+    For content types the media endpoint serves inline, validates the bytes
+    are a real image unless validate_images is False.
     """
     if not settings.OBJECT_STORAGE_ENABLED:
         logger.warning("conversations_attachment_no_object_storage", team_id=team.id)
         return None
 
-    if validate_images and content_type.startswith("image/") and not is_valid_image(content):
+    if validate_images and not is_valid_image(content, content_type):
         logger.warning("conversations_attachment_invalid_image", team_id=team.id, file_name=file_name)
         return None
 

@@ -52,6 +52,10 @@ SSIM_DISSIMILARITY_THRESHOLD = 0.01  # 1% structural difference
 # somebody should look at it.
 SHIFT_ABSORB_MAX_ROWS = 2
 
+# The CLI uploads only .png files, so the backend decodes snapshots as PNG and nothing else.
+# Image.open without formats= tries every format Pillow can parse.
+SNAPSHOT_IMAGE_FORMATS = ("PNG",)
+
 # --- Input DTOs ---
 
 

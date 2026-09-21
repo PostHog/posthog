@@ -44,6 +44,12 @@ def _make_png_bytes() -> bytes:
     return buf.getvalue()
 
 
+def _make_tiff_bytes() -> bytes:
+    buf = BytesIO()
+    Image.new("RGB", (1, 1), color="red").save(buf, format="TIFF")
+    return buf.getvalue()
+
+
 class TestEmailConnectDomainCaseInsensitivity(BaseTest):
     def setUp(self):
         super().setUp()
@@ -2789,9 +2795,15 @@ class TestEmailInboundAttachments(MailgunWebhookTestMixin, BaseTest):
         assert comment.content == "See attached"
         assert comment.rich_content is None
 
+    @parameterized.expand(
+        [
+            ("html", b"<html>not an image</html>"),
+            ("tiff", _make_tiff_bytes()),
+        ]
+    )
     @patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
-    def test_inbound_invalid_image_is_rejected(self, mock_storage: MagicMock):
-        fake_image = SimpleUploadedFile("evil.png", b"<html>not an image</html>", content_type="image/png")
+    def test_inbound_invalid_image_is_rejected(self, _name: str, content: bytes, mock_storage: MagicMock):
+        fake_image = SimpleUploadedFile("evil.png", content, content_type="image/png")
 
         data = self._base_post_data("<evil@test.com>")
         with self.settings(OBJECT_STORAGE_ENABLED=True):

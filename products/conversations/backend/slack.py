@@ -368,9 +368,9 @@ def _rehost_slack_file(f: dict, team: Team, bot_token: str | None) -> dict | Non
         logger.warning("🖼️ slack_file_download_rejected", file_id=file_id, source_url=source_url)
         return None
 
-    # Only images get byte-level validation; other types are stored as-is and
-    # served as opaque downloads by the media endpoint.
-    if is_image and not is_valid_image(file_bytes):
+    # Only types the media endpoint serves inline get byte-level validation; other
+    # types are stored as-is and served as opaque downloads by the media endpoint.
+    if not is_valid_image(file_bytes, mimetype):
         logger.warning("🖼️ slack_file_invalid_image_content", file_id=file_id)
         return None
 

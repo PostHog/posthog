@@ -45,6 +45,10 @@ _INLINE_SAFE_CONTENT_TYPES = frozenset(
     }
 )
 
+# The Pillow formats behind the content types above. Image.open without formats= tries every
+# format Pillow can parse, so pass this to decode only the formats that download() serves inline.
+INLINE_SAFE_IMAGE_FORMATS = ("PNG", "JPEG", "GIF", "WEBP", "AVIF", "BMP")
+
 logger = structlog.getLogger(__name__)
 
 
@@ -54,7 +58,7 @@ def _normalize_content_type(value: str | None) -> str:
     return value.split(";", 1)[0].strip().lower()
 
 
-def _is_inline_safe_content_type(content_type: str | None) -> bool:
+def is_inline_safe_content_type(content_type: str | None) -> bool:
     return _normalize_content_type(content_type) in _INLINE_SAFE_CONTENT_TYPES
 
 
@@ -85,7 +89,7 @@ def _attachment_disposition(file_name: str | None) -> str:
         return f"attachment; filename=\"{escaped}\"; filename*=UTF-8''{quote(cleaned, safe='')}"
 
 
-def validate_image_file(file: Optional[bytes], user: int) -> bool:
+def validate_image_file(file: Optional[bytes], user: int, *, formats: tuple[str, ...]) -> bool:
     """
     Django validates file content type by reading "magic bytes" from the start of the file.
     It doesn't then check that file really is the type it claims to be.
@@ -94,12 +98,13 @@ def validate_image_file(file: Optional[bytes], user: int) -> bool:
     We would store that and then serve it back to a dashboard. ☠️
 
     Here we check that the file is actually a valid image file by opening and transposing it.
+    `formats` names the Pillow formats the caller accepts; bytes in any other format fail the check.
     """
     if file is None:
         return False
 
     try:
-        im = Image.open(BytesIO(file))
+        im = Image.open(BytesIO(file), formats=formats)
         ImageOps.mirror(im)
         im.close()
         return True
@@ -129,7 +134,7 @@ def sniff_image_content_type(data: Optional[bytes]) -> Optional[str]:
     if not data:
         return None
     try:
-        with Image.open(BytesIO(data)) as image:
+        with Image.open(BytesIO(data), formats=INLINE_SAFE_IMAGE_FORMATS) as image:
             width, height = image.size
             if width * height > _MAX_IMAGE_PIXELS:
                 return None
@@ -214,7 +219,7 @@ def download(request, *args, **kwargs) -> HttpResponse:
         "Cache-Control": "public, max-age=315360000, immutable",
     }
 
-    if _is_inline_safe_content_type(instance.content_type):
+    if is_inline_safe_content_type(instance.content_type):
         response_content_type = instance.content_type
     else:
         response_content_type = "application/octet-stream"

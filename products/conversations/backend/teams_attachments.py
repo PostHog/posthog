@@ -99,10 +99,10 @@ def _download_image(url: str, token: str) -> bytes | None:
 def _save_attachment(team: Team, file_bytes: bytes, name: str, mimetype: str) -> dict[str, Any] | None:
     """Validate and persist attachment bytes, returning the attachment dict or None.
 
-    Only ``image/*`` content is byte-validated; other types are stored as-is and
-    served as opaque downloads by the media endpoint.
+    Only types the media endpoint serves inline are byte-validated; other types are
+    stored as-is and served as opaque downloads by the media endpoint.
     """
-    if mimetype.startswith("image/") and not is_valid_image(file_bytes):
+    if not is_valid_image(file_bytes, mimetype):
         logger.warning("teams_image_invalid_content", name=name)
         return None
 
