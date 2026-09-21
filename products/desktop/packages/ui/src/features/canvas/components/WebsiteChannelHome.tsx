@@ -111,6 +111,9 @@ export function WebsiteChannelHome({
     () => ({ uuid: homeUser?.uuid ?? null }),
     [homeUser?.uuid],
   );
+  // The Slack-style intro pinned at the feed's start — public channels only;
+  // the personal channel keeps the welcome empty state below.
+  const isPersonal = channel ? isPersonalChannel(channel) : false;
   const spaceItems = useMemo(
     () =>
       buildChannelItems({
@@ -118,10 +121,18 @@ export function WebsiteChannelHome({
         feedTasks: tasks,
         archivedTaskIds,
         pinnedTaskIds,
-        ownedBy: me,
+        ownedBy: isPersonal && me.uuid ? me : null,
         sessionFacts,
       }),
-    [spaceCanvases, tasks, archivedTaskIds, pinnedTaskIds, me, sessionFacts],
+    [
+      spaceCanvases,
+      tasks,
+      archivedTaskIds,
+      pinnedTaskIds,
+      isPersonal,
+      me,
+      sessionFacts,
+    ],
   );
   // Marking this channel read lives in ChannelHeader (rendered by every channel
   // surface), so opening Artifacts or CONTEXT.md counts as reading it too.
@@ -312,9 +323,6 @@ export function WebsiteChannelHome({
     ? tasks.find((t) => t.id === threadTaskId)
     : undefined;
 
-  // The Slack-style intro pinned at the feed's start — public channels only;
-  // the personal channel keeps the welcome empty state below.
-  const isPersonal = channel ? isPersonalChannel(channel) : false;
   const hasContextMd = (channelContext ?? "").trim().length > 0;
   // An in-flight build is spotted by its plan task in this channel's feed (by
   // title prefix — the only task↔context.md tie until the backend links them),

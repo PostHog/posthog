@@ -20,9 +20,11 @@ import {
 } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import type { AvatarPerson } from "@posthog/ui/features/auth/UserAvatar";
 import { CanvasPreviewFrame } from "@posthog/ui/features/canvas/components/CanvasPreviewFrame";
-import { ActivityPresenceAvatar } from "@posthog/ui/features/canvas/components/ChannelItemPresence";
+import {
+  ActivityPresenceAvatar,
+  canvasAuthor,
+} from "@posthog/ui/features/canvas/components/ChannelItemPresence";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
 import { deleteCanvasWithUndo } from "@posthog/ui/features/canvas/deleteCanvasWithUndo";
 import { useCanvasTemplates } from "@posthog/ui/features/canvas/hooks/useCanvasTemplates";
@@ -148,19 +150,6 @@ export function WebsiteDashboardsIndex({
       </div>
     </div>
   );
-}
-
-function canvasAuthor(summary: DashboardRecord): AvatarPerson | null {
-  if (summary.createdByUser) return summary.createdByUser;
-  if (!summary.createdBy && !summary.createdByUuid) return null;
-  const [first, ...rest] = (summary.createdBy ?? "")
-    .split(/\s+/)
-    .filter(Boolean);
-  return {
-    uuid: summary.createdByUuid,
-    first_name: first ?? null,
-    last_name: rest.join(" ") || null,
-  };
 }
 
 const DashboardCard = memo(function DashboardCard({

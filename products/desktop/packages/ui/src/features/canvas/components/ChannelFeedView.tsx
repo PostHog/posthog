@@ -58,10 +58,12 @@ import type {
 } from "@posthog/shared/domain-types";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
-import type { AvatarPerson } from "@posthog/ui/features/auth/UserAvatar";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { TaskTabIcon } from "@posthog/ui/features/browser-tabs/TaskTabIcon";
-import { ActivityPresenceAvatar } from "@posthog/ui/features/canvas/components/ChannelItemPresence";
+import {
+  ActivityPresenceAvatar,
+  canvasAuthor,
+} from "@posthog/ui/features/canvas/components/ChannelItemPresence";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import {
   buildFeedSections,
@@ -1247,7 +1249,7 @@ const CanvasFeedRow = memo(function CanvasFeedRow({
   listRow: boolean;
 }) {
   const open = () => navigateToChannelDashboard(channelId, canvas.id);
-  const author = canvasFeedAuthor(canvas);
+  const author = canvasAuthor(canvas);
   if (!listRow) {
     return (
       <Card
@@ -1319,19 +1321,6 @@ const CanvasFeedRow = memo(function CanvasFeedRow({
     </button>
   );
 });
-
-function canvasFeedAuthor(canvas: DashboardRecord): AvatarPerson | null {
-  if (canvas.createdByUser) return canvas.createdByUser;
-  if (!canvas.createdBy && !canvas.createdByUuid) return null;
-  const [first, ...rest] = (canvas.createdBy ?? "")
-    .split(/\s+/)
-    .filter(Boolean);
-  return {
-    uuid: canvas.createdByUuid,
-    first_name: first ?? null,
-    last_name: rest.join(" ") || null,
-  };
-}
 
 const FEED_PAGE = 30;
 

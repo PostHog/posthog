@@ -1,4 +1,5 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
+import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import { presenceTier } from "@posthog/core/canvas/presence";
 import {
   type AvatarPerson,
@@ -7,6 +8,19 @@ import {
 import { PresenceAvatar } from "@posthog/ui/features/canvas/components/PresenceAvatars";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { useNow } from "@posthog/ui/hooks/useNow";
+
+export function canvasAuthor(canvas: DashboardRecord): AvatarPerson | null {
+  if (canvas.createdByUser) return canvas.createdByUser;
+  if (!canvas.createdBy && !canvas.createdByUuid) return null;
+  const [first, ...rest] = (canvas.createdBy ?? "")
+    .split(/\s+/)
+    .filter(Boolean);
+  return {
+    uuid: canvas.createdByUuid,
+    first_name: first ?? null,
+    last_name: rest.join(" ") || null,
+  };
+}
 
 export function rowAuthor(
   item: ChannelItemModel,
