@@ -93,7 +93,8 @@ class OrganizationBillingTestMixin(APILicensedTest):
         self.organization_membership.save()
         owner_only = patch("ee.billing.grants._owner_only_billing_enabled", return_value=False)
         member_read = patch("ee.billing.grants._member_billing_usage_spend_read_access_enabled", return_value=False)
-        # The viewset is behind a feature flag; on for the suite, off in the one test about the gate.
+        # The viewset is behind a feature flag. It is on for the suite, and off in the one test
+        # about the gate.
         api_flag = patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
         self.owner_only = owner_only.start()
         self.member_read = member_read.start()
@@ -445,7 +446,7 @@ class TestOrganizationBillingSpendForecastAndSeries(OrganizationBillingTestMixin
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         body = response.json()
         sent = mock_get.call_args.kwargs["params"]
-        # limit and cursor are the API's names; billing hears page_size and after.
+        # limit and cursor are the API's names. Billing hears page_size and after.
         self.assertEqual((sent.get("page_size"), "limit" in sent), (2, False))
         self.assertEqual((body["count"], body["previous"], len(body["results"])), (7, None, 3))
         self.assertTrue(

@@ -147,7 +147,7 @@ class TestEffectiveBillingGrants(APIBaseTest):
         self.assertEqual(grants.roles, ["owner"])
 
     def test_what_a_member_can_see_is_not_in_the_token(self):
-        # Visibility is a per-request filter on the series reads; the token carries only what a
+        # Visibility is a per-request filter on the series reads. The token carries only what a
         # credential is scoped to, so a member who sees one project of two still gets no list.
         self._set_level(MEMBER)
         self.member_read.return_value = True

@@ -128,8 +128,8 @@ BREAKDOWNS_MESSAGE = "Value must be a JSON array containing only 'type' and/or '
 # type in units that do not add: events, recordings, rows. So the usage read serves a project
 # breakdown only beside the product one.
 USAGE_BREAKDOWNS_MESSAGE = (
-    'Value must be one of [], ["type"] or ["type","team"]. Usage is counted per product, so a '
-    "project breakdown is served beside the product one rather than on its own."
+    'Pass [], ["type"] or ["type","team"]. To break usage down by project, pass "type" with '
+    '"team": billing counts usage per product, and the counts do not add up across products.'
 )
 
 

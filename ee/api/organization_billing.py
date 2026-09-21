@@ -407,7 +407,7 @@ class BillingProjectSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     name = serializers.CharField(
         allow_null=True,
-        help_text="The project's name, or null when the project was deleted after its usage was reported.",
+        help_text="The project's name, or null when the organization deleted the project after it reported usage.",
     )
     deleted = serializers.BooleanField()
 
@@ -439,7 +439,7 @@ class OrganizationTimeseriesRequestSerializer(BillingUsageRequestSerializer):
         max_value=1000,
         help_text=(
             "Series per page, ranked by total, with a `next` link for the page after. Requires a project "
-            "breakdown; ignored without one. Omit it to get every series at once."
+            "breakdown and is ignored without one. Omit it to get every series at once."
         ),
     )
     cursor = serializers.CharField(
@@ -452,16 +452,17 @@ class OrganizationTimeseriesRequestSerializer(BillingUsageRequestSerializer):
 
 
 class OrganizationUsageTimeseriesRequestSerializer(OrganizationTimeseriesRequestSerializer):
-    """The usage series' parameters. The usage read serves a project breakdown beside the product one."""
+    """The usage series' parameters. Breaking usage down by project also takes the product dimension."""
 
     breakdowns = serializers.CharField(
         required=False,
         allow_blank=True,
         allow_null=True,
         help_text=(
-            'JSON-encoded array of breakdown dimensions. One of `[]`, `["type"]` or `["type","team"]`: '
-            "usage is counted per product, so a project breakdown is served beside the product one "
-            "rather than on its own. Omit for a single aggregate series."
+            "JSON-encoded array of breakdown dimensions. Omit it for one series across the whole "
+            'organization. Pass `["type"]` for a series per product. Pass `["type","team"]` for a '
+            'series per product per project. To break usage down by project, pass `"type"` with '
+            '`"team"`: billing counts usage per product, and the counts do not add up across products.'
         ),
     )
 
@@ -599,7 +600,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         serializer = serializer_class(data=request.GET)
         serializer.is_valid(raise_exception=True)
         params = {key: value for key, value in serializer.validated_data.items() if value is not None}
-        # Billing pages with page_size and after; the API's names for the same thing are limit and cursor.
+        # Billing pages with page_size and after. The API calls the same two limit and cursor.
         if "limit" in params:
             params["page_size"] = params.pop("limit")
         if "cursor" in params:
@@ -895,7 +896,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.USAGE_READ)
-        # Settled before billing is called, so a caller who may see nothing never costs a request.
+        # Settled before this calls billing, so a caller who may see nothing never costs a request.
         # A deleted project cannot be checked against what a member can see, so it is not listed for them.
         visible = self._visible_projects(request, grants, organization)
         reported = [
