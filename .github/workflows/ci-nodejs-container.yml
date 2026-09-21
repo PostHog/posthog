@@ -81,10 +81,13 @@ jobs:
                       # parquet-sink) deploy the same image under their own deploy target, so a node
                       # deploy for unrelated code does not restart them: a restart rebalances their
                       # partitions, empties their key and dedup caches, and reloads the scrub sidecar
-                      # models. Their servers import the session replay pipelines and the common
-                      # consumer code, so both trees are listed whole.
+                      # models. Their servers import the session replay pipelines, the ingestion
+                      # framework and the common consumer code, so those trees are listed whole.
                       ai_research_replay_files:
                         - 'nodejs/src/ingestion/pipelines/sessionreplay/**'
+                        - 'nodejs/src/ingestion/framework/**'
+                        - 'nodejs/src/ingestion/common/**'
+                        - 'nodejs/src/ingestion/config.ts'
                         - 'nodejs/src/common/**'
                         - 'nodejs/src/servers/**'
                         - 'nodejs/src/index.ts'
