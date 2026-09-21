@@ -449,6 +449,9 @@ const TEAM_PROPERTIES_MAPPING: Record<
     group_types: createArrayChangeHandler('group types', { map: (group: GroupType) => group.name_plural }),
     person_display_name_properties: createArrayChangeHandler('person display name properties'),
     person_on_events_querying_enabled: createBooleanToggleHandler('querying person on events'),
+    person_processing_opt_out: createBooleanToggleHandler('person processing', {
+        verb: ['opted out of', 'opted in to'],
+    }),
     human_friendly_comparison_periods: createBooleanToggleHandler('human friendly comparison periods'),
     receive_org_level_activity_logs: createBooleanToggleHandler('organization-level activity logs'),
     require_evaluation_contexts: createBooleanToggleHandler('require evaluation context tags'),

@@ -718,6 +718,7 @@ class ProjectBackwardCompatSerializer(
             "live_events_columns",  # Compat with TeamSerializer
             "recording_domains",  # Compat with TeamSerializer
             "person_on_events_querying_enabled",  # Compat with TeamSerializer
+            "person_processing_opt_out",  # Compat with TeamSerializer
             "inject_web_apps",  # Compat with TeamSerializer
             "extra_settings",  # Compat with TeamSerializer
             "modifiers",  # Compat with TeamSerializer
@@ -775,6 +776,7 @@ class ProjectBackwardCompatSerializer(
             "ingested_event",
             "default_modifiers",
             "person_on_events_querying_enabled",
+            "person_processing_opt_out",
             "product_intents",
             "secret_api_token",
             "secret_api_token_backup",
@@ -828,6 +830,7 @@ class ProjectBackwardCompatSerializer(
             "live_events_columns",
             "recording_domains",
             "person_on_events_querying_enabled",
+            "person_processing_opt_out",
             "inject_web_apps",
             "extra_settings",
             "modifiers",
@@ -875,6 +878,13 @@ class ProjectBackwardCompatSerializer(
                 )
             },
             "anonymize_ips": {"help_text": "When true, PostHog drops the IP address from every ingested event."},
+            "person_processing_opt_out": {
+                "help_text": (
+                    "Read-only. True when person processing is off for the whole project, so events create and "
+                    "update no person profiles. Stored person properties then stay empty, and feature flag "
+                    "conditions that read them do not match."
+                )
+            },
             "timezone": {
                 "help_text": "IANA timezone used for date-based filters and reporting (e.g. `America/Los_Angeles`)."
             },

@@ -1275,6 +1275,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "ingested_event",
             "default_modifiers",
             "person_on_events_querying_enabled",
+            "person_processing_opt_out",
             "user_access_level",
             # Config fields
             *TEAM_CONFIG_FIELDS,
@@ -1304,12 +1305,23 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "group_types",
             "default_modifiers",
             "person_on_events_querying_enabled",
+            "person_processing_opt_out",
             "live_events_token",
             "user_access_level",
             "product_intents",
             "managed_viewsets",
             "available_setup_task_ids",
         )
+
+        extra_kwargs = {
+            "person_processing_opt_out": {
+                "help_text": (
+                    "Read-only. True when person processing is off for the whole project, so events create and "
+                    "update no person profiles. Stored person properties then stay empty, and feature flag "
+                    "conditions that read them do not match."
+                )
+            }
+        }
 
     def to_representation(self, instance):
         with tracer.start_as_current_span("team_serializer.default_fields"):

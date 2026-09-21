@@ -890,6 +890,8 @@ export interface TeamType extends TeamBasicType {
      */
     correlation_config: CorrelationConfigType | null
     person_on_events_querying_enabled: boolean
+    /** Read-only. True when person processing is off project-wide, so no person profiles are stored. */
+    person_processing_opt_out: boolean | null
     extra_settings?: Record<string, string | number | boolean | undefined>
     modifiers?: HogQLQueryModifiers
     default_modifiers?: HogQLQueryModifiers

@@ -2623,6 +2623,11 @@ export interface ProjectBackwardCompatApi {
      */
     recording_domains?: (string | null)[] | null
     readonly person_on_events_querying_enabled: boolean
+    /**
+     * Read-only. True when person processing is off for the whole project, so events create and update no person profiles. Stored person properties then stay empty, and feature flag conditions that read them do not match.
+     * @nullable
+     */
+    readonly person_processing_opt_out: boolean | null
     /** @nullable */
     inject_web_apps?: boolean | null
     extra_settings?: unknown
@@ -3490,6 +3495,11 @@ export interface PatchedProjectBackwardCompatApi {
      */
     recording_domains?: (string | null)[] | null
     readonly person_on_events_querying_enabled?: boolean
+    /**
+     * Read-only. True when person processing is off for the whole project, so events create and update no person profiles. Stored person properties then stay empty, and feature flag conditions that read them do not match.
+     * @nullable
+     */
+    readonly person_processing_opt_out?: boolean | null
     /** @nullable */
     inject_web_apps?: boolean | null
     extra_settings?: unknown

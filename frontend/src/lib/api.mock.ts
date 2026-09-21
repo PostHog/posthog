@@ -128,6 +128,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     primary_dashboard: 1,
     live_events_columns: null,
     person_on_events_querying_enabled: true,
+    person_processing_opt_out: false,
     live_events_token: '123',
     capture_dead_clicks: false,
     human_friendly_comparison_periods: false,

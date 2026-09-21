@@ -81,6 +81,7 @@ import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FlagIntent, featureFlagIntentWarningLogic } from './featureFlagIntentWarningLogic'
 import { FeatureFlagLogicProps } from './featureFlagLogic'
+import { FeatureFlagPersonlessWarning } from './FeatureFlagPersonlessWarning'
 import {
     BlastRadiusError,
     FeatureFlagReleaseConditionsLogicProps,
@@ -1130,6 +1131,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
             )}
 
             <FeatureFlagConditionWarning properties={properties} evaluationRuntime={evaluationRuntime} />
+
+            <FeatureFlagPersonlessWarning properties={properties} />
 
             <FractionalRolloutWarning filterGroups={filterGroups} />
 

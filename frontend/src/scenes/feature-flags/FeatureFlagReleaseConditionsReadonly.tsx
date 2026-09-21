@@ -10,6 +10,7 @@ import { FractionalRolloutWarning } from 'products/feature_flags/frontend/Fracti
 import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FeatureFlagNoConditionsWarning } from './FeatureFlagNoConditionsWarning'
+import { FeatureFlagPersonlessWarning } from './FeatureFlagPersonlessWarning'
 import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
 
 interface FeatureFlagReleaseConditionsReadonlyProps {
@@ -54,6 +55,8 @@ export function FeatureFlagReleaseConditionsReadonly({
             {filters.early_exit && <EarlyExitIndicator />}
 
             <FeatureFlagConditionWarning properties={properties} evaluationRuntime={evaluationRuntime} />
+
+            <FeatureFlagPersonlessWarning properties={properties} />
 
             <FractionalRolloutWarning filterGroups={filterGroups} />
 
