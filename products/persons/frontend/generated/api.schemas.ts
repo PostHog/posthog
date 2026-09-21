@@ -195,6 +195,52 @@ export interface PropertyApi {
     values: PropertyItemApi[]
 }
 
+/**
+ * * `distinct_id` - Distinct ID
+ * * `email` - Email
+ * * `name` - Name
+ * * `id` - Person ID
+ */
+export type PersonSearchMatchFieldEnumApi =
+    (typeof PersonSearchMatchFieldEnumApi)[keyof typeof PersonSearchMatchFieldEnumApi]
+
+export const PersonSearchMatchFieldEnumApi = {
+    DistinctId: 'distinct_id',
+    Email: 'email',
+    Name: 'name',
+    Id: 'id',
+} as const
+
+export interface PersonListRecordApi {
+    /** Numeric person ID. */
+    readonly id: number
+    /** Display name derived from person properties (email, name, or username). */
+    readonly name: string
+    readonly distinct_ids: readonly string[]
+    /** Key-value map of person properties set via $set and $set_once operations. */
+    properties?: unknown
+    /** When this person was first seen (ISO 8601). */
+    readonly created_at: string
+    /** Unique identifier (UUID) for this person. */
+    readonly uuid: string
+    /**
+     * Timestamp of the last event from this person, or null.
+     * @nullable
+     */
+    readonly last_seen_at: string | null
+    /** Only on a search result: the searched fields the term was found in. */
+    matched_fields?: PersonSearchMatchFieldEnumApi[]
+}
+
+export interface PaginatedPersonListRecordListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    count?: number
+    results?: PersonListRecordApi[]
+}
+
 export interface PersonRecordApi {
     /** Numeric person ID. */
     readonly id: number
@@ -212,15 +258,6 @@ export interface PersonRecordApi {
      * @nullable
      */
     readonly last_seen_at: string | null
-}
-
-export interface PaginatedPersonRecordListApi {
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    count?: number
-    results?: PersonRecordApi[]
 }
 
 export interface PatchedPersonRecordApi {
@@ -435,7 +472,7 @@ export type PersonsListParams = {
      */
     properties?: PropertyApi[]
     /**
-     * Search persons by email, name, person ID, or distinct ID. Partial values match. A UUID that exactly matches a person ID or distinct ID returns only that person. A complete email address that exactly matches a distinct ID returns that person together with every person whose email property contains the address. Each result carries `matched_fields`, the subset of `distinct_id`, `email`, `name` and `id` the term was found in.
+     * Search persons by email, name, person ID, or distinct ID. Partial values match. A UUID that exactly matches a person ID or distinct ID returns only that person. A complete email address that exactly matches a distinct ID returns that person first, then every person whose email property contains the address. Each result carries `matched_fields`, the searched fields the term was found in.
      */
     search?: string
 }

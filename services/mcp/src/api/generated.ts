@@ -60701,7 +60701,23 @@ export namespace Schemas {
       results: PauseStateResponse[];
     }
 
-    export interface PersonRecord {
+    /**
+     * * `distinct_id` - Distinct ID
+     * * `email` - Email
+     * * `name` - Name
+     * * `id` - Person ID
+     */
+    export type PersonSearchMatchFieldEnum = typeof PersonSearchMatchFieldEnum[keyof typeof PersonSearchMatchFieldEnum];
+
+
+    export const PersonSearchMatchFieldEnum = {
+      DistinctId: 'distinct_id',
+      Email: 'email',
+      Name: 'name',
+      Id: 'id',
+    } as const;
+
+    export interface PersonListRecord {
       /** Numeric person ID. */
       readonly id: number;
       /** Display name derived from person properties (email, name, or username). */
@@ -60718,15 +60734,17 @@ export namespace Schemas {
          * @nullable
          */
       readonly last_seen_at: string | null;
+      /** Only on a search result: the searched fields the term was found in. */
+      matched_fields?: PersonSearchMatchFieldEnum[];
     }
 
-    export interface PaginatedPersonRecordList {
+    export interface PaginatedPersonListRecordList {
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
       count?: number;
-      results?: PersonRecord[];
+      results?: PersonListRecord[];
     }
 
     /**
@@ -75120,6 +75138,25 @@ export namespace Schemas {
       last_seen_at: string | null;
       /** Metadata about the point-in-time query */
       point_in_time_metadata: PersonPropertiesAtTimeMetadata;
+    }
+
+    export interface PersonRecord {
+      /** Numeric person ID. */
+      readonly id: number;
+      /** Display name derived from person properties (email, name, or username). */
+      readonly name: string;
+      readonly distinct_ids: readonly string[];
+      /** Key-value map of person properties set via $set and $set_once operations. */
+      properties?: unknown;
+      /** When this person was first seen (ISO 8601). */
+      readonly created_at: string;
+      /** Unique identifier (UUID) for this person. */
+      readonly uuid: string;
+      /**
+         * Timestamp of the last event from this person, or null.
+         * @nullable
+         */
+      readonly last_seen_at: string | null;
     }
 
     export interface PersonSplitRequest {
@@ -108065,7 +108102,7 @@ export namespace Schemas {
      */
     properties?: Property[];
     /**
-     * Search persons by email, name, person ID, or distinct ID. Partial values match. A UUID that exactly matches a person ID or distinct ID returns only that person. A complete email address that exactly matches a distinct ID returns that person together with every person whose email property contains the address. Each result carries `matched_fields`, the subset of `distinct_id`, `email`, `name` and `id` the term was found in.
+     * Search persons by email, name, person ID, or distinct ID. Partial values match. A UUID that exactly matches a person ID or distinct ID returns only that person. A complete email address that exactly matches a distinct ID returns that person first, then every person whose email property contains the address. Each result carries `matched_fields`, the searched fields the term was found in.
      */
     search?: string;
     };

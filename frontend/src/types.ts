@@ -96,6 +96,7 @@ import type {
 } from 'products/data_warehouse/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
+import type { PersonListRecordApi } from 'products/persons/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
@@ -1734,8 +1735,6 @@ export interface FunnelExclusionLegacy extends Partial<EntityFilter> {
 
 export type EntityFilterTypes = EntityFilter | ActionFilter | null
 
-export type PersonSearchMatchField = 'distinct_id' | 'email' | 'name' | 'id'
-
 export interface PersonType {
     id?: string
     uuid?: string
@@ -1746,7 +1745,7 @@ export interface PersonType {
     last_seen_at?: string
     is_identified?: boolean
     /** Only on a search result: the fields the search term was found in. */
-    matched_fields?: PersonSearchMatchField[]
+    matched_fields?: PersonListRecordApi['matched_fields']
 }
 
 export interface PersonListParams {

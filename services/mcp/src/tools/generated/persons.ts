@@ -73,13 +73,13 @@ const PersonsListSchema = () => {
 
 const personsList = (): ToolBase<
     ReturnType<typeof PersonsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedPersonRecordList>
+    WithPostHogUrl<Schemas.PaginatedPersonListRecordList>
 > => ({
     name: 'persons-list',
     schema: PersonsListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof PersonsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedPersonRecordList>({
+        const result = await context.api.request<Schemas.PaginatedPersonListRecordList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/`,
             query: {
@@ -104,6 +104,7 @@ const personsList = (): ToolBase<
                     'properties.$geoip_country_code',
                     'created_at',
                     'last_seen_at',
+                    'matched_fields',
                 ])
             ),
         } as typeof result

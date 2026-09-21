@@ -1,4 +1,5 @@
 import json
+import functools
 from typing import Optional, cast
 from uuid import UUID, uuid4
 
@@ -31,6 +32,7 @@ from posthog.api.person import tag_client_query_id
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_tags
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.serialized_actors import get_serialized_people
 from posthog.models import Organization, Person, PropertyDefinition, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.missing_person import uuidFromDistinctId
@@ -248,9 +250,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 self.assertIsNone(response.json()["next"])
             self.assertEqual(clickhouse_queries, [])
 
-    def test_search_by_email_lists_the_property_match_with_the_distinct_id_hit(self) -> None:
+    def test_search_by_email_lists_the_property_matches_behind_the_distinct_id_hit(self) -> None:
         by_distinct_id = _create_person(
-            team=self.team, distinct_ids=["abe@example.com"], properties={"name": "Abe"}, immediate=True
+            team=self.team,
+            distinct_ids=["abe@example.com"],
+            properties={"email": "abe@example.com"},
+            immediate=True,
         )
         by_property = _create_person(
             team=self.team,
@@ -264,18 +269,51 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         flush_persons_and_events()
 
         with self.capture_select_queries() as clickhouse_queries:
+            response = self.client.get("/api/person/?search=abe@example.com&include_total=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # The identifier hit leads, and holding the address as a property too lists it once.
+        self.assertEqual(
+            [(result["id"], result["matched_fields"]) for result in response.json()["results"]],
+            [(str(by_distinct_id.uuid), ["distinct_id", "email"]), (str(by_property.uuid), ["email"])],
+        )
+        self.assertEqual(response.json()["count"], 2)
+        self.assertIsNone(response.json()["next"])
+        # The identifier hit answered the ID arms of the fuzzy search, so the page and count queries
+        # read the email property and never scan the team's distinct IDs.
+        person_queries = [query for query in clickhouse_queries if "system.columns" not in query]
+        self.assertEqual(len(person_queries), 2)
+        for query in person_queries:
+            self.assertNotIn("person_distinct_id2", query)
+
+        # One person per page: the hit fills the first page on its own and the property match
+        # follows on the next, so following `next` repeats nobody and skips nobody.
+        listed: list[str] = []
+        next_url: Optional[str] = "/api/person/?search=abe@example.com&limit=1&include_total=true"
+        while next_url:
+            with self.capture_select_queries() as clickhouse_queries:
+                response = self.client.get(next_url)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["count"], 2)
+            listed.extend(result["id"] for result in response.json()["results"])
+            for query in clickhouse_queries:
+                self.assertNotIn("person_distinct_id2", query)
+            next_url = response.json()["next"]
+        self.assertEqual(listed, [str(by_distinct_id.uuid), str(by_property.uuid)])
+
+    def test_search_by_email_tags_the_distinct_id_hit_past_the_hydration_cap(self) -> None:
+        _create_person(team=self.team, distinct_ids=["abe@example.com"], properties={"name": "Abe"}, immediate=True)
+        flush_persons_and_events()
+
+        # A person can hold more distinct IDs than a response hydrates, so the tag cannot depend on
+        # the matched one being in the hydrated list.
+        hydrate_no_distinct_ids = functools.partial(get_serialized_people, distinct_id_limit=0)
+        with mock.patch("posthog.api.person.get_serialized_people", new=hydrate_no_distinct_ids):
             response = self.client.get("/api/person/?search=abe@example.com")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            {result["id"]: result["matched_fields"] for result in response.json()["results"]},
-            {str(by_distinct_id.uuid): ["distinct_id"], str(by_property.uuid): ["email"]},
+            [(result["distinct_ids"], result["matched_fields"]) for result in response.json()["results"]],
+            [([], ["distinct_id"])],
         )
-        self.assertIsNone(response.json()["next"])
-        # The identifier hit answered the ID arms of the fuzzy search, so the one person query reads
-        # the email property and never scans the team's distinct IDs.
-        person_queries = [query for query in clickhouse_queries if "system.columns" not in query]
-        self.assertEqual(len(person_queries), 1)
-        self.assertNotIn("person_distinct_id2", person_queries[0])
 
     def test_search_by_exact_identifier_still_applies_other_filters(self) -> None:
         _create_person(
@@ -2022,6 +2060,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "/api/person.csv?properties={}".format(json.dumps([{"key": "$os", "value": "Windows", "type": "person"}]))
         )
         self.assertEqual(len(response.content.splitlines()), 2)
+
+        # The renderer would spread `matched_fields` over one column per element, so a searched
+        # export keeps the header of an unsearched one.
+        response = self.client.get("/api/person.csv?search=4")
+        lines = response.content.splitlines()
+        self.assertGreater(len(lines), 1)
+        self.assertNotIn(b"matched_fields", lines[0])
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_pagination_limit(self):

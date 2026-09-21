@@ -1,10 +1,12 @@
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import type { PersonSearchMatchField, PersonType } from '~/types'
+import type { PersonType } from '~/types'
+
+import type { PersonSearchMatchFieldEnumApi } from '../generated/api.schemas'
 
 type TagContent = { label: string; explanation: string }
 
-const TAG_BY_FIELD: Partial<Record<PersonSearchMatchField, TagContent>> = {
+const TAG_BY_FIELD: Partial<Record<PersonSearchMatchFieldEnumApi, TagContent>> = {
     distinct_id: { label: 'Distinct ID', explanation: "The search matched one of this person's distinct IDs." },
     email: { label: 'Email', explanation: "The search matched this person's email property." },
     name: { label: 'Name', explanation: "The search matched this person's name property." },
