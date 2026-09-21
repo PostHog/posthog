@@ -20,12 +20,13 @@ class TestNotifyUncompilableHogFunctionFilters(BaseTest):
         enabled: bool = True,
         type: str = HogFunctionType.DESTINATION,
         team: Team | None = None,
+        bytecode: list | None = None,
     ) -> HogFunction:
         hog_function = HogFunction.objects.create(team=team or self.team, name=name, enabled=enabled, type=type)
         # Past save(), which recompiles the filters and clears the error. This is the shape the row
         # has in the database.
         HogFunction.objects.filter(id=hog_function.id).update(
-            filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
+            filters={"bytecode": bytecode, "bytecode_error": "Cohort membership can't be evaluated"}
         )
         return hog_function
 
@@ -61,6 +62,21 @@ class TestNotifyUncompilableHogFunctionFilters(BaseTest):
         task.delay.assert_called_once_with(self.team.id, [str(hog_function.id)])
         hog_function.refresh_from_db()
         assert hog_function.enabled is False
+
+    def test_leaves_a_destination_that_kept_its_last_working_bytecode_alone(self) -> None:
+        # A save whose recompile fails keeps the previous bytecode beside the error, so this
+        # destination still delivers. Disabling it would cause the outage the error only warns of,
+        # and the email would tell the project that a working destination dropped events.
+        hog_function = self._broken(bytecode=["_H", 1, 29])
+        out = StringIO()
+
+        with patch(TASK) as task:
+            call_command("notify_uncompilable_hog_function_filters", "--apply", "--disable", stdout=out)
+
+        task.delay.assert_not_called()
+        hog_function.refresh_from_db()
+        assert hog_function.enabled is True
+        assert "0 enabled destination(s)" in out.getvalue()
 
     def test_leaves_every_type_other_than_a_destination_alone(self) -> None:
         # Transformations, source webhooks and internal destinations compile bytecode too and carry
