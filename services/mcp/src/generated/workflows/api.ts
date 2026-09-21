@@ -90,7 +90,7 @@ export const HogFlowsCreateBody = () => zod
             .max(hogFlowsCreateBodyKeyMax)
             .nullish()
             .describe(
-                'Client-chosen identifier, unique within the project. Set only when creating a workflow. Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only.'
+                'Client-chosen identifier, unique within this environment. Set only when creating a workflow. Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only.'
             ),
         name: zod.string().max(hogFlowsCreateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().default(hogFlowsCreateBodyDescriptionDefault).describe('Optional description.'),

@@ -2825,6 +2825,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
         model = HogFlow
         fields = [
             "id",
+            "key",
             "name",
             "description",
             "version",
@@ -2890,6 +2891,7 @@ class HogFlowSummarySerializer(HogFlowMinimalSerializer):
     class Meta(HogFlowMinimalSerializer.Meta):
         fields = [
             "id",
+            "key",
             "name",
             "description",
             "version",
@@ -3373,14 +3375,21 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         if value is None:
             return value
 
-        if HogFlow.objects.filter(team_id=self.context["team_id"], key=value).exists():
-            raise serializers.ValidationError("There is already a workflow with this key.", code="unique")
-
         if not re.match(r"^[a-zA-Z0-9_-]+$", value):
             raise serializers.ValidationError(
                 "Only letters, numbers, hyphens (-) & underscores (_) are allowed.",
                 code="invalid_key",
             )
+
+        # As a nested field (the `configuration` override on test invocations) DRF never binds
+        # `self.instance`, so fall back to the flow passed in via context. Without it a keyed
+        # workflow reads its own key as taken and every test run on it fails.
+        instance = cast(Optional[HogFlow], self.instance) or self.context.get("instance")
+        taken = HogFlow.objects.filter(team_id=self.context["team_id"], key=value)
+        if instance is not None:
+            taken = taken.exclude(pk=instance.pk)
+        if taken.exists():
+            raise serializers.ValidationError("There is already a workflow with this key.", code="unique")
 
         return value
 
@@ -3417,7 +3426,7 @@ class HogFlowUpdateSerializer(HogFlowSerializer):
     key = serializers.CharField(
         read_only=True,
         allow_null=True,
-        help_text="Client-chosen identifier, unique within the project. This value cannot change after creation.",
+        help_text="Client-chosen identifier, unique within this environment. This value cannot change after creation.",
     )
 
     def validate(self, data: dict) -> dict:

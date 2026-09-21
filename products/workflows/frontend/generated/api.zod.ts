@@ -430,7 +430,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             .max(hogFlowsCreateBodyKeyMax)
             .nullish()
             .describe(
-                'Client-chosen identifier, unique within the project. Set only when creating a workflow. Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only.'
+                'Client-chosen identifier, unique within this environment. Set only when creating a workflow. Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only.'
             ),
         name: zod.string().max(hogFlowsCreateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().default(hogFlowsCreateBodyDescriptionDefault).describe('Optional description.'),
@@ -1845,7 +1845,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .max(hogFlowsInvocationsCreateBodyConfigurationOneKeyMax)
                 .nullish()
                 .describe(
-                    'Client-chosen identifier, unique within the project. Set only when creating a workflow. Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only.'
+                    'Client-chosen identifier, unique within this environment. Set only when creating a workflow. Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only.'
                 ),
             name: zod
                 .string()
@@ -2640,7 +2640,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             .max(hogFlowsBulkDeleteCreateBodyKeyMax)
             .nullish()
             .describe(
-                'Client-chosen identifier, unique within the project. Set only when creating a workflow. Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only.'
+                'Client-chosen identifier, unique within this environment. Set only when creating a workflow. Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only.'
             ),
         name: zod.string().max(hogFlowsBulkDeleteCreateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod
