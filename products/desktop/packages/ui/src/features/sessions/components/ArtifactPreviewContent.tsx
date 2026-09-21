@@ -27,6 +27,7 @@ import { MarkdownDocumentPreview } from "../../code-editor/components/MarkdownDo
 import { AnnotatedArtifactHtml } from "./AnnotatedArtifactHtml";
 import { AnnotatedArtifactImage } from "./AnnotatedArtifactImage";
 import { ArtifactDocumentCommentAction } from "./ArtifactDocumentCommentAction";
+import { ArtifactShareAction } from "./ArtifactShareAction";
 import { ArtifactTextAnnotations } from "./ArtifactTextAnnotations";
 import type {
   CommentLocateRequest,
@@ -71,6 +72,7 @@ export function ArtifactPreviewContent({
   name,
   versionNav,
   taskId,
+  artifactId,
   commentTarget,
   canEdit,
   beginEditing,
@@ -97,6 +99,8 @@ export function ArtifactPreviewContent({
   name: string;
   versionNav?: ReactNode;
   taskId: string;
+  /** The manifest id of the version on screen, which the share dialog addresses. */
+  artifactId: string;
   commentTarget: CommentTarget;
   canEdit: boolean;
   beginEditing: () => void;
@@ -124,6 +128,16 @@ export function ArtifactPreviewContent({
   editableKind: EditableArtifactKind | null;
   artifactResult: ArtifactPreviewResult | undefined;
 }): ReactElement {
+  const shareAction = (
+    <ArtifactShareAction taskId={taskId} artifactId={artifactId} name={name} />
+  );
+  const documentActions = (
+    <div className="flex shrink-0 items-center gap-1">
+      {shareAction}
+      <ArtifactDocumentCommentAction target={commentTarget} taskId={taskId} />
+    </div>
+  );
+
   if (typeof previewData === "string") {
     return (
       <div className="flex h-full flex-col overflow-hidden">
@@ -136,12 +150,7 @@ export function ArtifactPreviewContent({
           onToggleRendered={() => setShowRendered((rendered) => !rendered)}
           canEdit={canEdit}
           onEdit={beginEditing}
-          actions={
-            <ArtifactDocumentCommentAction
-              target={commentTarget}
-              taskId={taskId}
-            />
-          }
+          actions={documentActions}
         />
         {commentLoadError}
         {showRendered ? (
@@ -192,12 +201,7 @@ export function ArtifactPreviewContent({
           showRendered
           canEdit={canEdit}
           onEdit={beginEditing}
-          actions={
-            <ArtifactDocumentCommentAction
-              target={commentTarget}
-              taskId={taskId}
-            />
-          }
+          actions={documentActions}
         />
         {commentLoadError}
         <div className="min-h-0 min-w-0 flex-1">
@@ -230,6 +234,7 @@ export function ArtifactPreviewContent({
   ) {
     const imageActions = (
       <div className="flex shrink-0 items-center gap-1">
+        {shareAction}
         <ArtifactDocumentCommentAction target={commentTarget} taskId={taskId} />
         <Tooltip>
           <TooltipTrigger
@@ -283,9 +288,6 @@ export function ArtifactPreviewContent({
     );
   }
 
-  const documentActions = (
-    <ArtifactDocumentCommentAction target={commentTarget} taskId={taskId} />
-  );
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {editableKind === "plain-text" && artifactResult?.source !== undefined ? (

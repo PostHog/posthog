@@ -5,6 +5,7 @@ import {
   LinkIcon,
   PencilSimpleIcon,
   PushPinIcon,
+  ShareNetworkIcon,
   TrashIcon,
   XIcon,
 } from "@phosphor-icons/react";
@@ -61,6 +62,8 @@ import {
   MentionAvailabilityProvider,
   PRIVATE_SPACE_MENTIONS_DISABLED,
 } from "@posthog/ui/features/sessions/mentionAvailability";
+import { publicLinkHasUnpublishedChanges } from "@posthog/ui/features/sharing/publicLink";
+import { ShareModal } from "@posthog/ui/features/sharing/ShareModal";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -95,9 +98,20 @@ function FreeformEditControls({
   const { dashboard } = useDashboard(dashboardId);
   const { setPinned, invalidateDashboards } = useDashboardMutations();
   const isPinned = dashboard?.pinnedAt != null;
+  const linkNeedsPublish = publicLinkHasUnpublishedChanges(dashboard);
   // "Delete…" opens a confirmation rather than deleting inline — the canvas and
   // its version history go away for everyone in the space.
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const openShare = () => {
+    track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
+      action_type: "share_opened",
+      surface: "canvas",
+      channel_id: channelId,
+      dashboard_id: dashboardId,
+    });
+    setShareOpen(true);
+  };
 
   // Once confirmed the canvas vanishes from every list and we return to the
   // space, but the delete isn't sent until the undo toast's
@@ -163,6 +177,50 @@ function FreeformEditControls({
 
   return (
     <div className="no-drag flex items-center gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        className="relative"
+        aria-label={
+          linkNeedsPublish
+            ? "Share, changes ready to publish to the public link"
+            : undefined
+        }
+        onClick={openShare}
+        data-attr="canvas-share-open"
+      >
+        <ShareNetworkIcon size={14} />
+        Share
+        {linkNeedsPublish && (
+          <span
+            aria-hidden
+            className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-red-9 ring-2 ring-background"
+          />
+        )}
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        data-selected={editing}
+        onClick={() => {
+          track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
+            action_type: "edit_toggle",
+            surface: "canvas",
+            channel_id: channelId,
+            dashboard_id: dashboardId,
+            editing: !editing,
+          });
+          if (!editing) openChat();
+          setEditing(dashboardId, !editing);
+        }}
+      >
+        {editing ? (
+          <XIcon size={14} />
+        ) : (
+          <PencilSimpleIcon size={14} weight="regular" />
+        )}
+        {editing ? "Done" : "Edit"}
+      </Button>
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
@@ -210,6 +268,18 @@ function FreeformEditControls({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      {shareOpen && (
+        <ShareModal
+          target={{
+            kind: "canvas",
+            channelId,
+            dashboardId,
+            name: dashboard?.name ?? "Canvas",
+          }}
+          surface="canvas"
+          onClose={() => setShareOpen(false)}
+        />
+      )}
       {/* Destructive confirm for "Delete…" — the canvas goes for everyone. */}
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <AlertDialogContent className="max-w-md">
@@ -237,29 +307,6 @@ function FreeformEditControls({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <Button
-        variant="outline"
-        size="sm"
-        data-selected={editing}
-        onClick={() => {
-          track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
-            action_type: "edit_toggle",
-            surface: "canvas",
-            channel_id: channelId,
-            dashboard_id: dashboardId,
-            editing: !editing,
-          });
-          if (!editing) openChat();
-          setEditing(dashboardId, !editing);
-        }}
-      >
-        {editing ? (
-          <XIcon size={14} />
-        ) : (
-          <PencilSimpleIcon size={14} weight="regular" />
-        )}
-        {editing ? "Done" : "Edit"}
-      </Button>
     </div>
   );
 }

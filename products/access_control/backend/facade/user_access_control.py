@@ -61,6 +61,7 @@ ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE = 1000
 
 ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
+    "canvas",
     "customer_analytics",
     "data_catalog",
     "dashboard",
