@@ -3,10 +3,11 @@ from typing import cast
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.test import SimpleTestCase
 
+import redis
 import posthoganalytics
 from parameterized import parameterized
 from posthoganalytics.client import Client
@@ -38,7 +39,10 @@ from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.language_service import (
+    CatalogBuildResult,
     CatalogMissing,
+    CatalogValidationOmission,
+    CatalogValidationSummary,
     LanguageServiceError,
     LanguageServiceResult,
     MalformedLanguageServiceResponse,
@@ -47,7 +51,9 @@ from posthog.hogql.language_service import (
 
 from posthog.api.services.query import (
     _build_database_schema_query,
+    _capture_catalog_telemetry,
     _capture_malformed_language_service_response,
+    _CatalogTelemetryEvent,
     _DatabaseSchemaCatalog,
     _EditorAssistRoute,
     _language_service_call,
@@ -115,15 +121,18 @@ class TestLanguageServiceRouting(SimpleTestCase):
 
         assert route.result is None
         assert route.reason == "service_error"
+        assert route.catalog_telemetry == ()
 
     def test_malformed_response_tracking_uses_sanitized_context(self) -> None:
         sentinel = uuid4().hex
         client = Client("test", send=False, log_captured_exceptions=True, capture_exception_code_variables=True)
         with (
+            patch("posthog.api.services.query.get_client") as redis_client,
             patch.object(client, "_enqueue", return_value=True) as enqueue,
             patch.object(client.log, "disabled", False),
             patch.object(posthoganalytics, "capture_exception", side_effect=client.capture_exception),
         ):
+            redis_client.return_value.set.return_value = True
             with patch.object(client.log, "handle", wraps=client.log.handle) as handle_log:
                 with posthoganalytics.new_context(fresh=True):
                     posthoganalytics.tag("query", sentinel)
@@ -151,6 +160,244 @@ class TestLanguageServiceRouting(SimpleTestCase):
             "operation": "metadata",
             "stage": "response_mapping",
         }
+
+    def test_partial_catalog_tracking_defers_sdk_capture_and_logs_the_omitted_entry(self) -> None:
+        sentinel = uuid4().hex
+        table_name = "postgres.demo.broken"
+        alias_name = "demo_postgres_broken"
+        build_result = CatalogBuildResult(
+            catalog={"tables": {}, "properties": {}, "tableAliases": {}},
+            validation=CatalogValidationSummary(
+                reasons=("alias_dependency_omitted", "canonical_id_mismatch"),
+                omitted_tables=1,
+                omitted_aliases=1,
+                omissions=(
+                    CatalogValidationOmission(
+                        entry_type="table",
+                        reason="canonical_id_mismatch",
+                        table_name=table_name,
+                        schema_table_id="serialized-id",
+                        resolver_table_id="resolver-id",
+                    ),
+                    CatalogValidationOmission(
+                        entry_type="alias",
+                        reason="alias_dependency_omitted",
+                        table_name=table_name,
+                        alias_name=alias_name,
+                    ),
+                ),
+            ),
+        )
+        language_client = MagicMock()
+        language_client.base_url = "http://language-service:8091"
+        language_client.validate.side_effect = [
+            CatalogMissing("missing"),
+            LanguageServiceResult(
+                body={
+                    "catalogRevision": "warehouse-aliases-v1:ready",
+                    "valid": True,
+                    "diagnostics": [],
+                    "tableNames": [],
+                },
+                duration_seconds=0,
+                response_size_bytes=0,
+            ),
+        ]
+        sdk_client = Client("test", send=False, log_captured_exceptions=True, capture_exception_code_variables=True)
+
+        with (
+            patch("posthog.api.services.query.is_language_service_enabled", return_value=True),
+            patch("posthog.api.services.query.LanguageServiceClient", return_value=language_client),
+            patch("posthog.api.services.query._build_database_schema_query", return_value=MagicMock()),
+            patch("posthog.api.services.query.build_catalog", return_value=build_result),
+            patch(
+                "posthog.hogql.language_service.get_client",
+                side_effect=redis.exceptions.ConnectionError(sentinel),
+            ),
+            patch("posthog.api.services.query.get_client") as error_tracking_redis,
+            patch("posthog.api.services.query.logger.error") as error_log,
+            patch.object(sdk_client, "_enqueue", return_value=True) as enqueue,
+            patch.object(sdk_client.log, "disabled", False),
+            patch.object(posthoganalytics, "capture_exception", side_effect=sdk_client.capture_exception),
+            patch.object(sdk_client.log, "handle", wraps=sdk_client.log.handle) as handle_log,
+        ):
+            error_tracking_redis.return_value.set.return_value = True
+            with posthoganalytics.new_context(fresh=True):
+                posthoganalytics.tag("query", sentinel)
+                response = process_query_model(
+                    cast(Team, SimpleNamespace(pk=12)),
+                    HogQLMetadata(query=f"SELECT {sentinel} FROM events", language=HogLanguage.HOG_QL),
+                    user=cast(User, SimpleNamespace(pk=34)),
+                )
+
+        assert isinstance(response, HogQLMetadataResponse)
+        event = enqueue.call_args.args[0]
+        assert sentinel not in repr(event)
+        assert table_name not in repr(event)
+        assert alias_name not in repr(event)
+        assert "serialized-id" not in repr(event)
+        assert "resolver-id" not in repr(event)
+        assert {
+            key: event["properties"][key]
+            for key in ("component", "operation", "stage", "reason", "omitted_tables", "omitted_aliases")
+        } == {
+            "component": "hogql_language_service",
+            "operation": "metadata",
+            "stage": "catalog_validation",
+            "reason": "partial_catalog",
+            "omitted_tables": 1,
+            "omitted_aliases": 1,
+        }
+        omission_logs = [
+            call.kwargs for call in error_log.call_args_list if call.args == ("hogql_catalog_entry_omitted",)
+        ]
+        assert omission_logs == [
+            {
+                "team_id": 12,
+                "user_id": 34,
+                "entry_type": "table",
+                "reason": "canonical_id_mismatch",
+                "table_name": table_name,
+                "alias_name": None,
+                "schema_table_id": "serialized-id",
+                "resolver_table_id": "resolver-id",
+            },
+            {
+                "team_id": 12,
+                "user_id": 34,
+                "entry_type": "alias",
+                "reason": "alias_dependency_omitted",
+                "table_name": table_name,
+                "alias_name": alias_name,
+                "schema_table_id": None,
+                "resolver_table_id": None,
+            },
+        ]
+        records = [call.args[0] for call in handle_log.call_args_list]
+        assert records
+        assert sentinel not in repr([(record.getMessage(), record.exc_info) for record in records])
+        assert all(record.exc_info == (None, None, None) for record in records)
+        for exception in event["properties"]["$exception_list"]:
+            for frame in exception["stacktrace"]["frames"]:
+                assert "vars" not in frame
+                assert "code_variables" not in frame
+
+    @patch("posthog.api.services.query.posthoganalytics.capture_exception")
+    @patch("posthog.api.services.query.get_client")
+    def test_error_tracking_is_throttled_by_stable_category(
+        self, get_redis_client: MagicMock, capture_exception: MagicMock
+    ) -> None:
+        class ExpiringRedis:
+            def __init__(self) -> None:
+                self.now = 0
+                self.expirations: dict[str, int] = {}
+                self.ttls: list[int] = []
+
+            def set(self, key: str, _value: str, *, nx: bool, ex: int) -> bool:
+                assert nx is True
+                self.ttls.append(ex)
+                if self.expirations.get(key, 0) > self.now:
+                    return False
+                self.expirations[key] = self.now + ex
+                return True
+
+        redis_client = ExpiringRedis()
+        get_redis_client.return_value = redis_client
+        event = _CatalogTelemetryEvent(stage="service_request", reason="language_service_error")
+
+        _capture_malformed_language_service_response("autocomplete", "http_response")
+        _capture_malformed_language_service_response("metadata", "http_response")
+        _capture_catalog_telemetry(
+            cast(Team, SimpleNamespace(pk=12)), cast(User, SimpleNamespace(pk=34)), "autocomplete", (event,)
+        )
+        _capture_catalog_telemetry(
+            cast(Team, SimpleNamespace(pk=56)), cast(User, SimpleNamespace(pk=78)), "metadata", (event,)
+        )
+        redis_client.now = 301
+        _capture_malformed_language_service_response("metadata", "http_response")
+
+        assert capture_exception.call_count == 3
+        assert redis_client.ttls == [300, 300, 300, 300, 300]
+
+    @patch("posthog.api.services.query.posthoganalytics.capture_exception")
+    @patch("posthog.api.services.query.logger.error")
+    @patch("posthog.api.services.query.get_client", side_effect=RuntimeError("cache unavailable"))
+    def test_error_tracking_is_suppressed_when_the_throttle_is_unavailable(
+        self, _get_redis_client: MagicMock, error_log: MagicMock, capture_exception: MagicMock
+    ) -> None:
+        omissions = tuple(
+            CatalogValidationOmission(
+                entry_type="table", reason="canonical_id_mismatch", table_name=f"postgres.demo.table_{index}"
+            )
+            for index in range(27)
+        )
+        _capture_malformed_language_service_response("metadata", "response_mapping")
+        _capture_catalog_telemetry(
+            cast(Team, SimpleNamespace(pk=12)),
+            cast(User, SimpleNamespace(pk=34)),
+            "metadata",
+            (_CatalogTelemetryEvent(stage="catalog_validation", reason="partial_catalog", omissions=omissions),),
+        )
+
+        capture_exception.assert_not_called()
+        assert error_log.call_count == 26
+        assert error_log.call_args_list[0] == call(
+            "hogql_catalog_entry_omitted",
+            team_id=12,
+            user_id=34,
+            entry_type="table",
+            reason="canonical_id_mismatch",
+            table_name="postgres.demo.table_0",
+            alias_name=None,
+            schema_table_id=None,
+            resolver_table_id=None,
+        )
+        assert error_log.call_args_list[-1] == call(
+            "hogql_catalog_entry_omissions_truncated",
+            team_id=12,
+            user_id=34,
+            logged_count=25,
+            total_count=27,
+            suppressed_count=2,
+        )
+
+    @patch("posthog.api.services.query.posthoganalytics.capture_exception")
+    @patch("posthog.api.services.query.get_client")
+    @patch("posthog.api.services.query.EDITOR_ASSIST_RESPONSES_TOTAL")
+    @patch("posthog.api.services.query.get_hogql_metadata")
+    @patch("posthog.api.services.query._route_editor_assist")
+    def test_suppressed_error_tracking_keeps_response_metrics_unthrottled(
+        self,
+        route: MagicMock,
+        python_metadata: MagicMock,
+        response_counter: MagicMock,
+        get_redis_client: MagicMock,
+        capture_exception: MagicMock,
+    ) -> None:
+        route.return_value = _EditorAssistRoute(
+            enabled=True, result=None, reason="invalid_response", malformed_stage="http_response"
+        )
+        python_metadata.return_value = HogQLMetadataResponse(
+            isValid=True,
+            query="SELECT event FROM events",
+            errors=[],
+            warnings=[],
+            notices=[],
+            table_names=["events"],
+        )
+        get_redis_client.return_value.set.return_value = False
+
+        for user_id in (34, 56):
+            process_query_model(
+                cast(Team, SimpleNamespace(pk=12)),
+                HogQLMetadata(query="SELECT event FROM events", language=HogLanguage.HOG_QL),
+                user=cast(User, SimpleNamespace(pk=user_id)),
+            )
+
+        capture_exception.assert_not_called()
+        assert python_metadata.call_count == 2
+        assert response_counter.labels.call_count == 2
+        assert response_counter.labels.return_value.inc.call_count == 2
 
     @patch("posthog.api.services.query.EDITOR_ASSIST_RESPONSES_TOTAL")
     @patch("posthog.api.services.query._route_editor_assist")
@@ -249,6 +496,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
             ),
         ]
     )
+    @patch("posthog.api.services.query._capture_catalog_telemetry")
     @patch("posthog.api.services.query._capture_malformed_language_service_response")
     @patch("posthog.api.services.query.EDITOR_ASSIST_RESPONSES_TOTAL")
     @patch("posthog.api.services.query.get_hogql_metadata")
@@ -265,6 +513,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         python_metadata: MagicMock,
         analytics_client: MagicMock,
         capture_malformed: MagicMock,
+        capture_catalog: MagicMock,
     ) -> None:
         client_class.return_value.validate.side_effect = failure
         python_metadata.return_value = HogQLMetadataResponse(
@@ -288,8 +537,13 @@ class TestLanguageServiceRouting(SimpleTestCase):
         enabled.assert_called_once()
         if malformed_stage is None:
             capture_malformed.assert_not_called()
+            catalog_events = capture_catalog.call_args.args[3]
+            assert len(catalog_events) == 1
+            assert catalog_events[0].stage == "service_request"
+            assert catalog_events[0].reason == "language_service_error"
         else:
             capture_malformed.assert_called_once_with("metadata", malformed_stage)
+            assert capture_catalog.call_args.args[3] == ()
 
     @parameterized.expand([("collection", {}), ("nested", [None])])
     @patch("posthog.api.services.query._capture_malformed_language_service_response")
@@ -385,6 +639,8 @@ class TestLanguageServiceRouting(SimpleTestCase):
         analytics_client.labels.return_value.inc.assert_called_once_with()
 
     @patch("posthog.api.services.query.posthoganalytics.capture_exception", side_effect=RuntimeError("tracking failed"))
+    @patch("posthog.api.services.query.logger.error", side_effect=RuntimeError("logging failed"))
+    @patch("posthog.api.services.query.logger.warning")
     @patch("posthog.api.services.query.EDITOR_ASSIST_RESPONSES_TOTAL")
     @patch("posthog.api.services.query.get_hogql_metadata")
     @patch("posthog.api.services.query._route_editor_assist")
@@ -393,12 +649,27 @@ class TestLanguageServiceRouting(SimpleTestCase):
         route: MagicMock,
         python_metadata: MagicMock,
         analytics_client: MagicMock,
+        _warning: MagicMock,
+        _error: MagicMock,
         _capture: MagicMock,
     ) -> None:
         route.return_value = _EditorAssistRoute(
             enabled=True,
             result=LanguageServiceResult(body={"diagnostics": {}}, duration_seconds=0, response_size_bytes=0),
             reason="served",
+            catalog_telemetry=(
+                _CatalogTelemetryEvent(
+                    stage="catalog_validation",
+                    reason="partial_catalog",
+                    omissions=(
+                        CatalogValidationOmission(
+                            entry_type="table",
+                            reason="canonical_id_mismatch",
+                            table_name="postgres.demo.broken",
+                        ),
+                    ),
+                ),
+            ),
         )
         python_metadata.return_value = HogQLMetadataResponse(
             isValid=True,
@@ -409,6 +680,12 @@ class TestLanguageServiceRouting(SimpleTestCase):
             table_names=["events"],
         )
         analytics_client.labels.return_value.inc.side_effect = RuntimeError("metrics failed")
+
+        def warning_side_effect(event: str, **_properties: object) -> None:
+            if event.startswith("hogql_catalog_") or event == "hogql_editor_assist_metric_failed":
+                raise RuntimeError("logging failed")
+
+        _warning.side_effect = warning_side_effect
 
         response = process_query_model(
             cast(Team, SimpleNamespace(pk=12)),
@@ -559,7 +836,10 @@ class TestLanguageServiceRouting(SimpleTestCase):
             (None,),
         ]
     )
-    @patch("posthog.api.services.query.build_catalog", return_value={"tables": {}, "properties": {}})
+    @patch(
+        "posthog.api.services.query.build_catalog",
+        return_value=CatalogBuildResult(catalog={"tables": {}, "properties": {}}, validation=None),
+    )
     @patch("posthog.api.services.query._build_database_schema_query")
     @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
     @patch("posthog.hogql.language_service.get_client")
@@ -616,7 +896,10 @@ class TestLanguageServiceRouting(SimpleTestCase):
         assert client.validate.call_count == 3
         assert build_catalog_mock.call_args.kwargs["database"] is build_schema.return_value.database
 
-    @patch("posthog.api.services.query.build_catalog", return_value={"tableAliases": {"alias": "canonical"}})
+    @patch(
+        "posthog.api.services.query.build_catalog",
+        return_value=CatalogBuildResult(catalog={"tableAliases": {"alias": "canonical"}}, validation=None),
+    )
     @patch("posthog.api.services.query._build_database_schema_query")
     @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
     @patch("posthog.hogql.language_service.get_client")
@@ -648,7 +931,40 @@ class TestLanguageServiceRouting(SimpleTestCase):
         )
 
         assert result.result is None
+        assert result.catalog_telemetry == (
+            _CatalogTelemetryEvent(stage="catalog_publish", reason="language_service_error"),
+        )
         client_class.return_value.publish.assert_called_once()
+
+    @patch("posthog.api.services.query.build_catalog", side_effect=RuntimeError("private catalog details"))
+    @patch("posthog.api.services.query._build_database_schema_query")
+    @patch("posthog.hogql.language_service.get_client")
+    @patch("posthog.api.services.query.LanguageServiceClient")
+    def test_unexpected_catalog_build_failure_falls_back_with_a_bounded_reason(
+        self,
+        client_class: MagicMock,
+        get_redis_client: MagicMock,
+        build_schema: MagicMock,
+        _build_catalog: MagicMock,
+    ) -> None:
+        client = client_class.return_value
+        client.base_url = "http://language-service:8091"
+        client.validate.side_effect = CatalogMissing("missing")
+        get_redis_client.return_value.get.return_value = None
+        get_redis_client.return_value.lock.return_value.acquire.return_value = True
+        build_schema.return_value = _DatabaseSchemaCatalog(response=MagicMock(), database=MagicMock())
+
+        route = _language_service_call(
+            cast(Team, SimpleNamespace(pk=12)),
+            cast(User, SimpleNamespace(pk=34)),
+            HogQLMetadata(query="SELECT event FROM events", language=HogLanguage.HOG_QL),
+        )
+
+        assert route.result is None
+        assert route.reason == "service_error"
+        assert route.catalog_telemetry == (_CatalogTelemetryEvent(stage="catalog_build", reason="unexpected_error"),)
+        assert "private catalog details" not in repr(route)
+        client.publish.assert_not_called()
 
     @parameterized.expand(
         [
@@ -658,7 +974,10 @@ class TestLanguageServiceRouting(SimpleTestCase):
             (123, False, "invalid_response", "http_response"),
         ]
     )
-    @patch("posthog.api.services.query.build_catalog", return_value={"tables": {}, "properties": {}})
+    @patch(
+        "posthog.api.services.query.build_catalog",
+        return_value=CatalogBuildResult(catalog={"tables": {}, "properties": {}}, validation=None),
+    )
     @patch("posthog.api.services.query._build_database_schema_query")
     @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
     @patch("posthog.hogql.language_service.get_client")
@@ -769,12 +1088,13 @@ class TestQueryService(APIBaseTest):
         )
 
         schema_catalog = _build_database_schema_query(self.team, DatabaseSchemaQuery(), user=self.user)
-        catalog = build_catalog(
+        build_result = build_catalog(
             self.team,
             self.user,
             schema_catalog.response,
             database=schema_catalog.database,
         )
+        catalog = build_result.catalog
 
         assert catalog["tableAliases"][allowed.name] == "postgres.demo.orders"
         assert denied.name not in catalog["tableAliases"]
