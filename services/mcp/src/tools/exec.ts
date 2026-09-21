@@ -597,6 +597,112 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
         'Tool "self-driving-inbox-get" was removed. Use "inbox-reports-list", which lists the same reports. For the old default, pass { "view": "actionable", "use_priority_preference": true, "sort": "priority", "limit": 10 }. The array filters became comma-separated strings: `priorities` is now `priority`, `source_products` is now `source_product`, and `scouts` is now `scout`. `view`, `scope`, `teammate_uuid`, `search`, and `offset` keep their names.',
 }
 
+/** The form caller keys and field names are matched on, so `date_from` reaches a field
+ *  named `dateFrom`. These schemas mix the two spellings — a query's own fields are
+ *  camelCase while its window's fields are snake_case — and a caller cannot tell which
+ *  one a field uses without reading the schema. */
+function matchableName(name: string): string {
+    return name.replace(/[_-]/g, '').toLowerCase()
+}
+
+/** Where a loose key belongs: the object the wrapper declares that holds a field of that name. */
+interface FieldPlacement {
+    object: string
+    field: string
+}
+
+/**
+ * Indexes values by the name a caller might send for them.
+ *
+ * A name that two values would answer to is dropped: acting on it would guess which one the
+ * caller meant, and a guess here runs a query the caller did not ask for.
+ */
+function byMatchableName<T>(entries: Iterable<readonly [string, T]>): Map<string, T> {
+    const found = new Map<string, T>()
+    const ambiguous = new Set<string>()
+    for (const [field, value] of entries) {
+        const name = matchableName(field)
+        if (found.has(name)) {
+            ambiguous.add(name)
+            continue
+        }
+        found.set(name, value)
+    }
+    for (const name of ambiguous) {
+        found.delete(name)
+    }
+    return found
+}
+
+/** Every name a caller might send for a field of an object the wrapper declares, such as
+ *  `date_from` for `dateRange.date_from`. */
+function subfieldPlacements(
+    schema: ZodObjectAny,
+    key: string,
+    declared: ReadonlySet<string>
+): Map<string, FieldPlacement> {
+    return byMatchableName(
+        [...declared].flatMap((object) =>
+            [...wrapperFieldNames(schema, [key, object])].map(
+                (field) => [field, { object, field }] as readonly [string, FieldPlacement]
+            )
+        )
+    )
+}
+
+/**
+ * Sorts a flattened payload into the call the caller meant.
+ *
+ * Keys the outer schema declares beside the wrapper stay at the top level, and keys the
+ * wrapper declares move inside it. A caller that flattens the payload usually flattens its
+ * window one level further, so `date_from` arrives beside `limit` rather than inside
+ * `dateRange`; a key like that goes back into the object that declares it.
+ *
+ * `unplaced` holds every key that belongs nowhere, and a caller that sent an object and one
+ * of its fields loose puts that field there. Nothing is dropped to make a payload fit: a
+ * wrapper that defaults its own fields parses `{"dateRagne": ...}` into a full set of
+ * defaults, so dropping the key would run an unfiltered query and return plausible but wrong
+ * rows instead of reporting the typo.
+ */
+function splitFlattenedPayload(
+    input: Record<string, unknown>,
+    key: string,
+    schema: ZodObjectAny
+): { rebuilt: Record<string, unknown>; nested: Record<string, unknown>; unplaced: string[] } {
+    const siblings = topLevelFieldNames(schema)
+    const declared = wrapperFieldNames(schema, [key])
+    const fields = byMatchableName([...declared].map((field) => [field, field] as const))
+    const placements = subfieldPlacements(schema, key, declared)
+    // A name the wrapper declares itself is that field, never a field of one of its objects.
+    for (const name of fields.keys()) {
+        placements.delete(name)
+    }
+    const rebuilt: Record<string, unknown> = {}
+    const nested: Record<string, unknown> = {}
+    const objects = new Map<string, Record<string, unknown>>()
+    const unplaced: string[] = []
+    for (const [name, value] of Object.entries(input)) {
+        const field = fields.get(matchableName(name))
+        const placement = placements.get(matchableName(name))
+        if (name !== key && siblings.has(name)) {
+            rebuilt[name] = value
+        } else if (field !== undefined) {
+            nested[field] = value
+        } else if (placement !== undefined && !(placement.object in input)) {
+            const object = objects.get(placement.object) ?? {}
+            object[placement.field] = value
+            objects.set(placement.object, object)
+        } else {
+            unplaced.push(name)
+        }
+    }
+    for (const [name, value] of objects) {
+        nested[name] = value
+    }
+    rebuilt[key] = nested
+    return { rebuilt, nested, unplaced }
+}
+
 /**
  * Detects the caller sending a required object parameter's *contents* in place of
  * the parameter itself — `{dateRange, limit}` where `{query: {dateRange, limit}}`
@@ -605,8 +711,8 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
  * has no way to tell which mistake it made.
  *
  * Decided by re-parsing rather than by reading the schema, so it holds for any
- * wrapper shape: nest the input under the missing key and see whether the schema
- * accepts it. Confident when the wrapped value either parses to something
+ * wrapper shape: rebuild the call with `splitFlattenedPayload` and see whether the
+ * schema accepts it. Confident when the rebuild either parses to something
  * non-empty, or fails only on paths *inside* the wrapper — both mean the nested
  * schema recognized the content. A payload of undeclared keys parses to `{}` and
  * is correctly rejected, as is a caller that sent nothing at all.
@@ -627,11 +733,15 @@ function looksLikeUnwrappedPayload(
     if (keys.length === 0 || keys.includes(key)) {
         return false
     }
+    const { rebuilt, nested } = splitFlattenedPayload(input, key, schema)
+    // A wrapper that declares no fields of its own, such as a loose or union shape,
+    // places nothing, so read the raw payload under the key instead.
+    const candidate = Object.keys(nested).length > 0 ? rebuilt : { [key]: input }
 
-    const wrapped = schema.safeParse({ [key]: input })
+    const wrapped = schema.safeParse(candidate)
     if (wrapped.success) {
-        const nested = (wrapped.data as Record<string, unknown>)[key]
-        return typeof nested === 'object' && nested !== null && Object.keys(nested).length > 0
+        const parsed = (wrapped.data as Record<string, unknown>)[key]
+        return isRecord(parsed) && Object.keys(parsed).length > 0
     }
     // Every remaining complaint sits under the wrapper: the nested schema read the
     // content and rejected specific fields, so the nesting itself was the mistake.
@@ -696,16 +806,9 @@ function acceptedTopLevelShape(nested: unknown, schema: ZodObjectAny | undefined
  * Naming the mistake in the rejection still costs a round trip, and the flattened shape is the most
  * common rejection on the tools built this way.
  *
- * Keys the outer schema declares beside the wrapper stay at the top level. Folding a sibling such as
- * `baselineDateRange` into `query` would have the nested schema strip it, and the caller would get a
- * different query than it asked for without being told.
- *
- * Every key that moves inside must be one the wrapper declares. A wrapper that defaults its own
- * fields parses `{"dateRagne": ...}` into a full set of defaults, so accepting that rebuild would run
- * an unfiltered query and return plausible but wrong rows instead of reporting the typo.
- *
- * Returns undefined unless the rebuilt payload parses, so a payload malformed for some other reason
- * keeps its own rejection.
+ * `splitFlattenedPayload` decides where each key belongs. Returns undefined when a key belongs
+ * nowhere, or when the rebuilt payload does not parse, so a payload malformed for some other
+ * reason keeps its own rejection instead of being guessed at.
  */
 export function rewrapFlattenedArguments(
     error: z.ZodError,
@@ -723,23 +826,10 @@ export function rewrapFlattenedArguments(
         return undefined
     }
 
-    const key = String(issue.path[0])
-    const siblings = topLevelFieldNames(schema)
-    const rebuilt: Record<string, unknown> = {}
-    const nested: Record<string, unknown> = {}
-    for (const [name, value] of Object.entries(input)) {
-        if (name !== key && siblings.has(name)) {
-            rebuilt[name] = value
-        } else {
-            nested[name] = value
-        }
-    }
-    const declared = wrapperFieldNames(schema, key)
-    const nestedNames = Object.keys(nested)
-    if (nestedNames.length === 0 || !nestedNames.every((name) => declared.has(name))) {
+    const { rebuilt, nested, unplaced } = splitFlattenedPayload(input, String(issue.path[0]), schema)
+    if (Object.keys(nested).length === 0 || unplaced.length > 0) {
         return undefined
     }
-    rebuilt[key] = nested
 
     return schema.safeParse(rebuilt).success ? rebuilt : undefined
 }
@@ -751,21 +841,24 @@ function topLevelFieldNames(schema: ZodObjectAny): ReadonlySet<string> {
 }
 
 /**
- * The field names a wrapper parameter declares directly, including the fields of
- * each variant when the wrapper is a union (`read-data-schema` keys its shape off
- * a `kind` discriminator). Composition keywords are walked one level; nothing
- * deeper is collected, because only the caller's own top-level keys are matched
- * against this set.
+ * The field names the parameter at `path` declares directly, including the fields of
+ * each variant when it is a union (`read-data-schema` keys its shape off a `kind`
+ * discriminator). Composition keywords are walked one level at each step; nothing
+ * deeper is collected, because only the caller's own keys are matched against this set.
  */
-function wrapperFieldNames(schema: ZodObjectAny, key: string): ReadonlySet<string> {
+function wrapperFieldNames(schema: ZodObjectAny, path: readonly string[]): ReadonlySet<string> {
     const root = inputJsonSchema(schema)
-    const properties = isRecord(root) ? root['properties'] : undefined
-    const wrapper = isRecord(properties) ? properties[key] : undefined
-    const names = new Set<string>()
-    if (!isRecord(wrapper)) {
-        return names
+    let nodes = isRecord(root) ? [root] : []
+    for (const key of path) {
+        nodes = nodes
+            .flatMap((node) => [node, ...variantsOf(node)])
+            .map((node) =>
+                isRecord(node['properties']) ? (node['properties'] as Record<string, unknown>)[key] : undefined
+            )
+            .filter(isRecord)
     }
-    for (const node of [wrapper, ...variantsOf(wrapper)]) {
+    const names = new Set<string>()
+    for (const node of nodes.flatMap((node) => [node, ...variantsOf(node)])) {
         const fields = node['properties']
         if (isRecord(fields)) {
             for (const name of Object.keys(fields)) {
@@ -779,8 +872,8 @@ function wrapperFieldNames(schema: ZodObjectAny, key: string): ReadonlySet<strin
 /** An object shape written from field names alone, capped, with every value
  *  elided, so the message carries the tool's vocabulary and no caller input. */
 function renderFieldShape(names: readonly string[]): string {
-    const shown = names.slice(0, MAX_WRAPPER_KEYS_NAMED).map((name) => `"${name}": ...`)
-    if (names.length > MAX_WRAPPER_KEYS_NAMED) {
+    const shown = names.slice(0, MAX_KEYS_NAMED).map((name) => `"${name}": ...`)
+    if (names.length > MAX_KEYS_NAMED) {
         shown.push('...')
     }
     return `{${shown.join(', ')}}`
@@ -805,17 +898,19 @@ function variantsOf(node: Record<string, unknown>): Record<string, unknown>[] {
  * tool's own vocabulary rather than the caller's, and values are always elided.
  * The message is returned to the caller and recorded as the analytics error
  * message, so it must carry no input. Falls back to `{...}` when no key matches.
+ * `unplaced` names the keys that fit nowhere, which the shape cannot show.
  */
-function acceptedWrapperShape(key: string, input: unknown, schema: ZodObjectAny | undefined): string {
+function acceptedWrapperShape(
+    key: string,
+    input: unknown,
+    schema: ZodObjectAny | undefined
+): { shape: string; unplaced: string[] } {
     if (!schema || !isRecord(input)) {
-        return `{"${key}": {...}}`
+        return { shape: `{"${key}": {...}}`, unplaced: [] }
     }
-    const declared = wrapperFieldNames(schema, key)
-    const named = Object.keys(input).filter((name) => declared.has(name))
-    if (named.length === 0) {
-        return `{"${key}": {...}}`
-    }
-    return `{"${key}": ${renderFieldShape(named)}}`
+    const { nested, unplaced } = splitFlattenedPayload(input, key, schema)
+    const named = Object.keys(nested)
+    return { shape: named.length > 0 ? `{"${key}": ${renderFieldShape(named)}}` : `{"${key}": {...}}`, unplaced }
 }
 
 /**
@@ -843,13 +938,19 @@ function undeclaredKeys(input: unknown, schema: ZodObjectAny | undefined): strin
     return Object.keys(input).filter((key) => !declared.has(key))
 }
 
-/** Bound on how many dropped keys the message names, so a caller sending a large
- *  undeclared payload cannot inflate the analytics error message. */
-const MAX_DROPPED_KEYS_NAMED = 5
+/** Bound on how many keys a message names, so a caller sending a large payload
+ *  cannot inflate the analytics error message. Enough keys to recognize the
+ *  payload, not enough for a large one to bloat what we record. */
+const MAX_KEYS_NAMED = 5
 
-/** Same bound for the rendered wrapper shape: enough keys to recognize the
- *  payload, not enough for a large one to inflate the message. */
-const MAX_WRAPPER_KEYS_NAMED = 5
+/** Key names only, never values: the message is returned to the caller and
+ *  recorded as the analytics error message. */
+function namedKeys(keys: readonly string[]): string {
+    return keys
+        .slice(0, MAX_KEYS_NAMED)
+        .map((key) => `"${key}"`)
+        .join(', ')
+}
 
 /** Bound on the parameter description echoed back with a missing-parameter
  *  rejection, so a tool with a long field description cannot inflate the
@@ -1106,8 +1207,11 @@ export function formatInputValidationError(
             if ('input' in issue && issue.input === undefined) {
                 const hint = missingParameterHint(issue.path, schema)
                 if (looksLikeUnwrappedPayload(issue.path, input, schema)) {
-                    const shape = acceptedWrapperShape(path, input, schema)
-                    return `missing required parameter: ${path}${hint}; the fields you sent belong inside it, so resend them as ${shape}`
+                    const { shape, unplaced } = acceptedWrapperShape(path, input, schema)
+                    const rejected = unplaced.length
+                        ? `; these keys are not fields of ${path}, so remove or rename them: ${namedKeys(unplaced)}`
+                        : ''
+                    return `missing required parameter: ${path}${hint}; the fields you sent belong inside it, so resend them as ${shape}${rejected}`
                 }
                 const overWrapped = overWrappedKey(issue.path)
                 if (overWrapped !== undefined) {
@@ -1116,11 +1220,7 @@ export function formatInputValidationError(
                 }
                 const dropped = keysWereRejected ? [] : undeclaredKeys(input, schema)
                 if (dropped.length) {
-                    const named = dropped
-                        .slice(0, MAX_DROPPED_KEYS_NAMED)
-                        .map((key) => `"${key}"`)
-                        .join(', ')
-                    return `missing required parameter: ${path}${hint}; this tool ignored these keys it does not accept: ${named}`
+                    return `missing required parameter: ${path}${hint}; this tool ignored these keys it does not accept: ${namedKeys(dropped)}`
                 }
                 return `missing required parameter: ${path}${hint}`
             }

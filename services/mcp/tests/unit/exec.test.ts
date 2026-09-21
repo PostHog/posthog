@@ -2287,14 +2287,14 @@ describe('exec tool', () => {
                 expect(message).toContain('resend them as {"query": {"orderBy": ..., "limit": ...}}')
             })
 
-            it('names only wrapper fields, so an undeclared key cannot reach the message', () => {
-                // The rendered shape is returned to the caller and recorded as the
-                // analytics error message, so every key in it has to come from the
-                // tool's own schema rather than the caller's payload.
+            it('builds the shape from wrapper fields, and names the key that fits none of them', () => {
+                // The rendered shape is the tool's own vocabulary, so a key the schema
+                // never declared cannot appear inside it. Naming it alongside is what
+                // stops the caller resending the same unaccepted key.
                 const message = formatFor({ limit: 10, sneaky_key: 'x' })
 
-                expect(message).toContain('{"query": {"limit": ...}}')
-                expect(message).not.toContain('sneaky_key')
+                expect(message).toContain('resend them as {"query": {"limit": ...}}')
+                expect(message).toContain('not fields of query, so remove or rename them: "sneaky_key"')
             })
 
             it('caps the fields it names so a large payload cannot inflate the message', () => {
@@ -2480,6 +2480,69 @@ describe('exec tool', () => {
                     const input = { serviceNames: ['api'], dateRagne: { date_from: '-7d' } }
 
                     expect(rewrapFor(tool.schema, input)).toBeUndefined()
+                })
+
+                // Flattening the payload usually flattens the window one level further, and
+                // `{date_from, limit}` is the single most common rejected shape on these tools.
+                it.each([
+                    ['a window sent as loose snake_case keys', { date_from: '-1h', limit: 10 }],
+                    ['the camelCase spelling of the same keys', { dateFrom: '-1h', limit: 10 }],
+                ])("folds %s into the wrapper's own dateRange", (_label, input) => {
+                    const tool = GENERATED_TOOL_MAP['query-logs']!()
+
+                    expect(rewrapFor(tool.schema, input)).toMatchObject({
+                        query: { dateRange: { date_from: '-1h' }, limit: 10 },
+                    })
+                })
+
+                it('carries both ends of the window across', () => {
+                    const tool = GENERATED_TOOL_MAP['query-apm-spans']!()
+
+                    expect(rewrapFor(tool.schema, { date_from: '-1d', date_to: '-1h' })).toMatchObject({
+                        query: { dateRange: { date_from: '-1d', date_to: '-1h' } },
+                    })
+                })
+
+                it('places a loose field in whichever object declares it', () => {
+                    // Nothing about this is specific to a window: `compare` belongs to
+                    // `compareFilter` the same way `date_from` belongs to `dateRange`.
+                    const tool = GENERATED_TOOL_MAP['apm-spans-aggregate']!()
+                    const input = { serviceNames: ['api'], compare: true, date_from: '-1d' }
+
+                    expect(rewrapFor(tool.schema, input)).toMatchObject({
+                        query: {
+                            serviceNames: ['api'],
+                            compareFilter: { compare: true },
+                            dateRange: { date_from: '-1d' },
+                        },
+                    })
+                })
+
+                it('reads a field the caller spelled in the other case convention', () => {
+                    // These schemas mix the two: a query's own fields are camelCase while a
+                    // window's fields are snake_case, and `query-metrics` names its own window
+                    // `dateFrom`. A caller cannot tell which without reading the schema.
+                    const tool = GENERATED_TOOL_MAP['query-metrics']!()
+                    const input = { metricName: 'http_requests', date_from: '2026-09-01T00:00:00Z' }
+
+                    expect(rewrapFor(tool.schema, input)).toMatchObject({
+                        query: { metricName: 'http_requests', dateFrom: '2026-09-01T00:00:00Z' },
+                    })
+                })
+
+                it('leaves a loose date key alone when the caller also sent a dateRange', () => {
+                    // Two windows in one call is a caller that means something we cannot read,
+                    // and picking either one runs a query over a range it did not ask for.
+                    const tool = GENERATED_TOOL_MAP['query-logs']!()
+                    const input = { dateRange: { date_from: '-1h' }, date_from: '-7d' }
+
+                    expect(rewrapFor(tool.schema, input)).toBeUndefined()
+                })
+
+                it('leaves a loose date key alone when the wrapper holds no window', () => {
+                    expect(
+                        rewrapFor(z.object({ query: z.object({ limit: z.number() }) }), { date_from: '-1h', limit: 10 })
+                    ).toBeUndefined()
                 })
 
                 it('leaves a rejection that names more than the missing wrapper alone', () => {
