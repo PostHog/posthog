@@ -15478,7 +15478,7 @@ export namespace Schemas {
     export interface BillingProject {
       id: number;
       /**
-         * The project's name, or null when the project was deleted after its usage was reported.
+         * The project's name, or null when the organization deleted the project after it reported usage.
          * @nullable
          */
       name: string | null;
@@ -100706,7 +100706,7 @@ export namespace Schemas {
      */
     interval?: string | null;
     /**
-     * Series per page, ranked by total, with a `next` link for the page after. Requires a project breakdown; ignored without one. Omit it to get every series at once.
+     * Series per page, ranked by total, with a `next` link for the page after. Requires a project breakdown and is ignored without one. Omit it to get every series at once.
      * @minimum 1
      * @maximum 1000
      * @nullable
@@ -100737,7 +100737,7 @@ export namespace Schemas {
 
     export type BillingUsageTimeseriesRetrieveParams = {
     /**
-     * JSON-encoded array of breakdown dimensions. One of `[]`, `["type"]` or `["type","team"]`: usage is counted per product, so a project breakdown is served beside the product one rather than on its own. Omit for a single aggregate series.
+     * JSON-encoded array of breakdown dimensions. Omit it for one series across the whole organization. Pass `["type"]` for a series per product. Pass `["type","team"]` for a series per product per project. To break usage down by project, pass `"type"` with `"team"`: billing counts usage per product, and the counts do not add up across products.
      * @nullable
      */
     breakdowns?: string | null;
@@ -100756,7 +100756,7 @@ export namespace Schemas {
      */
     interval?: string | null;
     /**
-     * Series per page, ranked by total, with a `next` link for the page after. Requires a project breakdown; ignored without one. Omit it to get every series at once.
+     * Series per page, ranked by total, with a `next` link for the page after. Requires a project breakdown and is ignored without one. Omit it to get every series at once.
      * @minimum 1
      * @maximum 1000
      * @nullable

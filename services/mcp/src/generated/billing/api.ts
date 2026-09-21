@@ -254,7 +254,7 @@ export const BillingSpendTimeseriesRetrieveQueryParams = () => zod.object({
         .max(billingSpendTimeseriesRetrieveQueryLimitMax)
         .nullish()
         .describe(
-            'Series per page, ranked by total, with a `next` link for the page after. Requires a project breakdown; ignored without one. Omit it to get every series at once.'
+            'Series per page, ranked by total, with a `next` link for the page after. Requires a project breakdown and is ignored without one. Omit it to get every series at once.'
         ),
     start_date: zod.string().nullish(),
     team_ids: zod
@@ -338,7 +338,7 @@ export const BillingUsageTimeseriesRetrieveQueryParams = () => zod.object({
         .string()
         .nullish()
         .describe(
-            'JSON-encoded array of breakdown dimensions. One of `[]`, `[\"type\"]` or `[\"type\",\"team\"]`: usage is counted per product, so a project breakdown is served beside the product one rather than on its own. Omit for a single aggregate series.'
+            'JSON-encoded array of breakdown dimensions. Omit it for one series across the whole organization. Pass `[\"type\"]` for a series per product. Pass `[\"type\",\"team\"]` for a series per product per project. To break usage down by project, pass `\"type\"` with `\"team\"`: billing counts usage per product, and the counts do not add up across products.'
         ),
     cursor: zod
         .string()
@@ -353,7 +353,7 @@ export const BillingUsageTimeseriesRetrieveQueryParams = () => zod.object({
         .max(billingUsageTimeseriesRetrieveQueryLimitMax)
         .nullish()
         .describe(
-            'Series per page, ranked by total, with a `next` link for the page after. Requires a project breakdown; ignored without one. Omit it to get every series at once.'
+            'Series per page, ranked by total, with a `next` link for the page after. Requires a project breakdown and is ignored without one. Omit it to get every series at once.'
         ),
     start_date: zod.string().nullish(),
     team_ids: zod
