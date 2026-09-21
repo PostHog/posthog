@@ -90,6 +90,8 @@ Coverage builds across runs instead of restarting cold.
 
   Confirm the account join before you trust a number, and confirm it **in each of the three sources**: `countIf(external_id IN (SELECT DISTINCT toString(<account_key>) FROM <table>))` over `system.accounts`, once per table.
   A source whose key matches partly or not at all silently drops rows, which moves a product's share and the account total without failing — so treat a miss on any required source as the broken-billing-join close-out, not as a source to use with a caveat.
+  That count is a roster-wide check, and a healthy one hides a single account missing from one source. Every scoring query filters by account key and groups the rows that come back, so an absent account returns no row rather than an error, and the pair reads as "nothing moved" instead of "not measured".
+  So re-check presence per account before you score one: the account's key must return rows in all three sources over the scored window. Where one is missing, skip that account for this run and write `pattern:customer_analytics_billing_and_usage:account:<external_id>:source-gap` naming the source, rather than scoring it on what is there.
   Record the resolved table names, the account key, the forecast marker, and the product mapping between the usage measures and the revenue-line descriptions as `pattern:customer_analytics_billing_and_usage:billing-source` so future runs skip rediscovery.
   Nothing in the warehouse carries these shapes → quick close-out; this scout has no other source of billed usage.
 
@@ -100,10 +102,13 @@ Coverage builds across runs instead of restarting cold.
   SELECT countIf(external_id IN (SELECT DISTINCT $group_0 FROM events WHERE timestamp > now() - INTERVAL 30 DAY AND $group_0 != '')) AS g0,
          countIf(external_id IN (SELECT DISTINCT $group_1 FROM events WHERE timestamp > now() - INTERVAL 30 DAY AND $group_1 != '')) AS g1,
          countIf(external_id IN (SELECT DISTINCT $group_2 FROM events WHERE timestamp > now() - INTERVAL 30 DAY AND $group_2 != '')) AS g2,
+         countIf(external_id IN (SELECT DISTINCT $group_3 FROM events WHERE timestamp > now() - INTERVAL 30 DAY AND $group_3 != '')) AS g3,
+         countIf(external_id IN (SELECT DISTINCT $group_4 FROM events WHERE timestamp > now() - INTERVAL 30 DAY AND $group_4 != '')) AS g4,
          count() AS total
   FROM system.accounts WHERE external_id != ''
   ```
 
+  All five columns are covered because the account grain can sit on any of them; stopping at `$group_2` reads a project keyed higher as unlinked.
   The index with meaningful overlap is the account grain — record it as `pattern:customer_analytics_billing_and_usage:group-type`.
   Use it only for the in-product engagement context reads — never as a billed-usage source.
 
