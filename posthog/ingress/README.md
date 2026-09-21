@@ -30,6 +30,10 @@ Adding a provider is another `<provider>/` folder, not a change to the mechanism
 5. **Handshake** — `provider.pre_dispatch_response(request, payload)`, for a challenge the protocol demands.
 6. **Dispatch** — `provider.deliveries(request, payload, facts)`, then ownership, the forward and the consumers, all inside one wall-clock budget.
 
+A provider raises `InvalidPayload` for a body it refuses, from either lane, and the view answers 400 with outcome `invalid_payload`.
+`parse` raises it for a body it cannot decode, and `deliveries` for one it decoded and will not accept: that is where a provider holds a body field to the claim that signs it, which needs the payload and the facts together.
+Neither reaches a consumer.
+
 Parse belongs to the provider because not every third party posts JSON: Slack's interactivity payloads and Mailgun's events are form-encoded.
 It stays **after** verification, and must: a `parse` that reads `request.POST` consumes the request stream under ASGI, which leaves the signature check without the raw bytes it signs over.
 
@@ -40,6 +44,8 @@ A provider whose verification is a local HMAC leaves it at `None`.
 
 A `Verification` carries the outcome and `facts`, a mapping of what the check proved on the way.
 A scheme that validates a signed token knows who sent the delivery before the body is read, and `facts` is how those claims reach `deliveries`, so an incarnation can cross-check the body against what was actually signed rather than trusting a field of the body that claims the same thing.
+`BearerJwt` puts the key that signed the token there too, under `SIGNING_KEY_FACT`, because a JWKS can say what one key is allowed to sign and the token cannot: Bot Framework endorses each key for a set of channels, and Teams holds the activity's `channelId` to that.
+A body that fails that cross-check is `InvalidPayload` rather than a delivery a consumer has to distrust, because the protocol, not the product, is what says the two must agree.
 An HMAC over raw bytes proves only the signature, so its `facts` are empty and `deliveries` ignores the argument.
 
 ## Schemes
@@ -63,10 +69,12 @@ Three duties fall on the incarnation rather than on `BearerJwt`, and none is enf
 | `github`     | `/webhooks/stamphog/github`                             | `stamphog`                 | `stamphog_review`                                                                                                                           | `products/stamphog/backend/webhook_consumers.py`                        |
 | `slack`      | `/api/conversations/v1/slack/events`                    | `supporthog`               | `conversations_slack`                                                                                                                       | `products/conversations/backend/webhook_consumers.py`                   |
 | `slack`      | `/api/conversations/v1/slack/interactivity`             | `supporthog_interactivity` | `conversations_slack_interactivity`                                                                                                         | `products/conversations/backend/webhook_consumers.py`                   |
+| `teams`      | `/api/conversations/v1/teams/events`                    | `supporthog`               | `conversations_teams`                                                                                                                       | `products/conversations/backend/webhook_consumers.py`                   |
 | `pandadoc`   | `/api/legal_documents/pandadoc`                         | `default`                  | `legal_documents_signatures`                                                                                                                | `products/legal_documents/backend/webhook_consumers.py`                 |
 | `vapi`       | `/api/user_interviews/vapi_webhook/`                    | `default`                  | `user_interviews_vapi`                                                                                                                      | `products/user_interviews/backend/webhook_consumers.py`                 |
-| `mailgun`    | `/api/conversations/v1/email/inbound`                   | `inbound`                  | none yet, the endpoint still runs its own verifier                                                                                          | `products/conversations/backend/services/mailgun_events.py`             |
-| `mailgun`    | `/api/conversations/v1/email/outbound`                  | `outbound`                 | none yet, the endpoint still runs its own verifier                                                                                          | `products/conversations/backend/services/mailgun_events.py`             |
+| `mailgun`    | `/api/conversations/v1/email/inbound`                   | `inbound`                  | `conversations_email_inbound`                                                                                                               | `products/conversations/backend/webhook_consumers.py`                   |
+| `mailgun`    | `/api/conversations/v1/email/outbound`                  | `outbound`                 | `conversations_email_outbound`                                                                                                              | `products/conversations/backend/webhook_consumers.py`                   |
+| `mailgun`    | `/api/conversations/v1/email/capture`                   | `capture`                  | `conversations_email_capture`                                                                                                               | `products/conversations/backend/webhook_consumers.py`                   |
 | `sns`        | `/webhooks/workflows/ses-events`                        | `default`                  | `workflows_ses_events`                                                                                                                      | `products/workflows/backend/webhook_consumers.py`                       |
 | `customerio` | `/api/projects/<team_id>/messaging/customerio/webhook/` | none                       | none, it is the DRF adapter path                                                                                                            | `products/messaging/backend/api/customerio_webhook.py`                  |
 
@@ -75,8 +83,7 @@ The customer-facing GitHub App is shared across products, so its two endpoints a
 Every other endpoint is declared by the product that registered the App, in its own `routes.py`.
 The SES endpoint is the exception for now, because its view still lives in `backend/api/` rather than behind the ingress builders.
 
-The Vapi endpoint sits behind a per-IP throttle the product owns, from before ingress had a throttle lane.
-It moves onto `throttle_class` next.
+The Vapi endpoint is the only one that caps request volume: its provider sets `throttle_class` to a per-IP throttle, because the endpoint is public and Vapi's egress is shared across tenants.
 
 ## Non-goals
 
@@ -144,6 +151,9 @@ WEBHOOK_CONSUMERS = (
 The registry finds these through `posthog.products.load_product_modules("webhook_consumers")` on the **first delivery**, not at `django.setup()`.
 That is deliberate: eager loading would drag every product's webhook module onto the startup import path, which `posthog/test/repo_invariants/test_startup_import_budget.py` exists to keep clear.
 Keep the module itself cheap to import and defer the heavy work into the handler.
+
+The module may import its own product's `facade/` and nothing else of the product.
+An import-linter contract holds that for a sealed product, and `hogli product:lint` holds it by AST for every product that has a `webhook_consumers.py`, relative imports included.
 
 Registration is validated and fail-closed.
 A consumer that names a provider app nobody declares, reuses a name already taken for that provider, or registers for an event type the provider does not declare raises `RegistryError` at build, rather than sitting there looking registered and never running.
