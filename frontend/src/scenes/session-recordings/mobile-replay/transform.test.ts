@@ -1313,4 +1313,22 @@ describe('replay/transform', () => {
             })
         })
     })
+
+    describe('incremental snapshot with a non-object data field', () => {
+        // transformEventToWeb swallows transformer exceptions into telemetry, so .not.toThrow()
+        // proves nothing. Spy on captureException instead.
+        test.each([
+            ['a string', 'H4sI_truncated'],
+            ['a number', 42],
+            ['null', null],
+        ])('returns the event untouched when data is %s', (_label, badData) => {
+            const telemetry = { capture: jest.fn(), captureException: jest.fn() }
+            const event = { type: 3, timestamp: 1, data: badData }
+
+            const result = transformEventToWeb(event, telemetry)
+
+            expect(telemetry.captureException).not.toHaveBeenCalled()
+            expect(result).toEqual(event)
+        })
+    })
 })
