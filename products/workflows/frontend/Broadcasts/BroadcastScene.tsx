@@ -77,6 +77,9 @@ function BroadcastSceneContent({ id }: BroadcastWizardLogicProps): JSX.Element {
         contextItems: agentContextItems,
         // Only while the wizard is editable: the sent/scheduled summary view has nothing to patch.
         active: !isReadOnly && (id === 'new' || !!broadcast),
+        // The start screen is its own prompt, and submitting it opens the panel with that text.
+        // Opening the panel on arrival would put a second, empty prompt next to it.
+        autoOpen: id !== 'new' || hasOpenedFullEditor,
         headlines: BROADCAST_AGENT_HEADLINES,
     })
     // An approved email patch mutates the flow server-side while the wizard keeps pre-patch state,
