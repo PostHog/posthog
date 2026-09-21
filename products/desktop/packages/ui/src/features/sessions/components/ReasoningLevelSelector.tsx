@@ -516,32 +516,36 @@ export function ReasoningLevelSelector({
         }
       }}
     >
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="default"
-                  size="sm"
-                  disabled={isDisabled}
-                  aria-label={triggerAriaLabel}
-                  className={
-                    fastActive ? "ring-1 ring-amber-9 ring-inset" : undefined
-                  }
-                >
-                  {fastActive && (
-                    <span className="text-amber-11">
-                      <Lightning size={14} weight="fill" />
-                    </span>
-                  )}
-                  {modelLabel && (
+      <DropdownMenuTrigger
+        render={
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            disabled={isDisabled}
+            aria-label={triggerAriaLabel}
+            className={
+              fastActive ? "ring-1 ring-amber-9 ring-inset" : undefined
+            }
+          >
+            {fastActive && (
+              <span className="text-amber-11">
+                <Lightning size={14} weight="fill" />
+              </span>
+            )}
+            {modelLabel && (
+              <Tooltip>
+                {/* The name rather than the button, which the menu focuses
+                    again as it closes. A tooltip on a focused trigger opens
+                    by itself and then swallows the next Escape. */}
+                <TooltipTrigger
+                  render={
                     <span className="font-medium text-foreground">
-                      {/* A container query cannot swap text, so a narrow composer
-                        hides the full name and shows the short one instead. The
-                        button carries its own aria-label, so the copy that is
-                        hidden never reaches the accessible name. */}
+                      {/* A container query cannot swap text, so a narrow
+                          composer hides the full name and shows the short one
+                          instead. The button carries its own aria-label, so
+                          the copy that is hidden never reaches the accessible
+                          name. */}
                       <span className="@max-[480px]/composer:hidden">
                         {isDefaultSelection
                           ? `Default · ${modelLabel}`
@@ -553,30 +557,30 @@ export function ReasoningLevelSelector({
                           : shortLabel}
                       </span>
                     </span>
-                  )}
-                  {effortLabel && (
-                    <span
-                      className={
-                        modelLabel
-                          ? "font-normal text-muted-foreground/80"
-                          : undefined
-                      }
-                    >
-                      {effortLabel}
-                    </span>
-                  )}
-                  {!modelLabel && !effortLabel && (
-                    <span className="font-medium text-foreground">Model</span>
-                  )}
-                </Button>
-              }
-            />
-          }
-        />
-        {/* The full model name, which the trigger shortens or drops when
-            the composer is narrow. */}
-        <TooltipContent side="top">{triggerAriaLabel}</TooltipContent>
-      </Tooltip>
+                  }
+                />
+                {/* The full model name, which the trigger shortens when the
+                    composer is narrow. */}
+                <TooltipContent side="top">{triggerAriaLabel}</TooltipContent>
+              </Tooltip>
+            )}
+            {effortLabel && (
+              <span
+                className={
+                  modelLabel
+                    ? "font-normal text-muted-foreground/80"
+                    : undefined
+                }
+              >
+                {effortLabel}
+              </span>
+            )}
+            {!modelLabel && !effortLabel && (
+              <span className="font-medium text-foreground">Model</span>
+            )}
+          </Button>
+        }
+      />
       <DropdownMenuContent
         align="start"
         side="top"
