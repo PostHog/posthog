@@ -7,7 +7,7 @@ type Story = StoryObj<typeof SettingSectionUnavailable>
 const meta: Meta<typeof SettingSectionUnavailable> = {
     title: 'Scenes-App/Settings/SettingSectionUnavailable',
     component: SettingSectionUnavailable,
-    parameters: { layout: 'fullscreen', viewMode: 'story' },
+    parameters: { layout: 'fullscreen' },
 }
 export default meta
 

@@ -9,7 +9,7 @@ export const ADMIN_ONLY_SECTION_IDS: SettingSectionId[] = [
     'organization-access-resolution',
 ]
 
-export interface FindUnavailableSectionInput {
+interface FindUnavailableSectionInput {
     /** Section the reader asked for, already mapped from environment to project. */
     sectionId: SettingSectionId | null
     /** Sections the reader can open. */
@@ -42,14 +42,19 @@ export const findUnavailableSection = ({
         return null
     }
 
-    const fallback = definition.unavailableFallback ?? null
-
-    if (!doesMatchFlags(definition)) {
-        return { id: definition.id, title: definition.title, reason: 'not-enabled', fallback }
+    const reason = !doesMatchFlags(definition)
+        ? 'not-enabled'
+        : ADMIN_ONLY_SECTION_IDS.includes(definition.id) && !isAdminOrOwner
+          ? 'admin-only'
+          : null
+    if (!reason) {
+        return null
     }
-    if (ADMIN_ONLY_SECTION_IDS.includes(definition.id) && !isAdminOrOwner) {
-        return { id: definition.id, title: definition.title, reason: 'admin-only', fallback }
-    }
 
-    return null
+    return {
+        id: definition.id,
+        title: definition.title,
+        reason,
+        fallback: definition.unavailableFallback ?? null,
+    }
 }
