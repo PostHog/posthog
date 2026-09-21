@@ -1,5 +1,9 @@
 import { Text } from "@components/text";
 import {
+  REPORT_IMPLEMENTATION_LABELS,
+  type ReportImplementationState,
+} from "@posthog/core/inbox/reportImplementation";
+import {
   humanizeReportTitle,
   parseConventionalCommitTitle,
 } from "@posthog/core/inbox/reportPresentation";
@@ -15,6 +19,7 @@ import { SuggestedReviewerAvatarStack } from "./SuggestedReviewerAvatarStack";
 interface ReportListRowProps {
   report: SignalReport;
   onPress: (report: SignalReport) => void;
+  implementationState?: ReportImplementationState | null;
 }
 
 // Single colored dot conveys status at a glance — full label still
@@ -38,11 +43,18 @@ const priorityColorMap: Record<string, string> = {
   P4: "text-gray-10",
 };
 
-function ReportListRowComponent({ report, onPress }: ReportListRowProps) {
+function ReportListRowComponent({
+  report,
+  onPress,
+  implementationState,
+}: ReportListRowProps) {
   const themeColors = useThemeColors();
   const timeDisplay = formatReportTimestamp(new Date(report.updated_at));
   const conventionalTitle = parseConventionalCommitTitle(report.title);
   const displayTitle = humanizeReportTitle(report.title, "Untitled report");
+  const implementationLabel = implementationState
+    ? REPORT_IMPLEMENTATION_LABELS[implementationState]
+    : null;
 
   const dotKind = statusDotMap[report.status] ?? "muted";
   const dotColor =
@@ -101,6 +113,16 @@ function ReportListRowComponent({ report, onPress }: ReportListRowProps) {
           </Text>
           <SuggestedReviewerAvatarStack report={report} />
         </View>
+
+        {implementationLabel ? (
+          <Text
+            className="mt-1 text-[11px] text-gray-10"
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {implementationLabel}
+          </Text>
+        ) : null}
       </View>
 
       {report.implementation_pr_url ? (
