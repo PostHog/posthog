@@ -288,6 +288,20 @@ def build_onboarding_dm(
             ],
         }
     )
+    # This DM replaces the plain welcome, and the steps above cover the autopilot only, so the
+    # interactive half reaches the reader here or not at all.
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "💬 You can also just talk to me. Tag `@PostHog` in any channel, or message me here, "
+                    "to dig into your product data or open a pull request. `/posthog` lists my commands.",
+                }
+            ],
+        }
+    )
     return "Set up PostHog - self-driving for your product", blocks
 
 

@@ -15,6 +15,7 @@ from products.signals.backend.facade.api import (
     set_default_slack_notification_channel,
 )
 from products.slack_app.backend import onboarding
+from products.slack_app.backend.tests.helpers import render_blocks
 
 
 class TestOnboarding:
@@ -216,6 +217,21 @@ class TestOnboarding:
 
         assert onboarding.send_onboarding_dm(self.integration, "U1") is True
         client.chat_postMessage.assert_called_once()
+
+    @patch("products.slack_app.backend.onboarding._resolve_onboarding_user", return_value=123)
+    @patch("products.slack_app.backend.onboarding._has_personal_github", return_value=False)
+    @patch("products.slack_app.backend.onboarding._has_team_github", return_value=False)
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_onboarding_dm_copy(self, mock_webclient_class, _mock_team, _mock_personal, _mock_resolve, snapshot):
+        self._client(mock_webclient_class)
+
+        text, blocks = onboarding.build_onboarding_dm(
+            self.integration, SlackIntegration(self.integration), needs_github=True
+        )
+
+        # The connect link carries the team's autoincrement id, which differs every run.
+        rendered = render_blocks(blocks).replace(str(self.team.id), "<team_id>")
+        assert snapshot == f"{text}\n\n---\n\n{rendered}"
 
     @patch("posthog.models.integration.slack.WebClient")
     def test_build_dm_no_github_block_when_connected(self, mock_webclient_class):
