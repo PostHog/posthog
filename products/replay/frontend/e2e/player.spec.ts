@@ -341,10 +341,17 @@ test.describe('Session replay player', () => {
             })
         })
 
+        // Playback autostarts, so the recording's clicks can pass before the listener attaches.
+        // Seeking back to the start replays them with the counter in place, which keeps the count
+        // off the speed of the worker. Seeking applies the earlier clicks without the class, so
+        // the seek itself adds no flash.
+        await scrubTo(page, 0)
+        await expect(page.getByTestId('recording-timestamp')).toHaveText(/00:0[01].*00:11/)
+        await expect(playPauseButton(page)).toHaveAttribute('data-attr', 'recording-pause')
+
         // The recording clicks at 2.4s, 3.4s and 3.8s, and the flash lasts 333ms at 1x, so the fix
-        // produces three animations. The count is two because playback starts before the listener
-        // can attach, which can cost the first one. Without the fix the cursor animates once, so
-        // two still separates the two behaviors.
+        // animates three times. The count is two because the third starts 30ms after the second
+        // ends, which playback jitter can close. Without the fix the cursor animates once.
         await expect.poll(() => clickFlashCount(page), { timeout: 30000 }).toBeGreaterThanOrEqual(2)
     })
 
