@@ -22,12 +22,10 @@ def invalidate_repo_list_on_user_github_change(sender: Any, instance: UserIntegr
 
 
 @receiver(post_save, sender=Integration)
-def onboard_slack_install(sender: Any, instance: Integration, created: bool, **kwargs) -> None:
-    """Fresh Slack install -> onboard the installer once, on commit.
-
-    Re-auth uses update_or_create (created=False), so only first installs onboard. The
-    ``channels:manage`` gate is read here, while the row is in hand.
-    """
+def onboard_slack_inbox_on_install(sender: Any, instance: Integration, created: bool, **kwargs) -> None:
+    """Fresh Slack install -> enqueue the #posthog-inbox onboarding Temporal workflow on commit (the
+    enqueue runs inline; the workflow itself runs on a Temporal worker). Gated on ``channels:manage``.
+    Re-auth uses update_or_create (created=False), so only first installs onboard."""
     if not created or instance.kind != "slack":
         return
 
@@ -38,31 +36,10 @@ def onboard_slack_install(sender: Any, instance: Integration, created: bool, **k
         return
 
     integration_id = instance.id
-    transaction.on_commit(lambda: _onboard_install(integration_id))
+    transaction.on_commit(lambda: _start_inbox_onboarding_workflow(integration_id))
 
 
-def _onboard_install(integration_id: int) -> None:
-    """Run the onboarding on a Temporal worker, or on Celery when the server refuses the enqueue.
-
-    Both routes run ``run_install_onboarding``, so the installer gets the same one message either
-    way. Celery is the fallback rather than a second path: an install that cannot reach Temporal
-    still gets onboarded.
-    """
-    if _start_inbox_onboarding_workflow(integration_id):
-        return
-
-    # Deferred: `tasks` imports `api`, which pulls the whole agent stack onto whatever
-    # process imports it, and this receiver is wired from AppConfig.ready().
-    from products.slack_app.backend.tasks import run_slack_install_onboarding  # noqa: PLC0415
-
-    run_slack_install_onboarding.delay(integration_id=integration_id)
-
-
-def _start_inbox_onboarding_workflow(integration_id: int) -> bool:
-    """Enqueue the #posthog-inbox onboarding workflow. Returns whether it was accepted.
-
-    The enqueue runs inline; the workflow itself runs on a Temporal worker.
-    """
+def _start_inbox_onboarding_workflow(integration_id: int) -> None:
     # Deferred imports keep the Temporal stack off the signals (AppConfig.ready) import path.
     import asyncio
 
@@ -91,5 +68,3 @@ def _start_inbox_onboarding_workflow(integration_id: int) -> bool:
         )
     except Exception:
         log.warning("slack_app_inbox_onboarding_dispatch_failed", integration_id=integration_id, exc_info=True)
-        return False
-    return True

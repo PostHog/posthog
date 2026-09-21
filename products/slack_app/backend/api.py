@@ -108,7 +108,11 @@ from products.slack_app.backend.services.slack_user_oauth import (
     find_linked_posthog_user,
     post_link_invite_message,
 )
-from products.slack_app.backend.services.slack_welcome_messages import build_channel_welcome, build_team_join_welcome
+from products.slack_app.backend.services.slack_welcome_messages import (
+    build_assistant_pane_welcome,
+    build_channel_welcome,
+    build_team_join_welcome,
+)
 from products.slack_app.backend.slack_link_unfurl import (
     handle_posthog_link_unfurl,
     link_url_region,
@@ -1779,10 +1783,6 @@ _ASSISTANT_SUGGESTED_PROMPTS = [
     {"title": "Investigate an issue", "message": "Investigate why one of my insights is slow"},
     {"title": "Work an inbox item", "message": "Pick up a signals inbox item that needs a code fix"},
 ]
-_ASSISTANT_WELCOME = (
-    "Hi! I'm PostHog, an AI agent. DM me to investigate issues using your PostHog data and "
-    "open PRs in your connected repos to fix them!"
-)
 _ASSISTANT_UNAVAILABLE = (
     "I can only help PostHog org members whose project has a connected repo. Make sure your Slack "
     "email matches your PostHog account and that a repo is connected, then try again."
@@ -1851,7 +1851,7 @@ def _handle_assistant_thread_started(slack: SlackIntegration, channel_id: str, t
             prompts=_ASSISTANT_SUGGESTED_PROMPTS,
         )
         # Slack's own assistant container thread, not a reply to a user message that can be deleted.
-        slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=_ASSISTANT_WELCOME)
+        slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=build_assistant_pane_welcome())
     except Exception:
         logger.warning("assistant_thread_started_failed", exc_info=True)
     return ROUTE_HANDLED_LOCALLY

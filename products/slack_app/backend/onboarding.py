@@ -496,17 +496,13 @@ def approve_ai_data_processing(integration: Integration, slack_user_id: str) -> 
 
 def run_install_onboarding(integration: Integration) -> None:
     """On a fresh install: create the inbox channel, invite the installer, and DM them the onboarding.
-    Gated on the install having ``channels:manage``; best-effort.
-
-    The message describes an agent that watches a product and reports into a channel, so an install
-    that cannot open that channel is told a story it cannot follow. The app asks for the scope at
-    install, so this is the degenerate case rather than a second audience."""
+    Gated on the install having ``channels:manage``; best-effort."""
     if not has_inbox_scopes(integration):
         return
+    channel = ensure_inbox_channel(integration)
     installer = ((integration.config or {}).get("authed_user") or {}).get("id")
     if not installer:
         return
-    channel = ensure_inbox_channel(integration)
     if channel is not None:
         invite_user_to_inbox(integration, channel[0], installer)
     send_onboarding_dm(integration, installer)

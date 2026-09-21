@@ -1,4 +1,13 @@
 # serializer version: 1
+# name: test_assistant_pane_welcome_copy
+  '''
+  Hi! I'm PostHog, an AI agent. Ask me about your product data, or tell me what to fix and I'll open a pull request in a connected repo.
+  • Keep replying here while I'm working and I'll pick up what you say.
+  • Want a different model? Say so: `use fable for this one`.
+  • Answering from the wrong project? Name the one you want: `give me DAU for Staging please`.
+  • `/posthog` lists my commands, and the thumbs under my replies tell me when I get it wrong.
+  '''
+# ---
 # name: test_welcome_copy[channel]
   '''
   Hey, I'm PostHog. Tag me with @PostHog to get started.

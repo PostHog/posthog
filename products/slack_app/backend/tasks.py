@@ -2,14 +2,11 @@
 
 from celery import shared_task
 
-from posthog.models.integration import Integration
-
 from products.slack_app.backend.api import (
     SLACK_INTEGRATION_KIND,
     does_other_region_claim_workspace,
     send_region_proxy_request,
 )
-from products.slack_app.backend.onboarding import run_install_onboarding
 
 
 @shared_task(ignore_result=True)
@@ -32,18 +29,3 @@ def mirror_slack_message_event(
     # The body rides as text because Celery serializes arguments to JSON. Slack signs the raw
     # bytes, and the payload is UTF-8 JSON, so the decode/encode round trip is byte-exact.
     send_region_proxy_request(method="POST", target_url=target_url, headers=headers, body=body.encode("utf-8"))
-
-
-@shared_task(ignore_result=True)
-def run_slack_install_onboarding(*, integration_id: int) -> None:
-    """Onboard whoever installed the Slack app, when Temporal refused the workflow.
-
-    Runs the same ``run_install_onboarding`` the workflow does, so the installer gets one message
-    either way. Off the OAuth callback's request path because the installer is waiting on a
-    redirect. No retries: a greeting that arrives late is worth less than a duplicate would cost,
-    and the post is already best-effort.
-    """
-    integration = Integration.objects.filter(id=integration_id, kind=SLACK_INTEGRATION_KIND).first()
-    if integration is None:
-        return
-    run_install_onboarding(integration)

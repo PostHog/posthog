@@ -8,7 +8,11 @@ from parameterized import parameterized
 
 from posthog.models.integration import Integration
 
-from products.slack_app.backend.services.slack_welcome_messages import build_channel_welcome, build_team_join_welcome
+from products.slack_app.backend.services.slack_welcome_messages import (
+    build_assistant_pane_welcome,
+    build_channel_welcome,
+    build_team_join_welcome,
+)
 from products.slack_app.backend.tests.helpers import render_blocks
 
 BUILDERS = [
@@ -29,6 +33,18 @@ def test_welcome_copy(name, snapshot):
     text, blocks = build(_integration(app_id="A_WELCOME"))
 
     assert snapshot == f"{text}\n\n---\n\n{render_blocks(blocks)}"
+
+
+def test_assistant_pane_welcome_copy(snapshot):
+    assert snapshot == build_assistant_pane_welcome()
+
+
+def test_assistant_pane_welcome_carries_no_markup_the_container_drops():
+    # Posted as `text`, which renders mrkdwn but no blocks, so a link or a block-only
+    # construct would reach the reader as literal characters.
+    pane = build_assistant_pane_welcome()
+
+    assert "<" not in pane and ">" not in pane
 
 
 class TestWelcomeMessages(SimpleTestCase):

@@ -1,10 +1,10 @@
 """What PostHog says the first time someone meets it in Slack.
 
-Two moments: the app is added to a channel, or someone joins a workspace that already has
-it. Keeping both in one module is what stops the list of things worth knowing from
-drifting apart per surface. A fresh install is the third moment, and it gets the
-onboarding DM in ``onboarding.py`` instead, which carries the same material around its
-setup steps.
+Three moments: the app is added to a channel, someone joins a workspace that already has
+it, or someone opens the assistant pane. Keeping them in one module is what stops the list
+of things worth knowing from drifting apart per surface. A fresh install is the fourth,
+and it gets the onboarding DM in ``onboarding.py`` instead, which carries the same
+material around its setup steps.
 
 A builder takes the integration and returns the ``(fallback_text, blocks)`` pair
 ``chat_postMessage`` wants. The fallback text is what a notification and a screen reader
@@ -64,6 +64,23 @@ def _home_tab(integration: Integration, label: str = "my Home tab") -> str:
     """
     url = app_home_url(integration)
     return f"<{url}|{label}>" if url else label
+
+
+def build_assistant_pane_welcome() -> str:
+    """Greets someone opening Slack's assistant container, beside the suggested prompts.
+
+    Plain text and no blocks, because the container takes a ``text`` payload, so none of the
+    section and button structure the other two share transfers here. The pane runs the same
+    mention workflow, so the model and project classifiers answer in it as well.
+    """
+    return (
+        "Hi! I'm PostHog, an AI agent. Ask me about your product data, or tell me what to fix and "
+        "I'll open a pull request in a connected repo.\n"
+        "• Keep replying here while I'm working and I'll pick up what you say.\n"
+        "• Want a different model? Say so: `use fable for this one`.\n"
+        "• Answering from the wrong project? Name the one you want: `give me DAU for Staging please`.\n"
+        "• `/posthog` lists my commands, and the thumbs under my replies tell me when I get it wrong."
+    )
 
 
 def build_channel_welcome(integration: Integration) -> tuple[str, list[dict[str, Any]]]:
