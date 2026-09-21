@@ -2,7 +2,16 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonTable,
+    LemonTag,
+    LemonTagType,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -483,13 +492,18 @@ function SendingTierInfo({ allowance }: { allowance: EmailSendingAllowanceApi })
             placement="bottom-start"
             showArrow
         >
-            <span
-                className="flex items-center text-secondary cursor-help"
-                onMouseEnter={() => setVisible(true)}
-                onMouseLeave={() => setVisible(false)}
-                data-attr="workflows-sending-tier-info"
-            >
-                <IconInfo className="text-base" />
+            {/* LemonButton does not forward focus events, so the span catches the bubbled ones for keyboard users. */}
+            <span className="flex" onFocus={() => setVisible(true)} onBlur={() => setVisible(false)}>
+                <LemonButton
+                    icon={<IconInfo />}
+                    size="xsmall"
+                    type="tertiary"
+                    aria-label="Show what each sending tier allows"
+                    onMouseEnter={() => setVisible(true)}
+                    onMouseLeave={() => setVisible(false)}
+                    onClick={() => setVisible(!visible)}
+                    data-attr="workflows-sending-tier-info"
+                />
             </span>
         </Popover>
     )
