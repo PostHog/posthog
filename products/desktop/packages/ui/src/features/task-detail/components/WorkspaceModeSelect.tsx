@@ -86,7 +86,8 @@ const IMAGE_ICON = <Cube size={14} weight="regular" />;
 
 /**
  * Rendered on every row so the trailing column keeps its width as the selection
- * moves. Hidden from assistive tech, which reads the current mode off the trigger.
+ * moves. Hidden from assistive tech, which reads the selection off the row's
+ * aria-current.
  */
 function SelectedCheck({
   selected,
@@ -266,6 +267,7 @@ export function WorkspaceModeSelect({
             {localModes.map((item) => (
               <DropdownMenuItem
                 key={item.mode}
+                aria-current={value === item.mode ? "true" : undefined}
                 onClick={() => onChange(item.mode)}
                 render={
                   <ItemMenuItem size="xs" className="w-full" render={<div />}>
@@ -289,6 +291,7 @@ export function WorkspaceModeSelect({
 
           {showCloud && options.length === 1 && (
             <DropdownMenuItem
+              aria-current={value === "cloud" ? "true" : undefined}
               onClick={() => selectTarget(DEFAULT_CLOUD_TARGET)}
               render={
                 <ItemMenuItem size="xs" className="w-full" render={<div />}>
@@ -400,6 +403,7 @@ function CloudTargetItem({
   const icon = option.target.kind === "image" ? IMAGE_ICON : CLOUD_ICON;
   return (
     <DropdownMenuItem
+      aria-current={isSelected ? "true" : undefined}
       onClick={() => onSelect(option.target)}
       render={
         <ItemMenuItem size="xs" className="w-full" render={<div />}>
