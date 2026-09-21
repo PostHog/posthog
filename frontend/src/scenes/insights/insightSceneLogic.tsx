@@ -139,6 +139,7 @@ export interface insightSceneLogicValues {
         | ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => Record<string, any>)
         | undefined
     insightId: InsightId | null
+    insightLoading: boolean
     insightLogicRef: {
         logic: BuiltLogic<insightLogicType>
         unmount: () => void
@@ -501,6 +502,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 },
             ],
             (insightData: Record<string, any> | null | undefined) => insightData,
+        ],
+        insightLoading: [
+            (s) => [
+                (state, props) =>
+                    s.insightLogicRef(state, props)?.logic.selectors.insightLoading(state, props) ?? false,
+            ],
+            (insightLoading: boolean): boolean => insightLoading,
         ],
         insightSelector: [
             (s) => [s.insightLogicRef],
