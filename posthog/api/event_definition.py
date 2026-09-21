@@ -7,7 +7,7 @@ from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
 from django.db import IntegrityError, connections, transaction
-from django.db.models import Manager, Prefetch
+from django.db.models import Field, Manager, Prefetch
 from django.http import Http404
 from django.utils import timezone
 
@@ -146,7 +146,7 @@ def create_event_definitions_sql(
     event_definition_fields = {
         f'"{f.column}"'
         for f in event_definition_model(is_enterprise)._meta.get_fields()
-        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]
+        if isinstance(f, Field) and f.column is not None and f.column not in ["deprecated_tags", "tags"]
     }
     # Django relies on PK being present in the result set to tell if it's a saved instance
     event_definition_fields.add("id as pk")
