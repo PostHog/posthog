@@ -3,7 +3,11 @@ from typing import Optional
 from django.conf import settings
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_RAW_SESSIONS_V3_EVENTS_JSON_WS, kafka_engine
+from posthog.clickhouse.kafka_engine import (
+    CONSUMER_GROUP_RAW_SESSIONS_V3_EVENTS_JSON_WS,
+    kafka_engine,
+    kafka_num_consumers,
+)
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models.event.sql import EVENTS_TABLE_BASE_SQL, EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS
@@ -444,8 +448,8 @@ MODIFY QUERY
 
 
 # WarpStream ingestion pipeline on the ingestion-events cluster: Kafka table -> MV -> writable.
-# The 'ws2' names avoid the hand-managed 2026 pipeline's names, whose half-detached remnants
-# still hold metadata in prod, and give the consumer a fresh group with no stale offsets.
+# The ws2 names stay clear of the earlier hand-managed pipeline's objects, which hold the
+# unsuffixed names outside repo control.
 
 KAFKA_RAW_SESSIONS_V3_TABLE = "kafka_raw_sessions_v3_events_json_ws2"
 RAW_SESSIONS_V3_EVENTS_WS_MV = "raw_sessions_v3_events_json_ws2_mv"
@@ -464,9 +468,14 @@ def KAFKA_RAW_SESSIONS_V3_TABLE_SQL():
     return (
         EVENTS_TABLE_BASE_SQL
         + """
-    SETTINGS kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_num_consumers = 1
+    SETTINGS kafka_skip_broken_messages = 100,
+             kafka_num_consumers = {num_consumers},
+             kafka_thread_per_consumer = 1,
+             kafka_poll_timeout_ms = 10000,
+             kafka_max_block_size = 100000
 """
     ).format(
+        num_consumers=kafka_num_consumers(1),
         table_name=KAFKA_RAW_SESSIONS_V3_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(False),
         engine=kafka_engine(
@@ -478,6 +487,22 @@ def KAFKA_RAW_SESSIONS_V3_TABLE_SQL():
         dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         materialized_columns="",
         indexes="",
+    )
+
+
+def WRITABLE_RAW_SESSIONS_INGESTION_TABLE_SQL_V3():
+    # On the ingestion layer the writable points at the sessions satellite cluster, where the
+    # live raw_sessions_v3 MergeTree lives. Cloud-only, so the cluster name has no settings entry.
+    return RAW_SESSIONS_TABLE_BASE_SQL_V3.format(
+        table_name=WRITABLE_RAW_SESSIONS_TABLE_V3(),
+        engine=Distributed(
+            data_table=TABLE_BASE_NAME_V3,
+            sharding_key="cityHash64(session_id_v7)",
+            cluster="sessions",
+        ),
+        session_timestamp_modifier="DEFAULT",
+        max_hosts=SESSION_V3_MAX_HOSTS_PER_SESSION,
+        max_emails=SESSION_V3_MAX_EMAILS_PER_SESSION,
     )
 
 

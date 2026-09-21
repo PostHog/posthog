@@ -52,8 +52,7 @@ CONSUMER_GROUP_INGESTION_WARNINGS_WS = "clickhouse_ingestion_warnings_ws"
 CONSUMER_GROUP_INGESTION_WARNINGS_V2 = "clickhouse_ingestion_warnings_v2"
 CONSUMER_GROUP_SESSION_REPLAY_EVENTS_WS = "clickhouse_session_replay_events_ws"
 CONSUMER_GROUP_SESSION_REPLAY_FEATURES_WS = "clickhouse_session_replay_features_ws"
-# ws2: the original group was deleted from the WarpStream console when ingestion was
-# detached in 2026-07, so the recreated pipeline starts under a fresh name.
+# The ws2 suffix keeps this group distinct from the retired hand-managed pipeline.
 CONSUMER_GROUP_RAW_SESSIONS_V3_EVENTS_JSON_WS = "clickhouse_raw_sessions_v3_events_json_ws2"
 CONSUMER_GROUP_COHORT_MEMBERSHIP_WS = "clickhouse_cohort_membership_ws"
 
