@@ -1,16 +1,19 @@
 import { LogicWrapper, MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { ApiConfig, ApiError } from 'lib/api'
+import { ApiError } from 'lib/api'
 
-import { apiErrorDetail } from './checksApi'
-import * as api from './generated/api'
+import { DataQualitySubjectRef, apiErrorDetail, checksApi } from './checksApi'
 import type { DataQualityCheckScheduleApi, PatchedDataQualityCheckScheduleUpdateApi } from './generated/api.schemas'
 
 const SCHEDULE_REFRESH_INTERVAL_MS = 30_000
 
 export interface DataQualityScheduleLogicProps {
     metricId: string
+}
+
+function subjectRef(props: DataQualityScheduleLogicProps): DataQualitySubjectRef {
+    return { subjectType: 'metric', subjectId: props.metricId }
 }
 
 export interface DataQualityScheduleError {
@@ -95,26 +98,16 @@ export const dataQualityScheduleLogic: LogicWrapper<dataQualityScheduleLogicType
         schedule: [
             null as DataQualityCheckScheduleApi | null,
             {
-                loadSchedule: async () =>
-                    api.dataCatalogMetricsChecksScheduleRetrieve(String(ApiConfig.getCurrentTeamId()), props.metricId),
+                loadSchedule: async () => checksApi.schedule(subjectRef(props)),
                 updateSchedule: async (patch: PatchedDataQualityCheckScheduleUpdateApi) => {
                     try {
-                        return await api.dataCatalogMetricsChecksSchedulePartialUpdate(
-                            String(ApiConfig.getCurrentTeamId()),
-                            props.metricId,
-                            patch
-                        )
+                        return await checksApi.updateSchedule(subjectRef(props), patch)
                     } catch (error) {
                         if (isDefinitiveRejection(error)) {
                             throw error
                         }
                         try {
-                            actions.loadScheduleSuccess(
-                                await api.dataCatalogMetricsChecksScheduleRetrieve(
-                                    String(ApiConfig.getCurrentTeamId()),
-                                    props.metricId
-                                )
-                            )
+                            actions.loadScheduleSuccess(await checksApi.schedule(subjectRef(props)))
                         } catch {
                             // The edit can have committed even when neither response reaches us.
                         }
@@ -148,10 +141,7 @@ export const dataQualityScheduleLogic: LogicWrapper<dataQualityScheduleLogicType
             }
             const previousSchedule = values.schedule
             try {
-                const schedule = await api.dataCatalogMetricsChecksScheduleRetrieve(
-                    String(ApiConfig.getCurrentTeamId()),
-                    props.metricId
-                )
+                const schedule = await checksApi.schedule(subjectRef(props))
                 if (!values.scheduleLoading && values.schedule === previousSchedule) {
                     actions.refreshScheduleSuccess(schedule)
                 }

@@ -72,7 +72,7 @@ def _edits_the_assertion(fields: Iterable[str]) -> bool:
     return any(field in requested for field in _ASSERTION_FIELDS)
 
 
-def _subject_fk(subject_type: str, subject_uuid: str | UUID) -> dict[str, Any]:
+def subject_filter(subject_type: str, subject_uuid: str | UUID) -> dict[str, Any]:
     """The FK kwargs for whichever subject kind this is."""
     if subject_type == SubjectType.TABLE:
         return {"table_id": subject_uuid}
@@ -163,7 +163,7 @@ def upsert_check(
                     column_name=column_name,
                     config=canonical,
                     fingerprint=fingerprint,
-                    **_subject_fk(subject_type, subject_uuid),
+                    **subject_filter(subject_type, subject_uuid),
                     **fields,
                 )
                 if check.subject_type == SubjectType.METRIC and check.metric_id:
@@ -193,7 +193,7 @@ def _find_by_fingerprint(
     """
     return (
         DataQualityCheck.objects.for_team(team_id)
-        .filter(fingerprint=fingerprint, deleted=False, **_subject_fk(subject_type, subject_uuid))
+        .filter(fingerprint=fingerprint, deleted=False, **subject_filter(subject_type, subject_uuid))
         .first()
     )
 
@@ -329,7 +329,7 @@ def _definition_taken(check: DataQualityCheck, fingerprint: str) -> bool:
     """Whether *another* active check on this subject already asserts this."""
     return (
         DataQualityCheck.objects.for_team(check.team_id)
-        .filter(fingerprint=fingerprint, deleted=False, **_subject_fk(check.subject_type, str(check.subject_uuid)))
+        .filter(fingerprint=fingerprint, deleted=False, **subject_filter(check.subject_type, str(check.subject_uuid)))
         .exclude(id=check.id)
         .exists()
     )
@@ -364,7 +364,7 @@ def live_subject_checks(checks: QuerySet[DataQualityCheck]) -> QuerySet[DataQual
 def checks_for_subject(
     team_id: int, subject_type: str, subject_uuid: str | UUID, include_deleted: bool = False
 ) -> QuerySet[DataQualityCheck]:
-    queryset = DataQualityCheck.objects.for_team(team_id).filter(**_subject_fk(subject_type, subject_uuid))
+    queryset = DataQualityCheck.objects.for_team(team_id).filter(**subject_filter(subject_type, subject_uuid))
     # A soft-deleted check's past runs still sit in the aggregate counts of suites it ran in, so
     # authorization over a *historical* suite has to see it too, even though it no longer runs.
     return queryset if include_deleted else live_subject_checks(queryset.filter(deleted=False))
