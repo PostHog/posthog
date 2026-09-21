@@ -839,6 +839,7 @@ from .omnisend.source import OmnisendSource
 from .oncehub.source import OncehubSource
 from .onedrive.source import OneDriveSource
 from .onehundredms.source import OneHundredMsSource
+from .oneleet.source import OneleetSource
 from .onelogin.source import OneloginSource
 from .onepagecrm.source import OnepagecrmSource
 from .onepassword.source import OnePasswordSource
