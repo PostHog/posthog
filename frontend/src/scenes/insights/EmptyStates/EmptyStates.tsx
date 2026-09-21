@@ -712,6 +712,7 @@ export function isRawServerErrorTitle(title: string, status?: number | null): bo
 type InsightErrorKind =
     | 'rate_limit'
     | 'memory_limit'
+    | 'too_slow'
     | 'invalid_query'
     | 'permission'
     | 'transient'
@@ -721,6 +722,7 @@ type InsightErrorKind =
 const ERROR_HOGGIES: Record<InsightErrorKind, React.ComponentType<{ className?: string }>> = {
     rate_limit: HedgehogTrafficController,
     memory_limit: HedgehogMagnifyingGlass,
+    too_slow: HedgehogMagnifyingGlass,
     invalid_query: HedgehogMagnifyingGlass,
     permission: HedgehogStampDenied,
     transient: HedgehogConstruction2,
@@ -742,6 +744,12 @@ function getInsightErrorKind(status?: number | null): InsightErrorKind {
     // apart, so the remediation comes from the backend detail instead.
     if (status === 513) {
         return 'memory_limit'
+    }
+    // 512 is ClickHouse refusing to start a query because its estimated runtime is too long. The
+    // backend detail carries that estimate and tells the person to cut the time range, so this
+    // status needs its own kind to keep that sentence on screen instead of generic server copy.
+    if (status === 512) {
+        return 'too_slow'
     }
     if (status === 400 || status === 422) {
         return 'invalid_query'
@@ -765,6 +773,9 @@ function getInsightErrorTitle(
 ): string | JSX.Element {
     if (kind === 'memory_limit') {
         return "This query couldn't finish"
+    }
+    if (kind === 'too_slow') {
+        return 'This query would take too long to run'
     }
     if (kind === 'invalid_query') {
         return "We couldn't run this query"
@@ -793,8 +804,9 @@ function getInsightErrorRemediation(
         case 'rate_limit':
             return `Try again ${retryAfter ?? 'later'}.`
         case 'memory_limit':
-            // Only the backend copy knows whether to shrink this query, wait out cluster load, or
-            // how long the breaker holds the query for.
+        case 'too_slow':
+            // Only the backend copy knows whether to shrink this query, wait out cluster load, how
+            // long the breaker holds the query for, or what the execution estimate came back as.
             return backendDetail ?? 'Try a shorter date range or narrower filters, then run it again.'
         case 'invalid_query':
             return 'Open the query debugger and correct the query.'
@@ -841,7 +853,9 @@ export function InsightErrorState({
     onRetry,
 }: InsightErrorStateProps): JSX.Element {
     const errorKind = getInsightErrorKind(titleStatus)
-    const canRetry = errorKind !== 'invalid_query' && errorKind !== 'permission'
+    // An over-budget estimate is deterministic, so a retry of the same query gets refused again.
+    // The query has to change first, as with an invalid query or a denied permission.
+    const canRetry = errorKind !== 'invalid_query' && errorKind !== 'permission' && errorKind !== 'too_slow'
     const safeTitle = typeof title === 'string' && isRawServerErrorTitle(title, titleStatus) ? null : title
     const displayTitle = getInsightErrorTitle(errorKind, safeTitle, titleStatus)
     const isExport = placement === DashboardPlacement.Export
@@ -859,6 +873,7 @@ export function InsightErrorState({
             error_type: 'server',
             query_kind: queryKindForReporting(query),
             query_id: queryId ?? null,
+            status: titleStatus ?? null,
         })
     })
 

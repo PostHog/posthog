@@ -14,6 +14,10 @@ import { InsightErrorState, InsightValidationError, isRawServerErrorTitle } from
 const CLUSTER_MEMORY_DETAIL =
     "We're under heavy load right now and couldn't finish this query. Please try again in a few minutes."
 
+// Verbatim from ClickHouseEstimatedQueryExecutionTimeTooLong, with the estimate errors.py fills in
+const TOO_SLOW_DETAIL =
+    'Estimated query execution time (412 seconds) is too long. Try reducing its scope by changing the time range.'
+
 describe('insight error states', () => {
     let captureSpy: jest.SpyInstance
 
@@ -61,6 +65,19 @@ describe('insight error states', () => {
             error_type: 'server',
             query_kind: null,
             query_id: 'test-query-id',
+            status: null,
+        })
+    })
+
+    it('reports the HTTP status of a server error', () => {
+        render(<InsightErrorState title="A server error occurred." queryId="test-query-id" titleStatus={513} />)
+
+        const shownCalls = captureSpy.mock.calls.filter((call) => call[0] === 'insight error message shown')
+        expect(shownCalls[0][1]).toEqual({
+            error_type: 'server',
+            query_kind: null,
+            query_id: 'test-query-id',
+            status: 513,
         })
     })
 
@@ -178,6 +195,24 @@ describe('insight error states', () => {
         expect(screen.getByText("This query couldn't finish")).toBeTruthy()
         expect(screen.getByText('Try a shorter date range or narrower filters, then run it again.')).toBeTruthy()
         expect(screen.queryByText(/DB::Exception/)).toBeNull()
+    })
+
+    it('keeps the actionable detail on a query that would run too long', () => {
+        preflightLogic.actions.loadPreflightSuccess({ cloud: true } as any)
+
+        const { container } = render(
+            <InsightErrorState
+                title={TOO_SLOW_DETAIL}
+                titleStatus={512}
+                query={{ kind: 'InsightVizNode' }}
+                onRetry={() => {}}
+            />
+        )
+
+        expect(screen.getByText('This query would take too long to run')).toBeTruthy()
+        expect(screen.getByText(TOO_SLOW_DETAIL)).toBeTruthy()
+        expect(container.querySelector('[data-attr="insight-retry-button"]')).toBeNull()
+        expect(screen.queryByText('If this persists, submit a bug report.')).toBeNull()
     })
 
     it('uses user-facing copy for invalid query errors', () => {
