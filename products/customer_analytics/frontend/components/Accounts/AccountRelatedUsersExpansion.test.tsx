@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 
-import api from 'lib/api'
+import api, { NetworkError } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
@@ -146,5 +146,20 @@ describe('AccountRelatedUsersExpansion', () => {
         fireEvent.click(copyButton)
 
         expect(copyToClipboard).toHaveBeenCalledWith('alex+eu@example.com\njordan+eu@example.com', 'email addresses')
+    })
+
+    it('shows the users rather than a failure after the browser drops the first request', async () => {
+        jest.mocked(api.organizationMembers.listForOrg)
+            .mockRejectedValueOnce(new NetworkError('network'))
+            .mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
+
+        render(
+            <Provider>
+                <AccountRelatedUsersExpansion externalId="organization-1" />
+            </Provider>
+        )
+
+        expect(await screen.findByText('Alex Mercer')).toBeInTheDocument()
+        expect(screen.queryByText('Failed to load related users.')).not.toBeInTheDocument()
     })
 })

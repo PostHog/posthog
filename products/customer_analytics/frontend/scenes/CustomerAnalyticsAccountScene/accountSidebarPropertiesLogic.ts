@@ -30,6 +30,7 @@ import {
 } from 'products/customer_analytics/frontend/constants'
 import * as api from 'products/customer_analytics/frontend/generated/api'
 import type { UserCustomerAnalyticsConfigApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import { loadWithRetry, reloadOnReconnect } from 'products/customer_analytics/frontend/requestRecovery'
 
 import {
     accountSidebarConfigLogic,
@@ -332,10 +333,12 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                         if (values.resolvedPinnedProperties.length === 0) {
                             return null
                         }
-                        const [customValues, relationships] = await Promise.all([
-                            api.accountsCustomPropertyValuesList(String(props.projectId), props.accountId),
-                            api.accountsRelationshipsList(String(props.projectId), props.accountId),
-                        ])
+                        const [customValues, relationships] = await loadWithRetry(() =>
+                            Promise.all([
+                                api.accountsCustomPropertyValuesList(String(props.projectId), props.accountId),
+                                api.accountsRelationshipsList(String(props.projectId), props.accountId),
+                            ])
+                        )
                         breakpoint()
                         return { customValues, relationships }
                     },
@@ -654,5 +657,12 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                     () => actions.loadPropertyData(),
             }
         }),
-        afterMount(({ actions }) => actions.loadPropertyData()),
+        afterMount(({ actions, cache, values }) => {
+            actions.loadPropertyData()
+            reloadOnReconnect(cache.disposables, () => {
+                if (values.propertyDataLoadFailed) {
+                    actions.loadPropertyData()
+                }
+            })
+        }),
     ])

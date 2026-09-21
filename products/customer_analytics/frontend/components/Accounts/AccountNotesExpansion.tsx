@@ -13,6 +13,7 @@ import type { AccountNotebookApi } from 'products/customer_analytics/frontend/ge
 
 import { accountNotebooksLogic } from './accountNotebooksLogic'
 import { AccountsEvents } from './constants'
+import { usePanelLoadBlocked } from './usePanelLoadBlocked'
 
 const PREVIEW_MAX_CHARS = 200
 
@@ -33,10 +34,18 @@ export function AccountNotesExpansion({
     embedded?: boolean
 }): JSX.Element {
     const logic = accountNotebooksLogic({ accountId })
-    const { notebooks, notebooksResponseLoading, createdNoteLoading, searchTerm, sorting, pagination } =
-        useValues(logic)
+    const {
+        notebooks,
+        notebooksLoadFailed,
+        notebooksResponseLoading,
+        createdNoteLoading,
+        searchTerm,
+        sorting,
+        pagination,
+    } = useValues(logic)
     const { setSearchTerm, setSorting, createNote } = useActions(logic)
     const { selectNotebook } = useActions(notebookPanelLogic)
+    usePanelLoadBlocked('notes', notebooksLoadFailed)
 
     const columns: LemonTableColumns<AccountNotebookApi> = [
         {
@@ -131,7 +140,7 @@ export function AccountNotesExpansion({
                 onSort={setSorting}
                 pagination={pagination}
                 emptyState={
-                    notebooks === null
+                    notebooksLoadFailed
                         ? 'Failed to load account notes.'
                         : searchTerm
                           ? 'No notes match your search.'

@@ -1,9 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import api, { ApiError, CountedPaginatedResponse, NetworkError } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { OrganizationMemberType, Region } from '~/types'
 
@@ -45,6 +47,9 @@ describe('accountRelatedUsersLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        // Safety net for the tests that call silenceKeaLoadersErrors() inline: it sets module-global
+        // state, so a throw before the inline resume would suppress errors in every later test.
+        resumeKeaLoadersErrors()
     })
 
     it('loads the first page of US organization members for the account external id', async () => {
@@ -319,5 +324,52 @@ describe('accountRelatedUsersLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ membersResponse: emptyResponse })
         expect(captureException).not.toHaveBeenCalled()
+        expect(logic.values.membersLoadFailed).toBe(false)
+    })
+
+    it('reports a failed EU lookup instead of showing the account as having no users', async () => {
+        silenceKeaLoadersErrors()
+        jest.spyOn(api.organizationMembers, 'listForOrg').mockResolvedValue(buildResponse([], 0))
+        jest.spyOn(api, 'query').mockRejectedValue(new ApiError('Server error', 500))
+        const toast = jest.spyOn(lemonToast, 'error').mockImplementation()
+
+        logic = accountRelatedUsersLogic({ externalId: 'org-uuid' })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ membersLoadFailed: true })
+        expect(logic.values.membersResponse).toBeNull()
+        expect(toast).toHaveBeenCalledTimes(1)
+    })
+
+    it('retries a request the browser dropped and keeps the failure off the toast', async () => {
+        const response = buildResponse([buildMember()], 1)
+        const listForOrg = jest
+            .spyOn(api.organizationMembers, 'listForOrg')
+            .mockRejectedValueOnce(new NetworkError('network'))
+            .mockResolvedValue(response)
+        const toast = jest.spyOn(lemonToast, 'error').mockImplementation()
+
+        logic = accountRelatedUsersLogic({ externalId: 'org-uuid' })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ membersLoadFailed: false })
+        expect(listForOrg).toHaveBeenCalledTimes(2)
+        expect(logic.values.membersResponse?.count).toBe(1)
+        expect(toast).not.toHaveBeenCalled()
+    })
+
+    it('reports a server failure once, without retrying it', async () => {
+        silenceKeaLoadersErrors()
+        const listForOrg = jest
+            .spyOn(api.organizationMembers, 'listForOrg')
+            .mockRejectedValue(new ApiError('Server error', 500))
+        const toast = jest.spyOn(lemonToast, 'error').mockImplementation()
+
+        logic = accountRelatedUsersLogic({ externalId: 'org-uuid' })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ membersLoadFailed: true })
+        expect(listForOrg).toHaveBeenCalledTimes(1)
+        expect(toast).toHaveBeenCalledTimes(1)
     })
 })

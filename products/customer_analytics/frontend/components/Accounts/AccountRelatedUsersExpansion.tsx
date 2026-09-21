@@ -17,6 +17,7 @@ import { columnValueFilter } from '../columnValueFilter'
 import { getAccountRelatedUserAdminUrl } from './accountRelatedUserAdminUrl'
 import { accountRelatedUsersLogic, AccountOrganizationMember, PAGE_SIZE } from './accountRelatedUsersLogic'
 import { AccountsEvents } from './constants'
+import { usePanelLoadBlocked } from './usePanelLoadBlocked'
 
 const LEVEL_FILTER_OPTIONS = [
     OrganizationMembershipLevel.Owner,
@@ -35,10 +36,12 @@ export function AccountRelatedUsersExpansion({
     embedded?: boolean
 }): JSX.Element {
     const logic = accountRelatedUsersLogic({ externalId })
-    const { membersResponse, membersResponseLoading, page, searchTerm, levels, sorting } = useValues(logic)
+    const { membersResponse, membersLoadFailed, membersResponseLoading, page, searchTerm, levels, sorting } =
+        useValues(logic)
     const { user } = useValues(userLogic)
     const { setPage, setSearchTerm, setLevels, setSorting } = useActions(logic)
     const [bulkBarTarget, setBulkBarTarget] = useState<HTMLDivElement | null>(null)
+    usePanelLoadBlocked('related_users', membersLoadFailed)
 
     const columns: LemonTableColumns<AccountOrganizationMember> = [
         {
@@ -186,7 +189,7 @@ export function AccountRelatedUsersExpansion({
                 emptyState={
                     !externalId
                         ? 'This account has no linked organization.'
-                        : membersResponse === null
+                        : membersLoadFailed
                           ? 'Failed to load related users.'
                           : searchTerm || levels.length
                             ? 'No users match your filters.'
