@@ -243,7 +243,8 @@ class StripeSignature:
         if not header:
             return None
         parsed = self._parse(header)
-        if parsed is None or time.time() - parsed[0] > self.timestamp_max_age_seconds:
+        # Compared this way round because subtracting an int too large for a float raises.
+        if parsed is None or parsed[0] < time.time() - self.timestamp_max_age_seconds:
             return None
         return parsed
 

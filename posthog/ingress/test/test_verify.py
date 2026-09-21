@@ -252,6 +252,14 @@ class TestStripeSignature(SimpleTestCase):
         # the endpoint read a body of up to the request limit for it.
         self.assertTrue(scheme.rejects_headers(headers))
 
+    def test_a_timestamp_too_large_for_a_float_fails_rather_than_raising(self) -> None:
+        # int() accepts a few hundred digits, and the age check then has to survive the number.
+        header = "t=" + "9" * 400 + ",v1=" + "0" * 64
+        self.assertEqual(
+            self._scheme().verify(body=BODY, headers={"Stripe-Signature": header}).outcome,
+            VerificationOutcome.INVALID,
+        )
+
     def test_a_non_ascii_signature_fails_rather_than_raising(self) -> None:
         # compare_digest raises TypeError on a str holding a non-ASCII code point, which an
         # unauthenticated caller could otherwise turn into a 500.
