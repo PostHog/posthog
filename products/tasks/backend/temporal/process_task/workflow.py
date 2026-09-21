@@ -1387,8 +1387,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                                 # Without this, _wait_for_ci_follow_up returns immediately
                                 # whenever the anchor is older than the delay, and the
                                 # workflow tight-loops calling GET /repos/.../pulls/{n}. A
-                                # requested check needs no bound (it runs once per request)
-                                # and must leave the automated countdown where it was.
+                                # requested check runs once per request, so it needs no bound.
                                 if not on_demand:
                                     self._last_active_time = workflow.now()
                                     self._ci_follow_up_anchor_time = self._last_active_time
