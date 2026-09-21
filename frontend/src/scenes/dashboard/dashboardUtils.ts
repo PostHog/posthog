@@ -5,7 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { getDashboardWidgetCatalogEntry } from '@posthog/products-dashboards/frontend/widget_types/catalog'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE } from 'lib/api-error'
 import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
@@ -41,9 +41,14 @@ export function getInsightQueryError(insight: QueryBasedInsightModel): ApiError 
     }
 
     const parsedError = parseErrorMessage(queryStatus.error_message ?? undefined)
-    return new ApiError(undefined, 400, undefined, {
+    const code = queryStatus.error_code ?? parsedError.code
+    // A tile failure arrives without the HTTP status the query originally failed with, so the
+    // status is rebuilt from the code. Out of memory must stay 513: as a 400 the tile tells the
+    // user their query definition is broken, which sends them to fix a query that was never wrong.
+    const status = code === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE ? 513 : 400
+    return new ApiError(undefined, status, undefined, {
         detail: parsedError.message,
-        code: queryStatus.error_code ?? parsedError.code,
+        code,
         queryId: queryStatus.id,
     })
 }

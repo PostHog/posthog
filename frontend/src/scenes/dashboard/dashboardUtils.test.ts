@@ -19,6 +19,7 @@ import {
     dashboardToSaveableTemplate,
     searchParamsWithUrlFilters,
     getDashboardTileDisplayName,
+    getInsightQueryError,
     getInsightWithRetry,
     isWidgetTileVisibleOnPlacement,
     parseURLFilters,
@@ -326,5 +327,29 @@ describe('shouldSharedDashboardAutoForceForStaleTime', () => {
         ])('when %s, returns expected result', (_, isoTime, expected) => {
             expect(shouldSharedDashboardAutoForceForStaleTime(dayjs(isoTime))).toBe(expected)
         })
+    })
+})
+
+describe('getInsightQueryError', () => {
+    it.each([
+        ['clickhouse_memory_limit_exceeded', 513],
+        ['invalid_query', 400],
+        [null, 400],
+    ])('maps error code %s to status %s', (errorCode, expectedStatus) => {
+        const error = getInsightQueryError({
+            query_status: {
+                id: 'query-id',
+                error: true,
+                error_message: 'Query ran out of memory',
+                error_code: errorCode,
+            },
+        } as unknown as QueryBasedInsightModel)
+
+        expect(error?.status).toBe(expectedStatus)
+        expect(error?.data?.code).toBe(errorCode)
+    })
+
+    it('returns null when the query did not error', () => {
+        expect(getInsightQueryError({} as QueryBasedInsightModel)).toBeNull()
     })
 })
