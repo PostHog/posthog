@@ -500,6 +500,9 @@ SETTINGS
 """
 
 
+# The `{{}}` literals below are not a typo. `ClickHouseClient.prepare_query` runs `str.format` over
+# the whole query, which turns `{{}}` back into `{}`. A bare `{}` would parse as a positional field
+# and reach ClickHouse as `{0}`, so the `nullIf` would never match an empty object.
 SERIALIZED_EVENTS_JSON_SOURCE = """(
     SELECT * REPLACE (
         toString(uuid) AS uuid,
@@ -507,10 +510,10 @@ SERIALIZED_EVENTS_JSON_SOURCE = """(
         JSONStripEmptyStringsAndNulls(toJSONString(properties)) AS properties,
         JSONStripEmptyStringsAndNulls(toJSONString(person_properties)) AS person_properties
     ),
-        nullIf(toJSONString(temporary_properties.^`$set`), '{}') AS set,
-        nullIf(toJSONString(temporary_properties.^`$set_once`), '{}') AS set_once,
+        nullIf(toJSONString(temporary_properties.^`$set`), '{{}}') AS set,
+        nullIf(toJSONString(temporary_properties.^`$set_once`), '{{}}') AS set_once,
         nullIf(toJSONString(temporary_properties.^`$unset`), '[]') AS unset,
-        nullIf(toJSONString(temporary_properties.^`$group_set`), '{}') AS group_set
+        nullIf(toJSONString(temporary_properties.^`$group_set`), '{{}}') AS group_set
     FROM events_json
 )"""
 
