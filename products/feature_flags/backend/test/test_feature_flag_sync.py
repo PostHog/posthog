@@ -651,6 +651,11 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         # sync_execute wraps capacity errors (code 202) into ClickHouseAtCapacity,
         # so the wrapped form must be retryable too
         assert ClickHouseAtCapacity in autoretry_for
+        # A desynced pooled socket is retryable for this task, which only reads from ClickHouse,
+        # but it has to stay out of the shared tuple: the driver can raise it after the server ran
+        # the query, so a write caller retrying it would land the write twice
+        assert UnknownPacketFromServerError in autoretry_for
+        assert UnknownPacketFromServerError not in CH_TRANSIENT_ERRORS
 
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.tasks.tasks.capture_exception")

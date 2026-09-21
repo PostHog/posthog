@@ -58,6 +58,12 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_RETRY_RECOVERY_COUNTER = Counter(
     "Feature flag last_called_at sync runs that completed on a Celery retry after an earlier attempt failed",
 )
 
+# CH_TRANSIENT_ERRORS plus the desynced pooled socket, which the sync opts into here rather than in
+# the shared tuple: the driver can read that unexpected packet after ClickHouse already ran the
+# query, so a write caller retrying it would land the write twice. This task only reads from
+# ClickHouse - it writes to Postgres from the merged results - so repeating the query is safe.
+FEATURE_FLAG_SYNC_TRANSIENT_ERRORS = (*CH_TRANSIENT_ERRORS, UnknownPacketFromServerError)
+
 
 STALE_QUEUED_TASK_RUN_SWEPT_COUNTER = Counter(
     "posthog_task_run_stale_queued_swept_total",
@@ -1261,7 +1267,7 @@ def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
     queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
     # sync_execute wraps TOO_MANY_SIMULTANEOUS_QUERIES/CANNOT_SCHEDULE_TASK into
     # ClickHouseAtCapacity, which CH_TRANSIENT_ERRORS includes.
-    autoretry_for=CH_TRANSIENT_ERRORS,
+    autoretry_for=FEATURE_FLAG_SYNC_TRANSIENT_ERRORS,
     retry_backoff=30,
     retry_backoff_max=120,
     max_retries=3,
@@ -1454,7 +1460,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                 # response is to abandon the run and let Celery retry it with backoff rather
                 # than keep querying. Swallowing one here would report a successful sync and
                 # skip the retry that recovers these runs today.
-                if isinstance(e, CH_TRANSIENT_ERRORS):
+                if isinstance(e, FEATURE_FLAG_SYNC_TRANSIENT_ERRORS):
                     raise
 
                 chunk_failures += 1
