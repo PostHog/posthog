@@ -25,6 +25,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     execute_batch_export_insert_activity,
     get_data_interval,
     iter_records,
+    reads_native_events_source,
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
@@ -81,7 +82,7 @@ async def raise_for_status(response: aiohttp.ClientResponse):
             raise NonRetryableResponseError(response.status, text)
 
 
-def http_default_fields(use_native_schema: bool = False) -> list[BatchExportField]:
+def http_default_fields(reads_native_source: bool = False) -> list[BatchExportField]:
     """Return default fields used in HTTP batch export, currently supporting only migrations."""
     fields = [
         BatchExportField(expression="uuid", alias="uuid"),
@@ -92,7 +93,7 @@ def http_default_fields(use_native_schema: bool = False) -> list[BatchExportFiel
         BatchExportField(expression="distinct_id", alias="distinct_id"),
         BatchExportField(expression="elements_chain", alias="elements_chain"),
     ]
-    if use_native_schema:
+    if reads_native_source:
         fields.extend(BatchExportField(expression=alias, alias=alias) for alias in _NATIVE_MUTATION_PROPERTIES.values())
     return fields
 
@@ -211,12 +212,24 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
                 raise NotImplementedError("HTTP export does not support schemas")
 
         use_native_schema = await database_sync_to_async(use_new_events_schema)(inputs.team_id)
-        fields = http_default_fields(use_native_schema)
-        columns = [field["alias"] for field in fields]
 
         interval_start = await maybe_resume_from_heartbeat(inputs)
 
         is_backfill = inputs.get_is_backfill()
+
+        # Only the native source projects the mutation columns; a legacy table carries the same keys
+        # in its `properties`.
+        fields = http_default_fields(
+            reads_native_events_source(
+                use_new_events_schema=use_native_schema,
+                team_id=inputs.team_id,
+                interval_start=interval_start,
+                interval_end=inputs.data_interval_end,
+                is_backfill=is_backfill,
+                backfill_details=inputs.backfill_details,
+            )
+        )
+        columns = [field["alias"] for field in fields]
 
         filters = inputs.batch_export_model.filters if inputs.batch_export_model is not None else None
         if filters is not None and len(filters) > 0:

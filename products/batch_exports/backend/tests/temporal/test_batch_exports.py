@@ -9,7 +9,13 @@ from django.test import override_settings
 
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-from products.batch_exports.backend.temporal.batch_exports import DataInterval, get_data_interval, iter_records
+from products.batch_exports.backend.service import BackfillDetails
+from products.batch_exports.backend.temporal.batch_exports import (
+    DataInterval,
+    get_data_interval,
+    iter_records,
+    reads_native_events_source,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -400,3 +406,33 @@ def test_data_interval_rejects_reversed_bounds() -> None:
     end = dt.datetime(2023, 8, 1, tzinfo=dt.UTC)
     with pytest.raises(ValueError, match="start"):
         DataInterval(start=end + dt.timedelta(seconds=1), end=end)
+
+
+@pytest.mark.parametrize(
+    "start_ago,end_ago,is_backfill,backfill_ago,expected",
+    [
+        (dt.timedelta(hours=2), dt.timedelta(hours=1), False, None, False),
+        (dt.timedelta(days=61), dt.timedelta(days=60), False, None, False),
+        (dt.timedelta(days=61), dt.timedelta(days=60), True, dt.timedelta(days=61), True),
+        (dt.timedelta(hours=2), dt.timedelta(hours=1), True, dt.timedelta(hours=2), False),
+    ],
+    ids=["scheduled-recent", "scheduled-old", "backfill-old", "backfill-recent"],
+)
+def test_reads_native_events_source_tracks_query_routing(start_ago, end_ago, is_backfill, backfill_ago, expected):
+    now = dt.datetime.now(tz=dt.UTC)
+    start, end = now - start_ago, now - end_ago
+    backfill_details = (
+        BackfillDetails(backfill_id=None, start_at=(now - backfill_ago).isoformat(), end_at=end.isoformat())
+        if backfill_ago is not None
+        else None
+    )
+    arguments = {
+        "team_id": 1,
+        "interval_start": start.isoformat(),
+        "interval_end": end.isoformat(),
+        "is_backfill": is_backfill,
+        "backfill_details": backfill_details,
+    }
+
+    assert reads_native_events_source(use_new_events_schema=True, **arguments) is expected
+    assert reads_native_events_source(use_new_events_schema=False, **arguments) is False
