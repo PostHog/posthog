@@ -32,7 +32,7 @@ from posthog.hogql.compiler.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.direct_connection import resolve_database_for_connection
-from posthog.hogql.editor_assist_metrics import EDITOR_ASSIST_DURATION_SECONDS
+from posthog.hogql.editor_assist_metrics import EDITOR_ASSIST_DURATION_SECONDS, EDITOR_ASSIST_RESPONSES_TOTAL
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.language_service import (
     WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX,
@@ -203,13 +203,7 @@ def _record_editor_assist_backend(
     if not route.enabled:
         return
     try:
-        client = posthoganalytics.default_client
-        if client is not None:
-            client.metrics.count(
-                "hogql.editor_assist.responses",
-                1,
-                attributes={"operation": operation, "backend": backend, "reason": reason},
-            )
+        EDITOR_ASSIST_RESPONSES_TOTAL.labels(operation=operation, backend=backend, reason=reason).inc()
     except Exception:
         logger.warning("hogql_editor_assist_metric_failed")
 

@@ -10,6 +10,7 @@ from django.test import SimpleTestCase
 import posthoganalytics
 from parameterized import parameterized
 from posthoganalytics.client import Client
+from prometheus_client import REGISTRY, generate_latest
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -51,6 +52,7 @@ from posthog.api.services.query import (
     _EditorAssistRoute,
     _language_service_call,
     _language_service_eligible,
+    _record_editor_assist_backend,
     process_query_model,
 )
 from posthog.constants import AvailableFeature
@@ -69,6 +71,23 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 
 
 class TestLanguageServiceRouting(SimpleTestCase):
+    def test_served_backend_counter_is_exported_for_prometheus(self) -> None:
+        labels = {"operation": "metadata", "backend": "python", "reason": "service_error"}
+        before = REGISTRY.get_sample_value("hogql_editor_assist_responses_total", labels) or 0
+
+        _record_editor_assist_backend(
+            _EditorAssistRoute(enabled=True, result=None, reason="service_error"),
+            "metadata",
+            "python",
+            "service_error",
+        )
+
+        assert REGISTRY.get_sample_value("hogql_editor_assist_responses_total", labels) == before + 1
+        assert (
+            b'hogql_editor_assist_responses_total{backend="python",operation="metadata",reason="service_error"}'
+            in generate_latest(REGISTRY.restricted_registry(["hogql_editor_assist_responses_total"]))
+        )
+
     def test_hogql_metadata_with_index_usage_is_language_service_eligible(self) -> None:
         query = HogQLMetadata(query="SELECT * FROM events", language=HogLanguage.HOG_QL, indexUsage=True)
 
@@ -124,7 +143,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
             "stage": "response_mapping",
         }
 
-    @patch("posthog.api.services.query.posthoganalytics.default_client")
+    @patch("posthog.api.services.query.EDITOR_ASSIST_RESPONSES_TOTAL")
     @patch("posthog.api.services.query._route_editor_assist")
     def test_hogql_autocomplete_uses_language_service_response(
         self, mock_language_service_call: MagicMock, analytics_client: MagicMock
@@ -169,11 +188,10 @@ class TestLanguageServiceRouting(SimpleTestCase):
             {"k": "language_service_http", "t": 0.001},
             {"k": "language_service_go", "t": 0.00025},
         ]
-        analytics_client.metrics.count.assert_called_once_with(
-            "hogql.editor_assist.responses",
-            1,
-            attributes={"operation": "autocomplete", "backend": "language_service", "reason": "served"},
+        analytics_client.labels.assert_called_once_with(
+            operation="autocomplete", backend="language_service", reason="served"
         )
+        analytics_client.labels.return_value.inc.assert_called_once_with()
 
     @patch("posthog.api.services.query._route_editor_assist")
     def test_hogql_metadata_uses_language_service_diagnostics(self, mock_language_service_call: MagicMock):
@@ -217,7 +235,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
             ("invalid_http", MalformedLanguageServiceResponse("malformed"), "invalid_response"),
         ]
     )
-    @patch("posthog.api.services.query.posthoganalytics.default_client")
+    @patch("posthog.api.services.query.EDITOR_ASSIST_RESPONSES_TOTAL")
     @patch("posthog.api.services.query.get_hogql_metadata")
     @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
     @patch("posthog.api.services.query.LanguageServiceClient")
@@ -248,16 +266,13 @@ class TestLanguageServiceRouting(SimpleTestCase):
         )
 
         assert response is python_metadata.return_value
-        analytics_client.metrics.count.assert_called_once_with(
-            "hogql.editor_assist.responses",
-            1,
-            attributes={"operation": "metadata", "backend": "python", "reason": reason},
-        )
+        analytics_client.labels.assert_called_once_with(operation="metadata", backend="python", reason=reason)
+        analytics_client.labels.return_value.inc.assert_called_once_with()
         enabled.assert_called_once()
 
     @parameterized.expand([("collection", {}), ("nested", [None])])
     @patch("posthog.api.services.query._capture_malformed_language_service_response")
-    @patch("posthog.api.services.query.posthoganalytics.default_client")
+    @patch("posthog.api.services.query.EDITOR_ASSIST_RESPONSES_TOTAL")
     @patch("posthog.api.services.query.get_hogql_metadata")
     @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
     @patch("posthog.api.services.query.LanguageServiceClient")
@@ -293,16 +308,15 @@ class TestLanguageServiceRouting(SimpleTestCase):
 
         assert response is python_metadata.return_value
         capture_malformed.assert_called_once_with("metadata", "response_mapping")
-        analytics_client.metrics.count.assert_called_once_with(
-            "hogql.editor_assist.responses",
-            1,
-            attributes={"operation": "metadata", "backend": "python", "reason": "invalid_response"},
+        analytics_client.labels.assert_called_once_with(
+            operation="metadata", backend="python", reason="invalid_response"
         )
+        analytics_client.labels.return_value.inc.assert_called_once_with()
         enabled.assert_called_once()
 
     @parameterized.expand([("collection", {}), ("nested", [None])])
     @patch("posthog.api.services.query._capture_malformed_language_service_response")
-    @patch("posthog.api.services.query.posthoganalytics.default_client")
+    @patch("posthog.api.services.query.EDITOR_ASSIST_RESPONSES_TOTAL")
     @patch("posthog.api.services.query.create_default_modifiers_for_team", return_value=MagicMock())
     @patch("posthog.api.services.query.resolve_database_for_connection", return_value=(None, MagicMock()))
     @patch("posthog.api.services.query.get_hogql_autocomplete")
@@ -344,14 +358,13 @@ class TestLanguageServiceRouting(SimpleTestCase):
 
         assert response is python_autocomplete.return_value
         capture_malformed.assert_called_once_with("autocomplete", "response_mapping")
-        analytics_client.metrics.count.assert_called_once_with(
-            "hogql.editor_assist.responses",
-            1,
-            attributes={"operation": "autocomplete", "backend": "python", "reason": "invalid_response"},
+        analytics_client.labels.assert_called_once_with(
+            operation="autocomplete", backend="python", reason="invalid_response"
         )
+        analytics_client.labels.return_value.inc.assert_called_once_with()
 
     @patch("posthog.api.services.query.posthoganalytics.capture_exception", side_effect=RuntimeError("tracking failed"))
-    @patch("posthog.api.services.query.posthoganalytics.default_client")
+    @patch("posthog.api.services.query.EDITOR_ASSIST_RESPONSES_TOTAL")
     @patch("posthog.api.services.query.get_hogql_metadata")
     @patch("posthog.api.services.query._route_editor_assist")
     def test_telemetry_failures_do_not_prevent_python_fallback(
@@ -374,7 +387,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
             notices=[],
             table_names=["events"],
         )
-        analytics_client.metrics.count.side_effect = RuntimeError("metrics failed")
+        analytics_client.labels.return_value.inc.side_effect = RuntimeError("metrics failed")
 
         response = process_query_model(
             cast(Team, SimpleNamespace(pk=12)),
@@ -385,7 +398,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         assert response is python_metadata.return_value
 
     @parameterized.expand([("disabled", False, object()), ("no_user", True, None)])
-    @patch("posthog.api.services.query.posthoganalytics.default_client")
+    @patch("posthog.api.services.query.EDITOR_ASSIST_RESPONSES_TOTAL")
     @patch("posthog.api.services.query.get_hogql_metadata")
     @patch("posthog.api.services.query.is_language_service_enabled")
     def test_metadata_metric_excludes_requests_outside_the_enabled_denominator(
@@ -413,13 +426,13 @@ class TestLanguageServiceRouting(SimpleTestCase):
             user=cast(User | None, user),
         )
 
-        analytics_client.metrics.count.assert_not_called()
+        analytics_client.labels.assert_not_called()
         if user is None:
             enabled.assert_not_called()
         else:
             enabled.assert_called_once()
 
-    @patch("posthog.api.services.query.posthoganalytics.default_client")
+    @patch("posthog.api.services.query.EDITOR_ASSIST_RESPONSES_TOTAL")
     @patch("posthog.api.services.query.get_hogql_metadata")
     @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
     def test_ineligible_metadata_records_python_backend(
@@ -440,14 +453,11 @@ class TestLanguageServiceRouting(SimpleTestCase):
             user=cast(User, SimpleNamespace()),
         )
 
-        analytics_client.metrics.count.assert_called_once_with(
-            "hogql.editor_assist.responses",
-            1,
-            attributes={"operation": "metadata", "backend": "python", "reason": "ineligible"},
-        )
+        analytics_client.labels.assert_called_once_with(operation="metadata", backend="python", reason="ineligible")
+        analytics_client.labels.return_value.inc.assert_called_once_with()
         enabled.assert_called_once()
 
-    @patch("posthog.api.services.query.posthoganalytics.default_client")
+    @patch("posthog.api.services.query.EDITOR_ASSIST_RESPONSES_TOTAL")
     @patch("posthog.api.services.query.get_hogql_metadata", side_effect=RuntimeError("failed"))
     @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
     def test_failed_python_fallback_does_not_record_a_serving_backend(
@@ -460,7 +470,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
                 user=cast(User, SimpleNamespace()),
             )
 
-        analytics_client.metrics.count.assert_not_called()
+        analytics_client.labels.assert_not_called()
 
     @patch("posthog.api.services.query._route_editor_assist")
     def test_unknown_properties_remain_warnings(self, mock_language_service_call: MagicMock) -> None:
