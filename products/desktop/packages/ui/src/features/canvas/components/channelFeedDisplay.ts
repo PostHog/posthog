@@ -34,6 +34,23 @@ export type FeedEntry =
 /** Which entry kinds the feed shows. Sessions cover tasks and their system rows. */
 export type FeedKindFilter = "all" | "sessions" | "reports";
 
+export function entryKey(entry: FeedEntry): string | null {
+  if (entry.kind === "task") return `task:${entry.task.id}`;
+  if (entry.kind === "canvas") return `canvas:${entry.canvas.id}`;
+  return null;
+}
+
+export function keepFilteredEntries(
+  entries: readonly FeedEntry[],
+  allowedKeys: ReadonlySet<string> | null,
+): readonly FeedEntry[] {
+  if (!allowedKeys) return entries;
+  return entries.filter((entry) => {
+    const key = entryKey(entry);
+    return key === null || allowedKeys.has(key);
+  });
+}
+
 export function feedEntryMatchesKind(
   entry: FeedEntry,
   filter: FeedKindFilter,

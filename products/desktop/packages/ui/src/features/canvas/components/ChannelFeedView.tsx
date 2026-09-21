@@ -67,9 +67,11 @@ import {
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import {
   buildFeedSections,
+  entryKey,
   type FeedEntry,
   type FeedKindFilter,
   feedEntryMatchesKind,
+  keepFilteredEntries,
   mergeFeedEntries,
   stripContextBlocks,
 } from "@posthog/ui/features/canvas/components/channelFeedDisplay";
@@ -1328,12 +1330,6 @@ const NO_CANVASES: readonly DashboardRecord[] = [];
 
 const NO_ITEMS: readonly ChannelItemModel[] = [];
 
-function entryKey(entry: FeedEntry): string | null {
-  if (entry.kind === "task") return `task:${entry.task.id}`;
-  if (entry.kind === "canvas") return `canvas:${entry.canvas.id}`;
-  return null;
-}
-
 const NOBODY = { uuid: null };
 
 const FeedLogRow = memo(function FeedLogRow({
@@ -1748,19 +1744,14 @@ export function ChannelFeedView({
     [spaceItems],
   );
 
-  const entries = useMemo<FeedEntry[]>(() => {
+  const entries = useMemo<readonly FeedEntry[]>(() => {
     const merged = mergeFeedEntries(
       visibleTasks,
       systemMessages ?? [],
       reports ?? [],
       canvases ?? NO_CANVASES,
     ).filter((entry) => feedEntryMatchesKind(entry, activeKindFilter));
-    const kept = allowedKeys
-      ? merged.filter((entry) => {
-          const key = entryKey(entry);
-          return key !== null && allowedKeys.has(key);
-        })
-      : merged;
+    const kept = keepFilteredEntries(merged, allowedKeys);
     if (sort === "created") return kept;
     const key = (entry: FeedEntry) =>
       itemByKey.get(entryKey(entry) ?? "")?.ts ?? Date.parse(entry.createdAt);
