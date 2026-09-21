@@ -134,11 +134,14 @@ def admit_llm_alert_write(write: LLMAlertWrite) -> LLMAlertRefusal | None:
         return LLMAlertRefusal(message=error, reason="access")
     if not write.adds_enabled_llm_alert:
         return None
+    # The cap is a flag read that can go to the network; resolve it before the lock so a slow
+    # flag service never holds the team's other AI-alert writes, or the rows the caller locked.
+    cap = max_llm_alerts_per_team(organization_id=write.organization.id)
     lock_llm_alert_limit(team_id=write.team_id)
     if error := llm_alert_limit_error(
         team_id=write.team_id,
         exclude_alert_id=str(write.existing.id) if write.existing is not None else None,
-        organization_id=write.organization.id,
+        cap=cap,
     ):
         return LLMAlertRefusal(message=error, reason="cap", field="detector_config")
     return None
@@ -185,15 +188,15 @@ def llm_detector_interval_error(calculation_interval: Any) -> str | None:
     return None
 
 
-def llm_alert_limit_error(*, team_id: int, exclude_alert_id: str | None, organization_id: Any = None) -> str | None:
+def llm_alert_limit_error(*, team_id: int, exclude_alert_id: str | None, cap: int) -> str | None:
     """The message to show when enabling one more AI-detector alert would pass the team cap.
 
     Call inside a transaction that holds ``lock_llm_alert_limit`` for the team, and only
     when the write would add an enabled AI alert: an alert that is already enabled and
     already AI-judged adds no spend, so editing it must never trip the cap, even when the
-    cap was lowered beneath the current count.
+    cap was lowered beneath the current count. ``cap`` comes from ``max_llm_alerts_per_team``,
+    read before the lock.
     """
-    cap = max_llm_alerts_per_team(organization_id=organization_id)
     existing = count_enabled_llm_alerts(team_id=team_id, exclude_alert_id=exclude_alert_id)
     if existing >= cap:
         return (

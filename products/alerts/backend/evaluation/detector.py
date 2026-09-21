@@ -130,13 +130,18 @@ def _triggered_dates(series: ComparableSeries, triggered_indices: list[int]) -> 
 
 
 def _metric_description(
-    insight: Insight | None, series_index: int, effective_date_range: MetricDateRange | None = None
+    insight: Insight | None,
+    series_index: int,
+    effective_date_range: MetricDateRange | None = None,
+    alert_config: dict[str, Any] | None = None,
 ) -> str:
     """Render the insight's query definition once per check, not once per breakdown value."""
     query = insight.query if insight is not None else None
     if not query:
         return ""
-    return describe_metric_definition(query, series_index=series_index, effective_date_range=effective_date_range)
+    return describe_metric_definition(
+        query, series_index=series_index, effective_date_range=effective_date_range, alert_config=alert_config
+    )
 
 
 def _effective_date_range(result: ExtractionResult, detector_config: dict[str, Any]) -> MetricDateRange | None:
@@ -307,14 +312,17 @@ def evaluate_with_detector(
     if result.is_breakdown and detector_type_str == DetectorType.LLM.value:
         raise AlertExtractionError("The AI detector does not support breakdown insights yet.")
     interval_value = result.interval_type.value if result.interval_type else None
-    series_index = ((alert.config if alert is not None else None) or {}).get("series_index", 0)
+    alert_config = (alert.config if alert is not None else None) or {}
+    series_index = alert_config.get("series_index", 0)
 
     if not result.series:
         # Empty query → the metric is genuinely 0; rows present but unscorable → uncomputed (None).
         value: float | None = 0 if result.empty_query_result else None
         return AlertEvaluationResult(value=value, breaches=[], interval=interval_value)
 
-    metric_description = _metric_description(insight, series_index, _effective_date_range(result, detector_config))
+    metric_description = _metric_description(
+        insight, series_index, _effective_date_range(result, detector_config), alert_config
+    )
 
     def score(series: ComparableSeries) -> _ScoredSeries:
         return _score_series(
@@ -343,7 +351,10 @@ def evaluate_with_detector(
                     triggered_points=scored.detection.triggered_indices or None,
                     triggered_dates=_triggered_dates(s, scored.detection.triggered_indices or []) or None,
                     interval=interval_value,
-                    triggered_metadata={**_judged_target(insight, bd_index), **scored.persisted_metadata},
+                    triggered_metadata={
+                        **_check_provenance(insight, bd_index, detector_type_str),
+                        **scored.persisted_metadata,
+                    },
                 )
         return AlertEvaluationResult(value=None, breaches=[], interval=interval_value)
 
@@ -365,19 +376,17 @@ def evaluate_with_detector(
         triggered_points=scored.detection.triggered_indices or None,
         triggered_dates=_triggered_dates(s, scored.detection.triggered_indices or []) or None,
         interval=interval_value,
-        triggered_metadata={**_judged_target(insight, series_index), **scored.persisted_metadata}
-        if scored.persisted_metadata
-        else None,
+        triggered_metadata={**_check_provenance(insight, series_index, detector_type_str), **scored.persisted_metadata},
     )
 
 
-def _judged_target(insight: Insight | None, series_index: int) -> dict[str, int]:
-    # The insight and series ride along so an investigation that starts after the alert is
-    # repointed still reads the metric this verdict was about.
-    target = {"series_index": series_index}
+def _check_provenance(insight: Insight | None, series_index: int, detector_type: str) -> dict[str, Any]:
+    # Kept so an investigation that starts after the alert is edited still reads the check the
+    # way it was produced. Statistical fit state stays off: a person and the firing event read this.
+    provenance: dict[str, Any] = {"detector_type": detector_type, "series_index": series_index}
     if insight is not None:
-        target["insight_id"] = insight.id
-    return target
+        provenance["insight_id"] = insight.id
+    return provenance
 
 
 class TrendsDetectorExtractor:
@@ -493,7 +502,9 @@ def simulate_detector_on_insight(
     sim_context = _SimulationSeriesContext(
         insight=insight,
         interval=interval_value,
-        metric_description=_metric_description(insight, series_index, _effective_date_range(result, detector_config)),
+        metric_description=_metric_description(
+            insight, series_index, _effective_date_range(result, detector_config), config
+        ),
         user=user,
         score=score,
         is_agent_billable=is_agent_billable,

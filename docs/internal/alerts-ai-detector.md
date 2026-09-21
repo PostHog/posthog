@@ -27,6 +27,7 @@ Changing the detector configuration resets the alert state and schedules a new c
 Metric metadata is escaped and marked as data in the prompt. The chart uses a fixed title.
 The prompt describes at most six series, and the alerted series is always one of them.
 SQL detector series preserve ISO date and timestamp labels from the selected label column.
+The model is also told which result column the values come from and which way the rows run.
 The labels follow the same row order and window as the values.
 If any label in the window is missing or invalid, the series has no dates and the model receives row positions.
 
@@ -49,11 +50,12 @@ History with both statistical and AI scores uses a neutral score label.
 A live check fires only when the model names the latest point.
 A series with fewer than five points is never sent to the model, and the check stays uncomputed
 rather than recording a healthy value.
-The check also stores the index of the series it judged, so an investigation that starts after
-the alert is repointed still charts the series that fired.
+Every detector check stores the detector type, the insight and the index of the series it judged,
+so an investigation that starts after the alert is edited or repointed still reads the check the way it was produced.
 An anomaly verdict about older history records `latest_point_not_flagged` and does not fire, even below the confidence threshold.
 Lowering the threshold cannot make that historical check appear to fire for the latest point.
-Investigation charts mark the saved check's triggered dates that remain in the chart window.
+Investigation charts mark the saved check's flagged points that remain in the chart window,
+matched by position and date together, so a SQL series that repeats a date label marks only the flagged row.
 They do not repeat the model call or mark a newer point in place of the saved anomaly.
 The markers still use the saved check after the alert's detector changes.
 

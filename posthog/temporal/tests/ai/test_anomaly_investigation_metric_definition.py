@@ -136,6 +136,45 @@ def test_the_alerted_formulas_inputs_survive_the_series_cap() -> None:
     assert "(2 further series omitted.)" in described
 
 
+def test_the_alerted_formula_and_its_inputs_come_before_the_other_formulas() -> None:
+    # The block is cut at a fixed size, and a custom name is unbounded.
+    query = {
+        "kind": "TrendsQuery",
+        "series": [
+            {"kind": "EventsNode", "event": "refund", "math": "total"},
+            {"kind": "EventsNode", "event": "purchase", "math": "total"},
+        ],
+        "trendsFilter": {"formulaNodes": [{"formula": "A + B", "custom_name": "x" * 5000}, {"formula": "A / B"}]},
+    }
+
+    described = describe_metric_definition(query, series_index=1)
+
+    alerted = described.index("Alerted result (index 1): formula A / B")
+    assert alerted < described.index('Input series A (index 0): total event count of event "refund"')
+    assert alerted < described.index("Other result in this insight (index 0): formula A + B")
+    assert "x" * 121 not in described
+
+
+@parameterized.expand(
+    [
+        ("first_row", "the rows were reversed, so the last value is the latest"),
+        ("last_row", "the query returns oldest first; the last value is the latest"),
+    ]
+)
+def test_a_sql_alert_names_its_value_column_and_row_order(evaluation: str, expected: str) -> None:
+    query = {
+        "kind": "DataVisualizationNode",
+        "source": {"kind": "HogQLQuery", "query": "SELECT day, signups, failures FROM t"},
+    }
+    config = {"type": "HogQLAlertConfig", "column": "failures", "label_column": "day", "evaluation": evaluation}
+
+    described = describe_metric_definition(query, alert_config=config)
+
+    assert 'Alerted values: column "failures"' in described
+    assert 'Point labels: column "day"' in described
+    assert expected in described
+
+
 def test_the_effective_range_replaces_the_insights_saved_range() -> None:
     # A detector fetches a wider span than a short saved range holds. Describing the saved range
     # next to the dated points it sends tells the model two different things about the span.

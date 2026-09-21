@@ -157,6 +157,7 @@ class TestLLMVerdictReachesTheCheck:
         assert "model confidence:" in result.breaches[0]
         assert "probability" not in result.breaches[0]
         assert result.triggered_metadata == {
+            "detector_type": "llm",
             "series_index": 0,
             "insight_id": 42,
             "rationale": "Signups fell to 12.",
@@ -173,10 +174,31 @@ class TestLLMVerdictReachesTheCheck:
         assert result.breaches == []
         assert result.triggered_metadata is None
 
-    def test_statistical_detector_metadata_stays_off_the_check(self) -> None:
+    def test_statistical_detector_keeps_its_provenance_but_not_its_fit_state_on_the_check(self) -> None:
         # The statistical detectors' metadata is fit state (means, thresholds); persisting it
         # would put internals in front of a person and into the firing event.
         result = _evaluate({"type": "zscore", "threshold": 0.95})
 
-        assert result.triggered_metadata is None
+        assert result.triggered_metadata == {"detector_type": "zscore", "series_index": 0, "insight_id": 42}
         assert "Signups fell to 12." not in (result.breaches or [""])[0]
+
+    def test_judge_is_told_which_sql_column_it_reads_and_which_way_the_rows_run(self) -> None:
+        class _SqlInsight(_FakeInsight):
+            query = {"kind": "HogQLQuery", "query": "SELECT day, signups, failures FROM t ORDER BY day DESC"}
+
+        class _SqlAlert(_FakeAlert):
+            config = {"type": "HogQLAlertConfig", "column": "failures", "evaluation": "first_row"}
+
+        _RecordingJudge.seen = []
+        _RecordingJudge.judgment = FIRING_JUDGMENT
+        with patch("products.alerts.backend.evaluation.detector.LLMSeriesJudge", _RecordingJudge):
+            evaluate_with_detector(
+                _extraction(),
+                {"type": "llm"},
+                insight=_SqlInsight(),  # type: ignore[arg-type]
+                alert=_SqlAlert(),  # type: ignore[arg-type]
+            )
+
+        series, _ = _RecordingJudge.seen[0]
+        assert 'Alerted values: column "failures"' in series.metric_description
+        assert "the rows were reversed, so the last value is the latest" in series.metric_description

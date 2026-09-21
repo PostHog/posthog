@@ -149,11 +149,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
 
     insight = await sync_to_async(_evaluated_insight, thread_sensitive=False)(alert, alert_check)
     metric_description = insight.name or f"Insight {insight.short_id}"
-    detector_type = (
-        "llm"
-        if isinstance((alert_check.triggered_metadata or {}).get("verdict_is_anomaly"), bool)
-        else (alert.detector_config or {}).get("type") or "threshold"
-    )
+    detector_type = _evaluated_detector_type(alert, alert_check)
     series_index = _evaluated_series_index(alert, alert_check)
 
     # Measured up front rather than left to a tool call: without it the agent has only the
@@ -174,7 +170,9 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         calculated_value=alert_check.calculated_value,
         interval=alert_check.interval,
         # The alerted series, not series 0 — matching how the check and the chart pick it.
-        metric_definition=describe_metric_definition(insight.query, series_index=series_index),
+        metric_definition=describe_metric_definition(
+            insight.query, series_index=series_index, alert_config=alert.config
+        ),
         event_provenance=event_provenance,
     )
 
@@ -185,6 +183,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         alert=alert,
         context_text=anomaly_context_text,
         triggered_dates=list(alert_check.triggered_dates or []),
+        triggered_points=list(alert_check.triggered_points or []),
         series_index=series_index,
         detector_type=detector_type,
     )
@@ -723,6 +722,18 @@ def _evaluated_series_index(alert, alert_check) -> int:
     return (alert.config or {}).get("series_index", 0)
 
 
+def _evaluated_detector_type(alert, alert_check) -> str:
+    """The detector that produced the check, which the alert can have been moved off since."""
+    metadata = alert_check.triggered_metadata or {}
+    saved = metadata.get("detector_type")
+    if isinstance(saved, str) and saved:
+        return saved
+    # Checks saved before the type was recorded: only AI checks carried a verdict.
+    if isinstance(metadata.get("verdict_is_anomaly"), bool):
+        return "llm"
+    return (alert.detector_config or {}).get("type") or "threshold"
+
+
 def _evaluated_insight(alert, alert_check):
     """The insight the check judged, which the alert can have been repointed away from since."""
     saved = (alert_check.triggered_metadata or {}).get("insight_id")
@@ -738,13 +749,15 @@ def _build_multimodal_context(
     alert,
     context_text: str,
     triggered_dates: list[str],
+    triggered_points: list[int] | None = None,
     series_index: int | None = None,
     detector_type: str | None = None,
 ):
     """Return a LangChain HumanMessage content value — either a plain string or a
     list of content blocks with the text and a rendered chart PNG.
 
-    ``detector_type`` is the detector that produced the check under investigation.
+    ``detector_type`` is the detector that produced the check under investigation, and
+    ``triggered_points`` the indices it flagged, paired with ``triggered_dates``.
     Best-effort: if the detector can't simulate or the chart fails to render, we
     fall back to text-only so the investigation still runs.
     """
@@ -769,8 +782,7 @@ def _build_multimodal_context(
     if not dates or not values:
         return context_text
 
-    saved_dates = set(triggered_dates)
-    triggered_indices = [index for index, date in enumerate(dates) if date in saved_dates]
+    triggered_indices = _restore_triggered_indices(dates, triggered_points or [], triggered_dates)
 
     png = render_series_chart(
         dates=dates,
@@ -793,6 +805,24 @@ def _build_multimodal_context(
             },
         },
     ]
+
+
+def _restore_triggered_indices(dates: list[str], saved_points: list[int], saved_dates: list[str]) -> list[int]:
+    """Where the check's flagged points sit in the series as fetched now.
+
+    The series can have gained or lost points at either end since the check ran, so the
+    saved indices are matched to their dates as one block and shifted together. A SQL
+    series can repeat a date label, so matching on dates alone would mark every row that
+    shares one; the block match keeps one row per flagged point. A check with no saved
+    indices, or whose block no longer lines up, falls back to the dates.
+    """
+    pairs = list(zip(saved_points, saved_dates))
+    if pairs and len(saved_points) == len(saved_dates):
+        for offset in sorted(range(-len(dates), len(dates) + 1), key=abs):
+            if all(0 <= index + offset < len(dates) and dates[index + offset] == date for index, date in pairs):
+                return sorted(index + offset for index, _ in pairs)
+    wanted = set(saved_dates)
+    return [index for index, date in enumerate(dates) if date in wanted]
 
 
 async def _pick_investigation_user(alert) -> User | None:

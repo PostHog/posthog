@@ -35,6 +35,7 @@ logger = structlog.get_logger(__name__)
 # a query can carry hundreds of filter values.
 MAX_DEFINITION_CHARS = 2500
 MAX_DESCRIBED_SERIES = 6
+MAX_DESCRIBED_FORMULAS = 4
 MAX_DESCRIBED_FILTERS = 8
 MAX_VALUE_CHARS = 120
 MAX_SQL_CHARS = 800
@@ -99,7 +100,11 @@ _VALUELESS_OPERATORS = frozenset({"is_set", "is_not_set"})
 
 
 def describe_metric_definition(
-    query: Any, *, series_index: int = 0, effective_date_range: MetricDateRange | None = None
+    query: Any,
+    *,
+    series_index: int = 0,
+    effective_date_range: MetricDateRange | None = None,
+    alert_config: dict[str, Any] | None = None,
 ) -> str:
     """A plain-text block naming what the alerted series measures.
 
@@ -108,19 +113,28 @@ def describe_metric_definition(
     describes that span instead of the saved range, which would otherwise contradict the
     dates alongside it.
 
+    ``alert_config`` is the alert's per-insight-kind config. A SQL query can return several
+    numeric columns in either time order, and only the config says which column the values
+    are and which way the rows run.
+
     Never raises: this only enriches the agent's context, so an unrecognized or
     malformed query degrades to a "couldn't read it" line rather than failing an
     investigation that would otherwise have run.
     """
     try:
-        described = _describe(query, series_index, effective_date_range)
+        described = _describe(query, series_index, effective_date_range, alert_config)
     except Exception:
         logger.warning("alerts.metric_definition_failed", exc_info=True)
         return UNAVAILABLE
     return described[:MAX_DEFINITION_CHARS]
 
 
-def _describe(query: Any, series_index: int, effective_date_range: MetricDateRange | None = None) -> str:
+def _describe(
+    query: Any,
+    series_index: int,
+    effective_date_range: MetricDateRange | None = None,
+    alert_config: dict[str, Any] | None = None,
+) -> str:
     source = unwrap_query_source(query)
     if not source:
         return UNAVAILABLE
@@ -133,16 +147,20 @@ def _describe(query: Any, series_index: int, effective_date_range: MetricDateRan
     formulas = _formulas(source)
     if isinstance(series, list) and series and formulas:
         # With formulas, the alerted result is a formula over the series, and series_index
-        # picks a formula, not a raw series.
-        lines.extend(_describe_formulas(formulas, series_index))
+        # picks a formula, not a raw series. The alerted formula and its inputs come first:
+        # the block is cut at a fixed size, and the other formulas are optional context.
+        alerted_lines, other_lines = _describe_formulas(formulas, series_index)
+        lines.extend(alerted_lines)
         alerted = formulas[series_index][0] if 0 <= series_index < len(formulas) else ""
         lines.extend(_describe_series(series, series_index=None, keep=_formula_inputs(alerted)))
+        lines.extend(other_lines)
     elif isinstance(series, list) and series:
         lines.extend(_describe_series(series, series_index))
     elif isinstance(clauses, list) and clauses:
         lines.extend(_describe_clauses(clauses))
     elif source.get("query"):
         lines.append(f"- SQL: {_clip(str(source['query']), MAX_SQL_CHARS)}")
+        lines.extend(_describe_sql_reading(alert_config))
     else:
         lines.append("- Series: could not be read from the stored query.")
 
@@ -184,17 +202,59 @@ def _formulas(source: dict[str, Any]) -> list[tuple[str, str | None]]:
     return [(str(formula), None)] if formula else []
 
 
-def _describe_formulas(formulas: list[tuple[str, str | None]], series_index: int) -> list[str]:
-    lines: list[str] = []
-    for index, (expression, name) in enumerate(formulas):
-        label = "Alerted result" if index == series_index else "Other result in this insight"
-        named = f' named "{name}"' if name else ""
-        lines.append(
-            f"- {label} (index {index}): formula {_clip(expression, MAX_VALUE_CHARS)}{named}, "
-            "combining the input series below by letter (A is the first input series)"
+def _describe_formulas(formulas: list[tuple[str, str | None]], series_index: int) -> tuple[list[str], list[str]]:
+    """The alerted formula's line, then the lines for the other formulas, capped and clipped.
+
+    Custom names are unbounded, so each is clipped and the other formulas are capped:
+    otherwise one long name ahead of the alerted formula could push it past the block's cut.
+    """
+    alerted_lines: list[str] = []
+    other_lines: list[str] = []
+    others = [index for index in range(len(formulas)) if index != series_index]
+    for index in others[:MAX_DESCRIBED_FORMULAS]:
+        other_lines.append(_describe_formula(formulas[index], index, alerted=False))
+    if len(others) > MAX_DESCRIBED_FORMULAS:
+        other_lines.append(f"- ({len(others) - MAX_DESCRIBED_FORMULAS} further formulas omitted.)")
+    if 0 <= series_index < len(formulas):
+        alerted_lines.append(_describe_formula(formulas[series_index], series_index, alerted=True))
+    else:
+        alerted_lines.append(
+            f"- (The alerted result index {series_index} is past the {len(formulas)} formulas defined.)"
         )
-    if series_index >= len(formulas):
-        lines.append(f"- (The alerted result index {series_index} is past the {len(formulas)} formulas defined.)")
+    return alerted_lines, other_lines
+
+
+def _describe_formula(formula: tuple[str, str | None], index: int, *, alerted: bool) -> str:
+    expression, name = formula
+    named = f' named "{_clip(name, MAX_VALUE_CHARS)}"' if name else ""
+    label = "Alerted result" if alerted else "Other result in this insight"
+    placement = "below" if alerted else "above"
+    return (
+        f"- {label} (index {index}): formula {_clip(expression, MAX_VALUE_CHARS)}{named}, "
+        f"combining the input series {placement} by letter (A is the first input series)"
+    )
+
+
+def _describe_sql_reading(alert_config: dict[str, Any] | None) -> list[str]:
+    """Which column the values come from and which way the rows run, for a SQL alert."""
+    if not isinstance(alert_config, dict) or alert_config.get("type") != "HogQLAlertConfig":
+        return []
+    column = alert_config.get("column")
+    lines = [
+        f'- Alerted values: column "{_clip(str(column), MAX_VALUE_CHARS)}"'
+        if column
+        else "- Alerted values: the query's single numeric column"
+    ]
+    label_column = alert_config.get("label_column")
+    if label_column:
+        lines.append(f'- Point labels: column "{_clip(str(label_column), MAX_VALUE_CHARS)}"')
+    evaluation = alert_config.get("evaluation")
+    if evaluation == "first_row":
+        lines.append(
+            "- Row order: the query returns newest first; the rows were reversed, so the last value is the latest"
+        )
+    elif evaluation == "last_row":
+        lines.append("- Row order: the query returns oldest first; the last value is the latest")
     return lines
 
 

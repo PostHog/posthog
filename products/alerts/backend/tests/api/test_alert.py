@@ -3098,6 +3098,20 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
         lock.assert_not_called()
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_per_team_cap_is_read_before_the_cap_lock_is_taken(self, _flag) -> None:
+        # The cap is a flag read that can go to the network, so it must not run under the lock.
+        order = mock.Mock()
+        with (
+            mock.patch("products.alerts.backend.llm_detector_limits.max_llm_alerts_per_team", order.cap, create=True),
+            mock.patch("products.alerts.backend.llm_detector_limits.lock_llm_alert_limit", order.lock, create=True),
+        ):
+            order.cap.return_value = 5
+            response = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert [call[0] for call in order.mock_calls[:2]] == ["cap", "lock"]
+
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_per_team_cap_lowered_below_the_count_still_lets_you_edit_but_not_enable(self, _flag) -> None:
         with mock.patch("products.alerts.backend.llm_detector_limits.max_llm_alerts_per_team", return_value=2):
             first = self._create({"type": "llm", "threshold": 0.7, "window": 90})

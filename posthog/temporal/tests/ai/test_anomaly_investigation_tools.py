@@ -17,8 +17,10 @@ from posthog.caching.insight_result import InsightResult
 from posthog.temporal.ai.anomaly_investigation.tools import _run_detector_simulation
 from posthog.temporal.ai.anomaly_investigation.workflow import (
     _build_multimodal_context,
+    _evaluated_detector_type,
     _evaluated_insight,
     _evaluated_series_index,
+    _restore_triggered_indices,
 )
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
@@ -132,6 +134,43 @@ def test_investigation_reads_the_series_the_check_judged(triggered_metadata: dic
     check.triggered_metadata = triggered_metadata
 
     assert _evaluated_series_index(alert, check) == expected_index
+
+
+@pytest.mark.parametrize(
+    "triggered_metadata,current_detector_config,expected",
+    [
+        ({"detector_type": "zscore", "series_index": 0}, {"type": "llm"}, "zscore"),
+        ({"verdict_is_anomaly": True, "confidence": 0.9}, {"type": "mad"}, "llm"),
+        ({"series_index": 0}, {"type": "mad"}, "mad"),
+        (None, None, "threshold"),
+    ],
+)
+def test_investigation_reads_the_detector_that_produced_the_check(
+    triggered_metadata: dict | None, current_detector_config: dict | None, expected: str
+) -> None:
+    alert = MagicMock(spec=AlertConfiguration)
+    alert.detector_config = current_detector_config
+    check = MagicMock(spec=AlertCheck)
+    check.triggered_metadata = triggered_metadata
+
+    assert _evaluated_detector_type(alert, check) == expected
+
+
+@pytest.mark.parametrize(
+    "dates,saved_points,saved_dates,expected",
+    [
+        (["d1", "d2", "d3", "d4"], [3], ["d4"], [3]),
+        (["d3", "d4", "d5"], [3], ["d4"], [1]),
+        # A SQL series can repeat a label; only the flagged row is marked.
+        (["d1", "d2", "d2", "d2"], [3], ["d2"], [3]),
+        (["d1", "d2", "d2"], [], ["d2"], [1, 2]),
+        (["d1", "d9"], [3], ["d9"], [1]),
+    ],
+)
+def test_saved_anomaly_markers_are_restored_by_point_identity(
+    dates: list[str], saved_points: list[int], saved_dates: list[str], expected: list[int]
+) -> None:
+    assert _restore_triggered_indices(dates, saved_points, saved_dates) == expected
 
 
 @pytest.mark.parametrize(
