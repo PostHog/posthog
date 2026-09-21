@@ -18,7 +18,10 @@ export function GlobalAndOrFilters({ insightProps }: EditorFilterProps): JSX.Ele
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { querySource, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
     const { actions: allActions } = useValues(
-        actionsModel({ shouldLoad: isInsightQueryWithSeries(querySource) && querySource.series.some(isActionsNode) })
+        actionsModel({
+            shouldLoad:
+                !!querySource && isInsightQueryWithSeries(querySource) && querySource.series.some(isActionsNode),
+        })
     )
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 

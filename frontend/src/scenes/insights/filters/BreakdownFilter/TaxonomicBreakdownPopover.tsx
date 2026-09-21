@@ -43,7 +43,11 @@ export const TaxonomicBreakdownPopover = ({
     } = useValues(insightVizDataLogic(insightProps))
     useMountedLogic(
         actionsModel({
-            shouldLoad: open && isInsightQueryWithSeries(querySource) && querySource.series.some(isActionsNode),
+            shouldLoad:
+                open &&
+                !!querySource &&
+                isInsightQueryWithSeries(querySource) &&
+                querySource.series.some(isActionsNode),
         })
     )
     const { databaseLoading } = useValues(databaseTableListLogic)
