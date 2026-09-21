@@ -19,6 +19,8 @@ from products.engineering_analytics.backend.facade.contracts import (
     DeliveryScopeKind,
     PRState,
     PRTimeline,
+    PRTimelineRedTime,
+    PRTimelineSegmentKind,
     PullRequestTimelines,
     RepoRef,
 )
@@ -47,6 +49,13 @@ from products.engineering_analytics.backend.logic.views.trunk_merge_queue import
 
 _LIMIT = 200
 
+_RED_KINDS = (
+    PRTimelineSegmentKind.RED_FIXED_BY_PUSH,
+    PRTimelineSegmentKind.RED_PASSED_ON_RERUN,
+    PRTimelineSegmentKind.RED_MASTER_BROKEN,
+    PRTimelineSegmentKind.RED_NOT_PROVABLE,
+)
+
 # A list scope shows what is still open plus what merged in the window; closed-unmerged work is not
 # listed. A single pull request is shown whatever its state.
 _LIST_WINDOW = "(pr.state = 'open' OR (pr.merged_at >= {date_from} __DATE_TO__))"
@@ -59,7 +68,7 @@ _PRS_SELECT = f"""
     FROM __PR_SOURCE__ AS pr
     WHERE (__SCOPE__) AND __WINDOW__
     ORDER BY pr.created_at DESC
-    LIMIT {_LIMIT + 1}
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 _READY_AT_SELECT = f"""
@@ -158,6 +167,19 @@ class PullRequestTimelinesQuery:
         self._now = datetime.now(tz=UTC)
 
     def _result(self, items: list[PRTimeline], *, truncated: bool) -> PullRequestTimelines:
+        merged_items = [item for item in items if item.merged_at is not None]
+        red_totals: defaultdict[PRTimelineSegmentKind, float] = defaultdict(float)
+        for item in merged_items:
+            for segment in item.segments:
+                if segment.kind in _RED_KINDS:
+                    red_totals[segment.kind] += (segment.ended_at - segment.started_at).total_seconds()
+        red_time = [
+            PRTimelineRedTime(
+                kind=kind,
+                seconds_per_merged_pr=red_totals[kind] / len(merged_items) if merged_items else 0,
+            )
+            for kind in _RED_KINDS
+        ]
         return PullRequestTimelines(
             scope_kind=self._scope.kind,
             scope=self._scope.label,
@@ -166,7 +188,9 @@ class PullRequestTimelinesQuery:
             jobs_available=self._curated.jobs_source() is not None,
             merge_queue_state_available=self._curated.trunk_merge_queue_source() is not None,
             generated_at=self._now,
-            items=items,
+            merged_pr_count=len(merged_items),
+            red_seconds_per_merged_pr=red_time,
+            items=items[:_LIMIT],
             truncated=truncated,
             limit=_LIMIT,
         )
@@ -174,7 +198,6 @@ class PullRequestTimelinesQuery:
     def run(self) -> PullRequestTimelines:
         prs = self._query_prs()
         truncated = len(prs) > _LIMIT
-        prs = prs[:_LIMIT]
         if not prs:
             return self._result([], truncated=False)
 

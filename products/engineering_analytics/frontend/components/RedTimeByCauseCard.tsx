@@ -1,6 +1,3 @@
-// No repo figure: the cause comes from replaying each pull request's timeline, which is too heavy to run
-// over the whole repository per request.
-
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
@@ -36,12 +33,12 @@ export function RedTimeByCauseCard({
                             </div>
                             <div>
                                 Flake: the failed workflow passed a re-run of the same commit. Master broken: the failed
-                                jobs also failed on the default branch within 12 hours. Fixed by a push: a later commit
-                                arrived. Not provable: none of those.
+                                jobs also failed around the same time on the default branch. Fixed by a push: a later
+                                commit arrived. Not provable: none of those.
                             </div>
                             <div>
-                                There is no repo figure: the cause comes from replaying each pull request, which only
-                                runs for the pull requests listed here.
+                                Values cover every merged pull request in the selected scope, including pull requests
+                                omitted from the list below.
                             </div>
                             {!jobsAvailable && (
                                 <div>
