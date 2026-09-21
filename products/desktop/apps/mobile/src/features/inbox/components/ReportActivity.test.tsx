@@ -1,4 +1,7 @@
-import type { AnySignalReportArtefact } from "@posthog/shared/domain-types";
+import type {
+  AnySignalReportArtefact,
+  SignalReportArtefact,
+} from "@posthog/shared/domain-types";
 import { createElement } from "react";
 import { act, create } from "react-test-renderer";
 import { describe, expect, it, vi } from "vitest";
@@ -78,17 +81,22 @@ describe("ReportActivity", () => {
   });
 
   it("falls back to the text preview on a degraded row", () => {
-    const output = visibleText(
-      render({
-        artefacts: [
-          {
-            ...reportLink,
-            degraded: true,
-            content: { content: "depends_on another report" },
-          } as AnySignalReportArtefact,
-        ],
-      }),
-    );
+    const degraded: SignalReportArtefact = {
+      id: "a3",
+      type: "report_link",
+      created_at: "2026-01-03T00:00:00Z",
+      degraded: true,
+      content: {
+        session_id: "",
+        start_time: "",
+        end_time: "",
+        distinct_id: "",
+        content: "depends_on another report",
+        distance_to_centroid: null,
+      },
+    };
+
+    const output = visibleText(render({ artefacts: [degraded] }));
     expect(output).toContain("depends_on another report");
   });
 

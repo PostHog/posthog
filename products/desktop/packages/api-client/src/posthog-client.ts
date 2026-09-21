@@ -1674,6 +1674,11 @@ function normalizeNoteArtefact(
   };
 }
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// A link that names no real report would render as a dead navigation target, so
+// send it down the fallback path and show the reader its text preview instead.
 function normalizeReportLinkArtefact(
   value: Record<string, unknown>,
 ): ReportLinkArtefact | null {
@@ -1681,9 +1686,9 @@ function normalizeReportLinkArtefact(
   if (!id) return null;
   const c = isObjectRecord(value.content) ? value.content : null;
   if (!c) return null;
-  const kind = optionalString(c.kind);
-  const report_id = optionalString(c.report_id);
-  if (!kind || !report_id) return null;
+  const kind = optionalString(c.kind)?.trim();
+  const report_id = optionalString(c.report_id)?.trim();
+  if (!kind || !report_id || !UUID_PATTERN.test(report_id)) return null;
 
   return {
     id,
