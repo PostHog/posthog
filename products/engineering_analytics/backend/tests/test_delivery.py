@@ -46,6 +46,7 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS,
     REVIEWS_COLUMNS,
     TEAM_MEMBERS_COLUMNS,
+    WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.engineering_analytics.backend.tests._github_fixtures import (
@@ -60,6 +61,7 @@ from products.engineering_analytics.backend.tests._logic_helpers import (
     _ago,
     _ago_offset_with_duration,
     _dt,
+    _job_row,
     _WarehouseMixin,
 )
 
@@ -685,18 +687,29 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         assert reopened.started_at == _dt(_ago(4))
         assert reopened.segments != []
 
-    def test_a_run_queued_before_close_stays_in_the_timeline(self) -> None:
+    @parameterized.expand([(1, Kind.CI_RUNNING), (2, Kind.RED_NOT_PROVABLE)])
+    def test_only_a_first_attempt_queued_before_close_stays_in_the_timeline(
+        self, attempt: int, expected_kind: Kind
+    ) -> None:
         closed_at = _ago(2)
         queued_at = _ago_offset_with_duration(3, 86340, 0)[0]
         started_at, completed_at = _ago_offset_with_duration(2, 60, 60)
         run = _run_row(3101, "CI", "sha31", "completed", "success", started_at, completed_at, pr_number=31)
         run["created_at"] = queued_at
+        run["run_attempt"] = attempt
         self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
             [_pr_row(31, "alice", "closed", 0, _ago(4), closed_at=closed_at)],
         )
         self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [run])
+        failure_end = _ago_offset_with_duration(3, 86370, 0)[0]
+        if attempt == 2:
+            self._create_table(
+                "github_workflow_jobs",
+                WORKFLOW_JOBS_COLUMNS,
+                [_job_row(31001, 3101, "Tests", "failure", started=queued_at, completed=failure_end)],
+            )
         curated = CuratedGitHubSource.for_team(self.team)
         scope = DeliveryScope(
             kind=DeliveryScopeKind.PULL_REQUEST, pr_number=31, repo_owner="PostHog", repo_name="posthog"
@@ -707,8 +720,8 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         )
 
         closed = next(item for item in timelines.items if item.number == 31)
-        assert closed.segments[-1].kind == Kind.CI_RUNNING
-        assert closed.segments[-1].started_at == _dt(queued_at)
+        assert closed.segments[-1].kind == expected_kind
+        assert closed.segments[-1].started_at == _dt(queued_at if attempt == 1 else failure_end)
         assert closed.segments[-1].ended_at == _dt(closed_at)
 
     def test_an_earlier_ready_event_still_wins_when_the_latest_is_after_the_close(self) -> None:

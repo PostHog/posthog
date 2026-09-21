@@ -52,6 +52,8 @@ from products.engineering_analytics.backend.logic.views import (
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
+_QUERY_PAGE_SIZE = 5000
+
 
 @dataclass(frozen=True, kw_only=True)
 class _IssueEventsWindow:
@@ -498,6 +500,22 @@ class CuratedGitHubSource:
     def _compose_pr_query(self, ctes: list[str], select: str) -> str:
         """Prefix ``select`` with the given CTEs and fill its ``__PR_SOURCE__`` placeholder with the PR source."""
         return f"WITH {', '.join(ctes)} {select}".replace("__PR_SOURCE__", self.pr_source())
+
+    def run_paged(self, sql: str, *, query_type: str, placeholders: dict[str, ast.Expr]) -> list[tuple]:
+        """Read every row of a query with a stable ORDER BY, without the per-query result cap."""
+        rows: list[tuple] = []
+        offset = 0
+        while True:
+            response = self.run(
+                f"{sql}\nLIMIT {_QUERY_PAGE_SIZE} OFFSET {offset}",
+                query_type=query_type,
+                placeholders=placeholders,
+            )
+            page = list(response.results or [])
+            rows.extend(page)
+            if len(page) < _QUERY_PAGE_SIZE:
+                return rows
+            offset += len(page)
 
     def run(
         self,

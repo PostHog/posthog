@@ -224,7 +224,11 @@ class PullRequestTimelinesQuery:
                 ready = None
             # No ready event means never drafted, or issue events not synced.
             started_at = max(ready or created_at, run_from)
-            pr_attempts = [attempt for attempt in attempts.get(number, []) if attempt.queued_at <= ended_at]
+            pr_attempts = [
+                attempt
+                for attempt in attempts.get(number, [])
+                if attempt.started_at <= ended_at or (attempt.attempt == 1 and attempt.queued_at <= ended_at)
+            ]
             builder = PRTimelineBuilder(
                 PRTimelineInput(
                     started_at=started_at,
@@ -407,13 +411,13 @@ class PullRequestTimelinesQuery:
             runs_source=self._curated.run_source(started_floor=True),
             run_filter="pr_number IN {pr_numbers} AND run_started_at >= {run_from}",
         )
-        response = self._curated.run(
-            sql + f"\nLIMIT {UNPAGED_SCAN_LIMIT}",
+        rows = self._curated.run_paged(
+            sql + "\nORDER BY pr_number, head_sha",
             query_type="engineering_analytics.pull_request_timelines_pushes",
             placeholders=self._runs_placeholders(pr_numbers, run_from),
         )
         pushes: dict[int, list[Push]] = defaultdict(list)
-        for number, head_sha, pushed_at in response.results or []:
+        for number, head_sha, pushed_at in rows:
             if pushed_at is not None:
                 pushes[int(number)].append(Push(head_sha=head_sha or "", pushed_at=pushed_at))
         return pushes
