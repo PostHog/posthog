@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -13,9 +14,11 @@ import { SlackChannelType, UserBasicType } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
-import { conversationsAiReplyPlaybookRetrieve } from '../../generated/api'
-import type { AIReplyPlaybookApi } from '../../generated/api.schemas'
+import { conversationsAiContextAccountPropertiesList, conversationsAiReplyPlaybookRetrieve } from '../../generated/api'
+import type { AIContextAccountPropertyApi, AIReplyPlaybookApi } from '../../generated/api.schemas'
 import { TicketChannel } from '../../types'
+
+export const MAX_AI_CONTEXT_ACCOUNT_PROPERTY_IDS = 10
 
 const BASE_AI_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack']
 
@@ -64,8 +67,12 @@ export interface supportSettingsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamLoading: boolean // teamLogic
+    accountPropertyOptions: AIContextAccountPropertyApi[]
+    accountPropertyOptionsLoading: boolean
     addEmailFormVisible: boolean
     aiAllChannels: TicketChannel[]
+    aiContextAccountPropertiesSaving: boolean
+    aiContextAccountPropertyIds: string[]
     aiDiagnosticsEnabled: boolean
     aiDiagnosticsLoading: boolean
     aiEnabledChannels: TicketChannel[]
@@ -243,11 +250,29 @@ export interface supportSettingsLogicActions {
     disconnectTeams: () => {
         value: true
     }
+    ensureAccountPropertyOptions: () => {
+        value: true
+    }
     generateNewToken: () => {
         value: true
     }
     installTeamsApp: (teamId: string) => {
         teamId: string
+    }
+    loadAccountPropertyOptions: (_: any) => any
+    loadAccountPropertyOptionsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadAccountPropertyOptionsSuccess: (
+        accountPropertyOptions: AIContextAccountPropertyApi[],
+        payload?: any
+    ) => {
+        accountPropertyOptions: AIContextAccountPropertyApi[]
+        payload?: any
     }
     loadEmailConfigs: () => {
         value: true
@@ -401,6 +426,9 @@ export interface supportSettingsLogicActions {
     removeTeamsChannelPair: (channelId: string) => {
         channelId: string
     }
+    resetAccountPropertyOptions: () => {
+        value: true
+    }
     resetPlaybook: () => {
         value: true
     }
@@ -443,6 +471,12 @@ export interface supportSettingsLogicActions {
     }
     setAddEmailFormVisible: (visible: boolean) => {
         visible: boolean
+    }
+    setAiContextAccountPropertiesSaving: (saving: boolean) => {
+        saving: boolean
+    }
+    setAiContextAccountPropertyIds: (ids: string[]) => {
+        ids: string[]
     }
     setAiDiagnosticsEnabled: (enabled: boolean) => {
         enabled: boolean
@@ -606,6 +640,7 @@ export interface supportSettingsLogicMeta {
         githubSelectedRepos: (currentTeam: TeamPublicType | TeamType | null) => string[]
         aiSuggestionsEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
         aiDiagnosticsEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        aiContextAccountPropertyIds: (currentTeam: TeamPublicType | TeamType | null) => string[]
         aiEnabledChannels: (
             currentTeam: TeamPublicType | TeamType | null,
             emailConfigs: EmailConfigStatus[]
@@ -746,6 +781,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         savePlaybookInstructions: (instructions: string | null) => ({ instructions }),
         savePlaybook: true,
         resetPlaybook: true,
+        setAiContextAccountPropertyIds: (ids: string[]) => ({ ids }),
+        setAiContextAccountPropertiesSaving: (saving: boolean) => ({ saving }),
+        resetAccountPropertyOptions: true,
+        ensureAccountPropertyOptions: true,
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -963,6 +1002,18 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                     "Couldn't load the support playbook. Refresh the page, and if it keeps happening contact support.",
             },
         ],
+        aiContextAccountPropertiesSaving: [
+            false,
+            {
+                setAiContextAccountPropertiesSaving: (_, { saving }) => saving,
+            },
+        ],
+        accountPropertyOptions: [
+            [] as AIContextAccountPropertyApi[],
+            {
+                resetAccountPropertyOptions: () => [],
+            },
+        ],
         slackTicketEmojiValue: [
             null as string | null,
             {
@@ -1025,6 +1076,29 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                         return null
                     }
                     return await conversationsAiReplyPlaybookRetrieve(String(teamId))
+                },
+            },
+        ],
+        accountPropertyOptions: [
+            [] as AIContextAccountPropertyApi[],
+            {
+                loadAccountPropertyOptions: async (_, breakpoint) => {
+                    const teamId = values.currentTeam?.id
+                    if (!teamId) {
+                        return []
+                    }
+                    const options = await conversationsAiContextAccountPropertiesList(String(teamId)).catch(() => null)
+                    // A team switch clears the list and starts a newer load. Without this, the
+                    // previous team's response would repopulate what the switch just cleared.
+                    // It sits outside the catch above so the abort isn't swallowed as a failure.
+                    breakpoint()
+                    if (options === null) {
+                        lemonToast.error(
+                            "Couldn't load account properties. Refresh the page, and if it keeps happening contact support."
+                        )
+                        return values.accountPropertyOptions
+                    }
+                    return options
                 },
             },
         ],
@@ -1233,6 +1307,18 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (s) => [s.currentTeam],
             (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
                 !!currentTeam?.conversations_settings?.ai_diagnostics_enabled,
+        ],
+        aiContextAccountPropertyIds: [
+            (s) => [s.currentTeam],
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): string[] => {
+                const raw = currentTeam?.conversations_settings?.ai_context_account_property_ids
+                if (!Array.isArray(raw)) {
+                    return []
+                }
+                return raw
+                    .filter((id): id is string => typeof id === 'string')
+                    .slice(0, MAX_AI_CONTEXT_ACCOUNT_PROPERTY_IDS)
+            },
         ],
         aiEnabledChannels: [
             (s) => [s.currentTeam, s.emailConfigs],
@@ -1769,6 +1855,27 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 actions.setPlaybookSaving(false)
             }
         },
+        setAiContextAccountPropertyIds: async ({ ids }) => {
+            if (values.aiContextAccountPropertiesSaving) {
+                return
+            }
+            const next = [...new Set(ids)].slice(0, MAX_AI_CONTEXT_ACCOUNT_PROPERTY_IDS)
+            const current = values.aiContextAccountPropertyIds
+            if (next.length === current.length && next.every((id, index) => id === current[index])) {
+                return
+            }
+            actions.setAiContextAccountPropertiesSaving(true)
+            try {
+                await teamLogic.asyncActions.updateCurrentTeam({
+                    conversations_settings: {
+                        ...values.currentTeam?.conversations_settings,
+                        ai_context_account_property_ids: next,
+                    },
+                })
+            } finally {
+                actions.setAiContextAccountPropertiesSaving(false)
+            }
+        },
         connectGithub: async ({ integrationId }) => {
             try {
                 // nosemgrep: prefer-codegen-api
@@ -1805,6 +1912,23 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             if (!values.playbook && !values.playbookLoading) {
                 actions.loadPlaybook()
             }
+            actions.ensureAccountPropertyOptions()
+        },
+        ensureAccountPropertyOptions: () => {
+            const teamId = values.currentTeam?.id
+            if (!values.featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] || !teamId) {
+                return
+            }
+            // Idempotent, because mount, a team change and the feature flag arriving all reach
+            // this and any of them can come first.
+            if (cache.accountPropertyOptionsTeamId === teamId) {
+                return
+            }
+            // The options belong to one team, so drop the previous team's list rather than
+            // offering it until the new request lands.
+            cache.accountPropertyOptionsTeamId = teamId
+            actions.resetAccountPropertyOptions()
+            actions.loadAccountPropertyOptions({})
         },
         updateCurrentTeamSuccess: ({ payload }) => {
             if (payload && payload === cache.playbookPayload) {
@@ -1864,6 +1988,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             }
         },
     })),
+    subscriptions(({ actions }) => ({
+        // posthog-js resolves flags after the scene mounts, so CUSTOMER_ANALYTICS can turn on
+        // once the picker is already on screen. Without this the picker would render the
+        // "no account properties yet" empty state for a team that has them.
+        featureFlags: () => {
+            actions.ensureAccountPropertyOptions()
+        },
+    })),
     afterMount(({ values, actions }) => {
         if (values.slackConnected) {
             actions.loadSlackChannelsWithToken()
@@ -1887,5 +2019,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             actions.loadGithubRepos()
         }
         actions.loadPlaybook()
+        actions.ensureAccountPropertyOptions()
     }),
 ])
