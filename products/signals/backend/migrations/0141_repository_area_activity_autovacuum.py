@@ -8,12 +8,12 @@ from django.db import migrations
 # force-rebuilds every warm repository, and its one delete pass only drops long-idle rows.
 # So dead tuples accumulate for a week at a time on a small table, where the inherited scale
 # factor of 0.1 makes autovacuum wait far longer than that turnover deserves. 0.02 keeps the
-# index scans behind reviewer suggestion on live tuples, and the matching analyze factor keeps
-# the planner statistics current.
+# reviewer suggestion reads on live tuples, and the matching analyze factor keeps the planner
+# statistics current.
 #
 # The lower fillfactor leaves each page free space for a new tuple version. No update on this
-# table touches an indexed column, so with that headroom they can take the heap-only tuple path
-# and leave no index work behind. It applies to pages filled after this runs, not to existing ones.
+# table touches an indexed column, so with that headroom the updates leave no index work behind.
+# It applies to pages filled after this runs, not to existing ones.
 #
 # SET (...) takes SHARE UPDATE EXCLUSIVE, which does not conflict with the cache's writes.
 TABLE = "signals_signalrepositoryareaactivity"
