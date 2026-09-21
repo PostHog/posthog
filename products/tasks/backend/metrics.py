@@ -738,7 +738,7 @@ _SANDBOX_DEADLINE_OUTCOMES = {"rotated", "snapshot_only", "snapshot_failed", "ro
 _SANDBOX_DEADLINE_REASONS = {
     "none",
     "no_sandbox",
-    "flag_disabled",
+    "no_context",
     "agent_active",
     "followup_in_flight",
     "run_completed",
