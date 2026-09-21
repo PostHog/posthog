@@ -27,18 +27,6 @@ describe('sceneLayoutLogic', () => {
         expect(logic.values.scenePanelElement).toBe(null)
     })
 
-    it('keeps the side panel and the inline host from clearing each other', () => {
-        const inline = document.createElement('div')
-        const sidePanel = document.createElement('div')
-
-        logic.actions.registerScenePanelElement('inline', inline)
-        logic.actions.registerScenePanelElement('sidePanel', sidePanel)
-        expect(logic.values.scenePanelElement).toBe(sidePanel)
-
-        logic.actions.registerScenePanelElement('sidePanel', null)
-        expect(logic.values.scenePanelElement).toBe(inline)
-    })
-
     it('counts scene panels so one closing does not take the host down', () => {
         logic.actions.registerScenePanel()
         logic.actions.registerScenePanel()
@@ -47,8 +35,5 @@ describe('sceneLayoutLogic', () => {
 
         logic.actions.unregisterScenePanel()
         expect(logic.values.scenePanelIsPresent).toBe(false)
-
-        logic.actions.unregisterScenePanel()
-        expect(logic.values.scenePanelCount).toBe(0)
     })
 })

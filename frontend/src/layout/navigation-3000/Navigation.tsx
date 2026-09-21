@@ -52,8 +52,7 @@ export function Navigation({
     // SceneMenuBar (when enabled) replaces ProjectNotice's role of conveying project-level
     // context above scene content, so we hide the notice for users on the new menu bar.
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
-    // The side panel registers its own host slot, so this one is never overwritten: the
-    // callback ref's null call on unmount is all the cleanup the inline host needs.
+    // Each host owns its own slot, so the callback ref's null call on unmount is enough cleanup.
     const inlinePanelCallbackRef = useCallback(
         (node: HTMLDivElement | null) => registerScenePanelElement('inline', node),
         [registerScenePanelElement]

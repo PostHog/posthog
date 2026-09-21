@@ -25,9 +25,8 @@ export function ScenePanel({ children }: { children: React.ReactNode }): JSX.Ele
     const { registerScenePanel, unregisterScenePanel } = useActions(sceneLayoutLogic)
     const { activeSceneId } = useValues(sceneLogic)
     // The host is shared by every scene, so a panel may only write to it while the scene that
-    // opened it is still the one on screen. Without this a lingering scene (one whose teardown
-    // is deferred, or which outlives a slow chunk load) keeps its actions in the panel under
-    // the next scene's URL.
+    // opened it is still on screen. Without this a scene that outlives its own scene change
+    // keeps its actions in the panel under the next page.
     const ownerSceneId = useRef(activeSceneId)
     const ownsPanel = ownerSceneId.current === activeSceneId
 
