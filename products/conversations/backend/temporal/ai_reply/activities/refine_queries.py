@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from temporalio import activity
 
 from posthog.llm.gateway_client import get_async_anthropic_gateway_client
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.conversations.backend.temporal.ai_reply.constants import TICKET_TYPE_HINTS, UTILITY_MODEL
-from products.conversations.backend.temporal.ai_reply.llms import anthropic_text, create_message, tracing_kwargs
+from products.conversations.backend.temporal.ai_reply.llms import (
+    anthropic_text,
+    create_message,
+    llm_attempts,
+    tracing_kwargs,
+)
 from products.conversations.backend.temporal.ai_reply.schemas import RefineQueriesInput, RefineQueriesOutput
 
 
@@ -14,7 +21,7 @@ from products.conversations.backend.temporal.ai_reply.schemas import RefineQueri
 async def support_refine_queries_activity(input: RefineQueriesInput) -> RefineQueriesOutput:
     """Use a lightweight LLM to generate search queries from ticket context + missing gaps."""
     async with Heartbeater():
-        return await _refine_queries(input)
+        return replace(await _refine_queries(input), llm_attempts=llm_attempts())
 
 
 async def _refine_queries(input: RefineQueriesInput) -> RefineQueriesOutput:

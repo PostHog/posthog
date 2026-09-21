@@ -1,12 +1,13 @@
 """Per-series log volume band charts for one service, read from logs_volume_buckets.
 
-The observed line is the caller's window of volume per (namespace, environment,
-severity) series, at most MAX_WINDOW_DAYS wide. The expected band is a
-time-of-week aligned min/max envelope over the BASELINE_WEEKS weeks before the
-window: each display slot's band comes
-from the same weekly slot in prior weeks. ClickHouse folds the baseline weeks
-onto the display window; Python finishes the envelope (zero-fill, maturity
-gating, widening) where the arithmetic is cheap and unit-testable.
+The chart fits a weekly count model on earlier weeks and calibrates its ranges
+on two subsequent complete weeks. Both sets precede the displayed window.
+ClickHouse folds up to BASELINE_WEEKS weeks onto a UTC week; Python fills missing
+counts with zeros and fits only each returned series' final display grain.
+
+The 99% target describes marginal bucket coverage under stable patterns, not
+incident probability or simultaneous coverage across a chart. The independent
+anomaly scan's detector, persistence rules, and alert budget are unchanged.
 """
 
 import os
@@ -17,6 +18,8 @@ from collections.abc import Collection
 from dataclasses import replace
 from typing import Literal
 from zoneinfo import ZoneInfo
+
+import numpy as np
 
 from posthog.schema import HogQLQueryModifiers
 
@@ -31,6 +34,8 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.utils import ensure_utc, relative_date_parse
 
+from products.logs.backend.series_prediction import MIN_HISTORY_WEEKS, WeeklyPredictionBand
+
 WINDOW_DAYS = 7
 MAX_WINDOW_DAYS = 7
 VOLUME_BUCKETS_TTL_DAYS = 42  # TTL on logs_volume_buckets, see posthog/clickhouse/hcl/sql/*/logs.sql
@@ -40,8 +45,6 @@ VOLUME_BUCKETS_TTL_DAYS = 42  # TTL on logs_volume_buckets, see posthog/clickhou
 # learning, not rejected here.
 MAX_WINDOW_START_AGE_DAYS = VOLUME_BUCKETS_TTL_DAYS - MAX_WINDOW_DAYS
 BASELINE_WEEKS = 5
-# Below this many full prior weeks the band rests on too little history to draw.
-MIN_BASELINE_WEEKS_FOR_BAND = 2
 SECONDS_PER_DAY = 24 * 3600
 SECONDS_PER_WEEK = 7 * SECONDS_PER_DAY
 
@@ -61,14 +64,9 @@ BUCKET_TARGET = int(os.environ.get("LOGS_SERIES_BANDS_BUCKET_TARGET", "168"))
 ALIVE_SLOT_FRACTION = float(os.environ.get("LOGS_SERIES_BANDS_ALIVE_SLOT_FRACTION", "0.2"))
 # A series keeps a grain only where it is dense enough to read there: at least
 # ALIVE_SLOT_FRACTION of its window buckets are non-empty, and those buckets
-# average at least this many records. Below that the band floor, which scales
-# with the grain, sits under most observed values and nearly every bucket marks.
+# average at least this many records. Below that the line is a scatter of single
+# records under a band held open by the detector's rate floor, and reads as nothing.
 MIN_MEAN_PER_ALIVE_BUCKET = float(os.environ.get("LOGS_SERIES_BANDS_MIN_MEAN_PER_ALIVE_BUCKET", "5"))
-# Widening keeps the envelope from reading as a hairline on quiet series: the
-# fraction scales both edges, the floor lifts the upper edge by a per-hour
-# count so a band exists even where every baseline week saw the same value.
-BAND_WIDEN_FRACTION = 0.1
-BAND_FLOOR_PER_HOUR = 2.0
 
 # ClickHouse time one request may spend, shared across its passes. The
 # coarsening walk costs one pass per rung, so a per-pass cap would let a
@@ -85,6 +83,7 @@ class SeriesBandsWindowInvalid(Exception):
 
 
 CoarsenedReason = Literal["sparse", "quiet"]
+BandVerdict = Literal["above", "below"]
 
 
 @frozen
@@ -93,6 +92,16 @@ class BandBucket:
     observed: int
     lower: float | None
     upper: float | None
+
+    @property
+    def verdict(self) -> BandVerdict | None:
+        if self.lower is None or self.upper is None:
+            return None
+        if self.observed > self.upper:
+            return "above"
+        if self.observed < self.lower:
+            return "below"
+        return None
 
 
 @frozen
@@ -137,9 +146,8 @@ class _SeriesKey:
 class _SlotRow:
     target_time: dt.datetime
     observed: int
-    baseline_samples: int
-    baseline_min: int
-    baseline_max: int
+    # (unix seconds, count) per lifetime baseline bucket that folds onto target_time.
+    baseline: list[tuple[int, int]]
 
 
 @frozen
@@ -167,9 +175,9 @@ def fetch_series_slot_rows(
     start.
 
     Rows are sparse — a (series, slot) with no observed and no baseline data has
-    no row. Missing baseline weeks are reconstructed in Python from
-    baseline_samples vs the weeks the series existed. Baseline samples only
-    count slots at or after the lifetime start. With series_keys the pass reads
+    no row. Missing baseline weeks are reconstructed in Python from the baseline
+    samples present vs the weeks the series existed. Baseline samples only
+    include slots at or after the lifetime start. With series_keys the pass reads
     only those series and skips the volume ranking."""
     tag_queries(product=Product.LOGS, feature=Feature.QUERY, source="logs_series_bands", team_id=str(team.id))
 
@@ -255,9 +263,10 @@ def fetch_series_slot_rows(
                 (toUnixTimestamp(slots.slot) - toUnixTimestamp({window_start}) + {baseline_seconds}) % {week_seconds}
             ) AS target_time,
             sumIf(slots.slot_count, slots.slot >= {window_start}) AS observed,
-            countIf(slots.slot < {window_start} AND slots.slot >= lifetimes.lifetime_start) AS baseline_samples,
-            minIf(slots.slot_count, slots.slot < {window_start} AND slots.slot >= lifetimes.lifetime_start) AS baseline_min,
-            maxIf(slots.slot_count, slots.slot < {window_start} AND slots.slot >= lifetimes.lifetime_start) AS baseline_max,
+            groupArrayIf(
+                tuple(toUnixTimestamp(slots.slot), slots.slot_count),
+                slots.slot < {window_start} AND slots.slot >= lifetimes.lifetime_start
+            ) AS baseline,
             lifetimes.lifetime_start AS lifetime_start
         FROM slots
         INNER JOIN lifetimes
@@ -304,14 +313,12 @@ def fetch_series_slot_rows(
         key = _SeriesKey(namespace=row[0], environment=row[1], severity=row[2])
         series = rows.get(key)
         if series is None:
-            series = rows[key] = _SeriesRows(lifetime_start=ensure_utc(row[8]), slots=[])
+            series = rows[key] = _SeriesRows(lifetime_start=ensure_utc(row[6]), slots=[])
         series.slots.append(
             _SlotRow(
                 target_time=ensure_utc(row[3]),
                 observed=int(row[4]),
-                baseline_samples=int(row[5]),
-                baseline_min=int(row[6]),
-                baseline_max=int(row[7]),
+                baseline=[(int(ts), int(count)) for ts, count in row[5]],
             )
         )
     return rows
@@ -325,14 +332,22 @@ def _baseline_weeks_available(later: dt.datetime, lifetime_start: dt.datetime) -
     whose sample slot predates the lifetime says nothing; a week inside the
     lifetime with no row was a real zero.
     """
-    weeks = int((later - lifetime_start).total_seconds()) // SECONDS_PER_WEEK
-    return min(BASELINE_WEEKS, max(0, weeks))
+    return _weeks_between(int(later.timestamp()), int(lifetime_start.timestamp()))
 
 
-def _band_gate(
-    window_start: dt.datetime, window_end: dt.datetime, lifetime_start: dt.datetime
-) -> tuple[int, dt.datetime | None]:
-    """Baseline depth at the window start, and when a shallow series gains its band.
+def _weeks_between(later_ts: int, lifetime_ts: int) -> int:
+    return min(BASELINE_WEEKS, max(0, (later_ts - lifetime_ts) // SECONDS_PER_WEEK))
+
+
+@frozen
+class _BandReadiness:
+    baseline_weeks: int
+    ready: bool
+    ready_at: dt.datetime | None
+
+
+def _band_gate(window_start: dt.datetime, window_end: dt.datetime, lifetime_start: dt.datetime) -> _BandReadiness:
+    """Baseline depth and readiness for separate training and calibration weeks.
 
     The gate reads sustained history before window_start, so a live window must
     travel a whole window length past the lifetime threshold before a band is
@@ -340,10 +355,48 @@ def _band_gate(
     counts to.
     """
     baseline_weeks = _baseline_weeks_available(window_start, lifetime_start)
-    if baseline_weeks >= MIN_BASELINE_WEEKS_FOR_BAND:
-        return baseline_weeks, None
-    threshold = lifetime_start + dt.timedelta(weeks=MIN_BASELINE_WEEKS_FOR_BAND)
-    return baseline_weeks, threshold + (window_end - window_start)
+    if baseline_weeks >= MIN_HISTORY_WEEKS:
+        return _BandReadiness(baseline_weeks=baseline_weeks, ready=True, ready_at=None)
+    threshold = lifetime_start + dt.timedelta(weeks=MIN_HISTORY_WEEKS)
+    return _BandReadiness(baseline_weeks=baseline_weeks, ready=False, ready_at=threshold + (window_end - window_start))
+
+
+class _FoldedHistory:
+    """Dense display-grain counts, with complete historical weeks before the window.
+
+    Missing lifetime buckets are real zeros. The prediction slices only complete
+    weeks preceding window_start, never observations inside the displayed window.
+    """
+
+    def __init__(
+        self,
+        series_rows: _SeriesRows,
+        window_start: dt.datetime,
+        window_end: dt.datetime,
+        interval_minutes: int,
+    ):
+        self.step_seconds = interval_minutes * 60
+        self.window_start_ts = int(window_start.timestamp())
+        self.grid_start_ts = self.window_start_ts - BASELINE_WEEKS * SECONDS_PER_WEEK
+        window_end_ts = int(window_end.timestamp())
+        self.counts = np.zeros(self._index(window_end_ts), dtype=np.float64)
+        for row in series_rows.slots:
+            target_ts = int(row.target_time.timestamp())
+            if self.window_start_ts <= target_ts < window_end_ts:
+                self.counts[self._index(target_ts)] = row.observed
+            for bucket_ts, count in row.baseline:
+                self.counts[self._index(bucket_ts)] = count
+
+    def _index(self, at_ts: int) -> int:
+        return (at_ts - self.grid_start_ts) // self.step_seconds
+
+    def observed(self, slot_ts: int) -> int:
+        return int(self.counts[self._index(slot_ts)])
+
+    def prediction(self, baseline_weeks: int) -> WeeklyPredictionBand:
+        end = self._index(self.window_start_ts)
+        start = end - baseline_weeks * SECONDS_PER_WEEK // self.step_seconds
+        return WeeklyPredictionBand.fit(self.counts[start:end].reshape(baseline_weeks, -1))
 
 
 def _build_series(
@@ -352,45 +405,40 @@ def _build_series(
     window_start: dt.datetime,
     window_end: dt.datetime,
     interval_minutes: int,
+    *,
+    include_bands: bool = True,
 ) -> BandSeries:
-    by_time = {row.target_time: row for row in series_rows.slots}
+    history = _FoldedHistory(series_rows, window_start, window_end, interval_minutes)
     lifetime_start = series_rows.lifetime_start
-    baseline_weeks, band_ready_at = _band_gate(window_start, window_end, lifetime_start)
-    banded = band_ready_at is None
-    floor = BAND_FLOOR_PER_HOUR * interval_minutes / 60
+    readiness = _band_gate(window_start, window_end, lifetime_start)
+    banded = readiness.ready and include_bands
 
     buckets: list[BandBucket] = []
     total_count = 0
     step = dt.timedelta(minutes=interval_minutes)
     slot = window_start
     while slot < window_end:
-        row = by_time.get(slot)
-        observed = row.observed if row else 0
+        slot_ts = int(slot.timestamp())
+        observed = history.observed(slot_ts)
         total_count += observed
-        lower: float | None = None
-        upper: float | None = None
-        if banded:
-            # Every slot sits at or after window_start, so a banded series has at
-            # least MIN_BASELINE_WEEKS_FOR_BAND samples to expect at every slot.
-            expected = _baseline_weeks_available(slot, lifetime_start)
-            samples = row.baseline_samples if row else 0
-            # A lifetime week with no row at this slot was a real zero, so any
-            # missing sample drags the envelope floor to zero.
-            low = row.baseline_min if row and samples >= expected else 0
-            high = row.baseline_max if row else 0
-            lower = low * (1 - BAND_WIDEN_FRACTION)
-            upper = high * (1 + BAND_WIDEN_FRACTION) + floor
-        buckets.append(BandBucket(time=slot, observed=observed, lower=lower, upper=upper))
+        buckets.append(BandBucket(time=slot, observed=observed, lower=None, upper=None))
         slot += step
+
+    if banded:
+        prediction = history.prediction(readiness.baseline_weeks)
+        buckets = [
+            replace(bucket, lower=float(prediction.lower[index]), upper=float(prediction.upper[index]))
+            for index, bucket in enumerate(buckets)
+        ]
 
     return BandSeries(
         namespace=key.namespace,
         environment=key.environment,
         severity=key.severity,
         total_count=total_count,
-        baseline_weeks=baseline_weeks,
+        baseline_weeks=readiness.baseline_weeks,
         history_start=lifetime_start,
-        band_ready_at=band_ready_at,
+        band_ready_at=readiness.ready_at,
         interval_minutes=interval_minutes,
         coarsened_reason=None,
         buckets=buckets,
@@ -424,6 +472,7 @@ def _coarsen_sparse_series(
     window_end: dt.datetime,
     interval_minutes: int,
     deadline: float,
+    slot_rows: dict[_SeriesKey, _SeriesRows],
 ) -> list[BandSeries]:
     """Move each series that is too sparse at the requested grain up the ladder
     to the first rung where it is dense enough, or to the top rung.
@@ -469,8 +518,10 @@ def _coarsen_sparse_series(
                 settled.append(fallback)
                 continue
             candidate = replace(
-                _build_series(key, rows[key], rung_start, rung_end, rung), coarsened_reason=fallback.coarsened_reason
+                _build_series(key, rows[key], rung_start, rung_end, rung, include_bands=False),
+                coarsened_reason=fallback.coarsened_reason,
             )
+            slot_rows[key] = rows[key]
             if _density_shortfall(candidate) is None:
                 settled.append(candidate)
             else:
@@ -579,12 +630,35 @@ def run_series_bands(
 
     deadline = time.monotonic() + MAX_EXECUTION_SECONDS
     slot_rows = fetch_series_slot_rows(team, service_name, window_start, window_end, interval_minutes)
-    series = [_build_series(key, rows, window_start, window_end, interval_minutes) for key, rows in slot_rows.items()]
+    series = [
+        _build_series(key, rows, window_start, window_end, interval_minutes, include_bands=False)
+        for key, rows in slot_rows.items()
+    ]
     series.sort(key=lambda s: (-s.total_count, s.namespace, s.environment, s.severity))
     series_truncated = len(series) > MAX_SERIES
     series = _coarsen_sparse_series(
-        team, service_name, series[:MAX_SERIES], window_start, window_end, interval_minutes, deadline
+        team,
+        service_name,
+        series[:MAX_SERIES],
+        window_start,
+        window_end,
+        interval_minutes,
+        deadline,
+        slot_rows,
     )
+    series = [
+        replace(
+            _build_series(
+                _series_key(candidate),
+                slot_rows[_series_key(candidate)],
+                floor_to_interval(window_start, candidate.interval_minutes),
+                floor_to_interval(window_end, candidate.interval_minutes),
+                candidate.interval_minutes,
+            ),
+            coarsened_reason=candidate.coarsened_reason,
+        )
+        for candidate in series
+    ]
     series.sort(key=lambda s: (-s.total_count, s.namespace, s.environment, s.severity))
 
     return SeriesBandsResult(

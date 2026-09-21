@@ -95,6 +95,11 @@ PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST or DEBUG else "auto"
 # distinct from 159 TIMEOUT_EXCEEDED (max_execution_time), which stays non-retryable.
 PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS = 2 * 1000
 
+# How long a quorum-skipping caller waits after building before its own read, so the
+# parts can replicate (observed lag between colocated replicas is under a second).
+# Zero in tests and local dev: the single-node ClickHouse there has no replica to lag.
+PREAGGREGATION_REPLICATION_SETTLE_SECONDS: float = 0.0 if TEST or DEBUG else 1.0
+
 
 # Mirrors the `lazy_computation.executed` structured log so the same outcomes
 # (`success` / `timeout` / `non_retryable_error` / `max_retries_exceeded`) are
@@ -166,7 +171,7 @@ LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL = Counter(
 )
 
 
-def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False) -> dict:
+def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False, read_after_write: bool = True) -> dict:
     """Build ClickHouse settings for preaggregation INSERT queries.
 
     Starts from the same HogQLGlobalSettings defaults that execute_hogql_query
@@ -176,13 +181,20 @@ def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False) -> dict:
     GROUP BY hash table can grow large (high-cardinality breakdowns), and most
     kinds never approach the threshold, so callers enable it deliberately rather
     than paying for it everywhere.
+
+    `read_after_write=False` drops the replica-quorum wait. Quorum's only job is
+    the read-your-own-writes edge case: a SELECT issued right after this INSERT
+    landing on a replica the part hasn't reached yet. A caller whose reads come
+    minutes later (background builders) gets no consistency from it — only the
+    failure mode where a downed or stale-registered replica turns every build
+    into TOO_FEW_LIVE_REPLICAS until the cluster is repaired.
     """
     settings = get_default_hogql_global_settings(team_id=team_id).model_dump(exclude_none=True)
     settings.pop("readonly", None)  # INSERTs need write access
     settings.update(
         {
             "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
-            "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
+            "insert_quorum": PREAGGREGATION_INSERT_QUORUM if read_after_write else 0,
             "insert_quorum_timeout": PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS,
             # The executor marks a job READY as soon as the INSERT returns, so rows must be on the
             # shards by then — not sitting in the initiator's async distribution queue, where they
@@ -563,7 +575,7 @@ def _get_ch_expires_at(job: "PreaggregationJob", table: LazyComputationTable) ->
     return job.expires_at + timedelta(seconds=EXPIRY_BUFFER_SECONDS, days=extra_days)
 
 
-@dataclass
+@dataclass(frozen=False)
 class LazyComputationQuery:
     """Normalized query information for lazy computation matching."""
 
@@ -571,9 +583,10 @@ class LazyComputationQuery:
     table: LazyComputationTable
     timezone: str = "UTC"
     breakdown_fields: list[str] = field(default_factory=list)
+    cache_key_context: dict[str, str] | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class LazyComputationResult:
     """Result of executing lazy computation jobs."""
 
@@ -587,6 +600,13 @@ class LazyComputationResult:
     # executor's serve-stale grace instead of recomputing inline. The data is complete
     # but up to (TTL + grace) old; the caller decides whether to surface that.
     stale: bool = False
+    # True when part of the coverage landed during this call (built inline, or waited on
+    # another executor's build). Callers that skipped the replica quorum
+    # (read_after_write=False) must not read these jobs in the same request: the parts
+    # may not have replicated to the read replica yet, and a wrong result read now would
+    # be cached. Serving live once and letting the next request use the jobs is the
+    # intended reaction.
+    freshly_built: bool = False
 
 
 def compute_query_hash(query_info: LazyComputationQuery) -> str:
@@ -599,14 +619,15 @@ def compute_query_hash(query_info: LazyComputationQuery) -> str:
 
     # Include timezone and breakdown fields in the hash
     # Timezone matters because toStartOfDay uses the team timezone
-    hash_input = json.dumps(
-        {
-            "query": query_str,
-            "timezone": query_info.timezone,
-            "breakdown_fields": sorted(query_info.breakdown_fields),
-        },
-        sort_keys=True,
-    )
+    payload: dict[str, object] = {
+        "query": query_str,
+        "timezone": query_info.timezone,
+        "breakdown_fields": sorted(query_info.breakdown_fields),
+    }
+    # Omit absent context so callers with unchanged semantics can reuse existing jobs.
+    if query_info.cache_key_context:
+        payload["cache_key_context"] = query_info.cache_key_context
+    hash_input = json.dumps(payload, sort_keys=True)
 
     return hashlib.sha256(hash_input.encode()).hexdigest()
 
@@ -1422,7 +1443,11 @@ class LazyComputationExecutor:
         final_jobs = find_existing_jobs(team, query_hash, start, end)
         final_fresh = self._filter_by_freshness(final_jobs)
         final_ready = filter_overlapping_jobs([j for j in final_fresh if j.status == PreaggregationJob.Status.READY])
-        result = LazyComputationResult(ready=True, job_ids=[j.id for j in final_ready])
+        result = LazyComputationResult(
+            ready=True,
+            job_ids=[j.id for j in final_ready],
+            freshly_built=jobs_created > 0 or bool(waited_job_ids),
+        )
         _log_execution("success", result)
         return result
 
@@ -1559,6 +1584,8 @@ def ensure_precomputed(
     empty_result_ttl_seconds: int | None = None,
     empty_result_max_age_seconds: int | None = None,
     end_is_data_horizon: bool = False,
+    cache_key_context: dict[str, str] | None = None,
+    read_after_write: bool = True,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1621,13 +1648,23 @@ def ensure_precomputed(
                       would serve stale to themselves and never recompute.
         modifiers: HogQL modifiers used when printing the INSERT's SELECT (defaults to
                       the team's default modifiers). NOT part of job identity — the job
-                      hash covers only the substituted AST — so modifiers must never
-                      change what the query computes, only how it executes (e.g.
-                      `sessionIdPushdown`, which is semantics-preserving by design).
+                      hash covers the substituted AST and cache_key_context. Callers
+                      must include result-changing modifier semantics in cache_key_context.
+                      Execution-only modifiers such as sessionIdPushdown need no context.
+        cache_key_context: Versioned result semantics not represented in the substituted AST.
+                           Use the same effective modifiers for this context and SQL generation.
         end_is_data_horizon: Set True when the insert query bakes `time_range_end`
                       into its own filters, so it stores no rows past it. Job claims
                       then clamp to a historical end instead of claiming the full
                       final day. See LazyComputationExecutor.execute.
+        read_after_write: Set False when no caller SELECTs the inserted rows in the
+                      same request that ran this ensure (background builders whose
+                      readers arrive minutes later). Skips the replica-quorum wait on
+                      the INSERT, so builds keep succeeding while a replica is down
+                      or stale-registered; the cost is that a reader can miss the
+                      newest parts until replication catches up — usually fast, but
+                      with no guaranteed bound. The post-build settle wait covers the
+                      builder's own read-back; later readers accept the residual risk.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -1686,6 +1723,7 @@ def ensure_precomputed(
         query=parsed_for_hash,
         table=table,
         timezone=team.timezone,
+        cache_key_context=cache_key_context,
     )
 
     def _run_manual_insert(t: Team, job: PreaggregationJob) -> int:
@@ -1711,7 +1749,7 @@ def ensure_precomputed(
                 sync_execute(
                     insert_sql,
                     values,
-                    settings=_get_insert_settings(t.id, spill_to_disk=spill_to_disk),
+                    settings=_get_insert_settings(t.id, spill_to_disk=spill_to_disk, read_after_write=read_after_write),
                 )
             )
 
@@ -1733,7 +1771,7 @@ def ensure_precomputed(
         stale_while_revalidate_seconds=stale_while_revalidate_seconds,
         run_inserts=run_inserts,
     )
-    return executor.execute(
+    result = executor.execute(
         team,
         query_info,
         time_range_start,
@@ -1741,6 +1779,13 @@ def ensure_precomputed(
         run_insert=_run_manual_insert,
         end_is_data_horizon=end_is_data_horizon,
     )
+    if not read_after_write and result.ready and result.freshly_built and PREAGGREGATION_REPLICATION_SETTLE_SECONDS:
+        # The coverage landed during this call and quorum was skipped, so the parts may
+        # not have reached the caller's read replica yet. Waiting out the replication
+        # lag here is what keeps the caller's immediate read-back (the warmer warming
+        # the query cache) from caching a partial result for the full TTL.
+        time.sleep(PREAGGREGATION_REPLICATION_SETTLE_SECONDS)
+    return result
 
 
 def _resolve_insert_query(insert_query: str | ast.SelectQuery, placeholders: dict[str, ast.Expr]) -> ast.SelectQuery:

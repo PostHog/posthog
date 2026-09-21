@@ -5,7 +5,7 @@ import { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
-import { DataQualitySubjectRef, apiErrorDetail, checksApi } from 'products/data_quality/frontend/checksApi'
+import { apiErrorDetail, checksApi } from 'products/data_quality/frontend/checksApi'
 import {
     dataQualityChecksHealthList,
     dataQualityChecksList,
@@ -71,18 +71,14 @@ export function subjectKeyOf(subjectType: string, subjectUuid: string | null | u
     return `${subjectType}:${subjectUuid ?? ''}`
 }
 
-function subjectRefOf(check: DataQualityOverviewCheckApi): DataQualitySubjectRef {
-    return { subjectType: check.subject_type, subjectId: check.subject_uuid ?? '' }
-}
-
 /** Where the subject's own page lives, or null when it has none and the name renders as text. */
 export function subjectDetailUrl(check: DataQualityOverviewCheckApi): string | null {
-    if (check.subject_type === 'view') {
-        return check.subject_node_id ? urls.nodeDetail(check.subject_node_id, 'tests') : null
-    }
     if (check.subject_type === 'metric') {
         // The catalog addresses a metric by name, so a row that came without one has no route.
-        return check.subject_metric_name ? urls.dataCatalogMetric(check.subject_metric_name) : null
+        return check.subject_metric_name ? urls.dataCatalogMetric(check.subject_metric_name, 'tests') : null
+    }
+    if (check.subject_type === 'view') {
+        return check.subject_node_id ? urls.nodeDetail(check.subject_node_id, 'tests') : null
     }
     if (check.subject_source_id && check.subject_schema_id) {
         return urls.dataWarehouseSourceSchema(check.subject_source_id, check.subject_schema_id)
@@ -522,7 +518,7 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                     return null
                 }
                 if (failingCheckCount > 0) {
-                    return `${failingCheckCount} of ${checks.length} checks failing, across ${failingSubjectCount} tables and views.`
+                    return `${failingCheckCount} of ${checks.length} checks failing, across ${failingSubjectCount} tables, views, and metrics.`
                 }
                 const passed = checks.filter((check) => check.last_status === 'passed').length
                 if (passed === checks.length) {
@@ -610,7 +606,7 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                 }
                 actions.setRunsLoading(check.id, true)
                 try {
-                    actions.setCheckRuns(check.id, await checksApi.runs(subjectRefOf(check), check.id))
+                    actions.setCheckRuns(check.id, await checksApi.runs(check.id))
                 } catch (error) {
                     lemonToast.error(apiErrorDetail(error) ?? 'Could not load the run history. Try again.')
                 } finally {
@@ -620,7 +616,7 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
             openFailingRows: async ({ check }) => {
                 await openFailingRowsInSqlEditor({
                     cachedRuns: values.checkRunsByCheckId[check.id],
-                    fetchRuns: () => checksApi.runs(subjectRefOf(check), check.id),
+                    fetchRuns: () => checksApi.runs(check.id),
                     onRunsFetched: (runs) => actions.setCheckRuns(check.id, runs),
                 })
             },
@@ -640,10 +636,7 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                 }
                 actions.setCheckDeleting(check.id, true)
                 try {
-                    await checksApi.destroy(
-                        { subjectType: check.subject_type, subjectId: check.subject_uuid ?? '' },
-                        check.id
-                    )
+                    await checksApi.destroy(check.id)
                     actions.removeCheck(check.id)
                     actions.loadOverview()
                     lemonToast.success('Check deleted')

@@ -12,7 +12,6 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
@@ -29,6 +28,7 @@ import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { alertsToThresholdGoalLines, insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import { HogQLBoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber'
 
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { DateRange } from '../DataNode/DateRange'
@@ -191,8 +191,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         chartSettings,
         dashboardId,
         dataVisualizationProps,
-        presetChartHeight,
+        presetChartHeight: scenePresetChartHeight,
     } = useValues(dataVisualizationLogic)
+
+    const presetChartHeight = !props.embedded && scenePresetChartHeight
 
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)

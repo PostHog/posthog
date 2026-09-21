@@ -11,11 +11,12 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { cohortsModel } from '~/models/cohortsModel'
 import { examples } from '~/queries/examples'
 import { DashboardFilter, HogQLVariable, InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
-import { ActivityScope, InsightShortId, InsightType, ItemMode } from '~/types'
+import { ActivityScope, CohortType, InsightShortId, InsightType, ItemMode } from '~/types'
 
 const Insight12 = '12' as InsightShortId
 const Insight42 = '42' as InsightShortId
@@ -53,6 +54,28 @@ describe('insightSceneLogic', () => {
             .toMatchValues({
                 location: partial({ pathname: addProjectIdIfMissing(urls.insightNew(), MOCK_TEAM_ID) }),
             })
+    })
+
+    it('updates the generated breadcrumb when cohort names arrive after the query', async () => {
+        router.actions.push(urls.insightNew())
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.values.insightDataLogicRef!.logic.actions.setQuery({
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: 'total' }],
+                breakdownFilter: { breakdown_type: 'cohort', breakdown: [987] },
+            },
+        } as InsightVizNode)
+        expect(logic.values.breadcrumbs.at(-1)?.name).toContain('ID 987')
+
+        cohortsModel.actions.cacheCohort({ id: 987, name: 'Returning users' } as CohortType)
+
+        expect(logic.values.breadcrumbs.at(-1)?.name).toContain('Returning users')
+        expect(logic.values.breadcrumbs.at(-1)?.name).not.toContain('ID 987')
     })
 
     it('disables discussions for an unsaved insight so comments do not leak across the team', async () => {

@@ -3,6 +3,11 @@ from unittest.mock import patch
 
 from pymongo.errors import ConfigurationError, InvalidURI, OperationFailure, ServerSelectionTimeoutError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_ERROR,
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    HostNotAllowedError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
     MongoDBSourceConfig,
 )
@@ -108,6 +113,19 @@ class TestMongoValidateCredentialsServerSelection:
         assert ok is False
         assert err == _MONGO_HOST_UNRESOLVED_MESSAGE
         assert "Topology Description" not in (err or "")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
+    def test_private_srv_members_return_host_guidance(self, mock_get_collections):
+        # An SRV URI skips the up-front host check, so the connect form only learns the members are
+        # private when the server selector refuses them. That must read as a host problem rather
+        # than the generic connect failure, which also reports to error tracking.
+        mock_get_collections.side_effect = HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: internal IP")
+        config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_WITH_DB})
+
+        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == DATABASE_HOST_NOT_ALLOWED_GUIDANCE
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
     def test_unreachable_cluster_returns_allowlist_message(self, mock_get_collections):

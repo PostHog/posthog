@@ -1,7 +1,7 @@
 """Emitting AI observability events on behalf of a team, without a Postgres read per event.
 
 Every emitted `$ai_evaluation` / `$ai_tag` event needs the team's `api_token` to call
-`capture_internal`. Those emit closures run under `database_sync_to_async(thread_sensitive=False)`,
+`capture_ai_internal`. Those emit closures run under `database_sync_to_async(thread_sensitive=False)`,
 so each one lands on a fresh executor thread and grabs a pooled Postgres connection for a
 single-row read — under pool pressure pgbouncer answers with `query_wait_timeout` instead.
 `api_token` is effectively static, so cache it per worker process and only pay for the query
@@ -14,7 +14,7 @@ from datetime import datetime
 from http import HTTPStatus
 from typing import Any
 
-from posthog.api.capture import CaptureInternalError, capture_internal
+from posthog.api.capture import CaptureInternalError, capture_ai_internal
 from posthog.models.team import Team
 
 # Also bounds how long emits keep using a rotated token: capture-rs accepts stale tokens at
@@ -66,7 +66,7 @@ def clear_team_api_token_cache() -> None:
         _cache.clear()
 
 
-def capture_internal_for_team(
+def capture_ai_internal_for_team(
     *,
     team_id: int,
     event_name: str,
@@ -77,10 +77,15 @@ def capture_internal_for_team(
     process_person_profile: bool = True,
     event_uuid: str | None = None,
 ) -> None:
-    """Capture one event for a team, raising on a non-2xx capture response."""
+    """Capture one AI event for a team, raising on a non-2xx capture response.
+
+    Every caller here emits `$ai_*` events, so this goes to the AI lane
+    (`/i/v1/ai/events` on capture-ai). `capture_ai_internal` rejects a non-AI event
+    name client-side, before any HTTP call.
+    """
     token = get_team_api_token(team_id)
     try:
-        result = capture_internal(
+        result = capture_ai_internal(
             token=token,
             event_name=event_name,
             event_source=event_source,

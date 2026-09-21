@@ -16,9 +16,9 @@ from django.core.cache import cache
 
 import requests
 import structlog
-from posthog_owners import OwnershipSource, OwnersResolver
-from posthog_owners.matcher import normalize_path
-from posthog_owners.resolver import teams_registry
+from owners_yaml import OwnershipSource, OwnersResolver
+from owners_yaml.matcher import normalize_path
+from owners_yaml.resolver import teams_registry
 from requests.adapters import HTTPAdapter
 
 from posthog.dataclasses import frozen
@@ -69,6 +69,10 @@ _SUITE_ROOTS = ("nodejs/", "frontend/", "services/mcp/", "common/replay-shared/"
 
 class OwnershipUnavailable(Exception):
     """The repository's ownership files could not be read, so no attribution is trustworthy."""
+
+
+class NoRootOwnersFile(OwnershipUnavailable):
+    """The repository answers with no root owners file, which is normal for most repositories."""
 
 
 class RepoFiles(OwnershipSource, Protocol):
@@ -221,6 +225,10 @@ def resolve_path_owners(repository: str, paths: Sequence[str], files: RepoFiles 
     reader = files if files is not None else GitHubRepoFiles(repository)
     try:
         return _own_paths(repository, reader, list(dict.fromkeys(paths)))
+    except NoRootOwnersFile:
+        # Most repositories declare no owners.yaml, so this is no error for a caller to act on.
+        logger.info("repo_path_ownership_no_root_file", repository=repository)
+        return PathOwnership(team_by_path=dict.fromkeys(paths, UNOWNED_TEAM), registry={}, resolved=False)
     except OwnershipUnavailable:
         logger.exception("repo_path_ownership_unavailable", repository=repository)
         return PathOwnership(team_by_path=dict.fromkeys(paths, UNOWNED_TEAM), registry={}, resolved=False)
@@ -229,7 +237,7 @@ def resolve_path_owners(repository: str, paths: Sequence[str], files: RepoFiles 
 def _own_paths(repository: str, files: RepoFiles, paths: list[str]) -> PathOwnership:
     root = files.read(_ROOT_OWNERS_FILE)
     if root is None:
-        raise OwnershipUnavailable(f"{repository} has no root {_ROOT_OWNERS_FILE}")
+        raise NoRootOwnersFile(f"{repository} has no root {_ROOT_OWNERS_FILE}")
     resolver = OwnersResolver(source=files)
     files.read_all(resolver.ownership_file_paths(paths))
     owners = resolver.map(paths)

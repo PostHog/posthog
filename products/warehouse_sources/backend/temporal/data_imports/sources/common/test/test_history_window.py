@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import _BaseSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.history_window import (
     history_start_for_schema,
 )
@@ -34,6 +35,15 @@ class TestHistoryStartForSchema(BaseTest):
 
         schema.refresh_from_db()
         assert schema.history_start == NOW - dt.timedelta(days=2 * 365)
+
+    def test_a_source_whose_inputs_do_not_parse_keeps_its_declared_window(self):
+        # The config is read only for a source whose depth the user picks at setup. A source whose
+        # inputs no longer parse has to keep resolving its declared window, because this runs on
+        # every sync of every source.
+        schema = self._schema()
+
+        with mock.patch.object(_BaseSource, "parse_config", side_effect=ValueError("unreadable")):
+            assert self._resolve(schema) == NOW - dt.timedelta(days=2 * 365)
 
     def test_the_recorded_start_is_not_moved_by_a_later_run(self):
         # Recording it once is the whole mechanism. Re-deriving it per run is what this replaces.

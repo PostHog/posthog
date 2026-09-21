@@ -34,7 +34,10 @@ export function ContextUsageIndicator({
   originProduct,
   focused = true,
 }: ContextUsageIndicatorProps) {
-  const costEnabled = originProduct === "user_created";
+  const costEnabled =
+    originProduct === "user_created" ||
+    originProduct === "loop" ||
+    originProduct === "workflow";
   const costVisible = useFeatureFlag(TASK_COST_VISIBLE_FLAG);
   const { data: fetchedTaskUsage } = useTaskUsage(
     taskId,

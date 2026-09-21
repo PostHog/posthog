@@ -19,6 +19,7 @@ from .skill_services import (
     MAX_SKILL_FILE_COUNT,
     RESERVED_SKILL_NAMES,
     SKILL_NAME_PATTERN,
+    bundled_skill_names,
 )
 
 logger = structlog.get_logger(__name__)
@@ -80,9 +81,11 @@ def _validate_entry_shape(entry: dict[str, Any]) -> None:
     """
     slug = entry.get("slug", "")
     # The slug is both the catalog URL segment and the default installed-skill name, so it must
-    # satisfy the skill-name rules — lowercase alnum + single hyphens, not reserved. This also
-    # keeps DRF's default lookup regex (which rejects '.'/'/') able to route detail/install URLs,
-    # and means the default-name install can never raise an uncaught name ValidationError.
+    # satisfy the skill-name rules — lowercase alnum + single hyphens, neither reserved nor a name
+    # PostHog bundles (an entry under a bundled name would install to a name the agent host cannot
+    # tell from the bundled skill). This also keeps DRF's default lookup regex (which rejects
+    # '.'/'/') able to route detail/install URLs, and means the default-name install can never
+    # raise an uncaught name ValidationError.
     # fullmatch, not match: `$` also matches just before a trailing newline, so `match` would
     # accept "valid-skill\n" and persist the newline into the URL segment and install name.
     if (
@@ -90,11 +93,12 @@ def _validate_entry_shape(entry: dict[str, Any]) -> None:
         or not SKILL_NAME_PATTERN.fullmatch(slug)
         or "--" in slug
         or slug.lower() in RESERVED_SKILL_NAMES
+        or slug.lower() in bundled_skill_names()
     ):
         raise ValueError(f"slug '{slug}' is not a valid, routable skill identifier")
 
     # Blank passes both the type and length checks but leaves an unusable entry: a nameless card in
-    # the catalog, and a blank description that `marketplace.packaging.validate_for_export` refuses,
+    # the catalog, and a blank description that `compute_spec_problems` refuses,
     # so the skill installs and then can't be exported. The install path rejects it too.
     for required in ("name", "description"):
         if not _text(entry, required, f"'{required}'").strip():
@@ -160,7 +164,7 @@ def _validate_entry_within_caps(entry: dict[str, Any]) -> None:
             raise ValueError(f"file path '{raw_path}' is invalid: {err.detail}") from err
         if path_max is not None and len(path) > path_max:
             raise ValueError(f"file path '{path}' exceeds the {path_max} character limit")
-        # Case-insensitive, matching `_skill_files_are_tree_safe`: two paths differing only by case
+        # Case-insensitive, matching `compute_spec_problems`: two paths differing only by case
         # collide on a case-insensitive filesystem, and that check silently drops the whole skill
         # from a team's marketplace clone. Cheaper to reject the entry than to ship a skill that
         # installs fine and then vanishes from the generated tree.

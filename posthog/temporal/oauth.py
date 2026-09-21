@@ -228,6 +228,13 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          recoverable soft-delete that refuses a table a source owns. Deleting
 #                          a data quality check is the one PERMANENT delete in this set, and a
 #                          check is cheap to recreate.
+#   replay_scanner:write   Every Replay vision scanner in the scout's project, plus the prompt
+#                          suggestion loop and the shared rating on observations. Scanning spends
+#                          the organization's credits, and delete is PERMANENT (it takes the
+#                          scanner's observations with it), so this scope alone misses the bar the
+#                          others meet. One scope object covers the whole surface, so the two
+#                          exclusions live in `products/replay_vision/backend/scout_writes.py`
+#                          instead: a scout cannot delete, and must cap what it creates or enables.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -244,6 +251,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "llm_skill:write",
         "warehouse_view:write",
         "warehouse_table:write",
+        "replay_scanner:write",
     }
 )
 
@@ -608,13 +616,11 @@ class WizardIdentityBlockedError(Exception):
     a transient token failure must not retry this one."""
 
 
-def create_wizard_oauth_access_token_for_user(user, team_id: int, *, scopes: list[str] | None = None) -> str:
+def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     """Mint an OAuth access token under the wizard's own app for a cloud wizard run.
 
     Deliberately separate from the sandbox/agent token (`create_oauth_access_token_for_user`) so the
-    wizard's scopes stay independent of the agent's. Defaults to the wizard app's
-    configured scope ceiling; `scopes` narrows within it, for a credential whose
-    purpose needs less than the whole ceiling.
+    wizard's scopes stay independent of the agent's. Uses the wizard app's configured scope ceiling.
 
     Gated here rather than only at the HTTP kickoff, which a workflow retry or
     resume reaches with no request in front of it.
@@ -635,11 +641,4 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int, *, scopes: lis
     if ceiling is None or len(ceiling) == 0:
         raise RuntimeError("Wizard app has no scope ceiling. Must be configured in the database.")
 
-    if scopes is None:
-        return _mint_oauth_access_token(user, team_id, app=app, scopes=sorted(ceiling))
-    if not scopes:
-        raise RuntimeError("Refusing to mint a wizard token with no scopes.")
-    outside = sorted(set(scopes) - set(ceiling))
-    if outside:
-        raise RuntimeError(f"Wizard app cannot grant {', '.join(outside)}.")
-    return _mint_oauth_access_token(user, team_id, app=app, scopes=sorted(set(scopes)))
+    return _mint_oauth_access_token(user, team_id, app=app, scopes=sorted(ceiling))

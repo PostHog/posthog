@@ -17,6 +17,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from temporalio import activity, workflow
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
+from temporalio.common import SearchAttributeKey, SearchAttributePair, TypedSearchAttributes
 from temporalio.contrib.opentelemetry import OpenTelemetryPlugin
 from temporalio.exceptions import (
     ActivityError,
@@ -30,22 +31,36 @@ from temporalio.runtime import MetricBuffer, Runtime, TelemetryConfig
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
+from products.alerts.backend.facade.contracts import (
+    AlertDemand,
+    DemandDiscoveryInputs,
+    OrchestrateInputs,
+    OrchestrateResult,
+    SourceKind,
+)
 from products.alerts.backend.facade.temporal import (
     DELIVERY_ACTIVITIES,
     DELIVERY_WORKFLOWS,
     EVALUATION_ACTIVITIES,
     EVALUATION_WORKFLOWS,
+    SHARED_ORCHESTRATION_ACTIVITIES,
+    SHARED_ORCHESTRATION_WORKFLOWS,
     AlertsProductTelemetryInterceptor,
 )
+from products.alerts.backend.logic import demand
 from products.alerts.backend.temporal import postgres
-from products.alerts.backend.temporal.workflows import AlertsProductCheckDueWorkflow, AlertsProductInputs
+from products.alerts.backend.temporal.workflows import (
+    AlertsProductEvaluateWorkflow,
+    AlertsProductInputs,
+    AlertsProductOrchestrateWorkflow,
+)
 
 
 @workflow.defn(name="test-alerts-product-close-after-child-start")
 class CloseAfterChildStartWorkflow:
     @workflow.run
     async def run(self, close_mode: str) -> None:
-        await AlertsProductCheckDueWorkflow().run(AlertsProductInputs())
+        await AlertsProductEvaluateWorkflow().run(AlertsProductInputs())
         await workflow.execute_activity("test_confirm_child_start", start_to_close_timeout=dt.timedelta(seconds=5))
         if close_mode == "failed":
             raise ApplicationError("Test parent failure", non_retryable=True)
@@ -102,17 +117,26 @@ async def test_each_tick_starts_independent_delivery(
         if activity.info().attempt == 1:
             raise ApplicationError("sensitive retry exception")
 
-    async with Worker(
-        client,
-        task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
-        workflows=EVALUATION_WORKFLOWS,
-        activities=EVALUATION_ACTIVITIES,
-        interceptors=[AlertsProductTelemetryInterceptor()],
-        workflow_runner=UnsandboxedWorkflowRunner(),
+    async with (
+        Worker(
+            client,
+            task_queue=settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE,
+            workflows=SHARED_ORCHESTRATION_WORKFLOWS,
+            activities=SHARED_ORCHESTRATION_ACTIVITIES,
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ),
+        Worker(
+            client,
+            task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+            workflows=EVALUATION_WORKFLOWS,
+            activities=EVALUATION_ACTIVITIES,
+            interceptors=[AlertsProductTelemetryInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ),
     ):
         for _ in range(2):
             parent = await client.start_workflow(
-                "alerts-product-check-due",
+                "alerts-product-evaluate",
                 AlertsProductInputs(),
                 id=workflow_id,
                 task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
@@ -120,12 +144,14 @@ async def test_each_tick_starts_independent_delivery(
             )
             assert await parent.result() is None
             history = await parent.fetch_history()
+            evaluation_run_id = parent.first_execution_run_id
             scheduled = [
                 event.activity_task_scheduled_event_attributes
                 for event in history.events
                 if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
             ]
             assert len(scheduled) == 1
+            assert scheduled[0].task_queue.name == settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE
             assert scheduled[0].retry_policy.maximum_attempts == 1
             failure_count = sum(
                 event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED for event in history.events
@@ -139,8 +165,8 @@ async def test_each_tick_starts_independent_delivery(
             ]
             assert len(children) == 1
             child_id = children[0].workflow_execution.workflow_id
-            assert parent.first_execution_run_id is not None
-            assert parent.first_execution_run_id in child_id
+            assert evaluation_run_id is not None
+            assert evaluation_run_id in child_id
             assert children[0].workflow_type.name == "alerts-product-deliver"
             child_ids.add(child_id)
             child_description = await client.get_workflow_handle(child_id).describe()
@@ -168,11 +194,13 @@ async def test_each_tick_starts_independent_delivery(
                 if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
             ]
             assert len(scheduled) == 1
+            assert scheduled[0].task_queue.name == settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE
             assert scheduled[0].retry_policy.maximum_attempts == 3
 
     updates = sdk_metrics.retrieve_updates()
     for metric_name in ("temporal_activity_schedule_to_start_latency", "temporal_activity_execution_latency"):
         for task_queue, expected_attempts in (
+            (settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE, 0),
             (settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE, 2),
             (settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE, 4),
         ):
@@ -197,7 +225,7 @@ async def test_each_tick_starts_independent_delivery(
         assert child_start.parent is not None
         evaluation = spans_by_id[child_start.parent.span_id]
         assert child_start.name == "StartChildWorkflow:alerts-product-deliver"
-        assert evaluation.name == "RunWorkflow:alerts-product-check-due"
+        assert evaluation.name == "RunWorkflow:alerts-product-evaluate"
         assert delivery.context.trace_id == child_start.context.trace_id == evaluation.context.trace_id
         assert evaluation.end_time is not None and delivery.start_time is not None
         assert evaluation.end_time <= delivery.start_time
@@ -226,7 +254,7 @@ async def test_each_tick_starts_independent_delivery(
             "failure"
             if (
                 (attempt_span.name == "RunActivity:alerts_product_deliver_activity" and entries[1]["attempt"] == 1)
-                or (attempt_span.name == "RunActivity:alerts_product_check_due_activity" and database_error)
+                or (attempt_span.name == "RunActivity:alerts_product_probe_postgres_activity" and database_error)
             )
             else "success"
         )
@@ -290,7 +318,7 @@ async def test_probe_timeout_still_starts_independent_delivery(
     activity_started = asyncio.Event()
     release_activity = asyncio.Event()
 
-    @activity.defn(name="alerts_product_check_due_activity")
+    @activity.defn(name="alerts_product_probe_postgres_activity")
     async def blocked_probe() -> None:
         activity_started.set()
         await release_activity.wait()
@@ -303,7 +331,7 @@ async def test_probe_timeout_still_starts_independent_delivery(
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         parent = await client.start_workflow(
-            AlertsProductCheckDueWorkflow.run,
+            AlertsProductEvaluateWorkflow.run,
             AlertsProductInputs(),
             id=str(uuid.uuid4()),
             task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
@@ -368,7 +396,7 @@ async def test_probe_unrelated_activity_failures_do_not_start_delivery(cause: Ex
         scheduled_event_id=1,
         started_event_id=2,
         identity="test-worker",
-        activity_type="alerts_product_check_due_activity",
+        activity_type="alerts_product_probe_postgres_activity",
         activity_id="1",
         retry_state=None,
     )
@@ -378,7 +406,7 @@ async def test_probe_unrelated_activity_failures_do_not_start_delivery(cause: Ex
         patch.object(workflow, "start_child_workflow", AsyncMock()) as start_delivery,
         pytest.raises(ActivityError) as caught,
     ):
-        await AlertsProductCheckDueWorkflow().run(AlertsProductInputs())
+        await AlertsProductEvaluateWorkflow().run(AlertsProductInputs())
     assert caught.value is error
     start_delivery.assert_not_awaited()
 
@@ -389,5 +417,84 @@ async def test_probe_workflow_cancellation_does_not_start_delivery() -> None:
         patch.object(workflow, "start_child_workflow", AsyncMock()) as start_delivery,
         pytest.raises(asyncio.CancelledError),
     ):
-        await AlertsProductCheckDueWorkflow().run(AlertsProductInputs())
+        await AlertsProductEvaluateWorkflow().run(AlertsProductInputs())
     start_delivery.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "cutoff_offset, expected_ids",
+    [
+        (-2, {}),
+        (-1, {SourceKind.LOGS: ["00000000-0000-4000-8000-000000000001"]}),
+        (
+            0,
+            {
+                SourceKind.LOGS: ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"],
+                SourceKind.INSIGHT: ["00000000-0000-4000-8000-000000000003"],
+            },
+        ),
+    ],
+)
+def test_discovery_filters_and_groups_due_configurations(
+    cutoff_offset: int, expected_ids: dict[SourceKind, list[str]]
+) -> None:
+    tick_time = dt.datetime(2026, 9, 16, 10, tzinfo=dt.UTC)
+    configurations = demand._synthetic_configurations(tick_time)
+    cutoff = (tick_time + dt.timedelta(minutes=cutoff_offset)).isoformat()
+    with patch.object(demand, "_synthetic_configurations", return_value=configurations):
+        for _ in range(2):
+            assert demand.discover_synthetic_demand(cutoff).configuration_ids_by_source == expected_ids
+
+
+@pytest.mark.parametrize("cutoff", ["invalid", "2026-09-16T10:00:00"])
+def test_discovery_rejects_invalid_cutoff(cutoff: str) -> None:
+    with pytest.raises(ValueError):
+        demand.discover_synthetic_demand(cutoff)
+
+
+def test_discovery_bounds_ids_per_source_and_counts_the_rest() -> None:
+    cutoff = dt.datetime(2026, 9, 16, 10, tzinfo=dt.UTC).isoformat()
+    bounded = demand.discover_synthetic_demand(cutoff, limit_per_source=1)
+    assert bounded == AlertDemand(
+        configuration_ids_by_source={
+            SourceKind.LOGS: ["00000000-0000-4000-8000-000000000001"],
+            SourceKind.INSIGHT: ["00000000-0000-4000-8000-000000000003"],
+        },
+        omitted_by_source={SourceKind.LOGS: 1},
+    )
+    assert demand.discover_synthetic_demand(cutoff).omitted_by_source == {}
+    with pytest.raises(ValueError):
+        demand.discover_synthetic_demand(cutoff, limit_per_source=0)
+
+
+@pytest.mark.parametrize("scheduled", [False, True])
+async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) -> None:
+    tick_time = dt.datetime(2026, 9, 16, 10, tzinfo=dt.UTC)
+    actual_start = tick_time + dt.timedelta(seconds=20)
+    attributes = TypedSearchAttributes(
+        [SearchAttributePair(SearchAttributeKey.for_datetime("TemporalScheduledStartTime"), tick_time)]
+        if scheduled
+        else []
+    )
+    info = MagicMock(
+        workflow_start_time=actual_start,
+        typed_search_attributes=attributes,
+        workflow_id="tick",
+        run_id="run",
+        execution_timeout=None,
+    )
+    with (
+        patch.object(workflow, "info", return_value=info),
+        patch.object(workflow, "now", return_value=actual_start),
+        patch.object(
+            workflow, "execute_activity", AsyncMock(return_value=AlertDemand(configuration_ids_by_source={}))
+        ) as discover,
+        patch.object(workflow, "start_child_workflow", AsyncMock()) as dispatch,
+    ):
+        result = await AlertsProductOrchestrateWorkflow().run(OrchestrateInputs())
+    assert discover.await_args is not None
+    assert discover.await_args.args[1] == DemandDiscoveryInputs(
+        cutoff=(tick_time if scheduled else actual_start).isoformat()
+    )
+    dispatch.assert_not_awaited()
+    assert result == OrchestrateResult(pages=[], remaining=0, deadline_reached=False)

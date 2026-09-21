@@ -9,6 +9,12 @@ feature: web_analytics
 url_prefix: /web
 ui_apps: {}
 tools:
+    heatmap-screenshot-settings-retrieve:
+        operation: heatmap_screenshot_settings_retrieve
+        enabled: false
+    heatmap-screenshot-settings-update:
+        operation: heatmap_screenshot_settings_update
+        enabled: false
     heatmap-screenshots-content-retrieve:
         operation: heatmap_screenshots_content_retrieve
         enabled: false

@@ -50,7 +50,6 @@ import {
   signOutPiSubscription as signOutPiNativeSubscription,
   startPiSubscriptionLogin as startPiNativeSubscriptionLogin,
 } from "@posthog/agent/pi/subscription-login-client";
-import { buildTaskSystemPrompt } from "@posthog/agent/pi/task-system-prompt";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import {
   findPrUrls,
@@ -64,7 +63,9 @@ import {
 import type * as AgentTypes from "@posthog/agent/types";
 import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch } from "@posthog/git/queries";
+import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
 import { fetchPosthogPiModelCatalog } from "@posthog/harness/extensions/posthog-provider/model-catalog";
+import { buildTaskSystemPrompt } from "@posthog/harness/extensions/task-system-prompt";
 import { APP_META_SERVICE, type IAppMeta } from "@posthog/platform/app-meta";
 import {
   BUNDLED_RESOURCES_SERVICE,
@@ -833,7 +834,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
    */
   private async mountContextWiki(
     credentials: Credentials,
-  ): Promise<AgentTypes.ContextWikiEnv | null> {
+  ): Promise<ContextWikiEnv | null> {
     const authToken = await this.agentAuthAdapter.gatewayAuthToken();
     if (!authToken) {
       return null;

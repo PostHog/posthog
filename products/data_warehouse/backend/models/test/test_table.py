@@ -872,7 +872,83 @@ class TestTable(BaseTest):
             "products.warehouse_sources.backend.models.table.sync_execute",
             side_effect=ServerException("Expected end of line", code=code),
         ):
-            with pytest.raises(Exception, match="CSV parsing failed"):
+            with pytest.raises(Exception, match="didn't parse with either quote setting"):
+                table._validate_csv_double_quotes_setting()
+
+    @parameterized.expand(
+        [
+            (True, "Literal quotes"),
+            (False, "RFC 4180 double quotes"),
+        ]
+    )
+    def test_validate_csv_double_quotes_names_the_setting_that_parses(self, selected, expected_label):
+        from clickhouse_driver.errors import ServerException
+
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            options={"csv_allow_double_quotes": selected},
+            team=self.team,
+        )
+
+        with patch(
+            "products.warehouse_sources.backend.models.table.sync_execute",
+            side_effect=[ServerException("Expected end of line", code=117), None],
+        ):
+            with pytest.raises(Exception, match=f"Set CSV quote handling to '{expected_label}'"):
+                table._validate_csv_double_quotes_setting()
+
+    @parameterized.expand(
+        [
+            (
+                "Cannot extract table structure from CSV format file, because there are no files with "
+                "provided path in S3 or all files are empty",
+                "doesn't exist in the bucket",
+            ),
+            ("Cannot extract table structure: the file is empty", "contains no data"),
+        ]
+    )
+    def test_validate_csv_double_quotes_does_not_blame_quoting_for_missing_data(self, message, expected):
+        from clickhouse_driver.errors import ServerException
+
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            options={"csv_allow_double_quotes": True},
+            team=self.team,
+        )
+
+        with patch(
+            "products.warehouse_sources.backend.models.table.sync_execute",
+            side_effect=ServerException(message, code=636),
+        ):
+            with pytest.raises(Exception, match=expected):
+                table._validate_csv_double_quotes_setting()
+
+    def test_validate_csv_double_quotes_reraises_a_non_parse_error(self):
+        from clickhouse_driver.errors import ServerException
+
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            options={"csv_allow_double_quotes": True},
+            team=self.team,
+        )
+
+        with patch(
+            "products.warehouse_sources.backend.models.table.sync_execute",
+            side_effect=ServerException("Access Denied", code=499),
+        ):
+            with pytest.raises(ServerException):
                 table._validate_csv_double_quotes_setting()
 
     @parameterized.expand(
@@ -987,12 +1063,32 @@ class TestTable(BaseTest):
         result = remove_named_tuples("Array(Tuple(`1` String, `2` String, `3` Nullable(String)))")
         assert result == "Array(Tuple( String,  String,  Nullable(String)))"
 
-    def test_hogql_definition_tuple_with_backtick_positional_names(self):
+    @parameterized.expand(
+        [
+            # A parquet reader given element names matches the nested fields by name, so a renamed
+            # nested field comes back as an empty array. Positional matching still returns the data.
+            (
+                "parquet_stays_positional",
+                DataWarehouseTable.TableFormat.Parquet,
+                "`id` String, `deal_details` Array(Tuple( String,  String,  Nullable(String)))",
+            ),
+            # JSONEachRow has no positional reading of a nested object: without the names ClickHouse
+            # expects an array and every read of the table raises code 27.
+            (
+                "json_keeps_names",
+                DataWarehouseTable.TableFormat.JSON,
+                "`id` String, `deal_details` Array(Tuple(`1` String, `2` String, `3` Nullable(String)))",
+            ),
+        ]
+    )
+    def test_hogql_definition_tuple_element_names_follow_the_format(
+        self, _name: str, table_format: str, expected_structure: str
+    ):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(
             name="test_table",
             url_pattern="https://example.com",
-            format=DataWarehouseTable.TableFormat.Parquet,
+            format=table_format,
             team=self.team,
             columns={
                 "id": "String",
@@ -1006,7 +1102,7 @@ class TestTable(BaseTest):
         )
         definition = table.hogql_definition()
         assert isinstance(definition, HogQLDataWarehouseTable)
-        assert definition.structure == "`id` String, `deal_details` Array(Tuple( String,  String,  Nullable(String)))"
+        assert definition.structure == expected_structure
 
     def assert_raises_with_invalid_hog_column_type(self, column_type):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)

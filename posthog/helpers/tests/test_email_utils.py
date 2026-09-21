@@ -3,6 +3,7 @@ from typing import Optional, cast
 
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
@@ -48,6 +49,34 @@ class TestEmailNormalizer(TestCase):
             with self.subTest(input_email=input_email):
                 result = EmailNormalizer.normalize(input_email)
                 self.assertEqual(result, expected)
+
+    @parameterized.expand(
+        [
+            ("dotted_capital_i", "owner@İstanbul.example"),
+            ("dotless_i", "ownerı@example.com"),
+            ("long_s", "owner@ſtrasse.example"),
+            ("kelvin_sign", "owner@Klvin.example"),
+            ("capital_sharp_s", "owner@ẞtrasse.example"),
+            ("accented_capital", "ÖWNER@example.com"),
+            ("plain_ascii", "OWNER@Example.com"),
+        ]
+    )
+    def test_normalizing_does_not_change_what_postgres_folds_the_address_to(self, _name: str, typed: str) -> None:
+        # Every lookup resolves through Postgres LOWER. An address a person types must therefore
+        # still fold onto the row that normalizing wrote, whatever characters it holds.
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT LOWER(%s), LOWER(%s)", [EmailNormalizer.normalize(typed), typed])
+            folded_stored, folded_typed = cursor.fetchone()
+
+        self.assertEqual(folded_stored, folded_typed)
+
+    def test_account_created_with_a_dotted_capital_i_resolves_from_the_typed_address(self) -> None:
+        user = User.objects.create_user(email="Owner@İstanbul.example", password="testpass123", first_name="Owner")
+
+        self.assertEqual(user.email, "owner@İstanbul.example")
+        self.assertEqual(EmailLookupHandler.get_user_by_email("Owner@İstanbul.example"), user)
+        # Postgres folds `İ` onto a plain `i`, so the ASCII spelling reaches the same row.
+        self.assertEqual(EmailLookupHandler.get_user_by_email("owner@istanbul.example"), user)
 
 
 class TestEmailLookupHandler(TestCase):

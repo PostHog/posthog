@@ -12,6 +12,15 @@ const MAX_VALUE_FOR_DURATION_UNIT: Record<string, number> = {
     s: 60,
 }
 
+// A conversion window runs to 365 days, which the API enforces, so it needs its own ceilings rather
+// than the ones that bound how long a single delay step waits.
+export const MAX_CONVERSION_WINDOW_FOR_DURATION_UNIT: Record<string, number> = {
+    d: 365,
+    h: 365 * 24,
+    m: 365 * 24 * 60,
+    s: 365 * 24 * 60 * 60,
+}
+
 // Type=number lets browsers accept "e", "+" and "-", none of which the executor's duration parser
 // understands. "." and "," stay allowed because fractional durations like 1.5d are valid, and "," is
 // the decimal separator the browser expects in some locales.
@@ -27,12 +36,15 @@ export function HogFlowDuration({
     value,
     onChange,
     allowUnbounded = false,
+    maxValueForUnit = MAX_VALUE_FOR_DURATION_UNIT,
 }: {
     value: string
     onChange: (value: string) => void
     // The per-unit ceilings bound how long a fixed delay waits. A date offset is bounded by the
     // step's max_delay_duration instead, so it opts out and keeps its full magnitude ("45 days before").
     allowUnbounded?: boolean
+    // Per-unit ceilings for fields whose limit is not a delay step's. Ignored when allowUnbounded.
+    maxValueForUnit?: Record<string, number>
 }): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
     const parts = value.match(DURATION_REGEX)
@@ -53,15 +65,14 @@ export function HogFlowDuration({
     }, [numberValue])
 
     // Holds an amount to the unit's ceiling, unless the field opts out (a date offset).
-    const capToUnit = (n: number, u: string): number =>
-        allowUnbounded ? n : Math.min(n, MAX_VALUE_FOR_DURATION_UNIT[u])
+    const capToUnit = (n: number, u: string): number => (allowUnbounded ? n : Math.min(n, maxValueForUnit[u]))
 
     // Fractions are allowed, so the only lower bound is "greater than zero". Anything at or below it
     // would save a delay that never waits, so snap those back up to one whole unit.
     const clamp = (n: number): number => (n > 0 ? capToUnit(n, unit) : 1)
 
     const normalizeAmount = (n: number): number =>
-        n >= EXPONENT_THRESHOLD ? MAX_VALUE_FOR_DURATION_UNIT[unit] : Number(n.toFixed(MAX_FRACTION_DIGITS))
+        n >= EXPONENT_THRESHOLD ? maxValueForUnit[unit] : Number(n.toFixed(MAX_FRACTION_DIGITS))
 
     return (
         <div className="flex gap-2">
@@ -70,7 +81,7 @@ export function HogFlowDuration({
                 inputRef={inputRef}
                 value={displayNumber ?? NaN}
                 min={0}
-                max={allowUnbounded ? undefined : MAX_VALUE_FOR_DURATION_UNIT[unit]}
+                max={allowUnbounded ? undefined : maxValueForUnit[unit]}
                 step="any"
                 onKeyDown={(e) => {
                     if (BLOCKED_NUMBER_INPUT_KEYS.has(e.key)) {

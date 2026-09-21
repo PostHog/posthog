@@ -160,6 +160,9 @@ class TestResolveScopes(SimpleTestCase):
                 "llm_skill:write",
                 "warehouse_view:write",
             ),
+            # The scanner grant's exclusions live in the scanner API, so the token still has to
+            # carry the whole scope object for the rest of that surface to work.
+            ("scanner_grant", "signals_scout", "replay_scanner:write", "alert:write"),
         ]
     )
     def test_scout_posture_adds_only_the_granted_write_scopes(

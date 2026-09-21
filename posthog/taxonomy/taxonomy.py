@@ -76,6 +76,8 @@ PERSON_PROPERTIES_ADAPTED_FROM_EVENT: set[str] = {
     "$app_version",
     "$browser",
     "$browser_version",
+    "$webview_app",
+    "$webview_app_version",
     "$device_type",
     "$current_url",
     "$pathname",
@@ -1619,6 +1621,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Name of the browser the user has used.",
             "examples": ["Chrome", "Firefox"],
         },
+        "$webview_app": {
+            "label": "In-app browser",
+            "description": "Name of the host app whose in-app browser the event came from, such as an event opened inside the LinkedIn or Instagram app. Set from the user agent when the SDK can identify the host app.",
+            "examples": ["LinkedIn", "Instagram", "TikTok"],
+        },
+        "$webview_app_version": {
+            "label": "In-app browser version",
+            "description": "Version of the host app whose in-app browser the event came from.",
+            "examples": ["309.1.0", "375.0.0"],
+        },
         "$os": {
             "label": "OS",
             "description": "The operating system of the user.",
@@ -1969,8 +1981,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["com.posthog.app"],
         },
         "version": {
-            "label": "App version",
-            "description": "The version of the app",
+            "label": "App version (app lifecycle)",
+            "description": "The version of the app. Mobile SDKs send this on app lifecycle events only. Most events carry App version ($app_version) instead.",
             "examples": ["1.0.0"],
         },
         "previous_version": {
@@ -1979,8 +1991,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["1.0.0"],
         },
         "build": {
-            "label": "App build",
-            "description": "The build number for the app",
+            "label": "App build (app lifecycle)",
+            "description": "The build number for the app. Mobile SDKs send this on app lifecycle events only. Most events carry App build ($app_build) instead.",
             "examples": ["1"],
         },
         "previous_build": {
@@ -2927,6 +2939,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "How the model identifier was obtained. client_metadata means the MCP client supplied recognized metadata. self_reported means the agent filled the injected llm_model argument. Both sources are unverified.",
             "examples": ["client_metadata", "self_reported"],
         },
+        "$mcp_llm_model_missing_reason": {
+            "label": "MCP model missing reason",
+            "description": "Why PostHog's MCP server captured no model identifier. missing means llm_model was omitted; unknown means the agent explicitly reported unknown; invalid means the argument was blank or not a string; not_captured means a nonempty report was not captured by the analytics SDK; capture_error means analytics preparation failed. Only set when no model was captured. Older events and other MCP servers may omit this property.",
+            "examples": ["missing", "unknown", "invalid", "not_captured", "capture_error"],
+        },
         "$mcp_intent": {
             "label": "MCP intent",
             "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or — if none was supplied — from an intentFallback the MCP server provides.",
@@ -3625,6 +3642,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["fb.1.1735689600000.IwAR2xY9zAbCdEf"],
             "type": "String",
         },
+        "$fbp": {
+            "label": "Facebook browser ID (fbp)",
+            "description": "The Facebook browser ID that Meta's Conversions API uses to match a conversion to a browser, read from the `_fbp` cookie the Meta pixel sets.",
+            "examples": ["fb.1.1735689600000.1098115397"],
+            "type": "String",
+        },
     },
     "session_properties": {
         "$session_duration": {
@@ -4087,3 +4110,20 @@ WELL_KNOWN_EVENT_NAMES: list[str] = sorted(
     for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
     if name not in IGNORED_EVENT_NAMES and name != "All events"
 )
+
+
+def is_virtual_property(group: str, name: str) -> bool:
+    """Whether a property is virtual — computed at query time, never stored as a PropertyDefinition row.
+
+    Single source of truth for both taxonomy listings (read_taxonomy) and HogQL taxonomy validation
+    (execute_sql), so the two agree on which `$virt_*` names are known.
+    """
+    definition = CORE_FILTER_DEFINITIONS_BY_GROUP.get(group, {}).get(name)
+    return definition is not None and definition.get("virtual") is True
+
+
+def virtual_property_names(group: str) -> frozenset[str]:
+    """Names of the group's virtual properties. See `is_virtual_property`."""
+    return frozenset(
+        name for name in CORE_FILTER_DEFINITIONS_BY_GROUP.get(group, {}) if is_virtual_property(group, name)
+    )

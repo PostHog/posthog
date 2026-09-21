@@ -5,9 +5,11 @@ from sshtunnel import BaseSSHTunnelForwarderError
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+
+from products.data_warehouse.backend.facade.api import reconcile_mysql_schemas
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -16,10 +18,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
     SourceFieldSSHTunnelConfig,
 )
-
-from posthog.exceptions_capture import capture_exception
-
-from products.data_warehouse.backend.facade.api import reconcile_mysql_schemas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     HostNotAllowedError,
@@ -104,7 +102,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MY_SQL,
+            name=ExternalDataSourceType.MYSQL,
             category=DataWarehouseSourceCategory.DATABASES,
             featured=True,
             keywords=["sql", "mariadb", "rds", "aws rds", "amazon rds", "aurora"],
@@ -179,6 +177,23 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
                             SourceFieldSelectConfigOption(label="No", value="false"),
                         ],
                     ),
+                    SourceFieldSelectConfig(
+                        name="verify_server_certificate",
+                        label="Verify the server certificate?",
+                        required=True,
+                        defaultValue="false",
+                        converter=SourceFieldSelectConfigConverter.STR_TO_BOOL,
+                        caption=(
+                            "Check that your database's TLS certificate comes from a trusted authority. "
+                            "A self-signed certificate or a private authority does not pass, so leave this off "
+                            "if you use one. Through an SSH tunnel we check the certificate chain but not the "
+                            "hostname, because the tunnel presents your database on a local address."
+                        ),
+                        options=[
+                            SourceFieldSelectConfigOption(label="Yes", value="true"),
+                            SourceFieldSelectConfigOption(label="No", value="false"),
+                        ],
+                    ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
             ),
@@ -209,6 +224,19 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # source — so the user fixes credentials instead of the generic "check connection
             # details" message sending them to check the host/port.
             "Access denied for user": _INVALID_CREDENTIALS_ERROR,
+            # TiDB Cloud's own ER_ACCESS_DENIED_ERROR (also 1105) wording, distinct from the
+            # standard MySQL "Access denied for user" text above: it points the user at TiDB
+            # Cloud's docs on the cluster-tier username prefix a Serverless cluster requires
+            # (e.g. `<prefix>.root`). Same root cause — wrong credentials, or a username missing
+            # that prefix — so it's non-retryable for the same reason, but needs its own key since
+            # neither existing "Access denied" phrase appears in it. Match the stable sentence,
+            # excluding TiDB's own docs URL that follows it.
+            "Access denied. Please check your user name and password": (
+                "TiDB Cloud rejected the username or password. If you're connecting to a TiDB "
+                "Cloud Serverless cluster, make sure your username includes the required cluster "
+                "prefix (see TiDB Cloud's connection docs). Otherwise check the user and password "
+                "for this source and try again."
+            ),
             # MySQL/MariaDB error 1049 (ER_BAD_DB_ERROR): the configured database doesn't exist on
             # the server — it was renamed or dropped after the source was set up, or the connection
             # was reconfigured to point at a different server. `validate_credentials` already

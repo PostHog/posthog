@@ -1,0 +1,46 @@
+rules:
+    - id: user-email-writes-use-the-shared-fold
+      message: |
+          A write to `User.email` must store the fold the lookups resolve on —
+          `EmailNormalizer.normalize(...)`.
+
+          Every address lookup (login, password reset, the login precheck, the duplicate
+          checks) resolves through Postgres `LOWER`. A path that stores the address as
+          typed leaves rows that differ only by case, and those rows then compete for the
+          same lookup. `posthog_user.email` is unique on the exact string, so the database
+          does not stop them.
+
+          Use `EmailNormalizer.normalize(value)` on the write, and resolve any duplicate
+          check through `EmailLookupHandler.users_matching_email(...)` rather than an
+          equality filter, because that helper folds both sides the way Postgres does.
+
+          Do not reach for `str.lower()` instead: it folds `İ` (U+0130) to `i` plus a
+          combining dot where Postgres folds it to a plain `i`, so the stored address then
+          matches nothing a person can type.
+
+          Suppress a legitimate exception with
+          `# nosemgrep: user-email-writes-use-the-shared-fold -- <reason>`.
+      languages: [python]
+      severity: ERROR
+      patterns:
+          - pattern-either:
+                - pattern: $OBJ.email = $VALUE
+                - pattern: $OBJ.pending_email = $VALUE
+          - pattern-not: $OBJ.email = EmailNormalizer.normalize(...)
+          - pattern-not: $OBJ.pending_email = EmailNormalizer.normalize(...)
+          # Clearing a staged address stores no address at all.
+          - pattern-not: $OBJ.pending_email = None
+          # A constructor assigning its own argument holds no `User` row.
+          - pattern-not: self.email = $VALUE
+          - pattern-not: self.pending_email = $VALUE
+      paths:
+          include:
+              - /ee/**/*.py
+              - /posthog/**/*.py
+              - /products/**/*.py
+          exclude:
+              - /posthog/helpers/email_utils.py
+              - /posthog/models/user.py
+              - '**/test_*.py'
+              - '**/tests/**'
+              - /products/posthog_ai/eval_harness/**

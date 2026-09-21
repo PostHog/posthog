@@ -48,8 +48,9 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
     pick_granularity,
     window_buckets,
 )
-from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, DeploySources, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    UNPAGED_SCAN_LIMIT,
     run_started_floor_constant,
     window_pair_predicates,
 )
@@ -229,6 +230,7 @@ _DEPLOYED_PRS_CTE = """
     deployed_prs AS (
         SELECT
             pr.number AS number,
+            pr.author_handle AS author_handle,
             pr.created_at AS created_at,
             pr.merged_at AS merged_at,
             min(h.first_success_at) AS deployed_at
@@ -240,7 +242,7 @@ _DEPLOYED_PRS_CTE = """
             AND NOT pr.is_draft
             __TEAM_FILTER__
             AND h.head_merged_at >= pr.merged_at
-        GROUP BY pr.number, pr.created_at, pr.merged_at
+        GROUP BY pr.number, pr.author_handle, pr.created_at, pr.merged_at
     )
 """
 
@@ -651,34 +653,26 @@ def _query_lead_time(scan: _DoraScan, *, github_team: str | None, members_source
     )
 
 
-def query_dora_overview(
-    *,
+@frozen
+class _ScopedScan:
+    scan: _DoraScan
+    environment_scope: _EnvironmentScope
+    # The picker's options: persistent environments deployed to in the scan window.
+    environments: list[str]
+
+
+def _scoped_scan(
     curated: CuratedGitHubSource,
+    deploy_sources: DeploySources,
+    *,
     date_from: datetime,
     date_to: datetime | None,
-    validated_environments: list[str] | None = None,
-    github_team: str | None = None,
-    granularity: Granularity | None = None,
-) -> DoraOverview:
-    granularity = granularity or pick_granularity(date_from, date_to)
-    deploy_sources = curated.deploy_sources()
-    members_source = curated.members_source()
-    has_membership_data = members_source is not None
-    github_teams = _query_github_teams(curated, members_source)
-
-    if deploy_sources is None:
-        return _empty_overview(
-            deploy_data_available=False,
-            environment_scope=", ".join(validated_environments) if validated_environments else "persistent",
-            environments=[],
-            has_membership_data=has_membership_data,
-            github_teams=github_teams,
-            granularity=granularity,
-        )
-
+    validated_environments: list[str] | None,
+    granularity: Granularity,
+) -> _ScopedScan:
+    """Resolve the environment scope and bind the deploys CTE and placeholders every deploy read shares."""
     end = date_to or datetime.now(tz=date_from.tzinfo)
     prev_from = date_from - (end - date_from)
-    window_days = max((end - date_from).total_seconds() / 86400, 1 / 24)
 
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
@@ -730,6 +724,45 @@ def query_dora_overview(
         date_to=date_to,
         granularity=granularity,
     )
+    return _ScopedScan(scan=scan, environment_scope=env_scope, environments=environments)
+
+
+def query_dora_overview(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: datetime,
+    date_to: datetime | None,
+    validated_environments: list[str] | None = None,
+    github_team: str | None = None,
+    granularity: Granularity | None = None,
+) -> DoraOverview:
+    granularity = granularity or pick_granularity(date_from, date_to)
+    deploy_sources = curated.deploy_sources()
+    members_source = curated.members_source()
+    has_membership_data = members_source is not None
+    github_teams = _query_github_teams(curated, members_source)
+
+    if deploy_sources is None:
+        return _empty_overview(
+            deploy_data_available=False,
+            environment_scope=", ".join(validated_environments) if validated_environments else "persistent",
+            environments=[],
+            has_membership_data=has_membership_data,
+            github_teams=github_teams,
+            granularity=granularity,
+        )
+
+    end = date_to or datetime.now(tz=date_from.tzinfo)
+    window_days = max((end - date_from).total_seconds() / 86400, 1 / 24)
+    scoped = _scoped_scan(
+        curated,
+        deploy_sources,
+        date_from=date_from,
+        date_to=date_to,
+        validated_environments=validated_environments,
+        granularity=granularity,
+    )
+    scan, env_scope, environments = scoped.scan, scoped.environment_scope, scoped.environments
     outcomes = _query_deploy_outcomes(scan)
     lead = _query_lead_time(scan, github_team=github_team, members_source=members_source)
 
@@ -765,6 +798,86 @@ def query_dora_overview(
         open_to_deploy_series=lead.open_to_deploy_series,
         series_granularity=granularity,
     )
+
+
+# Every deployed PR relevant to one window, one row each: deployed in the window (the distribution
+# population) or merged in it (the attribution-coverage population). The author page splits the
+# rows in Python, so the containment rule stays defined once, in the CTEs above.
+_DEPLOYED_PR_ROWS_SELECT = f"""
+    SELECT number, (__SCOPE__) AS in_scope, created_at, merged_at, deployed_at
+    FROM deployed_prs
+    WHERE (deployed_at >= {{date_from}} __DATE_TO_DEPLOYED__) OR (merged_at >= {{date_from}} __DATE_TO_MERGED__)
+    LIMIT {UNPAGED_SCAN_LIMIT}
+"""
+
+
+@frozen
+class DeployedPR:
+    number: int
+    # True when the caller's scope predicate matches the PR.
+    in_scope: bool
+    created_at: datetime
+    merged_at: datetime
+    # The first successful in-scope deployment that contains the merge.
+    deployed_at: datetime
+
+
+@frozen
+class DeployedPRs:
+    environment_scope: str
+    rows: list[DeployedPR]
+
+
+def query_deployed_prs(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: datetime,
+    date_to: datetime | None,
+    scope_predicate: str,
+    scope_placeholders: dict[str, ast.Expr],
+) -> DeployedPRs | None:
+    """The deployed-PR population behind lead time, in the default (production) environment scope,
+    as rows. ``scope_predicate`` is a trusted SQL predicate over the unqualified ``deployed_prs``
+    columns that marks each row ``in_scope``; its placeholders ride in ``scope_placeholders``. None
+    when the deploy tables aren't synced."""
+    deploy_sources = curated.deploy_sources()
+    if deploy_sources is None:
+        return None
+    scoped = _scoped_scan(
+        curated,
+        deploy_sources,
+        date_from=date_from,
+        date_to=date_to,
+        validated_environments=None,
+        granularity=pick_granularity(date_from, date_to),
+    )
+    scan = scoped.scan
+    pr_source = curated.pr_source()
+    sql = f"WITH {scan.deploys_cte}, {_DEPLOY_HEADS_CTE}, {_DEPLOYED_PRS_CTE} " + (
+        _DEPLOYED_PR_ROWS_SELECT.replace("__DATE_TO_DEPLOYED__", scan.date_to_filter("deployed_at")).replace(
+            "__DATE_TO_MERGED__", scan.date_to_filter("merged_at")
+        )
+    )
+    sql = (
+        sql.replace("__PR_SOURCE__", pr_source)
+        .replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
+        .replace("__TEAM_FILTER__", "")
+        .replace("__SCOPE__", scope_predicate)
+    )
+    scan.placeholders.update(scope_placeholders)
+    response = scan.run(sql, query_type="engineering_analytics.deployed_pr_rows")
+    rows = [
+        DeployedPR(
+            number=int(number),
+            in_scope=bool(in_scope),
+            created_at=created_at,
+            merged_at=merged_at,
+            deployed_at=deployed_at,
+        )
+        for number, in_scope, created_at, merged_at, deployed_at in response.results or []
+        if created_at is not None and merged_at is not None and deployed_at is not None
+    ]
+    return DeployedPRs(environment_scope=scoped.environment_scope.scope, rows=rows)
 
 
 def _lead_time_bucket(bucket: datetime, stats: tuple[Any, ...] | None, *, stage: int) -> LeadTimeBucket:
