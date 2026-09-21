@@ -40,6 +40,9 @@ class PrecountedLimitOffsetPagination(LimitOffsetPagination):
     def set_count(self, count: int) -> None:
         self.count = count
 
+    def _offset_is_past_the_end(self) -> bool:
+        return self.offset > (self.count or 0)
+
     def paginate_queryset(self, queryset, request, view=None) -> Optional[list[Any]]:
         if self.count is None:
             return super().paginate_queryset(queryset, request, view)
@@ -50,7 +53,7 @@ class PrecountedLimitOffsetPagination(LimitOffsetPagination):
 
         self.offset = self.get_offset(request)
         self.request = request
-        if self.count == 0 or self.offset > self.count:
+        if self.count == 0 or self._offset_is_past_the_end():
             self.page_size_returned = 0
             return []
 
@@ -71,6 +74,10 @@ class CappedCountLimitOffsetPagination(PrecountedLimitOffsetPagination):
     def set_count(self, count: int, is_capped: bool = False) -> None:
         super().set_count(count)
         self.count_is_capped = is_capped
+
+    def _offset_is_past_the_end(self) -> bool:
+        # The count is a lower bound, so it says nothing about where the rows end. Only an empty page does.
+        return False if self.count_is_capped else super()._offset_is_past_the_end()
 
     def get_next_link(self) -> Optional[str]:
         # The base class drops `next` once `offset + limit >= count`, which a capped count reaches early.
