@@ -554,7 +554,13 @@ describe('.github/workflows run plans', () => {
         expect(trustedSource).not.toContain('secrets.DEPOT_CI_CANCEL_TOKEN')
 
         const trusted = loadWorkflow(trustedPath)
-        expect(trusted.on).toMatchObject({ workflow_run: { workflows: ['Backend CI'], types: ['completed'] } })
+        expect(trusted.on).toMatchObject({
+            pull_request_target: { branches: ['master'] },
+            workflow_run: { workflows: ['Backend CI'], types: ['completed'] },
+        })
+        expect(trusted.jobs.report?.if).toContain(
+            "github.event.workflow_run.pull_requests[0].base.ref == 'master'"
+        )
         const checkout = trusted.jobs.report?.steps?.find((step) => step.uses?.startsWith('actions/checkout@'))
         expect(checkout?.with?.ref).toBe('${{ env.SOURCE_BASE_SHA }}')
     })
