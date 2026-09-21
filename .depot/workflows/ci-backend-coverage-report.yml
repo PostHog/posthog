@@ -120,9 +120,10 @@ jobs:
                       output.write_bytes(uploaded.read(entries[0]))
                   PY
 
-            - name: Check out trusted publisher
+            - name: Check out trusted publisher # nosemgrep: yaml.github-actions.security.pull-request-target-code-checkout.pull-request-target-code-checkout
               if: steps.report.outputs.available == 'true'
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # v6.0.2 checks out only the trusted base SHA below, never pull request code.
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
               with:
                   ref: ${{ github.event.pull_request.base.sha }}
                   sparse-checkout: |
