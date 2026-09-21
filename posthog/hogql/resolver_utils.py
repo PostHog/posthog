@@ -241,7 +241,9 @@ def get_long_table_name(select: ast.SelectQueryType, type: ast.Type) -> str:
         case ast.TableType():
             return select.get_alias_for_table_type(type) or ""
         case ast.LazyTableType(table=table):
-            return table.to_printed_hogql()
+            # The scope alias wins: a namespaced table such as `posthog.my_table` is registered
+            # under `posthog__my_table`, a name the table's own printed name cannot know.
+            return select.get_alias_for_table_type(type) or table.to_printed_hogql()
         case (
             ast.TableAliasType(alias=alias)
             | ast.ColumnAliasedTableType(alias=alias)
