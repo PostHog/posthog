@@ -25,9 +25,9 @@ def is_primary_region(request: HttpRequest) -> bool:
 
 
 def other_region_domain(domain: str) -> str:
-    """The region that is not this one.
+    """The region that is not the one named.
 
-    Most third parties hold the primary region's URL, but not all of them: a marketplace that
-    registered the secondary region's URL sends there and is forwarded the other way.
+    Most third parties hold the primary region's URL, so most forwards run to the secondary
+    one. A marketplace that registered the secondary region's URL is forwarded the other way.
     """
     return SECONDARY_REGION_DOMAIN if domain == PRIMARY_REGION_DOMAIN else PRIMARY_REGION_DOMAIN

@@ -114,9 +114,9 @@ class WebhookProvider(ABC):
     def receiving_region_domain(self) -> str:
         """The region whose URL this App is registered against.
 
-        That region receives every delivery and forwards the ones another region owns. Almost
-        every third party holds the primary region's URL; one that registered the secondary
-        region's URL overrides this, and the forward then runs the other way.
+        That region receives every delivery, and forwards the ones another region owns. Almost
+        every third party holds the primary region's URL, which is why this is not a field: a
+        provider that needs the other one overrides the method, and nothing else has to know.
         """
         return regions.PRIMARY_REGION_DOMAIN
 

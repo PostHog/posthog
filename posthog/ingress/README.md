@@ -186,7 +186,7 @@ Ingress carries both as general controls, so the next endpoint gets them without
 
 A third party holds one callback URL, which points at one region, so a delivery about a resource the other region owns still arrives there first.
 For almost every App that URL is the primary region (EU) and the forward runs to the secondary one (US).
-A provider whose App was registered the other way round names its own receiving region in `receiving_region_domain`, and the forward runs the other way; Vercel is the only one today.
+A provider whose App was registered against the secondary region instead overrides `receiving_region_domain()`, and the forward runs the other way; Vercel is the only one today.
 Ingress owns the forward, because what is replayed is the signed body — a consumer only ever sees the parsed mapping.
 
 A consumer whose resources are split by region declares `ownership`, a callable that takes the delivery and answers a `DeliveryOwnership`:

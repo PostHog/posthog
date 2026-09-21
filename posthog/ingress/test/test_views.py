@@ -1,5 +1,6 @@
 import hmac
 import json
+import importlib
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import Any, cast
@@ -18,6 +19,7 @@ from requests import RequestException
 from rest_framework.request import Request as DRFRequest
 from rest_framework.throttling import BaseThrottle, ScopedRateThrottle
 
+from posthog import regions
 from posthog.ingress.contracts import (
     DeliveryDispatch,
     DeliveryOwnership,
@@ -31,7 +33,7 @@ from posthog.ingress.dispatch.forward import HOST_IDENTIFYING_HEADERS, forward_t
 from posthog.ingress.dispatch.registry import ConsumerRegistry
 from posthog.ingress.github.provider import GitHubProvider, build_github_provider
 from posthog.ingress.pandadoc.provider import build_pandadoc_provider
-from posthog.ingress.providers import InvalidPayload, WebhookProvider
+from posthog.ingress.providers import _INCARNATION_MODULES, InvalidPayload, WebhookProvider
 from posthog.ingress.slack.provider import build_slack_provider
 from posthog.ingress.vapi.provider import VapiProvider
 from posthog.ingress.verify.schemes import Verification, VerificationOutcome
@@ -59,6 +61,13 @@ class _RedeliveringGitHubProvider(GitHubProvider):
     # Stands in for a provider that replays a delivery the endpoint did not accept, which GitHub
     # itself does not do.
     retry_status = 502
+
+
+class _SecondaryRegionGitHubProvider(GitHubProvider):
+    # Stands in for a provider whose App is registered against the secondary region, so deliveries
+    # arrive there and the forward runs the other way.
+    def receiving_region_domain(self) -> str:
+        return regions.SECONDARY_REGION_DOMAIN
 
 
 class _SlowForwardGitHubProvider(GitHubProvider):
@@ -635,6 +644,36 @@ class TestRegionalForwarding(_DispatchingViewTestCase):
         self.requests.assert_not_called()
         self.handler.assert_called_once()
         self.assertEqual([call.args[0] for call in logger.warning.call_args_list], ["ingress_delivery_unowned_here"])
+
+    def test_every_provider_on_the_package_receives_in_the_primary_region(self) -> None:
+        # The forward direction is shared machinery, so a provider that quietly overrides it
+        # redirects signed deliveries for an endpoint whose owners never asked for that.
+        overriding: list[str] = []
+        for module_name in _INCARNATION_MODULES:
+            module = importlib.import_module(module_name)
+            for candidate in vars(module).values():
+                if not isinstance(candidate, type) or not issubclass(candidate, WebhookProvider):
+                    continue
+                if candidate.receiving_region_domain is not WebhookProvider.receiving_region_domain:
+                    overriding.append(f"{module_name}.{candidate.__name__}")
+
+        self.assertEqual(overriding, [])
+
+    def test_a_provider_registered_against_the_secondary_region_forwards_the_other_way(self) -> None:
+        view = self._view(
+            [_consumer(GITHUB_SPEC, name="probe", handler=self.handler, answer=DeliveryOwnership.ELSEWHERE)],
+            provider=_SecondaryRegionGitHubProvider("posthog"),
+        )
+
+        with (
+            patch("posthog.regions.PRIMARY_REGION_DOMAIN", "eu.posthog.com"),
+            patch("posthog.regions.SECONDARY_REGION_DOMAIN", "testserver"),
+        ):
+            response = view(self._github_request())
+
+        self.assertEqual(response.status_code, 202)
+        self.assertIn("eu.posthog.com", self.requests.call_args.kwargs["url"])
+        self.handler.assert_called_once()
 
     def test_a_batched_body_of_unowned_deliveries_forwards_the_request_once(self) -> None:
         view = self._view(

@@ -1,7 +1,8 @@
 """Replay a verified request to the region that owns the resource it is about.
 
-A third party sends every delivery to the primary region, so a delivery for a resource the other
-region holds has to be forwarded there. The forward is the raw signed bytes, unchanged: the other
+A third party sends every delivery to the one region its callback URL names, so a delivery for a
+resource the other region holds has to be forwarded there. Which region receives is the provider's
+own fact, and the caller names the target. The forward is the raw signed bytes, unchanged: the other
 region verifies the same signature over the same body, which is why no consumer can do this --
 by the time a consumer sees a delivery, the body is a parsed mapping.
 
