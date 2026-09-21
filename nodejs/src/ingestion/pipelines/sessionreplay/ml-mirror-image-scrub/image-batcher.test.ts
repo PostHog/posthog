@@ -427,6 +427,10 @@ describe('ImageBatcher', () => {
                 { [CAPTURE_TIMESTAMP_HEADER]: Buffer.from(String(CAPTURED_AT)) },
             ]),
         ])
+        // The failed write has settled and left the in-flight list before anyone drains.
+        for (let tick = 0; tick < 20; tick++) {
+            await new Promise((resolve) => setImmediate(resolve))
+        }
         await expect(batcher.drain()).rejects.toThrow('s3 down')
 
         store.failNext = false
@@ -1017,6 +1021,7 @@ describe('ImageBatcher', () => {
         const batcher = new ImageBatcher(store as unknown as ImageShardStore, revoked, scrubClient, options)
 
         await expect(batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))])).resolves.toBeUndefined()
+        await batcher.drain()
         expect(store.writes).toHaveLength(1)
     })
 

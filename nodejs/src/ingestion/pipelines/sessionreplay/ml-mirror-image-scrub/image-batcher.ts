@@ -261,6 +261,10 @@ export class ImageBatcher {
     /** Resolves once every hand-off taken so far is written and its offsets stored; rejects with the lane's failure. */
     public async drain(): Promise<void> {
         await Promise.all(this.writesInFlight)
+        // A hand-off that failed before this call has already left the list, so the list alone cannot report it.
+        if (this.writeFailure !== undefined) {
+            throw this.writeFailure
+        }
     }
 
     public async handleBatch(messages: Message[]): Promise<void> {
