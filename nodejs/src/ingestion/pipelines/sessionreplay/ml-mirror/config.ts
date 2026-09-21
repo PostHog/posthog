@@ -13,6 +13,10 @@ export type MlMirrorConfig = {
     AI_RESEARCH_REPLAY_ROW_CACHE_LIFETIME_MS: number
     AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE: string
     AI_RESEARCH_REPLAY_S3_PREFIX: string
+    /** Bucket of the v3 dataset, which holds only AISR03 frames. Empty until the cutover by session start timestamp selects it. */
+    AI_RESEARCH_REPLAY_S3_BUCKET: string
+    /** Block prefix inside the v3 bucket. Each dataset version has its own, so a bucket policy grants only the versions it holds. */
+    AI_RESEARCH_REPLAY_S3_V3_PREFIX: string
     /** S3 key prefix under the bucket for the block-metadata Parquet dataset (used by the sink). */
     SESSION_RECORDING_ML_METADATA_PREFIX: string
     /** Optional S3 key of the `{ text, url }` allow-list document; empty → in-binary defaults. */
@@ -166,7 +170,6 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL: string
-    SESSION_RECORDING_ML_IMAGE_SCRUB_FLUSH_INTERVAL_MS: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGES: number
     // Real peak memory is ~2x this: the flush does a Buffer.concat copy.
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES: number
@@ -222,6 +225,8 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         AI_RESEARCH_REPLAY_ROW_CACHE_LIFETIME_MS: 300_000,
         AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE: '',
         AI_RESEARCH_REPLAY_S3_PREFIX: 'rrweb_2',
+        AI_RESEARCH_REPLAY_S3_BUCKET: '',
+        AI_RESEARCH_REPLAY_S3_V3_PREFIX: 'rrweb_3',
         SESSION_RECORDING_ML_METADATA_PREFIX: 'block-metadata',
         SESSION_RECORDING_ML_ALLOW_LIST_S3_KEY: '',
         AI_RESEARCH_REPLAY_PSEUDONYM_SECRET: '',
@@ -269,7 +274,6 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: 'scrubbed-images',
         // 127.0.0.1, not localhost: the sidecar binds IPv4 loopback, and localhost can resolve to ::1 first.
         SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL: 'http://127.0.0.1:9010',
-        SESSION_RECORDING_ML_IMAGE_SCRUB_FLUSH_INTERVAL_MS: 30 * 1000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGES: 1000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES: 128 * 1024 * 1024,
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY: 8,

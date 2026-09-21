@@ -10,17 +10,18 @@ JSON object keyed by normalized path to stdout::
 
 ``--codeowners FILE`` switches to the other mode: it ignores the path arguments and writes a
 CODEOWNERS projection of every tracked test file's ownership to FILE (``-`` for stdout), for a
-consumer that reads CODEOWNERS and cannot read ``owners.yaml``.
+consumer that reads CODEOWNERS and cannot read ``owners.yaml``. The GitHub organization comes from
+``--org``, else from ``github_org`` in the root ``owners.yaml``.
 
 ``--repo-root`` names the directory holding the ownership files. Without it the
 resolver locates the repo with ``git rev-parse``, which needs a real worktree; a
-consumer that fetched only the ``owners.yaml`` / ``product.yaml`` files into a
-scratch directory passes the flag instead.
+consumer that fetched only the ownership files into a scratch directory passes
+the flag instead.
 
 Kept off click on purpose (stdlib + pyyaml only) so a workflow can run it with
-``python -m posthog_owners`` after installing just pyyaml — no hogli, no
-project sync. The click CLI (``hogli owners:resolve --json``) emits the identical
-shape for dev use; both build it via ``resolution_to_wire`` so there is one format.
+``python -m owners_yaml`` after installing just pyyaml, with no project sync.
+The click CLI (``owners resolve --json``) emits the identical shape; both build it
+via ``resolution_to_wire`` so there is one format.
 """
 
 from __future__ import annotations
@@ -31,13 +32,13 @@ import argparse
 from pathlib import Path
 from typing import cast
 
-from .codeowners import package_dirs_from, project
+from .codeowners import project_repo
 from .matcher import normalize_path
-from .resolver import DEFAULT_PURPOSE, OwnersResolver, Purpose, read_stdin_paths, resolution_to_wire
+from .resolver import DEFAULT_PURPOSE, OwnersResolver, Purpose, RepoRootNotFound, read_stdin_paths, resolution_to_wire
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="python -m posthog_owners")
+    parser = argparse.ArgumentParser(prog="python -m owners_yaml")
     parser.add_argument("--purpose", choices=["slack", "notifications"], default=DEFAULT_PURPOSE)
     parser.add_argument(
         "--repo-root",
@@ -50,6 +51,11 @@ def main() -> None:
         default=None,
         help="Write a CODEOWNERS projection of test-file ownership to FILE ('-' for stdout) and exit",
     )
+    parser.add_argument(
+        "--org",
+        default=None,
+        help="GitHub organization for --codeowners; default: github_org in the root owners.yaml",
+    )
     parser.add_argument("paths", nargs="*")
     ns = parser.parse_args()
     # A root that is not a directory reads as a repo with no ownership files, so every path
@@ -58,11 +64,18 @@ def main() -> None:
     if ns.repo_root is not None and not (ns.repo_root and Path(ns.repo_root).is_dir()):
         parser.error(f"--repo-root {ns.repo_root!r} is not a directory")
     repo_root = Path(ns.repo_root) if ns.repo_root is not None else None
-    resolver = OwnersResolver(repo_root=repo_root, purpose=cast("Purpose", ns.purpose))
+    try:
+        resolver = OwnersResolver(repo_root=repo_root, purpose=cast("Purpose", ns.purpose))
+    except RepoRootNotFound as exc:
+        parser.error(str(exc))
 
     if ns.codeowners:
-        tracked = resolver.tracked_files()
-        rendered = project(tracked, resolver, package_dirs_from(tracked)).render()
+        org = ns.org or resolver.settings().github_org
+        if not org:
+            parser.error(
+                "--codeowners needs a GitHub organization: set github_org in the root owners.yaml or pass --org"
+            )
+        rendered = project_repo(resolver, org).render()
         if ns.codeowners == "-":
             sys.stdout.write(rendered)
         else:

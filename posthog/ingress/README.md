@@ -267,6 +267,7 @@ Two shapes that already exist and are worth copying rather than re-deriving:
   `customerio/` is the case where DRF's team scoping is the reason: its secret comes from a team's integration row. It verifies through `posthog.auth.WebhookSignatureAuthentication`, which computes its digest with `hmac_sha256_signature()` and compares with `signatures_match()` from `verify/schemes.py`, so the adapter path and the dispatched path share one implementation of HMAC-SHA256.
   That base class backs three endpoints rather than Customer.io alone, because the tasks cross-region usage lookup and the AI observability cross-region spend lookup subclass it too, each with its own header names, signed-input format, and secret.
   `stripe/` is the case where a signed request/response API is the reason: Stripe calls PostHog and reads the JSON answer, and the partner spec fixes both the order of the checks and the error envelope, so `ee/partners/stripe/api/provisioning/signature.py` keeps those and calls `StripeSignature.verify()` for the signature alone.
+- **The scheme-only caller.** An endpoint that must answer its sender synchronously cannot be a dispatched webhook, because dispatch answers a receipt. It keeps its view and calls the incarnation's scheme builder, so the window and the signed input still have one definition. `slack/` is the case: `build_slack_signature_scheme()` backs the `slack_app` product's endpoints through `posthog.models.integration.validate_slack_request`, while `build_slack_provider()` backs the dispatched conversations endpoints.
 
 ## Dedup
 

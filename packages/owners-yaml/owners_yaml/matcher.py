@@ -6,6 +6,10 @@ anchoring, slash-free names behaving as ``**/`` prefixed, trailing-slash meaning
 "this directory and everything under it", ``*`` never crossing ``/``, and a
 literal final segment owning its whole subtree.
 
+``[...]`` character classes are the one addition GitHub does not implement.
+gitignore and fnmatch both have them, and ``schema.match_is_glob`` counts ``[``
+as a glob character, so the matcher must read a class the same way.
+
 Used both for ``owners.yaml`` ``rules:`` globs and by the legacy differ to
 replicate the assigner's ``CODEOWNERS-soft`` behavior, so it must stay faithful.
 """
@@ -68,23 +72,74 @@ def pattern_to_segments(pattern: str) -> list[str]:
     return collapsed
 
 
+def _class_char(ch: str) -> str:
+    """One character as it must be spelled inside a regex ``[...]`` class."""
+    return "\\" + ch if ch in "^]\\-" else ch
+
+
+def _char_class(seg: str, start: int) -> tuple[str, int] | None:
+    """Convert the ``[...]`` class opening at ``start`` into a regex class.
+
+    Returns the regex plus the index just past the closing ``]``, or None when the
+    class never closes. An unmatched ``[`` is then a literal, as in fnmatch. This is
+    the one place where gitignore differs: its wildmatch makes such a pattern match
+    nothing, which is the silent failure this matcher exists to prevent. ``/`` is
+    dropped from the member list so no class can match across a segment boundary.
+    """
+    i = start + 1
+    negated = i < len(seg) and seg[i] in "!^"
+    if negated:
+        i += 1
+    body: list[str] = []
+    first = True
+    while i < len(seg):
+        ch = seg[i]
+        # A `]` in first position is a member, not the terminator.
+        if ch == "]" and not first:
+            if not body:
+                # `[/]` has no members left: it can never match. `[!/]` keeps the
+                # negation and becomes "any character but the separator".
+                return ("[^/]" if negated else "(?!)"), i + 1
+            inner = "".join(body)
+            return (f"[^{inner}/]" if negated else f"[{inner}]"), i + 1
+        first = False
+        # A range needs both endpoints, so a `-` before the terminator is a member.
+        if i + 2 < len(seg) and seg[i + 1] == "-" and seg[i + 2] != "]":
+            body.append(f"{_class_char(ch)}-{_class_char(seg[i + 2])}")
+            i += 3
+            continue
+        if ch != SEP:
+            body.append(_class_char(ch))
+        i += 1
+    return None
+
+
 def _seg_to_regex(seg: str) -> re.Pattern[str]:
-    """Compile one literal segment (may contain ``*``, ``?``, ``\\`` escapes) into
-    an anchored regex matching exactly one path segment (never crossing ``/``)."""
+    """Compile one pattern segment (may contain ``*``, ``?``, ``[...]`` classes and
+    ``\\`` escapes) into an anchored regex matching exactly one path segment (never
+    crossing ``/``)."""
     out = ["^"]
-    escape = False
-    for ch in seg:
-        if escape:
-            escape = False
+    i = 0
+    while i < len(seg):
+        ch = seg[i]
+        if ch == "\\" and i + 1 < len(seg):
+            out.append(re.escape(seg[i + 1]))
+            i += 2
+            continue
+        if ch == "[":
+            compiled = _char_class(seg, i)
+            if compiled is not None:
+                out.append(compiled[0])
+                i = compiled[1]
+                continue
             out.append(re.escape(ch))
-        elif ch == "\\":
-            escape = True
         elif ch == "*":
             out.append("[^/]*")
         elif ch == "?":
             out.append("[^/]")
         else:
             out.append(re.escape(ch))
+        i += 1
     out.append("$")
     return re.compile("".join(out))
 
@@ -143,7 +198,7 @@ class PatternMatcher:
         self._tokens: list[_Token] | None = None
 
         # Fast path for left-anchored patterns with no wildcards (the common case).
-        if not re.search(r"[*?\\]", pattern) and pattern.startswith(SEP):
+        if not re.search(r"[*?\\\[]", pattern) and pattern.startswith(SEP):
             self._literal_prefix = pattern[1:]
             return
 

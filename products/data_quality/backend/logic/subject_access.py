@@ -40,7 +40,7 @@ from .contracts import SubjectIdentity, SubjectRef
 from .exceptions import SubjectAccessUnverifiable
 from .registry import all_specs, get_spec
 from .spec import CheckTypeSpec
-from .subjects import resolve_metric_subjects, resolve_subject, resolve_subject_by_name
+from .subjects import resolve_metric_subjects, resolve_subject, resolve_subject_by_name, unqueryable_table_ids
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -248,8 +248,7 @@ class SubjectMetadata:
 
 def subject_metadata(team_id: int) -> SubjectMetadata:
     tables = warehouse_facade.all_queryable_table_keys(team_id)
-    excluded_table_ids = set(data_modeling_facade.backing_table_ids_by_saved_query(team_id))
-    excluded_table_ids.update(warehouse_facade.direct_access_table_ids(team_id))
+    excluded_table_ids = unqueryable_table_ids(team_id)
     included = {table_id: names for table_id, names in tables.items() if table_id not in excluded_table_ids}
     return SubjectMetadata(
         table_names={table_id: names.row_name for table_id, names in included.items()},
