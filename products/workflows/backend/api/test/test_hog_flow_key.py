@@ -1,12 +1,11 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
-
-from django.db.utils import IntegrityError
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
 from posthog.models import Organization, Team
 
+from products.workflows.backend.api.hog_flow import HogFlowSerializer
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 TRIGGER_ACTION = {
@@ -74,12 +73,12 @@ class TestHogFlowKey(APIBaseTest):
         assert HogFlow.objects.count() == count
 
     def test_create_translates_a_concurrent_duplicate_key_into_the_same_field_error(self):
-        # A concurrent create can slip past the unlocked pre-check, so the constraint violation
-        # has to surface as the same 400 rather than a 500.
-        with patch(
-            "products.workflows.backend.api.hog_flow.HogFlow.objects.create",
-            side_effect=IntegrityError('duplicate key value violates unique constraint "unique_key_for_team"'),
-        ):
+        # A concurrent create can slip past the unlocked pre-check, so the constraint is the last
+        # guard. Neuter the pre-check to reach it, which exercises the real write and the real
+        # constraint name rather than a mocked failure.
+        HogFlow.objects.create(team=self.team, name="Taken", created_by=self.user, key="onboarding-welcome")
+
+        with patch.object(HogFlowSerializer, "validate_key", lambda self, value: value):
             response = self._create(key="onboarding-welcome")
 
         assert response.status_code == 400
@@ -141,6 +140,27 @@ class TestHogFlowKey(APIBaseTest):
         omitted = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"name": "Renamed again"})
         assert omitted.status_code == 200, omitted.json()
         assert HogFlow.objects.get(id=flow_id).key == "onboarding-welcome"
+
+    def test_test_run_accepts_a_keyed_workflow_submitting_its_own_configuration(self):
+        # The builder posts the whole workflow as `configuration`, which a nested instance-less
+        # serializer validates. The workflow under test must not read its own key as taken.
+        created = self._create(key="onboarding-welcome")
+        flow_id = created.json()["id"]
+
+        with patch("products.workflows.backend.api.hog_flow.create_hog_flow_invocation_test") as mock_invoke:
+            mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/",
+                data={
+                    "configuration": self._payload(key="onboarding-welcome"),
+                    "globals": {"event": {"event": "$pageview", "distinct_id": "test-distinct-id"}},
+                    "mock_async_functions": True,
+                },
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
 
     def test_list_filter_by_key_resolves_one_row_scoped_to_the_team(self):
         mine = HogFlow.objects.create(team=self.team, name="Mine", created_by=self.user, key="onboarding-welcome")

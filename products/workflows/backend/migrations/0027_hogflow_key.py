@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
             name="key",
             field=models.CharField(
                 blank=True,
-                help_text="Client-chosen identifier, unique within the project. Set only when creating a workflow. Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only.",
+                help_text="Client-chosen identifier, unique within this environment. Set only when creating a workflow. Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only.",
                 max_length=400,
                 null=True,
             ),

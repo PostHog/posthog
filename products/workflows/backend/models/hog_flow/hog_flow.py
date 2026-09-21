@@ -121,8 +121,11 @@ class HogFlow(UUIDTModel):
 
         constraints = [
             models.UniqueConstraint(fields=["team", "version", "id"], name="unique_version_per_flow"),
-            # No condition: Postgres treats NULLs as distinct, so the key-less rows never collide.
-            models.UniqueConstraint(fields=["team", "key"], name="unique_key_for_team"),
+            # Partial so Django's own SQL matches the index the migration builds concurrently. The
+            # key-less rows stay out of the index entirely rather than relying on NULLs being distinct.
+            models.UniqueConstraint(
+                fields=["team", "key"], condition=models.Q(key__isnull=False), name="unique_key_for_team"
+            ),
         ]
 
     class State(models.TextChoices):
@@ -147,7 +150,7 @@ class HogFlow(UUIDTModel):
         max_length=400,
         null=True,
         blank=True,
-        help_text="Client-chosen identifier, unique within the project. Set only when creating a workflow. "
+        help_text="Client-chosen identifier, unique within this environment. Set only when creating a workflow. "
         "Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only.",
     )
     description = models.TextField(blank=True, default="")
