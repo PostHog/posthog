@@ -926,9 +926,9 @@ def _multiple_variant_handling(exposure_criteria: dict[str, Any]) -> str:
 def _outcomes(first_primary_uuids: dict[int, str]) -> dict[int, ExperimentOutcome]:
     """Latest completed stored result of each experiment's first primary metric, in one query.
 
-    A legacy Trends or Funnels metric has a uuid but never has a stored result, because both
-    writers of `ExperimentMetricResult` build the metric from its `metric_type`. Its experiment
-    correctly gets no outcome.
+    A legacy Trends or Funnels metric never has a stored result, with or without a uuid, because
+    both writers of `ExperimentMetricResult` build the metric from its `metric_type`. Its
+    experiment correctly gets no outcome.
     """
     if not first_primary_uuids:
         return {}
