@@ -25,6 +25,7 @@ ask for each piece.
 | `posthog:execute-sql`                      | Query events, errors, and page views in session          |
 | `posthog:query-error-tracking-issues-list` | Find error tracking issues linked to the session         |
 | `posthog:vision-observations-list`         | Check for an existing Replay Vision AI summary           |
+| `posthog:vision-observations-retrieve`     | Read one observation in full (`scanner_result`)          |
 | `posthog:vision-scanners-list`             | Find summarizer scanners (`scanner_type=summarizer`)     |
 | `posthog:vision-scanners-scan-session`     | Run a summarizer scanner on the session (slow, optional) |
 | `posthog:vision-scanners-create`           | Create a temporary summarizer scanner (ask first)        |
@@ -176,10 +177,33 @@ a scanner can only observe a given session once.
    }
    ```
 
-   Look for an observation where `scanner_snapshot.scanner_type` is `summarizer`
-   and `status` is `succeeded`. If found, read `scanner_result.model_output`
-   (`title`, `summary`, `intent`, `outcome`, `friction_points`, `keywords`) — done,
-   no new scan needed.
+   A row carries only the observation `id`, `session_id`, `status`, `scanner_id`,
+   `summary_line` and the recording URL. Pick a row whose `status` is `succeeded`
+   and whose `scanner_id` belongs to a summarizer scanner. Always check the
+   `scanner_id` against `vision-scanners-list` with `scanner_type=summarizer`, even
+   when the session has only one succeeded row — any scanner type can observe a
+   session, and a monitor's output is not a summary. Then read that row in full:
+
+   ```json
+   posthog:vision-observations-retrieve
+   {
+     "id": "<observation_id>"
+   }
+   ```
+
+   `scanner_result.model_output` holds `title`, `summary`, `intent`, `outcome`,
+   `friction_points` and `keywords` — done, no new scan needed.
+
+   A summarizer row that is not `succeeded` still rules out a scan. A scanner
+   observes a session only once, so `vision-scanners-scan-session` hands back the
+   existing observation instead of a fresh result:
+
+   - `pending` or `running` — a scan is already in flight. Poll it as in step 4.
+   - `failed` or `ineligible` — report the row's `summary_line`, and the
+     `error_reason` from the retrieved row when it is set. That scanner cannot
+     scan the session again; only a different summarizer scanner can.
+
+   Go on to step 2 only when no summarizer scanner has observed the session.
 
 2. **Find a summarizer scanner** if none exists yet:
 
@@ -207,7 +231,12 @@ a scanner can only observe a given session once.
    ```
 
 4. **Retrieve the result** by polling `vision-observations-list` (step 1) until
-   the new observation reaches `succeeded`.
+   the new observation reaches a terminal `status` — `succeeded`, `failed` or
+   `ineligible`. Stop polling on any of the three; only `pending` and `running`
+   mean the scan is still in flight. Then call `vision-observations-retrieve` with
+   that observation `id` and read `scanner_result.model_output` on success. On
+   `failed` or `ineligible`, report the `summary_line` and the `error_reason` when
+   it is set, rather than waiting for a result that will not arrive.
 
 ### No summarizer scanner? Run a temporary one
 
@@ -245,8 +274,11 @@ with a throwaway scanner — but **ask the user's permission before creating any
    }
    ```
 
-   Poll `vision-observations-list` until the observation reaches `succeeded` and
-   read `scanner_result.model_output`.
+   Poll `vision-observations-list` until the observation reaches a terminal
+   `status` (`succeeded`, `failed` or `ineligible`), then call
+   `vision-observations-retrieve` with that observation `id` and read
+   `scanner_result.model_output` on success. On `failed` or `ineligible`, report
+   the `summary_line` and the `error_reason` when it is set.
 
 4. **Ask whether to keep or delete the scanner.** Once you have the observation,
    ask the user if they want to keep the temporary scanner or delete it with

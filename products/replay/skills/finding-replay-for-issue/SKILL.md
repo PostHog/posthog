@@ -24,6 +24,7 @@ or duplicate occurrences. This skill picks the most useful one.
 | `posthog:query-session-recordings-list` | Fetch recording metadata for candidate sessions            |
 | `posthog:session-recording-get`         | Get full details for the selected recording                |
 | `posthog:vision-observations-list`      | Check for an existing Replay Vision AI summary             |
+| `posthog:vision-observations-retrieve`  | Read one observation in full (`scanner_result`)            |
 | `posthog:vision-scanners-list`          | Find summarizer scanners (`scanner_type=summarizer`)       |
 | `posthog:vision-scanners-scan-session`  | Run a summarizer scanner on the recording (optional, slow) |
 
@@ -132,9 +133,26 @@ If the user wants a narrative summary without watching, use Replay Vision —
    }
    ```
 
-   If an observation has `scanner_snapshot.scanner_type` `summarizer` and
-   `status` `succeeded`, read `scanner_result.model_output` (`title`, `summary`,
-   `intent`, `outcome`, `friction_points`, `keywords`) — done.
+   A row carries only the observation `id`, `session_id`, `status`, `scanner_id`,
+   `summary_line` and the recording URL. Pick a row whose `status` is `succeeded`
+   and whose `scanner_id` belongs to a summarizer scanner. Always check the
+   `scanner_id` against `vision-scanners-list` with `scanner_type=summarizer`, even
+   when the session has only one succeeded row — any scanner type can observe a
+   session, and a monitor's output is not a summary. Then read that row in full with
+   `vision-observations-retrieve` (`{ "id": "<observation_id>" }`), where
+   `scanner_result.model_output` holds `title`, `summary`, `intent`, `outcome`,
+   `friction_points` and `keywords` — done.
+
+   A summarizer row that is not `succeeded` still rules out a scan. A scanner
+   observes a session only once, so `vision-scanners-scan-session` hands back the
+   existing observation instead of a fresh result:
+
+   - `pending` or `running` — a scan is already in flight. Poll it as in step 4.
+   - `failed` or `ineligible` — report the row's `summary_line`, and the
+     `error_reason` from the retrieved row when it is set. That scanner cannot
+     scan the session again; only a different summarizer scanner can.
+
+   Go on to step 2 only when no summarizer scanner has observed the session.
 
 2. **Find a summarizer scanner** if none exists:
 
@@ -158,7 +176,12 @@ If the user wants a narrative summary without watching, use Replay Vision —
    }
    ```
 
-4. **Retrieve** by polling `vision-observations-list` until `succeeded`.
+4. **Retrieve** by polling `vision-observations-list` until the observation
+   reaches a terminal `status` — `succeeded`, `failed` or `ineligible` — then call
+   `vision-observations-retrieve` with that observation `id`. Read
+   `scanner_result.model_output` on success. On `failed` or `ineligible`, tell the
+   user the scan produced no summary, with the `summary_line` and the
+   `error_reason` when it is set.
 
 ## Tips
 
