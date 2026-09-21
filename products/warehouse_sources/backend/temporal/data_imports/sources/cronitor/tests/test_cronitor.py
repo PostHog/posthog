@@ -18,6 +18,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cronitor.c
     get_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cronitor.settings import (
+    CRONITOR_ENDPOINTS,
+    ENDPOINTS,
     METRICS_MIN_WINDOW_SECONDS,
     PAGE_SIZE,
 )
@@ -77,8 +79,12 @@ def _collect(manager: _FakeResumableManager, endpoint: str, **kwargs: Any) -> li
     return rows
 
 
+def _list_url(path: str, page: int, extra: str = "") -> str:
+    return f"https://cronitor.io/api{path}?page={page}&pageSize={PAGE_SIZE}{extra}"
+
+
 def _monitors_url(page: int) -> str:
-    return f"https://cronitor.io/api/monitors?page={page}&pageSize={PAGE_SIZE}&sort=created"
+    return _list_url("/monitors", page, "&sort=created")
 
 
 def _monitors_page(count: int, prefix: str = "job") -> dict[str, Any]:
@@ -228,6 +234,97 @@ class TestInvocations:
         # job-a was already processed before the crash; only job-b onwards is re-fetched.
         assert [r["monitor_key"] for r in rows] == ["job-b", "job-c"]
         assert self._detail_url("job-a") not in fetched
+
+
+class TestPaginatedListEndpoints:
+    @pytest.mark.parametrize(
+        "endpoint, path, extra, envelope_key",
+        [
+            ("groups", "/groups", "", "groups"),
+            # Issues are ordered by start time so the page walk stays stable as incidents open.
+            ("issues", "/issues", "&orderBy=started", "issues"),
+            # Sites nests its rows under `data` rather than a resource-named key.
+            ("sites", "/sites", "", "data"),
+        ],
+    )
+    def test_requests_the_documented_path_and_reads_its_envelope(
+        self, endpoint: str, path: str, extra: str, envelope_key: str, monkeypatch: Any
+    ) -> None:
+        url = _list_url(path, 1, extra)
+        fetched = _patch_fetch(monkeypatch, {url: {envelope_key: [{"key": "a"}, {"key": "b"}]}})
+        rows = _collect(_FakeResumableManager(), endpoint)
+
+        assert fetched == [url]
+        assert [row["key"] for row in rows] == ["a", "b"]
+
+    def test_issues_envelope_falls_back_to_data(self, monkeypatch: Any) -> None:
+        # The issues list envelope is the one Cronitor does not publish, so a `data` envelope has
+        # to keep working or the table would silently sync zero rows.
+        url = _list_url("/issues", 1, "&orderBy=started")
+        _patch_fetch(monkeypatch, {url: {"data": [{"key": "c096dd184de20330"}]}})
+
+        assert [row["key"] for row in _collect(_FakeResumableManager(), "issues")] == ["c096dd184de20330"]
+
+    def test_every_schema_is_routed_to_a_transport(self, monkeypatch: Any) -> None:
+        # A schema listed in the wizard but missing a transport branch only fails once a user
+        # selects it, so walk every advertised endpoint against an empty API.
+        _freeze_now(monkeypatch)
+        monkeypatch.setattr(cronitor, "_fetch", lambda session, url, api_key, logger: {})
+
+        for endpoint in ENDPOINTS:
+            assert _collect(_FakeResumableManager(), endpoint) == []
+
+
+class TestSiteErrors:
+    def _errors_url(self, site_key: str, page: int) -> str:
+        return _list_url("/site_errors", page, f"&site={site_key}")
+
+    def _sites_page(self, *keys: str) -> dict[str, Any]:
+        return {"data": [{"key": key} for key in keys]}
+
+    def test_fans_out_over_sites_and_tags_rows_with_site_key(self, monkeypatch: Any) -> None:
+        responses = {
+            _list_url("/sites", 1): self._sites_page("site-a", "site-b"),
+            self._errors_url("site-a", 1): {"data": [{"key": "err-1"}]},
+            self._errors_url("site-b", 1): {"data": [{"key": "err-2"}]},
+        }
+        _patch_fetch(monkeypatch, responses)
+        manager = _FakeResumableManager()
+        rows = _collect(manager, "site_errors")
+
+        assert [(row["site_key"], row["key"]) for row in rows] == [("site-a", "err-1"), ("site-b", "err-2")]
+        # The site key is injected by the fan-out, not returned by the API, so every declared
+        # merge key must actually be present or the merge would key on nulls.
+        primary_keys = CRONITOR_ENDPOINTS["site_errors"].primary_keys
+        assert all(all(key in row for key in primary_keys) for row in rows)
+        # Bookmark advanced to the next site after site-a's rows were yielded.
+        assert manager.saved == [CronitorResumeConfig(site_key="site-b", page=1)]
+
+    def test_paginates_within_a_site_until_short_page(self, monkeypatch: Any) -> None:
+        responses = {
+            _list_url("/sites", 1): self._sites_page("site-a"),
+            self._errors_url("site-a", 1): {"data": [{"key": f"full-{i}"} for i in range(PAGE_SIZE)]},
+            self._errors_url("site-a", 2): {"data": [{"key": "tail-0"}]},
+        }
+        fetched = _patch_fetch(monkeypatch, responses)
+        manager = _FakeResumableManager()
+        rows = _collect(manager, "site_errors")
+
+        assert len(rows) == PAGE_SIZE + 1
+        assert fetched == list(responses)
+        assert manager.saved == [CronitorResumeConfig(site_key="site-a", page=2)]
+
+    def test_resumes_from_site_and_page_bookmark(self, monkeypatch: Any) -> None:
+        responses = {
+            _list_url("/sites", 1): self._sites_page("site-a", "site-b"),
+            self._errors_url("site-b", 3): {"data": [{"key": "err-9"}]},
+        }
+        fetched = _patch_fetch(monkeypatch, responses)
+        rows = _collect(_FakeResumableManager(CronitorResumeConfig(site_key="site-b", page=3)), "site_errors")
+
+        assert [(row["site_key"], row["key"]) for row in rows] == [("site-b", "err-9")]
+        # site-a finished before the crash, and site-b restarts at the saved page, not page 1.
+        assert self._errors_url("site-a", 1) not in fetched
 
 
 class TestFlattenMetricsResponse:

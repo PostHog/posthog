@@ -1,6 +1,6 @@
 import time
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import quote, urlencode, urlsplit, urlunsplit
@@ -22,6 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cronitor.s
     METRICS_MIN_WINDOW_SECONDS,
     METRICS_WINDOW_SECONDS,
     PAGE_SIZE,
+    PAGINATED_LIST_ENDPOINTS,
+    SITE_ERRORS_ENDPOINT,
+    CronitorListEndpoint,
 )
 
 
@@ -31,13 +34,15 @@ class CronitorRetryableError(Exception):
 
 @dataclasses.dataclass
 class CronitorResumeConfig:
-    # monitors: next 1-indexed page to fetch.
+    # Paginated list endpoints (and site_errors within one site): next 1-indexed page to fetch.
     page: int | None = None
     # invocations: stable key bookmark of the next monitor to fan out into (not a positional
     # index, so monitors added/removed between a crash and the retry can't shift the resume point).
     monitor_key: str | None = None
     # metrics: Unix start of the next time window to fetch.
     window_start: int | None = None
+    # site_errors: stable key bookmark of the next site to fan out into, paired with `page`.
+    site_key: str | None = None
 
 
 def _build_url(path: str, params: list[tuple[str, Any]] | dict[str, Any]) -> str:
@@ -135,39 +140,68 @@ def _redact_monitor(monitor: dict[str, Any]) -> dict[str, Any]:
     return {**monitor, "request": redacted_request}
 
 
-def _fetch_monitors_page(
-    session: requests.Session, api_key: str, logger: FilteringBoundLogger, page: int
-) -> tuple[list[dict[str, Any]], bool]:
-    """Fetch one page of the monitors list, returning (rows, has_more).
+def _extract_rows(data: Any, envelope_key: str) -> list[dict[str, Any]]:
+    """Pull the row list out of a paginated response.
 
-    Sort by creation time so the page walk stays stable if monitors are added mid-sync. The list
-    envelope documents no total count, so a short page signals the end.
+    Cronitor is not consistent about the envelope: monitors and groups nest the rows under a
+    resource-named key while sites and site errors use `data`, so try the endpoint's documented
+    key, then `data`, then a bare list.
     """
-    url = _build_url("/monitors", {"page": page, "pageSize": PAGE_SIZE, "sort": "created"})
-    data = _fetch(session, url, api_key, logger)
-    monitors = data.get("monitors") if isinstance(data, dict) else data
-    if not isinstance(monitors, list):
-        return [], False
-    rows = [_redact_monitor(monitor) for monitor in monitors if isinstance(monitor, dict)]
+    rows: Any = data
+    if isinstance(data, dict):
+        rows = data.get(envelope_key)
+        if not isinstance(rows, list):
+            rows = data.get("data")
+    if not isinstance(rows, list):
+        return []
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def _fetch_list_page(
+    session: requests.Session,
+    api_key: str,
+    logger: FilteringBoundLogger,
+    endpoint: CronitorListEndpoint,
+    page: int,
+    extra_params: list[tuple[str, Any]] | None = None,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Fetch one page of a `page`/`pageSize` list, returning (rows, has_more).
+
+    No list envelope documents a total count, so a short page signals the end.
+    """
+    params: list[tuple[str, Any]] = [("page", page), ("pageSize", PAGE_SIZE)]
+    params.extend(endpoint.params)
+    if extra_params:
+        params.extend(extra_params)
+    data = _fetch(session, _build_url(endpoint.path, params), api_key, logger)
+    rows = _extract_rows(data, endpoint.envelope_key)
     return rows, len(rows) >= PAGE_SIZE
 
 
-def _get_monitor_rows(
+# Row normalizers applied to a paginated list before its rows are yielded.
+_LIST_ROW_MAPPERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {"monitors": _redact_monitor}
+
+
+def _get_paginated_rows(
     session: requests.Session,
     api_key: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[CronitorResumeConfig],
+    schema_name: str,
 ) -> Iterator[list[dict[str, Any]]]:
+    endpoint = PAGINATED_LIST_ENDPOINTS[schema_name]
+    row_mapper = _LIST_ROW_MAPPERS.get(schema_name)
+
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     page = resume.page if resume is not None and resume.page else 1
     if page > 1:
-        logger.debug(f"Cronitor: resuming monitors from page {page}")
+        logger.debug(f"Cronitor: resuming {schema_name} from page {page}")
 
     while True:
-        rows, has_more = _fetch_monitors_page(session, api_key, logger, page)
+        rows, has_more = _fetch_list_page(session, api_key, logger, endpoint, page)
         if not rows:
             break
-        yield rows
+        yield [row_mapper(row) for row in rows] if row_mapper is not None else rows
         if not has_more:
             break
         page += 1
@@ -176,15 +210,66 @@ def _get_monitor_rows(
         resumable_source_manager.save_state(CronitorResumeConfig(page=page))
 
 
-def _list_monitor_keys(session: requests.Session, api_key: str, logger: FilteringBoundLogger) -> list[str]:
+def _list_keys(
+    session: requests.Session, api_key: str, logger: FilteringBoundLogger, endpoint: CronitorListEndpoint
+) -> list[str]:
     keys: list[str] = []
     page = 1
     while True:
-        rows, has_more = _fetch_monitors_page(session, api_key, logger, page)
-        keys.extend(str(monitor["key"]) for monitor in rows if monitor.get("key"))
+        rows, has_more = _fetch_list_page(session, api_key, logger, endpoint, page)
+        keys.extend(str(row["key"]) for row in rows if row.get("key"))
         if not has_more:
             return keys
         page += 1
+
+
+def _list_monitor_keys(session: requests.Session, api_key: str, logger: FilteringBoundLogger) -> list[str]:
+    return _list_keys(session, api_key, logger, PAGINATED_LIST_ENDPOINTS["monitors"])
+
+
+def _list_site_keys(session: requests.Session, api_key: str, logger: FilteringBoundLogger) -> list[str]:
+    return _list_keys(session, api_key, logger, PAGINATED_LIST_ENDPOINTS["sites"])
+
+
+def _get_site_error_rows(
+    session: requests.Session,
+    api_key: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[CronitorResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan out over every RUM site, tagging each error with the site it came from.
+
+    The errors list takes an optional `site` filter but returns no site key on the rows, so
+    without the fan-out there would be no way to attribute an error to a site.
+    """
+    site_keys = _list_site_keys(session, api_key, logger)
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    remaining = site_keys
+    page = 1
+    if resume is not None and resume.site_key is not None and resume.site_key in site_keys:
+        remaining = site_keys[site_keys.index(resume.site_key) :]
+        page = resume.page or 1
+        logger.debug(f"Cronitor: resuming site errors from site {resume.site_key} page {page}")
+
+    for index, site_key in enumerate(remaining):
+        while True:
+            rows, has_more = _fetch_list_page(
+                session, api_key, logger, SITE_ERRORS_ENDPOINT, page, [("site", site_key)]
+            )
+            if rows:
+                yield [{**row, "site_key": site_key} for row in rows]
+            if not has_more:
+                break
+            page += 1
+            # Save AFTER yielding, here and below, so a crash re-yields the last page rather than
+            # skipping it — merge dedupes on the primary key.
+            resumable_source_manager.save_state(CronitorResumeConfig(site_key=site_key, page=page))
+
+        if index + 1 < len(remaining):
+            resumable_source_manager.save_state(CronitorResumeConfig(site_key=remaining[index + 1], page=1))
+        # Only the site resumed into starts mid-list; every later site starts at page one.
+        page = 1
 
 
 def _get_invocation_rows(
@@ -333,8 +418,10 @@ def get_rows(
     # HTTP sample capture entirely.
     session = make_tracked_session(capture=False)
 
-    if endpoint == "monitors":
-        yield from _get_monitor_rows(session, api_key, logger, resumable_source_manager)
+    if endpoint in PAGINATED_LIST_ENDPOINTS:
+        yield from _get_paginated_rows(session, api_key, logger, resumable_source_manager, endpoint)
+    elif endpoint == "site_errors":
+        yield from _get_site_error_rows(session, api_key, logger, resumable_source_manager)
     elif endpoint == "invocations":
         yield from _get_invocation_rows(session, api_key, logger, resumable_source_manager)
     elif endpoint == "metrics":
