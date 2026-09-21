@@ -21,6 +21,7 @@ from posthog.egress.github.transport import github_request
 from posthog.models.integration.github import _is_safe_github_repo_path
 
 _T = TypeVar("_T")
+_K = TypeVar("_K")
 
 # The raw host serves a public repo's files off a CDN, so these reads draw on no GitHub API rate
 # limit, and the HEAD ref follows the default branch. A private repo answers 404 to all of it, which
@@ -73,16 +74,17 @@ def _ttl() -> int:
     return _CACHE_TTL_SECONDS + random.randint(0, _CACHE_TTL_JITTER_SECONDS)
 
 
-def _fetch_all(fetch: Callable[[str], _T], paths: Iterable[str], deadline: float) -> dict[str, _T]:
-    """Fetch every distinct path concurrently, within what is left of the batch's budget. The one
-    place this module waits on the network."""
-    todo = list(dict.fromkeys(paths))
+def _fetch_all(fetch: Callable[[_K], _T], keys: Iterable[_K], deadline: float) -> dict[_K, _T]:
+    """Fetch every distinct key concurrently, within what is left of the batch's budget. The one
+    place this package waits on the network. A key is one file for the raw host, and one chunk of
+    files for the GraphQL reader."""
+    todo = list(dict.fromkeys(keys))
     if not todo:
         return {}
     pool = ThreadPoolExecutor(max_workers=min(_FETCH_WORKERS, len(todo)))
     try:
-        futures = {path: pool.submit(fetch, path) for path in todo}
-        return {path: future.result(max(deadline - monotonic(), 0)) for path, future in futures.items()}
+        futures = {key: pool.submit(fetch, key) for key in todo}
+        return {key: future.result(max(deadline - monotonic(), 0)) for key, future in futures.items()}
     except TimeoutError as e:
         raise OwnershipUnavailable(f"ownership took longer than {_RESOLVE_BUDGET_SECONDS}s") from e
     finally:

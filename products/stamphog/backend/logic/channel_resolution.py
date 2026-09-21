@@ -36,7 +36,9 @@ from owners_yaml.resolver import Purpose, TeamChannel, team_channel, teams_regis
 from owners_yaml.schema import Producer, TeamEntry
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import Integration
+from posthog.ownership.github_files import AuthenticatedRepoFiles, GitHubFilesFetcher
 from posthog.team_notifications.slack import SlackChannel, fetch_channel_map, find_channel
 
 from ..facade.enums import ChannelResolutionSource
@@ -148,9 +150,17 @@ def _read_repo_routing(repo_config: StamphogRepoConfig) -> _RepoRouting:
     owners.yaml inherits one, and a repo declaring no channel has no repo audience to route.
     """
     try:
-        raw = StamphogGitHubClient(repo_config.installation_id).get_default_branch_file(
-            repo_config.repository, _OWNERS_FILE_PATH
+        client = StamphogGitHubClient(repo_config.installation_id)
+        files = AuthenticatedRepoFiles(
+            repo_config.repository,
+            GitHubFilesFetcher.from_token(
+                client.installation_token(),
+                installation_id=repo_config.installation_id,
+                # The daily run is background work, so it sheds before anything a person waits on.
+                priority=Priority.BATCH,
+            ),
         )
+        raw = files.read(_OWNERS_FILE_PATH)
         digest_config = load_repo_digest_config(repo_config) if repo_config.digest_enabled else None
     except Exception as e:
         raise RoutingUnavailable(f"could not read routing config for {repo_config.repository}: {e}") from e

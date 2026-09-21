@@ -51,8 +51,10 @@ from owners_yaml.schema import Producer, TeamEntry
 
 from posthog.comment.formatting import escape_slack_mrkdwn
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user import User
+from posthog.ownership.github_files import fetcher_for_team
 from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership, resolve_path_owners
 from posthog.team_notifications.slack import (
     MAX_BLOCKS,
@@ -854,7 +856,13 @@ def send_debt_digest(repo: Repo, mode: str) -> list[str]:
         logger.info("visual_review.debt_digest_nothing_owed", repo_id=str(repo.id), team_id=repo.team_id)
         return []
 
-    ownership = resolve_path_owners(repo.repo_full_name, paths_to_resolve(debt))
+    ownership = resolve_path_owners(
+        repo.repo_full_name,
+        paths_to_resolve(debt),
+        # The digest is scheduled work that nobody waits on, so it sheds first when the
+        # installation's GitHub budget runs hot and sends the same items next week.
+        files=fetcher_for_team(repo.team_id, repo.repo_full_name, priority=Priority.BATCH),
+    )
     if not ownership.resolved:
         # A blind answer names no team and carries no registry, so every item would read as
         # unowned and be dropped. Say so instead, and send the same items next week.

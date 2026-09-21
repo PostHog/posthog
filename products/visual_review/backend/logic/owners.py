@@ -4,6 +4,8 @@ from collections.abc import Iterable, Mapping
 
 import structlog
 
+from posthog.egress.limiter.policies import Priority
+from posthog.ownership.github_files import fetcher_for_team
 from posthog.ownership.paths import UNOWNED_TEAM, resolve_path_owners
 
 from ..facade.enums import RunType
@@ -49,7 +51,12 @@ def owner_teams(
         logger.warning("visual_review.owner_teams_too_many_paths", repo_id=str(repo.id), paths=len(paths))
         return {}
 
-    ownership = resolve_path_owners(repo.repo_full_name, paths)
+    ownership = resolve_path_owners(
+        repo.repo_full_name,
+        paths,
+        # A person is waiting on the snapshot list, so the reads run on the interactive lane.
+        files=fetcher_for_team(repo.team_id, repo.repo_full_name, priority=Priority.NORMAL),
+    )
     if not ownership.resolved:
         logger.info("visual_review.owner_teams_unresolved", repo_id=str(repo.id))
         return {}

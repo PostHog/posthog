@@ -232,7 +232,9 @@ Nothing in the resolver is PostHog-specific — `owners.yaml` is a repo-agnostic
 That is why it ships as the standalone, installable `packages/owners-yaml` package (`owners-yaml`), which any repo can run without vendoring: `uvx owners-yaml lint` (pin the version in CI).
 That last part is the seam: resolution walks an abstract file map, not the filesystem (the `owners:fmt` equivalence proof already runs the real resolver over an in-memory layout).
 So when a consumer like stamphog becomes a hosted app that other repos enable without adding any code, the model is: **the repo contributes only ownership data; the resolver ships inside the app.**
-A hosted reviewer fetches the default-branch tree (one API call), pulls just the ownership files (a few dozen blobs, cacheable per commit SHA), and resolves in-process.
+A hosted reviewer resolves the default branch's head commit, reads the ownership files at that commit, and resolves in-process; `posthog/ownership/` is that reader.
+It asks GitHub's GraphQL API for about a hundred aliased blobs per request, because GitHub charges one rate-limit point per request whatever the number of files in it, and it caches each blob under its commit SHA, where the content never changes.
+The recursive git tree endpoint was the first design and is not used: it truncates on a repository this size, so the answer would be silently partial.
 Repos without `owners.yaml` fall back to a `CODEOWNERS` loader behind the same resolver interface — the glob semantics here are CODEOWNERS semantics already — and a repo with neither is simply unowned.
 
 Two properties carry over intact.

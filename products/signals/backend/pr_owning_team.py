@@ -14,8 +14,10 @@ from collections import Counter
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import PullRequestRef
 from posthog.models.integration import GitHubIntegration
+from posthog.ownership.github_files import AuthenticatedRepoFiles, GitHubFilesFetcher
 from posthog.ownership.paths import UNOWNED_TEAM, resolve_path_owners
 
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
@@ -53,7 +55,14 @@ class OwningTeamResolver:
         if not files["paths"]:
             return None
 
-        ownership = resolve_path_owners(self.parsed.repository, files["paths"])
+        # The resolver already holds the team's installation, so the ownership files come from it
+        # rather than from the anonymous public reader, which lets a private repository resolve too.
+        # Report generation is background work, so it sheds before anything a person waits on.
+        owners_files = AuthenticatedRepoFiles(
+            self.parsed.repository,
+            GitHubFilesFetcher.from_integration(self.github, priority=Priority.BATCH),
+        )
+        ownership = resolve_path_owners(self.parsed.repository, files["paths"], files=owners_files)
         if not ownership.resolved:
             return None
         counts = Counter(team for team in ownership.team_by_path.values() if team != UNOWNED_TEAM)

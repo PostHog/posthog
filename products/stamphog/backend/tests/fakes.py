@@ -267,8 +267,16 @@ class GitHubRecorder:
     def _graphql(self, body: dict) -> FakeResponse:
         query = str(body.get("query") or "")
         variables = body.get("variables") or {}
-        # Two GraphQL callers share /graphql: get_pr_review_threads and get_user_team_slugs. Route by
-        # the query's shape (only the review-threads query mentions reviewThreads).
+        # Several GraphQL callers share /graphql: get_pr_review_threads, get_user_team_slugs, and the
+        # shared ownership file reader. Route by the query's shape.
+        if "defaultBranchRef" in query:
+            # The ownership reader caches blobs per commit, and the cache outlives one test. A commit
+            # derived from the scripted files keeps each test reading its own files.
+            scripted = repr(sorted(self.policy_files.items()) + sorted(self.repo_files.items()))
+            oid = hashlib.sha256(scripted.encode()).hexdigest()
+            return FakeResponse(200, json_data={"data": {"repository": {"defaultBranchRef": {"target": {"oid": oid}}}}})
+        if "object(expression:" in query:
+            return self._ownership_blobs(f"{variables.get('owner', '')}/{variables.get('name', '')}", query, variables)
         if "reviewThreads" in query:
             repo = f"{variables.get('owner', '')}/{variables.get('name', '')}"
             number = int(variables.get("pr") or 0)
@@ -287,6 +295,21 @@ class GitHubRecorder:
         slugs = self.teams_by_login.get(login, [])
         teams_data = {"data": {"organization": {"teams": {"nodes": [{"slug": s} for s in slugs]}}}}
         return FakeResponse(200, json_data=teams_data)
+
+    def _ownership_blobs(self, repo: str, query: str, variables: dict) -> FakeResponse:
+        """The aliased blob lookups the shared ownership reader sends, served from the same files the
+        contents API answers with. Each variable holds a ``<commit>:<path>`` expression."""
+        field: dict[str, Any] = {}
+        for name, expression in variables.items():
+            if name in ("owner", "name"):
+                continue
+            path = str(expression).split(":", 1)[1]
+            content = self.repo_files.get((repo, path), self.policy_files.get(path))
+            if content is None:
+                field[f"f{name[1:]}"] = None
+            else:
+                field[f"f{name[1:]}"] = {"text": content} if "text" in query else {"__typename": "Blob"}
+        return FakeResponse(200, json_data={"data": {"repository": field}})
 
     def _record_write(self, kind: str, repo: str, number: int, body: dict | None) -> FakeResponse:
         new_id = self._alloc_id()
