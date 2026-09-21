@@ -1318,6 +1318,111 @@ class TestFinalizeV2:
         assert draft.query is not None
         assert draft.query["properties"][0]["value"] == ["/billing"]
 
+    def test_an_allowed_event_whose_own_name_ends_in_a_count_is_not_stripped(self):
+        # "checkout step (2)" is the event's real name, not a briefing count. Stripping it first
+        # would either fail the membership check or ground to a different event, and both widen.
+        draft = _finalize_v2(
+            _draft_v2(filter_events=["checkout step (2)"]),
+            allowed_pages=[],
+            allowed_events=["checkout step (2)"],
+            team_id=1,
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["checkout step (2)"]
+
+    def test_an_all_match_draft_stops_at_the_and_cap(self):
+        # The third slot exists for the OR case. ANDed, three events need one session to do all of
+        # them, which is the over-constrained draft the cap is there to prevent.
+        draft = _finalize_v2(
+            _draft_v2(filter_events=["a", "b", "c"], filter_events_match="all"),
+            allowed_pages=[],
+            allowed_events=["a", "b", "c"],
+            team_id=1,
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["a", "b"]
+
+    def test_an_any_match_draft_gets_the_extra_or_slot(self):
+        # "created or edited" names three events that each mean the same thing, and ORed they cost
+        # nothing to carry: this is the case the wider cap was raised for.
+        draft = _finalize_v2(
+            _draft_v2(filter_events=["a", "b", "c"], filter_events_match="any"),
+            allowed_pages=[],
+            allowed_events=["a", "b", "c"],
+            team_id=1,
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["a", "b", "c"]
+        assert draft.query["operand"] == "OR"
+
+    def test_a_downgraded_any_match_keeps_one_event_rather_than_anding_them(self):
+        # The page filter rules out the OR operand, but ANDing the alternatives would need one
+        # session to have created AND edited AND updated, which matches almost nobody.
+        draft = _finalize_v2(
+            _draft_v2(filter_pages=["/billing"], filter_events=["a", "b", "c"], filter_events_match="any"),
+            allowed_pages=["/billing"],
+            allowed_events=["a", "b", "c"],
+            team_id=1,
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["a"]
+
+    def test_a_downgraded_any_match_keeps_the_event_its_property_filter_rides_on(self):
+        # Keeping the first event blindly would strand the $survey_id filter on an event the query
+        # no longer carries, silently turning a one-survey scan into a scan of every survey.
+        draft = _finalize_v2(
+            _draft_v2(
+                filter_pages=["/billing"],
+                filter_events=["survey shown", "survey sent"],
+                filter_events_match="any",
+                filter_event_properties=[
+                    _LlmEventPropertyFilter(event="survey sent", property="$survey_id", value="abc-123")
+                ],
+            ),
+            allowed_pages=["/billing"],
+            allowed_events=["survey shown", "survey sent"],
+            team_id=1,
+            allowed_surveys=[_MatchedSurvey(name="Pricing feedback", survey_id="abc-123")],
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["survey sent"]
+        assert draft.query["events"][0]["properties"] == [
+            {"key": "$survey_id", "value": ["abc-123"], "operator": "exact", "type": "event"}
+        ]
+
+    def test_a_dead_event_comes_back_rather_than_leaving_the_scan_unfiltered(self):
+        # Dropping the dead event narrows nothing here, it inverts: with no page, action or cohort
+        # left, the query stops describing the goal's flow and starts matching every session.
+        draft = _finalize_v2(
+            _draft_v2(filter_events=["billing_limit_set"]),
+            allowed_pages=[],
+            allowed_events=[],
+            team_id=1,
+            excluded_events={"billing_limit_set"},
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["billing_limit_set"]
+
+    def test_a_dead_event_still_drops_while_another_filter_holds_the_scan_down(self):
+        # The page narrows on its own, so dropping the dead event is the narrowing it looks like.
+        draft = _finalize_v2(
+            _draft_v2(filter_pages=["/billing"], filter_events=["billing_limit_set"]),
+            allowed_pages=["/billing"],
+            allowed_events=[],
+            team_id=1,
+            excluded_events={"billing_limit_set"},
+        )
+
+        assert draft.query is not None
+        assert "events" not in draft.query
+        assert draft.query["properties"][0]["key"] == "visited_page"
+
     def test_a_grounded_page_that_cannot_narrow_warns_it_scans_everything(self):
         # "/x" is a real page and grounds, but its filter value is too short to narrow, so the query
         # widens to every session. The warning must report that, even though nothing was dropped.
@@ -1575,6 +1680,47 @@ class TestDraftV2(_VisionAPITestCase):
         assert draft.query is not None
         assert "events" not in draft.query
         assert draft.query["properties"][0]["key"] == "visited_page"
+
+    def test_a_quiet_surveys_injected_events_survive_so_its_property_filter_does(self):
+        # The survey events are injected to carry the $survey_id filter, not because volume picked
+        # them. A survey with no responses in the window measures zero on all of them, and dropping
+        # them takes the property filter with them — the one-survey scan becomes a scan of
+        # everything, which is the opposite of what the goal asked for.
+        survey = Survey.objects.create(team=self.team, name="Pricing feedback", created_by=self.user)
+
+        with (
+            patch(f"{_MODULE}.fetch_visited_paths", return_value=()),
+            patch(
+                f"{_MODULE}._measured_events",
+                return_value=[_CandidateEvent(name=name, sessions=0) for name in ("survey sent", "survey shown")],
+            ),
+            patch(
+                _GENERATE_PATH,
+                return_value=_draft_v2(
+                    filter_events=["survey sent"],
+                    filter_event_properties=[
+                        _LlmEventPropertyFilter(event="survey sent", property="$survey_id", value=str(survey.id))
+                    ],
+                ),
+            ),
+            patch(
+                f"{_MODULE}.estimate_scanner_session_volume",
+                return_value=ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30),
+            ),
+        ):
+            draft = draft_scanner_from_goal_v2(
+                team=self.team,
+                user=self.user,
+                goal='who answered "Pricing feedback"',
+                monthly_credit_budget=10_000,
+                user_access_control=_access_control(allow=True),
+            )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["survey sent"]
+        assert draft.query["events"][0]["properties"] == [
+            {"key": "$survey_id", "value": [str(survey.id)], "operator": "exact", "type": "event"}
+        ]
 
     def test_the_experiment_the_goal_named_is_carried_as_targeting_and_counted(self):
         # The whole point of the targeting: the projection has to count that experiment's
