@@ -44,7 +44,7 @@ Rules that decide whether this works:
 - Keep the module cheap to import. The registry imports it on the first delivery through `load_product_modules("webhook_consumers")`, so defer heavy imports into the handler behind `# noqa: PLC0415` with a reason.
 - The handler runs synchronously inside the request. Enqueue a task for real work, the way stamphog and conversations do.
 - A handler that reads the database wraps the read in `bounded_statement_timeout(ms, models=...)` from `posthog.ingress.dispatch.database`, passing only the models the read actually uses. Opening an alias is itself unbounded, so naming one the read never touches can stall the delivery on connection setup.
-- An import-linter contract (`webhook consumers must only import facade`) holds the module to its own product's `facade/`. Reach product internals through the facade.
+- An import-linter contract (`webhook consumers must only import facade`) holds the module to its own product's `facade/`. Reach product internals through the facade. `hogli product:lint` holds the same rule by AST for every product that has a `webhook_consumers.py`, including relative imports and products with no contract yet.
 - A consumer whose resources are split across regions declares `ownership=`, pointing at a facade function that returns a `DeliveryOwnership`. Ingress forwards the signed request when the answer is `ELSEWHERE`, and dispatches locally either way. The lookup runs inside the request, so bound it with `bounded_statement_timeout(ms, models=...)`. Let a transient error out of the lookup rather than answering `LOCAL` or `UNDECIDED` through it: a lookup that raises asks a provider with `retry_status` for the delivery again, and a guessed answer receipts a delivery the other region never sees.
 
 Tests: extend the product's existing webhook test module rather than starting a parallel one.
@@ -100,6 +100,7 @@ Each was a real proposal already; ["Non-goals" in the package README](../../../p
 semgrep --config .semgrep/rules/devex/ .          # the ratchet entry is really gone
 semgrep --test .semgrep/                          # only if you changed the rule itself
 lint-imports                                      # the webhook_consumers contract
+hogli product:lint <product>                      # the AST backstop for that contract
 hogli test products/<product>/backend/tests/test_webhook_consumers.py
 hogli test posthog/ingress/test/
 ruff check --fix <touched files> && ruff format <touched files>

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-09-17 16:26:27 UTC
+// Generated at: 2026-09-18 20:02:33 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -180,13 +180,13 @@ export type CanonicalProvider =
     | 'seed-fp8'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
-    | 'stealth'
     | 'stepfun-fp8'
     | 'streamlake'
     | 'streamlake-fp8'
     | 'tencent-fp8'
     | 'thinkingmachines-nvfp4'
     | 'together'
+    | 'unbiased'
     | 'upstage'
     | 'upstage-zdr'
     | 'venice'

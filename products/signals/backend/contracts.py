@@ -345,6 +345,32 @@ class SignalsScoutSignalInput(SignalInputBase):
     extra: SignalsScoutSignalExtra
 
 
+# ── Report checks ──────────────────────────────────────────────────────────────
+
+
+class CheckFailedSignalExtra(SignalExtraBase):
+    check_id: str
+    report_id: str
+    check_title: str
+    explanation: str
+    observed_value: float | None = None
+    baseline_value: float | None = None
+    threshold: str | None = None
+
+
+class CheckFailedSignalInput(SignalInputBase):
+    """A deterministic check that breached after its report was resolved.
+
+    The inbox emitting to itself. An `agent` check has a scout that can author a fresh report; a
+    `metric_threshold` check has nobody, so the verdict becomes a signal and the pipeline treats the
+    relapse the way it treats any other recurrence on a resolved report.
+    """
+
+    source_type: Literal[SignalSourceType.CHECK_FAILED]
+    source_product: Literal[SignalSourceProduct.SIGNALS_CHECK]
+    extra: CheckFailedSignalExtra
+
+
 # ── Logs ────────────────────────────────────────────────────────────────────────
 
 
@@ -533,6 +559,7 @@ class EnrichedReviewer(ContractModel):
     relevant_commits: list[RelevantCommit]
     user: SignalReviewerUserInfo | None
     reason: str | None = None
+    source_skill: str | None = None
     source_label: str
     explanation: str | None = None
 
@@ -1018,6 +1045,7 @@ SignalInput = Annotated[
     | EndpointBreakdownLimitExceededSignalInput
     | PgAnalyzeIssueSignalInput
     | SignalsScoutSignalInput
+    | CheckFailedSignalInput
     | LogsAlertStateChangeSignalInput
     | AnalyticsAnomalyInvestigationSignalInput
     | HealthCheckSignalInput

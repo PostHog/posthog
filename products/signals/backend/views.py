@@ -114,6 +114,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportCheck,
     SignalReportRefund,
+    SignalScoutConfig,
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
@@ -122,12 +123,6 @@ from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
-from products.signals.backend.report_check_execution import resolve_check_query
-from products.signals.backend.report_checks import (
-    MAX_ACTIVE_CHECKS_PER_REPORT,
-    MetricThresholdConfig,
-    parse_check_config,
-)
 from products.signals.backend.report_claims import (
     actor_owns_claim,
     get_active_claim,
@@ -137,12 +132,14 @@ from products.signals.backend.report_claims import (
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerPayloadIndex,
+    bounded_reviewer_reason,
     get_org_member_github_logins_by_user_uuid,
     get_org_member_users_by_uuid,
     normalized_github_logins_from_suggested_reviewer_artefacts,
     normalized_user_uuids_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
     resolve_org_users_by_uuid,
+    source_skills_from_suggested_reviewer_artefacts,
 )
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
@@ -167,7 +164,6 @@ from products.signals.backend.serializers import (
     SignalReportArtefactWriteResponseSerializer,
     SignalReportArtefactWriteSerializer,
     SignalReportCheckSerializer,
-    SignalReportCheckWriteSerializer,
     SignalReportClaimSerializer,
     SignalReportListSerializer,
     SignalReportMetricRefreshRequestSerializer,
@@ -4104,15 +4100,25 @@ def append_suggested_reviewers(
             # Same rule for reason. Only fall back to the manual-add note when the field was
             # omitted for a brand-new reviewer — an explicit null clears the reason, as for kept ones.
             effective_name = resolved.github_name if resolved.explicit_name else prior_name
-            effective_reason = resolved.reason if resolved.explicit_reason else prior_reason
+            effective_reason = resolved.reason if resolved.explicit_reason else bounded_reviewer_reason(prior_reason)
             if not resolved.explicit_reason and prior is None:
                 effective_reason = manual_add_reason
+            safe_commits = (
+                [
+                    {**commit, "reason": bounded_reviewer_reason(commit.get("reason")) or ""}
+                    if isinstance(commit, dict)
+                    else commit
+                    for commit in prior_commits
+                ]
+                if isinstance(prior_commits, list)
+                else []
+            )
             new_content.append(
                 {
                     "github_login": resolved.github_login,
                     "user_uuid": resolved.user_uuid,
                     "github_name": effective_name if isinstance(effective_name, str) else None,
-                    "relevant_commits": prior_commits if isinstance(prior_commits, list) else [],
+                    "relevant_commits": safe_commits,
                     "reason": effective_reason or None,
                     "source_skill": prior.get("source_skill") if prior else None,
                     "is_skill_owner": bool(prior.get("is_skill_owner")) if prior else False,
@@ -4280,22 +4286,12 @@ def _record_reviewer_edit(
         responses={200: SignalReportCheckSerializer},
         operation_id="signals_report_checks_retrieve",
     ),
-    create=extend_schema(
-        summary="Create a check on a report",
-        description=(
-            "Schedule a re-measurement of the report's claim. A `metric_threshold` check runs one "
-            "bounded Trends query and compares the result, so it needs no agent run. An `agent` check "
-            "runs a scout instead, for a claim no single number settles; it runs on the scout its "
-            "config names, or on the fleet's follow-up scout when it names none."
-        ),
-        parameters=[_REPORT_ID_PARAMETER],
-        request=SignalReportCheckWriteSerializer,
-        responses={201: SignalReportCheckSerializer},
-        operation_id="signals_report_checks_create",
-    ),
     destroy=extend_schema(
         summary="Cancel a check",
-        description="Stop an active check. Its recorded results stay on the report.",
+        description=(
+            "Stop a check that is still open — active, or pending its report resolving. Its recorded "
+            "results stay on the report."
+        ),
         parameters=[_REPORT_ID_PARAMETER],
         responses={200: SignalReportCheckSerializer},
         operation_id="signals_report_checks_destroy",
@@ -4305,17 +4301,19 @@ class SignalReportCheckViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
-    mixins.CreateModelMixin,
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    """Checks attached to a signal report: read, create, and cancel.
+    """Checks attached to a signal report: read and cancel.
+
+    There is no create here. A check is authored by a scout run or by the research pipeline, both
+    through `report_check_authoring.create_check`. An `agent` check puts its author's prose in front
+    of a privileged scout run, and `task:write` does not authorize that, so no caller-facing
+    endpoint accepts one. Anyone who can read the report can read its checks, and a person can
+    still stop one.
 
     There is no update: a check is a claim about the future, and editing its threshold after a
-    result would make the recorded verdict unreadable. Cancel it and write a new one.
-
-    Writes are attributed the same way artefact writes are — to the task named by the
-    `X-PostHog-Task-Id` header when present, else to the requesting user.
+    result would make the recorded verdict unreadable. Cancel it and let its author write a new one.
     """
 
     serializer_class = SignalReportCheckSerializer
@@ -4323,7 +4321,7 @@ class SignalReportCheckViewSet(
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = SignalReportCheck.objects.unscoped().order_by("-created_at")
-    http_method_names = ["get", "post", "delete", "head", "options"]
+    http_method_names = ["get", "delete", "head", "options"]
 
     def _validated_report(self) -> SignalReport:
         report_id = self.parents_query_dict["report_id"]
@@ -4343,67 +4341,6 @@ class SignalReportCheckViewSet(
     def safely_get_queryset(self, queryset):
         return queryset.filter(report_id=self._validated_report().id, team=self.team)
 
-    def create(self, request: Request, *args, **kwargs) -> Response:
-        report = self._validated_report()
-        write_serializer = SignalReportCheckWriteSerializer(data=request.data)
-        write_serializer.is_valid(raise_exception=True)
-        spec = write_serializer.validated_data
-
-        # Resolve a metric reference now and store the query it points at, rather than at each run.
-        # An unresolvable reference would otherwise sit idle for the whole soak window before
-        # retiring, and a reference resolved late would measure whatever the metric had become.
-        stored_config = spec["config"]
-        config = parse_check_config(spec["kind"], stored_config)
-        if isinstance(config, MetricThresholdConfig) and config.metric_id is not None:
-            try:
-                stored_config = {**stored_config, "query": resolve_check_query(config, report)}
-            except ValueError as error:
-                return Response(
-                    {"error": f"This check cannot run: {error}."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-        # Resolved before the locked transaction — a bad X-PostHog-Task-Id header must 400 before
-        # anything mutates, and its task lookup has no business inside the lock.
-        attribution = resolve_request_attribution(request, self.team.id)
-
-        with transaction.atomic():
-            # The cap is a count and then an insert, so it only holds if concurrent creates
-            # serialize. Row-lock the report first, the lock `enforce_report_task_cap` takes to cap
-            # a report's tasks the same way.
-            locked_report = SignalReport.objects.select_for_update().filter(id=report.id, team_id=self.team.id).first()
-            if locked_report is None:
-                raise NotFound()
-
-            active_checks = SignalReportCheck.objects.for_team(self.team.id).filter(
-                report_id=locked_report.id, status=SignalReportCheck.Status.ACTIVE
-            )
-            if active_checks.count() >= MAX_ACTIVE_CHECKS_PER_REPORT:
-                return Response(
-                    {"error": f"A report may carry at most {MAX_ACTIVE_CHECKS_PER_REPORT} active checks."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            check = SignalReportCheck.objects.for_team(locked_report.team_id).create(
-                # The report's own environment team, never a canonicalized one: the report's reads
-                # and its artefact log filter by it.
-                team_id=locked_report.team_id,
-                report_id=locked_report.id,
-                title=spec["title"],
-                rationale=spec.get("rationale", ""),
-                kind=spec["kind"],
-                config=stored_config,
-                next_run_at=spec["next_run_at"],
-                run_interval_minutes=spec.get("run_interval_minutes"),
-                runs_remaining=spec["runs_remaining"],
-                expires_at=spec["expires_at"],
-                actor_kind=attribution.kind,
-                actor_agent=attribution.agent_name,
-                created_by_id=attribution.user_id,
-                task_id=attribution.task_id,
-            )
-        return Response(self.get_serializer(check).data, status=status.HTTP_201_CREATED)
-
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         check = cast(SignalReportCheck, self.get_object())
         # One conditional update rather than a read and then a write. A run that commits its verdict
@@ -4411,7 +4348,7 @@ class SignalReportCheckViewSet(
         # overwrite the status that artefact explains.
         cancelled = (
             SignalReportCheck.objects.for_team(self.team.id)
-            .filter(id=check.id, status=SignalReportCheck.Status.ACTIVE)
+            .filter(id=check.id, status__in=SignalReportCheck.OPEN_STATUSES)
             .update(status=SignalReportCheck.Status.CANCELLED, updated_at=timezone.now())
         )
         check.refresh_from_db()
@@ -4533,6 +4470,16 @@ class SignalReportArtefactViewSet(
         login_map = resolve_org_github_login_to_users(self.team.id, logins_union) if logins_union else {}
         uuids_union = normalized_user_uuids_from_suggested_reviewer_artefacts(artefacts)
         uuid_map = resolve_org_users_by_uuid(self.team.id, uuids_union) if uuids_union else {}
+        skills_union = source_skills_from_suggested_reviewer_artefacts(artefacts)
+        scout_display_names = (
+            dict(
+                SignalScoutConfig.objects.for_team(self.team.id)
+                .filter(skill_name__in=skills_union)
+                .values_list("skill_name", "display_name")
+            )
+            if skills_union
+            else {}
+        )
         serializer = SignalReportArtefactSerializer(
             artefacts,
             many=True,
@@ -4540,6 +4487,7 @@ class SignalReportArtefactViewSet(
                 **self.get_serializer_context(),
                 "signals_github_login_to_user_map": login_map,
                 "signals_reviewer_user_uuid_map": uuid_map,
+                "signals_scout_display_names": scout_display_names,
             },
         )
         if page is not None:
