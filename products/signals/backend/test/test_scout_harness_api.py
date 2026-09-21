@@ -287,7 +287,6 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
 def _make_emission(team: Team, run: SignalScoutRun, *, finding_id: str, **overrides) -> SignalScoutEmission:
     defaults: dict = {
         "description": "Checkout 500s post-deploy",
-        "weight": 0.7,
         "confidence": 0.85,
         "severity": "P1",
         "source_id": f"run:{run.id}:finding:{finding_id}",
@@ -311,7 +310,7 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
         first = body[0]
         assert first["run_id"] == str(run.id)
         assert first["description"] == "Checkout 500s post-deploy"
-        assert first["weight"] == 0.7
+        assert "weight" not in first
         assert first["confidence"] == 0.85
         assert first["severity"] == "P1"
         assert first["tags"] == ["cost-spike"]

@@ -1382,7 +1382,9 @@ class Database(BaseModel):
         if self._is_direct_query():
             warehouse_tables_query = warehouse_tables_query.filter(external_data_source_id=self._connection_id)
         elif warehouse_table_names:
-            warehouse_tables_query = warehouse_tables_query.filter(name__in=warehouse_table_names)
+            warehouse_tables_query = warehouse_tables_query.filter(name__in=warehouse_table_names).exclude(
+                external_data_source__access_method=ExternalDataSourceAccessMethod.DIRECT
+            )
         else:
             warehouse_tables_query = warehouse_tables_query.none()
 
