@@ -331,12 +331,17 @@ class Controller:
             if not events[operation.split("/")[1]].wait(60):
                 raise TimeoutError(f"Barrier {operation} was not reached: {attempt.errors}")
         elif operation == "snapshot":
+            from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
             from products.tasks.backend.models import Task, TaskRun
 
-            attempt.insight.refresh_from_db()
+            if attempt.insight_id is None:
+                raise ValueError("Attempt has no seeded insight")
+            (insight,) = insights_including_soft_deleted_for_team(
+                team_id=attempt.connected_team.id, insight_ids=[attempt.insight_id]
+            )
             return {
                 **attempt.snapshot(),
-                "insight_name": attempt.insight.name,
+                "insight_name": insight.name,
                 "task_count": Task.objects.filter(team=attempt.team).count(),
                 "run_count": TaskRun.objects.filter(task__team=attempt.team).count(),
             }

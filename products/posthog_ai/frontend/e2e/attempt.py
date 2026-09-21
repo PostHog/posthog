@@ -10,6 +10,7 @@ from time import monotonic
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
+import requests
 from pydantic import JsonValue
 
 from .faults import Fault, FaultName
@@ -36,6 +37,7 @@ class Attempt:
         self.replay: Replay | None = None
         self.task_id: str | None = None
         self.run_id: str | None = None
+        self.insight_id: int | None = None
         self.workflow_id: str | None = None
         self.run_created = threading.Event()
         self.workflow_registered = threading.Event()
@@ -53,6 +55,7 @@ class Attempt:
         self.agent_configuration: dict[str, JsonValue] = {}
 
     def seed(self) -> None:
+        from django.conf import settings
         from django.db import transaction
         from django.utils import timezone
 
@@ -68,7 +71,6 @@ class Attempt:
         from posthog.models.utils import generate_random_oauth_access_token
         from posthog.temporal.oauth import POSTHOG_AI_APP_CLIENT_ID_DEV
 
-        from products.product_analytics.backend.models.insight import Insight
         from products.tasks.backend.models import UserTasksConfig
 
         with transaction.atomic():
@@ -151,9 +153,19 @@ class Attempt:
                 config={"region": "DEV", "granted_scopes": scopes},
                 sensitive_config={"access_token": token},
             )
-            self.insight = Insight.objects.create(
-                team=self.connected_team, created_by=self.connected_user, name="Synthetic original insight"
-            )
+        # The seed goes through the public API with the connection's own token, because the
+        # harness may not write another product's model directly.
+        response = requests.post(
+            f"{settings.SITE_URL}/api/environments/{self.connected_team.id}/insights/",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "name": "Synthetic original insight",
+                "query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        self.insight_id = int(response.json()["id"])
 
     def public(self) -> dict[str, JsonValue]:
         return {
@@ -163,7 +175,7 @@ class Attempt:
             "team_id": self.team.id,
             "email": self.user.email,
             "password": self.password,
-            "insight_id": self.insight.id,
+            "insight_id": self.insight_id,
             "connection_id": str(self.connection.id),
             "resource_team_id": self.connected_team.id,
             "task_id": self.task_id,

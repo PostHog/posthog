@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from contextlib import ExitStack
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from unittest.mock import patch
 
 from .controller import Controller
+
+if TYPE_CHECKING:
+    from products.product_analytics.backend.models.insight import Insight
 
 
 def install_hooks(stack: ExitStack, controller: Controller, image_id: str) -> None:
@@ -110,18 +113,16 @@ def install_hooks(stack: ExitStack, controller: Controller, image_id: str) -> No
 
     from django.db.models.signals import post_save
 
-    from products.product_analytics.backend.models.insight import Insight
-
     def insight_saved(sender: type[Insight], instance: Insight, created: bool, **kwargs: object) -> None:
         attempt = controller.attempt
         if (
             attempt
             and not created
             and instance.team_id == attempt.connected_team.id
-            and instance.pk == attempt.insight.pk
+            and instance.pk == attempt.insight_id
         ):
             attempt.tool_executions += 1
             attempt.faults["approval"].record("insight_saved", insight_id=instance.pk, name=instance.name)
 
-    post_save.connect(insight_saved, sender=Insight, weak=False)
-    stack.callback(post_save.disconnect, insight_saved, sender=Insight)
+    post_save.connect(insight_saved, sender="product_analytics.Insight", weak=False)
+    stack.callback(post_save.disconnect, insight_saved, sender="product_analytics.Insight")
