@@ -3223,3 +3223,84 @@ async fn test_object_storage_definitions_require_matching_provenance() {
         }
     }
 }
+
+#[rstest::rstest]
+#[case("proof_without_body")]
+#[case("proof_disagrees_with_body")]
+#[tokio::test]
+async fn test_unverifiable_redis_pair_falls_back_to_the_object_storage_pair(
+    #[case] scenario: &str,
+) {
+    use common_s3::{MockS3Client, S3Error};
+    use feature_flags::{
+        config::Config,
+        utils::test_utils::{setup_redis_client, TestContext},
+    };
+    use serde_json::json;
+    use std::sync::Arc;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    let redis = setup_redis_client(Some(config.redis_url.clone())).await;
+    let cache_key = format!(
+        "posthog:1:cache/teams/{}/feature_flags/flags_with_cohorts.json",
+        team.id
+    );
+    let proof_key = format!(
+        "posthog:1:cache/teams/{}/feature_flags/flags_with_cohorts.provenance.json",
+        team.id
+    );
+
+    // Redis still holds the provenance of an earlier publication, either alone (its body
+    // evicted under memory pressure) or beside a body it does not describe. Object storage
+    // keeps a complete pair, and pairing proof from one tier with a body from the other is
+    // what would otherwise fail this request.
+    redis.del(cache_key.clone()).await.unwrap();
+    if scenario == "proof_disagrees_with_body" {
+        redis
+            .set(cache_key.clone(), json!({"flags": []}).to_string())
+            .await
+            .unwrap();
+    }
+    redis
+        .set(proof_key, json!({"etag": "stale"}).to_string())
+        .await
+        .unwrap();
+
+    let payload = json!({"flags": [{"key": "healthy", "filters": {"groups": []}}], "cohorts": {}, "group_type_mapping": {}}).to_string();
+    let stored_etag = common_hypercache::writer::compute_etag(&payload);
+    let mut s3 = MockS3Client::new();
+    s3.expect_get_string().returning(move |_, key| {
+        let result = if key.ends_with("flags_with_cohorts.provenance.json") {
+            Ok(json!({"etag": stored_etag}).to_string())
+        } else if key.ends_with("flags_with_cohorts.json") {
+            Ok(payload.clone())
+        } else {
+            Err(S3Error::NotFound(key.to_string()))
+        };
+        Box::pin(async move { result })
+    });
+    let server = common::ServerHandle::for_config_with_s3(config.clone(), Some(Arc::new(s3))).await;
+
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()["x-posthog-legacy-definitions"], "1");
+    // No ETag: the Redis ETag key describes a generation this body is not from, and a
+    // conditional request would revalidate against that key rather than against S3.
+    assert!(response.headers().get("etag").is_none());
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["flags"][0]["key"], "healthy");
+}

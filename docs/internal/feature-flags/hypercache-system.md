@@ -203,6 +203,8 @@ The Rust definitions endpoint and its `local_evaluation` aliases retain their ca
 Infrastructure failures keep their existing failure classification.
 An attested matching ETag can still return 304 before loading the body, with no duplicate billing.
 A full response verifies the exact cached bytes against provenance before attaching an ETag.
+Each tier is verified as a pair: a body is checked against the provenance stored beside it, and Redis failing to produce a verified pair falls back to the object storage pair rather than failing the request.
+A response only advertises an ETag when the stored ETag describes the body it served, because a conditional request revalidates against that stored ETag.
 
 Successful responses include `x-posthog-legacy-definitions: 1` so a cross-region mirror can require a guarded upstream reader.
 A mirror ignores an older upstream response without this header and waits for a later sync.

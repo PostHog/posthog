@@ -1,5 +1,6 @@
 import copy
 import json
+from typing import Any
 
 from unittest.mock import patch
 
@@ -9,7 +10,7 @@ from django.test import SimpleTestCase, override_settings
 from parameterized import parameterized
 
 from posthog.models.team import Team
-from posthog.storage.hypercache import HyperCacheDependencyUnavailable
+from posthog.storage.hypercache import HyperCacheDependencyUnavailable, KeyType
 
 from products.feature_flags.backend.legacy_definitions import sanitize_legacy_definitions
 from products.feature_flags.backend.legacy_definitions_cache import LegacyDefinitionsHyperCache
@@ -17,11 +18,11 @@ from products.feature_flags.backend.local_evaluation import _apply_flag_dependen
 from products.feature_flags.backend.sdk_cache_provider import HyperCacheFlagProvider
 
 
-def definition(key, filters=None, **fields):
+def definition(key: str, filters: dict[str, Any] | None = None, **fields: Any) -> dict[str, Any]:
     return {"key": key, "filters": filters if filters is not None else {}, **fields}
 
 
-def feed(flags):
+def feed(flags: list[dict[str, Any]]) -> dict[str, Any]:
     return {"flags": flags, "cohorts": {}, "group_type_mapping": {}, "minimal_flag_called_events": True}
 
 
@@ -37,7 +38,7 @@ class TestLegacyDefinitions(SimpleTestCase):
             ("properties", {"groups": [{"properties": [None]}]}),
         ]
     )
-    def test_excludes_invalid_targets_and_transitive_dependents(self, _name, filters):
+    def test_excludes_invalid_targets_and_transitive_dependents(self, _name: str, filters: Any) -> None:
         flags = [
             definition("healthy", {"groups": []}),
             definition("unsupported", filters, id=7, active=False, deleted=True),
@@ -64,16 +65,16 @@ class TestLegacyDefinitions(SimpleTestCase):
             ("null_properties", {"groups": [{"properties": None}]}),
         ]
     )
-    def test_preserves_supported_values_and_order(self, _name, filters):
+    def test_preserves_supported_values_and_order(self, _name: str, filters: Any) -> None:
         payload = feed([definition("second", filters), definition("first")])
         assert sanitize_legacy_definitions(payload) is payload
 
     @parameterized.expand([(None,), ([],), ({},), ({"flags": {}, "cohorts": {}, "group_type_mapping": {}},)])
-    def test_invalid_envelope_is_a_failure(self, payload):
+    def test_invalid_envelope_is_a_failure(self, payload: Any) -> None:
         with self.assertRaises(ValueError):
             sanitize_legacy_definitions(payload)
 
-    def test_deep_cycle_keeps_independent_definition_and_finishes_transformation(self):
+    def test_deep_cycle_keeps_independent_definition_and_finishes_transformation(self) -> None:
         flags = [
             definition(
                 str(index),
@@ -88,7 +89,7 @@ class TestLegacyDefinitions(SimpleTestCase):
             flag["filters"]["groups"][0]["properties"][0]["dependency_chain"] == [] for flag in result["flags"][:-1]
         )
 
-    def test_malformed_nested_cohort_omits_only_affected_flags(self):
+    def test_malformed_nested_cohort_omits_only_affected_flags(self) -> None:
         payload = feed(
             [
                 definition("healthy"),
@@ -108,7 +109,7 @@ class TestLegacyDefinitions(SimpleTestCase):
     CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "legacy-definitions"}}
 )
 class TestLegacyDefinitionsCache(SimpleTestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         cache.clear()
         self.payload = feed([definition("healthy")])
         self.loads = 0
@@ -122,13 +123,13 @@ class TestLegacyDefinitionsCache(SimpleTestCase):
             expiry_sorted_set_key="legacy-expiry",
         )
 
-    def load(self, key):
+    def load(self, key: KeyType) -> dict[str, Any]:
         self.loads += 1
         if self.unavailable:
             raise HyperCacheDependencyUnavailable()
         return self.payload
 
-    def test_batch_verification_preserves_missing_etag_and_isolates_corrupt_entries(self):
+    def test_batch_verification_preserves_missing_etag_and_isolates_corrupt_entries(self) -> None:
         self.hypercache.set_cache_value(1, self.payload)
         cache.delete(self.hypercache.get_etag_key(1))
         cache.set(self.hypercache.get_cache_key(2), ["corrupt"])
@@ -138,7 +139,7 @@ class TestLegacyDefinitionsCache(SimpleTestCase):
             2: (None, "miss", None),
         }
 
-    def test_old_cache_cannot_304_and_rebuild_retains_safe_etag(self):
+    def test_old_cache_cannot_304_and_rebuild_retains_safe_etag(self) -> None:
         raw = json.dumps(self.payload, sort_keys=True)
         etag = self.hypercache._compute_etag(raw)
         cache.set(self.hypercache.get_cache_key(1), raw)
@@ -152,7 +153,7 @@ class TestLegacyDefinitionsCache(SimpleTestCase):
         assert self.hypercache.get_if_none_match(1, etag) == (None, etag, False)
         assert self.loads == 1
 
-    def test_old_writer_invalidates_provenance_and_sdk_rebuilds(self):
+    def test_old_writer_invalidates_provenance_and_sdk_rebuilds(self) -> None:
         self.hypercache.set_cache_value(1, self.payload)
         unsafe = feed([definition("unsupported", {"version": 2}), definition("healthy")])
         raw = json.dumps(unsafe, sort_keys=True)
@@ -165,7 +166,7 @@ class TestLegacyDefinitionsCache(SimpleTestCase):
         assert result["flags"] == self.payload["flags"]
         assert self.loads == 1
 
-    def test_supplied_payload_filters_before_publishing_to_both_tiers(self):
+    def test_supplied_payload_filters_before_publishing_to_both_tiers(self) -> None:
         objects = {}
         self.hypercache.s3_enabled = True
         with (
@@ -181,7 +182,7 @@ class TestLegacyDefinitionsCache(SimpleTestCase):
             assert self.hypercache.get_etag(1) == etag
             assert self.loads == 0
 
-    def test_invalid_envelope_and_dependency_failure_preserve_previous_entry(self):
+    def test_invalid_envelope_and_dependency_failure_preserve_previous_entry(self) -> None:
         self.hypercache.set_cache_value(1, self.payload)
         etag = self.hypercache.get_etag(1)
         assert not self.hypercache.update_cache(1, data={"flags": []})
@@ -190,7 +191,7 @@ class TestLegacyDefinitionsCache(SimpleTestCase):
         assert self.hypercache.get_from_cache(1) == self.payload
         assert self.hypercache.get_etag(1) == etag
 
-    def test_cold_unverified_mirror_keeps_retrying_without_caching_a_miss(self):
+    def test_cold_unverified_mirror_keeps_retrying_without_caching_a_miss(self) -> None:
         self.unavailable = True
         for _ in range(2):
             assert self.hypercache.get_from_cache_with_source("mirror") == (None, "dependency_unavailable")

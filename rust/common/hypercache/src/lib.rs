@@ -828,6 +828,29 @@ impl HyperCacheReader {
         }
     }
 
+    /// Fetch from S3 only — no Redis read and no read repair. Pairs with
+    /// [`Self::get_typed_from_redis`] for a caller that must validate a payload against a
+    /// companion object stored beside it: proof taken from one tier and a body from the
+    /// other can combine two generations of the cache. A confirmed NotFound surfaces as
+    /// `CacheMiss`, so an absent key stays distinguishable from an unreachable bucket.
+    pub async fn get_typed_from_s3<T: DeserializeOwned>(
+        &self,
+        key: &KeyType,
+    ) -> Result<T, HyperCacheError> {
+        let s3_cache_key = self.config.get_s3_cache_key(key);
+        match timeout(
+            self.config.s3_timeout,
+            self.try_get_typed_from_s3::<T>(&s3_cache_key),
+        )
+        .await
+        {
+            Ok(Ok((value, _raw_json))) => Ok(value),
+            Ok(Err(HyperCacheError::S3(S3Error::NotFound(_)))) => Err(HyperCacheError::CacheMiss),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(HyperCacheError::Timeout("s3 timeout".to_string())),
+        }
+    }
+
     /// Read the companion ETag string for `key` from Redis, if present.
     ///
     /// The ETag is written atomically alongside the payload by `HyperCacheWriter::set_with_etag`
