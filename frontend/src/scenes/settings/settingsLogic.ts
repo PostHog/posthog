@@ -627,7 +627,7 @@ export const settingsLogic = kea<settingsLogicType>([
                     sectionId: selectedSectionId,
                     visibleSections: sections,
                     allSections: SETTINGS_MAP,
-                    gatesResolved: receivedFeatureFlags && !!currentOrganization,
+                    gatesResolved: receivedFeatureFlags && !!currentOrganization?.membership_level,
                     doesMatchFlags,
                     isAdminOrOwner,
                 }),
