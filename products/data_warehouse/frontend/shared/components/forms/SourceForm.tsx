@@ -608,10 +608,7 @@ function CDCConfigSection({ sourceName }: { sourceName: string }): JSX.Element {
                         >
                             <div className="flex items-start justify-between gap-4">
                                 <div>
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <h4 className="mb-0 text-base font-semibold">Change data capture (CDC)</h4>
-                                        <LemonTag type="completion">Alpha</LemonTag>
-                                    </div>
+                                    <h4 className="mb-1 text-base font-semibold">Change data capture (CDC)</h4>
                                     <p className="text-sm text-secondary mb-2">
                                         Real-time sync via PostgreSQL logical replication. Captures inserts, updates,
                                         and <strong>deletes</strong> — the other sync modes can't. No full table scans
