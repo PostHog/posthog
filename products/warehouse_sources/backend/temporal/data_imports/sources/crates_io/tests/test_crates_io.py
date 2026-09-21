@@ -319,9 +319,10 @@ class TestGetRows:
                 "version_num": "1.0.1",
             }
         ]
-        # Only the newest versions are walked, so the version list must be capped and semver-sorted.
+        # Only the most recently published versions are walked, so the version list must be capped
+        # and date-sorted. Sorting by semver would drop a backport released onto an older line.
         assert urls[0] == (
-            f"{CRATES_IO_BASE_URL}/crates/serde/versions?per_page={MAX_VERSIONS_PER_CRATE_FOR_DEPENDENCIES}&sort=semver"
+            f"{CRATES_IO_BASE_URL}/crates/serde/versions?per_page={MAX_VERSIONS_PER_CRATE_FOR_DEPENDENCIES}&sort=date"
         )
         # A version whose dependencies 404 is skipped rather than failing the crate.
         assert urls[1:] == [

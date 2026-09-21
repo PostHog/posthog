@@ -39,8 +39,9 @@ VERSIONS_PER_PAGE = 100
 LIST_PER_PAGE = 100
 
 # Dependencies are only exposed per version, so a crate with a long release history would cost one
-# request per version on every sync. Only the newest versions are walked (crates.io sorts versions
-# by semver, highest first).
+# request per version on every sync. Only the most recently published versions are walked. The walk
+# sorts by publish date rather than semver, so a backport released onto an older line is included
+# and a stale high version number does not hold a slot.
 MAX_VERSIONS_PER_CRATE_FOR_DEPENDENCIES = 25
 
 # A widely used crate has tens of thousands of reverse dependencies, which at the crawler-policy
@@ -321,7 +322,7 @@ def _dependency_rows(
     Rows are stamped with the parent crate and version number: the endpoint's own `crate_id` names
     the crate being depended on, not the crate that declares the dependency.
     """
-    query = urlencode({"per_page": MAX_VERSIONS_PER_CRATE_FOR_DEPENDENCIES, "sort": "semver"})
+    query = urlencode({"per_page": MAX_VERSIONS_PER_CRATE_FOR_DEPENDENCIES, "sort": "date"})
     document = _fetch_json(session, throttle, f"{_crate_url(crate)}/versions?{query}", logger)
     if document is None:
         return
