@@ -27,6 +27,7 @@ from products.signals.backend.artefact_schemas import (
     ImplementationAssessment,
     ImplementationTarget,
     NoteArtefact,
+    RelatedTo,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutNote
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
@@ -53,6 +54,7 @@ from products.signals.backend.temporal.agentic.report import (
     RESEARCH_MCP_SCOPES,
     RunAgenticReportInput,
     _load_previous_research,
+    _load_resolved_report_context,
     _parse_artefact_content,
     _parse_stored_charts,
     _parse_stored_metrics,
@@ -254,6 +256,42 @@ def _build_signals() -> list[SignalData]:
             timestamp=now,
         ),
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("parent_status", "dismissal_reason", "expected"),
+    [
+        (SignalReport.Status.RESOLVED, None, True),
+        (SignalReport.Status.SUPPRESSED, "already_fixed", True),
+        # Archived because nobody wants to see it, not because it was fixed: there is no prior fix
+        # to reason about, so the research agent is told nothing.
+        (SignalReport.Status.SUPPRESSED, "wontfix_intentional", False),
+    ],
+)
+async def test_recurrence_context_comes_from_a_parent_closed_as_fixed(ateam, parent_status, dismissal_reason, expected):
+    parent = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=parent_status, title="stale chunk TypeError", summary="Imports fail after a deploy."
+    )
+    if dismissal_reason is not None:
+        await database_sync_to_async(SignalReportArtefact.append_dismissal)(
+            team_id=ateam.id,
+            report_id=str(parent.id),
+            content=Dismissal(reason=dismissal_reason),
+            attribution=ArtefactAttribution.system(),
+        )
+    fork = await database_sync_to_async(SignalReport.objects.create)(team=ateam, title="fork", summary="fork")
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(fork.id),
+        content=RelatedTo(report_id=str(parent.id)),
+        attribution=ArtefactAttribution.system(),
+    )
+
+    context = await _load_resolved_report_context(ateam.id, str(fork.id))
+
+    assert context == (("stale chunk TypeError", "Imports fail after a deploy.") if expected else (None, None))
 
 
 @pytest.mark.asyncio
