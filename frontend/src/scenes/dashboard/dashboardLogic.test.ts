@@ -3,6 +3,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
+import { toast } from 'react-toastify'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import * as dashboardWidgetUtils from '@posthog/products-dashboards/frontend/utils'
@@ -1701,6 +1702,33 @@ describe('dashboardLogic', () => {
                     .toMatchValues({
                         layoutEditMode: true,
                     })
+            })
+
+            it('clears the edit mode hint when layout editing ends', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                const infoToast = jest.spyOn(lemonToast, 'info').mockReturnValue('toast-id')
+                const dismissToast = jest.spyOn(toast, 'dismiss').mockImplementation(() => {})
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.SceneCommonButtons
+                    )
+                }).toFinishAllListeners()
+
+                const toastId = infoToast.mock.calls.at(-1)?.[1]?.toastId
+                expect(toastId).toBeTruthy()
+                expect(dismissToast).not.toHaveBeenCalled()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                }).toFinishAllListeners()
+
+                expect(dismissToast).toHaveBeenCalledWith(toastId)
+
+                infoToast.mockRestore()
+                dismissToast.mockRestore()
             })
         })
 
