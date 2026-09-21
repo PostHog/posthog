@@ -1,6 +1,17 @@
 # owners-yaml
 
-Code ownership in small `owners.yaml` files next to the code, with a resolver, a linter, and a CODEOWNERS export.
+Code ownership in small `owners.yaml` files next to the code, with a resolver that people, tools, and agents can ask, a linter, and a CODEOWNERS export.
+
+`CODEOWNERS` answers one question for one consumer: who must approve this pull request on GitHub.
+Automation now does more of the work around a repo: review bots, coding agents that open pull requests, alert routers, flaky-test reports.
+Each of them needs ownership as data, and each asks a different question:
+
+- Which team owns this path, and who is the person to ask?
+- Which Slack channel takes this team's alerts, and has the team opted out of this bot?
+- Is this file generated or vendored, so a review can skip it?
+- Does anyone own this code at all?
+
+`owners-yaml` answers all of them from one resolver, so no tool parses ownership files itself or guesses an owner from `git blame`.
 
 Each directory declares its owners in a short file.
 Resolving a path takes more steps than a CODEOWNERS lookup: the nearest file wins field by field, `inherit: false` cuts off parent files, and rules override fields inside a file.
@@ -9,7 +20,7 @@ GitHub's `CODEOWNERS` can stay in place for required approvals.
 
 The format is defined in [SPEC.md](https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/SPEC.md).
 PostHog's monorepo uses it for about 30 teams.
-The files route review requests, daily digests, flaky-test reports, and alerts.
+The same files route review requests, give every agent-opened pull request one accountable owner, and send daily digests, flaky-test reports, and alerts to the right team channel.
 
 ## Quick start
 
