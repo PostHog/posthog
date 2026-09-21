@@ -131,9 +131,8 @@ const MODULE_LOAD_FAILURE_MESSAGES: readonly string[] = [
 
 /**
  * A `fetch` the browser refused to complete, recognized by the message the engine produced. The
- * request never reached the server, so there is no status to react to and no code path of ours to
- * fix: the cause is an ad blocker, tracking protection, DNS, a captive portal, or a connection that
- * dropped mid-request.
+ * transport failed, so there is no status to react to and no code path of ours to fix: the cause is
+ * an ad blocker, tracking protection, DNS, a captive portal, or a connection that dropped mid-flight.
  *
  * The match is on the message and not on the `TypeError` class on purpose. Application bugs raise
  * status-less `TypeError`s too, such as "x is not a function", and dropping those would hide real
