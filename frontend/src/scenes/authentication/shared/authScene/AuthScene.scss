@@ -10,17 +10,19 @@
     --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-light);
     --color-text-warning: var(--color-text-primary);
 
-    // The dark-mode block below is the only thing that repaints these.
-    --auth-scene-backdrop-top: #cfe0ae;
-    --auth-scene-backdrop-mid: #b5cd8f;
-    --auth-scene-backdrop-bottom: #9dbb78;
-    --auth-scene-backdrop-glow: rgb(255 253 240 / 45%);
-    --auth-scene-backdrop-ink: rgb(45 74 22 / 65%);
+    // The four blocks below are the only things that repaint these: one per referrer, per theme.
+    --auth-scene-backdrop-top: #eef4fa;
+    --auth-scene-backdrop-mid: #dbe8f4;
+    --auth-scene-backdrop-bottom: #c4d8ea;
+    --auth-scene-backdrop-glow: rgb(255 255 255 / 55%);
+    --auth-scene-backdrop-ink: rgb(30 56 84 / 62%);
     --auth-scene-card-bg: #f6f5f0;
     --auth-scene-card-border: #e3e0d4;
-    --auth-scene-card-shadow: rgb(30 50 10 / 25%);
+    --auth-scene-card-shadow: rgb(20 44 72 / 18%);
     --auth-scene-card-ink: #111;
     --auth-scene-card-ink-muted: rgb(17 17 17 / 58%);
+    --auth-scene-note-bg: #fbfbf9;
+    --auth-scene-note-border: #c5c6bd;
 
     background-color: var(--auth-scene-backdrop-mid);
     background-image:
@@ -52,19 +54,42 @@
     }
 }
 
+// Continues the green posthog.com just showed the visitor.
+.AuthScene--fromWebsite {
+    --auth-scene-backdrop-top: #cfe0ae;
+    --auth-scene-backdrop-mid: #b5cd8f;
+    --auth-scene-backdrop-bottom: #9dbb78;
+    --auth-scene-backdrop-glow: rgb(255 253 240 / 45%);
+    --auth-scene-backdrop-ink: rgb(45 74 22 / 65%);
+    --auth-scene-card-shadow: rgb(30 50 10 / 25%);
+}
+
 // The backdrop and the card are both opaque, so dark mode has to repaint them. Without this the
-// scene keeps its light sheets under the light-on-dark text the app tokens switch to.
+// scene keeps its light sheets under the light-on-dark text the app tokens switch to. The card
+// and the ink are the same whatever the visitor came from, so only the ramp splits again below.
 [theme='dark'] .AuthScene {
-    --auth-scene-backdrop-top: #1b2a10;
-    --auth-scene-backdrop-mid: #14200b;
-    --auth-scene-backdrop-bottom: #0d1707;
-    --auth-scene-backdrop-glow: rgb(157 187 120 / 12%);
-    --auth-scene-backdrop-ink: rgb(207 224 174 / 65%);
+    --auth-scene-backdrop-top: #16232f;
+    --auth-scene-backdrop-mid: #101a24;
+    --auth-scene-backdrop-bottom: #0a1119;
+    --auth-scene-backdrop-glow: rgb(150 185 220 / 12%);
+    --auth-scene-backdrop-ink: rgb(186 210 232 / 65%);
     --auth-scene-card-bg: var(--color-bg-surface-primary);
     --auth-scene-card-border: var(--color-border-primary);
     --auth-scene-card-shadow: rgb(0 0 0 / 45%);
     --auth-scene-card-ink: var(--color-text-primary);
     --auth-scene-card-ink-muted: var(--color-text-secondary);
+    --auth-scene-note-bg: var(--color-bg-fill-primary);
+    --auth-scene-note-border: var(--color-border-primary);
+}
+
+// Reads as the same green the website showed, dimmed for a dark room. It has to follow the block
+// above, because the two selectors have equal specificity.
+[theme='dark'] .AuthScene--fromWebsite {
+    --auth-scene-backdrop-top: #1b2a10;
+    --auth-scene-backdrop-mid: #14200b;
+    --auth-scene-backdrop-bottom: #0d1707;
+    --auth-scene-backdrop-glow: rgb(157 187 120 / 12%);
+    --auth-scene-backdrop-ink: rgb(207 224 174 / 65%);
 }
 
 // A band that sits flush inside a card, such as a sticky section header. It repeats the card's
@@ -124,8 +149,12 @@
     }
 }
 
-// Note callout — bold inside it is darker
+// Note callout. Its sheet has to repaint for dark mode, because the text inside it uses the app
+// tokens, which turn light.
 .AuthScene__note {
+    background: var(--auth-scene-note-bg, #fbfbf9);
+    border-color: var(--auth-scene-note-border, #c5c6bd);
+
     b {
         color: var(--auth-scene-card-ink, #111);
     }

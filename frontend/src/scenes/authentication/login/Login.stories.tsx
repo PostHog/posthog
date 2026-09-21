@@ -1,3 +1,4 @@
+import { WEBSITE_REFERRER, setDocumentReferrer } from 'scenes/authentication/shared/authReferrer.mock'
 import {
     PENDING_OAUTH_CONNECTION_FIXTURE,
     setPendingOAuthConnectionCookie,
@@ -9,6 +10,7 @@ import { useEffect } from 'react'
 import { useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
+import { arrivedFromWebsiteLogic } from '../shared/arrivedFromWebsiteLogic'
 import { Login } from './Login'
 import { loginLogic } from './loginLogic'
 
@@ -22,6 +24,7 @@ type StoryArgs = {
     ssoEnforcement: 'none' | 'google-oauth2' | 'github' | 'gitlab' | 'saml'
     generalError: 'none' | 'invalid_credentials' | 'code_based_verification_sent'
     pendingOAuthConnection: boolean
+    arrivedFromWebsite: boolean
 }
 
 const meta: Meta<StoryArgs> = {
@@ -49,6 +52,7 @@ const meta: Meta<StoryArgs> = {
             options: ['none', 'invalid_credentials', 'code_based_verification_sent'],
         },
         pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
+        arrivedFromWebsite: { control: 'boolean', name: 'Arrived from posthog.com' },
     },
     args: {
         cloud: true,
@@ -60,6 +64,7 @@ const meta: Meta<StoryArgs> = {
         ssoEnforcement: 'none',
         generalError: 'none',
         pendingOAuthConnection: false,
+        arrivedFromWebsite: false,
     },
 }
 export default meta
@@ -74,10 +79,12 @@ const Template: StoryFn<StoryArgs> = ({
     ssoEnforcement,
     generalError,
     pendingOAuthConnection,
+    arrivedFromWebsite,
 }) => {
     const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
     // Set synchronously: the scene reads the cookie while it mounts during this same render.
     setPendingOAuthConnectionCookie(pendingOAuthConnection ? PENDING_OAUTH_CONNECTION_FIXTURE : null)
+    setDocumentReferrer(arrivedFromWebsite ? WEBSITE_REFERRER : '')
 
     useStorybookMocks({
         get: {
@@ -100,6 +107,10 @@ const Template: StoryFn<StoryArgs> = ({
             '/api/login/precheck': { sso_enforcement: enforcement, saml_available: samlAvailable },
         },
     })
+
+    useEffect(() => {
+        arrivedFromWebsiteLogic.findMounted()?.actions.setArrivedFromWebsite(arrivedFromWebsite)
+    }, [arrivedFromWebsite])
 
     useEffect(() => {
         if (enforcement) {
@@ -146,3 +157,7 @@ PendingOAuthConnection.args = { pendingOAuthConnection: true }
 
 export const EmailVerification: StoryFn<StoryArgs> = Template.bind({})
 EmailVerification.args = { generalError: 'code_based_verification_sent' }
+
+export const ArrivedFromWebsite: StoryFn<StoryArgs> = Template.bind({})
+ArrivedFromWebsite.storyName = 'Arrived from posthog.com'
+ArrivedFromWebsite.args = { arrivedFromWebsite: true }
