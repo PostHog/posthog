@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
+from django.db.models import F
 from django.utils.timezone import now
 
 import structlog
@@ -89,6 +90,10 @@ async def prepare_observation_thumbnail_activity(inputs: ObservationMediaInputs)
     )
     if observation is None:
         raise ApplicationError(f"Observation {media_inputs.observation_id} is gone", non_retryable=True)
+    # Stamped on every attempt, live or backfilled, so the sweep can back off a failing render.
+    await ReplayObservation.objects.filter(pk=media_inputs.observation_id, team_id=media_inputs.team_id).aupdate(
+        media_render_attempts=F("media_render_attempts") + 1, media_render_attempted_at=now()
+    )
     scanner_result = observation or {}
     clock = video_clock_from_export_context(context)
     video_time_s = _pick_video_time_s(media_inputs, scanner_result.get("model_output"), clock, duration_s)
