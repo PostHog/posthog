@@ -7,7 +7,10 @@ import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 // Side-effect import: register all integration setups
 import 'lib/components/CyclotronJob/integrations/integrationSetups'
 import { getIntegrationSetup } from 'lib/components/CyclotronJob/integrations/integrationSetupRegistry'
-import { useIntegrationManagementRestriction } from 'lib/integrations/integrationPermissions'
+import {
+    useIntegrationManagementRestriction,
+    withIntegrationRestrictionHint,
+} from 'lib/integrations/integrationPermissions'
 import { IntegrationsList } from 'lib/integrations/IntegrationsList'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
@@ -46,7 +49,7 @@ export function OtherIntegrations(): JSX.Element {
             <div className="flex justify-end">
                 <LemonMenu
                     items={CREATABLE_KINDS.map((kind) => ({
-                        label: getIntegrationNameFromKind(kind),
+                        label: withIntegrationRestrictionHint(getIntegrationNameFromKind(kind), managementRestriction),
                         disabledReason: managementRestriction ?? undefined,
                         onClick: () => {
                             reportIntegrationConnectClicked(kind, kind, 'settings')

@@ -79,7 +79,8 @@ describe('OtherIntegrations', () => {
         )
 
         fireEvent.click(await screen.findByText('New connection'))
-        const item = await screen.findByText('AWS S3')
+        // The disabledReason only shows on hover, so the label has to carry the reason too.
+        const item = await screen.findByText('AWS S3 (needs project admin)')
         expect(item.closest('[aria-disabled]')).toHaveAttribute('aria-disabled', 'true')
     })
 })

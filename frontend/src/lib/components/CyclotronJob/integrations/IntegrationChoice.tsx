@@ -8,7 +8,10 @@ import { IconExternal, IconTrash, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { useIntegrationManagementRestriction } from 'lib/integrations/integrationPermissions'
+import {
+    useIntegrationManagementRestriction,
+    withIntegrationRestrictionHint,
+} from 'lib/integrations/integrationPermissions'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
@@ -110,10 +113,6 @@ export function IntegrationChoice({
     // When the instance doesn't have OAuth credentials for this kind, /integrations/authorize
     // 400s with "Kind not configured". Send users to the settings page instead.
     const oauthUnavailable = kind === 'slack' && !slackAvailable
-    // The disabledReason only shows on hover, and a greyed-out item with an unchanged label reads
-    // as a bug. Say it in the label so the reason is visible before the user tries to click.
-    const restrictedLabel = (label: string): string =>
-        integrationManagementRestriction ? `${label} (needs project admin)` : label
     const setupItem = setupDef?.menuItem({
         kind,
         openModal: (modalKind) => openNewIntegrationModal(modalKind, modalId),
@@ -122,7 +121,7 @@ export function IntegrationChoice({
     const setupMenuItem = setupItem
         ? {
               ...setupItem,
-              label: restrictedLabel(setupItem.label),
+              label: withIntegrationRestrictionHint(setupItem.label, integrationManagementRestriction),
               onClick:
                   setupItem.onClick &&
                   (() => {
@@ -145,10 +144,11 @@ export function IntegrationChoice({
                     reportIntegrationConnectClicked(kind, kind, 'pipeline_config')
                     beforeRedirect?.()
                 },
-                label: restrictedLabel(
+                label: withIntegrationRestrictionHint(
                     integrationsOfKind?.length
                         ? `Connect to a different integration for ${kindName}`
-                        : `Connect to ${kindName}`
+                        : `Connect to ${kindName}`,
+                    integrationManagementRestriction
                 ),
                 disabledReason: integrationManagementRestriction ?? undefined,
             }

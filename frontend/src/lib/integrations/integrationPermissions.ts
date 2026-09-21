@@ -12,3 +12,9 @@ export function useIntegrationManagementRestriction(): string | null {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 }
+
+// A disabledReason only shows on hover, and a greyed-out item with an unchanged label reads as a
+// bug. Say it in the label too, so the reason is visible before the user tries to click.
+export function withIntegrationRestrictionHint(label: string, restriction: string | null): string {
+    return restriction ? `${label} (needs project admin)` : label
+}
