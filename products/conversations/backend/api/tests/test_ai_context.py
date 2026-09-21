@@ -49,6 +49,8 @@ class TestValidateAiContextConversationsSettings(SimpleTestCase):
         )
         assert value["ai_context_account_property_ids"] == []
 
+    def test_creation_still_rejects_malformed_ids(self) -> None:
+        # Dropping every id on create must not short-circuit the shape checks.
         with self.assertRaises(serializers.ValidationError):
             validate_ai_context_conversations_settings({"ai_context_account_property_ids": ["nope"]}, team_id=None)
 

@@ -625,5 +625,53 @@ describe('supportSettingsLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.aiContextAccountPropertiesSaving).toBe(false)
         })
+
+        it('ignores a late response from the team the user switched away from', async () => {
+            const TEAM_A_OPTIONS = [{ id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', name: 'Team A plan' }]
+            const TEAM_B_OPTIONS = [{ id: 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff', name: 'Team B plan' }]
+            let releaseTeamA: () => void = () => {}
+            const teamAInFlight = new Promise<void>((resolve) => {
+                releaseTeamA = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/conversations/v1/email/status': { configs: [] },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
+                    '/api/projects/:team_id/conversations/ai_context_account_properties/': async ({ params }) => {
+                        if (String(params.team_id) === String(MOCK_DEFAULT_TEAM.id)) {
+                            await teamAInFlight
+                            return [200, TEAM_A_OPTIONS]
+                        }
+                        return [200, TEAM_B_OPTIONS]
+                    },
+                },
+            })
+            initKeaTests(true, {
+                ...MOCK_DEFAULT_TEAM,
+                conversations_settings: { ai_context_account_property_ids: [] },
+            } as unknown as TeamType)
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true })
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadAccountPropertyOptions'])
+
+            // Team A's request is still open, so switching teams must start a second load.
+            await expectLogic(logic, () => {
+                teamLogic.actions.loadCurrentTeamSuccess({
+                    ...MOCK_DEFAULT_TEAM,
+                    id: MOCK_DEFAULT_TEAM.id + 1,
+                    conversations_settings: { ai_context_account_property_ids: [] },
+                } as unknown as TeamType)
+            }).toDispatchActions([
+                'resetAccountPropertyOptions',
+                'loadAccountPropertyOptions',
+                'loadAccountPropertyOptionsSuccess',
+            ])
+            expect(logic.values.accountPropertyOptions).toEqual(TEAM_B_OPTIONS)
+
+            releaseTeamA()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.accountPropertyOptions).toEqual(TEAM_B_OPTIONS)
+        })
     })
 })
