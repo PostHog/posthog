@@ -1,5 +1,6 @@
-import { renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import { useGravatarRefreshStore } from "./gravatarRefreshStore";
 import { useGravatarUrl } from "./useGravatarUrl";
 
 async function gravatarUrl(email: string): Promise<string> {
@@ -14,6 +15,41 @@ async function gravatarUrl(email: string): Promise<string> {
 }
 
 describe("useGravatarUrl", () => {
+  afterEach(() => {
+    act(() => useGravatarRefreshStore.setState({ refreshedAtByEmail: {} }));
+  });
+
+  it("keeps refreshed URLs after remount and updates all sizes for that email", async () => {
+    const email = "refresh@example.com";
+    const expected = await gravatarUrl(email);
+    const profile = renderHook(() => useGravatarUrl(email, 144));
+    const avatar = renderHook(() => useGravatarUrl(email));
+    const other = renderHook(() => useGravatarUrl("other@example.com"));
+    await waitFor(() => expect(profile.result.current).toBeDefined());
+    await waitFor(() => expect(avatar.result.current).toBe(expected));
+    await waitFor(() => expect(other.result.current).toBeDefined());
+    const otherUrl = other.result.current;
+
+    act(() =>
+      useGravatarRefreshStore.getState().refresh(" REFRESH@Example.com "),
+    );
+    const refreshedAt =
+      useGravatarRefreshStore.getState().refreshedAtByEmail[email];
+    expect(avatar.result.current).toBe(`${expected}&_=${refreshedAt}`);
+    expect(profile.result.current).toBe(
+      `${expected.replace("s=96", "s=144")}&_=${refreshedAt}`,
+    );
+    expect(other.result.current).toBe(otherUrl);
+    const refreshedUrl = profile.result.current;
+    profile.unmount();
+
+    const reopened = renderHook(() => useGravatarUrl(email, 144));
+    expect(reopened.result.current).toBe(refreshedUrl);
+
+    act(() => useGravatarRefreshStore.getState().refresh(email));
+    expect(reopened.result.current).not.toBe(refreshedUrl);
+  });
+
   it("returns undefined when there is no email", () => {
     const { result } = renderHook(() => useGravatarUrl(undefined));
     expect(result.current).toBeUndefined();
