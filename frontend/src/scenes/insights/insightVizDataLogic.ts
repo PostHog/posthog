@@ -442,7 +442,11 @@ export interface insightVizDataLogicActions {
     updateDisplay: (display: ChartDisplayType | undefined) => {
         display: ChartDisplayType | undefined
     }
-    updateInsightFilter: (insightFilter: InsightFilter) => {
+    updateInsightFilter: (
+        insightFilter: InsightFilter,
+        ignoreDebounce?: boolean
+    ) => {
+        ignoreDebounce: boolean
         insightFilter: InsightFilter
     }
     updateQuerySource: (querySource: QuerySourceUpdate) => {
@@ -1357,7 +1361,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     actions({
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         updateQuerySource: (querySource: QuerySourceUpdate) => ({ querySource }),
-        updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
+        updateInsightFilter: (insightFilter: InsightFilter, ignoreDebounce: boolean = false) => ({
+            insightFilter,
+            ignoreDebounce,
+        }),
         updateDateRange: (dateRange: DateRange, ignoreDebounce: boolean = false) => ({ dateRange, ignoreDebounce }),
         /** Apply a drag-to-zoom date range to the insight's query. Both dates are bucket starts;
          *  the end is widened to its bucket's end using the query's interval. */
@@ -1396,6 +1403,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             false,
             {
                 toggleFormulaMode: (state) => !state,
+                // Removing a row that leaves only blank ones empties the query's formula list, so
+                // keep the editor open instead of letting `hasFormula` close it under the user.
+                removeFormulaNode: (state, { formulas }) => (formulas.length > 0 ? true : state),
             },
         ],
     }),
@@ -2743,10 +2753,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
 
         // insight filter
-        updateInsightFilter: async ({ insightFilter }, breakpoint) => {
+        updateInsightFilter: async ({ insightFilter, ignoreDebounce }, breakpoint) => {
             // When an external save handler is wired (dashboard card), skip the debounce so
             // rapid successive toggle clicks don't cancel each other and lose earlier changes.
-            if (!props.setQuery) {
+            if (!props.setQuery && !ignoreDebounce) {
                 await breakpoint(300)
             }
 
@@ -2814,14 +2824,14 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return
             }
 
-            const filledFormulas = formulas.filter((v) => v.formula.trim() !== '')
-            if (filledFormulas.length > 0) {
-                actions.updateInsightFilter({
+            actions.updateInsightFilter(
+                {
                     formula: undefined,
                     formulas: undefined,
-                    formulaNodes: filledFormulas,
-                })
-            }
+                    formulaNodes: formulas.filter((v) => v.formula.trim() !== ''),
+                },
+                true
+            )
         },
     })),
     afterMount(({ actions, values }) => {

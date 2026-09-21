@@ -49,19 +49,17 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
         }
     }, [formulaNodes, hasFormula]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const updateFormulas = (newValues: TrendsFormulaNode[]): void => {
-        // Filter out empty values when updating the query but keep them in local state
-        const filledValues = newValues.filter((v) => v.formula.trim() !== '')
-        if (filledValues.length === 0) {
-            return
-        }
-
-        // Always use formulaNodes for consistency
-        updateInsightFilter({
-            formula: undefined,
-            formulas: undefined,
-            formulaNodes: filledValues,
-        })
+    const commitFormulas = (): void => {
+        // Empty rows stay in local state but never reach the query. Commit without the debounce,
+        // so a click that follows the blur (such as "Try again") runs the edited query.
+        updateInsightFilter(
+            {
+                formula: undefined,
+                formulas: undefined,
+                formulaNodes: localValues.filter((v) => v.formula.trim() !== ''),
+            },
+            true
+        )
     }
 
     const handleFormulaChange = (index: number, value: string): void => {
@@ -82,25 +80,11 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
         setLocalValues(newValues)
     }
 
-    const handleFormulaBlur = (index: number, e: React.FocusEvent<HTMLInputElement>): void => {
+    const handleFormulaBlur = (e: React.FocusEvent<HTMLInputElement>): void => {
         // Ignore TrendsFormulaLabel switch click to prevent conflicting updateInsightFilter calls
         if ((e.relatedTarget as HTMLElement | undefined)?.id !== 'trends-formula-switch') {
-            // Only update if the current field has content
-            if (localValues[index].formula.trim() !== '') {
-                updateFormulas(localValues)
-            }
+            commitFormulas()
         }
-    }
-
-    const handleCustomNameBlur = (index: number): void => {
-        // Only update if the current field has a formula with content
-        if (localValues[index].formula.trim() !== '') {
-            updateFormulas(localValues)
-        }
-    }
-
-    const handleFormulaEnter = (): void => {
-        updateFormulas(localValues)
     }
 
     const addFormula = (): void => {
@@ -125,8 +109,8 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
                             autoFocus={index === localValues.length - 1}
                             value={value.formula}
                             onChange={(value) => handleFormulaChange(index, value)}
-                            onBlur={(e) => handleFormulaBlur(index, e)}
-                            onPressEnter={handleFormulaEnter}
+                            onBlur={handleFormulaBlur}
+                            onPressEnter={commitFormulas}
                         />
                         <LemonInput
                             className="flex-1"
@@ -134,8 +118,8 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
                             size="small"
                             value={value.custom_name || ''}
                             onChange={(value) => handleCustomNameChange(index, value)}
-                            onBlur={() => handleCustomNameBlur(index)}
-                            onPressEnter={handleFormulaEnter}
+                            onBlur={commitFormulas}
+                            onPressEnter={commitFormulas}
                         />
                         <LemonButton
                             icon={<IconTrash />}
