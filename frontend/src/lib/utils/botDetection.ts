@@ -715,6 +715,31 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
             operator: 'swissaitalent.ch',
         },
     },
+    {
+        pattern: 'JobsToInbox',
+        definition: { name: 'JobsToInbox', category: 'search_crawler', trafficType: 'Bot', operator: 'JobsToInbox' },
+    },
+    {
+        pattern: 'EtherdeckBot',
+        definition: { name: 'Etherdeck', category: 'search_crawler', trafficType: 'Bot', operator: 'Etherdeck' },
+    },
+    {
+        pattern: 'VoryqeSearchBot',
+        definition: { name: 'Voryqe Search', category: 'search_crawler', trafficType: 'Bot', operator: 'Voryqe' },
+    },
+    {
+        pattern: 'Magdox-Archive',
+        definition: { name: 'Magdox Archive', category: 'search_crawler', trafficType: 'Bot', operator: 'Magdox' },
+    },
+    {
+        pattern: 'Georgia Tech README Security Research Crawler',
+        definition: {
+            name: 'Georgia Tech README Security Research Crawler',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'Georgia Institute of Technology',
+        },
+    },
     // SEO / marketing crawlers
     {
         pattern: 'LaunchReadyCodeBot',
@@ -790,6 +815,24 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         pattern: 'BenchRankBot',
         definition: { name: 'BenchRank', category: 'seo_crawler', trafficType: 'Bot', operator: 'BenchRank' },
     },
+    {
+        pattern: 'PostletCompetitorWatch',
+        definition: {
+            name: 'Postlet Competitor Watch',
+            category: 'seo_crawler',
+            trafficType: 'Bot',
+            operator: 'Postlet',
+        },
+    },
+    {
+        pattern: 'SurfoundBot',
+        definition: {
+            name: 'Surfound',
+            category: 'seo_crawler',
+            trafficType: 'Bot',
+            operator: 'Bridgewood Creative',
+        },
+    },
     // Social / link-preview crawlers
     {
         pattern: 'PagePeeker',
@@ -847,6 +890,10 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     {
         pattern: 'NimbusBlocklistSync',
         definition: { name: 'Nimbus Blocklist Sync', category: 'monitoring', trafficType: 'Bot', operator: 'Nimbus' },
+    },
+    {
+        pattern: 'Vivere-Monitor',
+        definition: { name: 'Vivere Monitor', category: 'monitoring', trafficType: 'Bot', operator: 'Vivere' },
     },
     // HTTP clients
     {

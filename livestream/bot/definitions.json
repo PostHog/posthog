@@ -1836,6 +1836,36 @@
     "traffic_type": "Bot"
   },
   {
+    "pattern": "JobsToInbox",
+    "name": "JobsToInbox",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "EtherdeckBot",
+    "name": "Etherdeck",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "VoryqeSearchBot",
+    "name": "Voryqe Search",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Magdox-Archive",
+    "name": "Magdox Archive",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Georgia Tech README Security Research Crawler",
+    "name": "Georgia Tech README Security Research Crawler",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
     "pattern": "LaunchReadyCodeBot",
     "name": "LaunchReadyCodeBot",
     "category": "seo_crawler",
@@ -1898,6 +1928,18 @@
   {
     "pattern": "BenchRankBot",
     "name": "BenchRank",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "PostletCompetitorWatch",
+    "name": "Postlet Competitor Watch",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "SurfoundBot",
+    "name": "Surfound",
     "category": "seo_crawler",
     "traffic_type": "Bot"
   },
@@ -1982,6 +2024,12 @@
   {
     "pattern": "NimbusBlocklistSync",
     "name": "Nimbus Blocklist Sync",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Vivere-Monitor",
+    "name": "Vivere Monitor",
     "category": "monitoring",
     "traffic_type": "Bot"
   },
