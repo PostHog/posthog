@@ -1,4 +1,4 @@
-# MCP tool definition: tool entries are scaffolded from the OpenAPI schema.
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
 # The tool list and operation IDs are kept in sync automatically:
 #   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
 #
@@ -93,21 +93,21 @@ tools:
             window, per-day normalized, with a bucketed series), and lead time across three stages over the same
             deployed-PR population and buckets: open_to_merge_series (PR open to merge), merge_to_deploy_series
             (per-bucket distribution of seconds from a PR's merge to the first successful deployment that contains it,
-            bots and drafts excluded), and
-            open_to_deploy_series (the full open-to-deploy span the other two compose into): each a per-bucket
-            min/p5/p25/p50/mean/p75/p95/max box-plot series, bucketed by series_granularity (pass granularity to pin
-            hour/day/week, otherwise it's chosen to fit the window), and two honest proxies: failed_deployment_share
-            (deployments with a failure/error status over deployments that reached an outcome: NOT true change failure
-            rate, since no incident data is linked) and median_failed_deploy_to_next_success_seconds (first failure
-            status to the next successful deploy in the same environment: NOT true time-to-restore, since recovery by
-            anything other than a deploy is invisible). Environments default to all persistent production-marked or
-            production-named environments (including regional suffixes), falling back to the busiest persistent one when
-            none match; ephemeral per-PR preview environments never join a default scope. selected_environments lists
-            the exact names used. Repeat environment to scope to exact names; the API trims and deduplicates them, keeps
-            real transient names, and rejects blank or unknown names with a 400 response. Pass github_team (a slug from
-            github_teams) to narrow the PR-scoped lead-time figures to that team's authors: deploy counts stay
-            repo-wide. deploy_data_available is false when the deployments endpoints aren't synced on the GitHub source;
-            the fix is enabling them, not re-querying.
+            bots and drafts excluded), and open_to_deploy_series (the full open-to-deploy span the other two compose
+            into): each a per-bucket min/p5/p25/p50/mean/p75/p95/max box-plot series, bucketed by series_granularity
+            (pass granularity to pin hour/day/week, otherwise it's chosen to fit the window), and two honest proxies:
+            failed_deployment_share (deployments with a failure/error status over deployments that reached an outcome:
+            NOT true change failure rate, since no incident data is linked) and
+            median_failed_deploy_to_next_success_seconds (first failure status to the next successful deploy in the same
+            environment: NOT true time-to-restore, since recovery by anything other than a deploy is invisible).
+            Environments default to all persistent production-marked or production-named environments (including
+            regional suffixes), falling back to the busiest persistent one when none match; ephemeral per-PR preview
+            environments never join a default scope. selected_environments lists the exact names used. Repeat
+            environment to scope to exact names; the API trims and deduplicates them, keeps real transient names, and
+            rejects blank or unknown names with a 400 response. Pass github_team (a slug from github_teams) to narrow
+            the PR-scoped lead-time figures to that team's authors: deploy counts stay repo-wide. deploy_data_available
+            is false when the deployments endpoints aren't synced on the GitHub source; the fix is enabling them, not
+            re-querying.
     engineering-analytics-flaky-tests:
         operation: engineering_analytics_flaky_tests
         enabled: true
@@ -218,13 +218,13 @@ tools:
             each with its source id, repo (owner/name), table prefix, and a synced flag. A source can sync several
             repositories, so entries can share an id and differ only by repo. Call this first when a team may have more
             than one source or repo, then pass a chosen entry's id as source_id AND its repo as repo to the
-            pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific repo: omitting repo
-            on a multi-repo source reads the source's default repo, not the one you picked. With a single source/repo
-            you can skip it: the other tools default to the oldest connected source. The prefix also names the
-            underlying warehouse tables, which you can query directly with SQL or save as SQL insights and subscriptions
-            when the named tools don't fit. The source's original repo uses bare names (prefix + github_pull_requests /
-            github_workflow_runs / github_workflow_jobs); every other repo of a multi-repo source is repo-qualified:
-            the name `owner/repo.endpoint` is flattened for the table (each '/' becomes '_' and each '.' becomes '__',
+            pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific repo: omitting repo on
+            a multi-repo source reads the source's default repo, not the one you picked. With a single source/repo you
+            can skip it: the other tools default to the oldest connected source. The prefix also names the underlying
+            warehouse tables, which you can query directly with SQL or save as SQL insights and subscriptions when the
+            named tools don't fit. The source's original repo uses bare names (prefix + github_pull_requests /
+            github_workflow_runs / github_workflow_jobs); every other repo of a multi-repo source is repo-qualified: the
+            name `owner/repo.endpoint` is flattened for the table (each '/' becomes '_' and each '.' becomes '__',
             lower-cased), e.g. posthog/posthog.com's pull_requests is prefix +
             github_posthog_posthog__com__pull_requests: so pick the table for the repo you mean (timestamps land as
             strings; parse with parseDateTimeBestEffort).
@@ -327,11 +327,11 @@ tools:
         title: PR lifecycle timeline
         description: >
             The timeline of a single pull request: a header (number, title, author, state, draft, timestamps) plus
-            ordered events: opened, ready for review, converted to draft, CI started, CI finished, and merged or
-            closed. Use this to answer "where is this PR stuck and what happened to it". Draft/ready transitions appear
-            only when the issue-events table is synced and cover a bounded recent window. metric_quality is "partial":
-            review and comment events are not yet available. For aggregate questions use the pull-requests and
-            workflow-health tools.
+            ordered events: opened, ready for review, converted to draft, CI started, CI finished, and merged or closed.
+            Use this to answer "where is this PR stuck and what happened to it". Draft/ready transitions appear only
+            when the issue-events table is synced and cover a bounded recent window. metric_quality is "partial": review
+            and comment events are not yet available. For aggregate questions use the pull-requests and workflow-health
+            tools.
         feature_flag: engineering-analytics
     pull-requests:
         operation: engineering_analytics_pull_requests
@@ -378,10 +378,9 @@ tools:
             and CI duration trends. Success rate covers runs that succeeded or ended in failure, timeout, startup
             failure, or staleness. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over
             successful runs only, so superseded cancels and failed runs never bias the duration percentile. Runs that
-            finished in under 10 seconds without doing work are left out. Pass run_scope to report on one group of
-            runs: default_branch, pull_request (PR branches only, same-repo PRs:
-            fork PRs carry no PR attribution), merge_queue, or all. To get a trend, call this over two adjacent windows
-            and compare.
+            finished in under 10 seconds without doing work are left out. Pass run_scope to report on one group of runs:
+            default_branch, pull_request (PR branches only, same-repo PRs: fork PRs carry no PR attribution),
+            merge_queue, or all. To get a trend, call this over two adjacent windows and compare.
         param_overrides:
             date_from:
                 description: "Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h."
