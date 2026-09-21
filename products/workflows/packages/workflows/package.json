@@ -9,6 +9,9 @@
         "url": "https://github.com/PostHog/posthog.git",
         "directory": "products/workflows/packages/workflows"
     },
+    "bin": {
+        "posthog-workflows": "./dist/cli/main.js"
+    },
     "files": [
         "dist",
         "src"
@@ -28,7 +31,10 @@
     "scripts": {
         "build": "tsc -p tsconfig.build.json",
         "typecheck": "tsc -p tsconfig.json",
-        "test": "tsc -p tsconfig.test.json && node --test \".test-build/tests/**/*.test.js\""
+        "test": "tsc -p tsconfig.build.json && tsc -p tsconfig.test.json && node --test \".test-build/tests/**/*.test.js\""
+    },
+    "dependencies": {
+        "jiti": "^2.7.0"
     },
     "devDependencies": {
         "@types/node": "^25.8.0",

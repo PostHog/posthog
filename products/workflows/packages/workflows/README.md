@@ -2,8 +2,7 @@
 
 Declare a PostHog workflow in TypeScript, so a reviewer reads a change as a diff and CI deploys it.
 
-This package holds the authoring surface and the compiler that turns it into the workflow definition the PostHog API stores.
-The `posthog-workflows` CLI that loads a file and pushes it is not here yet, so nothing in this package talks to PostHog.
+This package holds the authoring surface, the compiler that turns it into the workflow definition the PostHog API stores, and the `posthog-workflows` CLI that loads your file and pushes it.
 
 ## Write a workflow
 
@@ -67,6 +66,23 @@ Each rule is stated in full in the JSDoc of the symbol that owns it, which your 
 - **PostHog owns the status unless the file sets it.** A new workflow starts as a draft because that is the PostHog model default. See `WorkflowOptions.status`.
 - **A secret is named in the file and resolved at emit.** Pass `secret('NAME')` as a whole input of `fn`, a whole entry of `config.inputs` on `step` or `trigger`, or `signingSecret` on `webhook`. A secret anywhere else, including inside a larger value, is refused before anything is sent, because only the variable name would reach PostHog. See `secret`.
 - **Every refusal carries `status`, `message`, `why` and `fix`.** See `WorkflowError`, and each function's `@throws` for the statuses it can produce.
+
+## The commands
+
+```bash
+posthog-workflows init flows/onboarding.ts    # write a starter file with its key filled in
+posthog-workflows check flows/onboarding.ts   # print what a push would change
+posthog-workflows push flows/onboarding.ts    # create or update every workflow in the file
+```
+
+`check` runs without credentials, skips the comparison and says so, so a pull request from a fork is not blocked by a secret it cannot read.
+`push` needs a personal API key with the `hog_flow:write` scope. It reads `POSTHOG_CLI_API_KEY`, `POSTHOG_CLI_PROJECT_ID` and `POSTHOG_CLI_HOST`, and falls back to the `~/.posthog/credentials.json` that `posthog-cli login` writes.
+
+A push writes nothing when nothing changed. `--force` pushes anyway, which is how a rotated secret lands, because the comparison never looks at a secret input.
+A push from a path the workflow was not pushed from is refused, so a copied file cannot replace a live workflow. `--allow-move` records the new path.
+
+Each push records the commit it came from, taken from GitHub Actions, GitLab CI, or the local checkout. Outside all three the push still works and says that the version will not name a commit.
+
 
 ## v1 surface
 
