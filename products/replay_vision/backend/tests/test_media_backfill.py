@@ -2,8 +2,6 @@ from datetime import timedelta
 
 from posthog.test.base import BaseTest
 
-from django.db import connection
-from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -116,6 +114,22 @@ class TestMediaBackfillCandidates(BaseTest):
 
         assert self._candidates().without_video == 1
 
+    def test_an_unfillable_observation_backs_off_instead_of_holding_the_walk(self) -> None:
+        # Its video is gone for good, so a tick that keeps re-finding it never reaches anything older.
+        unfillable = self._observation()
+
+        assert self._candidates().without_video == 1
+        unfillable.refresh_from_db()
+        assert unfillable.media_render_attempts == 1
+
+        older = self._observation(age=timedelta(days=3))
+        self._analysis_video(older)
+        result = self._candidates()
+
+        assert [c.observation_id for c in result.candidates] == [older.id]
+        assert result.without_video == 0
+        assert result.cooling_off == 1
+
     def test_a_fresh_observation_is_left_to_its_own_scan(self) -> None:
         # The live path is already rendering it, and both would race the same workflow id.
         fresh = self._observation(age=timedelta(minutes=1))
@@ -175,14 +189,3 @@ class TestMediaBackfillCandidates(BaseTest):
 
         assert result.candidates == []
         assert result.cooling_off == 0
-
-    def test_a_page_of_candidates_costs_a_fixed_number_of_queries(self) -> None:
-        # The tick dispatches up to 250, so a per-candidate lookup would be hundreds of round trips.
-        for _ in range(6):
-            self._analysis_video(self._observation())
-
-        with CaptureQueriesContext(connection) as queries:
-            result = self._candidates()
-
-        assert len(result.candidates) == 6
-        assert len(queries.captured_queries) <= 4

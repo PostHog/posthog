@@ -9,7 +9,11 @@ from temporalio.workflow import ParentClosePolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 
-from products.replay_vision.backend.temporal.media_backfill.constants import FIND_CANDIDATES_TIMEOUT, WORKFLOW_NAME
+from products.replay_vision.backend.temporal.media_backfill.constants import (
+    FIND_CANDIDATES_TIMEOUT,
+    MEDIA_CHILD_EXECUTION_TIMEOUT,
+    WORKFLOW_NAME,
+)
 from products.replay_vision.backend.temporal.media_backfill.types import MediaBackfillCandidate, MediaBackfillInputs
 
 with wf.unsafe.imports_passed_through():
@@ -66,6 +70,7 @@ class ReplayVisionMediaBackfillWorkflow(PostHogWorkflow):
                 id=build_media_workflow_id(candidate.observation_id),
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
+                execution_timeout=MEDIA_CHILD_EXECUTION_TIMEOUT,
                 # Without these a backfilled render is not findable by team in the Temporal UI.
                 search_attributes=TypedSearchAttributes(
                     search_attributes=[
