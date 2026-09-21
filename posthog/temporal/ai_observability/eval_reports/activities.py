@@ -707,17 +707,13 @@ async def run_eval_report_agent_activity(
 
 
 def _load_evaluation_target(team_id: int, evaluation_id: str) -> str:
-    from products.ai_observability.backend.models.evaluations import (  # noqa: PLC0415 -- keep Django model loading inside activity execution
-        Evaluation,
-    )
+    from products.ai_observability.backend.models.evaluations import Evaluation
 
     return Evaluation.objects.values_list("target", flat=True).get(id=evaluation_id, team_id=team_id)
 
 
 def _load_numeric_output_configs(team_id: int) -> dict[str, dict[str, Any]]:
-    from products.ai_observability.backend.models.evaluations import (  # noqa: PLC0415 -- keep Django model loading inside activity execution
-        Evaluation,
-    )
+    from products.ai_observability.backend.models.evaluations import Evaluation
 
     return {
         str(evaluation_id): config
@@ -731,9 +727,7 @@ def _load_detector_evaluation_ids(team_id: int) -> list[str]:
     """The generation detail tool lists every evaluation on a generation, not just this report's,
     so it needs each one's polarity to label it. Read here rather than in the context activity,
     which would carry the whole team's list through two Temporal payloads to reach this one."""
-    from products.ai_observability.backend.models.evaluations import (  # noqa: PLC0415 -- keep Django model loading inside activity execution
-        Evaluation,
-    )
+    from products.ai_observability.backend.models.evaluations import Evaluation
 
     return [
         str(evaluation_id)
