@@ -15,6 +15,7 @@ import sharp, { type Sharp } from 'sharp'
 import { BLANK_PNG, LIMIT_INPUT_PIXELS, blurOnly } from './blur.ts'
 import { type DbnetModel, detectTextDbnet, loadDbnet } from './dbnet.ts'
 import { numFromEnv } from './env.ts'
+import { vacuousDetectors } from './floors.ts'
 import { type Box } from './geometry.ts'
 import { PermanentImageError, undecodableImageErrorFromDecodeFailure } from './image-input.ts'
 import { detectCodes } from './qr.ts'
@@ -70,6 +71,10 @@ export interface StageTimings {
     blanked: boolean
     /** Frame was a single flat colour, so detection was skipped as provably vacuous. */
     uniform: boolean
+    /** The stored image is too small to hold a readable face, so the face detector did not run. */
+    faceVacuous: boolean
+    /** The stored image is too small to hold a decodable code, so the code detector did not run. */
+    codesVacuous: boolean
     faces: number
     textBoxes: number
     codes: number
@@ -127,6 +132,8 @@ export async function advancedScrub(
         totalMs: 0,
         blanked: false,
         uniform: false,
+        faceVacuous: false,
+        codesVacuous: false,
         faces: 0,
         textBoxes: 0,
         codes: 0,
@@ -184,28 +191,32 @@ export async function advancedScrub(
 
     // 2. Face (YuNet) + text (DBNet) on native ORT, codes (zxing) on wasm. Serial by default
     //    (1 core/worker); parallel opt-in.
+    //    The face and code detectors cost the same on an icon as on a screenshot, because their
+    //    input size is fixed, so an image whose stored size cannot hold a readable face or a
+    //    decodable code skips them.
+    const vacuous = vacuousDetectors(plan.stored)
+    timings.faceVacuous = vacuous.face
+    timings.codesVacuous = vacuous.code
+    const runFace = (): Promise<Box[]> => (vacuous.face ? Promise.resolve([]) : detectFacesYunet(m.yunet, src, W, H))
     const runText = (): Promise<Box[]> =>
         textMode === 'dbnet' ? detectTextDbnet(m.dbnet, src, plan.text) : detectTextRegions(input, W, H)
+    const runCodes = (): Promise<Box[]> => (vacuous.code ? Promise.resolve([]) : detectCodes(src))
     let faceBoxes: Box[]
     let textBoxes: Box[]
     let codeBoxes: Box[]
     if (process.env.PARALLEL_DETECT === '1') {
         const tD = performance.now()
-        ;[faceBoxes, textBoxes, codeBoxes] = await Promise.all([
-            detectFacesYunet(m.yunet, src, W, H),
-            runText(),
-            detectCodes(src),
-        ])
+        ;[faceBoxes, textBoxes, codeBoxes] = await Promise.all([runFace(), runText(), runCodes()])
         timings.faceMs = timings.textMs = timings.codesMs = performance.now() - tD
     } else {
         const tF = performance.now()
-        faceBoxes = await detectFacesYunet(m.yunet, src, W, H)
+        faceBoxes = await runFace()
         timings.faceMs = performance.now() - tF
         const tT = performance.now()
         textBoxes = await runText()
         timings.textMs = performance.now() - tT
         const tQ = performance.now()
-        codeBoxes = await detectCodes(src)
+        codeBoxes = await runCodes()
         timings.codesMs = performance.now() - tQ
     }
     timings.faces = faceBoxes.length

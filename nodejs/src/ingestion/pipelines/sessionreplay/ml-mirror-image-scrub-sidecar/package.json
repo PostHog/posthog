@@ -15,6 +15,7 @@
         "corpus": "tsx dev/make-corpus.ts",
         "bench": "tsx dev/bench.ts",
         "scale": "tsx dev/scale.ts",
+        "floors:vacuous": "tsx dev/vacuous-floor.ts",
         "verify": "tsx dev/verify.ts",
         "eval": "tsx dev/scrub-eval.ts",
         "smoke": "tsx src/smoke.ts"
