@@ -24,6 +24,8 @@ export const LOOPS_FLAG = featureFlagKeys.LOOPS_FLAG;
 /** Desktop Loops read and write workflows (`hog_flows`) instead of the loops API. */
 export const LOOPS_HOG_FLOWS_FLAG = featureFlagKeys.LOOPS_HOG_FLOWS_FLAG;
 export const DESKTOP_HOME_FLAG = featureFlagKeys.DESKTOP_HOME_FLAG;
+export const DESKTOP_WORK_LAYOUT_FLAG =
+  featureFlagKeys.DESKTOP_WORK_LAYOUT_FLAG;
 export const SAVED_SEARCHES_RAIL_FLAG =
   featureFlagKeys.SAVED_SEARCHES_RAIL_FLAG;
 export const TASKS_PREWARM_SANDBOX_FLAG =
