@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     PagerDutySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pagerduty.pagerduty import (
+    PLAN_GATED_STATUSES,
     PagerDutyResumeConfig,
     pagerduty_source,
     validate_credentials as validate_pagerduty_credentials,
@@ -29,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pagerduty.
 from products.warehouse_sources.backend.temporal.data_imports.sources.pagerduty.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    PAGERDUTY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -108,6 +110,13 @@ You can create a read-only API key in your PagerDuty account under **Integration
         if status == 403 and schema_name is None:
             return True, None
 
+        # A plan-gated endpoint answers 402 or 404 for every account whose plan lacks the feature.
+        # The sync already skips that table with a warning, so the credentials are fine and the
+        # schema settings must stay reachable.
+        endpoint_config = PAGERDUTY_ENDPOINTS.get(schema_name) if schema_name else None
+        if endpoint_config is not None and endpoint_config.plan_gated_feature and status in PLAN_GATED_STATUSES:
+            return True, None
+
         return False, error
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
@@ -131,6 +140,7 @@ You can create a read-only API key in your PagerDuty account under **Integration
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            logger=inputs.logger,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

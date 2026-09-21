@@ -17,6 +17,10 @@ class PagerDutyEndpointConfig:
     # ascending watermark. Endpoints without a controllable sort stay full-refresh so the
     # cursor can't advance past unread rows.
     supports_since: bool = False
+    # Names the PagerDuty feature an account needs before this endpoint answers at all.
+    # Accounts whose plan lacks it get 402 (error code 2014, required abilities unavailable)
+    # or 404 on every request, so the table syncs zero rows instead of failing every run.
+    plan_gated_feature: Optional[str] = None
 
 
 _CREATED_AT_INCREMENTAL: list[IncrementalField] = [
@@ -61,6 +65,9 @@ PAGERDUTY_ENDPOINTS: dict[str, PagerDutyEndpointConfig] = {
     "teams": PagerDutyEndpointConfig(
         path="/teams",
         envelope_key="teams",
+        # PagerDuty gates teams behind an account ability; accounts without it answer 402 with
+        # error code 2014 on every /teams request.
+        plan_gated_feature="teams",
     ),
     "escalation_policies": PagerDutyEndpointConfig(
         path="/escalation_policies",
@@ -73,6 +80,10 @@ PAGERDUTY_ENDPOINTS: dict[str, PagerDutyEndpointConfig] = {
     "priorities": PagerDutyEndpointConfig(
         path="/priorities",
         envelope_key="priorities",
+        # Incident priorities exist only on higher PagerDuty plans. The collection endpoint takes
+        # no path parameter, and an account that has the feature but no priority configured still
+        # answers 200 with an empty list, so a 404 here can only mean the plan lacks the feature.
+        plan_gated_feature="incident priorities",
     ),
     "vendors": PagerDutyEndpointConfig(
         path="/vendors",

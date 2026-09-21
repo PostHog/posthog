@@ -1,9 +1,12 @@
 import dataclasses
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
 from requests import Request, Response
+from requests.exceptions import HTTPError
+from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -29,6 +32,12 @@ PAGE_SIZE = 100
 # the `since` filter bounds the window; full-refresh endpoints could in theory truncate
 # on very large accounts.
 MAX_OFFSET = 10_000
+
+# Statuses PagerDuty answers for a feature the account's plan does not include: 402 with error code
+# 2014 ("required abilities are unavailable"), and 404 for a collection the plan does not expose at
+# all. Only consulted for endpoints that declare a `plan_gated_feature`, so a 404 from any other
+# endpoint still fails the sync as a genuine missing resource.
+PLAN_GATED_STATUSES = frozenset({402, 404})
 
 
 @dataclasses.dataclass
@@ -130,6 +139,20 @@ def _non_secret_headers() -> dict[str, str]:
     }
 
 
+def _skip_when_plan_gated(
+    items: Iterator[Any], endpoint: str, plan_gated_feature: str, logger: FilteringBoundLogger
+) -> Iterator[Any]:
+    try:
+        yield from items
+    except HTTPError as err:
+        if err.response is None or err.response.status_code not in PLAN_GATED_STATUSES:
+            raise
+        logger.warning(
+            f"Your PagerDuty plan does not include {plan_gated_feature}, so the {endpoint} table synced no rows. "
+            "Turn off syncing for this table, or upgrade your PagerDuty plan."
+        )
+
+
 def validate_credentials(api_token: str, endpoint: Optional[str] = None) -> tuple[bool, int, str | None]:
     """Probe PagerDuty with a cheap single-row request.
 
@@ -162,6 +185,7 @@ def pagerduty_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[PagerDutyResumeConfig],
+    logger: FilteringBoundLogger,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
@@ -230,9 +254,17 @@ def pagerduty_source(
         initial_paginator_state=initial_paginator_state,
     )
 
+    plan_gated_feature = config.plan_gated_feature
+
+    def items() -> Iterator[Any]:
+        if plan_gated_feature is None:
+            yield from resource
+            return
+        yield from _skip_when_plan_gated(iter(resource), endpoint, plan_gated_feature, logger)
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=items,
         primary_keys=[config.primary_key],
         # We always request created_at ascending where a sort is available, and full-refresh endpoints
         # replace wholesale, so ascending is correct everywhere.
