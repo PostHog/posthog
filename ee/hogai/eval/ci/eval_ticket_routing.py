@@ -9,7 +9,7 @@ from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState
+from ee.hogai.utils.types import AssistantNodeName, AssistantState
 
 from ..base import MaxPublicEval
 
@@ -56,11 +56,9 @@ def call_root(demo_org_team_user):
         .compile(checkpointer=DjangoCheckpointer())
     )
 
-    async def callable(messages: str | list[AssistantMessageUnion]) -> AssistantMessage:
+    async def callable(message: str) -> AssistantMessage:
         conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
-        initial_state = AssistantState(
-            messages=[HumanMessage(content=messages)] if isinstance(messages, str) else messages
-        )
+        initial_state = AssistantState(messages=[HumanMessage(content=message)])
         raw_state = await graph.ainvoke(initial_state, {"configurable": {"thread_id": conversation.id}})
         state = AssistantState.model_validate(raw_state)
         assert isinstance(state.messages[-1], AssistantMessage)
