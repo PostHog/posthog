@@ -1614,6 +1614,11 @@
         "params": [],
         "scope": "project"
     },
+    "terminal": {
+        "template": "/terminal",
+        "params": [],
+        "scope": "project"
+    },
     "toolbarLaunch": {
         "template": "/toolbar",
         "params": [],

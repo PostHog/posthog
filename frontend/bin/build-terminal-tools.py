@@ -5,16 +5,18 @@ import json
 import hashlib
 import tarfile
 import tempfile
-import urllib.request
 from pathlib import Path
+
+import requests
 
 ASSETS = Path(__file__).resolve().parents[1] / "public" / "terminal"
 PREFIX = "opt/posthog-tools"
 
 
 def download(url: str, algorithm: str, expected: str) -> bytes:
-    with urllib.request.urlopen(url, timeout=60) as response:
-        data = response.read()
+    with requests.get(url, timeout=60) as response:
+        response.raise_for_status()
+        data = response.content
     if hashlib.new(algorithm, data).hexdigest() != expected:
         raise ValueError(f"Checksum mismatch: {url}")
     return data
