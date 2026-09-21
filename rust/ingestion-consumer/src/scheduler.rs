@@ -80,17 +80,23 @@ pub struct KeyRun {
     pub messages: Vec<SerializedKafkaMessage>,
 }
 
-/// One run of one key, placed on the chosen worker.
+/// One request for one worker: the runs of one or more keys, each key at
+/// most once.
 pub struct Dispatch {
     pub worker: WorkerId,
-    pub routing_key: String,
-    pub messages: Vec<SerializedKafkaMessage>,
+    pub runs: Vec<KeyRun>,
     /// Fresh assignment or a retry of deferred work; the key-order sentinel
     /// notes the send under this kind.
     pub kind: SendKind,
-    /// The run's epoch, for stamping its completions. `None` from the
+    /// The runs' epoch, for stamping their completions. `None` from the
     /// pin-stash scheduler, whose caller stamps from the flush ticket.
     pub assignment_epoch: Option<u64>,
+}
+
+impl Dispatch {
+    pub fn message_count(&self) -> usize {
+        self.runs.iter().map(|run| run.messages.len()).sum()
+    }
 }
 
 /// One resolved send arriving at the seam.
@@ -361,8 +367,7 @@ impl Scheduler for PinStashScheduler {
                     bump_load(&mut working_load, &worker, group.messages.len());
                     effects.dispatches.push(Dispatch {
                         worker,
-                        routing_key: group.routing_key,
-                        messages: group.messages,
+                        runs: vec![group],
                         kind: SendKind::Fresh,
                         assignment_epoch: None,
                     });
@@ -442,8 +447,7 @@ impl Scheduler for PinStashScheduler {
             );
             effects.dispatches.push(Dispatch {
                 worker,
-                routing_key: group.routing_key,
-                messages: group.messages,
+                runs: vec![group],
                 kind: SendKind::Fresh,
                 assignment_epoch: None,
             });
@@ -585,8 +589,10 @@ impl Scheduler for PinStashScheduler {
             }
             effects.dispatches.push(Dispatch {
                 worker,
-                routing_key: group.routing_key,
-                messages: group.messages,
+                runs: vec![KeyRun {
+                    routing_key: group.routing_key,
+                    messages: group.messages,
+                }],
                 kind: SendKind::Resend,
                 assignment_epoch: None,
             });
@@ -826,7 +832,7 @@ mod tests {
         );
 
         assert_eq!(
-            effects.dispatches[0].routing_key, "t:big",
+            effects.dispatches[0].runs[0].routing_key, "t:big",
             "heavy hitters drive the load distribution"
         );
     }

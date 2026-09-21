@@ -78,8 +78,7 @@ impl WorkerAssignments {
     fn add_dispatch(&mut self, dispatch: Dispatch) {
         let Dispatch {
             worker,
-            routing_key,
-            messages,
+            runs,
             assignment_epoch,
             ..
         } = dispatch;
@@ -92,22 +91,28 @@ impl WorkerAssignments {
                 key_offsets: Vec::new(),
             });
 
-        // Only keyed messages participate in the key-order sentinel: an
-        // unkeyed message lives on an arbitrary partition and is grouped under
-        // a synthetic key, so it has no ACK watermark to advance.
-        if let Some(max_offset) = messages
-            .iter()
-            .filter(|m| m.key.is_some())
-            .map(|m| m.offset)
-            .max()
+        for KeyRun {
+            routing_key,
+            messages,
+        } in runs
         {
-            builder.key_offsets.push(KeyOffset {
-                routing_key: routing_key.clone(),
-                max_offset,
-            });
+            // Only keyed messages participate in the key-order sentinel: an
+            // unkeyed message lives on an arbitrary partition and is grouped
+            // under a synthetic key, so it has no ACK watermark to advance.
+            if let Some(max_offset) = messages
+                .iter()
+                .filter(|m| m.key.is_some())
+                .map(|m| m.offset)
+                .max()
+            {
+                builder.key_offsets.push(KeyOffset {
+                    routing_key: routing_key.clone(),
+                    max_offset,
+                });
+            }
+            builder.messages.extend(messages);
+            builder.routing_keys.push(routing_key);
         }
-        builder.messages.extend(messages);
-        builder.routing_keys.push(routing_key);
     }
 
     fn sub_batch_infos(&self) -> Vec<SubBatchInfo> {
@@ -601,8 +606,10 @@ impl Dispatcher {
     fn note_and_assemble(&self, dispatches: Vec<Dispatch>) -> WorkerAssignments {
         let mut assignments = WorkerAssignments::new();
         for dispatch in dispatches {
-            self.key_sentinel
-                .note_sent(&dispatch.routing_key, &dispatch.messages, dispatch.kind);
+            for run in &dispatch.runs {
+                self.key_sentinel
+                    .note_sent(&run.routing_key, &run.messages, dispatch.kind);
+            }
             assignments.add_dispatch(dispatch);
         }
         assignments
@@ -1202,15 +1209,19 @@ mod tests {
 
         assignments.add_dispatch(Dispatch {
             worker: wid(1),
-            routing_key: "tok:user-1".to_string(),
-            messages: make_msgs(&["tok:user-1"]),
+            runs: vec![KeyRun {
+                routing_key: "tok:user-1".to_string(),
+                messages: make_msgs(&["tok:user-1"]),
+            }],
             kind: SendKind::Fresh,
             assignment_epoch: None,
         });
         assignments.add_dispatch(Dispatch {
             worker: wid(1),
-            routing_key: "tok:user-2".to_string(),
-            messages: make_msgs(&["tok:user-2"]),
+            runs: vec![KeyRun {
+                routing_key: "tok:user-2".to_string(),
+                messages: make_msgs(&["tok:user-2"]),
+            }],
             kind: SendKind::Fresh,
             assignment_epoch: None,
         });
@@ -1238,8 +1249,10 @@ mod tests {
         let mut assignments = WorkerAssignments::new();
         assignments.add_dispatch(Dispatch {
             worker: wid(1),
-            routing_key: "tok:user-1".to_string(),
-            messages: vec![make_msg_at("tok:user-1", 100)],
+            runs: vec![KeyRun {
+                routing_key: "tok:user-1".to_string(),
+                messages: vec![make_msg_at("tok:user-1", 100)],
+            }],
             kind: SendKind::Fresh,
             assignment_epoch: None,
         });
@@ -1252,8 +1265,10 @@ mod tests {
         let mut assignments = WorkerAssignments::new();
         assignments.add_dispatch(Dispatch {
             worker: wid(1),
-            routing_key: ":7:42".to_string(),
-            messages: vec![make_unkeyed_msg()],
+            runs: vec![KeyRun {
+                routing_key: ":7:42".to_string(),
+                messages: vec![make_unkeyed_msg()],
+            }],
             kind: SendKind::Fresh,
             assignment_epoch: None,
         });

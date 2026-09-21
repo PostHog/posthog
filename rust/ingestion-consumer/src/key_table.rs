@@ -406,8 +406,10 @@ impl KeyTableScheduler {
         bump_load(working_load, &worker, run.messages.len());
         effects.dispatches.push(Dispatch {
             worker,
-            routing_key: key.to_string(),
-            messages: run.messages,
+            runs: vec![KeyRun {
+                routing_key: key.to_string(),
+                messages: run.messages,
+            }],
             kind,
             assignment_epoch: Some(run.epoch),
         });
@@ -574,8 +576,10 @@ impl Scheduler for KeyTableScheduler {
             counter!("ingestion_consumer_parked_retries_total").increment(1);
             effects.dispatches.push(Dispatch {
                 worker,
-                routing_key: key,
-                messages: run.messages,
+                runs: vec![KeyRun {
+                    routing_key: key,
+                    messages: run.messages,
+                }],
                 kind,
                 assignment_epoch: Some(run.epoch),
             });
@@ -689,7 +693,19 @@ mod tests {
     }
 
     fn offsets_of(dispatch: &Dispatch) -> Vec<i64> {
-        dispatch.messages.iter().map(|m| m.offset).collect()
+        dispatch
+            .runs
+            .iter()
+            .flat_map(|run| run.messages.iter().map(|m| m.offset))
+            .collect()
+    }
+
+    fn keys_of(dispatch: &Dispatch) -> Vec<&str> {
+        dispatch
+            .runs
+            .iter()
+            .map(|run| run.routing_key.as_str())
+            .collect()
     }
 
     // ---- on_groups: arrival ----
@@ -755,7 +771,8 @@ mod tests {
         );
 
         assert_eq!(
-            effects.dispatches[0].routing_key, "t:big",
+            keys_of(&effects.dispatches[0]),
+            vec!["t:big"],
             "heavy hitters drive the load distribution"
         );
     }
@@ -1035,8 +1052,8 @@ mod tests {
         let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::ParkedRetry);
 
         assert_eq!(effects.dispatches.len(), 2);
-        assert_eq!(effects.dispatches[0].routing_key, "t:a");
-        assert_eq!(effects.dispatches[1].routing_key, "t:b");
+        assert_eq!(keys_of(&effects.dispatches[0]), vec!["t:a"]);
+        assert_eq!(keys_of(&effects.dispatches[1]), vec!["t:b"]);
         assert_eq!(
             effects.dispatches[0].kind,
             SendKind::Fresh,
@@ -1201,8 +1218,8 @@ mod tests {
         let mut sent: Vec<i64> = Vec::new();
         let mut record = |effects: &SchedulerEffects| {
             for dispatch in &effects.dispatches {
-                assert_eq!(dispatch.routing_key, "t:a");
-                sent.extend(dispatch.messages.iter().map(|m| m.offset));
+                assert_eq!(keys_of(dispatch), vec!["t:a"]);
+                sent.extend(offsets_of(dispatch));
             }
             effects.dispatches.len()
         };
@@ -1253,7 +1270,7 @@ mod tests {
         let effects = sched.on_settled(&snapshot(&[A, B], &[]), delivered(A, &["t:a"]));
 
         assert_eq!(effects.dispatches.len(), 1);
-        assert_eq!(effects.dispatches[0].routing_key, "t:a");
+        assert_eq!(keys_of(&effects.dispatches[0]), vec!["t:a"]);
         assert_eq!(sched.table().queued_messages(), 1, "t:b still queued");
     }
 }
