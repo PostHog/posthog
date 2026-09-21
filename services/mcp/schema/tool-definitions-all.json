@@ -2702,7 +2702,7 @@
         }
     },
     "dashboard-insights-run": {
-        "description": "Run all insights on a dashboard and return their results. Uses cached results by default (may be stale); set refresh to 'blocking' for fresh results. Set format to 'optimized' (default) for LLM-friendly text tables or 'json' for raw query results. Supports variables_override and filters_override query params to run insights with one-off overrides without persisting; see the parameter descriptions for the exact JSON shape required.",
+        "description": "Run all insights on a dashboard and return their results. Uses cached results by default (may be stale); set refresh to 'blocking' for fresh results. Set format to 'optimized' (default) for LLM-friendly text tables or 'json' for raw query results. 'optimized' output is bounded so a wide dashboard fits in context: a tile's table is held to max_result_chars characters by keeping its header and both ends and dropping rows from the middle, held down further by whatever the response has left of its overall budget, and tiles past that budget are not run. To fit more of what you need into that budget, in order: pass tile_ids to run only the tiles you care about; pass filters_override={\"interval\": \"day\"} (or \"week\"/\"month\") to turn a long run of hourly buckets into fewer, wider rows, which also cuts the query cost; raise max_result_chars (200 or more), or pass 0 for a tile's whole table. 'json' is unbounded, so pair it with tile_ids. Supports variables_override and filters_override query params to run insights with one-off overrides without persisting; see the parameter descriptions for the exact JSON shape required.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Run dashboard insights",
@@ -6215,6 +6215,20 @@
             "readOnlyHint": false
         }
     },
+    "inbox-report-checks-create": {
+        "description": "Removed. A scout run writes checks with scout-report-check-create, and the research pipeline writes its own; there is no create surface for a person or a task token. Read a report's checks with inbox-report-checks-list.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Write a follow-up check (removed)",
+        "title": "Write a follow-up check (removed)",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-report-checks-list": {
         "description": "List the follow-up checks on one report, newest first. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.",
         "category": "Signals",
@@ -8024,7 +8038,7 @@
         "feature_flag": "logs-anomalies"
     },
     "logs-anomalies-series-bands": {
-        "description": "Return log volume for every (namespace, environment, severity) series of one service, each with an expected band learned from the same time of week over the previous weeks of the volume rollup. This is the data behind the Anomalies tab in the logs UI. A bucket whose observed count sits above upper or below lower fell outside the expected range. lower and upper are null while a series is still learning; band_ready_at says when its band arrives. Omit intervalMinutes and the grain is picked from the window (7 days gives 60 minutes, 1 day gives 15); pass 5, 15, 30 or 60 to choose. A series too sparse or too quiet for the requested grain comes back coarser, with its own interval_minutes and a coarsened_reason. Requires a serviceName (use logs-services-create or the resource attribute values tool to discover services). The window defaults to the last 7 days, may span at most 7 days, and may start at most 35 days ago. Synchronous and read only.",
+        "description": "Return log volume for every (namespace, environment, severity) series of one service, each with an expected band learned from the same time of week over the previous weeks of the volume rollup. This is the data behind the Anomalies tab in the logs UI. A bucket whose observed count sits above upper or below lower fell outside the expected range. Ranges target 99% coverage of individual buckets, so an out-of-range bucket is a reason to investigate, not a confirmed incident. lower and upper are null while a series is still learning. band_ready_at gives the earliest end of a rolling window of the same length with enough earlier history. Waiting does not add earlier history to a fixed historical window; select a more recent window instead. Omit intervalMinutes and the grain is picked from the window (7 days gives 60 minutes, 1 day gives 15); pass 5, 15, 30 or 60 to choose. A series too sparse or too quiet for the requested grain comes back coarser, with its own interval_minutes and a coarsened_reason. Requires a serviceName (use logs-services-create or the resource attribute values tool to discover services). The window defaults to the last 7 days, may span at most 7 days, and may start at most 35 days ago. Synchronous and read only.",
         "category": "Logs",
         "feature": "logs",
         "summary": "Per-series log volume with expected bands",
@@ -10721,7 +10735,7 @@
         }
     },
     "scout-report-check-create": {
-        "description": "Schedule a re-measurement of a report's claim, so \"did the fix hold?\" becomes a stored fact instead of something a future run has to remember to look for. Write one when this run surfaces something whose fix would show up in data later. Pass the `run_id` of your own in-progress run and the `report_id` of the report the check belongs to. Use `metric_threshold` when a bounded query and a baseline exist: pass a `config` with a `metric_id` naming one of the report's own metrics (or your own bounded Trends `query`), a `comparison` (`lte` / `gte` / `between`) saying what the value must satisfy, and the `baseline_value` you measured now. A `query` you supply must keep `dateRange.date_from` relative (`-13d`) and `date_to` empty, so each run measures the days before it rather than the days before the check was written — absolute dates are refused. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already. Use `agent` for a claim no single number settles: pass `instructions` saying what a later run must establish and `probe_hints` naming the issue ids, services, or queries to look at; it runs on the scout you name in `skill_name`, or on the fleet's follow-up scout when you name none. `next_run_at` is when to first look, so allow deploy and soak time. The verdict lands on the report as a `check_result` entry people read in the inbox. Check `scout-report-check-list` first: a report holds at most five open checks, and a second check for the same claim is noise.",
+        "description": "Schedule a re-measurement of a report's claim, so \"did the fix hold?\" becomes a stored fact instead of something a future run has to remember to look for. Write one when this run surfaces something whose fix would show up in data later. Pass the `run_id` of your own in-progress run and the `report_id` of the report the check belongs to. Use `metric_threshold` when a bounded query and a baseline exist: pass a `config` with a `metric_id` naming one of the report's own metrics (or your own bounded Trends `query`), a `comparison` (`lte` / `gte` / `between`) saying what the value must satisfy, and the `baseline_value` you measured now. A `query` you supply must keep `dateRange.date_from` relative (`-13d`) and `date_to` empty, so each run measures the days before it rather than the days before the check was written — absolute dates are refused. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already. Use `agent` for a claim no single number settles: pass `instructions` saying what a later run must establish and `probe_hints` naming the issue ids, services, or queries to look at; it runs on the scout you name in `skill_name`, or on the fleet's follow-up scout when you name none. `next_run_at` is when to first look, so allow deploy and soak time. On a report that has not resolved yet, the check is stored `pending` instead of running on that date. The gap you left becomes the wait that starts when the report resolves, so a check never measures the days before the fix shipped. The verdict lands on the report as a `check_result` entry people read in the inbox. Check `scout-report-check-list` first: a report holds at most five open checks, and a second check for the same claim is noise.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Write a follow-up check on a report",
@@ -10740,6 +10754,20 @@
         "feature": "signals",
         "summary": "List a report's follow-up checks",
         "title": "List a report's follow-up checks",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "scout-report-checks-list": {
+        "description": "DEPRECATED: renamed to scout-report-check-list. This alias forwards to the same endpoint and will be removed. Call scout-report-check-list directly with the same arguments.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List a report's follow-up checks (deprecated)",
+        "title": "List a report's follow-up checks (deprecated)",
         "required_scopes": ["signal_scout_report:write"],
         "annotations": {
             "destructiveHint": false,
@@ -12892,7 +12920,7 @@
         }
     },
     "vision-observations-list": {
-        "description": "List every replay vision observation recorded for a single session, across all scanners the caller can read. This is the \"what has Replay Vision found about this session?\" lookup — pair it with the session-recording MCP tools or the investigating-replay skill while investigating a recording. The `session_id` query parameter is REQUIRED; without it the request is rejected. Each result includes the scanner that produced it, the observation `status` (pending/running/succeeded/failed/ineligible), the `error_reason` for terminal non-success statuses, and the `scanner_result` (LLM output) on success. To list observations for one specific scanner over time instead, use `vision-scanners-observations-list`.",
+        "description": "List every replay vision observation recorded for a single session, across all scanners the caller can read. This is the \"what has Replay Vision found about this session?\" lookup — pair it with the session-recording MCP tools or the investigating-replay skill while investigating a recording. The `session_id` query parameter is REQUIRED; without it the request is rejected. Each result includes the scanner that produced it, the observation `status` (pending/running/succeeded/failed/ineligible), and `summary_line` — one line saying what the scanner found, or why it found nothing on a terminal non-success status. The rows come back narrowed to the id, session, status and that line; read a row in full with `vision-observations-retrieve`, which carries the whole `scanner_result` and `error_reason`. To list observations for one specific scanner over time instead, use `vision-scanners-observations-list`.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "List a session's replay vision observations",
@@ -13077,7 +13105,7 @@
         }
     },
     "vision-scanners-observations-list": {
-        "description": "List the observations recorded by a single scanner. Each observation is one scan of one session and includes its `status` (pending/running/succeeded/failed/ineligible), `error_reason` (set on terminal non-success statuses, e.g. `too_short`/`no_recording` for ineligible or `provider_rejected`/`validation_failed` for failed — useful for triaging why a scan produced no result), `triggered_by` (`schedule` or `on_demand`), `workflow_id`, the `scanner_result` (the LLM output validated against the scanner's response schema for that scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has found over time; to see every scanner's observations for one session, use `vision-observations-list`.",
+        "description": "List the observations recorded by a single scanner. Each observation is one scan of one session and includes its `status` (pending/running/succeeded/failed/ineligible), `error_reason` (set on terminal non-success statuses, e.g. `too_short`/`no_recording` for ineligible or `provider_rejected`/`validation_failed` for failed), the `session_id` of the recording it analysed, and `summary_line` — one line saying what the scanner found, or why it found nothing, which is where the reason for a non-success status arrives. The rows come back narrowed to the id, session, status and that line; read a row in full with `vision-observations-retrieve`, which carries the whole `scanner_result` and `error_reason`. Use this to inspect what a scanner has found over time; to see every scanner's observations for one session, use `vision-observations-list`.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "List scanner observations",

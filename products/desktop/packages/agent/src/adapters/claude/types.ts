@@ -20,6 +20,7 @@ import type { BaseSession } from "../base-acp-agent";
 import type { ContextBreakdownBaseline } from "./context-breakdown";
 import type { TaskState } from "./conversion/task-state";
 import type { McpToolApprovals } from "./mcp/tool-metadata";
+import type { RunBudgetGuard } from "./session/budget-guard";
 import type { SettingsManager } from "./session/settings";
 import type { CodeExecutionMode } from "./tools";
 
@@ -122,6 +123,10 @@ export type Session = BaseSession & {
   traceparentHookInstalled: boolean;
   configOptions: SessionConfigOption[];
   accumulatedUsage: AccumulatedUsage;
+  budgetGuard?: RunBudgetGuard;
+  backgroundTurnActive?: boolean;
+  backgroundSteers?: Map<string, PendingSteer>;
+  backgroundSteerTimer?: ReturnType<typeof setTimeout>;
   /** PostHog products used during this session, derived from MCP exec calls.
    *  Accumulates for the whole session (deduped); each newly-seen product is
    *  emitted immediately so the client can show a persistent, de-duplicated
@@ -258,6 +263,7 @@ export type NewSessionMeta = {
    * runtime whether it needs a repo and clones one only if so.
    */
   channelMode?: boolean;
+  budgetSteer?: { mode?: "publish" | "wrap_up" };
   taskOriginProduct?: string;
   /** Workflow-action opt-in: exposes the `finish` tool to a workflow-origin run. */
   endRunWhenDone?: boolean;
