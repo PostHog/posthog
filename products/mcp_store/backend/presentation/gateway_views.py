@@ -724,9 +724,16 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
                     "icon_key": server.template.icon_key if server.template else "",
                     "icon_domain": server.template.icon_domain if server.template else "",
                     "connection_state": connection_state,
-                    # Mirrors the run-path predicate (reachable_agent_grants plus the
-                    # is_team_enabled filter), so pickers can hide grants a run cannot mount.
-                    "reachable": server.is_team_enabled and not getattr(access, "grant_owner_revoked", False),
+                    # Mirrors the run path's grant, server, and credential-source checks so
+                    # pickers can hide grants a run cannot mount.
+                    "reachable": (
+                        server.is_team_enabled
+                        and (
+                            server.template is None
+                            or server.template.oauth_credentials_source_is_allowed_for_team(server.team_id)
+                        )
+                        and not getattr(access, "grant_owner_revoked", False)
+                    ),
                 }
             )
         return servers

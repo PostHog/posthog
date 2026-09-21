@@ -2411,6 +2411,41 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         reachable_by_owner = {row["shared_by"]["id"]: row["reachable"] for row in scout["servers"]}
         assert reachable_by_owner == {self.user.id: True, revoked_member.id: False}
 
+    def test_removed_slack_dev_project_serializes_agent_grant_unreachable(self) -> None:
+        account = self._active_scout_account()
+        template = MCPServerTemplate.objects.create(
+            name="Slack via PostHog (dev)",
+            url="https://mcp.slack.com/mcp",
+            oauth_credentials_source="slack_dev_app",
+            is_active=True,
+        )
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            template=template,
+            name=template.name,
+            url=template.url,
+        )
+        MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team=self.team,
+            user=self.user,
+            service_account=account,
+            gateway_server=server,
+            scope="team",
+            granted_by=self.user,
+        )
+
+        with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)]):
+            allowed_response = self.client.get(self._api_url())
+        with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[]):
+            removed_response = self.client.get(self._api_url())
+
+        assert allowed_response.status_code == status.HTTP_200_OK
+        assert removed_response.status_code == status.HTTP_200_OK
+        allowed_scout = next(row for row in allowed_response.json()["results"] if row["agent_key"] == "scout")
+        removed_scout = next(row for row in removed_response.json()["results"] if row["agent_key"] == "scout")
+        assert allowed_scout["servers"][0]["reachable"] is True
+        assert removed_scout["servers"][0]["reachable"] is False
+
     def test_agent_catalog_query_count_does_not_grow_with_accessible_servers(self) -> None:
         account = self._active_scout_account()
         client = self._agent_client(account)
