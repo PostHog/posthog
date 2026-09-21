@@ -20,7 +20,7 @@ import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
-jest.setTimeout(1000)
+jest.setTimeout(10_000)
 
 /**
  * NOTE: The internal and normal events consumers are very similar so we can test them together
@@ -94,7 +94,6 @@ describe('CdpCyclotronWorkerPlugins', () => {
     })
 
     afterEach(async () => {
-        jest.setTimeout(10000)
         await processor.stop()
         await closeHub(hub)
     })
