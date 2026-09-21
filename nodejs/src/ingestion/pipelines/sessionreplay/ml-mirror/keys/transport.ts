@@ -4,7 +4,10 @@ import { parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
 import { parseJSON } from '~/common/utils/json-parse'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 import { MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
-import { sessionStartMonth } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
+import {
+    mlDatasetVersion,
+    sessionStartMonth,
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 
 import { MlDataKey } from './crypto'
 import { MlKeyReader } from './reader'
@@ -53,20 +56,21 @@ export function validateImageOwner(ref: string, key: MlDataKey | undefined): voi
     if (key) {
         if (
             !parsed ||
-            parsed.version !== 2 ||
+            parsed.version !== mlDatasetVersion(key.identity.sessionId ?? '') ||
             parsed.teamId !== String(key.identity.teamId) ||
             parsed.sessionMonth !== sessionStartMonth(key.identity.sessionId ?? '')
         ) {
             throw new Error('ML image reference ownership mismatch')
         }
-    } else if (parsed?.version === 2) {
+    } else if (parsed?.version !== undefined) {
         throw new Error('An ML v2 image requires a v2 session key')
     }
 }
 
+/** The wire version says whether a record has a session key; a keyed record's reference names a v2 or v3 dataset. */
 export function validateImageRefVersion(ref: string, version: 1 | 2): void {
     const parsed = parseImageRef(ref)
-    if (version === 2 ? parsed?.version !== 2 : parsed?.version === 2) {
+    if (version === 2 ? parsed?.version === undefined : parsed?.version !== undefined) {
         throw new Error('ML image reference version mismatch')
     }
 }

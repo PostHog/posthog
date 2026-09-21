@@ -6,11 +6,12 @@ import pLimit from 'p-limit'
 import { logger } from '~/common/utils/logger'
 import { MlDatasetBuckets } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-parquet-store'
 import { MlDataKey, encryptEnvelope } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/crypto'
-import { usesV3ImageDataset } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
 
 export interface ScrubbedImage {
     sessionMonth?: string
+    /** From the reference, so an image sits in the dataset of the session that collected it. */
+    datasetVersion?: 2 | 3
     teamId?: string
     pseudoTeam?: string
     hash: string
@@ -20,6 +21,7 @@ export interface ScrubbedImage {
 export interface ScrubbedUrlImage {
     teamId?: string
     sessionMonth?: string
+    datasetVersion?: 2 | 3
     hash: string
     bytes: Buffer
     sourcePartition: number
@@ -94,8 +96,8 @@ export class ImageShardStore {
         this.nodeId = nodeId || process.env.HOSTNAME || randomUUID().slice(0, 8)
     }
 
-    private datasetOf(sessionMonth: string | undefined): 'v2' | 'v3' {
-        return sessionMonth && usesV3ImageDataset(sessionMonth) ? 'v3' : 'v2'
+    private datasetOf(datasetVersion: 2 | 3 | undefined): 'v2' | 'v3' {
+        return datasetVersion === 3 ? 'v3' : 'v2'
     }
 
     /**
@@ -186,7 +188,10 @@ export class ImageShardStore {
         ) {
             throw new Error('Image shards require one valid session month')
         }
-        const dataset = this.datasetOf(encryptionKey ? sessionMonth : undefined)
+        if (encryptionKey && images.some((image) => image.datasetVersion !== images[0].datasetVersion)) {
+            throw new Error('Image shards require one dataset version')
+        }
+        const dataset = this.datasetOf(encryptionKey ? images[0]?.datasetVersion : undefined)
         const bucket = this.buckets[dataset]
         const prefix = encryptionKey
             ? `${this.prefix}/${dataset}/${sessionMonth}/${encryptionKey.identity.teamId}`
@@ -292,7 +297,7 @@ export class ImageShardStore {
         if (encryptionKey && (!image.sessionMonth || !/^[0-9]{4}-(0[1-9]|1[0-2])$/.test(image.sessionMonth))) {
             throw new Error('URL images require a valid session month')
         }
-        const dataset = this.datasetOf(encryptionKey ? image.sessionMonth : undefined)
+        const dataset = this.datasetOf(encryptionKey ? image.datasetVersion : undefined)
         const bucket = this.buckets[dataset]
         const key = encryptionKey
             ? `${this.prefix}/${dataset}/${image.sessionMonth}/${encryptionKey.identity.teamId}/url/${image.hash}`
