@@ -62426,6 +62426,11 @@ export namespace Schemas {
        * * `failed` - Failed
        * * `errored` - Errored */
       readonly last_outcome: SignalReportCheckOutcomeEnum | null;
+      /**
+         * When the `agent` check's scout run started, cleared as soon as a verdict is recorded. A non-null value is what tells a reader the check is running rather than waiting, because dispatch also pushes `next_run_at` out to the result window. Always null on a `metric_threshold` check, which is measured in the tick that collects it.
+         * @nullable
+         */
+      readonly dispatched_at: string | null;
       /** Runs that could not be measured since the last clean one. */
       readonly consecutive_errors: number;
       readonly created_at: string;

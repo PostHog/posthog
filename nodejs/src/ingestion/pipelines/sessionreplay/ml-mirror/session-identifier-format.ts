@@ -1,4 +1,8 @@
 export const RAW_SESSION_IDENTIFIERS_START_MS = Date.parse('2026-09-15T12:00:00Z')
+/** 18:00 Europe/London on 2026-09-21, the first session start that lands in the v3 dataset. */
+export const V3_DATASET_START_MS = Date.parse('2026-09-21T17:00:00Z')
+/** An image carries a session month and no session ID, so the image dataset changes version at the first month boundary after the session cutoff. */
+export const V3_IMAGE_DATASET_START_MONTH = '2026-10'
 
 export function sessionStartTimestampFromUuidV7(sessionId: string): number | null {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sessionId)) {
@@ -11,6 +15,15 @@ export function sessionStartTimestampFromUuidV7(sessionId: string): number | nul
 export function usesRawSessionIdentifiers(sessionId: string): boolean {
     const startedAt = sessionStartTimestampFromUuidV7(sessionId)
     return startedAt !== null && startedAt >= RAW_SESSION_IDENTIFIERS_START_MS && startedAt < Date.UTC(10000, 0, 1)
+}
+
+export function usesV3Dataset(sessionId: string): boolean {
+    const startedAt = sessionStartTimestampFromUuidV7(sessionId)
+    return startedAt !== null && startedAt >= V3_DATASET_START_MS && startedAt < Date.UTC(10000, 0, 1)
+}
+
+export function usesV3ImageDataset(sessionMonth: string): boolean {
+    return sessionMonth >= V3_IMAGE_DATASET_START_MONTH
 }
 
 export const ML_SESSION_MAX_AGE_DAYS = 14
