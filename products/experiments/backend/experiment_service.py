@@ -2974,7 +2974,17 @@ class ExperimentService:
                     .first()
                 )
                 if metric_result and metric_result.result:
-                    completed_metadata["significant"] = metric_result.result.get("significant", False)
+                    # Significance lives on each variant. The top-level `significant` is a legacy
+                    # field that stored results leave null. A variant's value is null when
+                    # validation stopped the analysis, so only computed values decide.
+                    variant_results = metric_result.result.get("variant_results") or []
+                    computed = [
+                        variant["significant"]
+                        for variant in variant_results
+                        if isinstance(variant, dict) and isinstance(variant.get("significant"), bool)
+                    ]
+                    if computed:
+                        completed_metadata["significant"] = any(computed)
         except Exception:
             logger.exception(
                 "Failed to look up metric significance",
