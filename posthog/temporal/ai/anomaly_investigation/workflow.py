@@ -185,6 +185,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         context_text=anomaly_context_text,
         triggered_dates=list(alert_check.triggered_dates or []),
         series_index=series_index,
+        detector_type=detector_type,
     )
 
     try:
@@ -721,17 +722,33 @@ def _evaluated_series_index(alert, alert_check) -> int:
     return (alert.config or {}).get("series_index", 0)
 
 
-def _build_multimodal_context(*, alert, context_text: str, triggered_dates: list[str], series_index: int | None = None):
+def _build_multimodal_context(
+    *,
+    alert,
+    context_text: str,
+    triggered_dates: list[str],
+    series_index: int | None = None,
+    detector_type: str | None = None,
+):
     """Return a LangChain HumanMessage content value — either a plain string or a
     list of content blocks with the text and a rendered chart PNG.
 
+    ``detector_type`` is the detector that produced the check under investigation.
     Best-effort: if the detector can't simulate or the chart fails to render, we
     fall back to text-only so the investigation still runs.
     """
-    if alert.detector_config is None or alert.insight is None:
+    if alert.insight is None:
+        return context_text
+    # The alert's detector can change while an investigation waits to start. A saved AI
+    # verdict is charted from its own markers, with no scores from whatever detector the
+    # alert carries now, and even after the alert moved to a plain threshold.
+    judged_by_model = detector_type == "llm"
+    if alert.detector_config is None and not judged_by_model:
         return context_text
 
-    sim = _run_detector_simulation(alert=alert, team=alert.team, date_from=None, series_index=series_index)
+    sim = _run_detector_simulation(
+        alert=alert, team=alert.team, date_from=None, series_index=series_index, score=not judged_by_model
+    )
     if isinstance(sim, str) or not sim:
         logger.info("anomaly_investigation.chart_skipped", alert_id=str(alert.id), reason=str(sim)[:120])
         return context_text
@@ -741,7 +758,6 @@ def _build_multimodal_context(*, alert, context_text: str, triggered_dates: list
     if not dates or not values:
         return context_text
 
-    # The alert's detector can change while an investigation waits to start.
     saved_dates = set(triggered_dates)
     triggered_indices = [index for index, date in enumerate(dates) if date in saved_dates]
 
@@ -749,7 +765,7 @@ def _build_multimodal_context(*, alert, context_text: str, triggered_dates: list
         dates=dates,
         values=values,
         triggered_indices=triggered_indices,
-        scores=sim.get("scores") or None,
+        scores=None if judged_by_model else sim.get("scores") or None,
         title=(alert.insight.name or alert.name or "Metric")[:80],
     )
     if not png:

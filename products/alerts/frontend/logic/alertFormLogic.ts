@@ -517,26 +517,38 @@ export const alertFormLogic = kea<alertFormLogicType>([
         simulationResult: [
             null as AlertSimulationResult | null,
             {
-                simulateAlert: async (): Promise<AlertSimulationResult | null> => {
+                simulateAlert: async (_, breakpoint): Promise<AlertSimulationResult | null> => {
                     const detectorConfig = values.alertForm.detector_config
                     if (!detectorConfig || !props.insightId) {
                         return null
                     }
                     const requestId = values.simulationRequestId
                     const formConfig = values.alertForm.config
-                    const result = await api.alerts.simulate({
-                        insight: props.insightId,
-                        detector_config: detectorConfig,
-                        series_index: isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0,
-                        date_from:
-                            values.simulationDateFrom ??
-                            getDefaultSimulationRange(values.alertForm.calculation_interval),
-                        // SQL insights have no series_index; the config carries the evaluated column
-                        // and read direction so the preview matches what the alert will score.
-                        config: formConfig,
-                    })
-                    // A clear or a newer preview superseded this one while the model was judging;
-                    // its verdict would be shown against settings the model never saw.
+                    let result: AlertSimulationResult
+                    try {
+                        result = await api.alerts.simulate({
+                            insight: props.insightId,
+                            detector_config: detectorConfig,
+                            series_index: isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0,
+                            date_from:
+                                values.simulationDateFrom ??
+                                getDefaultSimulationRange(values.alertForm.calculation_interval),
+                            // SQL insights have no series_index; the config carries the evaluated column
+                            // and read direction so the preview matches what the alert will score.
+                            config: formConfig,
+                        })
+                    } catch (error) {
+                        if (values.simulationRequestId === requestId) {
+                            throw error
+                        }
+                        // The settings this request ran with are gone, so its failure is not one to report.
+                        breakpoint()
+                        return values.simulationResult
+                    }
+                    // A newer preview owns the loader now: the breakpoint stops this one from settling
+                    // it. After a clear there is nothing to show, because the model never saw the
+                    // current settings.
+                    breakpoint()
                     return values.simulationRequestId === requestId ? result : values.simulationResult
                 },
                 clearSimulation: () => null,

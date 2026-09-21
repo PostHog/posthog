@@ -10,6 +10,7 @@ import {
     useChartTheme,
 } from '@posthog/quill-charts'
 
+import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
@@ -28,18 +29,16 @@ interface SimSeriesMeta {
 
 /** Format a date string compactly: "Mar 16, 11:00" or "Mar 16" if midnight. */
 function formatSimDate(dateStr: string): string {
-    const d = new Date(dateStr)
-    if (isNaN(d.getTime())) {
+    // dayjs reads a date-only label as a local calendar day. `new Date()` would read it as
+    // UTC midnight, which shows the previous day to anyone west of UTC.
+    const d = dayjs(dateStr)
+    if (!d.isValid()) {
         return dateStr
     }
-    const month = d.toLocaleString('en-US', { month: 'short' })
-    const day = d.getDate()
-    const hours = d.getHours()
-    const mins = d.getMinutes()
-    if (hours === 0 && mins === 0) {
-        return `${month} ${day}`
+    if (d.hour() === 0 && d.minute() === 0) {
+        return d.format('MMM D')
     }
-    return `${month} ${day}, ${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`
+    return d.format('MMM D, HH:mm')
 }
 
 /** Extract the sensitivity threshold from detector config (0-1 range). */

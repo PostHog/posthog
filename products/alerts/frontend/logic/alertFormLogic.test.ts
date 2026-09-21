@@ -218,6 +218,33 @@ describe('alertFormLogic', () => {
         expect(logic.values.simulationResult).toBeNull()
     })
 
+    it('leaves the loader to the newest preview when an older one settles first', async () => {
+        const pending: ((result: any) => void)[] = []
+        const failing: ((error: Error) => void)[] = []
+        jest.spyOn(api.alerts, 'simulate').mockImplementation(
+            () => new Promise((resolve, reject) => (pending.push(resolve), failing.push(reject)))
+        )
+        const logic = mountForm()
+        logic.actions.setAlertFormValue('detector_config', { type: 'zscore', threshold: 0.95, window: 30 })
+
+        logic.actions.simulateAlert()
+        logic.actions.simulateAlert()
+        failing[0](new Error('model timed out'))
+        await expectLogic(logic).delay(0)
+
+        expect(logic.values.simulationResultLoading).toBe(true)
+        expect(errorToastSpy).not.toHaveBeenCalled()
+
+        const newest = { data: [2], dates: ['2026-01-02'], scores: [0.2], triggered_indices: [], total_points: 1 }
+        pending[1](newest)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.simulationResultLoading).toBe(false)
+        expect(logic.values.simulationResult).toEqual(newest)
+        const simulationRuns = captureSpy.mock.calls.filter(([event]) => event === 'alert simulation run')
+        expect(simulationRuns).toEqual([['alert simulation run', expect.objectContaining({ success: true })]])
+    })
+
     it('shows success toast and no error toast when create succeeds', async () => {
         const logic = mountForm()
 

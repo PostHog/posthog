@@ -163,6 +163,7 @@ from products.dashboards.backend.facade.enums import PrivilegeLevel, Restriction
 from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
+    lock_insight_for_evaluation,
     map_stale_to_latest,
     recent_viewers_by_insight,
     recently_viewed_insights,
@@ -869,6 +870,9 @@ class InsightSerializer(InsightBasicSerializer):
                 )
 
         if validated_data.get("deleted", False):
+            # Alert creation locks the insight, then checks `deleted`. Taking the same lock before
+            # the sweep keeps a concurrent create from adding an alert the sweep never sees.
+            lock_insight_for_evaluation(team_id=instance.team_id, insight_id=instance.id)
             hide_tiles_for_insights([instance.id])
             for alert in instance.alertconfiguration_set.all():
                 alert.delete()

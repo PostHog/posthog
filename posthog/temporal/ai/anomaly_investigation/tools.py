@@ -99,13 +99,15 @@ def _run_detector_simulation(
     team: Team,
     date_from: str | None,
     series_index: int | None = None,
+    score: bool = True,
 ) -> dict[str, Any] | str:
     """Thin wrapper around ``simulate_detector_on_insight`` that returns either the sim
     dict or a short error string. Kept as a sync helper so it can be pushed to a thread
     via ``sync_to_async`` from the async tool handlers.
 
     ``series_index`` overrides the alert's current selection with the one a saved check
-    judged, so an investigation charts the series that fired.
+    judged, so an investigation charts the series that fired. ``score=False`` returns the
+    series unscored, for a check whose verdict is already saved.
 
     An AI-detector alert is never re-scored here: the verdict that fired is already on the
     check, and every extra scoring pass would be another billable model call that the agent
@@ -132,7 +134,7 @@ def _run_detector_simulation(
             config=alert.config,
             date_from=date_from,
             user=alert.created_by,
-            score=not is_llm_detector_config(alert.detector_config),
+            score=score and not is_llm_detector_config(alert.detector_config),
         )
     except Exception as err:
         return str(err)

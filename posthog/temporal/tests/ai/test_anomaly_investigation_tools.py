@@ -65,7 +65,7 @@ def test_run_detector_simulation_returns_the_alerts_configured_series(mock_calcu
 
 
 @pytest.mark.parametrize("triggered_dates,expected_indices", [(["2026-07-09"], [8]), (["2026-06-01"], [])])
-@pytest.mark.parametrize("current_detector_type", ["llm", "mad"])
+@pytest.mark.parametrize("current_detector_type", ["llm", "mad", None])
 @patch("products.alerts.backend.judge.llm.LLMSeriesJudge._ask_model")
 @patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
 def test_run_detector_simulation_never_rescores_an_ai_alert(
@@ -73,7 +73,7 @@ def test_run_detector_simulation_never_rescores_an_ai_alert(
     mock_ask: MagicMock,
     triggered_dates: list[str],
     expected_indices: list[int],
-    current_detector_type: str,
+    current_detector_type: str | None,
 ) -> None:
     series = [10.0, 11.0, 10.0, 9.0] * 3
     mock_calculate.return_value = InsightResult(
@@ -101,15 +101,18 @@ def test_run_detector_simulation_never_rescores_an_ai_alert(
     assert not isinstance(result, str)
     assert result["data"] == series[:-1]
     assert result["triggered_indices"] == []
-    alert.detector_config = {"type": current_detector_type, "threshold": 0.7, "window": 10}
+    alert.detector_config = (
+        {"type": current_detector_type, "threshold": 0.7, "window": 10} if current_detector_type else None
+    )
     with patch(
         "posthog.temporal.ai.anomaly_investigation.workflow.render_series_chart", return_value=b"chart"
     ) as render:
         context = _build_multimodal_context(
-            alert=alert, context_text="Investigate the change.", triggered_dates=triggered_dates
+            alert=alert, context_text="Investigate the change.", triggered_dates=triggered_dates, detector_type="llm"
         )
     assert isinstance(context, list)
     assert render.call_args.kwargs["triggered_indices"] == expected_indices
+    assert render.call_args.kwargs["scores"] is None
     mock_ask.assert_not_called()
 
 

@@ -374,7 +374,13 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert len(body["checks"]) == expected_count
         assert body["checks_total"] == total_checks
 
-    def test_retrieve_check_includes_allowlisted_error_code(self) -> None:
+    @parameterized.expand(
+        [
+            ("email_unavailable", "Email delivery is unavailable."),
+            ("invalid_configuration", "AI data processing consent was withdrawn for this project."),
+        ]
+    )
+    def test_retrieve_check_includes_allowlisted_error_code(self, code: str, message: str) -> None:
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -389,16 +395,13 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             alert_configuration=alert_obj,
             calculated_value=None,
             state=AlertState.ERRORED,
-            error={"code": "email_unavailable", "message": "Email delivery is unavailable."},
+            error={"code": code, "message": message},
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["checks"][0]["error"] == {
-            "code": "email_unavailable",
-            "message": "Email delivery is unavailable.",
-        }
+        assert response.json()["checks"][0]["error"] == {"code": code, "message": message}
 
     def test_retrieve_check_hides_internal_error_message(self) -> None:
         creation_request = {

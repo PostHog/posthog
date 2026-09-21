@@ -569,8 +569,11 @@ class AlertCheckSerializer(serializers.ModelSerializer):
         message = instance.error.get("message")
         if not isinstance(message, str):
             return None
-        if instance.error.get("code") == "email_unavailable":
-            return {"code": "email_unavailable", "message": message}
+        # Only reasons written for the alert's owner pass through. Anything else may carry an
+        # internal detail, so the history shows a generic message instead.
+        code = instance.error.get("code")
+        if code in ("email_unavailable", "invalid_configuration"):
+            return {"code": code, "message": message}
         return {"message": "This alert encountered an error. Check the alert configuration and try again."}
 
     def get_investigation_notebook_short_id(self, instance: AlertCheck) -> str | None:
