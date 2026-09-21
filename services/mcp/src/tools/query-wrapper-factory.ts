@@ -19,7 +19,7 @@ const TRACE_QUERY_KINDS = new Set(['TraceQuery', 'TracesQuery'])
 const TRACE_DETAIL_FIELD = 'detail'
 const DEFAULT_TRACE_DETAIL: TraceDetail = 'full'
 const TRACE_DETAIL_DESCRIPTION =
-    'How much of each retained event property to return. Properties outside the `$ai_*` namespace are withheld in both modes. "full" (default) returns every retained property, subject to response size limits. Set "summary" to browse trace and event metadata (IDs, timestamps, model, latency, tokens, cost, tools called, errors) with short previews of prompts and outputs.'
+    'How much of each retained event property to return. Properties outside the `$ai_*` namespace are withheld in both modes, except `$session_id`, `$lib`, and `$lib_version`, which are returned. "full" (default) returns every retained property, subject to response size limits. Set "summary" to browse trace and event metadata (IDs, timestamps, model, latency, tokens, cost, tools called, errors) with short previews of prompts and outputs.'
 
 /**
  * Add the `detail` control to the trace wrappers only. The field is a tool-level

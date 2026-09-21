@@ -39,6 +39,11 @@ function endpointOnly(value: unknown): string | undefined {
     } catch {
         return undefined
     }
+    // An opaque scheme has no origin to keep: a `data:` URL puts its whole payload,
+    // credential and all, in the path.
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        return undefined
+    }
     const endpoint = `${url.origin}${url.pathname}`
     const carriedSecrets = url.username || url.password || url.search || url.hash
     return carriedSecrets ? `${endpoint} [userinfo and query stripped]` : endpoint

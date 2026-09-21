@@ -54,13 +54,17 @@ describe('trace redaction', () => {
         expect(results[0].events[0].properties[key]).toBe(expected)
     })
 
-    it.each(['not a url', 42])('withholds an unparseable url property rather than guessing: %s', (sent) => {
-        const { results } = redactTraceResults([traceWithProperties({ $ai_request_url: sent })]) as any
-        const properties = results[0].events[0].properties
+    it.each(['not a url', 42, 'data:text/plain,api_key=invented-key-value'])(
+        'withholds a url property it cannot reduce to an http endpoint: %s',
+        (sent) => {
+            const { results } = redactTraceResults([traceWithProperties({ $ai_request_url: sent })]) as any
+            const properties = results[0].events[0].properties
 
-        expect(properties).not.toHaveProperty('$ai_request_url')
-        expect(properties._redactedKeys).toContain('$ai_request_url')
-    })
+            expect(JSON.stringify(results)).not.toContain('invented-key-value')
+            expect(properties).not.toHaveProperty('$ai_request_url')
+            expect(properties._redactedKeys).toContain('$ai_request_url')
+        }
+    )
 
     it('lists the withheld names before the retained values, which the compactor drops first', () => {
         const { results } = redactTraceResults([
