@@ -379,14 +379,23 @@ def _fmt_plan(tmp_path: Path, files: dict[str, str]) -> CanonicalPlan:
     return CanonicalPlacer(OwnersResolver(repo_root=tmp_path)).build()
 
 
-def test_fmt_folds_dedicated_child_into_pinned_parent(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "parent_yaml",
+    [
+        "version: 1\nowners: [team-a]\nstatus: deprecated\n",
+        "version: 1\nowners: [team-a]\nstatus: deprecated\nrules:\n  - match: '/gen/'\n    status: generated\n",
+    ],
+)
+def test_fmt_folds_dedicated_child_into_pinned_parent(tmp_path: Path, parent_yaml: str) -> None:
     # `a` is a pinned carrier (non-simple, carries a status); `a/b` is a dedicated
     # single-statement file. Canonical folds b's statement into a and drops the file.
+    # A rule on `a` that sets no owners is not an owner statement, so it is not an edit.
     plan = _fmt_plan(
         tmp_path,
         {
-            "a/owners.yaml": "version: 1\nowners: [team-a]\nstatus: deprecated\n",
+            "a/owners.yaml": parent_yaml,
             "a/f.py": "x",
+            "a/gen/h.py": "x",
             "a/b/owners.yaml": "version: 1\nowners: [team-b]\n",
             "a/b/g.py": "x",
             "r1.py": "x",

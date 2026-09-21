@@ -527,7 +527,7 @@ class CanonicalPlacer:
 
         for carrier in sorted(open_dirs):
             proposed_file = proposed[carrier]
-            proposed_rules = {r.match: r.owners for r in proposed_file.rules}
+            proposed_rules = {r.match: r.owners for r in proposed_file.rules if not isinstance(r.owners, _Unset)}
             cur_rules = current_rules.get(carrier, {})
             path = f"{carrier}/{OWNERS_FILENAME}" if carrier else OWNERS_FILENAME
             file_exists = carrier in current_rules or carrier in pinned_dirs
