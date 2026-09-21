@@ -12,9 +12,18 @@ from urllib.parse import urlparse
 import requests
 from pydantic import JsonValue
 
+from posthog.dataclasses import frozen
+
 from .attempt import Attempt
 from .faults import FaultName
 from .replay import ResponseStep, fixture_events, object_value, sse_frames
+
+
+@frozen
+class _HttpReply:
+    status: int
+    content_type: str
+    body: bytes
 
 
 class Controller:
@@ -48,7 +57,7 @@ class Controller:
                     body = object_value(
                         json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
                     )
-                    status, content_type, response = controller.handle(
+                    reply = controller.handle(
                         self.command,
                         urlparse(self.path).path,
                         dict(self.headers),
@@ -58,15 +67,18 @@ class Controller:
                     if not self.path.startswith("/control/"):
                         controller.record_error(f"{type(error).__name__}: {error}")
                     logging.getLogger(__name__).exception("AI E2E request failed: %s %s", self.command, self.path)
-                    status = 500 if self.path.startswith("/control/") else 400
-                    content_type, response = "application/json", json.dumps({"error": str(error)}).encode()
+                    reply = _HttpReply(
+                        status=500 if self.path.startswith("/control/") else 400,
+                        content_type="application/json",
+                        body=json.dumps({"error": str(error)}).encode(),
+                    )
                 finally:
                     connections.close_all()
-                self.send_response(status)
-                self.send_header("Content-Type", content_type)
-                self.send_header("Content-Length", str(len(response)))
+                self.send_response(reply.status)
+                self.send_header("Content-Type", reply.content_type)
+                self.send_header("Content-Length", str(len(reply.body)))
                 self.end_headers()
-                self.wfile.write(response)
+                self.wfile.write(reply.body)
 
         self.server = ThreadingHTTPServer(("0.0.0.0", 0), Handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -84,12 +96,10 @@ class Controller:
             raise ValueError("Unknown or stale attempt")
         return self.attempt
 
-    def json(self, data: JsonValue, status: int = 200) -> tuple[int, str, bytes]:
-        return status, "application/json", json.dumps(data).encode()
+    def json(self, data: JsonValue, status: int = 200) -> _HttpReply:
+        return _HttpReply(status=status, content_type="application/json", body=json.dumps(data).encode())
 
-    def handle(
-        self, method: str, path: str, headers: dict[str, str], body: dict[str, JsonValue]
-    ) -> tuple[int, str, bytes]:
+    def handle(self, method: str, path: str, headers: dict[str, str], body: dict[str, JsonValue]) -> _HttpReply:
         headers = {key.lower(): value for key, value in headers.items()}
         if path.startswith("/control/"):
             if not secrets.compare_digest(headers.get("authorization", ""), f"Bearer {self.token}"):
@@ -131,7 +141,7 @@ class Controller:
                 f"{target}/command", json=body, headers={"Authorization": headers["authorization"]}, timeout=30
             )
             attempt.faults["approval"].record("forwarded", request_id=request_id, status=response.status_code)
-            return response.status_code, "application/json", response.content
+            return _HttpReply(status=response.status_code, content_type="application/json", body=response.content)
         if method == "GET" and path in {"/v1/models", "/posthog_ai/v1/models", "/posthog_code/v1/models"}:
             project = headers.get("x-posthog-project-id")
             if project is not None and project != str(attempt.team.id):
@@ -187,7 +197,7 @@ class Controller:
                     "text": "Synthetic conversation",
                 },
             )
-            return 200, "text/event-stream", sse_frames(fixture_events(step))
+            return _HttpReply(status=200, content_type="text/event-stream", body=sse_frames(fixture_events(step)))
         properties = object_value(json.loads(headers.get("x-posthog-properties", "{}")))
         run_id = properties.get("task_run_id", headers.get("x-posthog-property-task_run_id"))
         team_id = properties.get(
@@ -231,7 +241,7 @@ class Controller:
                     "text": "Synthetic conversation",
                 },
             )
-            return 200, "text/event-stream", sse_frames(fixture_events(step))
+            return _HttpReply(status=200, content_type="text/event-stream", body=sse_frames(fixture_events(step)))
         provider = (
             "claude"
             if path in {"/v1/messages", "/posthog_ai/v1/messages"}
@@ -241,7 +251,7 @@ class Controller:
         )
         if provider is None or attempt.replay is None:
             raise ValueError(f"Unexpected provider endpoint {path}")
-        return 200, "text/event-stream", attempt.replay.respond(provider, body)
+        return _HttpReply(status=200, content_type="text/event-stream", body=attempt.replay.respond(provider, body))
 
     def control(self, method: str, path: str, body: dict[str, JsonValue]) -> JsonValue:
         if path == "health" and method == "GET":
@@ -255,7 +265,7 @@ class Controller:
             attempt = self.attempt
             if attempt is None:
                 raise ValueError("Dispatcher registration outside an attempt")
-            run = TaskRun.objects.for_team(attempt.team.id).get(id=str(body["run_id"]))
+            run = TaskRun.objects.get(id=str(body["run_id"]), team_id=attempt.team.id)
             if str(run.task_id) != attempt.task_id:
                 raise ValueError("Dispatcher registration belongs to another task")
             attempt.run_id = str(run.id)

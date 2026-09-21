@@ -8,7 +8,7 @@ from datetime import timedelta
 from pathlib import Path
 from time import monotonic
 from typing import TYPE_CHECKING
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from pydantic import JsonValue
 
@@ -44,7 +44,7 @@ class Attempt:
         self.signal_not_found = threading.Event()
         self.signal_accepted = threading.Event()
         self.worker_ready = threading.Event()
-        self.threads: list[threading.Thread] = []
+        self.worker_threads: list[threading.Thread] = []
         self.cleanup_callbacks: list[Callable[[], None]] = []
         self.worker: TemporalWorkerThread | None = None
         self.title_requests = 0
@@ -85,7 +85,9 @@ class Attempt:
             )
             self.team = Team.objects.create(
                 id=secrets.randbelow(1_000_000_000) + 1_000_000_000,
-                organization=self.organization, name="Synthetic workspace", completed_snippet_onboarding=True
+                organization=self.organization,
+                name="Synthetic workspace",
+                completed_snippet_onboarding=True,
             )
             self.user.current_organization = self.organization
             self.user.current_team = self.team
@@ -115,7 +117,9 @@ class Attempt:
             )
             self.connected_team = Team.objects.create(
                 id=secrets.randbelow(1_000_000_000) + 1_000_000_000,
-                organization=self.organization, name="Synthetic connected project", completed_snippet_onboarding=True
+                organization=self.organization,
+                name="Synthetic connected project",
+                completed_snippet_onboarding=True,
             )
             self.connected_user = User.objects.create_and_join(
                 self.organization,
@@ -183,7 +187,7 @@ class Attempt:
                 connections.close_all()
 
         thread = threading.Thread(target=run, daemon=True)
-        self.threads.append(thread)
+        self.worker_threads.append(thread)
         thread.start()
 
     def start(self) -> None:
@@ -261,10 +265,12 @@ class Attempt:
         self.replay.verify()
         for fault in self.faults.values():
             fault.verify()
-        dispatches = TaskWorkflowDispatch.objects.for_team(self.team.id).filter(task_run_id=self.run_id)
+        if self.run_id is None:
+            raise AssertionError("No task run registered")
+        dispatches = TaskWorkflowDispatch.objects.for_team(self.team.id).filter(task_run_id=UUID(self.run_id))
         if dispatches.count() != 1 or dispatches.get().status != TaskWorkflowDispatch.Status.ACCEPTED:
             raise AssertionError("Expected one accepted durable workflow dispatch")
-        run = TaskRun.objects.for_team(self.team.id).get(id=self.run_id)
+        run = TaskRun.objects.get(id=self.run_id, team_id=self.team.id)
         if run.state.get("sandbox_event_ingest_enabled") is not True:
             raise AssertionError("Run did not capture sandbox event ingest")
         if self.agent_configuration != {
@@ -287,8 +293,7 @@ class Attempt:
                     entries.append(entry)
             (self.output / "proxy-ingest.json").write_text(json.dumps(entries, indent=2))
             if any(
-                entry.get("event") in {"ingest", "ingest:client_disconnect"}
-                and int(str(entry.get("accepted", 0))) > 0
+                entry.get("event") in {"ingest", "ingest:client_disconnect"} and int(str(entry.get("accepted", 0))) > 0
                 for entry in entries
             ):
                 return
@@ -359,7 +364,7 @@ class Attempt:
             fault.release()
         if not self.dispatch_finished.wait(15):
             raise RuntimeError("Dispatcher registration survived barrier release")
-        for thread in self.threads:
+        for thread in self.worker_threads:
             thread.join(timeout=95)
             if thread.is_alive():
                 raise RuntimeError("Attempt thread survived barrier release")

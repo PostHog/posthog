@@ -13,6 +13,9 @@ exclude = [
     # contracts, so neither fits the production dependency graph.
     "products/posthog_ai/eval_harness",
     "products/*/evals",
+    # Same kind of tree: the AI browser e2e harness drives the tasks sandbox and
+    # Temporal internals directly, so it is not a production dependency edge.
+    "products/posthog_ai/frontend/e2e",
 ]
 source_roots = [
     ".",

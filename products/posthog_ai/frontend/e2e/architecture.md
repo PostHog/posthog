@@ -113,11 +113,11 @@ Each control exposes `arm`, `waitUntilReached`, `release`, and `reset`. Its time
 release, and observations such as Temporal NOT_FOUND or the insight save. Reset releases a barrier but retains the audit of
 an arm that never fired. Teardown fails if any required fault was missed.
 
-| Control        | Boundary                                                                        | What remains live                                     |
-| -------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| `registration` | In the dispatcher child, immediately before real `Client.start_workflow`       | Outbox claiming, leases, Temporal, and signals         |
-| `worker`       | Before starting the attempt's tasks worker                                      | Temporal registration and signal acceptance           |
-| `approval`     | Before forwarding the targeted `permission_response`                            | Agent session, approval card, and tool implementation |
+| Control        | Boundary                                                                 | What remains live                                     |
+| -------------- | ------------------------------------------------------------------------ | ----------------------------------------------------- |
+| `registration` | In the dispatcher child, immediately before real `Client.start_workflow` | Outbox claiming, leases, Temporal, and signals        |
+| `worker`       | Before starting the attempt's tasks worker                               | Temporal registration and signal acceptance           |
+| `approval`     | Before forwarding the targeted `permission_response`                     | Agent session, approval card, and tool implementation |
 
 `approval` latches the first matching permission request ID and rejects retries of that request until released. A different
 request does not inherit the fault. This tests recovery from a known rejection before execution. It does not reproduce or

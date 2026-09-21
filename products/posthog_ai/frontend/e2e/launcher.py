@@ -96,10 +96,7 @@ def main() -> int:
 
     from products.posthog_ai.eval_harness.harness.live_server import EvalLiveServer
     from products.posthog_ai.eval_harness.harness.ports import PERSONHOG_ROUTER_PORT
-    from products.posthog_ai.eval_harness.harness.services import (
-        ensure_personhog_binaries,
-        start_personhog,
-    )
+    from products.posthog_ai.eval_harness.harness.services import ensure_personhog_binaries, start_personhog
     from products.posthog_ai.eval_harness.harness.temporal_env import start_temporal_env, temporal_client_target
 
     from .controller import Controller
@@ -269,9 +266,9 @@ def main() -> int:
                         "HOST": "0.0.0.0",
                         "PORT": str(proxy_port),
                         "TASKS_REDIS_URL": settings.REDIS_URL,
-                        "SANDBOX_JWT_PUBLIC_KEY": signing_key.public_key().public_bytes(
-                            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
-                        ).decode(),
+                        "SANDBOX_JWT_PUBLIC_KEY": signing_key.public_key()
+                        .public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+                        .decode(),
                         "SANDBOX_JWT_PUBLIC_KEY_SECONDARY": "",
                         "AGENT_PROXY_DJANGO_CALLBACK_URL": server.url,
                         "AGENT_PROXY_CALLBACK_SECRET": controller.token,

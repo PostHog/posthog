@@ -183,7 +183,10 @@ export const test = base.extend<{ ai: AiAttempt; provider: Provider }>({
         try {
             await provide(attempt)
             expect(djangoStreams, 'The production profile must not fall back to Django SSE').toEqual([])
-            expect(streams.some((stream) => stream.status === 200), 'Expected a real agent-proxy stream').toBeTruthy()
+            expect(
+                streams.some((stream) => stream.status === 200),
+                'Expected a real agent-proxy stream'
+            ).toBeTruthy()
         } finally {
             await testInfo.attach('proxy-streams', { body: JSON.stringify(streams), contentType: 'application/json' })
             await testInfo.attach('browser-console', { body: browserLog.join('\n'), contentType: 'text/plain' })
