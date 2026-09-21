@@ -1602,6 +1602,7 @@ async def test_run_clones_the_scouts_pinned_repositories_when_a_token_can_be_min
 
     stamped = await database_sync_to_async(_stamped, thread_sensitive=False)()
     assert stamped.get("repositories") == (list(expected) or None)
+    assert stamped["repository_scope"] == (list(expected) if expected and repository_override is None else None)
 
 
 @pytest.mark.asyncio
@@ -2980,6 +2981,7 @@ class TestRunRowProvenanceStamps(BaseTest):
         # Always-present provenance key: absence would mean a run predating the field, so a False
         # default must still be stamped, not omitted.
         assert stamped["business_knowledge_maintained"] is False
+        assert stamped["repository_scope"] == []
         # The routing triple stays absent on the default-model path, so its keys can't be
         # confused with the always-present provenance keys.
         assert not any(key in stamped for key in _ROUTED_MODEL_KEYS)

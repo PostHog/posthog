@@ -217,14 +217,20 @@ class TestScoutReportAPI(APIBaseTest):
         assert report.metrics[0]["query"] == metric["query"]
         embed_mock.assert_called_once()
 
-    def test_emit_report_retry_returns_the_first_report(self) -> None:
+    @parameterized.expand([False, True])
+    def test_emit_report_retry_returns_the_first_report(self, restrict_after_emit: bool) -> None:
         # The failure this exists for: the caller times out at a proxy, the server keeps working, and
         # the scout resends. The resend reads its report back instead of doubling it, judge unpaid.
         run = _make_run(self.team)
         with _safe_judge() as judge, patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
-            first = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+            payload = self._payload(repository="acme/widgets")
+            first = self.client.post(self._emit_url(str(run.id)), data=payload, format="json").json()
+            if restrict_after_emit:
+                assert run.scout_config is not None
+                run.scout_config.repositories = ["acme/hub"]
+                run.scout_config.save(update_fields=["repositories"])
             with patch(CAPTURE_PATH) as capture:
-                retry = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+                retry = self.client.post(self._emit_url(str(run.id)), data=payload, format="json").json()
         assert retry["report_id"] == first["report_id"]
         assert retry["idempotent_replay"] is True
         assert retry["emitted"] is True
@@ -802,10 +808,10 @@ class TestScoutReportAPI(APIBaseTest):
         assert response.json()["content_revision_count"] == 1
         assert SignalReport.objects.get(id=created["report_id"]).content_revision_count == 1
 
-    def test_a_failed_running_total_read_takes_the_edit_with_it(self) -> None:
-        # The read above runs inside the edit's transaction, so a database failure on it rolls the
-        # note back instead of reporting a committed edit as failed. `edit_report` is not retry-safe:
-        # the scout's retry would append a second note and count a second corroboration.
+    @parameterized.expand(
+        [REVISION_COUNT_PATH, "products.signals.backend.scout_harness.tools.report.record_report_edit"]
+    )
+    def test_a_failed_required_edit_write_or_read_rolls_back_the_edit(self, failure_path: str) -> None:
         run = _make_run(self.team)
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
             created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
@@ -815,7 +821,7 @@ class TestScoutReportAPI(APIBaseTest):
             _safe_judge(),
             patch(AUTOSTART_PATH, new=AsyncMock()),
             patch("products.signals.backend.scout_harness.tools.report.emit_appended_report_evidence") as emit,
-            patch(REVISION_COUNT_PATH, side_effect=OperationalError("connection lost")),
+            patch(failure_path, side_effect=OperationalError("connection lost")),
         ):
             response = self.client.post(
                 self._edit_url(str(run.id)),
@@ -1265,7 +1271,10 @@ class TestScoutReportAPI(APIBaseTest):
         assert artefact is not None
         assert json.loads(artefact.content)["repository"] == expected
 
-    def test_combined_rewrite_and_reviewer_edit_autostarts_on_the_refreshed_repository(self) -> None:
+    @parameterized.expand([([], "acme/gadgets"), (["acme/widgets"], "acme/widgets")])
+    def test_combined_rewrite_and_reviewer_edit_autostarts_on_the_refreshed_repository(
+        self, editor_repositories: list[str], expected_repository: str
+    ) -> None:
         # One edit can both move the report onto a new repository and add the reviewer that lets an
         # inferred target autostart. Autostart reads the selection as it stands and is idempotent, so
         # refreshing after it would open the implementation task against the repository the same edit
@@ -1278,6 +1287,7 @@ class TestScoutReportAPI(APIBaseTest):
             patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS),
         ):
             created = self.client.post(self._emit_url(str(run.id)), data=payload, format="json").json()
+            editor = _make_run(self.team, metadata={"repository_scope": editor_repositories})
             repository_at_autostart: list[str | None] = []
 
             async def _capture(**kwargs) -> None:
@@ -1288,7 +1298,7 @@ class TestScoutReportAPI(APIBaseTest):
 
             with patch(AUTOSTART_PATH, new=AsyncMock(side_effect=_capture)) as autostart:
                 response = self.client.post(
-                    self._edit_url(str(run.id)),
+                    self._edit_url(str(editor.id)),
                     data={
                         "report_id": created["report_id"],
                         "summary": "Actually https://github.com/acme/gadgets/pull/2",
@@ -1298,7 +1308,49 @@ class TestScoutReportAPI(APIBaseTest):
                 )
         assert response.status_code == status.HTTP_200_OK, response.json()
         autostart.assert_awaited_once()
-        assert repository_at_autostart == ["acme/gadgets"]
+        assert repository_at_autostart == [expected_repository]
+        if editor_repositories:
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "repository": "acme/gadgets"},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_reviewer_only_edit_cannot_start_work_outside_the_editors_repositories(self) -> None:
+        author = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(
+                self._emit_url(str(author.id)), data=self._payload(repository="acme/widgets"), format="json"
+            ).json()
+        editor = _make_run(self.team, metadata={"repository_scope": ["acme/hub"]})
+        with patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+            response = self.client.post(
+                self._edit_url(str(editor.id)),
+                data={"report_id": created["report_id"], "suggested_reviewers": [{"github_login": "octocat"}]},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert (
+            self._latest_artefact(created["report_id"], SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS) is None
+        )
+        autostart.assert_not_awaited()
+
+    @parameterized.expand(["emit", "edit"])
+    def test_report_writes_reject_a_sibling_runs_token(self, operation: str) -> None:
+        author = _make_run(self.team)
+        sibling = _make_run(self.team, metadata={"repository_scope": ["acme/hub"]})
+        report = SignalReport.objects.create(team=self.team, title="Original", summary="Original summary")
+        _authenticate_as_scout(self, scopes="signals_scout_reports", sandbox_task_id=sibling.task_run.task_id)
+        payload = self._payload() if operation == "emit" else {"report_id": str(report.id), "summary": "Changed"}
+        url = self._emit_url(str(author.id)) if operation == "emit" else self._edit_url(str(author.id))
+        with _safe_judge() as judge:
+            response = self.client.post(url, data=payload, format="json")
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
+        judge.assert_not_awaited()
+        report.refresh_from_db()
+        assert report.summary == "Original summary"
+        assert SignalReport.objects.filter(team=self.team).count() == 1
 
     def test_content_edit_queues_slack_delivery_before_the_autostart_side_effect(self) -> None:
         # A prior delivery of the same report may still be building its Slack message; it reads the
@@ -1606,11 +1658,12 @@ class TestScoutReportAPI(APIBaseTest):
         assert selection is not None
         assert json.loads(selection.content)["repository"] == "acme/widgets"
 
-    def test_emit_report_refuses_a_repository_outside_the_scouts_pin(self) -> None:
+    @parameterized.expand([({},), ({"repository_scope": ["invalid"]},), ({"repository_scope": None},)])
+    def test_emit_report_refuses_a_repository_outside_the_scouts_pin(self, metadata: dict) -> None:
         # A pinned scout reads the repositories it was configured for, so those are the only ones its
         # reports may route work to. Refused before the judge and before any write, so no report
         # surfaces carrying a target in a codebase the scout never read.
-        run = _make_run(self.team)
+        run = _make_run(self.team, metadata=metadata)
         assert run.scout_config is not None
         run.scout_config.repositories = ["acme/hub"]
         run.scout_config.save(update_fields=["repositories"])
@@ -2694,12 +2747,21 @@ class TestResolveReportRepositoryPinned(SimpleTestCase):
             pinned_repositories=pinned,
         )
 
-    def test_a_single_pin_resolves_without_running_selection(self) -> None:
-        with patch(self.SELECT_PATH, new=AsyncMock()) as select:
+    @parameterized.expand(["acme/hub", None])
+    def test_a_single_pin_uses_the_shared_eligibility_checks(self, repository: str | None) -> None:
+        with (
+            patch(
+                self.SELECT_PATH,
+                new=AsyncMock(return_value=RepoSelectionResult(repository=repository, reason="Checked")),
+            ) as select,
+            patch("products.signals.backend.temporal.agentic.resolve_user_id_for_team", return_value=7),
+            patch("products.signals.backend.temporal.agentic.get_or_create_signals_sandbox_env", return_value="env"),
+        ):
             result = self._resolve(["acme/hub"])
         assert result is not None
-        assert result.repository == "acme/hub"
-        select.assert_not_awaited()
+        assert result.repository == repository
+        assert select.await_args is not None
+        assert select.await_args.kwargs["candidate_repos"] == ["acme/hub"]
 
     def test_a_selection_outside_the_pin_writes_no_target(self) -> None:
         # The selector reasons over every repo the team's installation reaches, so on a pinned scout

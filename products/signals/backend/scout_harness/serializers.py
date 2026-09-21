@@ -1716,7 +1716,8 @@ class EditReportRequestSerializer(serializers.Serializer):
             "leave the target as it is, and pass the `NO_REPO` sentinel for a report where nothing "
             "under version control could change. A scout configured with repositories can only name "
             "one of them: any other value is refused and the report keeps the target it had. A scout "
-            "configured with no repositories can name any repo the team reaches."
+            "configured with no repositories can name any repo the team reaches. An edit without a "
+            "repository is refused if the existing target is outside the editing scout's permitted repositories."
         ),
     )
     charts = serializers.ListField(
@@ -3031,8 +3032,10 @@ MAX_SCOUT_REPOSITORIES = 10
 _REPOSITORIES_HELP = (
     "GitHub repositories this scout clones into its sandbox, each in `organization/repo` format. "
     "Set them for a scout that reads code, so it can search the tree and run the project's own "
-    "tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox "
-    "without a checkout. The scout's GitHub access stays read-only either way, so a repository "
+    "tests instead of reading files one API call at a time. This list also limits which repositories "
+    "the scout can target through reports and implementation tasks. Empty (the default) permits "
+    "any repository available to the team and leaves the sandbox without a checkout. "
+    "The scout's GitHub access stays read-only either way, so a repository "
     f"listed here is never writable from a run. At most {MAX_SCOUT_REPOSITORIES}, each reachable "
     "through the project's GitHub connection. Applies from the scout's next run."
 )

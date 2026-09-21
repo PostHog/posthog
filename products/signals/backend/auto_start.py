@@ -566,6 +566,10 @@ def _create_implementation_task_if_absent(
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
             return False
+        if not repository_within_pin(
+            repository, report_pinned_repositories(team_id=team_id, report_id=report_id, lock=True)
+        ):
+            raise ReportChangedDuringAutostart("Repository is outside the scout's permitted repositories")
         if ImplementationReportContent.from_report(report) != expected_content:
             raise ReportChangedDuringAutostart("Report changed before its implementation task could start")
         if dispatch is not None:
@@ -1019,10 +1023,10 @@ async def maybe_autostart_implementation_task(
             "self-driving auto-start skipped",
             report_id=report_id,
             team_id=team_id,
-            reason="repository outside the authoring scout's pin",
+            reason="repository outside a contributing scout's permitted repositories",
             repository=repository,
         )
-        return AutostartOutcome(status="blocked", reason="Repository is outside the authoring scout's repositories")
+        return AutostartOutcome(status="blocked", reason="Repository is outside a contributing scout's repositories")
 
     team_config = await SignalTeamConfig.objects.filter(team_id=team_id).afirst()
     if team_config and team_config.autostart_enabled is False:

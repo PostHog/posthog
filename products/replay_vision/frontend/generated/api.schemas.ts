@@ -1823,7 +1823,7 @@ export interface SignalScoutConfigOptionsApi {
      */
     mcp_gateway_server_ids?: string[]
     /**
-     * GitHub repositories this scout clones into its sandbox, each in `organization/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run.
+     * GitHub repositories this scout clones into its sandbox, each in `organization/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. This list also limits which repositories the scout can target through reports and implementation tasks. Empty (the default) permits any repository available to the team and leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run.
      * @maxItems 10
      * @items.maxLength 255
      */
@@ -2017,7 +2017,7 @@ export interface SignalScoutConfigApi {
      */
     readonly mcp_gateway_server_ids: readonly string[]
     /**
-     * GitHub repositories this scout clones into its sandbox, each in `organization/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run.
+     * GitHub repositories this scout clones into its sandbox, each in `organization/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. This list also limits which repositories the scout can target through reports and implementation tasks. Empty (the default) permits any repository available to the team and leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run.
      * @maxItems 10
      * @items.maxLength 255
      */

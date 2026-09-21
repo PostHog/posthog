@@ -23,6 +23,16 @@ Links must name a different live report in the same project and cannot form a cy
 
 ## Scout revisions
 
+The scout's Repositories setting limits where it can contribute code changes through reports.
+An empty list permits any repository available to the team.
+A non-empty list restricts explicit targets, inferred targets, report edits, and automatic implementation tasks.
+Each run saves its permitted repositories, so deleting its configuration does not remove the restriction.
+The report's run-scoped emission key records its author in the report transaction.
+An edit records its contributing run in the same transaction as the report changes.
+All contributing runs restrict later target selection and automatic implementation tasks; an unrestricted editor cannot remove an existing restriction.
+Automatic task creation checks the saved restriction and the current configuration while it holds the report and configuration locks.
+Missing author data does not grant unrestricted access.
+
 Scout edits increment the content revision count only when the title or summary changes. Notes, evidence, routing updates, and unchanged text do not spend a revision. The edit response always includes the report's running revision total.
 
 The revision and corroboration counters are nullable, with no database or model default. Reads treat `NULL` as zero, so existing reports and reports created by older workers need no backfill. The migration adds nullable columns without rewriting rows or validating a `NOT NULL` constraint. PostgreSQL still needs a brief exclusive table lock to add the columns.
