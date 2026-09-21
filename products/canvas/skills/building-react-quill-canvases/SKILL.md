@@ -86,7 +86,8 @@ text-card-foreground`; borders `border-border`. Never a hardcoded hex or light-o
   `var(--border)`/`var(--muted-foreground)`).
 - Some recharts defaults are hardcoded for a light theme and go wrong on a dark canvas. The
   platform stylesheet corrects them, so do not work around one in canvas code. Pie slice outlines
-  are one: recharts strokes every sector white, and the stylesheet removes the outline.
+  are one: recharts strokes every sector white, and the stylesheet removes the outline. The
+  antialiasing seam between stacked bar segments is another.
 - Write Unicode glyphs (curly quotes, ellipsis, arrows, emoji) as literal characters in JSX —
   `\uXXXX` escapes render verbatim in JSX text.
 
