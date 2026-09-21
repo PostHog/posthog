@@ -12,9 +12,9 @@ export interface TicketPatternApi {
     topic: string
     /** One sentence describing what the customers are hitting. */
     summary: string
-    /** IDs of the tickets in this spike. */
+    /** IDs of the tickets in this spike that the requesting user can open. */
     ticket_ids: string[]
-    /** How many tickets the spike covers. */
+    /** How many of the spike's tickets the user can open. */
     ticket_count: number
     /** How many distinct customers reported it. */
     requester_count: number

@@ -17,6 +17,7 @@ class PatternsCoordinatorInput:
 class PatternsCoordinatorOutput:
     eligible_team_count: int
     detected_count: int
+    failed_team_count: int = 0
 
 
 @dataclass(frozen=True)

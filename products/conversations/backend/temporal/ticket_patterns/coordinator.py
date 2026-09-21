@@ -4,6 +4,7 @@ import json
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     import asyncio
@@ -23,7 +24,9 @@ with workflow.unsafe.imports_passed_through():
         DEFAULT_MIN_REQUESTERS,
         DEFAULT_MIN_TICKETS,
         LOOKBACK_MINUTES_RANGE,
+        MAX_CONCURRENT_DETECTIONS,
         MAX_TEAMS_PER_RUN,
+        MAX_TEAMS_SCANNED_PER_RUN,
         MIN_REQUESTERS_RANGE,
         MIN_TICKETS_RANGE,
     )
@@ -62,8 +65,14 @@ def _read_settings(settings_dict: dict) -> DetectionSettings:
 
 
 def _collect_eligible_teams() -> list[EligibleTeam]:
-    """Teams that have opted in and may send ticket text to an LLM."""
-    opted_in = list(
+    """Teams that have opted in and may send ticket text to an LLM.
+
+    Hydration is bounded by MAX_TEAMS_SCANNED_PER_RUN rather than by the number of opt-ins, so a
+    wide rollout cannot turn a tick into a full scan of every opted-in team and its organization.
+    The window starts where the previous tick stopped, so a team past the cap waits for its turn
+    instead of never being reached.
+    """
+    opted_in = (
         Team.objects.filter(
             conversations_enabled=True,
             conversations_settings__ticket_patterns_enabled=True,
@@ -71,15 +80,28 @@ def _collect_eligible_teams() -> list[EligibleTeam]:
         .select_related("organization")
         .order_by("id")
     )
-    # Start each tick where the cap would otherwise keep cutting, so team 51 is not starved
-    # forever. Every team is reached within ceil(len / MAX_TEAMS_PER_RUN) ticks.
-    if len(opted_in) > MAX_TEAMS_PER_RUN:
+    total = opted_in.count()
+    if not total:
+        return []
+
+    # Starvation starts as soon as there are more opt-ins than one tick reports on, so the window
+    # moves from that point, not from the larger hydration budget.
+    if total > MAX_TEAMS_PER_RUN:
         tick = int(timezone.now().timestamp() // (COORDINATOR_INTERVAL_MINUTES * 60))
-        offset = (tick * MAX_TEAMS_PER_RUN) % len(opted_in)
-        opted_in = opted_in[offset:] + opted_in[:offset]
+        offset = (tick * MAX_TEAMS_PER_RUN) % total
+    else:
+        offset = 0
+
+    scan = min(total, MAX_TEAMS_SCANNED_PER_RUN)
+    window = list(opted_in[offset : offset + scan])
+    # Wrap, so the teams at the end of the ordering share a window with those at the start rather
+    # than being scanned only by the one tick whose offset lands on them.
+    shortfall = scan - len(window)
+    if shortfall > 0:
+        window += list(opted_in[:shortfall])
 
     eligible: list[EligibleTeam] = []
-    for team in opted_in:
+    for team in window:
         if len(eligible) >= MAX_TEAMS_PER_RUN:
             break
         if not is_team_eligible(team):
@@ -128,27 +150,43 @@ class TicketPatternsCoordinatorWorkflow:
         if not collected.teams:
             return PatternsCoordinatorOutput(eligible_team_count=0, detected_count=0)
 
-        results = await asyncio.gather(
-            *(
-                workflow.execute_activity(
-                    ticket_patterns_detect_activity,
-                    team,
-                    start_to_close_timeout=timedelta(minutes=10),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
-                for team in collected.teams
-            ),
-            return_exceptions=True,
-        )
-
         detected = 0
-        for team, result in zip(collected.teams, results):
-            if isinstance(result, BaseException):
-                workflow.logger.warning(
-                    "ticket_patterns coordinator: team detection failed",
-                    extra={"team_id": team.team_id, "error": str(result)},
-                )
-                continue
-            detected += len(result.clusters)
+        failed = 0
+        # In batches rather than all at once: the task queue is shared, and a worker accepts a
+        # bounded number of activities, so one wide tick would otherwise hold a whole worker's
+        # capacity in slow LLM calls while unrelated work waits behind it.
+        for start in range(0, len(collected.teams), MAX_CONCURRENT_DETECTIONS):
+            batch = collected.teams[start : start + MAX_CONCURRENT_DETECTIONS]
+            results = await asyncio.gather(
+                *(
+                    workflow.execute_activity(
+                        ticket_patterns_detect_activity,
+                        team,
+                        start_to_close_timeout=timedelta(minutes=10),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    for team in batch
+                ),
+                return_exceptions=True,
+            )
+            for team, result in zip(batch, results):
+                if isinstance(result, BaseException):
+                    failed += 1
+                    workflow.logger.warning(
+                        "ticket_patterns coordinator: team detection failed",
+                        extra={"team_id": team.team_id, "error": str(result)},
+                    )
+                    continue
+                detected += len(result.clusters)
 
-        return PatternsCoordinatorOutput(eligible_team_count=len(collected.teams), detected_count=detected)
+        # One team's failure is its own. Every team failing is the gateway or the worker, and a
+        # run that reports success for it would look exactly like a quiet period with no spikes.
+        if failed == len(collected.teams):
+            raise ApplicationError(
+                f"Ticket pattern detection failed for all {failed} eligible teams",
+                type="AllTeamsFailed",
+            )
+
+        return PatternsCoordinatorOutput(
+            eligible_team_count=len(collected.teams), detected_count=detected, failed_team_count=failed
+        )

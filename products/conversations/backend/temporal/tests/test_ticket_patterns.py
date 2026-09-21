@@ -11,7 +11,7 @@ from parameterized import parameterized
 
 from products.conversations.backend.temporal.ticket_patterns.constants import COORDINATOR_INTERVAL_MINUTES
 from products.conversations.backend.temporal.ticket_patterns.coordinator import _collect_eligible_teams
-from products.conversations.backend.temporal.ticket_patterns.detect import _qualifying_clusters
+from products.conversations.backend.temporal.ticket_patterns.detect import _qualifying_clusters, _requester_key
 from products.conversations.backend.temporal.ticket_patterns.schemas import DetectionSettings
 
 COORD_MODULE = "products.conversations.backend.temporal.ticket_patterns.coordinator"
@@ -34,8 +34,25 @@ def _make_team(*, ticket_patterns_enabled: bool = True, ai_data_processing_appro
     return team
 
 
+class _FakeQuerySet:
+    """Enough of a queryset for the collector: it counts, slices and iterates."""
+
+    def __init__(self, rows: list) -> None:
+        self._rows = rows
+
+    def count(self) -> int:
+        return len(self._rows)
+
+    def __iter__(self):
+        return iter(self._rows)
+
+    def __getitem__(self, item):
+        result = self._rows[item]
+        return _FakeQuerySet(result) if isinstance(item, slice) else result
+
+
 def _queryset(mock_team_model, rows):
-    mock_team_model.objects.filter.return_value.select_related.return_value.order_by.return_value = rows
+    mock_team_model.objects.filter.return_value.select_related.return_value.order_by.return_value = _FakeQuerySet(rows)
 
 
 def _settings(min_tickets: int = 3, min_requesters: int = 3) -> DetectionSettings:
@@ -126,6 +143,12 @@ class TestQualifyingClusters(SimpleTestCase):
                 1,
             ),
             (
+                "unhashable_ids_are_skipped_not_fatal",
+                [{"topic": "login", "summary": "", "ticket_ids": [["t1"], {"id": "t2"}, "t1", "t2", "t3"]}],
+                _requesters(("t1", "org:a"), ("t2", "org:b"), ("t3", "org:c")),
+                1,
+            ),
+            (
                 "enough_tickets_from_enough_customers",
                 [{"topic": "login", "summary": "cannot sign in", "ticket_ids": ["t1", "t2", "t3"]}],
                 _requesters(("t1", "org:a"), ("t2", "org:b"), ("t3", "org:c")),
@@ -150,6 +173,44 @@ class TestQualifyingClusters(SimpleTestCase):
         assert len(clusters) == 1
         assert clusters[0].topic == "login"
         assert clusters[0].requester_count == 3
+
+
+class TestRequesterKey(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("organization_wins", {"organization_id": "acme", "distinct_id": "someone"}, "org:acme"),
+            ("then_the_person", {"organization_id": "", "distinct_id": "someone"}, "person:someone"),
+            (
+                "then_a_trait",
+                {"organization_id": "", "distinct_id": "", "anonymous_traits": {"name": "Robin"}},
+                "name:Robin",
+            ),
+        ]
+    )
+    def test_identity_falls_through(self, _name, attrs, expected):
+        ticket = MagicMock()
+        ticket.organization_id = attrs.get("organization_id", "")
+        ticket.distinct_id = attrs.get("distinct_id", "")
+        ticket.anonymous_traits = attrs.get("anonymous_traits", {})
+        ticket.email_from = attrs.get("email_from", "")
+
+        assert _requester_key(ticket) == expected
+
+    def test_unidentified_customers_do_not_collapse_into_one(self):
+        # A Slack ticket whose author has no email stores an empty distinct_id. Keyed on that
+        # alone every such customer counted as the same one, and a real spike never reached the
+        # requester threshold.
+        keys = set()
+        for index in range(3):
+            ticket = MagicMock()
+            ticket.organization_id = ""
+            ticket.distinct_id = ""
+            ticket.anonymous_traits = {}
+            ticket.email_from = ""
+            ticket.id = f"ticket-{index}"
+            keys.add(_requester_key(ticket))
+
+        assert len(keys) == 3
 
 
 class TestDedupe(SimpleTestCase):

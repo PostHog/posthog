@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -45,6 +47,12 @@ function errorFor(count: number | null): string | undefined {
 export function TicketPatternThresholds(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    // conversations_settings is project-admin only on the API, so a member editing these would
+    // just collect 403s.
+    const restrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const settings = currentTeam?.conversations_settings
     const savedWindow = settings?.ticket_patterns_lookback_minutes ?? DEFAULT_LOOKBACK_MINUTES
@@ -86,6 +94,7 @@ export function TicketPatternThresholds(): JSX.Element {
                         value={lookbackMinutes}
                         options={windowOptions}
                         onChange={(value) => setLookbackMinutes(value ?? DEFAULT_LOOKBACK_MINUTES)}
+                        disabledReason={restrictionReason}
                         data-attr="ticket-patterns-window"
                     />
                 </LemonField.Pure>
@@ -104,6 +113,7 @@ export function TicketPatternThresholds(): JSX.Element {
                         value={minTickets ?? undefined}
                         onChange={(value) => setMinTickets(toInputValue(value))}
                         placeholder={`${DEFAULT_MIN_TICKETS}`}
+                        disabledReason={restrictionReason}
                         data-attr="ticket-patterns-min-tickets"
                     />
                 </LemonField.Pure>
@@ -122,6 +132,7 @@ export function TicketPatternThresholds(): JSX.Element {
                         value={minRequesters ?? undefined}
                         onChange={(value) => setMinRequesters(toInputValue(value))}
                         placeholder={`${DEFAULT_MIN_REQUESTERS}`}
+                        disabledReason={restrictionReason}
                         data-attr="ticket-patterns-min-requesters"
                     />
                 </LemonField.Pure>
@@ -141,13 +152,14 @@ export function TicketPatternThresholds(): JSX.Element {
                         })
                     }
                     disabledReason={
-                        minTicketsError || minRequestersError
+                        restrictionReason ??
+                        (minTicketsError || minRequestersError
                             ? 'Fix the thresholds above to save'
                             : unchanged
                               ? 'No changes to save'
                               : currentTeamLoading
                                 ? 'Saving'
-                                : undefined
+                                : undefined)
                     }
                     data-attr="ticket-patterns-thresholds-save"
                 >

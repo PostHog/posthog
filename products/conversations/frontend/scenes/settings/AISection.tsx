@@ -12,7 +12,8 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
 import { urls } from 'scenes/urls'
@@ -79,6 +80,12 @@ export function AISection(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const businessKnowledgeEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE]
     const ticketPatternsFlagEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_TICKET_PATTERNS]
+    // conversations_settings is project-admin only on the API, so a member editing these would
+    // just collect 403s.
+    const settingsRestrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const isChannelActive = (channel: TicketChannel): boolean => aiEnabledChannels.includes(channel)
 
@@ -274,16 +281,20 @@ export function AISection(): JSX.Element {
                     <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
                         <div className="flex items-center gap-4 justify-between">
                             <div>
-                                <label className="font-medium">Detect ticket spikes</label>
+                                <label className="font-medium" htmlFor="ticket-patterns-enabled">
+                                    Detect ticket spikes
+                                </label>
                                 <p className="text-xs text-muted-alt mb-0">
                                     Subjects and opening messages from recent tickets are sent to an AI model to group
                                     them. Requires AI data processing consent at the organization level.
                                 </p>
                             </div>
                             <LemonSwitch
+                                id="ticket-patterns-enabled"
                                 checked={ticketPatternsEnabled}
                                 onChange={(checked) => setTicketPatternsEnabled(checked)}
                                 loading={ticketPatternsLoading}
+                                disabledReason={settingsRestrictionReason}
                             />
                         </div>
                         {ticketPatternsEnabled && (
@@ -291,16 +302,20 @@ export function AISection(): JSX.Element {
                                 <LemonDivider />
                                 <div className="flex items-center gap-4 justify-between">
                                     <div>
-                                        <label className="font-medium">Show a banner in the inbox</label>
+                                        <label className="font-medium" htmlFor="ticket-patterns-banner-enabled">
+                                            Show a banner in the inbox
+                                        </label>
                                         <p className="text-xs text-muted-alt mb-0">
                                             Puts the spike above the ticket list, so your team sees it without leaving
                                             the inbox. Each banner can be dismissed.
                                         </p>
                                     </div>
                                     <LemonSwitch
+                                        id="ticket-patterns-banner-enabled"
                                         checked={ticketPatternsBannerEnabled}
                                         onChange={(checked) => setTicketPatternsBannerEnabled(checked)}
                                         loading={ticketPatternsLoading}
+                                        disabledReason={settingsRestrictionReason}
                                     />
                                 </div>
                                 <LemonDivider />

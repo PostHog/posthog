@@ -13,7 +13,7 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import CaptureInternalResult, capture_internal
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import groups as build_groups
 from posthog.models.group.util import get_groups_by_identifiers
@@ -655,13 +655,15 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
     )
 
 
-def capture_ticket_pattern_detected(team: Team, cluster: "DetectedCluster", lookback_minutes: int) -> None:
+def capture_ticket_pattern_detected(
+    team: Team, cluster: "DetectedCluster", lookback_minutes: int
+) -> CaptureInternalResult:
     """Several customers reported the same problem inside the detection window.
 
     This event is the whole output of spike detection: nothing is stored, so what the team does
     about it is whatever workflow they point at this event.
     """
-    capture_internal(
+    return capture_internal(
         token=team.api_token,
         event_name="$conversation_ticket_pattern_detected",
         event_source=EVENT_SOURCE,

@@ -751,41 +751,45 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 params.distinct_ids = props.distinctIds.join(',')
             }
 
-            if (values.statusFilter.length > 0) {
-                params.status = values.statusFilter.join(',')
-            }
-            if (values.priorityFilter.length > 0) {
-                params.priority = values.priorityFilter.join(',')
-            }
-            if (values.aiEnabled && values.aiTriageResultFilter.length > 0) {
-                params.ai_triage_result = values.aiTriageResultFilter.join(',')
-            }
-            if (values.channelFilter !== 'all') {
-                params.channel_source = values.channelFilter
-            }
-            if (values.slaFilter !== 'all') {
-                params.sla = values.slaFilter
-            }
-            if (values.assigneeFilterEntries.length > 0) {
-                params.assignee = values.assigneeFilterEntries.map(encodeAssigneeEntry).join(',')
-            }
-            if (values.tagsFilter.length > 0) {
-                params[values.tagsMatch === 'all' ? 'tags_all' : 'tags'] = JSON.stringify(values.tagsFilter)
-            }
-            if (values.tagsExcludeFilter.length > 0) {
-                params.tags_exclude = JSON.stringify(values.tagsExcludeFilter)
-            }
-            if (values.searchQuery) {
-                params.search = values.searchQuery
-            }
-            if (values.dateFrom) {
-                params.date_from = values.dateFrom
-            }
-            if (values.dateTo) {
-                params.date_to = values.dateTo
-            }
+            // A spike link asks for one exact set of tickets. Applying the persisted filters on top
+            // would return their intersection, so the list would show fewer tickets than the banner
+            // that opened it named.
             if (values.spikeTicketIds.length > 0) {
                 params.ids = values.spikeTicketIds.join(',')
+            } else {
+                if (values.statusFilter.length > 0) {
+                    params.status = values.statusFilter.join(',')
+                }
+                if (values.priorityFilter.length > 0) {
+                    params.priority = values.priorityFilter.join(',')
+                }
+                if (values.aiEnabled && values.aiTriageResultFilter.length > 0) {
+                    params.ai_triage_result = values.aiTriageResultFilter.join(',')
+                }
+                if (values.channelFilter !== 'all') {
+                    params.channel_source = values.channelFilter
+                }
+                if (values.slaFilter !== 'all') {
+                    params.sla = values.slaFilter
+                }
+                if (values.assigneeFilterEntries.length > 0) {
+                    params.assignee = values.assigneeFilterEntries.map(encodeAssigneeEntry).join(',')
+                }
+                if (values.tagsFilter.length > 0) {
+                    params[values.tagsMatch === 'all' ? 'tags_all' : 'tags'] = JSON.stringify(values.tagsFilter)
+                }
+                if (values.tagsExcludeFilter.length > 0) {
+                    params.tags_exclude = JSON.stringify(values.tagsExcludeFilter)
+                }
+                if (values.searchQuery) {
+                    params.search = values.searchQuery
+                }
+                if (values.dateFrom) {
+                    params.date_from = values.dateFrom
+                }
+                if (values.dateTo) {
+                    params.date_to = values.dateTo
+                }
             }
             params.order_by = values.orderBy
             params.limit = SUPPORT_TICKETS_PAGE_SIZE

@@ -12,7 +12,7 @@ with workflow.unsafe.imports_passed_through():
 
     import structlog
 
-    from posthog.llm.gateway_client import get_async_anthropic_gateway_client
+    from posthog.llm.gateway_client import build_async_anthropic_client
     from posthog.models import Team
     from posthog.models.comment import Comment
     from posthog.sync import database_sync_to_async
@@ -32,6 +32,7 @@ with workflow.unsafe.imports_passed_through():
         DETECTION_MODEL,
         MAX_CLUSTERS_PER_RUN,
         MAX_MESSAGE_CHARS,
+        MAX_TICKET_IDS_PER_CLUSTER,
         MAX_TICKETS_PER_TEAM,
         TICKET_PATTERNS_TRACE_NAMESPACE,
     )
@@ -78,8 +79,27 @@ def _run_key() -> str:
 
 
 def _requester_key(ticket: Ticket) -> str:
-    # Five tickets from one company is one customer with a bad day; five companies is an incident.
-    return f"org:{ticket.organization_id}" if ticket.organization_id else f"person:{ticket.distinct_id}"
+    """Who filed the ticket, for counting distinct customers.
+
+    Five tickets from one company is one customer with a bad day; five companies is an incident.
+    Falls through to weaker identities because a Slack ticket whose author has no email stores an
+    empty distinct_id: keyed on that alone, every such customer would count as the same one and a
+    real spike would never reach the threshold.
+    """
+    if ticket.organization_id:
+        return f"org:{ticket.organization_id}"
+    if ticket.distinct_id:
+        return f"person:{ticket.distinct_id}"
+    traits = ticket.anonymous_traits if isinstance(ticket.anonymous_traits, dict) else {}
+    for trait in ("email", "name"):
+        value = traits.get(trait)
+        if isinstance(value, str) and value.strip():
+            return f"{trait}:{value.strip()}"
+    if ticket.email_from:
+        return f"email:{ticket.email_from}"
+    # No identity at all. Its own ticket counts as its own customer, so an unidentified group
+    # can still reach the threshold rather than collapsing into one.
+    return f"ticket:{ticket.id}"
 
 
 def _load_candidates(team_id: int, settings: DetectionSettings) -> tuple[list[TicketCandidate], dict[str, str]]:
@@ -162,7 +182,11 @@ def _qualifying_clusters(
         ids = cluster.get("ticket_ids")
         if not isinstance(ids, list):
             continue
-        ticket_ids = [i for i in dict.fromkeys(ids) if isinstance(i, str) and i in requesters and i not in claimed]
+        # Filter before dict.fromkeys: it hashes each element, and the model can return a list
+        # or an object inside ticket_ids, which would raise TypeError and fail the whole run.
+        ticket_ids = list(dict.fromkeys(i for i in ids if isinstance(i, str) and i in requesters and i not in claimed))[
+            :MAX_TICKET_IDS_PER_CLUSTER
+        ]
         fresh = unreported_ticket_ids(team_id, ticket_ids)
         if len(fresh) < settings.min_tickets:
             continue
@@ -185,7 +209,7 @@ def _qualifying_clusters(
 def _report(team: Team, clusters: list[DetectedCluster], lookback_minutes: int) -> None:
     for cluster in clusters:
         # Emit before marking: a crash in between repeats an alert, the other order loses it.
-        capture_ticket_pattern_detected(team, cluster, lookback_minutes)
+        result = capture_ticket_pattern_detected(team, cluster, lookback_minutes)
         record_spike(
             team.id,
             {
@@ -197,7 +221,18 @@ def _report(team: Team, clusters: list[DetectedCluster], lookback_minutes: int) 
                 "detected_at": timezone.now().isoformat(),
             },
         )
-        mark_reported(team.id, cluster.ticket_ids)
+        # capture_internal reports a rejected event in its result rather than raising. Marking
+        # regardless would hide the spike for a whole dedupe TTL on the strength of an alert that
+        # was never delivered, so leave it unmarked and let the next tick report it again.
+        if result.succeeded():
+            mark_reported(team.id, cluster.ticket_ids)
+        else:
+            logger.warning(
+                "ticket_patterns: capture failed, leaving spike unreported",
+                team_id=team.id,
+                topic=cluster.topic,
+                status_code=result.status_code,
+            )
 
 
 async def _detect(team: EligibleTeam, *, report: bool = True, check_flag: bool = True) -> DetectOutput:
@@ -225,7 +260,12 @@ async def _detect(team: EligibleTeam, *, report: bool = True, check_flag: bool =
         f"<tickets>\n{json.dumps(payload)}\n</tickets>"
     )
     trace_id = str(uuid5(TICKET_PATTERNS_TRACE_NAMESPACE, f"{team.team_id}:{_run_key()}"))
-    client = get_async_anthropic_gateway_client(product="conversations", team_id=team.team_id)
+    # The builder prefers the Go ai-gateway, which PARITY.md makes the default for a new
+    # server-to-server Anthropic Messages caller, and falls back to the Python gateway where the
+    # Go one is not configured.
+    client = build_async_anthropic_client(
+        product="conversations", ai_product="conversations", ai_stage="ticket_patterns", team_id=team.team_id
+    )
     message = await create_message(
         client,
         model=DETECTION_MODEL,
