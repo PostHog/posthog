@@ -232,7 +232,7 @@ export interface DataQualityOverviewCheckApi {
     /** @nullable */
     readonly updated_at: string | null
     /**
-     * Data modeling node of the view this check audits, or null when it is on no DAG or the subject is a table.
+     * Data modeling node of the view or PostHog table this check audits, or null when it is on no DAG or the subject is a warehouse table.
      * @nullable
      */
     readonly subject_node_id: string | null

@@ -273,8 +273,8 @@ class DataQualityOverviewCheckSerializer(DataQualityCheckSerializer):
     """
 
     subject_node_id = serializers.SerializerMethodField(
-        help_text="Data modeling node of the view this check audits, or null when it is on no DAG "
-        "or the subject is a table."
+        help_text="Data modeling node of the view or PostHog table this check audits, or null when it is on "
+        "no DAG or the subject is a warehouse table."
     )
     subject_source_id = serializers.SerializerMethodField(
         help_text="Warehouse source of the table this check audits, or null when the subject is a view."

@@ -76,7 +76,7 @@ export function subjectKeyOf(subjectType: string, subjectUuid: string | null | u
 /** Where the subject's own page lives, or null when it has none and the name renders as text. */
 export function subjectDetailUrl(check: DataQualityOverviewCheckApi): string | null {
     if (check.subject_type === 'posthog_table') {
-        return null
+        return check.subject_node_id ? urls.nodeDetail(check.subject_node_id) : null
     }
     if (check.subject_type === 'metric') {
         // The catalog addresses a metric by name, so a row that came without one has no route.
