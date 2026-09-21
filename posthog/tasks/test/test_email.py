@@ -1137,6 +1137,36 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "creator@posthog.com" in recipients
         assert self.user.email in recipients
 
+    def test_send_hog_function_filters_uncompilable_lists_every_destination_in_one_email(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        # A shared mistake breaks several destinations at once, so the project gets one message
+        # naming each of them beside its own error rather than one message each.
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        ids = []
+        for name, error in (
+            ("Send pageviews to Slack", "Cohort membership can't be evaluated in real-time filters"),
+            ("Forward signups to a webhook", "Select queries are not allowed in filters"),
+        ):
+            hog_function = HogFunction.objects.create(team=self.team, name=name, enabled=True)
+            HogFunction.objects.filter(id=hog_function.id).update(filters={"bytecode": None, "bytecode_error": error})
+            ids.append(str(hog_function.id))
+
+        send_hog_function_filters_uncompilable(self.team.id, ids)
+
+        assert len(mocked_email_messages) == 1
+        html = mocked_email_messages[0].html_body
+        # Apostrophe-free slices: how Django escapes a quote is framework behavior, not this email's.
+        for fragment in (
+            "Send pageviews to Slack",
+            "Forward signups to a webhook",
+            "evaluated in real-time filters",
+            "Select queries are not allowed in filters",
+        ):
+            assert fragment in html
+
     def test_send_hog_function_filters_uncompilable_skips_a_creator_who_left(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
