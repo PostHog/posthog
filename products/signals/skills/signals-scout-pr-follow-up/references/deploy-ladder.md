@@ -10,16 +10,17 @@ Two rules hold on every rung.
 ## Rung 1: GitHub deployments in the warehouse
 
 `execute-sql` over `<prefix>github_deployments` joined to `<prefix>github_deployment_statuses` (table naming in `sources.md`).
-The statuses table holds one row per transition, so take the **latest** status per deployment (`argMax(state, created_at)`) and keep only deployments whose latest status is `success`; a deployment that later read `failure`, `error`, or `inactive` is not live.
+The statuses table holds one row per transition, so keep every deployment that **ever** reached `success` (`minIf(parseDateTimeBestEffort(created_at), state = 'success')` per deployment), not only those whose latest status is `success`: GitHub marks a deployment `inactive` as soon as the next one to the same environment succeeds, so on a busy environment every past deployment reads `inactive` and a latest-status filter keeps only the newest, which need not be the one that carried the merge.
+A deployment that never reached `success` (`failure`, `error`, or still `pending`) is not live.
 Candidates are those deployments created after the merge in a persistent production-named environment.
-The onset is the `created_at` of the qualifying `success` status row of the earliest candidate whose `sha` contains the merge, never the deployment's own `created_at`: a queued or slow deployment is created minutes or hours before users receive it, and a window that starts at creation counts pre-release traffic as post-deploy.
+The onset is the **first** `success` status's `created_at` on the earliest candidate whose `sha` contains the merge, never the deployment's own `created_at`: a queued or slow deployment is created minutes or hours before users receive it, and a window that starts at creation counts pre-release traffic as post-deploy.
 When no candidate contains the merge, this rung has no answer: move down the ladder.
 
 ## Rung 2: `gh` deployments and releases
 
 The deployments endpoint's `sha` filter matches only a deployment recorded at exactly that commit, so never filter by the merge SHA.
 Enumerate instead: `gh api 'repos/<owner>/<repo>/deployments?per_page=100&page=<n>'` (add `environment=<name>` once you know the production environment), paging until `created_at` falls before the merge.
-Keep persistent production environments, read each candidate's newest status from its `statuses_url` and keep `success`, then apply the containment check; the onset is the `created_at` of that success status on the earliest candidate that passes.
+Keep persistent production environments, read each candidate's statuses from its `statuses_url` and keep any deployment with a `success` among them (its newest status is usually `inactive` once a later deployment succeeded, and that does not mean it never shipped), then apply the containment check; the onset is the `created_at` of the first `success` status on the earliest candidate that passes.
 
 Releases work the same way: `gh api 'repos/<owner>/<repo>/releases?per_page=100&page=<n>'`, paging until `published_at` falls before the merge, then the earliest release published after the merge whose tag contains it (`compare/<merge_sha>...<tag>`), skipping any release with `draft` or `prerelease` set, since a beta or release candidate never reached production users; when the repository ships production from a named channel, keep only that channel's releases.
 A small first page can miss the qualifying release, so page before you select.
@@ -39,4 +40,5 @@ Say "assumed live after a 24h soak, this project has no deploy signal" in anythi
 ## The onset
 
 The deploy time is your **onset**: every probe compares a post-onset window against a pre-merge window of the same length.
+The post-onset window closes at the next onset on the same rung (the next production deployment, release, or marker that passes the same containment check, or the next batch's proxy onset under rung 4), or at now when nothing has shipped since; movement that begins after that close belongs to the next batch, so record the close alongside the onset.
 Use `toDateTime('<ts>', 'UTC')` for timestamp literals, since bare strings parse in the project timezone and can shift the window by hours.

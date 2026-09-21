@@ -14,7 +14,7 @@ Continue while the **oldest `updated_at`** on the page is still inside the windo
 ## Rung 1: pinned checkout
 
 When the harness prompt lists repositories in its working-tree section, the trees are already cloned.
-The tree is where you read diffs (`git -C <path> show <merge_sha>`), blame, and touched paths; it is never the listing, because `git log --merges` misses every squash- and rebase-merged PR.
+The tree is where you read diffs (`git -C <path> diff <merge_sha>^1 <merge_sha>`, which reads the same for a squash and for a true merge commit, where `show` prints only the conflict hunks), blame, and touched paths; it is never the listing, because `git log --merges` misses every squash- and rebase-merged PR.
 List the PRs with `gh` exactly as rung 3 describes.
 
 ## Rung 2: GitHub warehouse source
@@ -36,6 +36,7 @@ A warehouse row has no body and may lack the file paths, so this rung is discove
 `integrations-list` names the project's integrations; take the `id` of each one whose kind is `github` (the project profile shows only kinds, not ids) and pass it to `integrations-github-repos-retrieve`, which lists the repositories that GitHub App can see, 100 per page: follow `has_more` with successive `offset` values until it is false before you write the roster, or an installation with more repositories than one page silently loses the rest.
 
 Write the **whole** discovered list to `roster:pr_follow_up:repos` with a rotation pointer, and never into `config:pr_follow_up:repos`, which is the human-curated list that outranks discovery: a run that recorded only the slice it had budget for would silently drop the rest of the roster forever.
+A scratchpad entry holds at most 50,000 characters, so keep the roster compact (one `owner/repo` per line, nothing else) and, past roughly a thousand repositories, shard it: `roster:pr_follow_up:repos` keeps the discovery date, the shard count, and the rotation pointer, and `roster:pr_follow_up:repos:<k>` holds shard `k`, each written whole; an oversized single write fails and leaves the previous roster in place, which is the silent drop this rule exists to prevent.
 When the roster is larger than one run can list, take the next slice from the rotation pointer each run and advance it.
 
 For each repository the listing is one stream under one ordering: `gh api 'repos/<owner>/<repo>/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=<n>'` from page 1, keeping rows with a `merged_at` and applying the paging rule above.
@@ -52,9 +53,10 @@ Those PRs are in scope for side effects; the report's own claim is the inbox-val
 ## Hydrate a bounded pool, not the whole window
 
 The claim table needs the body and linked issue text, and the docs-only filter and the side-effect sweep need the file paths, but a detail fetch per merge in the window would spend the rate-limited token and the run's tool budget before any telemetry is read.
-Filter on listing metadata first (bots by author, `noise:` and terminal or not-yet-due `recheck` keys by exact lookup), then hydrate only the pool this run can judge: the deferred PRs first, then the top-ranked candidates up to about twice the per-run cap.
+Filter on listing metadata first (bots by author, `noise:` and terminal or not-yet-due `recheck` keys by `key=` lookup), then hydrate only the pool this run can judge: the due rechecks (by number, whatever their merge date), then the deferred PRs, then the top-ranked candidates up to about twice the per-run cap, plus the members of any batch with no claim candidate that has reached its onset.
 Hydrate a PR that lacks a body or file paths with `gh pr view <n> --repo <owner>/<repo> --json number,title,body,author,mergedAt,mergeCommit,labels,files,changedFiles,closingIssuesReferences,url`, or read the same fields from the pinned tree and the warehouse row where they exist, and keep the body and the file paths for the claim and side-effect steps.
-`files` stops at 100 paths: when `changedFiles` is larger than the paths returned, page `gh api 'repos/<owner>/<repo>/pulls/<n>/files?per_page=100&page=<k>'` (or `git -C <path> show --name-only <merge_sha>` on a pinned tree) until you hold every path, because a docs-only verdict or a side-effect sweep on a truncated list is wrong in both directions.
+`files` stops at 100 paths: when `changedFiles` is larger than the paths returned, page `gh api 'repos/<owner>/<repo>/pulls/<n>/files?per_page=100&page=<k>'` until you hold every path, because a docs-only verdict or a side-effect sweep on a truncated list is wrong in both directions.
+On a pinned tree, `git -C <path> diff --name-only <merge_sha>^1 <merge_sha>` gives the same list for a squash or a true merge commit (`show --name-only` prints nothing for a merge commit); for a rebase merge, where `mergeCommit` is only the last of several commits, it lists that commit alone, so page the REST endpoint instead.
 `closingIssuesReferences` names issues without their text, and each reference carries its own repository, which can differ from the PR's: for each one, `gh issue view <issue> --repo <that issue's owner/repo> --json title,body` so the claim table reads the intent the author linked, not only the PR body, and never a same-numbered issue from the wrong repository.
 
 When no source can supply a PR's body and file paths (a warehouse source on a project whose `gh` token is unavailable), the PR is judged **title-only**: classify the claim from the title, skip the docs-only filter, limit the side-effect sweep to the entities the title names, and say `title-only` in the `pr:` entry, because a clean sweep you could not run is not a clean sweep.
