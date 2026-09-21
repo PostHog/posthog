@@ -1,6 +1,7 @@
 import {
   ArrowsSplit,
   CaretDown,
+  Check,
   Cloud,
   Cube,
   Laptop,
@@ -82,6 +83,26 @@ const LOCAL_MODES: {
 const CLOUD_ICON = <Cloud size={14} weight="regular" />;
 
 const IMAGE_ICON = <Cube size={14} weight="regular" />;
+
+/**
+ * Rendered on every row so the trailing column keeps its width as the selection
+ * moves. Hidden from assistive tech, which reads the selection off the row's
+ * aria-current.
+ */
+function SelectedCheck({
+  selected,
+}: {
+  selected: boolean;
+}): React.ReactElement {
+  return (
+    <Check
+      aria-hidden="true"
+      size={12}
+      weight="bold"
+      className={cn("shrink-0", !selected && "opacity-0")}
+    />
+  );
+}
 
 export function WorkspaceModeSelect({
   value,
@@ -177,6 +198,9 @@ export function WorkspaceModeSelect({
     [overrideModes, localWorkspaces],
   );
 
+  const selectedTargetKey =
+    value === "cloud" ? cloudTargetKey(cloudTarget) : null;
+
   const selectedTargetName = useMemo(() => {
     if (value !== "cloud" || cloudTarget.kind === "default") return null;
     const key = cloudTargetKey(cloudTarget);
@@ -243,16 +267,10 @@ export function WorkspaceModeSelect({
             {localModes.map((item) => (
               <DropdownMenuItem
                 key={item.mode}
+                aria-current={value === item.mode ? "true" : undefined}
                 onClick={() => onChange(item.mode)}
                 render={
-                  <ItemMenuItem
-                    size="xs"
-                    className={cn(
-                      "w-full",
-                      item.mode === "local" && "bg-warning/5",
-                    )}
-                    render={<div />}
-                  >
+                  <ItemMenuItem size="xs" className="w-full" render={<div />}>
                     <ItemMedia variant="icon" className="mt-2 ml-2">
                       <span>{item.icon}</span>
                     </ItemMedia>
@@ -262,6 +280,9 @@ export function WorkspaceModeSelect({
                         {item.description}
                       </ItemDescription>
                     </ItemContent>
+                    <ItemActions className="mr-1.5 ml-auto self-center">
+                      <SelectedCheck selected={value === item.mode} />
+                    </ItemActions>
                   </ItemMenuItem>
                 }
               />
@@ -270,6 +291,7 @@ export function WorkspaceModeSelect({
 
           {showCloud && options.length === 1 && (
             <DropdownMenuItem
+              aria-current={value === "cloud" ? "true" : undefined}
               onClick={() => selectTarget(DEFAULT_CLOUD_TARGET)}
               render={
                 <ItemMenuItem size="xs" className="w-full" render={<div />}>
@@ -282,13 +304,14 @@ export function WorkspaceModeSelect({
                       Runs on PostHog servers. Your local files do not change.
                     </ItemDescription>
                   </ItemContent>
-                  {githubSetupRequired && (
-                    <ItemActions className="mr-1.5 ml-auto self-center">
+                  <ItemActions className="mr-1.5 ml-auto self-center">
+                    {githubSetupRequired && (
                       <span className="whitespace-nowrap text-[11px] text-warning-foreground">
                         Requires GitHub
                       </span>
-                    </ItemActions>
-                  )}
+                    )}
+                    <SelectedCheck selected={value === "cloud"} />
+                  </ItemActions>
                 </ItemMenuItem>
               }
             />
@@ -318,6 +341,7 @@ export function WorkspaceModeSelect({
                     key={option.key}
                     option={option}
                     isFavorite={favoriteKey === option.key}
+                    isSelected={selectedTargetKey === option.key}
                     githubSetupRequired={githubSetupRequired}
                     onSelect={selectTarget}
                     onToggleFavorite={toggleFavorite}
@@ -336,6 +360,7 @@ export function WorkspaceModeSelect({
                         key={option.key}
                         option={option}
                         isFavorite={favoriteKey === option.key}
+                        isSelected={selectedTargetKey === option.key}
                         githubSetupRequired={githubSetupRequired}
                         onSelect={selectTarget}
                         onToggleFavorite={toggleFavorite}
@@ -363,12 +388,14 @@ export function WorkspaceModeSelect({
 function CloudTargetItem({
   option,
   isFavorite,
+  isSelected,
   githubSetupRequired,
   onSelect,
   onToggleFavorite,
 }: {
   option: CloudTargetOption;
   isFavorite: boolean;
+  isSelected: boolean;
   githubSetupRequired: boolean;
   onSelect: (target: CloudTarget) => void;
   onToggleFavorite: (target: CloudTarget) => void;
@@ -376,6 +403,7 @@ function CloudTargetItem({
   const icon = option.target.kind === "image" ? IMAGE_ICON : CLOUD_ICON;
   return (
     <DropdownMenuItem
+      aria-current={isSelected ? "true" : undefined}
       onClick={() => onSelect(option.target)}
       render={
         <ItemMenuItem size="xs" className="w-full" render={<div />}>
@@ -422,6 +450,7 @@ function CloudTargetItem({
             >
               <Star size={12} weight={isFavorite ? "fill" : "regular"} />
             </Button>
+            <SelectedCheck selected={isSelected} />
           </ItemActions>
         </ItemMenuItem>
       }

@@ -23,6 +23,9 @@ logger = structlog.get_logger(__name__)
 
 SignedInput = Literal["body", "v0_timestamp_body"]
 SignatureEncoding = Literal["hex", "base64"]
+# SHA-1 is on this list because one provider signs with it, not because it is a choice worth
+# making for a new one. Reach for `HmacSha256` unless the provider leaves no option.
+HmacDigest = Literal["sha256", "sha1"]
 
 
 class VerificationOutcome(StrEnum):
@@ -42,8 +45,10 @@ class Verification:
     A scheme that checks a signed token learns more than "this is really them": the claims it
     validated name the sender and the audience. `facts` carries those to `deliveries`, so an
     incarnation can cross-check the body against what was actually signed, rather than trusting
-    a field of the body that says the same thing. An HMAC over raw bytes proves nothing beyond
-    the signature and leaves `facts` empty.
+    a field of the body that says the same thing. A fact is not always a claim: `BearerJwt` also
+    puts the key that signed the token there, because a JWKS can say what one key is allowed to
+    sign and the token cannot. An HMAC over raw bytes proves nothing beyond the signature and
+    leaves `facts` empty.
     """
 
     outcome: VerificationOutcome
@@ -62,6 +67,19 @@ def header_value(headers: Mapping[str, str], name: str) -> str | None:
     return None
 
 
+def hmac_signature(
+    secret: str,
+    signed: bytes,
+    *,
+    digest: HmacDigest = "sha256",
+    encoding: SignatureEncoding = "hex",
+    prefix: str = "",
+) -> str:
+    computed = hmac.digest(secret.encode("utf-8"), signed, digest)
+    encoded = base64.b64encode(computed).decode("ascii") if encoding == "base64" else computed.hex()
+    return prefix + encoded
+
+
 def hmac_sha256_signature(
     secret: str,
     signed: bytes,
@@ -69,9 +87,8 @@ def hmac_sha256_signature(
     encoding: SignatureEncoding = "hex",
     prefix: str = "",
 ) -> str:
-    digest = hmac.digest(secret.encode("utf-8"), signed, "sha256")
-    encoded = base64.b64encode(digest).decode("ascii") if encoding == "base64" else digest.hex()
-    return prefix + encoded
+    """The SHA-256 form, which is what every caller of this module signs with."""
+    return hmac_signature(secret, signed, digest="sha256", encoding=encoding, prefix=prefix)
 
 
 def signatures_match(expected: str, provided: str) -> bool:
@@ -94,16 +111,19 @@ class SignatureScheme(Protocol):
 
 
 @frozen
-class HmacSha256:
-    """HMAC-SHA256 over the raw body, in the shapes the providers here actually send.
+class HmacSignature:
+    """A keyed HMAC over the raw body, in the shapes the providers here actually send.
 
     GitHub sends ``sha256=<hex>``; Slack and Customer.io sign ``v0:{timestamp}:{body}``
     and pair the signature with a timestamp header they expect to be checked for replay.
+    `digest` is the hash under the key, and only a provider that leaves no choice sets it
+    to anything but the default.
     """
 
     secret_getter: Callable[[], str | None]
     signature_header: str
     prefix: str = ""
+    digest: HmacDigest = "sha256"
     encoding: SignatureEncoding = "hex"
     signed_input: SignedInput = "body"
     timestamp_header: str | None = None
@@ -127,7 +147,7 @@ class HmacSha256:
         return body
 
     def _expected_signature(self, secret: str, signed: bytes) -> str:
-        return hmac_sha256_signature(secret, signed, encoding=self.encoding, prefix=self.prefix)
+        return hmac_signature(secret, signed, digest=self.digest, encoding=self.encoding, prefix=self.prefix)
 
     def _headers_fail(self, headers: Mapping[str, str]) -> bool:
         provided = header_value(headers, self.signature_header)
@@ -168,6 +188,18 @@ class HmacSha256:
         # No facts: an HMAC over the raw body proves the sender holds the secret and says
         # nothing else about the delivery.
         return Verification(outcome=self._outcome(body=body, headers=headers))
+
+
+@frozen
+class HmacSha256(HmacSignature):
+    """The SHA-256 form, and the name every provider but one reaches for.
+
+    It exists so that "which digest" is a question only the provider that has to answer it
+    ever sees. The digest is fixed here rather than defaulted, so a name that promises
+    SHA-256 cannot be handed another one; `HmacSignature` is where a digest is chosen.
+    """
+
+    digest: HmacDigest = field(default="sha256", init=False)
 
 
 @frozen

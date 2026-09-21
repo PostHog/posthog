@@ -96,6 +96,9 @@ FULL_RUN_PATTERNS = (
     "common/hogql_parser/",
     "rust/hogql/parser/",
     "common/hogvm/",
+    # The personhog gRPC stubs are an installed package, so the import graph has no edge from
+    # `personhog.*` to these files. Every personhog_client consumer depends on them.
+    "packages/personhog-proto/",
     # Generates frontend/src/products.json, which is a full-run pattern in its own right.
     "manifest.tsx",
 )

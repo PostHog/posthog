@@ -7,6 +7,13 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface AIContextAccountPropertyApi {
+    /** Customer analytics account property definition id. */
+    id: string
+    /** Display name of the account property. */
+    name: string
+}
+
 export interface AIReplyPlaybookApi {
     /** Repo default instructions, plus the PostHog overlay when docs_source is posthog. */
     readonly inherited_instructions: string

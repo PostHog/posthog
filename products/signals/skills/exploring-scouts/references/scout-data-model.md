@@ -41,6 +41,7 @@ Changes to targeting, sampling, or the model of an enabled scanner also require 
 Scouts cannot remove a limit, delete a scanner, or start manual scans, prompt tests, retries, or backfills.
 They can disable a scanner and keep its observations.
 Shared ratings must record explicit user verdicts. Autonomous assessments belong in scout memory or reports.
+| `updated_at` | When the config last changed, including settings edits and system status changes. Scheduled dispatch updates `last_run_at`, not this field. |
 
 A scout that is `enabled: true, emit: false` is alive and working — it just can't post reports.
 It is the extra-careful rollout posture for a chatty or high-stakes scout (the default is `emit: true`), and the most common cause of "my scout does nothing" reports.
