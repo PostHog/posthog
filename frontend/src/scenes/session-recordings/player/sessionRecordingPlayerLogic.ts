@@ -2436,8 +2436,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 plugins.push(CorsPlugin)
             }
 
-            const canvasPlugin = CanvasReplayerPlugin(values.playableSnapshotsByWindowId[windowId], (error) =>
-                posthog.captureException(error)
+            const canvasPlugin = CanvasReplayerPlugin(values.playableSnapshotsByWindowId[windowId], (error, context) =>
+                posthog.captureException(error, context)
             )
             plugins.push(canvasPlugin)
             plugins.push(AudioMuteReplayerPlugin(values.isMuted))
