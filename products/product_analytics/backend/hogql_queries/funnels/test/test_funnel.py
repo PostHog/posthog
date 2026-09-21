@@ -4309,6 +4309,41 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             expected,
         )
 
+    def test_element_breakdown_buckets_values_past_the_limit_as_other(self) -> None:
+        for text, user_count in [("Continue", 5), ("Details", 4), ("Back", 2), ("Close", 1)]:
+            for index in range(user_count):
+                distinct_id = f"{text}-user-{index}"
+                _create_person(team=self.team, distinct_ids=[distinct_id])
+                _create_event(
+                    team=self.team,
+                    event="$autocapture",
+                    distinct_id=distinct_id,
+                    timestamp="2024-03-22T12:00:00Z",
+                    elements_chain=f'button:nth-child="1"nth-of-type="1"text="{text}"',
+                )
+                _create_event(
+                    team=self.team,
+                    event="completed",
+                    distinct_id=distinct_id,
+                    timestamp="2024-03-22T12:01:00Z",
+                )
+
+        query = FunnelsQuery(
+            series=[EventsNode(event="$autocapture"), EventsNode(event="completed")],
+            dateRange=DateRange(date_from="2024-03-22", date_to="2024-03-22"),
+            breakdownFilter=BreakdownFilter(
+                breakdown="text",
+                breakdown_type=BreakdownType.ELEMENT,
+                breakdown_limit=2,
+            ),
+        )
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        self.assertEqual(
+            {steps[0]["breakdown_value"][0]: [step["count"] for step in steps] for steps in results},
+            {"Continue": [5, 5], "Details": [4, 4], "Other": [3, 3]},
+        )
+
     def test_funnel_query_with_event_metadata_breakdown(self):
         _create_person(
             distinct_ids=[f"user_1"],

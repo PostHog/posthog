@@ -237,11 +237,8 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
         other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
 
-        use_breakdown_limit = self.context.breakdown and self.context.breakdownType in [
-            BreakdownType.PERSON,
-            BreakdownType.EVENT,
-            BreakdownType.GROUP,
-        ]
+        # Cohort values stay integer cohort ids, which have no supertype with the string `Other`.
+        use_breakdown_limit = bool(self.context.breakdown) and self.context.breakdownType != BreakdownType.COHORT
 
         final_prop = (
             f"if(row_number < {self.get_breakdown_limit()}, breakdown, {other_aggregation})"
