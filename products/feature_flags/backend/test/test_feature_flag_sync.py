@@ -12,7 +12,7 @@ from prometheus_client import REGISTRY
 
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManyBytes, CHQueryErrorUnknownTable
 from posthog.exceptions import ClickHouseAtCapacity
-from posthog.tasks.tasks import sync_feature_flag_last_called
+from posthog.tasks.tasks import FlagSyncRowShapeError, sync_feature_flag_last_called
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -493,6 +493,64 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
+    def test_malformed_row_is_skipped_and_the_run_continues(
+        self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
+    ) -> None:
+        redis_mock = mock_redis_client()
+        checkpoint_key = "posthog:feature_flag_last_called_sync:last_timestamp"
+        # 15 min ago = 3 chunks
+        checkpoint_time = tz.make_aware(datetime(2024, 6, 15, 11, 45, 0))
+        redis_mock.storage[checkpoint_key] = checkpoint_time.isoformat().encode()
+        mock_get_client.return_value = redis_mock
+
+        called_at = tz.make_aware(datetime(2024, 6, 15, 11, 47, 0))
+        mock_sync_execute.side_effect = [
+            [(self.team.pk, self.flag1.key, called_at, 5), (self.team.pk, self.flag1.key, called_at)],
+            [],
+            [],
+        ]
+        malformed_metric = "posthog_feature_flag_last_called_at_sync_malformed_rows_total"
+        malformed_before = REGISTRY.get_sample_value(malformed_metric) or 0.0
+
+        sync_feature_flag_last_called()
+
+        # One bad row must not end the run, and the good rows beside it still apply
+        assert mock_sync_execute.call_count == 3
+        self.flag1.refresh_from_db()
+        assert self.flag1.last_called_at == called_at
+
+        # The run does not raise, so the counter is the only signal that a row went unread
+        assert (REGISTRY.get_sample_value(malformed_metric) or 0.0) == malformed_before + 1
+
+        # Part of the first chunk went unread, so the checkpoint holds and the next run
+        # reads the window again
+        stored = redis_mock.storage.get(checkpoint_key)
+        assert stored == checkpoint_time.isoformat()
+
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
+    @patch("posthog.clickhouse.client.sync_execute")
+    @patch("posthog.tasks.tasks.get_client")
+    def test_run_with_no_usable_rows_raises_for_a_retry(
+        self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
+    ) -> None:
+        redis_mock = mock_redis_client()
+        checkpoint_key = "posthog:feature_flag_last_called_sync:last_timestamp"
+        checkpoint_time = tz.make_aware(datetime(2024, 6, 15, 11, 45, 0))
+        redis_mock.storage[checkpoint_key] = checkpoint_time.isoformat().encode()
+        mock_get_client.return_value = redis_mock
+
+        mock_sync_execute.side_effect = [[("unexpected",)], [], []]
+
+        # Nothing usable came back, so the connection is out of step and the run must fail
+        # rather than report an empty sync that skips the retry
+        with self.assertRaises(FlagSyncRowShapeError):
+            sync_feature_flag_last_called()
+
+        assert redis_mock.storage.get(checkpoint_key) == checkpoint_time.isoformat().encode()
+
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
+    @patch("posthog.clickhouse.client.sync_execute")
+    @patch("posthog.tasks.tasks.get_client")
     def test_every_chunk_failing_raises_and_leaves_checkpoint(
         self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
     ) -> None:
@@ -638,3 +696,5 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         # sync_execute wraps capacity errors (code 202) into ClickHouseAtCapacity,
         # so the wrapped form must be retryable too
         assert ClickHouseAtCapacity in autoretry_for
+        # A desynced connection returns rows of the wrong shape, and a retry replaces it
+        assert FlagSyncRowShapeError in autoretry_for
