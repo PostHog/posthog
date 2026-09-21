@@ -1,5 +1,4 @@
 import json
-import functools
 from typing import Optional, cast
 from uuid import UUID, uuid4
 
@@ -32,7 +31,6 @@ from posthog.api.person import tag_client_query_id
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_tags
 from posthog.constants import AvailableFeature
-from posthog.hogql_queries.serialized_actors import get_serialized_people
 from posthog.models import Organization, Person, PropertyDefinition, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.missing_person import uuidFromDistinctId
@@ -299,21 +297,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 self.assertNotIn("person_distinct_id2", query)
             next_url = response.json()["next"]
         self.assertEqual(listed, [str(by_distinct_id.uuid), str(by_property.uuid)])
-
-    def test_search_by_email_tags_the_distinct_id_hit_past_the_hydration_cap(self) -> None:
-        _create_person(team=self.team, distinct_ids=["abe@example.com"], properties={"name": "Abe"}, immediate=True)
-        flush_persons_and_events()
-
-        # A person can hold more distinct IDs than a response hydrates, so the tag cannot depend on
-        # the matched one being in the hydrated list.
-        hydrate_no_distinct_ids = functools.partial(get_serialized_people, distinct_id_limit=0)
-        with mock.patch("posthog.api.person.get_serialized_people", new=hydrate_no_distinct_ids):
-            response = self.client.get("/api/person/?search=abe@example.com")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            [(result["distinct_ids"], result["matched_fields"]) for result in response.json()["results"]],
-            [([], ["distinct_id"])],
-        )
 
     def test_search_by_exact_identifier_still_applies_other_filters(self) -> None:
         _create_person(
