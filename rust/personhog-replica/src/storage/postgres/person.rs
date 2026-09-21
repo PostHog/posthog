@@ -1295,25 +1295,12 @@ async fn tombstone_persons_by_uuids(
         )
         .fetch_all(&mut *tx)
         .await?;
-        let mut dids_by_person: HashMap<i64, Vec<TombstonedDistinctId>> = HashMap::new();
-        for row in dids {
-            dids_by_person
-                .entry(row.person_id)
-                .or_default()
-                .push(TombstonedDistinctId {
-                    distinct_id: row.distinct_id,
-                    version: row.version,
-                });
-        }
-        tombstones.extend(already.into_iter().map(|(id, uuid, version)| {
-            let mut distinct_ids = dids_by_person.remove(&id).unwrap_or_default();
-            distinct_ids.sort_by(|a, b| a.distinct_id.cmp(&b.distinct_id));
-            TombstonedPerson {
-                uuid,
-                version,
-                distinct_ids,
-            }
-        }));
+        tombstones.extend(build_tombstones(
+            already,
+            dids.into_iter()
+                .map(|row| (row.person_id, row.distinct_id, row.version))
+                .collect(),
+        ));
     }
 
     tx.commit().await?;
@@ -1447,29 +1434,47 @@ async fn tombstone_persons_by_ids_in_tx(
         tombstoned_persons.len() as f64,
     );
 
-    let mut dids_by_person: HashMap<i64, Vec<TombstonedDistinctId>> = HashMap::new();
-    for row in tombstoned_dids {
-        dids_by_person
-            .entry(row.person_id)
+    Ok(build_tombstones(
+        tombstoned_persons
+            .into_iter()
+            .map(|row| (row.id, row.uuid, row.version))
+            .collect(),
+        tombstoned_dids
+            .into_iter()
+            .map(|row| (row.person_id, row.distinct_id, row.version))
+            .collect(),
+    ))
+}
+
+/// Distinct ids are sorted by name so a retry reports the same list as the original call.
+fn build_tombstones(
+    persons: Vec<(i64, Uuid, i64)>,
+    dids: Vec<(i64, String, i64)>,
+) -> Vec<TombstonedPerson> {
+    let mut by_person: HashMap<i64, Vec<TombstonedDistinctId>> = HashMap::new();
+    for (person_id, distinct_id, version) in dids {
+        by_person
+            .entry(person_id)
             .or_default()
             .push(TombstonedDistinctId {
-                distinct_id: row.distinct_id,
-                version: row.version,
+                distinct_id,
+                version,
             });
     }
-    Ok(tombstoned_persons
+    persons
         .into_iter()
-        .map(|row| {
-            let mut distinct_ids = dids_by_person.remove(&row.id).unwrap_or_default();
+        .map(|(id, uuid, version)| {
+            let mut distinct_ids = by_person.remove(&id).unwrap_or_default();
             distinct_ids.sort_by(|a, b| a.distinct_id.cmp(&b.distinct_id));
             TombstonedPerson {
-                uuid: row.uuid,
-                version: row.version,
+                uuid,
+                version,
                 distinct_ids,
             }
         })
-        .collect())
+        .collect()
 }
+
 async fn delete_persons_by_ids_chunk(
     pool: &PgPool,
     team_id: i64,
