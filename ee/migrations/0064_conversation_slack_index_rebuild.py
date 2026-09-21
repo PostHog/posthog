@@ -14,8 +14,7 @@ class Migration(migrations.Migration):
         # 0035 built this index with raw `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS`.
         # A cancelled build leaves an invalid index that IF NOT EXISTS then matches by name,
         # so the migration is recorded as applied while the index enforces nothing.
-        # CreateIndexConcurrently drops an invalid leftover first, and is a no-op where the
-        # index is already valid. Django state already carries the constraint from 0035.
+        # State needs no operation here: 0035 already added the UniqueConstraint.
         CreateIndexConcurrently(
             index_name="unique_team_slack_thread_key",
             table_name="ee_conversation",
