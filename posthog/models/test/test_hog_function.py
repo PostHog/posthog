@@ -12,7 +12,11 @@ from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
-from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions, uncompilable_filter_counts
+from products.cdp.backend.tasks.hog_functions import (
+    UncompilableFilterCount,
+    refresh_affected_hog_functions,
+    uncompilable_filter_counts,
+)
 from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
@@ -380,8 +384,8 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         # Since a save can keep the last working bytecode beside the error, the error alone no
         # longer separates a destination that is on and dead from one that is on and delivering.
         assert uncompilable_filter_counts() == {
-            HogFunctionType.DESTINATION: (1, 1),
-            HogFunctionType.TRANSFORMATION: (1, 0),
+            HogFunctionType.DESTINATION: UncompilableFilterCount(no_bytecode=1, kept_bytecode=1),
+            HogFunctionType.TRANSFORMATION: UncompilableFilterCount(no_bytecode=1, kept_bytecode=0),
         }
 
     def test_cohort_refresh_finds_affected_teams_and_recompiles(self):

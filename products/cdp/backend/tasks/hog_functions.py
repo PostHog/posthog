@@ -10,6 +10,7 @@ from prometheus_client import Gauge
 from structlog import get_logger
 
 from posthog.celery_queues import CeleryQueue
+from posthog.dataclasses import frozen
 from posthog.metrics import pushed_metrics_registry
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 from posthog.redis import get_client
@@ -141,9 +142,16 @@ def queue_sync_hog_function_templates() -> None:
         logger.exception(f"Failed to queue sync_hog_function_templates celery task: {e}")
 
 
+@frozen
+class UncompilableFilterCount:
+    """Enabled functions of one type whose filters recorded a compile error."""
+
+    no_bytecode: int
+    kept_bytecode: int
+
+
 @skip_team_scope_audit
-def uncompilable_filter_counts() -> dict[str, tuple[int, int]]:
-    """Per type, how many enabled functions recorded a compile error, split on whether bytecode survived."""
+def uncompilable_filter_counts() -> dict[str, UncompilableFilterCount]:
     from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
     # `__isnull=True` on a JSON key means the key is absent, which is a different row from one
@@ -156,7 +164,10 @@ def uncompilable_filter_counts() -> dict[str, tuple[int, int]]:
         .values("type")
         .annotate(total=Count("id"), dead=Count("id", filter=no_bytecode))
     )
-    return {row["type"]: (row["dead"], row["total"] - row["dead"]) for row in rows}
+    return {
+        row["type"]: UncompilableFilterCount(no_bytecode=row["dead"], kept_bytecode=row["total"] - row["dead"])
+        for row in rows
+    }
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
@@ -175,6 +186,6 @@ def count_uncompilable_hog_function_filters() -> None:
         # Every type is written, including the zeros. The push deletes the previous job's metrics,
         # so a type left out would disappear from the series rather than read as none broken.
         for hog_type in HogFunctionType.values:
-            dead, kept = counts.get(hog_type, (0, 0))
-            gauge.labels(type=hog_type, state="no_bytecode").set(dead)
-            gauge.labels(type=hog_type, state="kept_bytecode").set(kept)
+            count = counts.get(hog_type, UncompilableFilterCount(no_bytecode=0, kept_bytecode=0))
+            gauge.labels(type=hog_type, state="no_bytecode").set(count.no_bytecode)
+            gauge.labels(type=hog_type, state="kept_bytecode").set(count.kept_bytecode)
