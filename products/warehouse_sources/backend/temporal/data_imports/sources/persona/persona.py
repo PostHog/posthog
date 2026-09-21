@@ -2,6 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
+from urllib.parse import urljoin, urlparse
 
 import requests
 from dateutil import parser as date_parser
@@ -26,6 +27,18 @@ PAGE_SIZE = 100  # Persona caps page[size] at 100 (default 10).
 
 class PersonaRetryableError(Exception):
     pass
+
+
+class PersonaRedirectError(Exception):
+    """The API answered with a 3xx. Redirects are refused so the API key stays on the API host."""
+
+
+def _refuse_redirect(response: requests.Response) -> None:
+    if not 300 <= response.status_code < 400:
+        return
+    location = response.headers.get("Location") or ""
+    target = urlparse(urljoin(response.url or "", location)).hostname or "an unknown host"
+    raise PersonaRedirectError(f"Persona redirected the API request to {target}; refusing to follow")
 
 
 @dataclasses.dataclass
@@ -112,8 +125,11 @@ def validate_credentials(api_key: str) -> int:
     try:
         # Inquiry and verification bodies carry KYC PII (names, DOBs, government-ID and selfie check
         # results) that the name-based scrubber can't reliably strip, so keep them out of HTTP sample
-        # capture, following the same pattern as gusto and workday.
-        response = make_tracked_session(capture=False).get(url, headers=_get_headers(api_key), timeout=10)
+        # capture, following the same pattern as gusto and workday. Redirects are refused so the key
+        # is only ever sent to the API host.
+        response = make_tracked_session(capture=False, allow_redirects=False).get(
+            url, headers=_get_headers(api_key), timeout=10
+        )
         return response.status_code
     except Exception:
         return 0
@@ -141,6 +157,10 @@ def _fetch_page(
     # headers on 429; exponential jitter is a safe fallback that respects the 300 req/min budget.
     if response.status_code == 429 or response.status_code >= 500:
         raise PersonaRetryableError(f"Persona API error (retryable): status={response.status_code}, url={page_url}")
+
+    # The session does not follow redirects, so a 3xx reaches here. `raise_for_status` treats it as
+    # success, so reject it explicitly.
+    _refuse_redirect(response)
 
     if not response.ok:
         logger.error(f"Persona API error: status={response.status_code}, body={response.text}, url={page_url}")
@@ -207,8 +227,9 @@ def get_rows(
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     # One session reused across every page so urllib3 keeps the connection alive. Inquiry and
     # verification bodies carry KYC PII the name-based scrubber can't reliably strip, so keep them
-    # out of HTTP sample capture, following the same pattern as gusto and workday.
-    session = make_tracked_session(capture=False)
+    # out of HTTP sample capture, following the same pattern as gusto and workday. Redirects are
+    # refused so the key is only ever sent to the API host.
+    session = make_tracked_session(capture=False, allow_redirects=False)
 
     use_incremental = should_use_incremental_field and config.supports_incremental
     watermark = _to_datetime(db_incremental_field_last_value) if use_incremental else None

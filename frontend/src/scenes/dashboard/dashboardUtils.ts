@@ -179,7 +179,7 @@ export const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const SEARCH_PARAM_QUERY_VARIABLES_KEY = 'query_variables'
 export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 
-export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
+export const AUTO_PREVIEW_TILE_LIMIT: number = 22
 
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
@@ -310,8 +310,7 @@ export async function getInsightWithRetry(
             })}`
             const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
             const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
-            const result =
-                legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight, 'dashboard_tile_refresh') : null
+            const result = legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : null
 
             if (result?.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE) {
                 attempt++
@@ -349,10 +348,7 @@ export async function getInsightWithRetry(
                                 )
                                 const legacyInsight: InsightModel | null = await getJSONOrNull(refreshedInsightResponse)
                                 if (legacyInsight) {
-                                    const queryBasedInsight = getQueryBasedInsightModel(
-                                        legacyInsight,
-                                        'dashboard_tile_refresh_async'
-                                    )
+                                    const queryBasedInsight = getQueryBasedInsightModel(legacyInsight)
                                     return { ...queryBasedInsight, query_status: finalStatus }
                                 }
                             }

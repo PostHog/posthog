@@ -7,13 +7,13 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
 import {
-    dataCatalogMetricsChecksDestroy,
+    dataQualityChecksDestroy,
     dataQualityChecksHealthList,
     dataQualityChecksList,
+    dataQualityChecksRunsList,
+    dataQualityChecksSchedulesList,
     dataQualityRunsCreate,
     dataQualityRunsRetrieve,
-    warehouseSavedQueriesChecksDestroy,
-    warehouseSavedQueriesChecksRunsList,
 } from 'products/data_quality/frontend/generated/api'
 import type {
     DataQualityOverviewCheckApi,
@@ -41,15 +41,13 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 }))
 
 jest.mock('products/data_quality/frontend/generated/api', () => ({
-    dataCatalogMetricsChecksDestroy: jest.fn(),
-    dataQualityChecksList: jest.fn(),
+    dataQualityChecksDestroy: jest.fn(),
     dataQualityChecksHealthList: jest.fn(),
+    dataQualityChecksList: jest.fn(),
+    dataQualityChecksRunsList: jest.fn(),
+    dataQualityChecksSchedulesList: jest.fn(),
     dataQualityRunsCreate: jest.fn(),
     dataQualityRunsRetrieve: jest.fn(),
-    warehouseSavedQueriesChecksDestroy: jest.fn(),
-    warehouseTablesChecksDestroy: jest.fn(),
-    warehouseSavedQueriesChecksRunsList: jest.fn(),
-    warehouseTablesChecksRunsList: jest.fn(),
 }))
 
 function buildCheck(
@@ -117,12 +115,40 @@ describe('dataQualityOverviewLogic', () => {
             ],
         })
         ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue(HEALTH)
+        ;(dataQualityChecksSchedulesList as jest.Mock).mockResolvedValue([])
     })
 
     afterEach(() => {
         jest.useRealTimers()
         resumeKeaLoadersErrors()
         logic?.unmount()
+    })
+
+    it('loads every schedule with the overview and keys it by subject', async () => {
+        ;(dataQualityChecksSchedulesList as jest.Mock).mockResolvedValue([
+            {
+                id: 'schedule-1',
+                subject_type: 'posthog_table',
+                subject_uuid: 'events-1',
+                enabled: true,
+                interval: '24hour',
+                next_run_at: null,
+                last_run_at: null,
+                last_suite_run: null,
+            },
+        ])
+        await mountLogic()
+
+        expect(dataQualityChecksSchedulesList).toHaveBeenCalledTimes(1)
+        expect(logic.values.scheduleBySubjectKey['posthog_table:events-1']).toMatchObject({ id: 'schedule-1' })
+    })
+
+    it('keeps the overview when the schedule listing fails', async () => {
+        ;(dataQualityChecksSchedulesList as jest.Mock).mockRejectedValue(new Error('down'))
+        await mountLogic()
+
+        expect(logic.values.subjectGroups.length).toBeGreaterThan(0)
+        expect(logic.values.scheduleBySubjectKey).toEqual({})
     })
 
     it('keys subjects by type and uuid together, since the two kinds can collide', async () => {
@@ -283,7 +309,7 @@ describe('dataQualityOverviewLogic', () => {
     it('summarises a project that has failing checks', async () => {
         await mountLogic()
 
-        expect(logic.values.overviewSummary).toEqual('1 of 3 checks failing, across 1 tables and views.')
+        expect(logic.values.overviewSummary).toEqual('1 of 3 checks failing, across 1 tables, views, and metrics.')
     })
 
     it('counts a subject whose only failure is warning-only among the failing subjects', async () => {
@@ -300,7 +326,7 @@ describe('dataQualityOverviewLogic', () => {
 
         expect(logic.values.failingCheckCount).toEqual(1)
         expect(logic.values.failingSubjectCount).toEqual(1)
-        expect(logic.values.overviewSummary).toEqual('1 of 1 checks failing, across 1 tables and views.')
+        expect(logic.values.overviewSummary).toEqual('1 of 1 checks failing, across 1 tables, views, and metrics.')
     })
 
     it.each<[string, (string | null)[], string]>([
@@ -376,33 +402,20 @@ describe('dataQualityOverviewLogic', () => {
     })
 
     it('removes a deleted check and refreshes the snapshot', async () => {
-        ;(warehouseSavedQueriesChecksDestroy as jest.Mock).mockResolvedValue(undefined)
+        ;(dataQualityChecksDestroy as jest.Mock).mockResolvedValue(undefined)
         await mountLogic()
         const loadsBeforeDelete = (dataQualityChecksList as jest.Mock).mock.calls.length
 
         logic.actions.deleteCheck(buildCheck('check-1', 'orders', 'failed'))
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(warehouseSavedQueriesChecksDestroy).toHaveBeenCalledWith('1', 'uuid-orders', 'check-1')
+        expect(dataQualityChecksDestroy).toHaveBeenCalledWith('1', 'check-1')
         expect((dataQualityChecksList as jest.Mock).mock.calls.length).toBeGreaterThan(loadsBeforeDelete)
         expect(lemonToast.success).toHaveBeenCalledWith('Check deleted')
     })
 
-    it('deletes a metric check through its catalog route', async () => {
-        ;(dataCatalogMetricsChecksDestroy as jest.Mock).mockResolvedValue(undefined)
-        await mountLogic()
-
-        logic.actions.deleteCheck(
-            buildCheck('check-1', 'signups', 'failed', { subject_type: 'metric', subject_uuid: 'uuid-signups' })
-        )
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(dataCatalogMetricsChecksDestroy).toHaveBeenCalledWith('1', 'uuid-signups', 'check-1')
-        expect(lemonToast.success).toHaveBeenCalledWith('Check deleted')
-    })
-
     it('keeps the row and says so when a delete fails', async () => {
-        ;(warehouseSavedQueriesChecksDestroy as jest.Mock).mockRejectedValue(new Error('down'))
+        ;(dataQualityChecksDestroy as jest.Mock).mockRejectedValue(new Error('down'))
         await mountLogic()
 
         logic.actions.deleteCheck(buildCheck('check-1', 'orders', 'failed'))
@@ -414,7 +427,7 @@ describe('dataQualityOverviewLogic', () => {
     })
 
     it('deletes a check once when the confirmation is submitted twice', async () => {
-        ;(warehouseSavedQueriesChecksDestroy as jest.Mock).mockResolvedValue(undefined)
+        ;(dataQualityChecksDestroy as jest.Mock).mockResolvedValue(undefined)
         await mountLogic()
         const check = buildCheck('check-1', 'orders', 'failed')
 
@@ -422,7 +435,7 @@ describe('dataQualityOverviewLogic', () => {
         logic.actions.deleteCheck(check)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(warehouseSavedQueriesChecksDestroy).toHaveBeenCalledTimes(1)
+        expect(dataQualityChecksDestroy).toHaveBeenCalledTimes(1)
     })
 
     it('reloads the rows once the polled run finishes', async () => {
@@ -450,18 +463,16 @@ describe('dataQualityOverviewLogic', () => {
         // A row expanded before the run caches its history; loadOverview refreshes status and
         // rollups but not those runs, so without a reload the just-finished run is missing until a
         // collapse and re-expand.
-        ;(warehouseSavedQueriesChecksRunsList as jest.Mock).mockResolvedValue([{ compiled_query: 'SELECT 1' }])
+        ;(dataQualityChecksRunsList as jest.Mock).mockResolvedValue([{ compiled_query: 'SELECT 1' }])
         await mountLogic()
         logic.actions.loadCheckRuns(buildCheck('check-1', 'orders', 'failed'))
         await expectLogic(logic).toFinishAllListeners()
-        const runsLoadsBeforeFinish = (warehouseSavedQueriesChecksRunsList as jest.Mock).mock.calls.length
+        const runsLoadsBeforeFinish = (dataQualityChecksRunsList as jest.Mock).mock.calls.length
 
         logic.actions.finishSuiteRun(buildSuiteRun({ status: 'completed', checks_passed: 3 }))
         await expectLogic(logic).toFinishAllListeners()
 
-        expect((warehouseSavedQueriesChecksRunsList as jest.Mock).mock.calls.length).toBeGreaterThan(
-            runsLoadsBeforeFinish
-        )
+        expect((dataQualityChecksRunsList as jest.Mock).mock.calls.length).toBeGreaterThan(runsLoadsBeforeFinish)
     })
 
     it('stops polling a run that never finishes', async () => {
@@ -490,7 +501,7 @@ describe('dataQualityOverviewLogic', () => {
         ],
         ['past runs whose query was cleared', [{ compiled_query: '' }, { compiled_query: 'SELECT 1' }], 'SELECT 1'],
     ])('opens the failing rows of %s', async (_case, runs, expected) => {
-        ;(warehouseSavedQueriesChecksRunsList as jest.Mock).mockResolvedValue(runs)
+        ;(dataQualityChecksRunsList as jest.Mock).mockResolvedValue(runs)
         await mountLogic()
 
         logic.actions.openFailingRows(buildCheck('check-1', 'orders', 'failed'))
@@ -504,7 +515,7 @@ describe('dataQualityOverviewLogic', () => {
         ['the check has never run', []],
         ['every run has lost its query to retention', [{ compiled_query: '' }]],
     ])('says why there is nothing to open when %s', async (_case, runs) => {
-        ;(warehouseSavedQueriesChecksRunsList as jest.Mock).mockResolvedValue(runs)
+        ;(dataQualityChecksRunsList as jest.Mock).mockResolvedValue(runs)
         await mountLogic()
 
         logic.actions.openFailingRows(buildCheck('check-1', 'orders', 'failed'))
@@ -518,6 +529,18 @@ describe('dataQualityOverviewLogic', () => {
         ['a view on a DAG node', { subject_type: 'view', subject_node_id: 'node-1' }, '/models/node-1/tests'],
         ['a view on no DAG', { subject_type: 'view', subject_node_id: null }, null],
         [
+            'a PostHog table on a DAG node',
+            { subject_type: 'posthog_table', subject_node_id: 'node-2' },
+            '/models/node-2',
+        ],
+        ['a PostHog table no view reads', { subject_type: 'posthog_table', subject_node_id: null }, null],
+        [
+            'a metric',
+            { subject_type: 'metric', subject_metric_name: 'weekly_signups' },
+            '/data-catalog/metrics/weekly_signups?tab=tests',
+        ],
+        ['a deleted metric', { subject_type: 'metric', subject_metric_name: null }, null],
+        [
             'a synced table',
             { subject_type: 'table', subject_source_id: 'source-1', subject_schema_id: 'schema-1' },
             '/data-management/sources/source-1/schemas/schema-1',
@@ -530,7 +553,7 @@ describe('dataQualityOverviewLogic', () => {
         [
             'a metric on its catalog page',
             { subject_type: 'metric', subject_uuid: 'uuid-metric', subject_metric_name: 'signups' },
-            '/data-catalog/metrics/signups',
+            '/data-catalog/metrics/signups?tab=tests',
         ],
         [
             'a metric whose name did not come through',

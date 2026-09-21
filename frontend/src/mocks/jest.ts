@@ -19,7 +19,7 @@ const jestOnlyDefaultHandlers = mocksToHandlers({
         '/api/projects/:team_id/event_definitions/primary_properties/': { primary_properties: {} },
         '/api/environments/:team_id/default_release_conditions/': { default_groups: [], enabled: false },
         // The unhandled-request floor (a paginated `{ results: [] }`) is the wrong shape here and
-        // would crash UsedInBanner, which reads `feature_flags.results` & co.
+        // would crash UsedInSummary, which reads `feature_flags.results` & co.
         '/api/projects/:team_id/cohorts/:id/used_in/': {
             feature_flags: { results: [], total: 0, has_more: false },
             insights: { results: [], total: 0, has_more: false },

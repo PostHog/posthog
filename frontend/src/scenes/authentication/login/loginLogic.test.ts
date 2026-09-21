@@ -382,6 +382,17 @@ describe('loginLogic', () => {
             expect(logic.values.hasNoConfiguredLoginMethod).toBe(false)
         })
 
+        it('offers OIDC for a passwordless account on an OIDC domain', async () => {
+            await precheck({
+                saml_available: false,
+                oidc_available: true,
+                password_login_available: false,
+                social_providers: [],
+            })
+            expect(logic.values.availableLoginMethods).toEqual(['oidc'])
+            expect(logic.values.hasNoConfiguredLoginMethod).toBe(false)
+        })
+
         it('reports a dead end for a passwordless account with nothing else', async () => {
             await precheck({ saml_available: false, password_login_available: false, social_providers: [] })
             expect(logic.values.isPasswordLoginUnavailable).toBe(true)

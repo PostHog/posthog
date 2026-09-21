@@ -17,6 +17,7 @@ const config: SignalScoutConfigApi = {
     skill_name: 'signals-scout-general',
     description: 'General scout',
     scout_origin: 'canonical',
+    scout_role: 'specialist',
     owners: [],
     enabled: true,
     status: 'active',
@@ -38,6 +39,7 @@ const config: SignalScoutConfigApi = {
     source_product: null,
     source_id: null,
     created_at: '2026-07-21T12:00:00Z',
+    updated_at: '2026-07-21T12:00:00Z',
 }
 
 describe('ScoutConfigForm', () => {
@@ -201,6 +203,7 @@ describe('ScoutConfigForm', () => {
     it.each([
         ['Claude Sonnet 5', 'claude-sonnet-5'],
         ['GPT-5.6 Luna', 'gpt-5.6-luna'],
+        ['GPT-6 Astra', 'gpt-6-astra'],
     ])('pins %s from the dropdown and clears the pin via Default', (label, modelId) => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SCOUTS_MODEL_CONFIG], {

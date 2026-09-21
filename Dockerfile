@@ -166,7 +166,7 @@ RUN cd /code/common/plugin_transpiler && \
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/astral-sh/uv:0.12.5 AS uv
+FROM ghcr.io/astral-sh/uv:0.12.13 AS uv
 
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
 FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f AS posthog-build
@@ -200,10 +200,10 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=tools/hogli,target=tools/hogli \
     # uv sync validates workspace membership even with --no-dev, so every workspace member must be
-    # present in the build context. tools/owners is also a real install source here: posthog-owners
+    # present in the build context. packages/owners-yaml is also a real install source here: owners-yaml
     # is a runtime dependency (stamphog's digest reads owners.yaml through it), and --no-editable
     # copies it into the venv so the image never depends on this bind mount's path surviving.
-    --mount=type=bind,source=tools/owners,target=tools/owners \
+    --mount=type=bind,source=packages/owners-yaml,target=packages/owners-yaml \
     uv sync --locked --no-dev --no-editable --no-install-project --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
@@ -404,11 +404,11 @@ COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
 # Stamphog ships the review engine + owners resolver from this checkout into its sandbox at
 # runtime (products/stamphog/backend/temporal/activities.py), so both must exist in the image as
-# source. The engine arrives with products/ above, and only tools/owners needs its own COPY. This
-# differs from the installation of posthog-owners into the venv as a library: the sandbox receives
+# source. The engine arrives with products/ above, and only packages/owners-yaml needs its own COPY. This
+# differs from the installation of owners-yaml into the venv as a library: the sandbox receives
 # files copied into a checkout, and not an import.
-COPY --chown=posthog:posthog tools/owners tools/owners/
-RUN test -f products/stamphog/packages/pr-approval-agent/review_local.py && test -d tools/owners/posthog_owners
+COPY --chown=posthog:posthog packages/owners-yaml packages/owners-yaml/
+RUN test -f products/stamphog/packages/pr-approval-agent/review_local.py && test -d packages/owners-yaml/owners_yaml
 # Generated MCP tool catalog, read at runtime from BASE_DIR by the OAuth consent page
 # (posthog/api/oauth/mcp_resource_scopes.py) and the tasks permission broker. The rest of
 # services/ is a Node build (Dockerfile.node) and deliberately stays out of this image.

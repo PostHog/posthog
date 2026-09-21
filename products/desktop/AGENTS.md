@@ -310,15 +310,22 @@ No quill equivalent and no plain-HTML answer? Build it from HTML + Tailwind in t
 feature, or add it to quill (see [`.claude/skills/quill-code/SKILL.md`](./.claude/skills/quill-code/SKILL.md)).
 Pulling in a Radix package is not the fallback.
 
-### The two carve-outs
+### Design tokens
 
-- **CSS variables are not components.** Tailwind classes like `text-(--gray-12)`,
-  `bg-(--gray-2)`, and `rounded-(--radius-2)` come from Radix's *CSS token* layer and
-  stay. Keep using them; do not "de-Radix" a stylesheet.
-- **The `<Theme>` root stays for now.** The app-level provider (`Providers.tsx`,
-  `.storybook/preview.tsx`) and the `<Theme>` wrapper in existing tests supply those
-  tokens. Leave them alone — removing them is a separate migration. Do not add
-  `<Theme>` to new files; new tests should not need it.
+- Use the semantic design tokens from `@posthog/quill-tokens` by default.
+- Do not add raw color utilities such as `text-(--gray-11)` or `bg-(--gray-2)`.
+- Use `text-foreground` for important or high-contrast text.
+- Use `text-muted-foreground` for less important or low-contrast text.
+- Use `text-xs` for body text.
+- Deviate from these design-system rules only when the task explicitly requires it.
+
+### Theme carve-out
+
+The `<Theme>` root stays for now.
+The app-level provider (`Providers.tsx`), `.storybook/preview.tsx`, and the `<Theme>` wrapper in existing tests supply legacy tokens.
+Leave these wrappers unchanged.
+Do not add `<Theme>` to new files.
+New tests must not need it.
 
 ## Code Style
 
@@ -345,7 +352,10 @@ See [docs/CONVENTIONS.md](./docs/CONVENTIONS.md).
 
 ## Key Libraries
 
-- React 19, Tailwind CSS, `@posthog/quill` (the component library — Radix is banned in new code, see [UI Components](#ui-components); Radix Themes remains only as the CSS-token layer and legacy imports pending migration)
+- React 19, Tailwind CSS, `@posthog/quill` (components), and `@posthog/quill-tokens` (design tokens).
+  Radix is banned in new code.
+  See [UI Components](#ui-components).
+  Existing Radix imports await migration.
 - TanStack Query, TanStack Router
 - Zustand, InversifyJS (with `@inversifyjs/strongly-typed`), Zod
 - xterm.js, CodeMirror, Tiptap

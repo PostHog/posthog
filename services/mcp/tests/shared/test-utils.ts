@@ -1,6 +1,8 @@
 import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
+import { vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
+import type { ResolvedState } from '@/hono/request-state-resolver'
 import type { PreBuiltTool } from '@/hono/tool-catalog'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { SessionManager } from '@/lib/SessionManager'
@@ -642,5 +644,66 @@ export function toolFromPreBuilt(preBuilt: PreBuiltTool, entry: McpTool): Tool<Z
         description: entry.description ?? '',
         annotations: entry.annotations as Tool<ZodObjectAny>['annotations'],
         scopes: [],
+    }
+}
+
+// `ToolExecutor` copies the client through `withIntent` before it runs a tool, so the mock needs
+// the real method or every call fails before it reaches the code under test.
+export function mockApi(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return { config: {}, withIntent: ApiClient.prototype.withIntent, ...overrides }
+}
+
+export function makeToolExecutorState(
+    tools: { name: string }[],
+    overrides: Partial<ResolvedState> = {}
+): ResolvedState {
+    return {
+        reqCtx: {
+            cache: { get: vi.fn(), set: vi.fn() },
+            safelyGetAnalyticsContext: vi.fn().mockResolvedValue(undefined),
+            trackEvent: vi.fn(),
+            trackContextSwitchEvent: vi.fn(),
+            getSessionUuid: vi.fn().mockResolvedValue(undefined),
+            getEffectiveSessionUuid: vi.fn().mockResolvedValue(undefined),
+        } as any,
+        context: {
+            api: mockApi(),
+            cache: {},
+            env: {},
+            stateManager: {},
+            sessionManager: {},
+            getDistinctId: vi.fn(),
+            trackEvent: vi.fn(),
+        } as any,
+        useSingleExec: false,
+        toolFeatureFlags: undefined,
+        apiKeyScopes: [],
+        oauthClientId: undefined,
+        clientProfile: {
+            capabilities: { supportsInstructions: true },
+            isCliModeEnabled: vi.fn(() => false),
+            isClaudeUiHost: vi.fn(() => false),
+            isInlineExecUiHost: vi.fn(() => false),
+            isClaudeChatHost: vi.fn(() => false),
+        } as any,
+        requestContext: {
+            authMethod: 'personal_api_key',
+            sessionId: 'sess-1',
+            mcpClientName: 'test',
+            mcpClientVersion: '1.0',
+            mcpProtocolVersion: '2025-03-26',
+            transport: 'streamable-http',
+        },
+        sessionContext: null,
+        allTools: tools as any,
+        scopeGatedTools: [],
+        flagGatedTools: [],
+        gatewayToolsEnabled: false,
+        distinctId: 'test-distinct-id',
+        renderUiEnabled: false,
+        metadata: undefined,
+        metadataCompact: undefined,
+        groupTypes: undefined,
+        ...overrides,
     }
 }

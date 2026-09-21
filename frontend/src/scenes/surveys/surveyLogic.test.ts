@@ -1269,6 +1269,126 @@ describe('set response-based survey branching', () => {
                 .toMatchValues({
                     hasCycle: false,
                 })
+
+            // A price ladder that steps back to the cheaper question on a no, with every response routed.
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: 'at $9 per month',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: SurveyQuestionBranchingType.End, 1: 2 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: 'how does that price feel',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Too expensive',
+                    upperBoundLabel: 'Good value',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: {
+                            negative: SurveyQuestionBranchingType.End,
+                            neutral: SurveyQuestionBranchingType.End,
+                            positive: SurveyQuestionBranchingType.End,
+                        },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: 'at $19 per month',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: SurveyQuestionBranchingType.End, 1: 1 },
+                    },
+                },
+            ]
+            await expectLogic(logic, () => {
+                // A fresh object, because hasCycle memoizes on the survey it is given.
+                logic.actions.loadSurveySuccess({ ...SURVEY })
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: false,
+                })
+
+            // The rule left by a deleted choice routes nobody, so its step back is unreachable.
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '0',
+                    description: '',
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '1',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: 2, 1: 2, 2: 0 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '2',
+                    description: '',
+                },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess({ ...SURVEY })
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: false,
+                })
+
+            // The first question is optional, so a skip falls through into the second, which steps back.
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '0',
+                    description: '',
+                    optional: true,
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: 2, 1: 2 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '1',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.SpecificQuestion,
+                        index: 0,
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '2',
+                    description: '',
+                },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess({ ...SURVEY })
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: true,
+                })
         })
     })
 })
@@ -1299,6 +1419,9 @@ describe('survey filters', () => {
             .toDispatchActions(['loadSurveySuccess', 'setPropertyFilters'])
             .toMatchValues({
                 propertyFilters: propertyFilters,
+                responsesExportQuery: partial({
+                    source: partial({ filters: { properties: propertyFilters } }),
+                }),
                 dataTableQuery: partial({
                     source: partial({
                         filters: partial({
@@ -1327,6 +1450,10 @@ describe('survey filters', () => {
         expect(query).toContain("'survey dismissed', 'survey abandoned'")
         expect(query).toContain('argMaxIf(')
         expect(query).not.toContain('HAVING countIf(is_completed_event) > 0')
+        const exportSource = logic.values.responsesExportQuery?.source
+        expect(exportSource).toMatchObject({ kind: NodeKind.HogQLQuery })
+        expect((exportSource as { query: string }).query).toContain('GROUP BY submission_key')
+        expect((exportSource as { query: string }).query).not.toContain('AS response,')
     })
 
     it('keeps question text out of the generated HogQL', async () => {
@@ -1703,11 +1830,14 @@ describe('surveyLogic filters for surveys responses', () => {
     })
     it('reloads survey results when answer filters change', async () => {
         await expectLogic(logic, () => {
-            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+            logic.actions.loadSurveySuccess({
+                ...MULTIPLE_CHOICE_SURVEY,
+                questions: [{ ...MULTIPLE_CHOICE_SURVEY.questions[0], id: 'answer-filter-question' }],
+            })
         }).toDispatchActions(['loadSurveySuccess'])
 
         const answerFilter: EventPropertyFilter = {
-            key: SurveyEventProperties.SURVEY_RESPONSE,
+            key: `${SurveyEventProperties.SURVEY_RESPONSE}_answer-filter-question`,
             value: 'test response',
             operator: PropertyOperator.IContains,
             type: PropertyFilterType.Event,
@@ -1716,6 +1846,9 @@ describe('surveyLogic filters for surveys responses', () => {
         await expectLogic(logic, () => {
             logic.actions.setAnswerFilters([answerFilter])
         }).toDispatchActions(['setAnswerFilters', 'loadSurveyBaseStats', 'loadSurveyDismissedAndSentCount'])
+        const exportSql = (logic.values.responsesExportQuery?.source as { query: string }).query
+        expect(exportSql).toContain('HAVING')
+        expect(exportSql).toContain('test response')
     })
 
     it.each<[EventPropertyFilter['value'], number]>([

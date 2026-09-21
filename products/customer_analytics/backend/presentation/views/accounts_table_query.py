@@ -19,7 +19,6 @@ from posthog.schema import (
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.query import QueryViewSet
-from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 
@@ -47,7 +46,6 @@ class AccountsTableQueryRequest(BaseModel):
 
 
 class AccountsTableQueryViewSet(
-    QueryCoalescingMixin,
     TeamAndOrgViewSetMixin,
     PydanticModelMixin,
     viewsets.ViewSet,

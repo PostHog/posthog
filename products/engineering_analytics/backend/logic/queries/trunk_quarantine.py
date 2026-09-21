@@ -16,9 +16,14 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.logic.ownership import QuarantinedTestFile, resolve_test_ownership
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
-_QUARANTINED_SELECT = """
+# Oldest first, so a repo past the cap keeps the debt that has aged past its TTL.
+_LIMIT = 5000
+
+_QUARANTINED_SELECT = f"""
     SELECT runner, nodeid, source_path, crate, status, quarantine_setting, test_case_id, quarantined_at
     FROM __TRUNK_SOURCE__
+    ORDER BY quarantined_at ASC, nodeid ASC
+    LIMIT {_LIMIT + 1}
 """
 
 
@@ -54,6 +59,8 @@ def query_trunk_quarantine_debt(
             trunk_url=None,
             teams=[],
             tests=[],
+            truncated=False,
+            limit=_LIMIT,
         )
     org_url_slug = curated.trunk_org_url_slug()
     trunk_url = _trunk_url(org_url_slug, curated.repository)
@@ -64,6 +71,8 @@ def query_trunk_quarantine_debt(
         placeholders={},
     )
     rows = quarantined.results or []
+    truncated = len(rows) > _LIMIT
+    rows = rows[:_LIMIT]
     if not rows:
         return TrunkQuarantineDebt(
             available=True,
@@ -73,6 +82,8 @@ def query_trunk_quarantine_debt(
             trunk_url=trunk_url,
             teams=[],
             tests=[],
+            truncated=False,
+            limit=_LIMIT,
         )
 
     parsed = [
@@ -125,4 +136,6 @@ def query_trunk_quarantine_debt(
         trunk_url=trunk_url,
         teams=teams,
         tests=tests,
+        truncated=truncated,
+        limit=_LIMIT,
     )

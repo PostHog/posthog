@@ -33,6 +33,8 @@ from posthog.schema import (
     WebAnalyticsSampling,
     WebOverviewQuery,
     WebOverviewQueryResponse,
+    WebStatsBreakdown,
+    WebStatsTableQuery,
 )
 
 from posthog.hogql.constants import LimitContext
@@ -47,6 +49,7 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
+from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.test.first_pageview_attribution_test_base import (
     FirstPageviewAttributionTestMixin,
 )
@@ -569,6 +572,69 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
 
         conversion_rate = results[3]
         assert conversion_rate.value == 100
+
+    @parameterized.expand([("event", False), ("action", True)])
+    def test_goal_properties_preserve_visitors_and_deduplicate_customers(self, _name: str, use_action: bool) -> None:
+        s1, s2 = str(uuid7("2023-12-01")), str(uuid7("2023-12-02"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "https://example.com")]),
+                ("p2", [("2023-12-02", s2, "https://example.com")]),
+            ]
+        )
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, None, {"plan": "paid"}), ("2023-12-01", s1, None, {"plan": "paid"})]),
+                ("p2", [("2023-12-02", s2, None, {"plan": "free"})]),
+            ],
+            event="customer_created",
+        )
+        properties = [EventPropertyFilter(key="plan", value="paid", operator=PropertyOperator.EXACT)]
+        goal: ActionConversionGoal | CustomEventConversionGoal
+        if use_action:
+            action = Action.objects.create(
+                team=self.team, name="Customer created", steps_json=[{"event": "customer_created"}]
+            )
+            goal = ActionConversionGoal(actionId=action.id, properties=properties)
+        else:
+            goal = CustomEventConversionGoal(customEventName="customer_created", properties=properties)
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-12-01", date_to="2023-12-03"), properties=[], conversionGoal=goal
+        )
+        results = {
+            item.key: item.value for item in WebOverviewQueryRunner(team=self.team, query=query).calculate().results
+        }
+        assert results["visitors"] == 2
+        assert results["total conversions"] == 2
+        assert results["unique conversions"] == 1
+        assert results["conversion rate"] == 50
+        self._create_events(
+            [(f"goal_only_{i}", [("2023-12-02", str(uuid7("2023-12-02")), None, {"plan": "paid"})]) for i in range(3)],
+            event="customer_created",
+        )
+        for selected_goal, include_traffic in [(goal, True), (None, True), (goal, None)]:
+            table = WebStatsTableQueryRunner(
+                team=self.team,
+                query=WebStatsTableQuery(
+                    dateRange=query.dateRange,
+                    properties=[],
+                    breakdownBy=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+                    conversionGoal=selected_goal,
+                    includeTrafficMetrics=include_traffic,
+                ),
+            ).calculate()
+            assert table.columns is not None
+            row = dict(zip(table.columns, table.results[0]))
+            if include_traffic:
+                assert row["context.columns.sessions"][0] == 2
+                assert row["context.columns.views"][0] == 2
+                assert row["context.columns.visitors"][0] == 2
+            else:
+                assert "context.columns.sessions" not in row
+                assert row["context.columns.visitors"][0] == 5
+            if selected_goal:
+                assert row["context.columns.unique_conversions"][0] == 4
+                assert row["context.columns.conversion_rate"][0] == (2 if include_traffic else 0.8)
 
     def test_conversion_goal_one_custom_event_conversion(self):
         s1 = str(uuid7("2023-12-01"))

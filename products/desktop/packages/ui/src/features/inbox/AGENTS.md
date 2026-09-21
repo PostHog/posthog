@@ -111,6 +111,12 @@ the end of the header row and navigates to the `?from=` source, leaving the list
 standing and the pane on its empty state, the way Activity closes an item. A
 report with no source draws no button, because there is no list beside it.
 
+Resolving or archiving the open report closes it the same way, through `useCloseReportWhenTerminal` in `ReportPage`: the report has ended, so the list comes back instead of a terminal report with its actions gone.
+Only the transition into a terminal status closes.
+A report read out of the Archive is already terminal and stays, because its read-only detail is the destination.
+Both surfaces take the navigation from `useCloseReport`, so the source and triage's place in the queue are resolved in one place.
+Triage keeps its own advance-to-next behavior, since the focus view renders the queue rather than this page.
+
 `InboxDetailFrameView` draws one header row, and only its container changes: on
 the report's own page it goes to the app header bar through the header store,
 and in a pane (Activity) the frame draws its own `ChromeBar` at the top. There
@@ -210,6 +216,11 @@ hand-written height, padding or text classes: `size="sm"` for a button with a
 label, `size="icon-sm"` for an icon-only one. A row of buttons that each carry
 their own `h-7 px-2.5 text-[12px]` drifts apart the moment one of them is
 edited, and it sits a size away from every other toolbar in the app.
+
+An evidence card links to its source object, and it builds that link from the signal's own identity.
+A Conversations ticket resolves through `supportTicketUrl`, from `extra.ticket_number` when the emitter stored one and from the ticket uuid in `source_id` otherwise, so the destination carries the source project and region.
+A card that can identify neither says the source is unavailable instead of rendering a link.
+Never read a destination out of the excerpt.
 
 Shared primitives exist to keep the surfaces consistent:
 

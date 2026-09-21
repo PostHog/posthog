@@ -52,7 +52,7 @@ from products.warehouse_sources.backend.facade.types import (
     DataWarehouseTableFormat,
     ExternalDataSourceAccessMethod,
 )
-from products.warehouse_sources.backend.presentation.views.external_data_source import (
+from products.warehouse_sources.backend.presentation.views.external_data_source.source_setup import (
     SimpleExternalDataSourceSerializers,
 )
 
@@ -279,7 +279,13 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             SimpleExternalDataSchemaSerializer,
         )
 
-        return SimpleExternalDataSchemaSerializer(instance.externaldataschema_set.first(), read_only=True).data or None
+        schema = instance.externaldataschema_set.first()
+        if schema is None:
+            # `Serializer(None).data` is not falsy: DRF falls back to `get_initial()`, which returns a
+            # dict of the serializer's writable fields. Trusting `or None` emitted an id-less schema
+            # object for every unsynced table, which callers read as "this table has a schema".
+            return None
+        return SimpleExternalDataSchemaSerializer(schema, read_only=True).data
 
     def create(self, validated_data):
         team_id = self.context["team_id"]

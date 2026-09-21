@@ -11,7 +11,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 import { DataWarehouseViewLink, DataWarehouseViewLinkValidation } from '~/types'
 
-import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
+import { joinsDataLogic } from 'products/data_warehouse/frontend/shared/logics/joinsDataLogic'
 
 import type { DatabaseSchemaTable } from '../../queries/schema/schema-general'
 import { ViewLinkKeyLabel } from './ViewLinkModal'
@@ -131,7 +131,7 @@ export interface viewLinkLogicActions {
         force?: boolean
         shallow?: boolean
     } // databaseTableListLogic
-    loadJoins: () => any // joinsLogic
+    loadJoins: () => any // joinsDataLogic
     autofillFieldName: (fieldName: string) => {
         fieldName: string
     }
@@ -292,7 +292,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
     path(['scenes', 'data-warehouse', 'viewLinkLogic']),
     connect(() => ({
         values: [databaseTableListLogic, ['allTables']],
-        actions: [databaseTableListLogic, ['loadDatabase', 'hydrateTableFields'], joinsLogic, ['loadJoins']],
+        actions: [databaseTableListLogic, ['loadDatabase', 'hydrateTableFields'], joinsDataLogic, ['loadJoins']],
     })),
     actions(({ values }) => ({
         selectJoiningTable: (selectedTableName: string) => ({ selectedTableName }),
