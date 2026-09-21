@@ -642,10 +642,13 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 return
             }
 
-            const { description, permissionMode } = values.newTaskData
+            // The backend strips `pending_user_message`, and the live echo carries that stripped text. The
+            // optimistic bubble must match it exactly, or the echo renders as a second copy of the message.
+            const description = values.newTaskData.description.trim()
+            const { permissionMode } = values.newTaskData
             const repositoryConfig = values.effectiveRepositoryConfig
 
-            if (!description.trim()) {
+            if (!description) {
                 lemonToast.error('Description is required')
                 actions.submitNewTaskFailure('Description is required')
                 return
@@ -834,7 +837,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
 
                 // Reset before signaling success: the success listener applies any seed held during this
                 // submission, and resetting afterwards would wipe that seed's prefill.
-                if (creationIsActive || values.newTaskData.description === description) {
+                if (creationIsActive || values.newTaskData.description.trim() === description) {
                     actions.resetNewTaskData()
                 }
                 cache.submittingTask = null

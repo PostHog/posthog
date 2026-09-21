@@ -19,10 +19,12 @@ from products.signals.backend.artefact_schemas import (
     NoteArtefact,
     Priority,
     PriorityAssessment,
+    ReportLink,
     SuggestedReviewerEntry,
     SuggestedReviewers,
     TaskRunArtefact,
 )
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import (
     ArtefactAttribution,
     SignalReport,
@@ -1041,6 +1043,51 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["type"] == artefact_type
+
+    def test_post_rejects_report_link(self) -> None:
+        report = self._create_report()
+        target_id = str(self._create_report().id)
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps(
+                {"artefact_type": "report_link", "content": {"kind": "depends_on", "report_id": target_id}}
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (
+            response.json()["error"]
+            == "Artefact type 'report_link' is read-only and cannot be created through the API."
+        )
+        assert not SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.REPORT_LINK
+        ).exists()
+
+    @parameterized.expand([("patch",), ("delete",)])
+    def test_report_link_is_readable_but_not_writable(self, method: str) -> None:
+        report = self._create_report()
+        content = ReportLink(kind=ReportLinkKind.DEPENDS_ON, report_id=str(self._create_report().id))
+        artefact = SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=content,
+            attribution=ArtefactAttribution.system(),
+        )
+        url = self._detail_url(str(report.id), str(artefact.id))
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["content"] == content.model_dump(mode="json")
+
+        response = getattr(self.client, method)(
+            url,
+            data=json.dumps({"content": {**content.model_dump(mode="json"), "reason": "Changed"}}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "read-only" in response.json()["error"]
+        artefact.refresh_from_db()
+        assert json.loads(artefact.content) == content.model_dump(mode="json")
 
     def test_post_log_artefacts_accumulate(self):
         report = self._create_report()
