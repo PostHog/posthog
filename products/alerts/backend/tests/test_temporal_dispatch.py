@@ -14,6 +14,7 @@ per run and reports the rest, which the real dispatcher cannot do until an adapt
 import uuid
 import asyncio
 import datetime as dt
+import itertools
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 
 import pytest
@@ -54,12 +55,26 @@ from products.alerts.backend.temporal.workflows import (
     AlertsProductSourceDispatchWorkflow,
 )
 
+_scenario = itertools.count(1)
+_team_id = 0
+
 
 def key(name: str) -> AlertBatchKey:
     """One key per scenario name, so a test reads the way it did when demand was a list of ids.
     The minute is derived from the name so keys within a scenario stay distinct."""
     minute = sum(ord(character) for character in name) % 60
-    return AlertBatchKey(team_id=1, slot=f"2026-09-16T10:{minute:02d}:00+00:00")
+    return AlertBatchKey(team_id=_team_id, slot=f"2026-09-16T10:{minute:02d}:00+00:00")
+
+
+@pytest.fixture(autouse=True)
+def scenario_team() -> Iterator[None]:
+    """The evaluation id is derived from the batch key and the Temporal environment is module-scoped,
+    so two tests deriving the same key address one evaluation: the second dispatch finds the first
+    test's abandoned evaluation still running and counts it as already running rather than
+    dispatched. A team per test keeps the derived ids apart, reruns included."""
+    global _team_id
+    _team_id = next(_scenario)
+    yield
 
 
 ORCHESTRATION_QUEUE = settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE
@@ -231,8 +246,10 @@ async def test_real_dispatcher_takes_everything_and_abandons_one_evaluation(envi
         assert child.workflow_type.name == "alerts-product-evaluate"
         assert child.parent_close_policy == ParentClosePolicy.PARENT_CLOSE_POLICY_ABANDON
         assert child.workflow_execution_timeout.ToTimedelta() == dt.timedelta(seconds=40)
-        # The dispatcher completed without waiting for the evaluation; the evaluation finishes on its own.
-        assert events_of(history, EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED) == []
+        # One task per child start, plus the one that completed the run. A dispatcher that awaited an
+        # evaluation would need a further task to resume on its result. Counting tasks rather than
+        # forbidding a child-completion event keeps this off the race with an abandoned evaluation.
+        assert len(events_of(history, EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED)) == len(initiated) + 1
         evaluation = client.get_workflow_handle(f"alerts-eval-logs-{key('a').team_id}-{key('a').slot}")
         assert await evaluation.result() is None
         assert (await evaluation.describe()).status == WorkflowExecutionStatus.COMPLETED
