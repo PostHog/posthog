@@ -1,0 +1,57 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "What the caller plans to test. Every field is optional; a section that needs a missing input\ncomes back with status 'skipped'.",
+    "properties": {
+        "metric_event": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Event of the candidate primary metric. With target_event, candidate_metric returns a baseline. Without it, candidate_metric returns only the event's volume. Also marks the shared metrics that count this event."
+        },
+        "previous_experiments_limit": {
+            "default": 10,
+            "description": "How many of the most recently created experiments to return, 1 to 25.",
+            "maximum": 25,
+            "minimum": 1,
+            "type": "number"
+        },
+        "shared_metrics_limit": {
+            "default": 10,
+            "description": "How many shared metrics to return, most reused first, 1 to 25.",
+            "maximum": 25,
+            "minimum": 1,
+            "type": "number"
+        },
+        "target_event": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Event that marks a visit to the surface under test, for example '$pageview' or '$screen'. Needed for target_surface and for the baseline in candidate_metric."
+        },
+        "target_url_contains": {
+            "anyOf": [
+                {
+                    "maxLength": 1000,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Only counts target events whose $current_url contains this text, ignoring case. Needs target_event to be '$pageview'."
+        }
+    },
+    "type": "object"
+}

@@ -466,7 +466,8 @@ test('stack and image configuration at the root stays universal', () => {
 test('ownership data shares one lane instead of every lane', () => {
     for (const file of [
         'owners.yaml',
-        'tools/owners/posthog_owners/matcher.py',
+        'packages/owners-yaml/owners_yaml/matcher.py',
+        'tools/owners/owners_yaml/matcher.py',
         '.github/CODEOWNERS',
         '.github/owners.yaml',
     ]) {
@@ -1039,6 +1040,7 @@ test('editor and agent configuration shares one lane', () => {
         '.trunk/trunk.yaml',
         '.trunk/.gitignore',
         // The same class of file, one per root path rather than one per tree.
+        '.coderabbit.yaml',
         '.cursorignore',
         '.editorconfig',
         '.gitattributes',
@@ -1827,7 +1829,8 @@ test('cross-domain tools are tripwires rather than backend-only', () => {
         computeTargets(['tools/openapi-codegen/config.ts'], CONTEXT),
         computeTargets(['frontend/src/products.json'], CONTEXT)
     )
-    assert.deepEqual(computeTargets(['tools/owners/posthog_owners/__init__.py'], CONTEXT), ['ownership'])
+    assert.deepEqual(computeTargets(['packages/owners-yaml/owners_yaml/__init__.py'], CONTEXT), ['ownership'])
+    assert.deepEqual(computeTargets(['tools/owners/owners_yaml/__init__.py'], CONTEXT), ['ownership'])
 })
 
 // Prose overlaps only other prose, and has to reach that lane through the

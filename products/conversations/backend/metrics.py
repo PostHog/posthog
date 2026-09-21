@@ -24,5 +24,15 @@ INBOUND_ATTEMPTS_TOTAL = Counter(
 INBOUND_LEASES_TOTAL = Counter(
     "posthog_conversations_inbound_leases_total",
     "Inbound receipt lease outcomes",
+    labelnames=["result"],  # claimed | expired_reclaim | busy | renewed | renew_rejected
+)
+DELIVERY_ATTEMPTS_TOTAL = Counter(
+    "posthog_conversations_delivery_attempts_total",
+    "Outbound delivery-part processing attempts by part key and result",
+    labelnames=["part_key", "result"],  # claimed | retry | accepted | failed
+)
+DELIVERY_LEASES_TOTAL = Counter(
+    "posthog_conversations_delivery_leases_total",
+    "Outbound delivery-part lease outcomes",
     labelnames=["result"],  # claimed | expired_reclaim | busy
 )

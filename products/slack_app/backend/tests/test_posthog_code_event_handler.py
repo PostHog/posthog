@@ -286,6 +286,29 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert Integration.objects.filter(id=self.posthog_code_integration.id).exists()
         assert mock_proxy.call_count == expected_proxy_calls
 
+    @patch("products.slack_app.backend.api.capture_slack_event")
+    @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_app_uninstalled_captures_once_for_multi_project_workspace(self, _mock_proxy, mock_capture):
+        # A workspace linked to several projects has several rows here; capturing per
+        # row would let one uninstall inflate a plain count of the event.
+        second_team = Team.objects.create(organization=self.organization, name="Second Team")
+        Integration.objects.create(
+            team=second_team,
+            kind="slack",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-second"},
+        )
+
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        route_posthog_code_event_to_relevant_region(request, {"type": "app_uninstalled"}, "T12345")
+
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.args[1] == "slack app uninstalled"
+        assert mock_capture.call_args.kwargs["linked_project_count"] == 2
+
     @patch("products.slack_app.backend.api._proxy_event_to_region")
     @patch("products.slack_app.backend.services.slack_user_info.SlackUserProfileCache.objects.filter")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
@@ -1558,51 +1581,6 @@ class TestAssistantEvents(TestCase):
                 {"type": "message", "channel_type": "channel", "channel": "C1", "user": "U1", "text": "hi", "ts": "1"}
             )
             mock_start.assert_not_called()
-
-
-class TestAssistantInstallWelcome(TestCase):
-    def setUp(self):
-        self.organization = Organization.objects.create(name="Install Org")
-        self.team = Team.objects.create(organization=self.organization, name="Install Team")
-        self.integration = Integration.objects.create(
-            team=self.team,
-            kind="slack",
-            integration_id="T_INSTALL",
-            config={"authed_user": {"id": "U_INSTALLER"}},
-            sensitive_config={"access_token": "xoxb-test"},
-        )
-
-    def _run(self, *, enabled: bool):
-        from products.slack_app.backend.api import _ASSISTANT_INSTALL_WELCOME, send_assistant_install_welcome
-
-        enabled_p = patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=enabled)
-        slack = patch("products.slack_app.backend.api.SlackIntegration")
-        with enabled_p, slack as slack_cls:
-            send_assistant_install_welcome(self.integration)
-        return slack_cls, _ASSISTANT_INSTALL_WELCOME
-
-    def test_dms_installer_when_enabled(self):
-        slack_cls, welcome = self._run(enabled=True)
-        slack_cls.return_value.client.chat_postMessage.assert_called_once_with(channel="U_INSTALLER", text=welcome)
-
-    def test_silent_when_flag_off(self):
-        slack_cls, _ = self._run(enabled=False)
-        slack_cls.return_value.client.chat_postMessage.assert_not_called()
-
-    def test_no_post_without_authed_user(self):
-        self.integration.config = {}
-        self.integration.save()
-        slack_cls, _ = self._run(enabled=True)
-        slack_cls.return_value.client.chat_postMessage.assert_not_called()
-
-    def test_slack_error_is_swallowed(self):
-        from products.slack_app.backend.api import send_assistant_install_welcome
-
-        enabled_p = patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=True)
-        slack = patch("products.slack_app.backend.api.SlackIntegration")
-        with enabled_p, slack as slack_cls:
-            slack_cls.return_value.client.chat_postMessage.side_effect = Exception("slack down")
-            send_assistant_install_welcome(self.integration)  # must not raise
 
 
 class TestQueueWorkflowDispatch(TestCase):

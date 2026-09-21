@@ -3,7 +3,7 @@ import socket
 import asyncio
 import datetime as dt
 import dataclasses
-from typing import Any, NoReturn, Optional
+from typing import TYPE_CHECKING, Any, NoReturn, Optional
 
 from django.db import InterfaceError, InternalError, OperationalError
 from django.db.models import Prefetch
@@ -67,6 +67,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.byte_bounded_extraction_flag import (
     is_byte_bounded_extraction_enabled,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import (
+    is_transient_egress_proxy_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_reuse_flag import (
     is_fanout_warehouse_reuse_enabled,
 )
@@ -74,11 +77,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.his
     history_start_for_schema,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import TemporaryHostResolutionError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
     RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     RowFilterValidationError,
     validate_and_coerce_row_filters,
@@ -144,6 +149,9 @@ WAREHOUSE_READABLE_PARENT_SYNC_TYPES = frozenset(
     }
 )
 
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
 
 # Opening the parent's Delta table costs a few seconds that paging the vendor listing does not:
 # resolve the table, read the transaction log, start the scan. That cost is fixed, while the
@@ -311,6 +319,17 @@ async def _probe_found_new_data(
         await logger.ainfo("Fast-return probe: source has no new data")
         return False
     return True
+
+
+def v3_pipeline_class(source_response: SourceResponse) -> "type[PipelineV3]":
+    """A source feeding several tables from one read declares lanes; everything else runs the
+    base class untouched."""
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
+        LanedPipelineV3,
+        PipelineV3,
+    )
+
+    return LanedPipelineV3 if source_response.lanes else PipelineV3
 
 
 @activity.defn
@@ -527,6 +546,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 reset_pipeline=reset_pipeline,
                 enabled_columns=schema.enabled_columns,
                 row_filters=row_filters,
+                primary_keys=schema.primary_key_columns,
+                verified_primary_keys=schema.verified_primary_keys,
                 schema_metadata=schema.schema_metadata,
                 s3_folder_name=schema.resolved_s3_folder_name,
                 # A schema-level override (user-managed) wins over the source pin.
@@ -809,6 +830,34 @@ async def _handle_import_error(
         await logger.adebug("REST client exhausted its retries - re-raising for Temporal retry")
         raise error
 
+    # The web pods and the data-import workers deploy separately, so a table that ships in one
+    # release is selectable in the schema picker about an hour before every worker can resolve it.
+    # The next attempt lands on a rolled-out worker and the sync recovers on its own, so this must
+    # not disable the schema or report as a bug. Classified by type here because the condition is
+    # the deploy skew rather than any one source.
+    if isinstance(error, UnknownResourceError):
+        await logger.awarning(error_msg)
+        await logger.adebug("Resource unknown to this worker - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
+    # The host policy's own lookup answered "try again" rather than a verdict on the host, so the
+    # source is fine and a fresh attempt recovers. Classify it by type: every SQL source reaches
+    # this through the shared tunnel layer, and the message carries the host, so no source could
+    # list it in get_retryable_errors.
+    if isinstance(error, TemporaryHostResolutionError):
+        await logger.awarning(error_msg)
+        await logger.adebug("Temporary host resolution failure - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
+    # PostHog's own egress proxy throttled or refused the connection, whichever source was talking.
+    # The next attempt recovers and there is nothing on the customer's side to fix, so classify it
+    # here rather than in each source's get_retryable_errors. The original text carries through so
+    # `external_data_job.Transient_Error_Messages` still rewrites it for the customer.
+    if is_transient_egress_proxy_error(error_msg):
+        await logger.awarning(error_msg)
+        await logger.adebug("Transient egress-proxy error - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
     # A transient S3/object-store hiccup talking to our own data-warehouse bucket (IMDS/STS
     # blip, SlowDown throttling) that surfaced during this run — e.g. resetting or opening the
     # Delta table. Not a PostHog defect and not a customer credential problem (see
@@ -883,7 +932,7 @@ async def _run(
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
 
             logger.info("Running V3 pipeline (persisted job.pipeline_version is V3)")
-            pipeline: PipelineV3 | PipelineNonDLT = PipelineV3(
+            pipeline: PipelineV3 | PipelineNonDLT = v3_pipeline_class(source_response)(
                 source_response,
                 logger,
                 job_inputs.run_id,

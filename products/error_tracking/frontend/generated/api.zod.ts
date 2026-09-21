@@ -13,7 +13,7 @@ export const errorTrackingAlertsCreateBodyNameMax = 400
 
 export const errorTrackingAlertsCreateBodyThrottleSecondsDefault = 0
 export const errorTrackingAlertsCreateBodyThrottleSecondsMin = 0
-export const errorTrackingAlertsCreateBodyThrottleSecondsMax = 2147483647
+export const errorTrackingAlertsCreateBodyThrottleSecondsMax = 2592000
 
 export const ErrorTrackingAlertsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(errorTrackingAlertsCreateBodyNameMax).describe('Human-readable name of the alert.'),
@@ -52,7 +52,9 @@ export const ErrorTrackingAlertsCreateBody = /* @__PURE__ */ zod.object({
         .min(errorTrackingAlertsCreateBodyThrottleSecondsMin)
         .max(errorTrackingAlertsCreateBodyThrottleSecondsMax)
         .default(errorTrackingAlertsCreateBodyThrottleSecondsDefault)
-        .describe('Minimum seconds between thread-opening notifications per issue. 0 disables the throttle.'),
+        .describe(
+            'Minimum seconds between thread-opening notifications per issue, at most 30 days. 0 disables the throttle.'
+        ),
     destinations: zod
         .array(
             zod.object({
@@ -82,7 +84,7 @@ export const errorTrackingAlertsUpdateBodyNameMax = 400
 
 export const errorTrackingAlertsUpdateBodyThrottleSecondsDefault = 0
 export const errorTrackingAlertsUpdateBodyThrottleSecondsMin = 0
-export const errorTrackingAlertsUpdateBodyThrottleSecondsMax = 2147483647
+export const errorTrackingAlertsUpdateBodyThrottleSecondsMax = 2592000
 
 export const errorTrackingAlertsUpdateBodyEnabledDefault = true
 
@@ -123,7 +125,9 @@ export const ErrorTrackingAlertsUpdateBody = /* @__PURE__ */ zod.object({
         .min(errorTrackingAlertsUpdateBodyThrottleSecondsMin)
         .max(errorTrackingAlertsUpdateBodyThrottleSecondsMax)
         .default(errorTrackingAlertsUpdateBodyThrottleSecondsDefault)
-        .describe('Minimum seconds between thread-opening notifications per issue. 0 disables the throttle.'),
+        .describe(
+            'Minimum seconds between thread-opening notifications per issue, at most 30 days. 0 disables the throttle.'
+        ),
     destinations: zod
         .array(
             zod.object({
@@ -156,7 +160,7 @@ export const ErrorTrackingAlertsUpdateBody = /* @__PURE__ */ zod.object({
 export const errorTrackingAlertsPartialUpdateBodyNameMax = 400
 
 export const errorTrackingAlertsPartialUpdateBodyThrottleSecondsMin = 0
-export const errorTrackingAlertsPartialUpdateBodyThrottleSecondsMax = 2147483647
+export const errorTrackingAlertsPartialUpdateBodyThrottleSecondsMax = 2592000
 
 export const ErrorTrackingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -204,7 +208,9 @@ export const ErrorTrackingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .min(errorTrackingAlertsPartialUpdateBodyThrottleSecondsMin)
         .max(errorTrackingAlertsPartialUpdateBodyThrottleSecondsMax)
         .optional()
-        .describe('Minimum seconds between thread-opening notifications per issue. Omit to keep the current value.'),
+        .describe(
+            'Minimum seconds between thread-opening notifications per issue, at most 30 days. Omit to keep the current value.'
+        ),
     destinations: zod
         .array(
             zod.object({
@@ -398,7 +404,7 @@ export const ErrorTrackingExternalReferencesLinkIssueCreateBody = /* @__PURE__ *
     external_context: zod
         .record(zod.string(), zod.unknown())
         .describe(
-            'Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.'
+            'Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.'
         ),
 })
 
@@ -544,6 +550,8 @@ export const ErrorTrackingIssuesCohortUpdateBody = /* @__PURE__ */ zod
                         })
                         .describe('The connected integration this reference was created through.'),
                     external_url: zod.string().describe("URL of the linked external issue in the provider's system."),
+                    external_id: zod.string().describe('Provider-native identifier of the linked issue.'),
+                    title: zod.string().describe('Title of the linked issue.'),
                 })
                 .describe('Read-only shape of an external reference, shared by every response.')
         ),
@@ -611,6 +619,8 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod
                         })
                         .describe('The connected integration this reference was created through.'),
                     external_url: zod.string().describe("URL of the linked external issue in the provider's system."),
+                    external_id: zod.string().describe('Provider-native identifier of the linked issue.'),
+                    title: zod.string().describe('Title of the linked issue.'),
                 })
                 .describe('Read-only shape of an external reference, shared by every response.')
         ),
@@ -1310,6 +1320,40 @@ export const ErrorTrackingSymbolSetsFinishUploadUpdateBody = /* @__PURE__ */ zod
     content_hash: zod.string().describe('Hash of the uploaded symbol set content.'),
 })
 
+/**
+ * Report which of the given symbol sets still need `bulk_start_upload`. Symbol sets already uploaded with identical content are omitted and marked as still in use.
+ */
+export const errorTrackingSymbolSetsBulkCheckUploadCreateBodyForceDefault = false
+export const errorTrackingSymbolSetsBulkCheckUploadCreateBodySkipOnConflictDefault = false
+
+export const ErrorTrackingSymbolSetsBulkCheckUploadCreateBody = /* @__PURE__ */ zod.object({
+    symbol_sets: zod
+        .array(
+            zod.object({
+                chunk_id: zod.string().describe('Symbol set reference to upload.'),
+                release_id: zod
+                    .string()
+                    .nullish()
+                    .describe('Optional error tracking release ID associated with this symbol set.'),
+                content_hash: zod
+                    .string()
+                    .nullish()
+                    .describe('Optional hash of the symbol set content, used to skip unchanged uploads.'),
+            })
+        )
+        .describe(
+            'Symbol sets the client intends to upload, with per-symbol release IDs and content hashes. Send at most 1000 per request.'
+        ),
+    force: zod
+        .boolean()
+        .default(errorTrackingSymbolSetsBulkCheckUploadCreateBodyForceDefault)
+        .describe('Whether to overwrite uploaded symbol sets whose content hash changed.'),
+    skip_on_conflict: zod
+        .boolean()
+        .default(errorTrackingSymbolSetsBulkCheckUploadCreateBodySkipOnConflictDefault)
+        .describe('Whether to skip uploaded symbol sets whose content hash changed instead of failing.'),
+})
+
 export const ErrorTrackingSymbolSetsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
     ids: zod.array(zod.uuid()).describe('Symbol set IDs to delete.'),
 })
@@ -1322,11 +1366,6 @@ export const errorTrackingSymbolSetsBulkStartUploadCreateBodyForceDefault = fals
 export const errorTrackingSymbolSetsBulkStartUploadCreateBodySkipOnConflictDefault = false
 
 export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ zod.object({
-    chunk_ids: zod
-        .array(zod.string())
-        .optional()
-        .describe('Legacy list of symbol set references to upload, all associated with `release_id`.'),
-    release_id: zod.string().nullish().describe('Optional error tracking release ID used with `chunk_ids`.'),
     symbol_sets: zod
         .array(
             zod.object({
@@ -1351,4 +1390,9 @@ export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ 
         .boolean()
         .default(errorTrackingSymbolSetsBulkStartUploadCreateBodySkipOnConflictDefault)
         .describe('Whether to skip uploaded symbol sets whose content hash changed instead of failing.'),
+    chunk_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe('Legacy list of symbol set references to upload, all associated with `release_id`.'),
+    release_id: zod.string().nullish().describe('Optional error tracking release ID used with `chunk_ids`.'),
 })

@@ -250,7 +250,7 @@ describe('fetch', () => {
     })
 
     describe('parallel requests execution', () => {
-        jest.retryTimes(3)
+        jest.retryTimes(3, { logErrorsBeforeRetry: true })
         // NOTE: This is inherently flakey so we disable it except when validating changes for it
         it.skip('should execute requests in parallel - completion time test', async () => {
             const delayMs = 200
@@ -340,7 +340,7 @@ describe('legacyFetch', () => {
 
     // NOTE: Skipped as this is mostly to validate against the new request implementation
     describe.skip('parallel requests execution', () => {
-        jest.retryTimes(3)
+        jest.retryTimes(3, { logErrorsBeforeRetry: true })
         it('should execute requests in parallel', async () => {
             const start = performance.now()
             const timings: number[] = []

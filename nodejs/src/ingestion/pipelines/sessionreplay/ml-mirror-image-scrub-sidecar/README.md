@@ -19,10 +19,13 @@ There is no batch time limit and no drop path: every message a poll batch takes 
 The waiting _is_ the backpressure. A batch that spends longer on a jammed sidecar calls `consume()` that much later, so the consumer paces itself to whatever the sidecar can execute without needing to pause partitions explicitly.
 Lag grows while that happens, which is correct and is what the drain-time panels on the dashboard are for.
 
-Because the batch has no time limit, its duration is set by how many images it holds, so this lane runs a small `CONSUMER_BATCH_SIZE` (50, against a default of 500).
+Because the batch has no time limit, its duration is set by how many images it holds, so this lane runs a small `CONSUMER_BATCH_SIZE` (150, against a default of 500).
+It is not smaller than that because every batch ends with a window drain, where the last few images finish unevenly while the other scrub slots idle, and a larger batch spreads that fixed cost over more images.
+The consumer caps the poll below the configured size so that every image can time out once at the sidecar and the batch still returns inside `max.poll.interval.ms`, with a fifth of the interval kept for the key read, the window drain and any wait on the write lane: with a 45s scrub timeout that is five waves of `SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY` images, 70 at the production concurrency of 14.
 A batch that outlives `max.poll.interval.ms` (300s) gets the pod evicted mid-batch, and that is not a clean retry: the evicted pod loses the offsets for work it already did, and the partition lands on a pod whose sidecar is equally busy and redoes the same images, so offered load rises while throughput falls.
 Keeping batches far inside the interval is what stops ordinary saturation reaching that point.
-If a revoke does land mid-batch, the batch stops as soon as a flush finds it no longer owns the partitions, rather than scrubbing on and writing a second shard for a span the new owner is already writing.
+If a revoke does land mid-batch, the batch stops as soon as a write finds it no longer owns the partitions, rather than scrubbing on and writing a second shard for a span the new owner is already writing.
+The S3 writes run behind the scrub of the next batches, so the batch duration the consumer reports covers the scrub plus any time the batch waited for the write lane to have room (`ml_mirror_image_scrub_consumer_write_wait_seconds`); `ml_mirror_image_scrub_consumer_write_duration_seconds` covers the writes themselves.
 
 A wedged sidecar still blocks its partitions rather than draining them, and no batch size prevents that.
 
@@ -235,7 +238,7 @@ The sidecar makes no network fetches at startup.
 
 ## Observability
 
-Beyond the HTTP outcome counters (scrubbed/failed/undecodable/rejected/too-large/aborted, duration, output bytes), `/metrics` carries the outcome signals a privacy control needs:
+Beyond the HTTP outcome counters (scrubbed/failed/undecodable/rejected/too-large/aborted, duration, output bytes), `/metrics` carries the outcome signals an anonymization control needs:
 
 - `..._blanked_total` — NSFW-gate blanks are destructive and irreversible; alert on rate spikes.
 - `..._faces_redacted_total`, `..._text_boxes_redacted_total`, `..._codes_redacted_total` — a sustained zero rate under traffic means a detector outage (un-redacted output), not a clean stream.

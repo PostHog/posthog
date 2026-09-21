@@ -1,26 +1,67 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 
 tone_instructions: >-
-    Always be direct and concise. State the issue, impact, and required fix with no
-    preamble, praise, repetition, or unnecessary explanation. Omit nonessential
-    commentary and keep each response as short as clarity allows.
+    Be direct and concise. State the issue, impact, and fix with no preamble, praise,
+    or repetition. In pull request conversations, never reply with agreement alone or
+    restate the author's explanation. Reply only to add actionable information.
 
 reviews:
     # Surface only the highest-signal feedback.
     profile: 'quiet'
 
-    # Keep the trial silent until PostHog is ready to begin the rollout.
+    # The review lands as comments only. These surfaces mirror Greptile's
+    # statusCheck and statusCommentsEnabled, both off, so neither bot adds a
+    # check the merge queue has to wait on.
     review_status: false
     review_progress: false
     commit_status: false
     poem: false
 
-    auto_review:
-        enabled: false
-        auto_incremental_review: false
+    # CodeRabbit writes this summary into the pull request description by
+    # default, so it would edit the body the author wrote.
+    high_level_summary: false
 
-        # Draft PRs will be eligible when automatic reviews are enabled later.
+    # Each section below renders in the walkthrough comment, the second comment
+    # CodeRabbit posts on a pull request. CodeRabbit has no setting that
+    # suppresses that comment, so the sections are off to keep it short. The
+    # walkthrough prose and the merge risk line have no toggle and stay.
+    changed_files_summary: false
+    sequence_diagrams: false
+    estimate_code_review_effort: false
+    assess_linked_issues: false
+    related_issues: false
+    related_prs: false
+    suggested_labels: false
+    suggested_reviewers: false
+    in_progress_fortune: false
+
+    auto_review:
+        enabled: true
+
+        # Review the commits pushed after the first review too, so work added
+        # while a pull request is open is not merged unreviewed. An incremental
+        # review reads only the diff since the last one, so it does not repeat
+        # findings already handled.
+        auto_incremental_review: true
+
+        # Most agent-authored pull requests open as drafts, which is where the
+        # findings are cheapest to act on.
         drafts: true
+
+        # Without this, only pull requests into the default branch are reviewed,
+        # so every layer of a stack above the first would be skipped.
+        base_branches:
+            - '.*'
+
+    # Content rules shared with Greptile (.greptile/config.json "instructions"), so the two reviews can be compared.
+    path_instructions:
+        - path: '**/*'
+          instructions: >-
+              Do not comment on alphabetical sorting, trailing commas, or formatting. Linters catch these.
+              Judge code by four simplicity rules: it passes all the tests, expresses every idea it needs
+              to express, says everything once and only once, and has no superfluous parts.
+              Prefer parameterised tests over near-duplicate test functions.
+              In async Python, flag blocking synchronous calls such as ORM queries, HTTP requests, file I/O, and sleep.
 
     pre_merge_checks:
         # PostHog documents selectively and does not enforce docstring coverage.

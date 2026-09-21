@@ -12,6 +12,7 @@ from products.engineering_analytics.backend.presentation.views._base import (
     EngineeringAnalyticsViewSetBase,
 )
 from products.engineering_analytics.backend.presentation.views.ci_signals import CISignalsConfigMixin
+from products.engineering_analytics.backend.presentation.views.delivery import DeliveryActionsMixin
 from products.engineering_analytics.backend.presentation.views.dora import DoraActionsMixin
 from products.engineering_analytics.backend.presentation.views.pull_requests import PullRequestActionsMixin
 from products.engineering_analytics.backend.presentation.views.sources import SourcesMixin
@@ -25,6 +26,7 @@ class EngineeringAnalyticsViewSet(
     SourcesMixin,
     CISignalsConfigMixin,
     PullRequestActionsMixin,
+    DeliveryActionsMixin,
     WorkflowActionsMixin,
     SuiteHealthActionsMixin,
     TeamActionsMixin,
@@ -39,6 +41,7 @@ class EngineeringAnalyticsViewSet(
         *SourcesMixin.READ_ACTIONS,
         *CISignalsConfigMixin.READ_ACTIONS,
         *PullRequestActionsMixin.READ_ACTIONS,
+        *DeliveryActionsMixin.READ_ACTIONS,
         *WorkflowActionsMixin.READ_ACTIONS,
         *SuiteHealthActionsMixin.READ_ACTIONS,
         *TeamActionsMixin.READ_ACTIONS,

@@ -648,6 +648,9 @@ const TRIPWIRE_RULES = [
     // owners.yaml is the fallback every path resolves through when no nearer
     // file claims it. A product's own owners.yaml is not here: it keeps its
     // product lane.
+    ['packages/owners-yaml/**', OWNERSHIP],
+    // Transitional: branches that predate the move still carry the resolver at tools/owners,
+    // where the tools/ fallback rule would give it the Python lanes only.
     ['tools/owners/**', OWNERSHIP],
     ['owners.yaml', OWNERSHIP],
     // The quarantine list covers the pytest, jest, and playwright suites at
@@ -666,7 +669,6 @@ const TRIPWIRE_RULES = [
     ['bin/deploy-hobby', HOBBY],
     ['bin/upgrade-hobby', HOBBY],
     ['bin/migrate-storage-hobby', HOBBY],
-    ['bin/migrate-session-recordings-hobby', HOBBY],
     // Called by the hobby storage-migration scripts above, so it has to share
     // their lane.
     ['bin/migrate-minio-to-seaweedfs', HOBBY],
@@ -886,6 +888,7 @@ const REPO_CONFIG_DIRS = [
 // .dockerignore and the .env files are deliberately not here. Both are read by
 // something that every suite runs inside, and both are tripwires above.
 const REPO_CONFIG_FILES = [
+    '.coderabbit.yaml',
     '.cursorignore',
     '.cursorrules',
     '.editorconfig',

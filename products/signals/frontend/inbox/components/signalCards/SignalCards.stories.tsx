@@ -130,6 +130,18 @@ const conversationsTicket = makeSignal({
     },
 })
 
+// Evidence stored without a ticket number still opens the ticket, from the uuid on the signal.
+const conversationsTicketWithoutNumber = makeSignal({
+    source_product: 'conversations',
+    source_type: 'ticket',
+    source_id: '0197c3d2-4f61-7a2b-9c88-5de1f0a3b774',
+    content: 'The export finishes but the emailed link 404s for everyone on the team.',
+    extra: {
+        channel_source: 'email',
+        status: 'open',
+    },
+})
+
 // An error tracking payload with no fingerprint fails that card's guard, so it falls back to the
 // generic card, which still links the issue from the source id.
 const genericWithEntityLink = makeSignal({
@@ -401,6 +413,9 @@ const meta: Meta = {
                     pngResponse(
                         ['103', '104'].includes(String(req.params.exportId)) ? ATTACHMENT_PNG : RECORDING_PREVIEW_PNG
                     ),
+                // A scanner finding takes its frame from Replay Vision, addressed by observation.
+                '/api/projects/:id/vision/observations/:observationId/thumbnail/': () =>
+                    pngResponse(RECORDING_PREVIEW_PNG),
             },
             post: {
                 '/api/environments/:id/session_recordings/batch_check_exists': () => [
@@ -436,6 +451,10 @@ export const RecordingPreviews: Story = {
 
 export const TicketAttachments: Story = {
     render: () => <Rail signals={[conversationsTicket]} />,
+}
+
+export const TicketWithoutNumber: Story = {
+    render: () => <Rail signals={[conversationsTicketWithoutNumber]} />,
 }
 
 export const GenericFallbacks: Story = {

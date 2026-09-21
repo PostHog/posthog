@@ -202,6 +202,11 @@ class CIStatusRollupSerializer(DataclassSerializer):
             "passing": {"help_text": "Latest runs that completed with conclusion 'success'."},
             "failing": {"help_text": "Latest runs that ended in failure, timeout, startup failure, or staleness."},
             "pending": {"help_text": "Latest runs not yet completed (queued or in progress)."},
+            "inconclusive": {
+                "help_text": "Latest runs that completed without a pass-or-fail verdict: cancelled, skipped, "
+                "neutral, or action required. Together with the three counts above this covers every run, so "
+                "a PR whose CI was entirely cancelled is not readable as passing."
+            },
             "failing_workflows": {
                 "help_text": "The workflow names behind `failing`, sorted - names what is failing instead of "
                 "leaving a bare count."

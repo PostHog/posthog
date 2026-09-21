@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -14,9 +14,6 @@ from django.apps import apps
 from parameterized import parameterized
 from rest_framework import status
 
-# Load the API URLconf (and its pydantic.v1 import chain) before any freeze_time window:
-# first-importing date-subclassing modules under freezegun's fake date raises a metaclass conflict.
-import posthog.api.rest_router  # noqa: F401
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -269,7 +266,7 @@ class TestDismissalScoutNotes(APIBaseTest):
         # The artefact is the record of truth either way, so a resolve still keeps the feedback.
         assert self._dismissal_notes_on(report) == ["context the scout should have"]
 
-    @freeze_time(_REFUND_NOW)
+    @time_machine.travel(_REFUND_NOW, tick=False)
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_refund_feedback_reaches_the_authoring_scout(self, _flag) -> None:
         self._create_scout_skill()
@@ -292,7 +289,7 @@ class TestDismissalScoutNotes(APIBaseTest):
         # `pr_incorrect` is what tells the scout its report promised something the PR did not deliver.
         assert "pr_incorrect" in note.content
 
-    @freeze_time(_REFUND_NOW)
+    @time_machine.travel(_REFUND_NOW, tick=False)
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_a_repeat_refund_does_not_forward_a_second_time(self, _flag) -> None:
         self._create_scout_skill()
@@ -310,7 +307,7 @@ class TestDismissalScoutNotes(APIBaseTest):
         # Refund button must not teach the scout the same verdict twice.
         assert len(self._notes()) == 1
 
-    @freeze_time(_REFUND_NOW)
+    @time_machine.travel(_REFUND_NOW, tick=False)
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_refund_without_a_note_forwards_nothing(self, _flag) -> None:
         self._create_scout_skill()
@@ -326,7 +323,7 @@ class TestDismissalScoutNotes(APIBaseTest):
         assert self._notes() == []
         assert self._dismissal_notes_on(report) == [None]
 
-    @freeze_time(_REFUND_NOW)
+    @time_machine.travel(_REFUND_NOW, tick=False)
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_no_note_when_a_refund_leaves_a_merged_pr_report_resolved(self, _flag) -> None:
         self._create_scout_skill()

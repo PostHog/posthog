@@ -23,6 +23,7 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.user import User
 from posthog.scopes import get_oauth_scopes_supported
@@ -401,10 +402,12 @@ def _verify_and_extract_id_jag_token(assertion: str) -> _VerifiedIdJag:
     verified_email = claims.get("email") or claims.get("sub") or ""
 
     # Membership must match the configuration's organization because the access token is scoped to it.
-    is_member = User.objects.filter(
-        is_active=True,
-        email__iexact=verified_email,
-        organization_membership__organization_id=idp_config.organization_id,
+    is_member = EmailLookupHandler.users_matching_email(
+        verified_email,
+        User.objects.filter(
+            is_active=True,
+            organization_membership__organization_id=idp_config.organization_id,
+        ),
     ).exists()
     if not is_member:
         raise InvalidGrantError(

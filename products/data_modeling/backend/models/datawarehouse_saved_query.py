@@ -1,6 +1,7 @@
 import re
 import uuid
 from datetime import datetime, timedelta
+from functools import partial
 from typing import TYPE_CHECKING, Any, Optional, Union
 from urllib.parse import urlparse
 
@@ -25,7 +26,10 @@ from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.models import FieldOrTable, SavedQuery
-from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+from posthog.hogql.database.s3_table import (
+    DataWarehouseTable as HogQLDataWarehouseTable,
+    S3Table,
+)
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
@@ -114,6 +118,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     )
     external_tables = models.JSONField(default=list, null=True, blank=True, help_text="List of all external tables")
     query = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
+    # Null on rows that predate the column; the write path accepts any token for those until their first edit.
+    query_revision = models.UUIDField(default=uuid.uuid4, null=True, blank=True)
     status = models.CharField(
         null=True, choices=Status, max_length=64, help_text="The status of when this SavedQuery last ran."
     )
@@ -211,7 +217,15 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 fields=["team_id", "name"],
                 name="dwsavedquery_team_live_name",
                 condition=~models.Q(deleted=True),
-            )
+            ),
+            # The daily materialized view health check reads the live materialized views of a
+            # batch of teams. Without `is_materialized` in the key it reads every live saved query
+            # those teams own. The partial condition matches the index above, for the same reason.
+            models.Index(
+                fields=["team_id", "is_materialized"],
+                name="dwsavedquery_team_live_matvw",
+                condition=~models.Q(deleted=True),
+            ),
         ]
 
     @property
@@ -226,7 +240,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         else:
             DataWarehouseModelPath.objects.update_from_saved_query(self)
 
-    def schedule_materialization(self, reconcile: bool = True, trigger_immediate_run: bool = False):
+    def schedule_materialization(
+        self, reconcile: bool = True, trigger_immediate_run: bool = False, triggered_by_id: int | None = None
+    ):
         """
         Put this saved query on the schedule that will materialize it, at the frequency in
         sync_frequency_interval.
@@ -235,6 +251,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         materialization right away instead of waiting for the node's cadence tier to fire.
         Callers merely updating frequency must leave it False. The start is best effort, so a
         failure to start never disables materialization, because the tier still covers the query.
+
+        triggered_by_id is the person who enabled materialization, and is who hears about it if
+        that first run fails.
 
         A rejected frequency propagates to the caller. Any other failure disables
         materialization, because the alternative is a query that reports itself materialized
@@ -254,11 +273,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
         node: Node | None = None
         try:
-            # If this query's DAG already runs on a v2 schedule, that schedule materializes it. Never
-            # create or revive a per-query v1 schedule. This Temporal lookup stays inside the try so
-            # that, if it fails, we honor the failure contract below rather than leaving
-            # is_materialized=True with no schedule backing it.
-            on_v2 = self.id in get_v2_saved_query_ids([self.id], team_id=self.team_id)
+            # If this query's DAG runs on cadence tiers, those tiers materialize it. A bare whole-DAG
+            # schedule does not count: reconcile refuses to add tiers beside one, so bootstrap sweeps it.
+            # This Temporal lookup stays inside the try so that, if it fails, we honor the failure
+            # contract below rather than leaving is_materialized=True with no schedule backing it.
+            on_v2 = self.id in get_v2_saved_query_ids([self.id], team_id=self.team_id, tiered_only=True)
             node = (
                 Node.objects.filter(team_id=self.team_id, saved_query_id=self.id)
                 .select_related("dag", "dag__team")
@@ -266,7 +285,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             )
             dag_to_bootstrap = None
             if not on_v2:
-                # Nothing creates a DAG's first schedule outside the migration commands, so a
+                # Nothing creates a DAG's first tier outside the migration commands, so a
                 # brand-new team has nothing to materialize it. Bootstrap it onto tiers instead.
                 if node is not None and node.dag is not None:
                     dag_to_bootstrap = node.dag
@@ -303,7 +322,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 if trigger_immediate_run:
                     # Deferred to commit so the run sees the enable's writes (endpoints enable
                     # runs inside an atomic block); immediate under autocommit.
-                    transaction.on_commit(self._start_immediate_materialization)
+                    transaction.on_commit(partial(self._start_immediate_materialization, triggered_by_id))
                 return
 
             raise NoSchedulableDagError(f"Saved query {self.id} has no DAG that can schedule it")
@@ -333,11 +352,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             self.is_materialized = False
             self.save(update_fields=["is_materialized"])
 
-    def _start_immediate_materialization(self) -> None:
+    def _start_immediate_materialization(self, triggered_by_id: int | None = None) -> None:
         from products.data_modeling.backend.logic.node_materialization import materialize_saved_query
 
         try:
-            materialize_saved_query(self)
+            materialize_saved_query(self, triggered_by_id=triggered_by_id)
         except Exception as e:
             capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
             logger.exception(
@@ -521,12 +540,31 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         DirectTrinoTable,
     ]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
-            return self.table.hogql_definition(modifiers)
+            table = self.table.hogql_definition(modifiers)
+            if isinstance(table, S3Table):
+                table.saved_query_id = str(self.id)
+            return table
 
         query = self.query or {}
         if not isinstance(query, dict) or "query" not in query:
             raise Exception("Saved query is missing a query definition")
 
+        return SavedQuery(
+            id=str(self.id),
+            name=self.name,
+            query=query["query"],
+            fields=self.hogql_fields(),
+            # Currently only storing metadata related to the managed viewset, but we can expand this in the future
+            # This is basically just a bag of props that can be used by other methods to properly identify this query
+            metadata=self.managed_viewset.to_saved_query_metadata(self.name) if self.managed_viewset else {},
+        )
+
+    def hogql_fields(self) -> dict[str, FieldOrTable]:
+        """The HogQL fields this view exposes, built from the stored column types.
+
+        Split out of `hogql_definition` so a caller that needs the fields alone, such as the views
+        list page, reads neither the stored SQL body nor the materialized table row.
+        """
         columns = self.columns or {}
         fields: dict[str, FieldOrTable] = {}
 
@@ -555,15 +593,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             else:
                 raise Exception(f"Unknown column type: {type}")  # Never reached
 
-        return SavedQuery(
-            id=str(self.id),
-            name=self.name,
-            query=query["query"],
-            fields=fields,
-            # Currently only storing metadata related to the managed viewset, but we can expand this in the future
-            # This is basically just a bag of props that can be used by other methods to properly identify this query
-            metadata=self.managed_viewset.to_saved_query_metadata(self.name) if self.managed_viewset else {},
-        )
+        return fields
 
 
 @database_sync_to_async

@@ -116,6 +116,7 @@ class HogQLContext:
     # Data warehouse sync warnings collected while resolving warehouse tables referenced by the query.
     # Keyed by (table_id, schema_name) to dedupe when a table is referenced multiple times.
     data_warehouse_sync_warnings: dict[tuple[str, str], "DataWarehouseSyncWarning"] = field(default_factory=dict)
+    referenced_saved_query_ids: set[str] = field(default_factory=set)
 
     # Resources with object-level access restrictions referenced by the query, collected while printing
     # system tables. A set dedupes when several system tables share an access scope (e.g. system.dashboards
@@ -164,6 +165,10 @@ class HogQLContext:
     # regardless of retention — notably the GDPR data-deletion mutation path — set this False. Deliberately NOT a
     # HogQLQueryModifier, so a query can't disable enforcement.
     apply_events_retention_floor: bool = True
+
+    # Backend-only opt-in for transforms/events_read_in_order.py. The prefix is slower when the range is short or
+    # the filter is selective, so set it only for a query shape that was measured to be faster with it.
+    order_events_reads_by_sort_key: bool = False
 
     # Entitlement-derived floors for federated tables that declare a `retention_field`, keyed by
     # Postgres table name so two such tables can never share one window. Resolved lazily by the

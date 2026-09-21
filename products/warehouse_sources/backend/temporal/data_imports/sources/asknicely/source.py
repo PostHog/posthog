@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.asknicely import (
     SUBDOMAIN_REGEX,
     AskNicelyResumeConfig,
@@ -50,12 +48,12 @@ class AsknicelySource(ResumableSource[AsknicelySourceConfig, AskNicelyResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ASKNICELY,
+            name=ExternalDataSourceType.ASKNICELY,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="AskNicely",
             releaseStatus=ReleaseStatus.ALPHA,
             keywords=["nps", "csat", "survey"],
-            caption="""Sync your AskNicely survey responses (NPS, CSAT, 5-star) into the PostHog Data warehouse.
+            caption="""Sync your AskNicely survey responses (NPS, CSAT, 5-star), daily stats and unsubscribed contacts into the PostHog Data warehouse.
 
 Your account subdomain is the first part of your AskNicely URL (`https://<subdomain>.asknice.ly`). You can find your API key in AskNicely under **Settings > API**.""",
             iconPath="/static/services/asknicely.png",

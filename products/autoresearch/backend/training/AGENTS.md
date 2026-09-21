@@ -7,7 +7,7 @@ This is the expensive half of the product. A real run costs roughly a dollar in 
 
 The other half is `../inference/`, which consumes what this package produces and must never re-fit.
 
-This package landed ahead of its callers. `../presentation/`, `../temporal/`, `../management/`, and `../evaluation/` arrive in later pieces of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464), so the references to them below describe where they will sit.
+This package landed ahead of its callers. `../temporal/` and the `autoresearch_train` command arrive in later pieces of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464), so the references to them below describe where they will sit.
 
 ## What lives here
 
@@ -21,6 +21,7 @@ This package landed ahead of its callers. `../presentation/`, `../temporal/`, `.
 - `ingestion.py`
   The safety net. `handle_task_run_completed()` is called from the `TaskRun` `post_save` signal registered in `../apps.py`, and runs synchronously in the Temporal worker thread.
   If the agent recorded iterations but never called complete, this finalizes through the same promotion path. If it recorded nothing, the run is marked failed — which is what produces `"Agent recorded no iterations before the run ended."`
+  The `autoresearch_training_run_id` marker in `TaskRun.state` is client-writable, so it names a run rather than proving ownership of it. A `TaskRun` may only finalize the run whose server-stamped `task_run_id` is its own id.
 - `promotion.py`
   Champion selection. `complete_training_run()` is the single entry point, used both by the training-run `complete` API action and by `ingestion.py`.
   A challenger must beat the incumbent by `CHAMPION_PROMOTION_MARGIN` (0.005 holdout AUC) to be promoted — near-ties keep the incumbent rather than churning the champion on noise.

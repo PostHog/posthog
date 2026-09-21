@@ -5,6 +5,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { MetricDirectionColorPickers } from 'lib/components/Metric/MetricDirectionColorPickers'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
 import {
     METRIC_COLOR_BY_DIRECTION_DEFAULT,
     METRIC_DEFAULT_DECREASE_COLOR,
@@ -12,7 +13,7 @@ import {
     METRIC_SHOW_CHANGE_DEFAULT,
     METRIC_SUMMARY_DEFAULT,
     type MetricSummary,
-} from 'scenes/insights/views/Metric/Metric.utils'
+} from 'products/product_analytics/frontend/insights/trends/Metric/Metric.utils'
 
 import { insightLogic } from '../insightLogic'
 

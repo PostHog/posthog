@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { memo } from 'react'
 
-import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -10,9 +11,10 @@ import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { nextRunAt, SCOUT_GROUP_LABEL, ScoutRosterRow, scoutSubtitle } from '../../../utils/scoutGroups'
 import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import { inboxCardRowClassName } from '../../cards/inboxCardRowClassName'
-import { ScoutLifecycleBadge } from './ScoutBadges'
+import { ScoutExemptionBadge, ScoutLifecycleBadge } from './ScoutBadges'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
+import { ScoutCostLine } from './ScoutCostLine'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
 import { ScoutRunBoxes } from './ScoutRunBoxes'
 import { ScoutStatusDot } from './ScoutStatusDot'
@@ -33,14 +35,25 @@ function MetaSeparator(): JSX.Element {
  * last checked, and its cadence on the left; the recent-run strip and the on/off switch on the
  * right. The body links to the scout page. The run boxes and the switch sit outside that link, so
  * a run box opens its task and the switch flips the scout without opening it.
+ *
+ * Memoized: a roster row keeps its identity while the search box narrows the list, so typing
+ * re-renders only the cards that entered or left it.
  */
-export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
+export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
     const { config, group } = row
-    const { rollups, updatingScoutIds, scoutRunsLoadedOnce, scoutRunCosts } = useValues(scoutFleetLogic)
+    const {
+        rollups,
+        updatingScoutIds,
+        scoutRunsLoadedOnce,
+        scoutRunCosts,
+        scoutCostRollups,
+        expensiveRunCostThreshold,
+    } = useValues(scoutFleetLogic)
     const { updateScoutConfig } = useActions(scoutFleetLogic)
     const { currentTeam } = useValues(teamLogic)
     const now = new Date()
     const rollup = rollups.get(config.skill_name)
+    const costRollup = scoutCostRollups.get(config.skill_name)
     const runs = rollup?.runs ?? []
     const subtitle = scoutSubtitle(config, rollup, now)
     // Only enabled scouts have a next run; a paused one would otherwise carry an empty dash.
@@ -62,11 +75,7 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
                             {scoutDisplayName(config)}
                         </span>
                         <ScoutWriteAccessTag writeScopes={config.write_scopes} emit={config.emit} />
-                        {config.auto_pause_exempt && group === 'watching' && (
-                            <Tooltip title="Exempt from auto-pause, because this scout is supposed to stay quiet">
-                                <LemonTag size="small">Quiet by design</LemonTag>
-                            </Tooltip>
-                        )}
+                        <ScoutExemptionBadge config={config} group={group} />
                         <ScoutLifecycleBadge config={config} />
                     </div>
                     {subtitle && (
@@ -89,13 +98,18 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
                             </>
                         )}
                     </div>
+                    {costRollup && (
+                        <div className="flex flex-wrap items-center text-xs leading-none text-tertiary select-none">
+                            <ScoutCostLine rollup={costRollup} />
+                        </div>
+                    )}
                 </div>
             </Link>
             <div className="flex shrink-0 items-center justify-between gap-4 @lg:justify-end @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
                 {/* A fixed strip width on wide rows keeps every row's newest run on one vertical line. */}
                 <div className="flex min-w-0 justify-end @lg:w-52">
                     {runs.length > 0 ? (
-                        <ScoutRunBoxes runs={runs} costs={scoutRunCosts} />
+                        <ScoutRunBoxes runs={runs} costs={scoutRunCosts} costThreshold={expensiveRunCostThreshold} />
                     ) : (
                         // Until the runs request has landed once, an empty rollup means "not
                         // loaded", not "never ran"; the poll retries a failed load on its own.
@@ -110,4 +124,4 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
             </div>
         </div>
     )
-}
+})

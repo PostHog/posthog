@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
     EXEC_BUILT_PAYLOAD,
     STRUCTURED_CONTENT_ONLY_TEXT,
+    UI_APP_RENDER_NOTE,
     estimateResponseTokens,
     markExecPayload,
     buildToolResultPayload,
@@ -57,6 +58,47 @@ const queryTrendsToolMeta = {
 } as const
 
 describe('buildToolResultPayload — query-trends for Claude Code', () => {
+    it.each(['optimized', 'json'] as const)(
+        'keeps native widget data without a UI resource or formatted table in %s mode',
+        (outputFormat) => {
+            const data = { short_id: 'example', query: { kind: 'HogQLQuery', query: "SELECT 'a\\nb'" } }
+            const payload = buildToolResultPayload({
+                handlerResult: data,
+                toolName: 'mock-tool',
+                params: { output_format: outputFormat },
+                includeAppData: true,
+            })
+            expect(payload._meta?.[APP_DATA_META_KEY]).toEqual(data)
+            expect(payload.structuredContent).toBeUndefined()
+            expect(payload.content[0]!.text).not.toBe(STRUCTURED_CONTENT_ONLY_TEXT)
+            if (outputFormat === 'json') {
+                expect(JSON.parse(payload.content[0]!.text)).toEqual(data)
+            }
+        }
+    )
+
+    it.each(['optimized', 'json'] as const)(
+        'carries a UI-resource tool payload once beside native widget data in %s mode',
+        (outputFormat) => {
+            const payload = buildToolResultPayload({
+                handlerResult: queryTrendsHandlerResult(/* withFormatted */ false),
+                toolMeta: queryTrendsToolMeta,
+                toolName: 'query-trends',
+                params: { output_format: outputFormat },
+                includeAppData: true,
+                distinctId: 'd',
+            })
+
+            // The widget reads `_meta`, so structuredContent would repeat what the text
+            // channel already hands the model.
+            expect(payload).not.toHaveProperty('structuredContent')
+            expect(payload._meta?.[APP_DATA_META_KEY]).toMatchObject({ results: expect.any(Array) })
+            if (outputFormat === 'json') {
+                expect(JSON.parse(payload.content[0]!.text)).toMatchObject({ results: expect.any(Array) })
+            }
+        }
+    )
+
     it('returns formatted table as text AND suppresses structuredContent for claude-code', () => {
         const payload = buildToolResultPayload({
             handlerResult: queryTrendsHandlerResult(),
@@ -199,11 +241,12 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
             params: {},
             forceUiDataToMeta: true,
             includeUiResponseMeta: true,
+            includeRenderNote: true,
             distinctId: 'd',
         })
 
         // Model reads the compact table, not the verbose JSON.
-        expect(payload.content[0]!.text).toBe(FORMATTED_TABLE)
+        expect(payload.content[0]!.text).toBe(`${FORMATTED_TABLE}\n\n${UI_APP_RENDER_NOTE}`)
         expect(payload).not.toHaveProperty('structuredContent')
         // The UI app hydrates from _meta since structuredContent was dropped.
         expect(payload._meta?.[APP_DATA_META_KEY]).toMatchObject({ results: expect.any(Array) })
@@ -262,12 +305,14 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
             params: {},
             forceUiDataToMeta: true,
             includeUiResponseMeta: true,
+            includeRenderNote: true,
             distinctId: 'd',
         })
 
         expect(payload.structuredContent).toMatchObject(handlerResult)
         // The text channel points at structuredContent instead of repeating it.
-        expect(payload.content).toEqual([{ type: 'text', text: STRUCTURED_CONTENT_ONLY_TEXT }])
+        expect(payload.content[0]!.text).toContain(STRUCTURED_CONTENT_ONLY_TEXT)
+        expect(payload.content[0]!.text).toContain(UI_APP_RENDER_NOTE)
         expect(payload.content[0]!.text).not.toContain('Onboarding copy')
         expect(payload._meta?.[APP_DATA_META_KEY]).toBeUndefined()
     })
@@ -282,10 +327,13 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
             params: {},
             forceUiDataToMeta: true,
             includeUiResponseMeta: true,
+            includeRenderNote: true,
             distinctId: 'd',
         })
 
-        expect(estimateResponseTokens(payload)).toBeGreaterThan(estimateTokens(STRUCTURED_CONTENT_ONLY_TEXT))
+        expect(estimateResponseTokens(payload)).toBe(
+            estimateTokens(payload.structuredContent) + estimateTokens(UI_APP_RENDER_NOTE)
+        )
     })
 
     it('keeps the mirrored text when the caller asked for JSON output', () => {

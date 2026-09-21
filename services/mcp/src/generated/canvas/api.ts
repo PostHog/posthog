@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 18 enabled ops
+ * PostHog API - MCP 19 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -114,7 +114,8 @@ export const CanvasesPartialUpdateBody = () => zod
  *
  * A publish queues a build; poll this until it is ready (the live pointer
  * advances) or failed (fix the error diagnostics and publish again — the
- * last good build stays live).
+ * last good build stays live). Send the response's ETag back as
+ * If-None-Match to make the poll revalidate without a body.
  */
 export const CanvasesBuildsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this canvas.'),
@@ -126,6 +127,12 @@ export const CanvasesBuildsRetrieveParams = () => zod.object({
 })
 
 export const CanvasesBuildsRetrieveQueryParams = () => zod.object({
+    scope: zod
+        .string()
+        .optional()
+        .describe(
+            '\"slim\" returns only what rendering needs — the live build, the head version\'s builds, and anything still in flight — instead of the full recent-build history. Any other value (or none) returns the full window.'
+        ),
     version_id: zod
         .string()
         .optional()
@@ -487,6 +494,12 @@ export const CanvasesLayoutRetrieveParams = () => zod.object({
 })
 
 export const CanvasesLayoutRetrieveQueryParams = () => zod.object({
+    include_components: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Also return the renderable build (with signed artifact URL) of every component the layout's live placements reference, so a grid renders from this one call."
+        ),
     version_id: zod
         .string()
         .optional()
@@ -1215,8 +1228,44 @@ export const CanvasesStateRetrieveParams = () => zod.object({
         ),
 })
 
+export const canvasesStateRetrieveQueryKeyMax = 200
+
+export const canvasesStateRetrieveQueryKeyPrefixMax = 200
+
+export const canvasesStateRetrieveQueryKeysOnlyDefault = false
+export const canvasesStateRetrieveQueryLimitMax = 100
+
+export const canvasesStateRetrieveQueryOffsetDefault = 0
+export const canvasesStateRetrieveQueryOffsetMin = 0
+
 export const CanvasesStateRetrieveQueryParams = () => zod.object({
-    scope: zod.enum(['shared', 'user']).optional().describe('Only return entries in this scope.'),
+    key: zod.string().min(1).max(canvasesStateRetrieveQueryKeyMax).optional().describe('Only read this exact key.'),
+    key_prefix: zod
+        .string()
+        .max(canvasesStateRetrieveQueryKeyPrefixMax)
+        .optional()
+        .describe('Only read entries whose key starts with this prefix.'),
+    keys_only: zod
+        .boolean()
+        .default(canvasesStateRetrieveQueryKeysOnlyDefault)
+        .describe('True returns a key inventory without stored values.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(canvasesStateRetrieveQueryLimitMax)
+        .optional()
+        .describe(
+            'Maximum entries per page. Omit for the full state. Prefer an inventory and state\/value for large values.'
+        ),
+    offset: zod
+        .number()
+        .min(canvasesStateRetrieveQueryOffsetMin)
+        .default(canvasesStateRetrieveQueryOffsetDefault)
+        .describe('Entry offset from next_offset. Keep filters unchanged between pages.'),
+    scope: zod
+        .enum(['user', 'shared'])
+        .optional()
+        .describe('Only read this scope.\n\n\* `user` - user\n\* `shared` - shared'),
 })
 
 /**
@@ -1245,6 +1294,55 @@ export const CanvasesStateSetBody = () => zod
         value: zod.unknown().describe('JSON value to store (at most 64 KB serialized), or null to delete the key.'),
     })
     .describe("Payload for writing (or deleting) one key of a canvas's runtime state.")
+
+/**
+ * Canvases: agent-built sandboxed browser apps, filed into channels.
+ *
+ * Source is versioned per publish and built server-side; the canvas app
+ * renders the published build's artifact from the isolated artifact origin.
+ */
+export const CanvasesStateValueRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this canvas.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const canvasesStateValueRetrieveQueryKeyMax = 200
+
+export const canvasesStateValueRetrieveQueryLimitDefault = 12000
+export const canvasesStateValueRetrieveQueryLimitMax = 12000
+
+export const canvasesStateValueRetrieveQueryOffsetDefault = 0
+export const canvasesStateValueRetrieveQueryOffsetMin = 0
+
+export const canvasesStateValueRetrieveQueryRevisionMax = 64
+
+export const CanvasesStateValueRetrieveQueryParams = () => zod.object({
+    key: zod.string().min(1).max(canvasesStateValueRetrieveQueryKeyMax).describe('Exact key to read.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(canvasesStateValueRetrieveQueryLimitMax)
+        .default(canvasesStateValueRetrieveQueryLimitDefault)
+        .describe('Maximum JSON characters in this response.'),
+    offset: zod
+        .number()
+        .min(canvasesStateValueRetrieveQueryOffsetMin)
+        .default(canvasesStateValueRetrieveQueryOffsetDefault)
+        .describe('Character offset from next_offset.'),
+    revision: zod
+        .string()
+        .min(1)
+        .max(canvasesStateValueRetrieveQueryRevisionMax)
+        .optional()
+        .describe('Revision from the first chunk. Required when offset is greater than zero.'),
+    scope: zod
+        .enum(['user', 'shared'])
+        .describe('Scope of the value to read.\n\n\* `user` - user\n\* `shared` - shared'),
+})
 
 /**
  * Validate a candidate source project without publishing it. Side-effect free.

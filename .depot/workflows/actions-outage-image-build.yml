@@ -40,6 +40,19 @@ jobs:
               id: aws-ecr
               uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
 
+            # The Dockerfile pulls node, python and debian from Docker Hub. Depot forwards the
+            # credentials from this sandbox to the remote builder, so logging in here keeps those
+            # base image pulls off the anonymous per-IP rate limit. The images are public, so a
+            # missing secret or a failed login falls back to anonymous pulls and does not stop
+            # the outage build.
+            - name: Login to Docker Hub
+              if: ${{ vars.DOCKERHUB_USER != '' && secrets.DOCKERHUB_TOKEN != '' }}
+              continue-on-error: true
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ vars.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
             - name: Build and push
               id: build
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
@@ -47,7 +60,16 @@ jobs:
                   context: .
                   tags: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud-prs:${{ github.sha }}
                   platforms: linux/amd64,linux/arm64
-                  build-args: COMMIT_HASH=${{ github.sha }}
+                  # The GITHUB_* args become the git metadata on the error tracking release the
+                  # sourcemap upload stage creates. That stage builds in a container with no .git
+                  # directory, so the workflow has to hand them in (see Dockerfile).
+                  build-args: |
+                      COMMIT_HASH=${{ github.sha }}
+                      GITHUB_ACTIONS=true
+                      GITHUB_SHA=${{ github.sha }}
+                      GITHUB_REF_NAME=${{ github.ref_name }}
+                      GITHUB_REPOSITORY=${{ github.repository }}
+                      GITHUB_SERVER_URL=${{ github.server_url }}
                   push: true
                   # Without the upload the Dockerfile keeps the .map files in the image.
                   secrets: |

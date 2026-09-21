@@ -11,12 +11,47 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AvailableFeature, OrganizationType } from '~/types'
 
 import { urls } from './urls'
 import { userLogic } from './userLogic'
+
+/** Mirrors `ALLOWED_WHILE_BLOCKED` in `posthog/middleware.py`. Change one and change the other. */
+const ALLOWED_WHILE_BLOCKED: Record<string, string[]> = {
+    '/organization-pending-deletion': ['/organization-pending-deletion', '/signup/'],
+    '/organization-deactivated': [
+        '/organization-deactivated',
+        '/signup/',
+        '/organization/billing',
+        '/billing/authorization_status',
+    ],
+}
+
+/**
+ * A client-side push reaches no server, so `AutoProjectMiddleware` never resolves the destination's
+ * organization. Defer to the page load. False while the team list is unknown, which keeps the block on.
+ */
+function pathLeavesCurrentOrganization(organization: OrganizationType | null, pathname: string): boolean {
+    const teams = organization?.teams
+    if (!teams) {
+        return false
+    }
+    const projectId = pathname.match(/^\/project\/([^/]+)/)?.[1]
+    return projectId !== undefined && !teams.some((team) => String(team.id) === projectId)
+}
+
+function organizationBlockPage(organization: OrganizationType | null): string | null {
+    if (organization?.is_pending_deletion) {
+        return '/organization-pending-deletion'
+    }
+    if (organization?.is_active === false) {
+        return '/organization-deactivated'
+    }
+    return null
+}
 
 export type OrganizationUpdatePayload = Partial<
     Pick<
@@ -344,15 +379,17 @@ export const organizationLogic = kea<organizationLogicType>([
             }
         },
         locationChanged: ({ pathname }) => {
-            // Redirect to pending deletion page if organization deletion is in progress
-            if (values.currentOrganization?.is_pending_deletion && pathname !== urls.organizationPendingDeletion()) {
-                router.actions.replace(urls.organizationPendingDeletion())
+            const blockPage = organizationBlockPage(values.currentOrganization)
+            if (blockPage === null || pathLeavesCurrentOrganization(values.currentOrganization, pathname)) {
                 return
             }
-            // Redirect to deactivated page if organization is inactive (client-side navigation)
-            if (values.currentOrganization?.is_active === false && pathname !== urls.organizationDeactivated()) {
-                router.actions.replace(urls.organizationDeactivated())
+            // Compare on the route: the pathname can carry a `/project/<id>` prefix, and then the
+            // replace below never matches its own destination.
+            const route = removeProjectIdIfPresent(pathname)
+            if (ALLOWED_WHILE_BLOCKED[blockPage].some((allowed) => route.startsWith(allowed))) {
+                return
             }
+            router.actions.replace(blockPage)
         },
         createOrganizationSuccess: () => {
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()

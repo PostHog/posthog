@@ -104,7 +104,6 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
                     run_id=run.id,
                     finding_id="finding-1",
                     description="A finding",
-                    weight=1.0,
                     confidence=0.8,
                     severity="P1",
                     source_id=f"run:{run.id}:finding:finding-1",
@@ -121,7 +120,7 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
             integration_id=17,
             channel="CSCOUTS|#scout-findings",
             edit_note=None,
-            thread_reports=False,
+            thread_reports=True,
         )
 
     def test_record_emit_enqueues_dm_destination_per_recipient(self) -> None:
@@ -146,7 +145,6 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
                     run_id=run.id,
                     finding_id="finding-1",
                     description="A finding",
-                    weight=1.0,
                     confidence=0.8,
                     severity="P1",
                     source_id=f"run:{run.id}:finding:finding-1",
@@ -164,7 +162,7 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
                 integration_id=17,
                 channel="U1|@andy",
                 edit_note=None,
-                thread_reports=False,
+                thread_reports=True,
             ),
             call(
                 team_id=self.team.id,
@@ -176,7 +174,7 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
                 integration_id=17,
                 channel="U2|@robbie",
                 edit_note=None,
-                thread_reports=False,
+                thread_reports=True,
             ),
         ]
 

@@ -95,6 +95,11 @@ PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST or DEBUG else "auto"
 # distinct from 159 TIMEOUT_EXCEEDED (max_execution_time), which stays non-retryable.
 PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS = 2 * 1000
 
+# How long a quorum-skipping caller waits after building before its own read, so the
+# parts can replicate (observed lag between colocated replicas is under a second).
+# Zero in tests and local dev: the single-node ClickHouse there has no replica to lag.
+PREAGGREGATION_REPLICATION_SETTLE_SECONDS: float = 0.0 if TEST or DEBUG else 1.0
+
 
 # Mirrors the `lazy_computation.executed` structured log so the same outcomes
 # (`success` / `timeout` / `non_retryable_error` / `max_retries_exceeded`) are
@@ -166,7 +171,7 @@ LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL = Counter(
 )
 
 
-def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False) -> dict:
+def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False, read_after_write: bool = True) -> dict:
     """Build ClickHouse settings for preaggregation INSERT queries.
 
     Starts from the same HogQLGlobalSettings defaults that execute_hogql_query
@@ -176,13 +181,20 @@ def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False) -> dict:
     GROUP BY hash table can grow large (high-cardinality breakdowns), and most
     kinds never approach the threshold, so callers enable it deliberately rather
     than paying for it everywhere.
+
+    `read_after_write=False` drops the replica-quorum wait. Quorum's only job is
+    the read-your-own-writes edge case: a SELECT issued right after this INSERT
+    landing on a replica the part hasn't reached yet. A caller whose reads come
+    minutes later (background builders) gets no consistency from it — only the
+    failure mode where a downed or stale-registered replica turns every build
+    into TOO_FEW_LIVE_REPLICAS until the cluster is repaired.
     """
     settings = get_default_hogql_global_settings(team_id=team_id).model_dump(exclude_none=True)
     settings.pop("readonly", None)  # INSERTs need write access
     settings.update(
         {
             "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
-            "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
+            "insert_quorum": PREAGGREGATION_INSERT_QUORUM if read_after_write else 0,
             "insert_quorum_timeout": PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS,
             # The executor marks a job READY as soon as the INSERT returns, so rows must be on the
             # shards by then — not sitting in the initiator's async distribution queue, where they
@@ -563,7 +575,7 @@ def _get_ch_expires_at(job: "PreaggregationJob", table: LazyComputationTable) ->
     return job.expires_at + timedelta(seconds=EXPIRY_BUFFER_SECONDS, days=extra_days)
 
 
-@dataclass
+@dataclass(frozen=False)
 class LazyComputationQuery:
     """Normalized query information for lazy computation matching."""
 
@@ -571,9 +583,10 @@ class LazyComputationQuery:
     table: LazyComputationTable
     timezone: str = "UTC"
     breakdown_fields: list[str] = field(default_factory=list)
+    cache_key_context: dict[str, str] | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class LazyComputationResult:
     """Result of executing lazy computation jobs."""
 
@@ -587,6 +600,13 @@ class LazyComputationResult:
     # executor's serve-stale grace instead of recomputing inline. The data is complete
     # but up to (TTL + grace) old; the caller decides whether to surface that.
     stale: bool = False
+    # True when part of the coverage landed during this call (built inline, or waited on
+    # another executor's build). Callers that skipped the replica quorum
+    # (read_after_write=False) must not read these jobs in the same request: the parts
+    # may not have replicated to the read replica yet, and a wrong result read now would
+    # be cached. Serving live once and letting the next request use the jobs is the
+    # intended reaction.
+    freshly_built: bool = False
 
 
 def compute_query_hash(query_info: LazyComputationQuery) -> str:
@@ -599,14 +619,15 @@ def compute_query_hash(query_info: LazyComputationQuery) -> str:
 
     # Include timezone and breakdown fields in the hash
     # Timezone matters because toStartOfDay uses the team timezone
-    hash_input = json.dumps(
-        {
-            "query": query_str,
-            "timezone": query_info.timezone,
-            "breakdown_fields": sorted(query_info.breakdown_fields),
-        },
-        sort_keys=True,
-    )
+    payload: dict[str, object] = {
+        "query": query_str,
+        "timezone": query_info.timezone,
+        "breakdown_fields": sorted(query_info.breakdown_fields),
+    }
+    # Omit absent context so callers with unchanged semantics can reuse existing jobs.
+    if query_info.cache_key_context:
+        payload["cache_key_context"] = query_info.cache_key_context
+    hash_input = json.dumps(payload, sort_keys=True)
 
     return hashlib.sha256(hash_input.encode()).hexdigest()
 
@@ -722,19 +743,28 @@ def find_missing_contiguous_windows(
 
     If no jobs exist for Jan 1-4, it returns: [(Jan 1, Jan 4)]
     """
+    # Some callers pass naive datetimes; window bounds and job rows are aware UTC.
+    if end_timestamp.tzinfo is None:
+        end_timestamp = end_timestamp.replace(tzinfo=UTC)
+
     # Step 1: Generate daily windows for the range
     daily_windows = get_daily_windows(start_timestamp, end_timestamp)
 
     # Step 2: Find missing daily windows
     missing = []
     for window_start, window_end in daily_windows:
+        # The final window is rounded up to a full day, but the query reads only
+        # up to end_timestamp. A claim clamped to the data horizon (see
+        # clamp_ranges_to_data_horizon) must count as covering, or every read at
+        # the same `end` would rebuild the same window.
+        required_end = min(window_end, end_timestamp)
         # Check if this window is covered by any READY or PENDING job
         is_covered = False
         for job in existing_jobs:
             if (
                 job.status in (PreaggregationJob.Status.READY, PreaggregationJob.Status.PENDING)
                 and job.time_range_start <= window_start
-                and job.time_range_end >= window_end
+                and job.time_range_end >= required_end
             ):
                 is_covered = True
                 break
@@ -764,6 +794,55 @@ def find_missing_contiguous_windows(
     merged.append((current_start, current_end))
 
     return merged
+
+
+@frozen
+class BuildRange:
+    """One contiguous span a single job's INSERT fills, with its band TTL."""
+
+    start: datetime
+    end: datetime
+    ttl_seconds: int
+
+
+def clamp_ranges_to_data_horizon(
+    ttl_ranges: list[tuple[datetime, datetime, int]],
+    horizon: datetime | None,
+) -> list[BuildRange]:
+    """
+    Clamp build ranges so no created job claims time past `horizon`, the point
+    up to which the INSERT stores data. A None horizon only wraps the ranges.
+
+    Daily windows round the final day up to midnight, so a historical mid-day
+    horizon would otherwise create a job that claims hours it never stored, and
+    every later read would treat the unstored tail as covered until the job
+    expires (up to 60 days in the frozen band).
+
+    A range that crosses the horizon splits at the horizon's day boundary: the
+    complete days keep a full-day claim and the partial tail becomes its own
+    job. Split jobs tile, so a later full-day rebuild replaces only the tail.
+    A single clamped multi-day job would partially overlap that rebuild and be
+    evicted whole by `filter_overlapping_jobs`, dropping its complete days.
+
+    Callers must not pass a horizon on the current UTC day: the same-day TTL
+    already refreshes today's window, and a clamped claim would force a
+    rebuild on every read.
+    """
+    if horizon is None:
+        return [BuildRange(start=s, end=e, ttl_seconds=ttl) for s, e, ttl in ttl_ranges]
+
+    clamped: list[BuildRange] = []
+    horizon_day_start = datetime(horizon.year, horizon.month, horizon.day, tzinfo=UTC)
+    for range_start, range_end, ttl in ttl_ranges:
+        if range_end <= horizon:
+            clamped.append(BuildRange(start=range_start, end=range_end, ttl_seconds=ttl))
+            continue
+        split = max(range_start, horizon_day_start)
+        if split > range_start:
+            clamped.append(BuildRange(start=range_start, end=split, ttl_seconds=ttl))
+        if horizon > split:
+            clamped.append(BuildRange(start=split, end=horizon, ttl_seconds=ttl))
+    return clamped
 
 
 def create_lazy_computation_job(
@@ -995,6 +1074,7 @@ class LazyComputationExecutor:
         start: datetime,
         end: datetime,
         run_insert: Callable[[Team, PreaggregationJob], int | None] | None = None,
+        end_is_data_horizon: bool = False,
     ) -> LazyComputationResult:
         """
         Execute computation jobs for the given query and time range.
@@ -1011,6 +1091,12 @@ class LazyComputationExecutor:
                         default AST-based run_computation_insert with query_info. Returns the
                         number of rows it wrote, or None when it can't report one — see the
                         empty-insert branch below for what a 0 buys.
+            end_is_data_horizon: True when the caller's INSERT stores no rows past
+                        `end` (it bakes `end` into its own filters), so the final
+                        day's job must not claim past it. Leave False when the
+                        INSERT fills whole daily windows regardless of `end`,
+                        because clamping those would create a new partial-tail job
+                        for every distinct `end` a user submits.
         """
         insert_fn = run_insert or (lambda t, j: run_lazy_computation_insert(t, j, query_info))
         query_hash = compute_query_hash(query_info)
@@ -1027,6 +1113,15 @@ class LazyComputationExecutor:
         conflict_passes = 0
 
         had_ready_at_start: bool | None = None
+
+        # Set when `end` is a data horizon on a past UTC day; the create loop then
+        # clamps job claims to it so a truncated build cannot mark unstored hours
+        # as covered. Some callers pass a naive `end`; treat it as UTC like the
+        # window math does.
+        now_utc = django_timezone.now()
+        today_start_utc = datetime(now_utc.year, now_utc.month, now_utc.day, tzinfo=UTC)
+        end_utc = end if end.tzinfo is not None else end.replace(tzinfo=UTC)
+        historical_end = end_utc if end_is_data_horizon and end_utc < today_start_utc else None
 
         def _log_execution(outcome: str, result: LazyComputationResult) -> None:
             if outcome == "check_miss":
@@ -1073,9 +1168,17 @@ class LazyComputationExecutor:
                 fresh_jobs = self._filter_by_freshness(existing_jobs)
                 pending_jobs = [j for j in fresh_jobs if j.status == PreaggregationJob.Status.PENDING]
 
-                # Step 2: Find missing ranges, split at TTL boundaries
-                missing_ranges = find_missing_contiguous_windows(fresh_jobs, start, end)
-                ttl_ranges = split_ranges_by_ttl(missing_ranges, self.ttl_schedule)
+                # Step 2: Find missing ranges, split at TTL boundaries.
+                # Coverage is checked on the overlap-filtered set because that is
+                # the set the final return serves: the filter drops an older job
+                # that a newer one overlaps, so a window only the older job covered
+                # would read as zero if the unfiltered union counted it as covered.
+                # The filter can also hide a window covered only by an older
+                # PENDING job; recomputing it costs at most one duplicate build.
+                missing_ranges = find_missing_contiguous_windows(filter_overlapping_jobs(fresh_jobs), start, end)
+                build_ranges = clamp_ranges_to_data_horizon(
+                    split_ranges_by_ttl(missing_ranges, self.ttl_schedule), historical_end
+                )
 
                 if had_ready_at_start is None:
                     had_ready_at_start = any(j.status == PreaggregationJob.Status.READY for j in fresh_jobs)
@@ -1085,7 +1188,7 @@ class LazyComputationExecutor:
                 # fully cover the range, return them immediately — complete-but-stale beats
                 # blocking. Whoever refreshes (the warmer, or a request after the grace)
                 # replaces the data; `filter_overlapping_jobs` always prefers newer jobs.
-                if self.stale_while_revalidate_seconds is not None and (ttl_ranges or pending_jobs):
+                if self.stale_while_revalidate_seconds is not None and (build_ranges or pending_jobs):
                     graced = find_existing_jobs(
                         team, query_hash, start, end, expired_grace_seconds=self.stale_while_revalidate_seconds
                     )
@@ -1110,7 +1213,7 @@ class LazyComputationExecutor:
                 # jobs (the stale-serve above would have returned), and this request
                 # must not compute inline or block on someone else's pending job —
                 # report the miss so the caller serves live and warms in background.
-                if not self.run_inserts and (ttl_ranges or pending_jobs):
+                if not self.run_inserts and (build_ranges or pending_jobs):
                     result = LazyComputationResult(
                         ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
                     )
@@ -1120,8 +1223,8 @@ class LazyComputationExecutor:
                 # Step 3: Insert missing ranges
                 did_work = False
                 lost_create_race = False
-                if ttl_ranges and failures <= self.max_retries:
-                    for range_start, range_end, ttl in ttl_ranges:
+                if build_ranges and failures <= self.max_retries:
+                    for build_range in build_ranges:
                         # Each insert runs inline and is bounded only by the ClickHouse
                         # max_execution_time, which is larger than our wait budget. A capped
                         # (narrow) window can produce many ranges; stop before starting another
@@ -1135,13 +1238,13 @@ class LazyComputationExecutor:
                             _log_execution("timeout", result)
                             return result
 
-                        # `ttl` is the band TTL used for merging; the job's real expiry adds the jitter
+                        # `ttl_seconds` is the band TTL used for merging; the job's real expiry adds the jitter
                         new_job = create_lazy_computation_job(
                             team,
                             query_hash,
-                            range_start,
-                            range_end,
-                            self.ttl_schedule.get_ttl(range_start, jittered=True),
+                            build_range.start,
+                            build_range.end,
+                            self.ttl_schedule.get_ttl(build_range.start, jittered=True),
                         )
                         if new_job is None:
                             # Another executor created a PENDING job for this range; the
@@ -1154,10 +1257,10 @@ class LazyComputationExecutor:
                                 team_id=team.id,
                                 query_hash=query_hash,
                                 table=str(query_info.table),
-                                time_range_start=str(range_start),
-                                time_range_end=str(range_end),
+                                time_range_start=str(build_range.start),
+                                time_range_end=str(build_range.end),
                             )
-                            if self._try_fail_expired_pending_job(team, query_hash, range_start, range_end):
+                            if self._try_fail_expired_pending_job(team, query_hash, build_range.start, build_range.end):
                                 LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
                                     outcome="expired", table=str(query_info.table)
                                 ).inc()
@@ -1166,8 +1269,8 @@ class LazyComputationExecutor:
                                     team_id=team.id,
                                     query_hash=query_hash,
                                     table=str(query_info.table),
-                                    time_range_start=str(range_start),
-                                    time_range_end=str(range_end),
+                                    time_range_start=str(build_range.start),
+                                    time_range_end=str(build_range.end),
                                 )
                             lost_create_race = True
                             continue
@@ -1196,7 +1299,7 @@ class LazyComputationExecutor:
                             new_job.computed_at = django_timezone.now()
                             if wrote_nothing and new_job.expires_at is not None:
                                 empty_expires_at = self.ttl_schedule.empty_result_expires_at(
-                                    new_job.computed_at, range_end
+                                    new_job.computed_at, build_range.end
                                 )
                                 if empty_expires_at is not None:
                                     new_job.expires_at = min(new_job.expires_at, empty_expires_at)
@@ -1212,9 +1315,9 @@ class LazyComputationExecutor:
                                 job_id=str(new_job.id),
                                 query_hash=query_hash,
                                 table=str(query_info.table),
-                                time_range_start=str(range_start),
-                                time_range_end=str(range_end),
-                                ttl_seconds=ttl,
+                                time_range_start=str(build_range.start),
+                                time_range_end=str(build_range.end),
+                                ttl_seconds=build_range.ttl_seconds,
                                 insert_duration_ms=round(insert_elapsed * 1000),
                                 rows_written=rows_written,
                                 expires_at=str(new_job.expires_at),
@@ -1235,9 +1338,9 @@ class LazyComputationExecutor:
                                 job_id=str(new_job.id),
                                 query_hash=query_hash,
                                 table=str(query_info.table),
-                                time_range_start=str(range_start),
-                                time_range_end=str(range_end),
-                                ttl_seconds=ttl,
+                                time_range_start=str(build_range.start),
+                                time_range_end=str(build_range.end),
+                                ttl_seconds=build_range.ttl_seconds,
                                 insert_duration_ms=round(insert_elapsed * 1000),
                                 error=str(e)[:500],
                                 error_type=type(e).__name__,
@@ -1261,7 +1364,7 @@ class LazyComputationExecutor:
                                 return result
                         did_work = True
 
-                if ttl_ranges and failures > self.max_retries:
+                if build_ranges and failures > self.max_retries:
                     errors.append("Max retries exceeded for computation")
                     result = LazyComputationResult(
                         ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
@@ -1340,7 +1443,11 @@ class LazyComputationExecutor:
         final_jobs = find_existing_jobs(team, query_hash, start, end)
         final_fresh = self._filter_by_freshness(final_jobs)
         final_ready = filter_overlapping_jobs([j for j in final_fresh if j.status == PreaggregationJob.Status.READY])
-        result = LazyComputationResult(ready=True, job_ids=[j.id for j in final_ready])
+        result = LazyComputationResult(
+            ready=True,
+            job_ids=[j.id for j in final_ready],
+            freshly_built=jobs_created > 0 or bool(waited_job_ids),
+        )
         _log_execution("success", result)
         return result
 
@@ -1476,6 +1583,9 @@ def ensure_precomputed(
     run_inserts: bool = True,
     empty_result_ttl_seconds: int | None = None,
     empty_result_max_age_seconds: int | None = None,
+    end_is_data_horizon: bool = False,
+    cache_key_context: dict[str, str] | None = None,
+    read_after_write: bool = True,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1538,9 +1648,23 @@ def ensure_precomputed(
                       would serve stale to themselves and never recompute.
         modifiers: HogQL modifiers used when printing the INSERT's SELECT (defaults to
                       the team's default modifiers). NOT part of job identity — the job
-                      hash covers only the substituted AST — so modifiers must never
-                      change what the query computes, only how it executes (e.g.
-                      `sessionIdPushdown`, which is semantics-preserving by design).
+                      hash covers the substituted AST and cache_key_context. Callers
+                      must include result-changing modifier semantics in cache_key_context.
+                      Execution-only modifiers such as sessionIdPushdown need no context.
+        cache_key_context: Versioned result semantics not represented in the substituted AST.
+                           Use the same effective modifiers for this context and SQL generation.
+        end_is_data_horizon: Set True when the insert query bakes `time_range_end`
+                      into its own filters, so it stores no rows past it. Job claims
+                      then clamp to a historical end instead of claiming the full
+                      final day. See LazyComputationExecutor.execute.
+        read_after_write: Set False when no caller SELECTs the inserted rows in the
+                      same request that ran this ensure (background builders whose
+                      readers arrive minutes later). Skips the replica-quorum wait on
+                      the INSERT, so builds keep succeeding while a replica is down
+                      or stale-registered; the cost is that a reader can miss the
+                      newest parts until replication catches up — usually fast, but
+                      with no guaranteed bound. The post-build settle wait covers the
+                      builder's own read-back; later readers accept the residual risk.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -1599,6 +1723,7 @@ def ensure_precomputed(
         query=parsed_for_hash,
         table=table,
         timezone=team.timezone,
+        cache_key_context=cache_key_context,
     )
 
     def _run_manual_insert(t: Team, job: PreaggregationJob) -> int:
@@ -1624,7 +1749,7 @@ def ensure_precomputed(
                 sync_execute(
                     insert_sql,
                     values,
-                    settings=_get_insert_settings(t.id, spill_to_disk=spill_to_disk),
+                    settings=_get_insert_settings(t.id, spill_to_disk=spill_to_disk, read_after_write=read_after_write),
                 )
             )
 
@@ -1646,7 +1771,21 @@ def ensure_precomputed(
         stale_while_revalidate_seconds=stale_while_revalidate_seconds,
         run_inserts=run_inserts,
     )
-    return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
+    result = executor.execute(
+        team,
+        query_info,
+        time_range_start,
+        time_range_end,
+        run_insert=_run_manual_insert,
+        end_is_data_horizon=end_is_data_horizon,
+    )
+    if not read_after_write and result.ready and result.freshly_built and PREAGGREGATION_REPLICATION_SETTLE_SECONDS:
+        # The coverage landed during this call and quorum was skipped, so the parts may
+        # not have reached the caller's read replica yet. Waiting out the replication
+        # lag here is what keeps the caller's immediate read-back (the warmer warming
+        # the query cache) from caching a partial result for the full TTL.
+        time.sleep(PREAGGREGATION_REPLICATION_SETTLE_SECONDS)
+    return result
 
 
 def _resolve_insert_query(insert_query: str | ast.SelectQuery, placeholders: dict[str, ast.Expr]) -> ast.SelectQuery:

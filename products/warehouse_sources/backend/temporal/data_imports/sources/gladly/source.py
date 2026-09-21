@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -87,7 +85,12 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
         # regenerates the report and re-streams it; the resumable window state means only the
         # in-flight window is redone, deduped on merge, so this is self-recovering rather than a
         # tracked-exception-worthy failure.
-        return {"Read timed out", "Gladly returned no report"}
+        #
+        # `GladlyRetryableError` (429/5xx from Gladly, raised by both `fetch` and `generate_report`)
+        # is itself retried with backoff inside gladly.py before it can ever reach here; if that
+        # budget still exhausts, Temporal's activity retry re-issues the same request or report
+        # window, so the same self-recovering reasoning applies.
+        return {"Read timed out", "Gladly returned no report", "Gladly API error (retryable)"}
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
         return {
@@ -101,7 +104,7 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GLADLY,
+            name=ExternalDataSourceType.GLADLY,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Gladly",
             caption="""Connect your Gladly account to pull your customer service data into the PostHog Data warehouse.

@@ -372,7 +372,7 @@ export interface ConversationApi {
     readonly has_unsupported_content: boolean
     /** @nullable */
     readonly agent_mode: string | null
-    /** Runtime that owns this conversation. 'langgraph' conversations return their messages in the `messages` field; born-'sandbox' conversations return an empty `messages` array and load history from the products/tasks logs endpoint. A converted conversation is 'sandbox' but still returns its legacy thread in `messages`.
+    /** Runtime that owns this conversation. 'langgraph' conversations return their messages in the `messages` field. 'sandbox' conversations return an empty `messages` array and load history from the products/tasks logs endpoint; a conversation copied into a task carries its legacy thread in that task's import run. Only a conversion that predates the copy still returns its legacy thread in `messages`.
      *
      * * `langgraph` - LangGraph
      * * `sandbox` - Sandbox */
@@ -443,7 +443,7 @@ export interface PatchedConversationApi {
     readonly has_unsupported_content?: boolean
     /** @nullable */
     readonly agent_mode?: string | null
-    /** Runtime that owns this conversation. 'langgraph' conversations return their messages in the `messages` field; born-'sandbox' conversations return an empty `messages` array and load history from the products/tasks logs endpoint. A converted conversation is 'sandbox' but still returns its legacy thread in `messages`.
+    /** Runtime that owns this conversation. 'langgraph' conversations return their messages in the `messages` field. 'sandbox' conversations return an empty `messages` array and load history from the products/tasks logs endpoint; a conversation copied into a task carries its legacy thread in that task's import run. Only a conversion that predates the copy still returns its legacy thread in `messages`.
      *
      * * `langgraph` - LangGraph
      * * `sandbox` - Sandbox */
@@ -572,6 +572,32 @@ export interface SandboxMessageResponseApi {
     just_created_run: boolean
 }
 
+export interface JsonValueApi {}
+
+/**
+ * Arguments validated against the selected tool's schema.
+ */
+export type MCPToolRequestApiArgs = { [key: string]: JsonValueApi }
+
+export interface MCPToolRequestApi {
+    /** Arguments validated against the selected tool's schema. */
+    args?: MCPToolRequestApiArgs
+}
+
+/**
+ * Structured tool output for native widgets.
+ */
+export type MCPToolResponseApiStructuredContent = { [key: string]: JsonValueApi } | null
+
+export interface MCPToolResponseApi {
+    /** Formatted tool output for the model. */
+    content: string
+    /** Structured tool output for native widgets. */
+    structured_content?: MCPToolResponseApiStructuredContent
+    /** Whether the tool completed successfully. */
+    success: boolean
+}
+
 export interface DocsSearchRequestApi {
     /** Natural-language description of what to find in the PostHog documentation. Inkeep performs hybrid (semantic + full-text) RAG, so phrase the query the way a user would ask the question. */
     query: string
@@ -592,5 +618,3 @@ export type ConversationsListParams = {
      */
     offset?: number
 }
-
-export type McpToolsCreate200 = { [key: string]: unknown }
