@@ -15,7 +15,8 @@ const QUARANTINE_NUDGE_MIN_INTENTIONAL = 3
 const QUARANTINE_NUDGE_MIN_AUTO = 10
 
 export interface RecentTolerations {
-    intentional: number
+    manual: number
+    agent: number
     auto: number
 }
 
@@ -23,11 +24,12 @@ export function countRecentTolerations(toleratedHashes: ToleratedHashEntryApi[],
     const cutoff = now.subtract(QUARANTINE_NUDGE_WINDOW_DAYS, 'day')
     const recent = toleratedHashes.filter((entry) => dayjs(entry.created_at).isAfter(cutoff))
     return {
-        intentional: recent.filter((entry) => entry.reason === 'human' || entry.reason === 'agent').length,
+        manual: recent.filter((entry) => entry.reason === 'human').length,
+        agent: recent.filter((entry) => entry.reason === 'agent').length,
         auto: recent.filter((entry) => entry.reason === 'auto_threshold').length,
     }
 }
 
 export function shouldSuggestQuarantine(counts: RecentTolerations): boolean {
-    return counts.intentional >= QUARANTINE_NUDGE_MIN_INTENTIONAL || counts.auto >= QUARANTINE_NUDGE_MIN_AUTO
+    return counts.manual + counts.agent >= QUARANTINE_NUDGE_MIN_INTENTIONAL || counts.auto >= QUARANTINE_NUDGE_MIN_AUTO
 }

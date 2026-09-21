@@ -34,9 +34,10 @@ const TOLERATION_REASON_LABELS: Record<string, string> = {
 }
 
 function describeRecentTolerations(counts: RecentTolerations): string {
-    const total = counts.intentional + counts.auto
+    const total = counts.manual + counts.agent + counts.auto
     const parts = [
-        counts.intentional > 0 && `${counts.intentional} manual`,
+        counts.manual > 0 && `${counts.manual} manual`,
+        counts.agent > 0 && `${counts.agent} by an agent`,
         counts.auto > 0 && `${counts.auto} automatic`,
     ].filter(Boolean)
     return `Tolerated ${total} time${total === 1 ? '' : 's'} in the last ${QUARANTINE_NUDGE_WINDOW_DAYS} days (${parts.join(', ')}).`
