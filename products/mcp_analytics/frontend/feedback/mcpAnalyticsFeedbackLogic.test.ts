@@ -109,6 +109,7 @@ describe('mcpAnalyticsFeedbackLogic', () => {
             expect(logic.values.visible).toBe(false)
             jest.advanceTimersByTime(1)
             expect(logic.values.visible).toBe(true)
+            logic.actions.recordImpression()
             expect(posthog.capture).toHaveBeenCalledWith(
                 'survey shown',
                 expect.objectContaining({
@@ -125,6 +126,22 @@ describe('mcpAnalyticsFeedbackLogic', () => {
         }
     )
 
+    it('does not count an offscreen prompt or consume its cooldown', () => {
+        loadSurvey()
+        jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
+        expect(logic.values.visible).toBe(true)
+        expect(logic.values.lastPromptAt).toBe(0)
+        expect(posthog.capture).not.toHaveBeenCalled()
+        const hidden = jest.spyOn(document, 'hidden', 'get').mockReturnValue(true)
+        logic.actions.recordImpression()
+        expect(logic.values.lastPromptAt).toBe(0)
+        hidden.mockReturnValue(false)
+        logic.actions.recordImpression()
+        logic.actions.recordImpression()
+        expect(logic.values.lastPromptAt).toBe(Date.now())
+        expect(jest.mocked(posthog.capture).mock.calls.filter(([event]) => event === 'survey shown')).toHaveLength(1)
+    })
+
     it('keeps the reading delay across flag reloads and uses the latest survey metadata', () => {
         loadSurvey()
         jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS / 2)
@@ -136,6 +153,7 @@ describe('mcpAnalyticsFeedbackLogic', () => {
         flagsLoaded([], {})
         jest.advanceTimersByTime(1)
         expect(logic.values.visible).toBe(true)
+        logic.actions.recordImpression()
         expect(posthog.capture).toHaveBeenCalledWith(
             'survey shown',
             expect.objectContaining({ $survey_name: refreshedSurvey.name })
@@ -212,6 +230,7 @@ describe('mcpAnalyticsFeedbackLogic', () => {
     it('keeps the cooldown across placements after dismissal', () => {
         loadSurvey()
         jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
+        logic.actions.recordImpression()
         logic.actions.dismissPrompt()
         expect(logic.values.visible).toBe(false)
         unmount()
@@ -237,6 +256,51 @@ describe('mcpAnalyticsFeedbackLogic', () => {
         loadSurvey()
         jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
         expect(logic.values.visible).toBe(true)
+    })
+
+    it('shows only one prompt when dashboard and session placements are pending together', () => {
+        loadSurvey()
+        const dashboard = mcpAnalyticsFeedbackLogic({
+            userId: 'example-user',
+            contextKey: 'example-dashboard',
+            isImpersonated: false,
+            prompt: {
+                ...MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT,
+                entryPoint: 'dashboard_review_prompt',
+                tab: 'dashboard',
+            },
+        })
+        const unmountDashboard = dashboard.mount()
+        loadSurvey()
+        jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
+        logic.actions.recordImpression()
+        dashboard.actions.recordImpression()
+        expect([logic.values.visible, dashboard.values.visible].filter(Boolean)).toHaveLength(1)
+        expect(jest.mocked(posthog.capture).mock.calls.filter(([name]) => name === 'survey shown')).toHaveLength(1)
+        unmountDashboard()
+    })
+
+    it('restarts the delay after refreshes and preserves an opened response', () => {
+        loadSurvey()
+        jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS / 2)
+        mcpAnalyticsFeedbackLogic({ ...logic.props, eligible: false })
+        jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
+        expect(logic.values.visible).toBe(false)
+        mcpAnalyticsFeedbackLogic({ ...logic.props, eligible: true })
+        jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS - 1)
+        expect(logic.values.visible).toBe(false)
+        jest.advanceTimersByTime(1)
+        logic.actions.submitResponse('1', false)
+        logic.actions.setDetail('Found an unexpected usage pattern.')
+        const submissionId = logic.values.submissionId
+        mcpAnalyticsFeedbackLogic({ ...logic.props, eligible: false })
+        mcpAnalyticsFeedbackLogic({ ...logic.props, eligible: true })
+        expect(logic.values).toMatchObject({
+            visible: true,
+            answer: '1',
+            detail: 'Found an unexpected usage pattern.',
+            submissionId,
+        })
     })
 
     it('cancels a pending invitation when leaving the session detail', () => {

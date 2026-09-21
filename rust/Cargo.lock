@@ -2810,6 +2810,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "flate2",
+ "lz-str",
  "thiserror 2.0.18",
  "zstd",
 ]
@@ -8821,7 +8822,9 @@ dependencies = [
  "envconfig",
  "futures",
  "lifecycle",
+ "metrics",
  "metrics-exporter-prometheus",
+ "metrics-util",
  "personhog-common",
  "personhog-proto",
  "rand 0.8.5",
