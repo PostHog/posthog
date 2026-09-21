@@ -521,6 +521,8 @@ export class ImageBatcher {
         }
         // A batch whose tail is all skips, or which is nothing but skips, still has to move offsets.
         this.recordOffsets(messages.slice(spanStart))
+        // nowMs is the batch's start. A batch that crosses the interval leaves its tail to the next
+        // poll, and empty polls run this check too, so that is at most one poll timeout later.
         if (this.lastHandOffMs === undefined || nowMs - this.lastHandOffMs >= this.options.flushIntervalMs) {
             this.lastHandOffMs = nowMs
             await this.handOff()

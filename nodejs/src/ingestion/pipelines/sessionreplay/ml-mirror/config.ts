@@ -168,7 +168,7 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_FLUSH_INTERVAL_MS: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGES: number
-    // Real peak memory is about 4x this: the write lane holds one hand-off writing and one queued, and the one being written is copied by Buffer.concat and again by the encryption envelope (MAX_WRITES_IN_FLIGHT in image-batcher.ts).
+    // Real peak memory is about 5x this: the running batch's staged images, one hand-off queued, and one hand-off writing, which is copied by Buffer.concat and again by the encryption envelope (MAX_WRITES_IN_FLIGHT in image-batcher.ts).
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY: number
     /**
@@ -177,7 +177,7 @@ export type MlMirrorConfig = {
      * per entry, of which lru-cache commits about an eighth up front by preallocating its backing
      * arrays. Sized against the 2000M consumer container in
      * https://github.com/PostHog/charts/blob/main/apps/ingestion-sessionreplay-ml-image-scrub/values.yaml,
-     * which also has to hold about 4x MAX_BYTES of scrubbed images while the write lane is full. Start low and raise
+     * which also has to hold about 5x MAX_BYTES of scrubbed images while the write lane is full. Start low and raise
      * it off ml_mirror_ref_cache_capacity_probe_total rather than guessing.
      *
      * 0 disables only this cross-batch cache; duplicates within a poll batch always collapse.
