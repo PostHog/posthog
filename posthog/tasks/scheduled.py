@@ -1011,7 +1011,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     add_periodic_task_with_expiry(
         sender,
-        crontab(minute="*/5"),
+        crontab(minute="7"),
         count_uncompilable_hog_function_filters.s(),
         name="count hog functions with uncompilable filters",
     )
