@@ -212,7 +212,9 @@ export class ImageShardStore {
             new PutObjectCommand({
                 Bucket: this.bucket,
                 Key: shardKey,
-                Body: encryptionKey ? encryptEnvelope(encryptionKey, 'image-shard', shardBody, shardKey) : shardBody,
+                Body: encryptionKey
+                    ? encryptEnvelope(encryptionKey, 'image-shard', shardBody, { ref: shardKey, codec: 'none' })
+                    : shardBody,
                 ContentType: 'application/octet-stream',
             })
         )
@@ -222,7 +224,7 @@ export class ImageShardStore {
                     Bucket: this.bucket,
                     Key: `${prefix}/index/${stamp}.${encryptionKey ? 'encrypted' : 'parquet'}`,
                     Body: encryptionKey
-                        ? encryptEnvelope(encryptionKey, 'image-index', indexBody, shardKey)
+                        ? encryptEnvelope(encryptionKey, 'image-index', indexBody, { ref: shardKey, codec: 'none' })
                         : indexBody,
                     ContentType: encryptionKey ? 'application/octet-stream' : 'application/vnd.apache.parquet',
                 })
@@ -248,7 +250,7 @@ export class ImageShardStore {
                                     Buffer.from(
                                         JSON.stringify({ shard: shardKey, offset: row.offset, length: row.length })
                                     ),
-                                    lookupKey
+                                    { ref: lookupKey, codec: 'none' }
                                 ),
                                 ContentType: 'application/octet-stream',
                             }),
@@ -292,7 +294,7 @@ export class ImageShardStore {
                         Bucket: this.bucket,
                         Key: key,
                         Body: encryptionKey
-                            ? encryptEnvelope(encryptionKey, 'image-url', image.bytes, key)
+                            ? encryptEnvelope(encryptionKey, 'image-url', image.bytes, { ref: key, codec: 'none' })
                             : image.bytes,
                         ContentType: 'application/octet-stream',
                         Metadata: {

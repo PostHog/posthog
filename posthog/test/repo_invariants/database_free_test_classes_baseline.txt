@@ -346,7 +346,6 @@ products/skills/backend/api/test/test_community_skills.py::TestSkillTemplateRend
 products/slack_app/backend/tests/test_followup_forwarding.py::TestEventLevelDedupe
 products/slack_app/backend/tests/test_fork_thread.py::TestForkMenuBlock
 products/slack_app/backend/tests/test_posthog_code_interactivity.py::TestExtractAlertSnoozeHints
-products/slack_app/backend/tests/test_validate_slack_request.py::TestValidateSlackRequest
 products/slack_app/backend/tests/test_workspace_claims.py::TestDoesOtherRegionClaimWorkspace
 products/streamlit_apps/backend/tests/test_app_runtime.py::TestGetOtelLogsConfig
 products/streamlit_apps/backend/tests/test_app_runtime.py::TestSandboxCallbackUrl

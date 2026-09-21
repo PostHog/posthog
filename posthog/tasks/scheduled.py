@@ -46,7 +46,6 @@ from posthog.tasks.tasks import (
     clickhouse_mutation_count,
     clickhouse_part_count,
     clickhouse_row_count,
-    clickhouse_send_license_usage,
     delete_expired_delegation_invites,
     delete_expired_exported_assets,
     fail_stuck_video_exports,
@@ -922,17 +921,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     if settings.EE_AVAILABLE:
-        sender.add_periodic_task(
-            # The minute differs between installations so that they do not all call
-            # license.posthog.com in the same minute past midnight.
-            crontab(hour="0", minute=instance_spread_minute("send license usage", 40)),
-            clickhouse_send_license_usage.s(),
-        )
-        sender.add_periodic_task(
-            crontab(hour="4", minute=instance_spread_minute("send license usage retry", 40)),
-            clickhouse_send_license_usage.s(),
-        )  # again a few hours later just to make sure
-
         materialize_columns_crontab = get_crontab(settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON)
 
         if materialize_columns_crontab:
