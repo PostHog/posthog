@@ -2350,6 +2350,8 @@ class TestComputationExecutorExecute(BaseTest):
 
         assert result.ready is True
         assert fresh_job.id in result.job_ids
+        # Coverage pre-existed, so a quorum-skipping caller may read it in-request.
+        assert result.freshly_built is False
 
     def test_returned_jobs_cover_range_when_overlap_filter_evicts_broad_job(self):
         query_info, query_hash = self._make_query_info()
@@ -3469,6 +3471,18 @@ class TestInsertSettings(BaseTest):
         assert settings["max_execution_time"] == HOGQL_INCREASED_MAX_EXECUTION_TIME
         assert "readonly" not in settings
 
+    def test_background_builder_skips_replica_quorum(self):
+        # TEST/DEBUG already force the quorum constant to 0, so pin the production
+        # value to make the branch observable: without it a downed or
+        # stale-registered replica fails every background build with
+        # TOO_FEW_LIVE_REPLICAS until the cluster is repaired.
+        with patch(
+            f"products.analytics_platform.backend.lazy_computation.lazy_computation_executor.PREAGGREGATION_INSERT_QUORUM",
+            "auto",
+        ):
+            assert _get_insert_settings(self.team.pk)["insert_quorum"] == "auto"
+            assert _get_insert_settings(self.team.pk, read_after_write=False)["insert_quorum"] == 0
+
 
 class TestInsertSettingsAppliedToInserts(BaseTest):
     INSERT_QUERY = """
@@ -3483,23 +3497,76 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
         GROUP BY time_window_start
     """
 
-    def test_manual_insert_path_passes_insert_settings_to_clickhouse(self):
-        with patch(
-            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute"
-        ) as mock_execute:
+    @parameterized.expand(
+        [
+            ("default_read_after_write", {}, "auto"),
+            ("background_no_quorum", {"read_after_write": False}, 0),
+        ]
+    )
+    def test_manual_insert_path_passes_insert_settings_to_clickhouse(self, _name, extra_kwargs, expected_quorum):
+        # The quorum constant is patched to its production value because TEST forces
+        # it to 0, which would make both parameter rows assert the same settings.
+        with (
+            patch(
+                f"products.analytics_platform.backend.lazy_computation.lazy_computation_executor.PREAGGREGATION_INSERT_QUORUM",
+                "auto",
+            ),
+            patch(
+                f"products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute"
+            ) as mock_execute,
+        ):
             result = ensure_precomputed(
                 team=self.team,
                 insert_query=self.INSERT_QUERY,
                 time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
                 time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                **extra_kwargs,
             )
+            expected_settings = _get_insert_settings(self.team.pk, **extra_kwargs)
 
         assert result.ready is True
         # Bind the assertion to the INSERT specifically, so the test doesn't break (or silently
         # check the wrong call) if the executor flow ever issues other queries around the insert.
         insert_calls = [c for c in mock_execute.call_args_list if c.args[0].lstrip().startswith("INSERT")]
         assert len(insert_calls) == 1  # one missing range -> one INSERT
-        assert insert_calls[0].kwargs["settings"] == _get_insert_settings(self.team.pk)
+        assert insert_calls[0].kwargs["settings"] == expected_settings
+        assert insert_calls[0].kwargs["settings"]["insert_quorum"] == expected_quorum
+        # The coverage landed in this call, so quorum-skipping callers must not read it yet.
+        assert result.freshly_built is True
+
+    @parameterized.expand(
+        [
+            ("quorum_skipped_waits_for_replication", {"read_after_write": False}, True),
+            ("quorum_insert_needs_no_wait", {}, False),
+        ]
+    )
+    def test_settle_wait_after_quorumless_build(self, _name, extra_kwargs, expect_sleep):
+        # Without the wait, the builder's immediate read-back can land on a replica the
+        # quorum-less parts have not reached and cache a partial result for the TTL.
+        with (
+            patch(
+                f"products.analytics_platform.backend.lazy_computation.lazy_computation_executor.PREAGGREGATION_REPLICATION_SETTLE_SECONDS",
+                1.0,
+            ),
+            patch(
+                f"products.analytics_platform.backend.lazy_computation.lazy_computation_executor.time.sleep"
+            ) as mock_sleep,
+            patch(f"products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute"),
+        ):
+            result = ensure_precomputed(
+                team=self.team,
+                insert_query=self.INSERT_QUERY,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                **extra_kwargs,
+            )
+
+        assert result.ready is True
+        assert result.freshly_built is True
+        if expect_sleep:
+            mock_sleep.assert_called_once_with(1.0)
+        else:
+            mock_sleep.assert_not_called()
 
     def test_ast_insert_path_passes_insert_settings_to_clickhouse(self):
         job = PreaggregationJob.objects.create(

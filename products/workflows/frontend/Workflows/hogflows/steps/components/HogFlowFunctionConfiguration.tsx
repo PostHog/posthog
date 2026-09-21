@@ -226,6 +226,9 @@ export function HogFlowFunctionConfiguration({
 
     const renderInputs = (schema: typeof inputsSchema): JSX.Element => (
         <CyclotronJobInputs
+            // The email step is just its message, so the preview takes whatever height the panel
+            // has left rather than sitting above a blank gap
+            className={isEmailStep ? 'flex-1' : undefined}
             errors={errors}
             warnings={warnings}
             emailFieldErrors={emailFieldErrors}

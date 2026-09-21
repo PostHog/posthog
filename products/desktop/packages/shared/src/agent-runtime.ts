@@ -1,5 +1,5 @@
-export const AGENT_RUNTIMES = ["acp", "pi"] as const;
+import type { Runtime } from "./model-catalog";
 
-export type AgentRuntime = (typeof AGENT_RUNTIMES)[number];
+export type AgentRuntime = Runtime;
 
 export const PI_RUNTIME: AgentRuntime = "pi";

@@ -5938,7 +5938,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config."
+            "description": "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config. When minimum_detectable_effect is omitted, the project's default MDE is stored instead, if the project has one."
         },
         "stats_config": {},
         "tags": {

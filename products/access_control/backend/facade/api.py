@@ -23,7 +23,8 @@ from uuid import UUID
 
 from django.shortcuts import get_object_or_404
 
-from posthog.models import OrganizationMembership, PropertyDefinition, Team
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, PropertyDefinition, Team
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 
 from products.access_control.backend.models.role import Role
@@ -143,6 +144,22 @@ def team_has_property_access_rules(*, team_id: int) -> bool:
     if not is_property_access_control_enabled(team_id=team_id):
         return False
     return PropertyAccessControl.objects.filter(team_id=team_id, property_definition__isnull=False).exists()
+
+
+def user_organizations_use_access_controls(*, user_id: int) -> bool:
+    """Whether access rules can narrow what the user reaches in one of their organizations.
+
+    True only when an organization the user belongs to has the access-control feature AND
+    at least one rule exists in one of its projects.
+    """
+    entitled = [
+        org.id
+        for org in Organization.objects.filter(members=user_id)
+        if org.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+    ]
+    if not entitled:
+        return False
+    return AccessControl.objects.filter(team__organization_id__in=entitled).exists()
 
 
 # --- Write API ---
