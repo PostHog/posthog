@@ -11,6 +11,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from functools import reduce
 from operator import or_
+from typing import Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -98,6 +99,7 @@ logger = structlog.get_logger(__name__)
 GENERATED_KNOWLEDGE_ORIGIN = "support_ticket"
 GENERATED_SOURCE_DISABLED_MESSAGE = "Generated source is disabled."
 SUPERSEDED_SOURCE_MESSAGE = "This source was replaced by a newer answer from a later support ticket."
+EVIDENCE_REVISION_AT_KEY = "evidence_revision_at"
 GENERATED_SOURCE_MULTIPLE_DOCUMENTS_MESSAGE = (
     "This learned source has more than one document, so it cannot be edited. "
     "Delete it, then let PostHog learn from the ticket again."
@@ -161,6 +163,8 @@ class CreateGeneratedKnowledgeDocument:
     analysis_version: str
     title: str
     content: str
+    # When the reply this answer comes from was last edited. Recency compares two of these.
+    evidence_revision_at: datetime.datetime
 
 
 @frozen
@@ -184,10 +188,24 @@ class _LearnedSourceCreateStatus:
     error_message: str
 
 
+# After "already_superseded" or "source_has_other_documents" the caller must drop its replacement,
+# or search keeps two answers to the same question.
+SupersessionOutcome = Literal[
+    "applied",
+    "already_superseded",
+    "source_has_other_documents",
+    "nothing_to_supersede",
+]
+
+
 @frozen
 class KnowledgeSourceSupersession:
-    applied: bool
+    outcome: SupersessionOutcome
     previous_ticket_number: int | None = None
+
+    @property
+    def applied(self) -> bool:
+        return self.outcome == "applied"
 
 
 class EmptyContentError(Exception):
@@ -678,6 +696,9 @@ def set_generated_knowledge_source_ready(team_id: int, *, ready: bool) -> bool:
         if not sources.exists():
             return False
         now = timezone.now()
+        # A superseded source keeps its own message either way, so turning learning back on
+        # does not put a replaced answer into search.
+        sources = sources.exclude(error_message=SUPERSEDED_SOURCE_MESSAGE)
         if ready:
             sources.update(status=SourceStatus.READY, error_message="", updated_at=now)
         else:
@@ -694,39 +715,64 @@ def supersede_knowledge_source(
     *,
     team_id: int,
     source_id: UUID,
+    document_id: UUID,
     superseded_by_ticket_id: UUID,
     superseded_by_ticket_number: int,
     superseded_by_source_id: UUID | None = None,
 ) -> KnowledgeSourceSupersession:
     """Soft-disable one source so search stops returning it. Content stays so the change can be reversed."""
     if superseded_by_source_id is not None and superseded_by_source_id == source_id:
-        return KnowledgeSourceSupersession(applied=False)
-    try:
-        source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
-    except KnowledgeSource.DoesNotExist:
-        return KnowledgeSourceSupersession(applied=False)
-
-    document = KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).order_by("created_at").first()
-    raw_ticket_number = (document.metadata or {}).get("ticket_number") if document is not None else None
-    previous_ticket_number = raw_ticket_number if isinstance(raw_ticket_number, int) else None
-    if _is_superseded_source(source) and source.status == SourceStatus.ERROR:
-        return KnowledgeSourceSupersession(applied=True, previous_ticket_number=previous_ticket_number)
+        return KnowledgeSourceSupersession(outcome="nothing_to_supersede")
 
     with transaction.atomic():
-        if document is not None:
-            provenance = {
-                **(document.metadata or {}),
-                "superseded_by_ticket_id": str(superseded_by_ticket_id),
-                "superseded_by_ticket_number": superseded_by_ticket_number,
-            }
-            if superseded_by_source_id is not None:
-                provenance["superseded_by_source_id"] = str(superseded_by_source_id)
-            document.metadata = provenance
-            document.save(update_fields=["metadata", "updated_at"])
+        try:
+            # The row lock serializes two replies that reach the same source, so only one replaces it.
+            source = KnowledgeSource.objects.select_for_update().get(id=source_id, team_id=team_id)
+        except KnowledgeSource.DoesNotExist:
+            return KnowledgeSourceSupersession(outcome="nothing_to_supersede")
+
+        documents = list(
+            KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).order_by("created_at")[:2]
+        )
+        if [existing.id for existing in documents] != [document_id]:
+            # Disabling the source would take every other document in it out of search too.
+            return KnowledgeSourceSupersession(outcome="source_has_other_documents")
+        document = documents[0]
+        raw_ticket_number = (document.metadata or {}).get("ticket_number")
+        previous_ticket_number = raw_ticket_number if isinstance(raw_ticket_number, int) else None
+        if _is_superseded_source(source):
+            return KnowledgeSourceSupersession(
+                outcome="already_superseded", previous_ticket_number=previous_ticket_number
+            )
+
+        provenance = {
+            **(document.metadata or {}),
+            "superseded_by_ticket_id": str(superseded_by_ticket_id),
+            "superseded_by_ticket_number": superseded_by_ticket_number,
+        }
+        if superseded_by_source_id is not None:
+            provenance["superseded_by_source_id"] = str(superseded_by_source_id)
+        document.metadata = provenance
+        document.save(update_fields=["metadata", "updated_at"])
         source.status = SourceStatus.ERROR
         source.error_message = SUPERSEDED_SOURCE_MESSAGE
         source.save(update_fields=["status", "error_message", "updated_at"])
-    return KnowledgeSourceSupersession(applied=True, previous_ticket_number=previous_ticket_number)
+    return KnowledgeSourceSupersession(outcome="applied", previous_ticket_number=previous_ticket_number)
+
+
+@with_team_scope(canonical=True)
+def get_knowledge_fact_recorded_at(*, team_id: int, document_id: UUID) -> datetime.datetime | None:
+    """When the answer in this document was written, so two facts can be compared by age."""
+    document = KnowledgeDocument.objects.filter(team_id=team_id, id=document_id).only("metadata", "created_at").first()
+    if document is None:
+        return None
+    raw_recorded_at = (document.metadata or {}).get(EVIDENCE_REVISION_AT_KEY)
+    if isinstance(raw_recorded_at, str):
+        try:
+            return datetime.datetime.fromisoformat(raw_recorded_at)
+        except ValueError:
+            pass
+    return document.created_at
 
 
 @transaction.atomic
@@ -800,6 +846,7 @@ def _create_generated_knowledge_document(
             "source_team_id": document_input.source_team_id,
             "resolution_comment_id": str(document_input.resolution_comment_id),
             "analysis_version": validated_input.analysis_version,
+            EVIDENCE_REVISION_AT_KEY: document_input.evidence_revision_at.isoformat(),
         },
         content_hash=sha256_of(validated_input.content),
         safety_verdict=SafetyVerdict.UNKNOWN,

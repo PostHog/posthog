@@ -76,6 +76,7 @@ PostHog does not change a source that already exists when it analyzes the same t
 
 If a later reply contradicts an existing source, PostHog keeps the newer answer and disables the older source so it stops being used in replies.
 The older source and its content are kept, and the change is recorded in the activity log.
+Only a source with one document is replaced this way, so a crawled site with many pages stays as it is.
 
 A project can have up to 200 learned sources.
 After that, new answers are not added until you delete some.

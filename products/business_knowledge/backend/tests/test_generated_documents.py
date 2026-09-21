@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -20,6 +21,8 @@ from products.business_knowledge.backend.models import (
     SourceType,
 )
 
+_EVIDENCE_REVISION_AT = datetime(2026, 1, 1, tzinfo=UTC)
+
 
 class TestGeneratedKnowledgeDocuments(BaseTest):
     def _input(
@@ -33,6 +36,7 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         analysis_version: str = "post_resolution_v1",
         title: str = "Refund policy",
         content: str = "Refunds are available within 30 days.",
+        evidence_revision_at: datetime = _EVIDENCE_REVISION_AT,
     ) -> logic.CreateGeneratedKnowledgeDocument:
         return logic.CreateGeneratedKnowledgeDocument(
             team_id=team_id or self.team.id,
@@ -44,6 +48,7 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
             analysis_version=analysis_version,
             title=title,
             content=content,
+            evidence_revision_at=evidence_revision_at,
         )
 
     def test_creates_generated_source_document_and_chunks(self) -> None:
@@ -62,6 +67,7 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
             "source_team_id": input.source_team_id,
             "resolution_comment_id": str(input.resolution_comment_id),
             "analysis_version": input.analysis_version,
+            logic.EVIDENCE_REVISION_AT_KEY: input.evidence_revision_at.isoformat(),
         }
 
         assert result.created is True
@@ -489,6 +495,7 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
             supersession = logic.supersede_knowledge_source(
                 team_id=self.team.id,
                 source_id=result.source_id,
+                document_id=document.id,
                 superseded_by_ticket_id=replacement_ticket_id,
                 superseded_by_ticket_number=99,
                 superseded_by_source_id=replacement_id,
@@ -504,21 +511,23 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         assert supersession.previous_ticket_number == 42
         assert source.status == SourceStatus.ERROR
         assert source.error_message == logic.SUPERSEDED_SOURCE_MESSAGE
+        provenance = document.metadata or {}
         assert document.content == "Refunds are available within 30 days."
-        assert document.metadata["superseded_by_ticket_id"] == str(replacement_ticket_id)
-        assert document.metadata["superseded_by_ticket_number"] == 99
-        assert document.metadata["superseded_by_source_id"] == str(replacement_id)
+        assert provenance["superseded_by_ticket_id"] == str(replacement_ticket_id)
+        assert provenance["superseded_by_ticket_number"] == 99
+        assert provenance["superseded_by_source_id"] == str(replacement_id)
         assert logic.search_knowledge(self.team.id, "refunds") == []
-        assert activity.detail["trigger"]["job_type"] == "business-knowledge-learn"
+        assert (activity.detail or {})["trigger"]["job_type"] == "business-knowledge-learn"
         assert theirs_source.status == SourceStatus.READY
         assert (
             logic.supersede_knowledge_source(
                 team_id=self.team.id,
                 source_id=theirs.source_id,
+                document_id=theirs.id,
                 superseded_by_ticket_id=replacement_ticket_id,
                 superseded_by_ticket_number=99,
-            ).applied
-            is False
+            ).outcome
+            == "nothing_to_supersede"
         )
 
         logic.update_text_source(
@@ -548,6 +557,7 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         repeat = logic.supersede_knowledge_source(
             team_id=self.team.id,
             source_id=result.source_id,
+            document_id=document.id,
             superseded_by_ticket_id=replacement_ticket_id,
             superseded_by_ticket_number=99,
             superseded_by_source_id=replacement_id,
@@ -559,11 +569,45 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         already = logic.supersede_knowledge_source(
             team_id=self.team.id,
             source_id=result.source_id,
+            document_id=document.id,
             superseded_by_ticket_id=replacement_ticket_id,
             superseded_by_ticket_number=99,
             superseded_by_source_id=replacement_id,
         )
-        assert already.applied is True
+        assert already.outcome == "already_superseded"
+        assert already.applied is False
+
+        logic.set_generated_knowledge_source_ready(self.team.id, ready=False)
+        logic.set_generated_knowledge_source_ready(self.team.id, ready=True)
+        source.refresh_from_db()
+        assert source.error_message == logic.SUPERSEDED_SOURCE_MESSAGE
+        assert logic.search_knowledge(self.team.id, "refunds") == []
+
+    def test_supersede_leaves_a_source_that_holds_other_documents(self) -> None:
+        result = logic.create_generated_knowledge_document(self._input())
+        document = KnowledgeDocument.objects.unscoped().get(id=result.id)
+        with team_scope(self.team.id, canonical=True):
+            KnowledgeDocument.objects.create(
+                team_id=self.team.id,
+                source_id=result.source_id,
+                stable_id="second-page",
+                title="Shipping policy",
+                content="Orders ship within two days.",
+                safety_verdict=SafetyVerdict.SAFE,
+            )
+
+        supersession = logic.supersede_knowledge_source(
+            team_id=self.team.id,
+            source_id=result.source_id,
+            document_id=document.id,
+            superseded_by_ticket_id=uuid.uuid4(),
+            superseded_by_ticket_number=99,
+        )
+
+        source = KnowledgeSource.objects.unscoped().get(id=result.source_id)
+        assert supersession.outcome == "source_has_other_documents"
+        assert source.status == SourceStatus.READY
+        assert source.error_message == ""
 
     def test_learned_source_cap_blocks_new_identities_not_retries(self) -> None:
         first = logic.create_generated_knowledge_document(self._input())

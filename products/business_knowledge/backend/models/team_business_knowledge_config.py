@@ -26,7 +26,6 @@ class TeamBusinessKnowledgeConfig(models.Model):
 
     class Meta:
         app_label = "business_knowledge"
-        db_table = "posthog_business_knowledge_teambusinessknowledgeconfig"
 
 
 register_team_extension_signal(TeamBusinessKnowledgeConfig, logger=logger)

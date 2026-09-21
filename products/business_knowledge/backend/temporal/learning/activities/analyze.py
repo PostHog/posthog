@@ -12,6 +12,7 @@ from temporalio import activity
 from temporalio.common import MetricMeter
 
 from posthog.api.embedding_worker import generate_embedding
+from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import Trigger
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.organization import OrganizationMembership
@@ -105,6 +106,10 @@ class LearningAnalysisError(RuntimeError):
     def __init__(self, code: str) -> None:
         super().__init__(code)
         self.code = code
+
+
+class _SupersessionUnavailable(Exception):
+    """Another reply already replaced the conflicting source, or the source holds other documents."""
 
 
 def _metric_meter() -> MetricMeter:
@@ -314,16 +319,20 @@ def _conflicting_search_result(
     return results[decision.conflicting_index]
 
 
+@frozen
+class _ConflictingKnowledge:
+    source_id: UUID
+    document_id: UUID
+
+
 def _is_confirmed_contradiction(verdict: ContradictionVerdict) -> bool:
     return verdict.is_contradiction and verdict.confidence >= LEARNING_CONTRADICTION_CONFIDENCE_THRESHOLD
 
 
-def _is_newer_than_source(revision_at: datetime, source_created_at: datetime) -> bool:
+def _is_newer_than_recorded_fact(revision_at: datetime, recorded_at: datetime) -> bool:
     comparable_revision = revision_at if revision_at.tzinfo is not None else revision_at.replace(tzinfo=UTC)
-    comparable_created = (
-        source_created_at if source_created_at.tzinfo is not None else source_created_at.replace(tzinfo=UTC)
-    )
-    return comparable_revision > comparable_created
+    comparable_recorded = recorded_at if recorded_at.tzinfo is not None else recorded_at.replace(tzinfo=UTC)
+    return comparable_revision > comparable_recorded
 
 
 def _promotion_rejection(decision: PromotionDecision) -> RejectionCode:
@@ -497,7 +506,7 @@ def _publish_candidate(
     evidence: EvidenceRef,
     candidate: LearningCandidate,
     *,
-    superseded_source_id: UUID | None = None,
+    superseded: _ConflictingKnowledge | None = None,
 ) -> AnalyzeLearningEvidenceOutput:
     try:
         with transaction.atomic():
@@ -512,28 +521,32 @@ def _publish_candidate(
                     analysis_version=ANALYSIS_VERSION,
                     title=candidate.canonical_topic,
                     content=candidate.canonical_answer,
+                    evidence_revision_at=evidence.revision_at,
                 )
             )
             did_supersede = False
             superseded_ticket_number = None
-            if superseded_source_id is not None:
+            if superseded is not None:
                 with ActivityTriggerContext(
                     Trigger(
                         job_type="business-knowledge-learn",
                         job_id=str(run.id),
                         payload={
-                            "superseded_source_id": str(superseded_source_id),
+                            "superseded_source_id": str(superseded.source_id),
                             "ticket_number": evidence.ticket_number,
                         },
                     )
                 ):
                     supersession = logic.supersede_knowledge_source(
                         team_id=run.team_id,
-                        source_id=superseded_source_id,
+                        source_id=superseded.source_id,
+                        document_id=superseded.document_id,
                         superseded_by_ticket_id=evidence.ticket_id,
                         superseded_by_ticket_number=evidence.ticket_number,
                         superseded_by_source_id=published.source_id,
                     )
+                if supersession.outcome in {"already_superseded", "source_has_other_documents"}:
+                    raise _SupersessionUnavailable
                 did_supersede = supersession.applied
                 superseded_ticket_number = supersession.previous_ticket_number
             result: LearningResult = "superseded" if did_supersede else "knowledge_created"
@@ -542,6 +555,9 @@ def _publish_candidate(
                 result=result,
                 knowledge_document_id=published.id,
             )
+    except _SupersessionUnavailable:
+        # The transaction is rolled back, so the candidate is not published and search keeps one answer.
+        return _finish_without_knowledge(run, rejection_code="already_known")
     except logic.LearnedSourceCapReached:
         return _finish_without_knowledge(run, rejection_code="learned_cap_reached")
     except Exception:
@@ -554,7 +570,7 @@ def _publish_candidate(
             run_id=str(run.id),
             provider=run.provider,
             evidence_key=run.evidence_key,
-            superseded_source_id=str(superseded_source_id),
+            superseded_source_id=str(superseded.source_id) if superseded is not None else None,
             published_source_id=str(published.source_id),
             ticket_number=evidence.ticket_number,
             superseded_ticket_number=superseded_ticket_number,
@@ -632,10 +648,10 @@ def _analyze(run: KnowledgeLearningRun, input: AnalyzeLearningEvidenceInput) -> 
     if conflicting is not None:
         confirmation = _confirm_contradiction(run.team, user, extracted, conflicting)
         if _is_confirmed_contradiction(confirmation):
-            conflicting_source = logic.get_for_team(conflicting.source_id, run.team_id)
-            if conflicting_source is None:
+            recorded_at = logic.get_knowledge_fact_recorded_at(team_id=run.team_id, document_id=conflicting.document_id)
+            if recorded_at is None:
                 return _finish_without_knowledge(run, rejection_code="already_known")
-            if not _is_newer_than_source(input.evidence.revision_at, conflicting_source.created_at):
+            if not _is_newer_than_recorded_fact(input.evidence.revision_at, recorded_at):
                 return _finish_without_knowledge(run, rejection_code="stale_candidate")
             gate_rejection = _contradiction_gate_rejection(decision, extracted, confirmation)
             if gate_rejection != "none":
@@ -657,7 +673,7 @@ def _analyze(run: KnowledgeLearningRun, input: AnalyzeLearningEvidenceInput) -> 
                 run,
                 input.evidence,
                 candidate,
-                superseded_source_id=conflicting.source_id,
+                superseded=_ConflictingKnowledge(source_id=conflicting.source_id, document_id=conflicting.document_id),
             )
         return _finish_without_knowledge(run, rejection_code="already_known")
     rejection_code = _promotion_rejection(decision)

@@ -57,7 +57,6 @@ class KnowledgeLearningRun(TeamScopedRootMixin, UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = "posthog_business_knowledge_knowledgelearningrun"
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "provider", "evidence_key", "analysis_version"],

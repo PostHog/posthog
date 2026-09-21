@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID
 
@@ -41,6 +41,7 @@ from products.business_knowledge.backend.temporal.learning.schemas import (
 _TICKET_ID = UUID("10000000-0000-4000-8000-000000000001")
 _COMMENT_ID = UUID("20000000-0000-4000-8000-000000000002")
 _MODULE = "products.business_knowledge.backend.temporal.learning.activities.analyze"
+_REVISION_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 class _Provider:
@@ -100,7 +101,7 @@ def _evidence(*, ticket_number: int = 42) -> EvidenceRef:
         ticket_id=_TICKET_ID,
         ticket_number=ticket_number,
         resolution_comment_id=_COMMENT_ID,
-        revision_at=datetime(2026, 1, 1, tzinfo=UTC),
+        revision_at=_REVISION_AT,
     )
 
 
@@ -141,12 +142,13 @@ def _contradiction(**overrides: object) -> ContradictionVerdict:
 
 
 def _existing_result(source: KnowledgeSource, content: str) -> logic.KnowledgeSearchResult:
+    document = KnowledgeDocument.objects.unscoped().filter(source_id=source.id).order_by("created_at").first()
     return logic.KnowledgeSearchResult(
         chunk_id=UUID("30000000-0000-4000-8000-000000000003"),
         source_id=source.id,
         source_name=source.name,
         source_type=source.source_type,
-        document_id=UUID("50000000-0000-4000-8000-000000000005"),
+        document_id=document.id if document is not None else UUID("50000000-0000-4000-8000-000000000005"),
         document_title=source.name,
         heading_path="",
         ordinal=0,
@@ -541,18 +543,19 @@ class TestLearningAnalyzer:
         publish.assert_called_once()
 
     @pytest.mark.parametrize(
-        "case,source_created_at,confirm_contradiction,expected_result,expected_code",
+        "case,confirm_contradiction,expected_result,expected_code",
         [
-            ("newer", datetime(2025, 6, 1, tzinfo=UTC), True, "superseded", "none"),
-            ("stale", datetime(2026, 6, 1, tzinfo=UTC), True, "no_knowledge", "stale_candidate"),
-            ("denied", datetime(2025, 6, 1, tzinfo=UTC), False, "no_knowledge", "already_known"),
+            ("newer", True, "superseded", "none"),
+            ("stale", True, "no_knowledge", "stale_candidate"),
+            ("denied", False, "no_knowledge", "already_known"),
+            ("backfilled_row", True, "superseded", "none"),
+            ("already_superseded", True, "no_knowledge", "already_known"),
         ],
     )
     def test_confirmed_contradiction_keeps_the_newest_fact(
         self,
         team: Team,
         case: str,
-        source_created_at: datetime,
         confirm_contradiction: bool,
         expected_result: str,
         expected_code: str,
@@ -567,7 +570,23 @@ class TestLearningAnalyzer:
             text=old_content,
         )
         old_source_id = old_source.id
-        KnowledgeSource.objects.unscoped().filter(id=old_source_id).update(created_at=source_created_at)
+        old_document = KnowledgeDocument.objects.unscoped().get(source_id=old_source_id)
+        recorded_at = _REVISION_AT + timedelta(days=30) if case == "stale" else _REVISION_AT - timedelta(days=30)
+        KnowledgeDocument.objects.unscoped().filter(id=old_document.id).update(created_at=recorded_at)
+        if case == "backfilled_row":
+            # The row was written after the incoming reply, but the answer in it is older.
+            KnowledgeDocument.objects.unscoped().filter(id=old_document.id).update(
+                created_at=_REVISION_AT + timedelta(days=30),
+                metadata={logic.EVIDENCE_REVISION_AT_KEY: recorded_at.isoformat()},
+            )
+        if case == "already_superseded":
+            logic.supersede_knowledge_source(
+                team_id=team.id,
+                source_id=old_source_id,
+                document_id=old_document.id,
+                superseded_by_ticket_id=UUID("10000000-0000-4000-8000-000000000009"),
+                superseded_by_ticket_number=7,
+            )
         search_result = _existing_result(old_source, old_content)
 
         with (
@@ -593,7 +612,8 @@ class TestLearningAnalyzer:
         assert result.rejection_code == expected_code
         assert invoke.call_args_list[3].kwargs["stage"] == "contradiction"
         outcomes = [call.args[0] for call in increment.call_args_list]
-        if case == "newer":
+        if expected_result == "superseded":
+            assert result.knowledge_document_id is not None
             document = KnowledgeDocument.objects.unscoped().get(id=result.knowledge_document_id)
             published_source = KnowledgeSource.objects.unscoped().get(id=document.source_id)
             assert run.result == LearningRunResult.SUPERSEDED
@@ -603,6 +623,12 @@ class TestLearningAnalyzer:
             assert old_source.id != published_source.id
             assert KnowledgeDocument.objects.unscoped().get(source_id=old_source.id).content == old_content
             assert "superseded" in outcomes
+        elif case == "already_superseded":
+            # Another reply won the race, so this one must not leave a second answer in search.
+            assert run.result == LearningRunResult.NO_KNOWLEDGE
+            assert result.knowledge_document_id is None
+            assert KnowledgeSource.objects.unscoped().filter(team_id=team.id, is_generated=True).count() == 0
+            assert "rejected_already_known" in outcomes
         else:
             assert run.result == LearningRunResult.NO_KNOWLEDGE
             assert result.knowledge_document_id is None
