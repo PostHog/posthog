@@ -23,9 +23,9 @@ interface AcpFrame {
 
 interface StreamMock {
     // 'body' delivers the frames then EOFs (a clean-EOF live drop); 'hang' never responds so the SSE open
-    // stalls short of `sseOpened` — used when a different signal (terminal status, exhausted history) should
+    // stalls short of `sseOpened` — used when a different signal (terminal status) should
     // drive the surface state without the reconnect loop flapping.
-    mode: 'body' | 'hang'
+    mode: 'body' | 'hang' | 'open'
     body?: string
 }
 
@@ -46,7 +46,7 @@ function agentMessageFrame(messageId: string, text: string): AcpFrame {
 }
 
 // A persisted `_posthog/error` frame — the synthetic backend/agent error the run log carries; `foldLogToThread`
-// folds it into an inline error card titled "Agent error".
+// folds it into an inline error card titled "Run stopped".
 function posthogErrorFrame(message: string): AcpFrame {
     return { type: 'notification', notification: { method: '_posthog/error', params: { message } } }
 }
@@ -132,8 +132,26 @@ async function routeTasksApi(page: Page, mock: TasksApiMock): Promise<void> {
         (route) => route.fulfill({ status: mock.logs.status, contentType: 'application/jsonl', body: mock.logs.body })
     )
 
-    if (mock.stream.mode === 'hang') {
-        // Leave the request pending forever; the bootstrap aborts it once the history retries exhaust.
+    if (mock.stream.mode === 'open') {
+        await page.addInitScript((streamPattern) => {
+            const originalFetch = window.fetch.bind(window)
+            window.fetch = async (input, init): Promise<Response> => {
+                const url = input instanceof Request ? input.url : input.toString()
+                if (!new RegExp(streamPattern).test(new URL(url, window.location.href).pathname)) {
+                    return originalFetch(input, init)
+                }
+                const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined)
+                return new Response(
+                    new ReadableStream<Uint8Array>({
+                        start(controller): void {
+                            signal?.addEventListener('abort', () => controller.error(signal.reason), { once: true })
+                        },
+                    }),
+                    { headers: { 'Content-Type': 'text/event-stream' } }
+                )
+            }
+        }, streamRe.source)
+    } else if (mock.stream.mode === 'hang') {
         await page.route(
             (url) => streamRe.test(url.pathname),
             () => new Promise<void>(() => {})
@@ -200,7 +218,7 @@ test.describe('Task run surface', () => {
     })
 
     test('terminal replay surfaces the agent error inline', async ({ page }) => {
-        // Regression: a terminal run's persisted `_posthog/error` frame must fold into the inline "Agent error"
+        // Regression: a terminal run's persisted `_posthog/error` frame must fold into the inline "Run stopped"
         // card on replay — not be dropped, and not depend on a live SSE (a terminal run never opens one).
         await routeTasksApi(page, {
             runStatus: 'completed',
@@ -216,7 +234,7 @@ test.describe('Task run surface', () => {
 
         await openRunDeepLink(page, workspace!.team_id)
 
-        await expect(page.getByText('Agent error')).toBeVisible({ timeout: 20000 })
+        await expect(page.getByText('Run stopped')).toBeVisible({ timeout: 20000 })
     })
 
     test('refresh restores the startup queue as a draft without sending it when the agent becomes ready', async ({
@@ -580,7 +598,7 @@ test.describe('Task run surface', () => {
         await expect(page.getByText('Continue with the next step.', { exact: true })).toHaveCount(1)
         await expect(page.getByText('Setting up sandbox', { exact: false })).toBeVisible()
         await expect(composer).toHaveValue('')
-        await expect(page.getByTestId('max-sandbox-context-usage')).toHaveCount(0)
+        await expect(page.getByTestId('max-sandbox-context-usage')).toBeVisible()
         await expect(page.getByTestId('sandbox-composer-send')).toBeDisabled()
         await expect(page.getByTestId('run-log-skeleton')).toHaveCount(0)
 
@@ -588,7 +606,7 @@ test.describe('Task run surface', () => {
         acceptRun()
         await expect(page.getByTestId('sandbox-composer-send')).toBeEnabled()
         await expect(composer).toHaveValue('Keep this newer draft.')
-        await expect(page.getByTestId('max-sandbox-context-usage')).toHaveCount(0)
+        await expect(page.getByTestId('max-sandbox-context-usage')).toBeVisible()
         await expect(page.getByText('The earlier answer stays here.', { exact: true })).toBeVisible()
         await expect(page.getByText('Continue with the next step.', { exact: true })).toHaveCount(1)
         await expect(page.getByText('Setting up sandbox', { exact: false })).toBeVisible()
@@ -630,8 +648,7 @@ test.describe('Task run surface', () => {
         await routeTasksApi(page, {
             runStatus: 'in_progress',
             logs: { status: 500, body: '' },
-            // Stall the SSE open so only the exhausted history drives the terminal state (no reconnect flapping).
-            stream: { mode: 'hang' },
+            stream: { mode: 'open' },
         })
 
         await openRunDeepLink(page, workspace!.team_id)

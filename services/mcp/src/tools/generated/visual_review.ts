@@ -133,6 +133,48 @@ const visualReviewReposList = (): ToolBase<
     },
 })
 
+const VisualReviewReposPartialUpdateSchema = () => {
+    const VisualReviewReposPartialUpdateBody = orvalSchemas.VisualReviewReposPartialUpdateBody()
+    const VisualReviewReposPartialUpdateParams = orvalSchemas.VisualReviewReposPartialUpdateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['repo_id'] }),
+        VisualReviewReposPartialUpdateParams.omit({ project_id: true })
+            .extend(VisualReviewReposPartialUpdateBody.shape)
+            .extend({
+                id: VisualReviewReposPartialUpdateParams.shape['id'].describe(
+                    "The repo's UUID, from `visual-review-repos-list`."
+                ),
+            })
+    )
+}
+
+const visualReviewReposPartialUpdate = (): ToolBase<
+    ReturnType<typeof VisualReviewReposPartialUpdateSchema>,
+    Schemas.Repo
+> => ({
+    name: 'visual-review-repos-partial-update',
+    schema: VisualReviewReposPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisualReviewReposPartialUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.baseline_file_paths !== undefined) {
+            body['baseline_file_paths'] = params.baseline_file_paths
+        }
+        if (params.enable_pr_comments !== undefined) {
+            body['enable_pr_comments'] = params.enable_pr_comments
+        }
+        if (params.debt_digest_enabled !== undefined) {
+            body['debt_digest_enabled'] = params.debt_digest_enabled
+        }
+        const result = await context.api.request<Schemas.Repo>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/repos/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
 const VisualReviewReposQuarantineListSchema = () => {
     const VisualReviewReposQuarantineListParams = orvalSchemas.VisualReviewReposQuarantineListParams()
     const VisualReviewReposQuarantineListQueryParams = orvalSchemas.VisualReviewReposQuarantineListQueryParams()
@@ -561,6 +603,7 @@ const visualReviewRunsToleratedHashesList = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'visual-review-repos-flakiness-retrieve': visualReviewReposFlakinessRetrieve,
     'visual-review-repos-list': visualReviewReposList,
+    'visual-review-repos-partial-update': visualReviewReposPartialUpdate,
     'visual-review-repos-quarantine-list': visualReviewReposQuarantineList,
     'visual-review-repos-retrieve': visualReviewReposRetrieve,
     'visual-review-repos-runs-counts-retrieve': visualReviewReposRunsCountsRetrieve,

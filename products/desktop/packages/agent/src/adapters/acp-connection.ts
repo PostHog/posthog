@@ -1,12 +1,9 @@
 import { AgentSideConnection, ndJsonStream } from "@agentclientprotocol/sdk";
+import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
 import type { Adapter } from "@posthog/shared";
 import type { ModelInfo } from "../gateway-models";
 import type { SessionLogWriter } from "../session-log-writer";
-import type {
-  ContextWikiEnv,
-  PostHogAPIConfig,
-  ProcessSpawnedCallback,
-} from "../types";
+import type { PostHogAPIConfig, ProcessSpawnedCallback } from "../types";
 import { createEventIdSource, type NextEventId } from "../utils/event-id";
 import { Logger } from "../utils/logger";
 import {

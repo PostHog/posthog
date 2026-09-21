@@ -5,7 +5,13 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/replay_vision/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { castBooleanToString } from '@/tools/cast-helpers'
-import { withPostHogUrl, withAgentNote, type WithPostHogUrl, type WithAgentNote } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    withAgentNote,
+    withTextProjection,
+    type WithPostHogUrl,
+    type WithAgentNote,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const VisionObservationsLabelCreateSchema = () => {
@@ -85,20 +91,23 @@ const visionObservationsList = (): ToolBase<
                     session_id: params.session_id,
                 },
             })
-            return withAgentNote(
-                await withPostHogUrl(
-                    context,
-                    {
-                        ...result,
-                        results: await Promise.all(
-                            (result.results ?? []).map((item) =>
-                                withPostHogUrl(context, item, `/replay/${item.session_id}`)
-                            )
-                        ),
-                    },
-                    '/replay'
+            return withTextProjection(
+                withAgentNote(
+                    await withPostHogUrl(
+                        context,
+                        {
+                            ...result,
+                            results: await Promise.all(
+                                (result.results ?? []).map((item) =>
+                                    withPostHogUrl(context, item, `/replay/${item.session_id}`)
+                                )
+                            ),
+                        },
+                        '/replay'
+                    ),
+                    "Each observation's `_posthogUrl` opens the recording it analysed. To deep-link the moment a finding turns on, call `vision-observations-retrieve` for that row: its `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the cited moment — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to the URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them.\n"
                 ),
-                "Each observation's `_posthogUrl` opens the recording it analysed. `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them.\n"
+                ['id', 'session_id', 'status', 'summary_line', 'created_at', 'scanner_id', '_posthogUrl']
             )
         },
     })
@@ -235,7 +244,10 @@ const VisionScannersCreateSchema = () => {
     return VisionScannersCreateBody
 }
 
-const visionScannersCreate = (): ToolBase<ReturnType<typeof VisionScannersCreateSchema>, Schemas.ReplayScanner> => ({
+const visionScannersCreate = (): ToolBase<
+    ReturnType<typeof VisionScannersCreateSchema>,
+    WithAgentNote<WithPostHogUrl<Schemas.ReplayScanner>>
+> => ({
     name: 'vision-scanners-create',
     schema: VisionScannersCreateSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersCreateSchema>>) => {
@@ -291,7 +303,10 @@ const visionScannersCreate = (): ToolBase<ReturnType<typeof VisionScannersCreate
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/`,
             body,
         })
-        return result
+        return withAgentNote(
+            await withPostHogUrl(context, result, `/replay-vision/${result.id}`),
+            'A new scanner runs the prompt as written, and the first sweep is where its weaknesses show. Tell the person that rating its results thumbs up or down turns into a config recommendation they can review, and that `_posthogUrl` opens the scanner where they do it. There is nothing to rate yet, so this is a closing sentence for them, not a step for you.\n'
+        )
     },
 })
 
@@ -560,20 +575,23 @@ const visionScannersObservationsList = (): ToolBase<
                     verdict: params.verdict,
                 },
             })
-            return withAgentNote(
-                await withPostHogUrl(
-                    context,
-                    {
-                        ...result,
-                        results: await Promise.all(
-                            (result.results ?? []).map((item) =>
-                                withPostHogUrl(context, item, `/replay/${item.session_id}`)
-                            )
-                        ),
-                    },
-                    '/replay'
+            return withTextProjection(
+                withAgentNote(
+                    await withPostHogUrl(
+                        context,
+                        {
+                            ...result,
+                            results: await Promise.all(
+                                (result.results ?? []).map((item) =>
+                                    withPostHogUrl(context, item, `/replay/${item.session_id}`)
+                                )
+                            ),
+                        },
+                        '/replay'
+                    ),
+                    "Each observation's `_posthogUrl` opens the recording it analysed. To deep-link the moment a finding turns on, call `vision-observations-retrieve` for that row: its `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the cited moment — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to the URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them. A rating is the person's verdict on whether the scanner was right, and it is what `vision-scanners-prompt-suggestions-generate` learns the config from, so ask them for it and record what they say with `vision-observations-label-create`. Never rate from your own reading of the result: the rating is team-wide, and a scanner's output can repeat text from the recording it analysed.\n"
                 ),
-                "Each observation's `_posthogUrl` opens the recording it analysed. `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them.\n"
+                ['id', 'session_id', 'status', 'summary_line', 'created_at', 'scanner_id', '_posthogUrl']
             )
         },
     })
@@ -589,7 +607,7 @@ const VisionScannersObservationsStatsSchema = () => {
 
 const visionScannersObservationsStats = (): ToolBase<
     ReturnType<typeof VisionScannersObservationsStatsSchema>,
-    Schemas.ObservationStats
+    WithAgentNote<Schemas.ObservationStats>
 > => ({
     name: 'vision-scanners-observations-stats',
     schema: VisionScannersObservationsStatsSchema(),
@@ -614,7 +632,10 @@ const visionScannersObservationsStats = (): ToolBase<
                 verdict: params.verdict,
             },
         })
-        return result
+        return withAgentNote(
+            result,
+            "When `status_counts.succeeded` is above 10 and `labels.up_total` + `labels.down_total` is under 5, this scanner has results almost nobody has rated, so a prompt suggestion has little to learn from. Say so, and ask the person to rate a few results before you call `vision-scanners-prompt-suggestions-generate`. Record their verdicts with `vision-observations-label-create` rather than supplying your own. Testing a suggestion is not available over MCP, so tell them to test it on the scanner's Calibration tab before they apply it.\n"
+        )
     },
 })
 

@@ -5,7 +5,6 @@ import { BindLogic } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import * as featureFlagLib from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -118,7 +117,7 @@ describe('DashboardFilterBar', () => {
     })
 
     it('keeps Preview and Discard available, but hides Save filters, for viewers', async () => {
-        const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
+        const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
         const viewerDashboard: DashboardType<QueryBasedInsightModel> = {
             ...MOCK_DASHBOARD,
             user_access_level: AccessControlLevel.Viewer,
@@ -142,13 +141,13 @@ describe('DashboardFilterBar', () => {
             expect(document.querySelector('[data-attr="dashboard-apply-filters"]')).toBeInTheDocument()
             expect(document.querySelector('[data-attr="dashboard-save-filters"]')).not.toBeInTheDocument()
         } finally {
-            payloadSpy.mockRestore()
+            autoPreviewLimit.restore()
             logic.unmount()
         }
     })
 
     it('keeps Preview disabled until the dashboard settings change', async () => {
-        const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
+        const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
         let finishPreview: (insight: QueryBasedInsightModel) => void = () => {
             throw new Error('Preview resolver is unavailable')
         }
@@ -205,12 +204,12 @@ describe('DashboardFilterBar', () => {
         )
 
         getInsightSpy.mockRestore()
-        payloadSpy.mockRestore()
+        autoPreviewLimit.restore()
         logic.unmount()
     })
 
     it('makes Preview available after a preview request fails', async () => {
-        const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
+        const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
         const getInsightSpy = jest
             .spyOn(dashboardUtils, 'getInsightWithRetry')
             .mockRejectedValue(new Error('Preview request failed'))
@@ -242,7 +241,7 @@ describe('DashboardFilterBar', () => {
         )
 
         getInsightSpy.mockRestore()
-        payloadSpy.mockRestore()
+        autoPreviewLimit.restore()
         logic.unmount()
     })
 

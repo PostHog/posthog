@@ -20,6 +20,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.permissions import is_scout_sandbox_request
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
 from products.replay_vision.backend.billing import observation_credits_for_model
@@ -36,6 +37,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     WindowedCandidateQuery,
 )
 from products.replay_vision.backend.quota import quota_state
+from products.replay_vision.backend.scout_writes import refuse_scout_scanner_scan
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
 
 logger = structlog.get_logger(__name__)
@@ -142,6 +144,11 @@ class ReplayScannerBackfillViewSet(
     # `objects` is fail-closed; `safely_get_queryset` re-scopes to the request team and scanner.
     queryset = ReplayScannerBackfill.objects.unscoped()
 
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        if self.action in {"create", "resume"}:
+            refuse_scout_scanner_scan(is_scout_sandbox_request(request))
+
     def get_throttles(self) -> list[Any]:
         # Append, never replace: returning only this throttle would drop the global burst and
         # sustained limits from the two actions that run the heaviest query.
@@ -187,7 +194,7 @@ class ReplayScannerBackfillViewSet(
                 ineligible_count=Count("observations", filter=Q(observations__status=ObservationStatus.INELIGIBLE)),
                 in_flight_count=Count("observations", filter=Q(observations__status__in=IN_FLIGHT_STATUSES)),
             )
-            .order_by("-created_at")
+            .order_by("-created_at", "id")
         )
 
     def _clamped_window(self, data: dict[str, Any]) -> tuple[datetime, datetime]:

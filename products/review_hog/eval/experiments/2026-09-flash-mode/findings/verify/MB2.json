@@ -1,0 +1,27 @@
+{
+    "letter": "MB",
+    "id": "MB2",
+    "cluster": 57,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The asserted any-assigned-reviewer rule is contradicted by the source contract. /tmp/frozen-75215/products/review_hog/backend/receivers.py:159-173 explicitly selects the task requester when assigned, otherwise the first resolved reviewer, and states that this person's two toggles govern the reviews. The implementation at :202-207 makes that selection before :111-126 loads and tests the chosen user's settings. Later webhook resolution uses the same selection and Stamphog toggle at :144-156, with the returned acting user persisted at /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:205-213. /tmp/frozen-75215/products/review_hog/backend/tests/test_inbox_trigger.py:229-239 explicitly requires an opted-out canonical reviewer to block a review even when a later assigned reviewer opted in; :241-253 separately covers the assigned requester getting their own settings.",
+            "refutation": "I first checked the assignment resolver's documented contract and the existing multi-reviewer tests rather than accepting the finding's claimed product rule. Both prescribe canonical-reviewer semantics, and the initial and webhook paths implement that same rule. The proposed any-reviewer gate would override the selected reviewer's opt-out, exactly the behavior the existing test forbids. No separate Stamphog any-reviewer contract appears in the relevant caller code, so this is a request to change intended behavior, not a defect."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "products/review_hog/backend/receivers.py:159-173 explicitly defines one acting reviewer: an assigned task requester, otherwise the first resolved assignee; their respective toggles govern both ReviewHog and Stamphog. The implementation at :203-207 follows that rule, and both initial dispatch (:111-126) and re-review resolution (:144-156) use it. products/stamphog/README.md:14 also describes the acting reviewer's per-user toggle, not any assigned reviewer's toggle. Existing test_inbox_trigger.py:229-238 deliberately requires no review when the canonical reviewer opted out even if a later reviewer opted in; :241-252 covers the assigned requester's explicit precedence.",
+            "refutation": "I looked for the claimed 'at least one assigned reviewer' contract and compared the multiple-reviewer tests with the actual resolver. The frozen source consistently specifies a canonical acting reviewer, and has an explicit regression test for exactly the behavior called a bug. The requester override already lets a later assigned reviewer who requested the implementation use their own settings. Changing the Stamphog selector to any opted-in reviewer would introduce a different policy, not fix an established correctness defect. The finding's central requirement is contradicted by the repository contract and tests."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The frozen implementation explicitly defines one canonical acting reviewer, not an any-assignee opt-in rule. products/review_hog/backend/receivers.py:10-23 states that the assigned task requester takes precedence, otherwise the first resolved assignee, and that the same acting reviewer supplies the independent Stamphog toggle. The resolver implements this at :202-207; both initial dispatch at :111-126 and webhook resolution at :151-156 check that selected user's setting. tests/test_inbox_trigger.py:228-238 explicitly covers an opted-out canonical reviewer with a later opted-in reviewer and requires no review; :240-252 covers an assigned requester receiving their own rules even when the first reviewer opted out. The Stamphog-specific test at :314-343 confirms the two toggles belong to the one acting reviewer and operate independently.",
+            "refutation": "I first sought the claimed 'at least one assigned reviewer' contract and compared it with caller selection, documented precedence, and existing tests. The source instead deliberately chooses an acting identity before applying that identity's preferences; :159-173 expressly names both review_inbox_prs and stamphog_review_inbox_prs in this policy. Falling through to another opted-in reviewer would override the selected reviewer's preference and change the stated product behavior. The described outcome is reachable but intentional and tested, so the finding's conflicting contractual premise is unsupported."
+        }
+    ]
+}

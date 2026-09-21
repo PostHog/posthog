@@ -231,7 +231,7 @@ The cache key is derived from `get_cache_payload()`:
 Two things keep cache hit rates high:
 
 1. **Feature gate:** if the organization doesn't have `AvailableFeature.ACCESS_CONTROL`, no resource/object restrictions exist, so nothing is added and the cache isn't partitioned by user at all.
-2. **Scoped to queried tables:** `queried_access_controlled_resources()` (`posthog/hogql_queries/access_controlled_resources.py`) parses the query and returns only the access-controlled scopes it actually reads, so warehouse scopes are added to the payload only when the query references warehouse tables or views — a plain **events or persons query shares one cache entry across all users**
+2. **Scoped to queried tables:** `queried_access_controlled_resources()` (`posthog/hogql_queries/access_controlled_resources.py`) parses the query and returns only the access-controlled scopes it actually reads. Tables whose visibility depends on another scoped table add that dependency too. For example, `system.customer_tasks` adds `account` because its row predicate reads `system.accounts`. A plain **events or persons query shares one cache entry across all users**.
 
 When a run has no user but does read access-controlled resources, the fingerprint uses `restricted_resources: ["*"]` so it can never collide with a real user's cache, and synthetic principals partition on their readable scopes so a narrow token can't reuse a broader token's cached rows.
 

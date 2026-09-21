@@ -611,7 +611,7 @@ def _build_tier_schedule(
         ExecuteDAGInputs,
     )
 
-    inputs = ExecuteDAGInputs(team_id=team_id, dag_id=dag_id, node_ids=sorted(node_ids), duckgres_only=False)
+    inputs = ExecuteDAGInputs(team_id=team_id, dag_id=dag_id, node_ids=sorted(node_ids), managed_warehouse_only=False)
     spec = build_schedule_spec(
         entity_id=uuid.UUID(dag_id),
         interval=tier.interval,

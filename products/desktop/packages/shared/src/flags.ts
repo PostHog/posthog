@@ -28,14 +28,8 @@ export const SAVED_SEARCHES_RAIL_FLAG =
   featureFlagKeys.SAVED_SEARCHES_RAIL_FLAG;
 export const TASKS_PREWARM_SANDBOX_FLAG =
   featureFlagKeys.TASKS_PREWARM_SANDBOX_FLAG;
-export const GLM_MODEL_FLAG = featureFlagKeys.GLM_MODEL_FLAG;
-export const GLM53_MODEL_FLAG = featureFlagKeys.GLM53_MODEL_FLAG;
-export const GLM53_FLASH_MODEL_FLAG = featureFlagKeys.GLM53_FLASH_MODEL_FLAG;
-/** PostHog Desktop: show DeepSeek V4 Flash in the model picker. Off = hidden. */
-export const DEEPSEEK_MODEL_FLAG = featureFlagKeys.DEEPSEEK_MODEL_FLAG;
 
 export const TASK_ANALYSIS_FLAG = featureFlagKeys.TASK_ANALYSIS_FLAG;
-export const KIMI_MODEL_FLAG = featureFlagKeys.KIMI_MODEL_FLAG;
 /** Gates the Fast Mode section of the reasoning dropdown. */
 export const FAST_MODE_FLAG = featureFlagKeys.FAST_MODE_FLAG;
 /** Spoken narration (agent speaks via the `speak` tool). Gated for a staged rollout. */
@@ -113,6 +107,8 @@ export const CONTEXT_LAYER_FLAG = featureFlagKeys.CONTEXT_LAYER_FLAG;
 
 export const BACKGROUND_AGENT_LOGS_FLAG =
   featureFlagKeys.BACKGROUND_AGENT_LOGS_FLAG;
+/** Gates the settings and sounds backup section in Advanced settings. */
+export const SETTINGS_BACKUP_FLAG = featureFlagKeys.SETTINGS_BACKUP_FLAG;
 export const CUSTOM_IMAGES_FEATURE_FLAG =
   featureFlagKeys.CUSTOM_IMAGES_FEATURE_FLAG;
 export const PI_HARNESS_FLAG = featureFlagKeys.PI_HARNESS_FLAG;

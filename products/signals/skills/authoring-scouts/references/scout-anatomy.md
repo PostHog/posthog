@@ -38,8 +38,9 @@ compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_report:write for reports and
   signal_scout_internal:write for scratchpad).
-  Assumes the signals-scout MCP family (project-profile-get, runs-list, runs-retrieve,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-report, edit-report)
+  Assumes the signals-scout MCP family (scout-project-profile-get, scout-runs-list,
+  scout-runs-retrieve, scout-scratchpad-search, scout-scratchpad-remember,
+  scout-scratchpad-forget, scout-emit-report, scout-edit-report)
   plus whatever query tools the scope needs (e.g. execute-sql, read-data-schema,
   query-error-tracking-issues-list, inbox-reports-list).
 metadata:
@@ -209,8 +210,9 @@ One paragraph: looked at what, filed/edited what, remembered what, ruled out wha
 
 ## MCP tools
 
-Direct (read-only): <list>. Harness-level: project-profile-get, scratchpad-search,
-runs-list, runs-retrieve, emit-report, edit-report, scratchpad-remember.
+Direct (read-only): <list>. Harness-level: scout-project-profile-get, scout-scratchpad-search,
+scout-runs-list, scout-runs-retrieve, scout-emit-report, scout-edit-report,
+scout-scratchpad-remember.
 ```
 
 ## Skeleton — broad / cross-product scout

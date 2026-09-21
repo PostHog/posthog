@@ -314,12 +314,14 @@ export interface maxThreadLogicActions {
     } // posthogAiContextLogic
     bootstrapSandboxRun: (payload: {
         justCreatedRun?: boolean
+        reconcileHistory?: boolean
         retainedMessage?: string
         runId: string
         taskId: string
         traceId?: string
     }) => {
         justCreatedRun?: boolean | undefined
+        reconcileHistory?: boolean | undefined
         retainedMessage?: string | undefined
         runId: string
         taskId: string
@@ -1682,7 +1684,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
         }
         return {
-            [sandboxStreamActionTypes.markTurnComplete]: completeSandboxTurn,
+            [sandboxStreamActionTypes.markTurnComplete]: ({ isReplay }: { isReplay?: boolean }) => {
+                if (!isReplay) {
+                    completeSandboxTurn()
+                }
+            },
             // handleTerminalStatus fires for every task_run_state frame, including the initial
             // non-terminal queued/in_progress ones — only tear down on an actually terminal
             // status, mirroring runStreamLogic's own guard.

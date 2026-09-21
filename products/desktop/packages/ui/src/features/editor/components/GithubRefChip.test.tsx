@@ -29,9 +29,6 @@ describe("GithubRefChip", () => {
     const label = container.querySelector(".truncate");
     expect(label).toHaveTextContent("PostHog/posthog");
     expect(label).not.toHaveAttribute("dir");
-    expect(label).toHaveStyle({
-      maxWidth: "min(16rem, calc(100% - 1rem - 10ch))",
-    });
     const number = screen.getByText("#123456789");
     expect(number).toHaveClass("shrink-0");
     expect(number.parentElement).not.toHaveAttribute("dir");

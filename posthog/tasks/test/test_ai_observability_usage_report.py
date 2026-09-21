@@ -104,6 +104,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         self._create_ai_events(
             self.team, distinct_id, "$ai_evaluation", 1, properties={"$ai_evaluation_runtime": "sentiment"}
         )
+        self._create_ai_events(self.team, distinct_id, "$ai_tag", 9)
         self._create_ai_events(self.team, distinct_id, "$ai_trace_summary", 7)
         self._create_ai_events(self.team, distinct_id, "$ai_generation_summary", 12)
         self._create_ai_events(self.team, distinct_id, "$ai_trace_clusters", 2)
@@ -150,6 +151,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert metrics.ai_llm_judge_evaluation_count == 3
         assert metrics.ai_hog_evaluation_count == 2
         assert metrics.ai_sentiment_evaluation_count == 1
+        assert metrics.ai_tag_count == 9
         assert metrics.ai_trace_summary_count == 7
         assert metrics.ai_generation_summary_count == 12
         assert metrics.ai_trace_clusters_count == 2

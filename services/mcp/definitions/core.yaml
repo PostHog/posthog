@@ -295,6 +295,9 @@ tools:
     oauth-applications-list:
         operation: oauth_applications_list
         enabled: false
+    organizations-projects-cancel-deletion-create:
+        operation: organizations_projects_cancel_deletion_create
+        enabled: false
     organizations-projects-default-evaluation-contexts-create:
         operation: organizations_projects_default_evaluation_contexts_create
         enabled: false
@@ -319,11 +322,8 @@ tools:
     organizations-projects-experiments-config-retrieve:
         operation: organizations_projects_experiments_config_retrieve
         enabled: false
-    organizations-projects-logs-config-partial-update:
-        operation: organizations_projects_logs_config_partial_update
-        enabled: false
-    organizations-projects-logs-config-retrieve:
-        operation: organizations_projects_logs_config_retrieve
+    organizations-projects-rotate-heatmaps-screenshot-secret-partial-update:
+        operation: organizations_projects_rotate_heatmaps_screenshot_secret_partial_update
         enabled: false
     organizations-projects-settings-as-of-retrieve:
         operation: organizations_projects_settings_as_of_retrieve
@@ -346,6 +346,36 @@ tools:
             `already_enabled`. Turning on `session_replay` flips the server-side recording toggle only. The app still
             needs a PostHog SDK installed before recordings arrive. Enabling a product starts collecting data and
             spending quota, so always confirm with the user before calling this.
+    project-create:
+        operation: organizations_projects_create
+        enabled: true
+        scopes:
+            - project:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create project
+        description: >
+            Create a project in the caller's active organization. A project is a separate data container with its own
+            API token, so use it to keep unrelated data apart, for example staging and production. Creating a project
+            adds to the organization's plan usage, so always confirm the name with the user before calling this. The new
+            project does not become active: call `switch-project` with the returned ID to work in it. The response
+            carries the project API token, which is safe to put in client-side code.
+        include_params:
+            - name
+        param_overrides:
+            name:
+                description: >
+                    Name for the new project. Must be unique within the organization, ignoring case. If omitted, PostHog
+                    generates a default name.
+        response:
+            include:
+                - id
+                - name
+                - organization
+                - api_token
+                - created_at
     project-get:
         operation: organizations_projects_retrieve
         enabled: true
@@ -426,9 +456,6 @@ tools:
             id:
                 description: Project ID, or `@current` to target the caller's active project.
                 cast: string-int
-    projects-create:
-        operation: organizations_projects_create
-        enabled: false
     projects-destroy:
         operation: organizations_projects_destroy
         enabled: false
@@ -579,6 +606,9 @@ tools:
         param_overrides:
             uuid:
                 description: User UUID, or `@me` to target the authenticated user.
+    user-toolbar-entitlements-retrieve:
+        operation: user_toolbar_entitlements_retrieve
+        enabled: false
     users-cancel-email-change-request-partial-update:
         operation: users_cancel_email_change_request_partial_update
         enabled: false

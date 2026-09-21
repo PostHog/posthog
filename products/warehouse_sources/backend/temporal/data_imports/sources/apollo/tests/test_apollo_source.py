@@ -45,7 +45,8 @@ class TestApolloSource:
 
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
         incremental = {schema.name for schema in schemas if schema.supports_incremental}
-        # Contacts and accounts support sort-based CDC; opportunities don't.
+        # Contacts and accounts support sort-based CDC. Nothing else does: the remaining
+        # endpoints have no server-side timestamp filter to window a sync with.
         assert incremental == {"contacts", "accounts"}
 
     @pytest.mark.parametrize(

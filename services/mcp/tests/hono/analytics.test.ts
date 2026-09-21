@@ -151,6 +151,16 @@ describe('Hono MCP analytics contexts', () => {
         expect(properties.mcp_session_vendor_client).toBeUndefined()
     })
 
+    it.each([
+        { llmModel: undefined, llmModelMissingReason: 'unknown' as const, expected: 'unknown' },
+        { llmModel: 'example-model', llmModelMissingReason: 'unknown' as const, expected: undefined },
+        { llmModel: undefined, llmModelMissingReason: undefined, expected: undefined },
+    ])('emits a missing model reason only for unresolved calls: $llmModel', async ({ expected, ...analyticsMeta }) => {
+        await trackToolCall('user-get', 12, false, makeState(), undefined, analyticsMeta)
+
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties.$mcp_llm_model_missing_reason).toBe(expected)
+    })
+
     it('categorizes a proxied third-party tool and names its server', async () => {
         // A gateway tool has no catalog entry, so without the fallback it lands
         // uncategorized and disappears from every category-sliced view.

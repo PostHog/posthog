@@ -6,13 +6,13 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
-import { apiValueToMathType } from 'scenes/trends/mathsLogic'
-
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
 import { AvailableFeature, BaseMathType, OrganizationType } from '~/types'
+
+import { apiValueToMathType } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 import { MathAvailability } from './types'
 import { useMathSelectorOptions } from './useMathSelectorOptions'

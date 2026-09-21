@@ -77,6 +77,8 @@ export { RunAlertActivity } from '../components/RunAlertActivity'
 
 export { TaskRunStatusDot } from '../components/TaskRunStatusDot'
 export { TaskRunLivenessDot } from '../components/TaskRunLivenessDot'
+export { TaskListItem } from '../components/navigation/TaskListItem'
+export { TaskAssigneeFilterMenu } from '../components/navigation/TaskAssigneeFilterMenu'
 
 // Debug-logs overflow menu for hosts with no scene chrome (the PostHog AI scene and side panel).
 export { DebugLogsMenu } from '../components/DebugLogsMenu'
@@ -85,7 +87,7 @@ export type { DebugLogsMenuProps } from '../components/DebugLogsMenu'
 export { PermissionInput } from '../components/PermissionInput'
 export { QuestionInput } from '../components/QuestionInput'
 export { parseSandboxQuestions } from '../policy/questionUtils'
-export { ContextUsageBar } from '../components/ContextUsageBar'
+export { ContextUsageChip } from '../components/ContextUsageChip'
 export { QuestionField, MultiFieldQuestion, isFieldValid } from '../components/QuestionField'
 export { OptionSelector } from '../components/OptionSelector'
 export type { Option } from '../components/OptionSelector'

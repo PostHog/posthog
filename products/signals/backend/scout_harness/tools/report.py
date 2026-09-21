@@ -39,6 +39,7 @@ from asgiref.sync import async_to_sync
 from pydantic import ValidationError
 
 from posthog.api.capture import capture_internal
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.git import extract_linked_repo
 from posthog.models import Team
@@ -53,8 +54,15 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalScoutRun
+from products.signals.backend.models import (
+    MAX_SCOUT_CONTENT_REVISIONS,
+    ArtefactAttribution,
+    SignalReport,
+    SignalScoutRun,
+)
+from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_charts import ChartSize, ReportChart, chart_batch_error
+from products.signals.backend.report_content_gates import organization_report_metrics_enabled
 from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerIdentitySet,
     get_org_member_github_logins_by_user_uuid,
@@ -62,6 +70,13 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_users_by_uuid,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_metrics import (
+    ReportMetric,
+    ReportMetricKind,
+    ReportMetricRole,
+    ReportMetricValueFormat,
+    metric_batch_error,
+)
 from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
 from products.signals.backend.scout_harness.prompt import SELF_IMPROVEMENT_REPORT_TITLE_PREFIX
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
@@ -87,15 +102,21 @@ from products.signals.backend.scout_report import (
     create_scout_report,
     emit_appended_report_evidence,
     find_scout_report_by_idempotency_key,
+    get_content_revision_count,
     get_scout_report_signal_count,
     get_scout_report_status,
     get_scout_report_title,
+    prepare_scout_supersession,
+    record_content_revision,
+    record_implementation_decision,
     record_report_edit,
     record_scout_run_task_artefact,
     scout_report_exists,
     set_report_charts,
+    set_report_metrics,
     set_report_suggested_prompts,
     set_scout_report_inferred_repository,
+    set_scout_report_repository,
     set_scout_report_reviewers,
     update_scout_report,
 )
@@ -105,6 +126,7 @@ from products.signals.backend.scout_report.judge import (
     judge_scout_report,
 )
 from products.signals.backend.slack_formatting import strip_chart_references
+from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = logging.getLogger(__name__)
@@ -146,6 +168,30 @@ class ReportChartInput:
     query: dict[str, Any]
     caption: str | None = None
     size: ChartSize | None = None
+
+
+@frozen
+class ReportMetricComparisonInput:
+    value: float
+    label: str
+
+
+@frozen
+class ReportMetricInput:
+    """One typed report measurement before shared validation and persistence."""
+
+    metric_id: str
+    title: str
+    kind: ReportMetricKind
+    query: dict[str, Any]
+    role: ReportMetricRole = "supporting"
+    value: float | None = None
+    value_at: str | None = None
+    series: list[float] | None = None
+    value_format: ReportMetricValueFormat = "number"
+    unit: str | None = None
+    caption: str | None = None
+    comparison: ReportMetricComparisonInput | None = None
 
 
 @dataclass(frozen=True)
@@ -195,6 +241,9 @@ class EditReportResult:
     updated_fields: list[str]
     note_appended: bool
     reviewers_set: bool = False
+    # Whether the edit wrote a new repository selection — the correction path for a report that
+    # surfaced against the wrong codebase. True for a cleared selection too, since that is a write.
+    repository_set: bool = False
     # How many observations this edit added to the report's evidence rail. Additive, so a plain count
     # rather than the nullable "set or untouched" the replace-semantics fields below carry.
     evidence_appended: int = 0
@@ -203,14 +252,33 @@ class EditReportResult:
     # because taking a report's charts down is itself a real outcome, and 0 would otherwise mean both
     # "cleared" and "never touched".
     charts_set: int | None = None
+    # How many typed impact metrics the report now shows, or None when untouched/unchanged.
+    metrics_set: int | None = None
     # How many prompts the report now suggests, or None when the edit left them as they were.
     # Nullable for the same reason `charts_set` is: taking the suggestions down reports 0, and 0
     # would otherwise mean both "cleared" and "never touched".
     suggested_prompts_set: int | None = None
+    # The repository the report points at once the edit settled, read back from the stored selection
+    # rather than echoed from the input. A caller that sent `repository` can compare the two: a
+    # backend that dropped the field, or a later write that replaced the selection, shows as a target
+    # the caller never asked for. None means the report has no target.
+    repository: str | None = None
     # The report's effective title after the edit (the rewritten title, or the stored one for a
     # note/reviewer-only edit) — telemetry-only, so the edited lifecycle event can classify the report
     # (`_report_classification_props`) even when the edit didn't touch the title.
     report_title: str | None = None
+    # Whether this edit actually rewrote the report's title or summary, and the report's running
+    # total of such rewrites. A note append, a reviewer change, and a restatement of the current text
+    # all leave both untouched — only a real diff to the report's content counts.
+    is_content_revision: bool = False
+    content_revision_count: int = 0
+    # Whether the edit recorded a decision to replace the report's implementation PR. False when the
+    # caller didn't ask, when the edit wasn't a content revision, or when the report is past
+    # `MAX_SCOUT_CONTENT_REVISIONS`.
+    supersedes_implementation: bool = False
+    # True when the appended note only raised the report's corroboration count instead of landing as
+    # its own entry (see `append_report_note`).
+    corroboration_collapsed: bool = False
 
     @property
     def changed(self) -> bool:
@@ -226,8 +294,15 @@ class EditReportResult:
         took the report's charts or prompts down reports 0, and reading that as "nothing happened"
         would keep the retraction off the run tally and out of both event streams."""
         return (
-            bool(self.updated_fields or self.note_appended or self.reviewers_set or self.evidence_appended)
+            bool(
+                self.updated_fields
+                or self.note_appended
+                or self.reviewers_set
+                or self.repository_set
+                or self.evidence_appended
+            )
             or self.charts_set is not None
+            or self.metrics_set is not None
             or self.suggested_prompts_set is not None
         )
 
@@ -332,6 +407,64 @@ def _build_edit_charts(charts: list[ReportChartInput] | None) -> list[ReportChar
     return _build_charts(charts)
 
 
+def _build_metrics(metrics: list[ReportMetricInput] | None) -> list[ReportMetric]:
+    if not metrics:
+        return []
+    built: list[ReportMetric] = []
+    for metric in metrics:
+        try:
+            built.append(
+                ReportMetric.model_validate(
+                    {
+                        "metric_id": metric.metric_id,
+                        "title": metric.title,
+                        "kind": metric.kind,
+                        "role": metric.role,
+                        "value": metric.value,
+                        "value_at": metric.value_at,
+                        "series": metric.series,
+                        "value_format": metric.value_format,
+                        "unit": metric.unit,
+                        "query": metric.query,
+                        "caption": metric.caption,
+                        "comparison": (
+                            {"value": metric.comparison.value, "label": metric.comparison.label}
+                            if metric.comparison is not None
+                            else None
+                        ),
+                    }
+                )
+            )
+        except ValidationError as exc:
+            raise InvalidScoutReportError(f"invalid metric {metric.metric_id!r}: {exc}")
+    if batch_error := metric_batch_error(built):
+        raise InvalidScoutReportError(batch_error)
+    return built
+
+
+def _build_edit_metrics(metrics: list[ReportMetricInput] | None) -> list[ReportMetric] | None:
+    if metrics is None:
+        return None
+    return _build_metrics(metrics)
+
+
+def _allowed_metrics(team: Team, metrics: list[ReportMetricInput] | None) -> list[ReportMetricInput] | None:
+    """Drop the authored metrics while the organization is not opted in to report metrics.
+
+    `None` is the answer because it is the shape both write paths already read as "this call names no
+    metrics", so the gate never disturbs the preserve/clear/replace contract. An empty list passes
+    through: it carries no definition to gate, and an organization that lost the flag must still be
+    able to take an old metric down.
+    """
+    if not metrics or organization_report_metrics_enabled(team.organization_id):
+        return metrics
+    logger.info(
+        "signals_scout: dropped report metrics because the organization is not opted in",
+        extra={"team_id": team.id, "count": len(metrics)},
+    )
+    return None
+
+
 def _build_suggested_prompts(suggested_prompts: list[str] | None) -> list[str]:
     """Trim the scout's suggested prompts and refuse a set the report can't carry.
 
@@ -362,12 +495,17 @@ def _normalize_repository(repository: str | None) -> str | None:
     """Validate + normalize the scout's `repository` input. `None` / the `NO_REPO` sentinel pass through;
     an explicit value is lowercased and format-checked as `owner/repo`. Raises `InvalidScoutReportError`
     on a malformed value. Pure and cheap — called before the safety judge so a bad explicit repo fails
-    fast (rather than after paying for the judge), and reused by the resolver so the parsing lives once."""
+    fast (rather than after paying for the judge), and reused by the resolver so the parsing lives once.
+
+    The shape gate is `repo_corrections.sanitized_repository`, shared with every other path that renders
+    a stored repository, because the safety judge does not read this field and the stored selection is
+    rendered verbatim into the autonomous implementation task's description. That gate rejects
+    whitespace and caps the length, so the value cannot carry free prose past the `owner/repo` it
+    names."""
     if repository is None or repository == NO_REPO:
         return repository
-    normalized = repository.strip().lower()
-    parts = normalized.split("/")
-    if len(parts) != 2 or not parts[0] or not parts[1]:
+    normalized = sanitized_repository(repository)
+    if normalized is None:
         raise InvalidScoutReportError("repository must be in 'owner/repo' format (or the NO_REPO sentinel)")
     return normalized
 
@@ -690,6 +828,16 @@ def _refresh_inferred_repository(*, team_id: int, report_id: str, attribution: A
     )
 
 
+def _settled_repository(report_id: str) -> str | None:
+    """The repository the report points at right now, read from its stored selection."""
+    from products.signals.backend.report_generation.select_repo import (
+        persisted_repo_selection,  # noqa: PLC0415 — keeps the sandbox stack off this module's import path
+    )
+
+    selection = persisted_repo_selection(report_id)
+    return selection.repository if selection is not None else None
+
+
 async def _resolve_report_repository(
     *,
     team_id: int,
@@ -929,6 +1077,28 @@ def _chart_event_key(chart: ReportChartInput) -> str:
     )
 
 
+def _metric_event_key(metric: ReportMetricInput) -> str:
+    comparison = [metric.comparison.value, metric.comparison.label] if metric.comparison is not None else None
+    return json.dumps(
+        [
+            metric.metric_id,
+            metric.title,
+            metric.kind,
+            metric.role,
+            metric.value,
+            metric.value_at,
+            metric.series,
+            metric.value_format,
+            metric.unit,
+            metric.caption,
+            comparison,
+            metric.query,
+        ],
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
 def _report_event_uuid(*parts: object, structured: bool = False) -> str:
     """Deterministic event uuid from the parts that identify a distinct emit/edit. A retried capture of the
     same authored report (or an identical re-applied edit) collapses to one event at ingestion instead of
@@ -1002,6 +1172,7 @@ def _capture_report_emitted(
     priority: str | None,
     repository: str | None,
     chart_count: int = 0,
+    metric_count: int = 0,
     suggested_prompt_count: int = 0,
 ) -> _ReportForward | None:
     """Emit the scout-owned `signals_scout_report_emitted` event — the report-channel counterpart to
@@ -1041,6 +1212,7 @@ def _capture_report_emitted(
         "skipped_reason": result.skipped_reason,
         "evidence_count": evidence_count,
         "chart_count": chart_count,
+        "metric_count": metric_count,
         "suggested_prompt_count": suggested_prompt_count,
         "title": title,
         "summary": _forwarded_summary(summary),
@@ -1083,14 +1255,16 @@ def _capture_report_edited(
     note: str | None,
     evidence: Sequence[ScoutReportSignal] | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
+    repository: str | None = None,
     charts: list[ReportChartInput] | None = None,
+    metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
 ) -> _ReportForward | None:
     """Emit the scout-owned `signals_scout_report_edited` event when a scout mutates an existing report via
     `edit_report`, so edits are observable separately from fresh authorship. `updated_fields` /
-    `note_appended` / `reviewers_set` distinguish a title/summary rewrite from a note-only append from a
-    reviewer (re-routing) change; `title` / `summary` / `note` carry the content the edit applied (each None
-    when that field wasn't touched) — parity with the emit event so a consumer sees *what* changed, not just
+    `note_appended` / `reviewers_set` / `repository_set` distinguish a title/summary rewrite from a note-only
+    append from a routing change; `title` / `summary` / `note` / `repository` carry the content the edit
+    applied (each None when that field wasn't touched) — parity with the emit event so a consumer sees *what* changed, not just
     that something did. Classification (`_report_classification_props`) reads `result.report_title` — the
     report's effective title after the edit — so a note-only append to a self-improvement report still
     classifies correctly. Best-effort; never fails the edit. Accesses `team.organization` — call on a sync
@@ -1108,11 +1282,21 @@ def _capture_report_edited(
         "note_appended": result.note_appended,
         "evidence_appended": result.evidence_appended,
         "reviewers_set": result.reviewers_set,
+        "repository_set": result.repository_set,
         "charts_set": result.charts_set,
+        "metrics_set": result.metrics_set,
         "suggested_prompts_set": result.suggested_prompts_set,
+        # The iteration counter and its two outcomes. `is_content_revision` is the predicate the cap
+        # counts, so the share of edits that are re-confirmation rather than rewrite is readable
+        # straight off this event.
+        "is_content_revision": result.is_content_revision,
+        "content_revision_count": result.content_revision_count,
+        "supersedes_implementation": result.supersedes_implementation,
+        "corroboration_collapsed": result.corroboration_collapsed,
         "title": _clip(title, MAX_REPORT_TITLE_LENGTH),
         "summary": _forwarded_summary(summary),
         "note": _clip(note, _MAX_TELEMETRY_TEXT_LEN),
+        "repository": repository,
         "report_url": _report_url(team.id, result.report_id),
     }
     try:
@@ -1163,8 +1347,17 @@ def _capture_report_edited(
     # arrive in says nothing, so sorting is what makes a retry hash the same. Charts render in the
     # order they were sent, so a reorder is a real change to what the report shows, and sorting them
     # here would hash it identically to the edit before it and let ingestion drop it.
+
+    # A repository correction is a valid sole input too, so two corrections to one report in a run
+    # share every other part and would hash identically — ingestion would collapse the second and the
+    # team would never see the report reach its final target. Field-tagged for the reason the prompts
+    # part below gives, and appended only when the edit set one, so every other edit keeps its uuid.
+    if result.repository_set:
+        parts.append(f"repository:{repository}")
     if charts is not None:
         parts.append(json.dumps([_chart_event_key(c) for c in charts], separators=(",", ":")))
+    if metrics is not None:
+        parts.append(f"metrics:{json.dumps([_metric_event_key(metric) for metric in metrics], separators=(',', ':'))}")
     # Suggested prompts are a valid sole input too, and carry the same collision: two prompt-only
     # edits to one report in a run share every other part. Appended only when they were set, so an
     # edit that doesn't mention them keeps the key its shape already hashes to — and kept in the
@@ -1181,7 +1374,11 @@ def _capture_report_edited(
         distinct_id=f"signals_scout:{run.skill_name}",
         event_uuid=_report_event_uuid(
             *parts,
-            structured=charts is not None or suggested_prompts is not None or appended_evidence is not None,
+            structured=charts is not None
+            or metrics is not None
+            or suggested_prompts is not None
+            or appended_evidence is not None
+            or result.repository_set,
         ),
         properties=properties,
     )
@@ -1202,6 +1399,7 @@ async def emit_report(
     priority_explanation: str | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
     charts: list[ReportChartInput] | None = None,
+    metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
     idempotency_key: str | None = None,
 ) -> EmitReportResult:
@@ -1221,6 +1419,9 @@ async def emit_report(
     _assert_team_owns_run(team, run)
     _validate_emit_inputs(title, summary, evidence)
     chart_contents = _build_charts(charts)
+    # Off the loop because the gate reads a feature flag, which can block on the flag service.
+    allowed_metrics = await database_sync_to_async(_allowed_metrics, thread_sensitive=False)(team, metrics)
+    metric_contents = _build_metrics(allowed_metrics)
     prompt_contents = _build_suggested_prompts(suggested_prompts)
     # Validate the explicit repository format up front (cheap, pure) so a malformed `owner/repo` fails
     # before the safety-judge LLM call rather than after. Free-form selection still runs only if surfaced.
@@ -1246,6 +1447,7 @@ async def emit_report(
             priority=priority,
             repository=repository,
             chart_count=len(chart_contents),
+            metric_count=len(metric_contents),
             suggested_prompt_count=len(prompt_contents),
         )
         await _forward_report_event_async(team, forward)
@@ -1278,6 +1480,7 @@ async def emit_report(
         signals=signals,
         actionability=actionability_assessment,
         charts=chart_contents,
+        metrics=metric_contents,
         suggested_prompts=prompt_contents,
         reviewer_reasons=_reviewer_reasons(reviewers),
     )
@@ -1314,6 +1517,7 @@ async def emit_report(
             priority=priority_assessment if surfaced else None,
             suggested_reviewers=reviewers if surfaced else None,
             charts=chart_contents,
+            metrics=metric_contents,
             # A judged-unsafe report keeps its prose for audit, but not its prompts: a suppressed report
             # is still reachable from the Dismissed view, where a click would hand the judge-rejected
             # wording to an action-capable agent run.
@@ -1356,6 +1560,7 @@ def emit_report_sync(
     priority_explanation: str | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
     charts: list[ReportChartInput] | None = None,
+    metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
     idempotency_key: str | None = None,
 ) -> EmitReportResult:
@@ -1367,6 +1572,7 @@ def emit_report_sync(
     _assert_team_owns_run(team, run)
     _validate_emit_inputs(title, summary, evidence)
     chart_contents = _build_charts(charts)
+    metric_contents = _build_metrics(_allowed_metrics(team, metrics))
     prompt_contents = _build_suggested_prompts(suggested_prompts)
     # Validate the explicit repository format up front (cheap, pure) so a malformed `owner/repo` fails
     # before the safety-judge LLM call rather than after. Free-form selection still runs only if surfaced.
@@ -1392,6 +1598,7 @@ def emit_report_sync(
             priority=priority,
             repository=repository,
             chart_count=len(chart_contents),
+            metric_count=len(metric_contents),
             suggested_prompt_count=len(prompt_contents),
         )
         if forward is not None:
@@ -1417,6 +1624,7 @@ def emit_report_sync(
         signals=signals,
         actionability=actionability_assessment,
         charts=chart_contents,
+        metrics=metric_contents,
         suggested_prompts=prompt_contents,
         reviewer_reasons=_reviewer_reasons(reviewers),
     )
@@ -1451,6 +1659,7 @@ def emit_report_sync(
             priority=priority_assessment if surfaced else None,
             suggested_reviewers=reviewers if surfaced else None,
             charts=chart_contents,
+            metrics=metric_contents,
             # A judged-unsafe report keeps its prose for audit, but not its prompts: a suppressed report
             # is still reachable from the Dismissed view, where a click would hand the judge-rejected
             # wording to an action-capable agent run.
@@ -1485,12 +1694,19 @@ def _do_edit_report(
     append_note: str | None,
     append_evidence: list[ScoutReportSignal] | None,
     reviewers: SuggestedReviewers | None,
+    repository: str | None,
     charts: list[ReportChart] | None,
+    metrics: list[ReportMetric] | None,
     suggested_prompts: list[str] | None,
+    supersedes_implementation: bool = False,
+    corroboration_only: bool = False,
 ) -> EditReportResult:
     """Fully-sync edit core (no LLM step). The async/sync entrypoints both funnel here — directly in
     the sync path, via `database_sync_to_async` in the async path. The autostart re-eval bridges an
     async hand-off via `async_to_sync`, safe on this sync thread.
+
+    `repository` arrives already normalized (`_normalize_repository`): None leaves the report's
+    selection alone, the `NO_REPO` sentinel clears it, and an `owner/repo` repoints the report.
 
     `reviewers` arrives already resolved (`_build_suggested_reviewers` in the entrypoints, before the
     safety judge): resolution is the only step that can reject caller input, so a combined edit with a
@@ -1498,13 +1714,25 @@ def _do_edit_report(
     reviewers untouched; a supplied set replaces them verbatim (nothing injected), with owner
     provenance stamped so a picked owner can't become the autostart identity."""
     _assert_edit_gates(team, run, report_id)
+    if corroboration_only and not append_note:
+        raise InvalidScoutReportError("corroboration_only requires append_note")
 
     attribution = _attribution_for(_resolve_task_id(run))
     updated_fields: list[str] = []
     note_appended = False
+    repository_set = False
     evidence_document_ids: list[str] = []
     charts_changed = False
+    metrics_changed = False
     prompts_changed = False
+    content_revision_count = 0
+    corroboration_collapsed = False
+    supersede_recorded = False
+    implementation_context = (
+        prepare_scout_supersession(team_id=team.id, report_id=report_id, title=title, summary=summary)
+        if supersedes_implementation
+        else NO_IMPLEMENTATION_CONTEXT
+    )
     # One edit is one transaction, so a rejection part-way through takes the whole edit with it
     # instead of leaving the report half-changed. The side effects below (autostart, telemetry,
     # delivery) stay outside, and the `on_commit` hooks these writes register fire on this commit.
@@ -1534,6 +1762,22 @@ def _do_edit_report(
                 attribution=attribution,
                 reviewed=title is not None and summary is not None,
             )
+            if updated_fields:
+                content_revision_count = record_content_revision(team_id=team.id, report_id=report_id)
+                # A supersede claim rides on the rewrite, never on its own. Appending a note or
+                # re-routing a report says nothing about whether the fix changed, and restating the
+                # text the report already carries says nothing at all.
+                supersede_recorded = supersedes_implementation and content_revision_count <= MAX_SCOUT_CONTENT_REVISIONS
+                record_implementation_decision(
+                    team_id=team.id,
+                    report_id=report_id,
+                    supersede=supersede_recorded,
+                    supersede_requested=supersedes_implementation,
+                    updated_fields=updated_fields,
+                    attribution=attribution,
+                    author=run.skill_name,
+                    implementation_context=implementation_context,
+                )
         # Re-stamp owner provenance from the live owner set at the write: the safety-judge call sits
         # between resolution and this transaction, autostart trusts the stored stamp, and an owner
         # added during that wait must not remain an identity candidate.
@@ -1553,11 +1797,28 @@ def _do_edit_report(
             if reviewers is not None
             else False
         )
+        # The other routing fix: a report that surfaced against the wrong codebase is repointed in
+        # place, so the scout corrects it instead of filing a duplicate report to carry the right
+        # repository. Omitting the field leaves the report's selection as it stands.
+        if repository is not None:
+            repository_set = set_scout_report_repository(
+                team_id=team.id,
+                report_id=report_id,
+                repository=None if repository == NO_REPO else repository,
+                attribution=attribution,
+                author=run.skill_name,
+            )
         if append_note is not None:
-            append_report_note(
-                team_id=team.id, report_id=report_id, note=append_note, attribution=attribution, author=run.skill_name
+            appended = append_report_note(
+                team_id=team.id,
+                report_id=report_id,
+                note=append_note,
+                attribution=attribution,
+                author=run.skill_name,
+                corroboration_only=corroboration_only,
             )
             note_appended = True
+            corroboration_collapsed = appended.collapsed
         # Additive, unlike the charts and prompts below: appended observations join the report's
         # existing evidence rail rather than replacing it, which is why the field is named for it.
         if append_evidence:
@@ -1579,6 +1840,14 @@ def _do_edit_report(
                 attribution=attribution,
                 author=run.skill_name,
             )
+        if metrics is not None:
+            metrics_changed = set_report_metrics(
+                team_id=team.id,
+                report_id=report_id,
+                metrics=metrics,
+                attribution=attribution,
+                author=run.skill_name,
+            )
         # Same replace-don't-append contract as the charts above: omitting the field keeps the
         # report's prompts, an explicit empty list takes them down.
         if suggested_prompts is not None:
@@ -1589,12 +1858,27 @@ def _do_edit_report(
                 attribution=attribution,
                 author=run.skill_name,
             )
+        # `content_revision_count` is the report's running total, the number the scout reasons about
+        # the cap with. A revision above already set it to the report's new total; every other edit
+        # shape — a note, a reviewer change, cleared charts, or a restatement that diffed to nothing —
+        # leaves that total untouched, so read it back rather than echoing the 0 initializer as if the
+        # report had never been revised.
+        #
+        # Inside the transaction, unlike the read-backs below, because those degrade to a best-effort
+        # answer and this one cannot: reporting the report as never revised is the wrong answer this
+        # read exists to prevent. So a failure here has to take the edit with it. `edit_report` is not
+        # retry-safe, and an edit that committed and then reported failure is retried into a second
+        # note, a second corroboration count, or a second set of evidence rows.
+        if not updated_fields:
+            content_revision_count = get_content_revision_count(team_id=team.id, report_id=report_id)
     charts_set = len(charts) if charts is not None and charts_changed else None
+    metrics_set = len(metrics) if metrics is not None and metrics_changed else None
     prompts_set = len(suggested_prompts) if suggested_prompts is not None and prompts_changed else None
     evidence_appended = len(evidence_document_ids)
     changed = (
-        bool(updated_fields or note_appended or reviewers_set or evidence_appended)
+        bool(updated_fields or note_appended or reviewers_set or repository_set or evidence_appended)
         or charts_set is not None
+        or metrics_set is not None
         or prompts_set is not None
     )
     # Enqueue the edited report's Slack delivery as the first post-commit step — before the slower
@@ -1624,13 +1908,13 @@ def _do_edit_report(
                 extra={"team_id": team.id, "report_id": report_id},
             )
             report_status = None
-        # Suggested questions live in the inbox, nowhere in the Slack message, so an edit that
-        # touched only them has nothing to say in the channel — delivering it would post the report
-        # a second time byte for byte.
-        prompts_only = prompts_set is not None and not (
+        # Metrics, suggested questions and the repository live in the inbox, nowhere in the Slack
+        # message, so an edit that touched only them has nothing to say in the channel — delivering
+        # it would post the report a second time byte for byte.
+        inbox_only = (metrics_set is not None or prompts_set is not None or repository_set) and not (
             updated_fields or note_appended or reviewers_set or evidence_appended or charts_set is not None
         )
-        if report_status is not None and _surfaced(report_status) and not prompts_only:
+        if report_status is not None and _surfaced(report_status) and not inbox_only:
             # An edit that only added a note or evidence leaves the title, summary and charts the
             # Slack report message shows unchanged, so re-posting it would duplicate the message
             # already in the channel. Deliver the addition itself instead; any edit that rewrote the
@@ -1674,6 +1958,38 @@ def _do_edit_report(
                 "signals_scout.edit_report: inferred repository refresh failed",
                 extra={"team_id": team.id, "report_id": report_id},
             )
+    # What the report holds once every write above has settled. The caller asked for a correction and
+    # gets told whether the report took it, instead of a `repository_set` that only reports this
+    # process's intent — a target that never reached the artefact leaves the report routed at the
+    # wrong codebase, and the next implementation run works there.
+    #
+    # Best-effort read: the edit has already committed, so a transient failure degrades to "no target
+    # known" rather than failing the call and inviting a retry that appends a second note.
+    settled_repository: str | None = None
+    try:
+        settled_repository = _settled_repository(report_id)
+    except Exception:
+        logger.warning(
+            "signals_scout.edit_report: failed to read back the report's repository",
+            extra={"team_id": team.id, "report_id": report_id},
+        )
+    else:
+        if repository is not None and settled_repository != (None if repository == NO_REPO else repository):
+            # Raised before the autostart hand-off below: a report whose target is not the one this
+            # edit named must not open a draft pull request on the strength of this call.
+            logger.error(
+                "signals_scout.edit_report: repository correction did not persist",
+                extra={
+                    "team_id": team.id,
+                    "report_id": report_id,
+                    "requested": repository,
+                    "settled": settled_repository,
+                },
+            )
+            raise InvalidScoutReportError(
+                f"the repository correction did not persist: the report points at "
+                f"{settled_repository or 'no repository'}, not {repository}"
+            )
     # Record the edit on the run tally only when something actually changed — a no-op edit (e.g. a
     # title rewrite to its current value, or re-sending the charts already stored) must not claim the
     # run touched the report, or notify its destination a second time about nothing. Ordered BEFORE
@@ -1687,10 +2003,12 @@ def _do_edit_report(
         # Also link the run itself on the report's work log (deduped), so the editing scout's
         # transcript is reachable from the report — not just the run-side `edited_report_ids` tally.
         record_scout_run_task_artefact(team_id=team.id, report_id=report_id, run=run, task_id=attribution.task_id)
-    # Re-run autostart only when reviewers changed: it's idempotent (a report with an implementation
-    # task already started no-ops), but a report that was missing a qualifying reviewer can now open a
-    # draft PR. Fired outside any txn since it spawns a Task — mirrors emit's post-commit hand-off.
-    if reviewers_set:
+    # Keyed on whether *this* edit rewrote the content, unlike the running total the transaction
+    # above resolved.
+    is_content_revision = bool(updated_fields)
+    # Routing changes and a new replacement decision each need an autostart evaluation.
+    # Run it after the commit because it spawns a task.
+    if reviewers_set or repository_set or supersede_recorded:
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=report_id)
     logger.info(
         "signals_scout.edit_report: edited",
@@ -1701,8 +2019,13 @@ def _do_edit_report(
             "note": note_appended,
             "evidence_appended": evidence_appended,
             "reviewers_set": reviewers_set,
+            "repository_set": repository_set,
             "charts_set": charts_set,
+            "metrics_set": metrics_set,
             "suggested_prompts_set": prompts_set,
+            "content_revision_count": content_revision_count,
+            "supersedes_implementation": supersede_recorded,
+            "corroboration_collapsed": corroboration_collapsed,
         },
     )
     # Resolve the report's effective title for the edited event's classification — the rewritten title
@@ -1725,9 +2048,16 @@ def _do_edit_report(
         note_appended=note_appended,
         evidence_appended=evidence_appended,
         reviewers_set=reviewers_set,
+        repository_set=repository_set,
         charts_set=charts_set,
+        metrics_set=metrics_set,
         suggested_prompts_set=prompts_set,
+        repository=settled_repository,
         report_title=report_title,
+        is_content_revision=is_content_revision,
+        content_revision_count=content_revision_count,
+        supersedes_implementation=supersede_recorded,
+        corroboration_collapsed=corroboration_collapsed,
     )
     return result
 
@@ -1735,10 +2065,17 @@ def _do_edit_report(
 def _assert_edit_gates(team: Team, run: SignalScoutRun, report_id: str, appended_evidence: int = 0) -> None:
     """The emit preflight gates, applied to an edit. Shared by the entrypoints (which must gate
     before spending the safety-judge LLM call) and `_do_edit_report` (so a future caller that skips
-    the entrypoints still fails closed)."""
+    the entrypoints still fails closed).
+
+    The refusal carries the same remediation `emit_report` returns alongside its `skipped_reason`.
+    An edit blocked by a gate is the identical situation, because the scout has done the work and
+    the write will not land, so a bare reason code here would leave it with no next step on one
+    channel and a fixable one on the other."""
     preflight = _preflight_emit_gates(team, run)
     if preflight is not None:
-        raise InvalidScoutReportError(f"edit_report blocked by preflight gate: {preflight}")
+        remediation = remediation_for_skip(preflight)
+        detail = f"edit_report blocked by preflight gate: {preflight}"
+        raise InvalidScoutReportError(f"{detail}. {remediation}" if remediation else detail)
     task_is_in_progress = (
         SignalScoutRun.objects.for_team(team.id)
         .filter(
@@ -1786,7 +2123,9 @@ def _validate_edit_inputs(
     append_note,
     append_evidence,
     suggested_reviewers,
+    repository,
     charts,
+    metrics,
     suggested_prompts,
 ) -> None:
     _assert_team_owns_run(team, run)
@@ -1814,12 +2153,14 @@ def _validate_edit_inputs(
         and append_note is None
         and not append_evidence
         and not suggested_reviewers
+        and repository is None
         and charts is None
+        and metrics is None
         and suggested_prompts is None
     ):
         raise InvalidScoutReportError(
             "edit_report needs at least one of title, summary, append_note, append_evidence, "
-            "suggested_reviewers, charts, suggested_prompts"
+            "suggested_reviewers, repository, charts, metrics, suggested_prompts"
         )
 
 
@@ -1833,23 +2174,42 @@ async def edit_report(
     append_note: str | None = None,
     append_evidence: list[ReportEvidence] | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
+    repository: str | None = None,
     charts: list[ReportChartInput] | None = None,
+    metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
+    supersedes_implementation: bool = False,
+    corroboration_only: bool = False,
 ) -> EditReportResult:
-    """Edit an existing inbox report: rewrite title/summary, append a note or fresh evidence, and/or
-    set suggested reviewers (which re-runs autostart so a report missing a qualifying reviewer can
-    open a draft PR).
+    """Edit an existing inbox report: rewrite title/summary, append a note or fresh evidence, set
+    suggested reviewers, and/or repoint it at another repository (both re-run autostart, so a report
+    that was missing a qualifying reviewer or a repository can open a draft PR).
     Team-scoped fail-closed in the service. Async entry; runs the sync edit core in the thread pool.
 
     Content-changing edits pass the same safety judge as `emit_report` before anything is written
     (see `_raise_if_unsafe_edit`); an unsafe edit is rejected whole and the report keeps what it
     had."""
     _validate_edit_inputs(
-        team, run, title, summary, append_note, append_evidence, suggested_reviewers, charts, suggested_prompts
+        team,
+        run,
+        title,
+        summary,
+        append_note,
+        append_evidence,
+        suggested_reviewers,
+        repository,
+        charts,
+        metrics,
+        suggested_prompts,
     )
+    # Validated up front (cheap, pure) so a malformed `owner/repo` fails before the safety-judge call.
+    normalized_repository = _normalize_repository(repository)
     built_evidence = _build_signals(append_evidence) if append_evidence else None
     built_charts = _build_edit_charts(charts)
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)
+    # Off the loop because the gate reads a feature flag, which can block on the flag service.
+    allowed_metrics = await database_sync_to_async(_allowed_metrics, thread_sensitive=False)(team, metrics)
+    built_metrics = _build_edit_metrics(allowed_metrics)
     # Gates before the judge, mirroring emit: a disabled or dry-run scout must not spend an LLM call.
     await database_sync_to_async(_assert_edit_gates, thread_sensitive=False)(
         team, run, report_id, len(built_evidence or [])
@@ -1867,6 +2227,7 @@ async def edit_report(
             note=append_note,
             signals=built_evidence or (),
             charts=built_charts or (),
+            metrics=built_metrics or (),
             suggested_prompts=built_prompts or (),
             reviewer_reasons=_reviewer_reasons(built_reviewers),
         )
@@ -1880,8 +2241,12 @@ async def edit_report(
         append_note=append_note,
         append_evidence=built_evidence,
         reviewers=built_reviewers,
+        repository=normalized_repository,
         charts=built_charts,
+        metrics=built_metrics,
         suggested_prompts=built_prompts,
+        supersedes_implementation=supersedes_implementation,
+        corroboration_only=corroboration_only,
     )
     forward = await database_sync_to_async(_capture_report_edited, thread_sensitive=False)(
         team=team,
@@ -1892,7 +2257,10 @@ async def edit_report(
         note=append_note,
         evidence=built_evidence,
         suggested_reviewers=suggested_reviewers,
+        repository=normalized_repository,
         charts=charts,
+        # The gated set, so the event reports what the edit wrote rather than what the scout asked for.
+        metrics=allowed_metrics,
         suggested_prompts=suggested_prompts,
     )
     await _forward_report_event_async(team, forward)
@@ -1909,16 +2277,34 @@ def edit_report_sync(
     append_note: str | None = None,
     append_evidence: list[ReportEvidence] | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
+    repository: str | None = None,
     charts: list[ReportChartInput] | None = None,
+    metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
+    supersedes_implementation: bool = False,
+    corroboration_only: bool = False,
 ) -> EditReportResult:
     """Sync entry used by the DRF view path. Same behavior as `edit_report`, on the calling thread."""
     _validate_edit_inputs(
-        team, run, title, summary, append_note, append_evidence, suggested_reviewers, charts, suggested_prompts
+        team,
+        run,
+        title,
+        summary,
+        append_note,
+        append_evidence,
+        suggested_reviewers,
+        repository,
+        charts,
+        metrics,
+        suggested_prompts,
     )
+    # Validated up front (cheap, pure) so a malformed `owner/repo` fails before the safety-judge call.
+    normalized_repository = _normalize_repository(repository)
     built_evidence = _build_signals(append_evidence) if append_evidence else None
     built_charts = _build_edit_charts(charts)
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)
+    allowed_metrics = _allowed_metrics(team, metrics)
+    built_metrics = _build_edit_metrics(allowed_metrics)
     # Gates before the judge, mirroring emit: a disabled or dry-run scout must not spend an LLM call.
     _assert_edit_gates(team, run, report_id, len(built_evidence or []))
     # Reviewers resolve before the judge too: resolution is the one step that rejects caller input
@@ -1932,6 +2318,7 @@ def edit_report_sync(
             note=append_note,
             signals=built_evidence or (),
             charts=built_charts or (),
+            metrics=built_metrics or (),
             suggested_prompts=built_prompts or (),
             reviewer_reasons=_reviewer_reasons(built_reviewers),
         )
@@ -1945,8 +2332,12 @@ def edit_report_sync(
         append_note=append_note,
         append_evidence=built_evidence,
         reviewers=built_reviewers,
+        repository=normalized_repository,
         charts=built_charts,
+        metrics=built_metrics,
         suggested_prompts=built_prompts,
+        supersedes_implementation=supersedes_implementation,
+        corroboration_only=corroboration_only,
     )
     forward = _capture_report_edited(
         team=team,
@@ -1957,7 +2348,10 @@ def edit_report_sync(
         note=append_note,
         evidence=built_evidence,
         suggested_reviewers=suggested_reviewers,
+        repository=normalized_repository,
         charts=charts,
+        # The gated set, so the event reports what the edit wrote rather than what the scout asked for.
+        metrics=allowed_metrics,
         suggested_prompts=suggested_prompts,
     )
     if forward is not None:

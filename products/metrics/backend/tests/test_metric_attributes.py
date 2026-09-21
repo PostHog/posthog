@@ -27,7 +27,7 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
             service_name="checkout",
             points=recent,
             labels={"env": "prod", "region": "us"},
-            resource_labels={"k8s.pod.name": "pod-1"},
+            resource_labels={"k8s.pod.name": "pod-1", "region": "us"},
         )
         seed_metric(
             team_id=cls.team.id,
@@ -52,14 +52,12 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         response = self._get("attributes")
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
-        # service_name is synthesized (it lives in its own column, never as an
-        # attribute row); the rest order by total count desc, then name asc.
-        assert [r["name"] for r in body["results"]] == [
-            "service_name",
-            "env",
-            "k8s.pod.name",
-            "region",
-            "stale_key",
+        assert body["results"] == [
+            {"name": "service_name", "series_count": 3},
+            {"name": "env", "series_count": 2},
+            {"name": "k8s.pod.name", "series_count": 1},
+            {"name": "region", "series_count": 1},
+            {"name": "stale_key", "series_count": 1},
         ]
         assert body["count"] == 5
 
@@ -67,6 +65,8 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         [
             ("substring_of_attribute_key", "env", ["env"]),
             ("substring_of_synthetic_service_name", "serv", ["service_name"]),
+            ("dotted_service_name", "service.name", ["service_name"]),
+            ("series_count_order", "e", ["service_name", "env", "k8s.pod.name", "region", "stale_key"]),
         ]
     )
     def test_attributes_search_filters_keys(self, _name: str, search: str, expected: list[str]) -> None:
@@ -74,12 +74,32 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [r["name"] for r in response.json()["results"]] == expected
 
-    def test_attributes_window_excludes_out_of_range_buckets(self):
-        response = self._get("attributes", {"dateFrom": (self.now - dt.timedelta(hours=1)).isoformat()})
+    @parameterized.expand([("recent", 0), ("historical", 10)])
+    def test_attributes_use_recent_metadata_without_enforcing_end_time(self, _name: str, end_minutes_ago: int):
+        response = self._get(
+            "attributes",
+            {
+                "dateFrom": (self.now - dt.timedelta(hours=1)).isoformat(),
+                "dateTo": (self.now - dt.timedelta(minutes=end_minutes_ago)).isoformat(),
+            },
+        )
         assert response.status_code == status.HTTP_200_OK
-        names = [r["name"] for r in response.json()["results"]]
-        assert "stale_key" not in names
-        assert "env" in names
+        assert response.json()["results"] == [
+            {"name": "env", "series_count": 2},
+            {"name": "service_name", "series_count": 2},
+            {"name": "k8s.pod.name", "series_count": 1},
+            {"name": "region", "series_count": 1},
+        ]
+
+    def test_attributes_metric_name_limits_keys_to_that_metric(self):
+        response = self._get("attributes", {"metricName": "http_requests"})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["results"] == [
+            {"name": "env", "series_count": 2},
+            {"name": "service_name", "series_count": 2},
+            {"name": "k8s.pod.name", "series_count": 1},
+            {"name": "region", "series_count": 1},
+        ]
 
     def test_attribute_values_returns_values_with_aggregated_counts(self):
         response = self._get("attribute_values", {"key": "env"})

@@ -24,7 +24,7 @@ import {
 import type { ScoutCostsApi, SignalScoutConfigApi, UserBasicApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalScoutRunSummary } from '../types'
-import { scoutFleetLogic } from './scoutFleetLogic'
+import { ScoutRosterSort, scoutFleetLogic } from './scoutFleetLogic'
 
 jest.mock('posthog-js')
 jest.mock('products/signals/frontend/generated/api', () => ({
@@ -59,6 +59,7 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     skill_name: 'signals-scout-errors',
     description: 'Finds error trends.',
     scout_origin: 'canonical',
+    scout_role: 'specialist',
     owners: [],
     enabled: true,
     status: 'active',
@@ -79,6 +80,7 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     source_product: null,
     source_id: null,
     created_at: '2026-07-22T00:00:00Z',
+    updated_at: '2026-07-22T00:00:00Z',
 }
 
 const OWNER: UserBasicApi = {
@@ -234,6 +236,59 @@ describe('scoutFleetLogic', () => {
         expect(rosterConfigIds()).toHaveLength(2)
     })
 
+    // The card shows `display_name`, falling back to the prettified `skill_name`. Matching anything
+    // else returns cards whose names miss the query, which reads as a broken search.
+    const CHECKOUT_WATCH = {
+        ...BASE_CONFIG,
+        id: 'checkout-watch',
+        skill_name: 'signals-scout-logs',
+        display_name: 'Checkout watch',
+        description: 'error spikes and new failure patterns in application logs',
+    }
+    const FALLBACK_NAME = { ...BASE_CONFIG, id: 'fallback-name', skill_name: 'signals-scout-error-tracking' }
+
+    it.each([
+        ['a partial name', 'check', ['checkout-watch']],
+        ['a mixed-case name', 'ChEcKoUt', ['checkout-watch']],
+        ['a padded query', '  check  ', ['checkout-watch']],
+        // "Error tracking" is the fallback name; the raw slug it comes from has no space in it.
+        ['the fallback name', 'error track', ['fallback-name']],
+        ['a hidden skill_name', 'logs', []],
+        ['a description', 'failure patterns', []],
+        ['a whitespace-only query', '   ', ['checkout-watch', 'fallback-name']],
+        ['an empty query', '', ['checkout-watch', 'fallback-name']],
+    ])('resolves %s to the cards whose name matches', (_label, search, expected) => {
+        logic.actions.loadScoutConfigsSuccess([CHECKOUT_WATCH, FALLBACK_NAME])
+
+        logic.actions.setScoutSearch(search)
+
+        expect(rosterConfigIds()).toEqual(expected)
+    })
+
+    it('narrows the same sorted rows as it searches, and keeps the other filters when cleared', () => {
+        logic.actions.loadScoutConfigsSuccess([
+            CHECKOUT_WATCH,
+            FALLBACK_NAME,
+            { ...BASE_CONFIG, id: 'checkout-off', skill_name: 'signals-scout-checkout-health', enabled: false },
+        ])
+        logic.actions.setScoutEnabledFilter('enabled')
+        const unsearched = logic.values.rosterScouts
+        const matchingRow = unsearched.find((row) => row.config.id === 'checkout-watch')
+
+        logic.actions.setScoutSearch('check')
+
+        // The turned-off scout stays out, so search narrows the filtered roster rather than the fleet.
+        expect(rosterConfigIds()).toEqual(['checkout-watch'])
+        // Re-sorting or rebuilding the rows on a keystroke would hand the list new objects and
+        // re-render every card that did not change.
+        expect(logic.values.rosterScouts[0]).toBe(matchingRow)
+
+        logic.actions.setScoutSearch('')
+
+        expect(logic.values.rosterScouts).toBe(unsearched)
+        expect(logic.values.scoutEnabledFilter).toEqual('enabled')
+    })
+
     it('lists the whole roster A→Z and tags each row with its lifecycle group', () => {
         // The runs poll re-pins `rosterEvaluatedAt` to the wall clock when real time has moved a
         // scout out of the pause window, so the fixture dates only hold with the clock pinned too.
@@ -304,6 +359,54 @@ describe('scoutFleetLogic', () => {
         } finally {
             jest.useRealTimers()
         }
+    })
+
+    const RECENCY_FLEET: SignalScoutConfigApi[] = [
+        {
+            ...BASE_CONFIG,
+            id: 'alpha',
+            skill_name: 'signals-scout-alpha',
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-08-20T00:00:00Z',
+            last_run_at: '2026-08-01T00:00:00Z',
+        },
+        {
+            ...BASE_CONFIG,
+            id: 'zulu',
+            skill_name: 'signals-scout-zulu',
+            created_at: '2026-08-10T00:00:00Z',
+            updated_at: '2026-08-11T00:00:00Z',
+            last_run_at: '2026-08-25T00:00:00Z',
+        },
+        {
+            ...BASE_CONFIG,
+            id: 'mike',
+            skill_name: 'signals-scout-mike',
+            created_at: '2026-05-05T00:00:00Z',
+            updated_at: '2026-08-30T00:00:00Z',
+            last_run_at: null,
+        },
+        {
+            ...BASE_CONFIG,
+            id: 'bravo',
+            skill_name: 'signals-scout-bravo',
+            created_at: '2026-08-10T00:00:00Z',
+            updated_at: '2026-01-02T00:00:00Z',
+            last_run_at: '2026-08-25T00:00:00Z',
+        },
+    ]
+
+    it.each<[ScoutRosterSort, string[]]>([
+        ['name', ['alpha', 'bravo', 'mike', 'zulu']],
+        ['created', ['bravo', 'zulu', 'mike', 'alpha']],
+        ['updated', ['mike', 'alpha', 'zulu', 'bravo']],
+        ['last_run', ['bravo', 'zulu', 'alpha', 'mike']],
+    ])('orders the roster by %s', (sort, expected) => {
+        logic.actions.loadScoutConfigsSuccess(RECENCY_FLEET)
+
+        logic.actions.setScoutRosterSort(sort)
+
+        expect(rosterConfigIds()).toEqual(expected)
     })
 
     it('keeps configs unresolved until the current team is available', async () => {

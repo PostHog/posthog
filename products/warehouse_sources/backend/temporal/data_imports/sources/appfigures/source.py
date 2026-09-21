@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures.appfigures import (
     PRODUCTS_PATH,
     AppfiguresResumeConfig,
@@ -49,7 +47,7 @@ class AppfiguresSource(ResumableSource[AppfiguresSourceConfig, AppfiguresResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.APPFIGURES,
+            name=ExternalDataSourceType.APPFIGURES,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Appfigures",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -57,10 +55,10 @@ class AppfiguresSource(ResumableSource[AppfiguresSourceConfig, AppfiguresResumeC
 
 Create an API client and Personal Access Token at [appfigures.com/developers/keys](https://appfigures.com/developers/keys). When creating the client, grant the data sets you want to sync:
 - `products:read` — Products
-- `public:read` — Reviews, Ranks, Ratings report
-- `private:read` — Sales, Revenue, and Subscriptions reports
+- `public:read` — Reviews, Ranks, Ratings report, ASO keywords and stats
+- `private:read` — Sales, Revenue, Subscriptions, Ads, Ad spend, and Payments reports
 
-Stores, Categories, and Countries are reference tables that need no data set granted.
+Stores, Categories, and Countries are reference tables that need no data set granted. The ASO tables only return rows for the apps and countries you track keywords for in Appfigures.
 """,
             iconPath="/static/services/appfigures.png",
             docsUrl="https://posthog.com/docs/cdp/sources/appfigures",
@@ -74,6 +72,15 @@ Stores, Categories, and Countries are reference tables that need no data set gra
                         required=True,
                         placeholder="pat_...",
                         secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="aso_countries",
+                        label="ASO keyword countries (optional)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="US, GB, DE",
+                        secret=False,
+                        caption="Country codes to pull tracked keyword positions for, comma-separated. Appfigures takes one country per request, so each code adds a request per app. Only the ASO keywords and ASO stats tables use it. They cover the United States when left blank.",
                     ),
                 ],
             ),
@@ -171,4 +178,5 @@ Stores, Categories, and Countries are reference tables that need no data set gra
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            aso_countries=config.aso_countries,
         )

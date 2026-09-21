@@ -15,19 +15,23 @@ import posthog.hogql.query as hogql_query_module
 from posthog.clickhouse.query_tagging import Product, get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.models import EventProperty, Team, User
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
+from products.experiments.backend import session_buckets
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
     EXPERIMENT_EXPOSURE_EVENT_FLAG,
 )
 from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.session_buckets import MAX_BUCKET_METRICS, MAX_BUCKET_SCAN_DAYS, MAX_BUCKET_SOURCES
+from products.experiments.backend.session_exposure import MAX_SESSION_DURATION_HOURS
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
@@ -173,6 +177,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         exposure_event: str = "$feature_flag_called",
         distinct_id: str = "user1",
         properties: Optional[dict[str, Any]] = None,
+        retention_days: Optional[int] = None,
     ) -> str:
         """One session: a recording, an exposure event for `variant` (unless None), and events.
 
@@ -187,6 +192,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
                 distinct_id=distinct_id,
                 first_timestamp=at,
                 last_timestamp=at + timedelta(minutes=30),
+                retention_period_days=retention_days,
             )
         if variant is not None:
             _create_event(
@@ -740,7 +746,8 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
             at=NOW - timedelta(days=MAX_BUCKET_SCAN_DAYS + 5),
             events=[("purchase", NOW - timedelta(days=MAX_BUCKET_SCAN_DAYS + 5) + timedelta(minutes=5))],
         )
-        recent = self._session(events=[("purchase", datetime(2026, 1, 9, 10, 5, tzinfo=UTC))])
+        recent_at = datetime(2026, 1, 9, 10, 0, tzinfo=UTC)
+        recent = self._session(at=recent_at, events=[("purchase", recent_at + timedelta(minutes=5))])
         flush_persons_and_events()
 
         response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
@@ -750,7 +757,140 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         assert too_old not in data["session_ids"]
         # The response says what it scanned, so the surface can state the omission rather than
         # implying the bucket is empty beyond the clamp.
-        assert data["date_from"] == (NOW - timedelta(days=MAX_BUCKET_SCAN_DAYS)).isoformat().replace("+00:00", "Z")
+        window_end = recent_at + timedelta(hours=MAX_SESSION_DURATION_HOURS)
+        assert data["date_to"] == window_end.isoformat().replace("+00:00", "Z")
+        assert data["date_from"] == (window_end - timedelta(days=MAX_BUCKET_SCAN_DAYS)).isoformat().replace(
+            "+00:00", "Z"
+        )
+
+    def test_scan_window_follows_the_latest_exposure_once_traffic_has_stopped(self) -> None:
+        # A session from 45 days ago keeps its recording, and the anchor may look that far back,
+        # only on a project that keeps recordings for longer than the default 30 days.
+        self.team.session_recording_retention_period = "90d"
+        self.team.save()
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC], start_date=NOW - timedelta(days=90))
+        last_exposure_at = NOW - timedelta(days=45)
+        # A recording outlives the scan gap only where the project keeps recordings past the
+        # default 30 days, which is the case this fix is for.
+        quiet = self._session(at=last_exposure_at - timedelta(days=1), retention_days=90)
+        late_buyer = self._session(
+            at=last_exposure_at,
+            events=[("purchase", last_exposure_at + timedelta(hours=2))],
+            retention_days=90,
+        )
+        flush_persons_and_events()
+
+        response = self._post_bucket(experiment, bucket="no_metric_activity", metric_uuids=[PURCHASE_METRIC["uuid"]])
+
+        data = response.json()
+        # A window ending at now covers a stretch this experiment stopped being exposed in, so
+        # every bucket answers "nothing matched" while exposed sessions sit just outside it.
+        assert data["session_ids"] == [quiet]
+        # The window reaches a session's length past the anchor, so the purchase this session
+        # fired after its exposure counts as activity instead of as absence.
+        assert late_buyer not in data["session_ids"]
+        window_end = last_exposure_at + timedelta(hours=MAX_SESSION_DURATION_HOURS)
+        assert data["date_to"] == window_end.isoformat().replace("+00:00", "Z")
+        assert data["date_from"] == (window_end - timedelta(days=MAX_BUCKET_SCAN_DAYS)).isoformat().replace(
+            "+00:00", "Z"
+        )
+
+    def test_the_stamped_fallback_keeps_the_recent_window_where_anchoring_is_unaffordable(self) -> None:
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.experiment_precomputation_enabled = True
+        config.save()
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        purchased = self._session(
+            variant=None,
+            events=[("purchase", datetime(2026, 1, 9, 10, 5, tzinfo=UTC))],
+            properties={"$feature/checkout-cta": "test"},
+        )
+        quiet = self._session(
+            variant=None,
+            events=[("$pageview", datetime(2026, 1, 9, 10, 5, tzinfo=UTC))],
+            properties={"$feature/checkout-cta": "test"},
+        )
+        flush_persons_and_events()
+
+        response = self._post_bucket(experiment, bucket="no_metric_activity", metric_uuids=[PURCHASE_METRIC["uuid"]])
+
+        data = response.json()
+        assert data["used_exposure_fallback"] is True
+        assert purchased not in data["session_ids"]
+        assert data["session_ids"] == [quiet]
+        # The stamped condition names no event to prune on, so anchoring it would read every event
+        # the team captured in the run. These are the teams where the in-session recordings list
+        # refuses that scan outright, so the bucket keeps the window it can afford.
+        assert data["date_to"] == NOW.isoformat().replace("+00:00", "Z")
+
+    def test_a_run_with_no_in_session_exposure_reports_the_whole_run_as_scanned(self) -> None:
+        # Retention longer than the run, so the anchor's floor is the run's own start.
+        self.team.session_recording_retention_period = "90d"
+        self.team.save()
+        start = NOW - timedelta(days=60)
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC], start_date=start)
+        # Sessions do carry the exposure event, just never for this flag, so the scan looks the
+        # event up rather than falling back to the stamped property.
+        self._session(flag_key="other-flag", events=[("purchase", datetime(2026, 1, 9, 10, 5, tzinfo=UTC))])
+        flush_persons_and_events()
+
+        response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
+
+        data = response.json()
+        assert data["session_ids"] == []
+        assert data["used_exposure_fallback"] is False
+        # The anchor read the whole run to find nothing, so no older stretch went unread. Reporting
+        # the 30-day clamp here would have the surface state an omission that never happened.
+        assert data["date_from"] == start.isoformat().replace("+00:00", "Z")
+        assert data["date_to"] == NOW.isoformat().replace("+00:00", "Z")
+
+    def test_the_window_anchor_is_resolved_once_across_bucket_requests(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC], start_date=NOW - timedelta(days=90))
+        self._session(events=[("purchase", datetime(2026, 1, 9, 10, 5, tzinfo=UTC))])
+        flush_persons_and_events()
+
+        original = session_buckets._latest_session_exposure_at
+        anchor_scans = []
+
+        def _counting_anchor(*args: Any, **kwargs: Any) -> Any:
+            anchor_scans.append(kwargs["window_start"])
+            return original(*args, **kwargs)
+
+        with patch.object(session_buckets, "_latest_session_exposure_at", side_effect=_counting_anchor):
+            first = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
+            second = self._post_bucket(experiment, bucket="no_metric_activity", metric_uuids=[PURCHASE_METRIC["uuid"]])
+
+        assert first.status_code == status.HTTP_200_OK, first.json()
+        assert second.status_code == status.HTTP_200_OK, second.json()
+        # The anchor is the same timestamp whichever bucket is asked for, so switching mode must not
+        # buy the scan again. One scan, and it read the recent stretch rather than the whole run:
+        # the run's older days can hold no later exposure than the days after them.
+        assert anchor_scans == [NOW - timedelta(days=MAX_BUCKET_SCAN_DAYS)]
+
+    def test_the_anchor_stops_at_the_recording_retention_of_the_project(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC], start_date=NOW - timedelta(days=365))
+        # Exposed 45 days ago on a project that keeps recordings for 30, so every session an older
+        # scan could reach has already lost its recording.
+        exposed_at = NOW - timedelta(days=45)
+        self._session(at=exposed_at, events=[("purchase", exposed_at + timedelta(minutes=5))])
+        flush_persons_and_events()
+
+        searched_from = []
+        original = session_buckets._latest_session_exposure_at
+
+        def _recording_anchor(*args: Any, **kwargs: Any) -> Any:
+            searched_from.append(kwargs["window_start"])
+            return original(*args, **kwargs)
+
+        with patch.object(session_buckets, "_latest_session_exposure_at", side_effect=_recording_anchor):
+            response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
+
+        data = response.json()
+        # Reaching back to the start of the run would read a year of the exposure event on every
+        # cold request, to find sessions the recording lookup then drops.
+        assert searched_from == [NOW - timedelta(days=30)]
+        assert data["session_ids"] == []
+        assert data["date_from"] == (NOW - timedelta(days=30)).isoformat().replace("+00:00", "Z")
 
     def test_test_account_filtering_follows_the_exposure_criteria(self) -> None:
         self.team.test_account_filters = [{"key": "$host", "value": "localhost", "operator": "is_not", "type": "event"}]

@@ -1,3 +1,4 @@
+import type { NetworkMetricsRequest } from "posthog-js/dist/module.full.no-external";
 import posthog from "posthog-js/dist/module.full.no-external";
 // Import the recorder to set up __PosthogExtensions__.initSessionRecording
 // The module.full.no-external bundle includes rrweb but not the initSessionRecording function
@@ -7,7 +8,12 @@ import type {
   AnalyticsProperties,
   IAnalytics,
 } from "@posthog/platform/analytics";
-import type { Adapter, ModelAccess } from "@posthog/shared";
+import {
+  type Adapter,
+  CLOUD_REGIONS,
+  getCloudUrlFromRegion,
+  type ModelAccess,
+} from "@posthog/shared";
 import {
   type EventPropertyMap,
   isInboxAnalyticsEvent,
@@ -110,6 +116,65 @@ let flagsUnavailable = false;
 
 const SESSION_IDLE_TIMEOUT_SECONDS = 36_000;
 
+const OWN_BACKEND_FREE_TEXT_PATH_TEMPLATES = [
+  {
+    pattern:
+      /^(\/api\/environments\/)\d+(\/llm_skills\/name\/)[^/]+(\/files\/).+$/,
+    replacement: "$1:id$2:id$3:id",
+  },
+  {
+    pattern: /^(\/api\/environments\/)\d+(\/llm_skills\/name\/)[^/]+$/,
+    replacement: "$1:id$2:id",
+  },
+  {
+    // The tool name comes from the MCP server, so a custom server can put any
+    // text here. `tools/refresh/` is a fixed action rather than a tool name, so
+    // the lookahead keeps that route on its own path.
+    pattern:
+      /^(\/api\/environments\/)\d+(\/mcp_server_installations\/)[^/]+(\/tools\/)(?!refresh\/?$)[^/]+(\/?)$/,
+    replacement: "$1:id$2:id$3:id$4",
+  },
+] as const;
+
+function templateOwnApiPath(pathname: string): string | undefined {
+  for (const template of OWN_BACKEND_FREE_TEXT_PATH_TEMPLATES) {
+    if (template.pattern.test(pathname)) {
+      return pathname.replace(template.pattern, template.replacement);
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Path attribute for the automatic network-duration metric. posthog-js's default
+ * path templating only replaces numeric/uuid-like segments, so a presigned
+ * task-artifact download/preview URL (whose path embeds the artifact's original,
+ * user-controlled filename — see `_build_artifact_storage_path` in
+ * products/tasks/backend/facade/api.py) or any other non-API request would leak
+ * that filename into the shared Metrics project. Only requests to the app's own
+ * backend host get path-based attribution; everything else collapses to a fixed
+ * value.
+ *
+ * Backend URLs come from the region configuration. Analytics ingestion uses
+ * a separate host, so it cannot identify backend requests.
+ */
+export function networkMetricPath(
+  request: NetworkMetricsRequest,
+): string | undefined {
+  try {
+    const requestUrl = new URL(request.url);
+    const isBackend = CLOUD_REGIONS.some(
+      (region) => getCloudUrlFromRegion(region) === requestUrl.origin,
+    );
+    if (!isBackend) {
+      return "external";
+    }
+    return templateOwnApiPath(requestUrl.pathname);
+  } catch {
+    return "external";
+  }
+}
+
 export function initializePostHog(sessionId?: string) {
   const apiKey = import.meta.env.VITE_POSTHOG_API_KEY;
   const apiHost =
@@ -137,6 +202,17 @@ export function initializePostHog(sessionId?: string) {
     metrics: {
       serviceName: "posthog-desktop",
       environment: import.meta.env.PROD ? "production" : "development",
+      // Records every fetch/XHR as an `http.client.request.duration` histogram,
+      // keyed by method/host/path (posthog-js templates numeric and uuid-like
+      // path segments to `:id` before dimensioning). posthog-js's own capture/flags/session-recording
+      // requests are excluded automatically. `attributes` keeps path-based
+      // attribution to this app's own backend — see `networkMetricPath`.
+      network: {
+        attributes: (request) => {
+          const path = networkMetricPath(request);
+          return path === undefined ? undefined : { path };
+        },
+      },
     },
     // The epoch turns capture_pageview into "history_change". This app routes via
     // createHashHistory() (packages/ui/src/router/router.ts), so the route lives in
@@ -154,9 +230,8 @@ export function initializePostHog(sessionId?: string) {
     },
     // The shared analytics project runs many popover surveys aimed at the
     // PostHog web app; any one without URL/event conditions would render here
-    // too. This app only submits survey responses through its own UI
-    // (captureSurveyResponse), which posthog-js survey rendering being off
-    // does not affect.
+    // too. This app submits survey responses through its server-owned feedback
+    // endpoint, which survey rendering being off does not affect.
     disable_surveys: true,
     session_idle_timeout_seconds: SESSION_IDLE_TIMEOUT_SECONDS,
     ...(sessionId ? { bootstrap: { sessionID: sessionId } } : {}),
@@ -357,38 +432,8 @@ export function recordNavigationSettled(
   });
 }
 
-/**
- * Record a survey response via posthog-js's `survey sent` event. Pass one entry
- * per answered question; they're submitted together as a single response. The
- * survey must already exist (and be launched) in the project the app reports to,
- * or the response will not attach to it.
- */
-export function captureSurveyResponse({
-  surveyId,
-  responses,
-}: {
-  surveyId: string;
-  responses: Array<{ questionId: string; response: string }>;
-}) {
-  if (!isInitialized) {
-    return;
-  }
-
-  const properties: Record<string, unknown> = {
-    $survey_id: surveyId,
-    $survey_questions: responses.map(({ questionId }) => ({ id: questionId })),
-  };
-  // Newer ingestion keys each response by question id.
-  for (const { questionId, response } of responses) {
-    properties[`$survey_response_${questionId}`] = response;
-  }
-  // `$survey_response` is the legacy single-question key; only set it when there
-  // is exactly one answer, otherwise it would be ambiguous.
-  if (responses.length === 1) {
-    properties.$survey_response = responses[0].response;
-  }
-
-  posthog.capture("survey sent", properties);
+export function getAnalyticsSessionId(): string | undefined {
+  return isInitialized ? posthog.get_session_id() : undefined;
 }
 
 /**
@@ -522,7 +567,7 @@ export const posthogAnalyticsTracker: AnalyticsTracker = {
   setUserGroups,
   resetUser,
   recordNavigationSettled,
-  captureSurveyResponse,
+  getSessionId: getAnalyticsSessionId,
 };
 
 /**

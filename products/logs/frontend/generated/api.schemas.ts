@@ -7,6 +7,52 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface TeamLogsConfigApi {
+    /** Legacy single-key alias — always the first entry of `logs_distinct_id_attribute_keys`. Read-only; write the plural field instead. */
+    readonly logs_distinct_id_attribute_key: string
+    /**
+     * Log attribute keys whose values should match a person's distinct_id — a log links to a person when any of these attributes equals one of their distinct IDs. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to ['posthogDistinctId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the person identifier under different attributes.
+     * @maxItems 10
+     * @items.maxLength 200
+     */
+    logs_distinct_id_attribute_keys: string[]
+    /**
+     * Ordered list of log attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.
+     * @maxItems 10
+     * @items.maxLength 200
+     */
+    logs_session_id_attribute_keys: string[]
+    /**
+     * Ordered list of top-level JSON keys whose value is the message text that log patterns are derived from. Keys are matched literally at the top level of the log body; a dot in a key is part of the key name, not a path into nested objects. Selection checks keys in order; the first key whose value is a non-empty string wins. Defaults to ['message', 'msg', 'event']. An empty list turns message extraction off, so JSON log bodies group by their key set instead. The stored log body is never changed by this setting.
+     * @maxItems 10
+     * @items.maxLength 200
+     */
+    logs_pattern_message_keys: string[]
+}
+
+export interface PatchedTeamLogsConfigApi {
+    /** Legacy single-key alias — always the first entry of `logs_distinct_id_attribute_keys`. Read-only; write the plural field instead. */
+    readonly logs_distinct_id_attribute_key?: string
+    /**
+     * Log attribute keys whose values should match a person's distinct_id — a log links to a person when any of these attributes equals one of their distinct IDs. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to ['posthogDistinctId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the person identifier under different attributes.
+     * @maxItems 10
+     * @items.maxLength 200
+     */
+    logs_distinct_id_attribute_keys?: string[]
+    /**
+     * Ordered list of log attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.
+     * @maxItems 10
+     * @items.maxLength 200
+     */
+    logs_session_id_attribute_keys?: string[]
+    /**
+     * Ordered list of top-level JSON keys whose value is the message text that log patterns are derived from. Keys are matched literally at the top level of the log body; a dot in a key is part of the key name, not a path into nested objects. Selection checks keys in order; the first key whose value is a non-empty string wins. Defaults to ['message', 'msg', 'event']. An empty list turns message extraction off, so JSON log bodies group by their key set instead. The stored log body is never changed by this setting.
+     * @maxItems 10
+     * @items.maxLength 200
+     */
+    logs_pattern_message_keys?: string[]
+}
+
 export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
 
 export const FilterLogicalOperatorApi = {
@@ -1295,21 +1341,38 @@ export const CoarsenedReasonEnumApi = {
     Quiet: 'quiet',
 } as const
 
+/**
+ * * `above` - Above the band
+ * * `below` - Below the band
+ */
+export type LogsSeriesBandVerdictEnumApi =
+    (typeof LogsSeriesBandVerdictEnumApi)[keyof typeof LogsSeriesBandVerdictEnumApi]
+
+export const LogsSeriesBandVerdictEnumApi = {
+    Above: 'above',
+    Below: 'below',
+} as const
+
 export interface LogsSeriesBandBucketApi {
     /** Start of the display bucket (UTC). */
     time: string
     /** Log count observed in this bucket. */
     observed: number
     /**
-     * Lower edge of the expected band. Null while the series has too little history to band.
+     * Lower edge of the expected band. Null while no validated band is available for this series.
      * @nullable
      */
     lower: number | null
     /**
-     * Upper edge of the expected band. Null while the series has too little history to band.
+     * Upper edge of the expected band. Null while no validated band is available for this series.
      * @nullable
      */
     upper: number | null
+    /** Where the observed count sits against the band: above when it exceeds upper, below when it falls under lower. Null while it sits inside the band, or while the band is not ready.
+     *
+     * * `above` - Above the band
+     * * `below` - Below the band */
+    verdict: LogsSeriesBandVerdictEnumApi | null
 }
 
 export interface LogsSeriesBandSeriesApi {
@@ -1321,12 +1384,12 @@ export interface LogsSeriesBandSeriesApi {
     severity: string
     /** Total observed log count over the window. Series are ordered by this, descending. */
     total_count: number
-    /** Full weeks of history behind the band, 0 to 5. Below 2 the series is still learning and its buckets carry no band. */
+    /** Full weeks of history behind the band, 0 to 5. History depth alone does not enable a band; a validated readiness policy is also required. */
     baseline_weeks: number
     /** Start of sustained traffic inside the fetched lookback: the first bucket followed by a week with enough non-empty buckets. A stray earlier row does not move it. The window start when no traffic is sustained yet. */
     history_start: string
     /**
-     * When this series gains its band, so a learning series can count down to it. Null once the band is drawn.
+     * When this series gains its band under a validated readiness policy. Null when the band is ready or no validated readiness date is available. Check the buckets' lower and upper values to determine whether a band is present.
      * @nullable
      */
     band_ready_at: string | null

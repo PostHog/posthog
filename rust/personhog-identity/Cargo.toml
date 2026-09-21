@@ -6,11 +6,13 @@ publish = false
 
 [dependencies]
 personhog-common = { path = "../personhog-common" }
+personhog-coordination = { path = "../personhog-coordination" }
 personhog-proto = { path = "../personhog-proto" }
+assignment-coordination = { path = "../common/assignment-coordination" }
 common-database = { path = "../common/database" }
 common-alloc = { path = "../common/alloc" }
 common-metrics = { path = "../common/metrics" }
-metrics = { workspace = true }
+common-sqlx-macros = { path = "../common/sqlx-macros" }
 lifecycle = { path = "../common/lifecycle" }
 
 async-trait = { workspace = true }
