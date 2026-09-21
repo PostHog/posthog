@@ -11,7 +11,8 @@ from datetime import datetime
 
 from pydantic import ValidationError
 
-from products.signals.backend.artefact_schemas import FIXED_DISMISSAL_REASONS, Dismissal
+from products.signals.backend.artefact_schemas import FIXED_DISMISSAL_REASONS, Dismissal, ReportLink
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 
 
@@ -42,9 +43,21 @@ def fixed_dismissal_at(report: SignalReport) -> datetime | None:
 
 
 def recurrence_report(report: SignalReport, *, lock: bool = False) -> SignalReport | None:
-    """Return the latest successor recorded by the pipeline, including dismissed successors."""
+    """Return the latest explicit recurrence successor, including dismissed successors."""
+    linked_ids = []
+    for report_id, content in SignalReportArtefact.objects.filter(
+        team_id=report.team_id,
+        type=SignalReportArtefact.ArtefactType.REPORT_LINK,
+        content__contains=str(report.id),
+    ).values_list("report_id", "content"):
+        try:
+            link = ReportLink.model_validate_json(content)
+        except ValidationError:
+            continue
+        if link.kind == ReportLinkKind.RECURRENCE_OF and link.report_id == str(report.id):
+            linked_ids.append(report_id)
     candidates = (
-        SignalReport.objects.filter(team_id=report.team_id, recurrence_parent=report)
+        SignalReport.objects.filter(team_id=report.team_id, id__in=linked_ids)
         .exclude(status=SignalReport.Status.DELETED)
         .order_by("-created_at")
     )

@@ -380,10 +380,10 @@ potential → candidate → in_progress → ready
 # repo selection and findings for already-seen signals. Suppressed between buckets and once every
 # bucket is used (see Research buckets).
 # RESOLVED is terminal and never re-promotes: a recurrence spawns a fresh report, linked back to the
-# resolved one via a related_to artefact (assign_and_emit_signal_activity). A report dismissed with a
+# resolved one via a recurrence_of report link (assign_and_emit_signal_activity). A report dismissed with a
 # reason that claims the issue is fixed (already_fixed, fixed_outside_posthog, pr_merged) makes the
 # same claim, so it forks the same way; every other dismissal reason absorbs later signals silently
-# (recurrence.py). The pipeline records each successor in recurrence_parent. Generic related_to
+# (recurrence.py). The pipeline records each successor with a typed recurrence_of link. Generic related_to
 # links do not control signal assignment. Matching follows this successor chain, including
 # preference-dismissed reports that must keep absorbing signals. Repeated feedback does not break
 # the chain. The parent lock protects both live assignment and backfill creation.

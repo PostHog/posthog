@@ -8,8 +8,9 @@ from django.db import transaction
 from posthog.models import Team
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import RelatedTo
+from products.signals.backend.artefact_schemas import ReportLink
 from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.recurrence import fixed_dismissal_at, recurrence_report
 from products.signals.backend.temporal.signal_queries import _ensure_tz_aware, fetch_signals_for_report_sync
@@ -93,13 +94,12 @@ class Command(BaseCommand):
                     status=SignalReport.Status.POTENTIAL,
                     title=report.title,
                     summary=report.summary,
-                    recurrence_parent=report,
                     billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(signals[0]["source_product"]),
                 )
                 SignalReportArtefact.add_log(
                     team_id=report.team_id,
                     report_id=str(fork.id),
-                    content=RelatedTo(report_id=str(report.id)),
+                    content=ReportLink(kind=ReportLinkKind.RECURRENCE_OF, report_id=str(report.id)),
                     attribution=ArtefactAttribution.system(),
                 )
             forked += 1

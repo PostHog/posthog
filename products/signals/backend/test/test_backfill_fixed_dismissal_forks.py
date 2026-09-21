@@ -7,7 +7,8 @@ from django.core.management import call_command
 from django.utils import timezone
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import Dismissal, RelatedTo
+from products.signals.backend.artefact_schemas import Dismissal, ReportLink
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 
 COMMAND_MODULE_PATH = "products.signals.backend.management.commands.backfill_fixed_dismissal_forks"
@@ -58,9 +59,10 @@ class TestBackfillFixedDismissalForks(BaseTest):
         assert (fork.title, fork.summary) == (parent.title, parent.summary)
         assert fork.signal_count == 0
         assert fork.total_weight == 0
-        assert fork.recurrence_parent_id == parent.id
-        link = SignalReportArtefact.objects.get(report=fork, type=SignalReportArtefact.ArtefactType.RELATED_TO)
-        assert RelatedTo.model_validate_json(link.content) == RelatedTo(report_id=str(parent.id))
+        link = SignalReportArtefact.objects.get(report=fork, type=SignalReportArtefact.ArtefactType.REPORT_LINK)
+        assert ReportLink.model_validate_json(link.content) == ReportLink(
+            kind=ReportLinkKind.RECURRENCE_OF, report_id=str(parent.id)
+        )
         parent.refresh_from_db()
         assert parent.status == SignalReport.Status.SUPPRESSED
 
@@ -129,7 +131,13 @@ class TestBackfillFixedDismissalForks(BaseTest):
         parent = self._dismissed_report("already_fixed")
 
         def concurrent_recurrence(team, report_id):
-            SignalReport.objects.create(team=self.team, recurrence_parent=parent)
+            successor = SignalReport.objects.create(team=self.team)
+            SignalReportArtefact.add_log(
+                team_id=self.team.id,
+                report_id=str(successor.id),
+                content=ReportLink(kind=ReportLinkKind.RECURRENCE_OF, report_id=str(parent.id)),
+                attribution=ArtefactAttribution.system(),
+            )
             return self._signals(1, age=timedelta(minutes=5))
 
         with patch(f"{COMMAND_MODULE_PATH}.fetch_signals_for_report_sync", side_effect=concurrent_recurrence):

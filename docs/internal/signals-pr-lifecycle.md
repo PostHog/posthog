@@ -24,7 +24,7 @@ Links must name a different live report in the same project and cannot form a cy
 ## Recurrence after a fixed verdict
 
 A report dismissed as `already_fixed`, `fixed_outside_posthog`, or `pr_merged` can create a new report when the issue returns.
-The pipeline records the new report's parent in `recurrence_parent` and adds a `related_to` link for the timeline.
+The pipeline records the new report's parent with a typed `recurrence_of` report link.
 Generic `related_to` links do not control signal assignment.
 Later signals follow the recurrence chain.
 A successor dismissed for a preference reason keeps absorbing signals, including signals that match an older parent.

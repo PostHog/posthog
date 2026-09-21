@@ -14,8 +14,9 @@ from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import Dismissal, RelatedTo
+from products.signals.backend.artefact_schemas import Dismissal, RelatedTo, ReportLink
 from products.signals.backend.daily_limit import DailyReportLimitGate
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.temporal.grouping import (
@@ -406,15 +407,12 @@ async def test_resolved_match_spawns_new_report_and_leaves_resolved_untouched(at
     assert new_report.title == "original title"
     assert new_report.summary == "original summary"
 
-    # The two reports are symmetrically linked via related_to artefacts, each pointing at the other.
     new_link = await database_sync_to_async(
-        lambda: SignalReportArtefact.objects.get(report=new_report, type=SignalReportArtefact.ArtefactType.RELATED_TO)
+        lambda: SignalReportArtefact.objects.get(report=new_report, type=SignalReportArtefact.ArtefactType.REPORT_LINK)
     )()
-    assert RelatedTo.model_validate_json(new_link.content) == RelatedTo(report_id=str(resolved.id))
-    resolved_link = await database_sync_to_async(
-        lambda: SignalReportArtefact.objects.get(report=resolved, type=SignalReportArtefact.ArtefactType.RELATED_TO)
-    )()
-    assert RelatedTo.model_validate_json(resolved_link.content) == RelatedTo(report_id=str(new_report.id))
+    assert ReportLink.model_validate_json(new_link.content) == ReportLink(
+        kind=ReportLinkKind.RECURRENCE_OF, report_id=str(resolved.id)
+    )
 
     # The resolved report is untouched — not reopened, no new signal counted.
     refreshed_resolved = await database_sync_to_async(SignalReport.objects.get)(id=resolved.id)
@@ -489,9 +487,11 @@ async def test_suppressed_report_forks_only_for_a_fixed_dismissal(ateam, reason,
     # The parent keeps its verdict and counts nothing: the recurrence lives on the fork.
     assert refreshed_parent.signal_count == 2
     link = await database_sync_to_async(
-        lambda: SignalReportArtefact.objects.get(report=fork, type=SignalReportArtefact.ArtefactType.RELATED_TO)
+        lambda: SignalReportArtefact.objects.get(report=fork, type=SignalReportArtefact.ArtefactType.REPORT_LINK)
     )()
-    assert RelatedTo.model_validate_json(link.content) == RelatedTo(report_id=str(parent.id))
+    assert ReportLink.model_validate_json(link.content) == ReportLink(
+        kind=ReportLinkKind.RECURRENCE_OF, report_id=str(parent.id)
+    )
 
 
 @pytest.mark.asyncio
@@ -570,13 +570,18 @@ async def test_recurrence_forks_again_once_the_previous_fork_is_resolved(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_generic_relation_does_not_redirect_recurrence(ateam):
+@pytest.mark.parametrize("link_kind", [None, ReportLinkKind.FOLLOW_UP_OF])
+async def test_generic_relation_does_not_redirect_recurrence(ateam, link_kind):
     parent = await _suppressed_report(ateam, "already_fixed")
     unrelated = await database_sync_to_async(SignalReport.objects.create)(team=ateam)
     await database_sync_to_async(SignalReportArtefact.add_log)(
         team_id=ateam.id,
-        report_id=str(parent.id),
-        content=RelatedTo(report_id=str(unrelated.id)),
+        report_id=str(unrelated.id),
+        content=(
+            RelatedTo(report_id=str(parent.id))
+            if link_kind is None
+            else ReportLink(kind=link_kind, report_id=str(parent.id))
+        ),
         attribution=ArtefactAttribution.system(),
     )
 
@@ -593,8 +598,12 @@ async def test_generic_relation_does_not_redirect_recurrence(ateam):
 async def test_suppressed_successor_controls_parent_matches(ateam, reason):
     parent = await _suppressed_report(ateam, "already_fixed")
     successor = await _suppressed_report(ateam, reason)
-    successor.recurrence_parent = parent
-    await database_sync_to_async(successor.save)(update_fields=["recurrence_parent"])
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(successor.id),
+        content=ReportLink(kind=ReportLinkKind.RECURRENCE_OF, report_id=str(parent.id)),
+        attribution=ArtefactAttribution.system(),
+    )
 
     result = await assign_and_emit_signal_activity(
         _build_input(ateam.id, _existing_match(str(parent.id)), weight=WEIGHT_THRESHOLD)
@@ -604,8 +613,10 @@ async def test_suppressed_successor_controls_parent_matches(ateam, reason):
         assert result.report_id == str(successor.id)
         assert result.promoted is False
     else:
-        fork = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
-        assert fork.recurrence_parent_id == successor.id
+        link = await database_sync_to_async(SignalReportArtefact.objects.get)(
+            report_id=result.report_id, type=SignalReportArtefact.ArtefactType.REPORT_LINK
+        )
+        assert ReportLink.model_validate_json(link.content).report_id == str(successor.id)
 
 
 # ---------------------------------------------------------------------------

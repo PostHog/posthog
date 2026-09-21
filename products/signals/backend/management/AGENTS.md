@@ -181,7 +181,7 @@ One-off data migration for reports dismissed as fixed (`already_fixed`, `fixed_o
 `pr_merged`) before the grouping stage learned to fork on recurrence. Such a report absorbed every
 later matching signal silently, so the evidence that the fix did not hold is buried on it. The
 command creates one new report per parent, with the parent's title and summary.
-The pipeline records the parent in `recurrence_parent` and adds a `related_to` artefact for the timeline.
+The pipeline records the parent with a typed `recurrence_of` report link.
 
 ```bash
 # Preview, scoped to one team

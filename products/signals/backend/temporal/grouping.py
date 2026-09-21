@@ -31,9 +31,10 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import RelatedTo
+from products.signals.backend.artefact_schemas import ReportLink
 from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.recurrence import fixed_dismissal_at, recurrence_report
@@ -770,8 +771,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 # Resolved reports are terminal — never reopen them. When a signal would have grouped
                 # into an already-resolved report, the issue it fixed has recurred (or a related one
                 # has), so we start a fresh report and link it to the resolved report via a
-                # `related_to` artefact. add_log writes the symmetric back-link automatically, so the
-                # link is discoverable from either side. The research agent is later handed that
+                # `recurrence_of` report link. The research agent is later handed that
                 # resolved report as context (see report.py).
                 if report.status == SignalReport.Status.RESOLVED or dismissed_as_fixed_at is not None:
                     parent_report = report
@@ -782,13 +782,12 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         signal_count=1,
                         title=parent_report.title,
                         summary=parent_report.summary,
-                        recurrence_parent=parent_report,
                         billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
                     )
                     SignalReportArtefact.add_log(
                         team_id=input.team_id,
                         report_id=str(report.id),
-                        content=RelatedTo(report_id=str(parent_report.id)),
+                        content=ReportLink(kind=ReportLinkKind.RECURRENCE_OF, report_id=str(parent_report.id)),
                         attribution=ArtefactAttribution.system(),
                     )
                 else:

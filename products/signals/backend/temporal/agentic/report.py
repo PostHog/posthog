@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, TypeVar
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q
@@ -21,8 +22,9 @@ from posthog.temporal.oauth import McpScopePreset, grants_scratchpad_write
 
 from products.business_knowledge.backend.logic import is_available_for_team
 from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_runtime
-from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, SuggestedReviewers
+from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, ReportLink, SuggestedReviewers
 from products.signals.backend.auto_start import ReviewerContent
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_CONTENT_NEEDLE, WRONG_REPO_CONTENT_NEEDLE
@@ -220,19 +222,28 @@ async def _load_resolved_report_context(team_id: int, report_id: str) -> tuple[s
     """Title/summary of the report claimed as fixed that this one recurred from, if any.
 
     When a signal that would have grouped into a report already closed as fixed spawns a fresh
-    report instead (such a report never reopens), the grouping pipeline links the two with symmetric
-    `related_to` artefacts. The recurrence source is whichever linked report makes that claim —
+    report instead (such a report never reopens), the grouping pipeline writes a `recurrence_of`
+    report link. Legacy reports use symmetric `related_to` artefacts. The source makes that claim:
     resolved, or dismissed as fixed (see recurrence.py). Handing it to the research agent lets it
     judge regression vs. new dimension vs. distinct.
     """
     related_ids: list[str] = []
+    recurrence_ids: list[str] = []
     async for artefact in SignalReportArtefact.objects.filter(
-        team_id=team_id, report_id=report_id, type=SignalReportArtefact.ArtefactType.RELATED_TO
+        team_id=team_id,
+        report_id=report_id,
+        type__in=(SignalReportArtefact.ArtefactType.RELATED_TO, SignalReportArtefact.ArtefactType.REPORT_LINK),
     ).order_by("created_at"):
         try:
-            related_ids.append(RelatedTo.model_validate_json(artefact.content).report_id)
-        except ValidationError:
+            if artefact.type == SignalReportArtefact.ArtefactType.REPORT_LINK:
+                link = ReportLink.model_validate_json(artefact.content)
+                if link.kind == ReportLinkKind.RECURRENCE_OF:
+                    recurrence_ids.append(link.report_id)
+            else:
+                related_ids.append(str(UUID(RelatedTo.model_validate_json(artefact.content).report_id)))
+        except (ValidationError, ValueError):
             continue
+    related_ids = recurrence_ids or related_ids
     if not related_ids:
         return None, None
     async for candidate in (

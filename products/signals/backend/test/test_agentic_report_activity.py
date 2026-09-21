@@ -28,7 +28,9 @@ from products.signals.backend.artefact_schemas import (
     ImplementationTarget,
     NoteArtefact,
     RelatedTo,
+    ReportLink,
 )
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutNote
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.report_charts import ReportChart
@@ -270,7 +272,10 @@ def _build_signals() -> list[SignalData]:
         (SignalReport.Status.SUPPRESSED, "wontfix_intentional", False),
     ],
 )
-async def test_recurrence_context_comes_from_a_parent_closed_as_fixed(ateam, parent_status, dismissal_reason, expected):
+@pytest.mark.parametrize("typed_link", [False, True])
+async def test_recurrence_context_comes_from_a_parent_closed_as_fixed(
+    ateam, parent_status, dismissal_reason, expected, typed_link
+):
     parent = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam, status=parent_status, title="stale chunk TypeError", summary="Imports fail after a deploy."
     )
@@ -285,7 +290,11 @@ async def test_recurrence_context_comes_from_a_parent_closed_as_fixed(ateam, par
     await database_sync_to_async(SignalReportArtefact.add_log)(
         team_id=ateam.id,
         report_id=str(fork.id),
-        content=RelatedTo(report_id=str(parent.id)),
+        content=(
+            ReportLink(kind=ReportLinkKind.RECURRENCE_OF, report_id=str(parent.id))
+            if typed_link
+            else RelatedTo(report_id=str(parent.id))
+        ),
         attribution=ArtefactAttribution.system(),
     )
 
