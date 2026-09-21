@@ -12,7 +12,7 @@ from django.http import HttpRequest
 from django.utils import timezone
 
 from posthog.ingress.contracts import ProviderSpec, WebhookDelivery
-from posthog.ingress.providers import WebhookProvider
+from posthog.ingress.providers import WebhookProvider, require_known_app
 from posthog.ingress.verify.schemes import SignatureScheme, SnsSignature
 
 SNS_EVENT_TYPES = frozenset({"SubscriptionConfirmation", "Notification", "UnsubscribeConfirmation"})
@@ -30,6 +30,7 @@ class SnsProvider(WebhookProvider):
         verify_message: Callable[[Mapping[str, Any]], bool],
         allowed_topic_arns: Callable[[], frozenset[str]],
     ) -> None:
+        require_known_app(self.provider, app, SPECS)
         self.app = app
         self._scheme = SnsSignature(verify_message=verify_message, allowed_topic_arns=allowed_topic_arns)
 

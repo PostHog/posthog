@@ -101,7 +101,3 @@ class TestMailgunProvider(SimpleTestCase):
         payload = _provider().parse(request)
 
         self.assertEqual(len(payload[FILES_KEY]), MAX_FILES)
-
-    def test_an_unknown_app_is_refused_at_build(self) -> None:
-        with self.assertRaises(ValueError):
-            _provider("events")

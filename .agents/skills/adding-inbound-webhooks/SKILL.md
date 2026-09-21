@@ -64,6 +64,7 @@ Copy `github/` for the full shape, or `vapi/` for a small one.
   - `throttle_class` names a DRF throttle from `posthog.rate_limit`, run in front of verification. Set one when the endpoint is public and its verification is expensive, such as a JWT signing-key lookup.
   - `retry_status` is the status answered instead of the receipt when ingress cannot vouch that the delivery was accepted: an ownership lookup failed, the forward to the owning region failed, a consumer raised, or the budget skipped a consumer. Set it when the provider redelivers on a non-2xx, and leave it `None` when it does not, because the non-2xx then only loses the delivery. A retry replays the delivery against every consumer on the endpoint, and dedup is what stops the ones that already accepted it from running twice.
 - A `build_<provider>_provider(...)` function returning it. Secrets and verifiers a product owns are **passed into this builder**, never imported: nothing under `posthog/ingress/` may import a product.
+  A builder that takes an `app` name calls `require_known_app(provider, app, SPECS)` from `posthog/ingress/providers.py` first, so a typo raises `UnknownApp` at import instead of serving an endpoint no consumer is registered against.
 
 ### Picking a scheme
 

@@ -39,6 +39,23 @@ class InvalidPayload(Exception):
     """
 
 
+class UnknownApp(ValueError):
+    """A builder was handed an app name no spec of that provider declares."""
+
+
+def require_known_app(provider: str, app: str, specs: Sequence[ProviderSpec]) -> None:
+    """Refuse an app name the provider's `SPECS` do not declare.
+
+    A typo otherwise builds a working endpoint: consumers register against the declared names,
+    so nothing matches and every delivery is receipted and dropped, or the app has no secret
+    getter and every delivery answers `NOT_CONFIGURED`. Both fail at the first real delivery
+    rather than at import, so the mistake is caught here instead.
+    """
+    known = sorted(spec.app for spec in specs if spec.provider == provider)
+    if app not in known:
+        raise UnknownApp(f"Unknown {provider} app {app!r}, expected one of {known}")
+
+
 def decode_json(raw: str | bytes) -> Any:
     """Decode a body this package accepts, or raise `InvalidPayload` for one it cannot read.
 
