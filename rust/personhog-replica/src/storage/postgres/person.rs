@@ -1528,6 +1528,20 @@ async fn delete_persons_by_ids_in_tx(
     }
     let mut rows = PersonRowsDeleted::default();
 
+    // Lock persons before their distinct ids, the order ingestion and the
+    // tombstone paths take, so a concurrent tombstone cannot deadlock with us.
+    sqlx::query!(
+        r#"
+        SELECT id FROM posthog_person
+        WHERE team_id = $1 AND id = ANY($2)
+        ORDER BY id FOR UPDATE
+        "#,
+        team_id as i32,
+        person_ids
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
     // Delete distinct_id rows first — FK is NO ACTION.
     let did_result = sqlx::query!(
         r#"
