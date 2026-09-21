@@ -741,64 +741,6 @@ pub async fn establish_boundary(
     }
 }
 
-/// How a guarded terminal write ended.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UncoveredFailOutcome {
-    Failed,
-    /// Every named participation was superseded after validation read it, so the verdict no longer
-    /// holds and the run keeps seeding.
-    VerdictStale,
-    /// The run left `awaiting_boundary`/`seeding` under us.
-    NotActive,
-}
-
-/// Fail a run refused for named participations, but only while one of them is still active.
-///
-/// A cohort edit supersedes participations without moving the run's own status, so a team-scoped
-/// run stays `seeding` and [`fail_run`]'s status guard would admit a verdict read before the edit —
-/// terminalizing the run's healthy siblings on stale state. The predicate lives in the UPDATE
-/// rather than in a preceding SELECT so the two cannot disagree, and takes no participation locks,
-/// which would invert the run-then-participations order `supersede_active_runs` documents.
-pub async fn fail_run_while_uncovered(
-    pool: &PgPool,
-    run_id: RunId,
-    cohort_ids: &[i32],
-    error: &RenderedError,
-) -> Result<UncoveredFailOutcome, RunError> {
-    let (applied, holds) = sqlx::query_as::<_, (bool, bool)>(
-        r#"
-        WITH still_uncovered AS (
-            SELECT 1
-            FROM cohort_backfill_run_cohorts
-            WHERE run_id = $1 AND cohort_id = ANY($4) AND superseded_at IS NULL
-            LIMIT 1
-        ), failed AS (
-            UPDATE cohort_backfill_runs
-            SET status = 'failed', error = left($2, $3), finished_at = now(), updated_at = now()
-            WHERE id = $1
-              AND status IN ('awaiting_boundary', 'seeding')
-              AND EXISTS (SELECT 1 FROM still_uncovered)
-            RETURNING id
-        )
-        SELECT
-            EXISTS(SELECT 1 FROM failed) AS applied,
-            EXISTS(SELECT 1 FROM still_uncovered) AS holds
-        "#,
-    )
-    .bind(run_id)
-    .bind(error.as_str())
-    .bind(PERSISTED_ERROR_LIMIT)
-    .bind(cohort_ids)
-    .fetch_one(pool)
-    .await?;
-
-    Ok(match (applied, holds) {
-        (true, _) => UncoveredFailOutcome::Failed,
-        (false, true) => UncoveredFailOutcome::NotActive,
-        (false, false) => UncoveredFailOutcome::VerdictStale,
-    })
-}
-
 pub async fn fail_run(pool: &PgPool, run_id: RunId, error: &RenderedError) -> Result<(), RunError> {
     let failed = sqlx::query_scalar::<_, RunId>(
         r#"

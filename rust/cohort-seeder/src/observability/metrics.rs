@@ -20,9 +20,6 @@ pub const RUNS_WAITING_BOUNDARY: &str = "seeder_runs_waiting_boundary";
 /// and their dropped hashes.
 pub const RUN_VALIDATION_FAILURES: &str = "seeder_run_validation_failures_total";
 pub const TZ_FALLBACK: &str = "seeder_tz_fallback_total";
-/// Pinned conditions the frozen catalog did not resolve, labelled by `reason` (counter). A run that
-/// validates reports these once per process; a run failed for `uncovered_participation` reports the
-/// drops behind its refusal instead, so the reason breakdown survives the failure.
 pub const CONDITIONS_DROPPED: &str = "seeder_conditions_dropped_total";
 pub const LOOKBACK_TRUNCATED: &str = "seeder_lookback_truncated_total";
 /// Pinned behavioral conditions by what a static read of their bytecode found, labelled by `class`

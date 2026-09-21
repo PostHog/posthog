@@ -24,9 +24,8 @@ use cohort_seeder::domain::{
 use cohort_seeder::store::chunks::{ChunkStoreError, PgChunkStore, PlanOutcome, NO_ERROR_RECORDED};
 use cohort_seeder::store::lease::LeaseFailure;
 use cohort_seeder::store::runs::{
-    discover_runs, establish_boundary, fail_run, fail_run_while_uncovered, load_reconcile_run,
-    record_run_warning, BoundaryOutcome, ReconcileRunError, RunError, RunKind, RunStatus,
-    RunWarningNote, UncoveredFailOutcome,
+    discover_runs, establish_boundary, fail_run, load_reconcile_run, record_run_warning,
+    BoundaryOutcome, ReconcileRunError, RunError, RunKind, RunStatus, RunWarningNote,
 };
 use cohort_seeder::store::{Claimant, LeaseDuration, MaxAttempts, RenderedError};
 use cohort_seeder::test_support;
@@ -1303,84 +1302,6 @@ async fn exhausted_chunk_fails_the_run_and_stops_further_claims() -> Result<()> 
             fail_run(&pool, seeding_run, &RenderedError::from_message("again")).await,
             Err(RunError::NotActive(_))
         ));
-        Ok(())
-    })
-    .await
-}
-
-/// The terminal write for an unseedable participation is guarded on that participation still being
-/// active. A cohort edit supersedes participations without touching the run's status, so a team
-/// run stays `seeding` and an unguarded write would terminalize its healthy siblings on a verdict
-/// read before the edit.
-#[tokio::test]
-async fn failing_an_uncovered_run_is_guarded_on_the_participation_still_being_active() -> Result<()>
-{
-    with_db(|pool| async move {
-        let refused = RenderedError::from_message("cohort 7 cannot be seeded");
-        let status = |run_id| {
-            let pool = pool.clone();
-            async move {
-                sqlx::query_scalar::<_, String>(
-                    "SELECT status FROM cohort_backfill_runs WHERE id = $1",
-                )
-                .bind(run_id)
-                .fetch_one(&pool)
-                .await
-            }
-        };
-
-        // Superseded between the validation read and the write: the verdict no longer holds, so the
-        // run keeps seeding its covered siblings and the next poll revalidates.
-        let raced =
-            insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
-        insert_participation(
-            &pool,
-            raced,
-            2,
-            7,
-            true,
-            behavioral_filter(ACTIVE_HASH, "evt"),
-        )
-        .await?;
-        insert_participation(
-            &pool,
-            raced,
-            2,
-            8,
-            false,
-            behavioral_filter(ACTIVE_HASH, "evt"),
-        )
-        .await?;
-        ensure!(
-            fail_run_while_uncovered(&pool, raced, &[7], &refused).await?
-                == UncoveredFailOutcome::VerdictStale
-        );
-        ensure!(status(raced).await? == "seeding");
-
-        // Still active: the write applies. A second team, because the uniqueness index allows only
-        // one active team run per kind.
-        let wedged =
-            insert_run(&pool, 3, "team_enablement", "seeding", true, empty_pinned()).await?;
-        insert_participation(
-            &pool,
-            wedged,
-            3,
-            7,
-            false,
-            behavioral_filter(ACTIVE_HASH, "evt"),
-        )
-        .await?;
-        ensure!(
-            fail_run_while_uncovered(&pool, wedged, &[7], &refused).await?
-                == UncoveredFailOutcome::Failed
-        );
-        ensure!(status(wedged).await? == "failed");
-
-        // The guard holds but the run left `seeding`, which the caller reports as it always did.
-        ensure!(
-            fail_run_while_uncovered(&pool, wedged, &[7], &refused).await?
-                == UncoveredFailOutcome::NotActive
-        );
         Ok(())
     })
     .await

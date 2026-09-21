@@ -240,22 +240,6 @@ impl fmt::Display for UncoveredCohort {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UncoveredParticipations(pub Vec<UncoveredCohort>);
 
-impl UncoveredParticipations {
-    /// The drop reasons behind the refusal, for the `seeder_conditions_dropped_total` breakdown the
-    /// failing run never reaches `record_pinned_warnings` to report.
-    pub fn dropped(&self) -> impl Iterator<Item = &PinnedDropReason> {
-        self.0
-            .iter()
-            .flat_map(|cohort| cohort.dropped.iter().map(|(_, reason)| reason))
-    }
-
-    /// The refused cohorts, ascending — the predicate `fail_run` re-checks against the live
-    /// participation rows before it writes a terminal status.
-    pub fn cohort_ids(&self) -> Vec<i32> {
-        self.0.iter().map(|cohort| cohort.cohort_id.0).collect()
-    }
-}
-
 impl fmt::Display for UncoveredParticipations {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
