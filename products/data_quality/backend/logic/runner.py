@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from django.db import transaction
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 if TYPE_CHECKING:
@@ -129,15 +130,20 @@ def _authorize(check: DataQualityCheck, suite_run: DataQualitySuiteRun) -> _Auth
       authorize against, returning ``None`` errors the run rather than bypassing the ACL.
     """
     if suite_run.trigger == SuiteRunTrigger.MANUAL:
-        if suite_run.created_by is None and check_type_reads_beyond_subject(check.check_type):
+        if suite_run.created_by is None and _needs_a_principal(check):
             return None
         return _Authorization(run_as=suite_run.created_by, bypass=suite_run.created_by is None)
-    if not check_type_reads_beyond_subject(check.check_type):
+    if not _needs_a_principal(check):
         return _Authorization(run_as=None, bypass=True)
     principal = check.definition_author or check.created_by
     if principal is None:
         return None
     return _Authorization(run_as=principal, bypass=False)
+
+
+def _needs_a_principal(check: DataQualityCheck) -> bool:
+    """Whether the run must execute as a user rather than under the service bypass."""
+    return check_type_reads_beyond_subject(check.check_type) or check.subject_type == SubjectType.POSTHOG_TABLE
 
 
 def _staged_database(
@@ -251,15 +257,18 @@ def _execute_compiled(
         # service-level bypass is only used where there is no actor and the query is constrained to
         # the check's declared subject, so it can't reach a warehouse object the definition doesn't
         # already name.
+        modifiers = create_default_modifiers_for_team(team)
         if database is not None:
             response = execute_hogql_query(
                 query=compiled.query,
                 team=team,
                 query_type=QUERY_TYPE,
+                modifiers=modifiers,
                 context=HogQLContext(
                     team_id=team.pk,
                     user=authorization.run_as,
                     database=database,
+                    modifiers=modifiers,
                     bypass_warehouse_access_control=authorization.bypass,
                 ),
             )
@@ -269,6 +278,7 @@ def _execute_compiled(
                 team=team,
                 query_type=QUERY_TYPE,
                 user=authorization.run_as,
+                modifiers=modifiers,
                 bypass_warehouse_access_control=authorization.bypass,
             )
     return _interpret(compiled, check.config, response.results, response.columns or [])

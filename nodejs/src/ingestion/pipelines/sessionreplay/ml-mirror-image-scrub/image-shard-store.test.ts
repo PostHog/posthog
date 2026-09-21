@@ -4,7 +4,7 @@ import sodium from 'libsodium-wrappers'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { MlDataKey } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/crypto'
-import { decryptEnvelope } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/envelope-testing'
+import { decryptEnvelopeFrame } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/envelope-testing'
 
 import { ImageShardStore } from './image-shard-store'
 
@@ -84,12 +84,10 @@ describe('ImageShardStore', () => {
                     .map(([command]) => command)
                     .find((command) => command.input.Key?.includes('/lookup/')) as PutObjectCommand
                 const location = parseJSON(
-                    decryptEnvelope(
-                        key,
-                        parseJSON((lookup.input.Body as Buffer).toString()),
-                        'image-location',
-                        lookup.input.Key
-                    ).toString()
+                    decryptEnvelopeFrame(key, lookup.input.Body as Buffer, 'image-location', {
+                        ref: lookup.input.Key,
+                        codec: 'none',
+                    }).toString()
                 )
                 expect(location).toEqual({ shard: send.mock.calls[0][0].input.Key, offset: 0, length: 3 })
                 expect(lookup.input.Key).toBe(`images/v2/2026-09/7/lookup/${inlineImage.hash}.encrypted`)

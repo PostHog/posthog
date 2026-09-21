@@ -7,6 +7,7 @@ apm-spans-sparkline
 apm-spans-tree
 dashboard-insights-run
 data-catalog-metric-run
+engineering-analytics-sources
 execute-sql
 experiment-stats
 experiment-timeseries-results
@@ -16,12 +17,15 @@ generate-app-url
 get-llm-total-costs-for-project
 health-issues-summary
 heatmaps-events
+inbox-reports-claim
 insight-query
 logs-count-ranges
 logs-patterns
 logs-patterns-diff
 logs-sparkline-query
 org-member-get-github-login
+pr-lifecycle
+pull-requests
 query-apm-spans
 query-error-tracking-issue
 query-funnel

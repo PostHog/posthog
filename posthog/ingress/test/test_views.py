@@ -72,6 +72,12 @@ class _SecondaryRegionGitHubProvider(GitHubProvider):
         return regions.SECONDARY_REGION_DOMAIN
 
 
+class _ReportingUnconfiguredGitHubProvider(GitHubProvider):
+    # Stands in for an endpoint whose deliveries are lost while the secret is unset, and where
+    # nothing but error tracking would notice.
+    reports_unconfigured = True
+
+
 class _SlowForwardGitHubProvider(GitHubProvider):
     # Stands in for a provider whose deliveries carry uploaded files, which Mailgun's do.
     forward_timeout_seconds = 10.0
@@ -316,6 +322,31 @@ class TestWebhookView(SimpleTestCase):
 
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.content, b"Webhook not configured")
+
+    @parameterized.expand(
+        [
+            ("a_provider_that_opts_in", _ReportingUnconfiguredGitHubProvider, 1),
+            ("a_provider_that_does_not", GitHubProvider, 0),
+        ]
+    )
+    def test_a_missing_secret_reaches_error_tracking_only_when_the_provider_asks(
+        self, _name: str, provider_class: type[GitHubProvider], captures: int
+    ) -> None:
+        # An endpoint that answers an unconfigured request like an unknown route would otherwise let
+        # an unauthenticated prober fill error tracking from the outside.
+        body = json.dumps({"action": "opened"}).encode()
+        request = self._post(body, {"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "push"})
+
+        with (
+            patch("posthog.ingress.github.provider.get_instance_setting", return_value=""),
+            patch("posthog.ingress.views.capture_exception") as capture,
+        ):
+            response = build_webhook_view(provider_class("posthog"))(request)
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(capture.call_count, captures)
+        if captures:
+            self.assertIn("github/posthog", str(capture.call_args.args[0]))
 
     @parameterized.expand(
         [
@@ -638,6 +669,9 @@ class TestRegionalForwarding(_DispatchingViewTestCase):
 
         with (
             patch("posthog.regions.PRIMARY_REGION_DOMAIN", "eu.posthog.com"),
+            # Both domains, so the request host is the region that receives forwards rather than a
+            # host neither region names, which is a different branch and a different warning.
+            patch("posthog.regions.SECONDARY_REGION_DOMAIN", "testserver"),
             patch("posthog.ingress.views.logger") as logger,
         ):
             response = view(self._github_request())
@@ -646,6 +680,42 @@ class TestRegionalForwarding(_DispatchingViewTestCase):
         self.requests.assert_not_called()
         self.handler.assert_called_once()
         self.assertEqual([call.args[0] for call in logger.warning.call_args_list], ["ingress_delivery_unowned_here"])
+
+    def test_a_host_neither_region_names_is_reported_rather_than_passing_silently(self) -> None:
+        # A callback URL registered against a hostname no region names skips the forward and
+        # receipts the delivery anyway, so the owning region never sees it and nothing says so.
+        view = self._view(
+            [_consumer(GITHUB_SPEC, name="probe", handler=self.handler, answer=DeliveryOwnership.ELSEWHERE)]
+        )
+
+        with (
+            patch("posthog.regions.PRIMARY_REGION_DOMAIN", "eu.posthog.com"),
+            patch("posthog.regions.SECONDARY_REGION_DOMAIN", "us.posthog.com"),
+            patch("posthog.ingress.views.logger") as logger,
+        ):
+            response = view(self._github_request())
+
+        self.assertEqual(response.status_code, 202)
+        self.requests.assert_not_called()
+        self.handler.assert_called_once()
+        warnings = {call.args[0]: call.kwargs for call in logger.warning.call_args_list}
+        self.assertEqual(list(warnings), ["ingress_delivery_host_matches_no_region"])
+        self.assertEqual(warnings["ingress_delivery_host_matches_no_region"]["host"], "testserver")
+
+    def test_a_delivery_no_consumer_sends_elsewhere_reports_no_region_problem(self) -> None:
+        # The warning above keys off an ELSEWHERE answer. Without that, local development, where
+        # both region domains resolve to localhost hosts, would warn on every delivery.
+        view = self._view([_consumer(GITHUB_SPEC, name="probe", handler=self.handler, answer=DeliveryOwnership.LOCAL)])
+
+        with (
+            patch("posthog.regions.PRIMARY_REGION_DOMAIN", "eu.posthog.com"),
+            patch("posthog.regions.SECONDARY_REGION_DOMAIN", "us.posthog.com"),
+            patch("posthog.ingress.views.logger") as logger,
+        ):
+            response = view(self._github_request())
+
+        self.assertEqual(response.status_code, 202)
+        logger.warning.assert_not_called()
 
     def test_only_the_named_provider_receives_in_the_other_region(self) -> None:
         # The forward direction is shared machinery, so a provider that quietly overrides it
