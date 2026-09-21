@@ -1091,19 +1091,23 @@ impl PersonLookup for PostgresStorage {
             .zip(new_person_rows)
             .map(
                 |(((distinct_id, new_person_uuid), pdi_version), (_, new_person_created_at))| {
-                    SplitResult {
+                    Ok(SplitResult {
                         distinct_id,
                         new_person_uuid,
                         new_person_version: version_by_uuid
                             .get(&new_person_uuid)
                             .copied()
-                            .unwrap_or(new_person_version),
+                            .ok_or_else(|| {
+                                StorageError::Query(format!(
+                                    "version not populated for uuid {new_person_uuid}"
+                                ))
+                            })?,
                         pdi_version,
                         new_person_created_at,
-                    }
+                    })
                 },
             )
-            .collect();
+            .collect::<StorageResult<Vec<_>>>()?;
 
         common_metrics::histogram(
             DB_ROWS_RETURNED,

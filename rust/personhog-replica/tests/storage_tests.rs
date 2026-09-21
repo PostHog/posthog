@@ -2579,6 +2579,63 @@ async fn test_split_person_preserves_created_at_of_existing_person() {
 }
 
 #[tokio::test]
+async fn test_split_person_preserves_high_version_of_existing_person() {
+    let ctx = TestContext::new().await;
+    let person = ctx
+        .insert_person("highver_keeper@example.com", None)
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "highver_split@example.com")
+        .await
+        .unwrap();
+
+    let namespace = Uuid::from_bytes([
+        0x93, 0x29, 0x79, 0xb4, 0x65, 0xc3, 0x44, 0x24, 0x84, 0x67, 0x0b, 0x66, 0xec, 0x27, 0xbc,
+        0x22,
+    ]);
+    let split_uuid = Uuid::new_v5(
+        &namespace,
+        format!("{}:highver_split@example.com", ctx.team_id).as_bytes(),
+    );
+    let existing_id = rand::thread_rng().gen_range(1_000_000i64..100_000_000);
+    sqlx::query(
+        r#"INSERT INTO posthog_person
+        (id, uuid, team_id, properties, properties_last_updated_at,
+         properties_last_operation, created_at, version, is_identified, is_user_id)
+        VALUES ($1, $2, $3, '{}'::jsonb, '{}', '{}', NOW(), 200, false, NULL)"#,
+    )
+    .bind(existing_id)
+    .bind(split_uuid)
+    .bind(ctx.team_id)
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+
+    let results = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person.id,
+            &["highver_split@example.com".to_string()],
+        )
+        .await
+        .expect("Split should succeed");
+
+    assert_eq!(results[0].new_person_uuid, split_uuid);
+    assert_eq!(results[0].new_person_version, 200);
+
+    let upserted = ctx
+        .storage
+        .get_person_by_uuid(ctx.team_id, split_uuid)
+        .await
+        .expect("Lookup should succeed")
+        .expect("Person should exist");
+    assert_eq!(upserted.version, Some(200));
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
 async fn test_split_person_not_found_unknown_distinct_id() {
     let ctx = TestContext::new().await;
     let person = ctx
