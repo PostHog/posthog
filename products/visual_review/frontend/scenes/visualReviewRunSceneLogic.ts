@@ -280,6 +280,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         toggleQuarantinedThumbnails: true,
     }),
     reducers({
+        // kea-loaders keeps the last success when a load fails, which would let the
+        // previous snapshot's tolerations drive the quarantine nudge.
+        toleratedHashes: [
+            [] as ToleratedHashEntryApi[],
+            {
+                loadToleratedHashesFailure: () => [],
+            },
+        ],
         selectedSnapshotId: [
             null as string | null,
             {
