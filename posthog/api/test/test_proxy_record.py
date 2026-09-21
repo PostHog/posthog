@@ -104,12 +104,15 @@ class TestProxyRecordAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         flags_by_domain = {
-            record["domain"]: (record["root_redirect_supported"], record["is_legacy"])
+            record["domain"]: {
+                "root_redirect_supported": record["root_redirect_supported"],
+                "is_legacy": record["is_legacy"],
+            }
             for record in response.json()["results"]
         }
         assert flags_by_domain == {
-            "cloudflare.example.com": (True, False),
-            "legacy.example.com": (False, True),
+            "cloudflare.example.com": {"root_redirect_supported": True, "is_legacy": False},
+            "legacy.example.com": {"root_redirect_supported": False, "is_legacy": True},
         }
 
     @patch("posthog.api.proxy_record.sync_connect")
