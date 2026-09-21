@@ -1,5 +1,8 @@
 from collections.abc import Callable, Mapping
+from contextlib import ExitStack
 from typing import Any
+
+from unittest.mock import patch
 
 from django.http import HttpRequest
 from django.test import RequestFactory, SimpleTestCase
@@ -11,6 +14,7 @@ from posthog.ingress.mailgun.provider import build_mailgun_provider
 from posthog.ingress.providers import UnknownApp, WebhookProvider
 from posthog.ingress.slack.provider import build_slack_interactivity_provider, build_slack_provider
 from posthog.ingress.sns.provider import build_sns_provider
+from posthog.ingress.teams.provider import build_teams_provider
 from posthog.ingress.views import build_webhook_view
 
 
@@ -84,8 +88,25 @@ def _form_post() -> HttpRequest:
     return RequestFactory().post("/webhook/", data={"timestamp": "1", "token": "t", "signature": "s"})
 
 
+def _bearer_post() -> HttpRequest:
+    # Teams reads a bearer token, and a request without one is refused from the header alone.
+    return RequestFactory().post(
+        "/webhook/", data="{}", content_type="application/json", headers={"Authorization": "Bearer t"}
+    )
+
+
 def _unconfigured_mailgun(app: str) -> WebhookProvider:
     return build_mailgun_provider(app, signing_key_getter=_no_secret)
+
+
+def _unconfigured_teams() -> WebhookProvider:
+    # No app id is the unconfigured case. The signing-key URI is set, because a URI the getter
+    # could not discover is a failed fetch rather than an unconfigured instance.
+    return build_teams_provider(
+        jwks_uri_getter=lambda: "https://login.botframework.com/v1/.well-known/keys",
+        audience_getter=_no_secret,
+        issuers_getter=lambda: frozenset({"https://api.botframework.com"}),
+    )
 
 
 # One row per endpoint that answered 403 for a missing secret before it moved into this package.
@@ -95,6 +116,7 @@ UNCONFIGURED_ENDPOINTS = [
     ("mailgun_inbound", lambda: _unconfigured_mailgun("inbound"), _form_post),
     ("mailgun_outbound", lambda: _unconfigured_mailgun("outbound"), _form_post),
     ("mailgun_capture", lambda: _unconfigured_mailgun("capture"), _form_post),
+    ("teams_events", _unconfigured_teams, _bearer_post),
 ]
 
 
@@ -106,10 +128,32 @@ class TestUnconfiguredEndpoints(SimpleTestCase):
         build_provider: Callable[[], WebhookProvider],
         build_request: Callable[[], HttpRequest],
     ) -> None:
-        response = build_webhook_view(build_provider())(build_request())
+        provider = build_provider()
+        with ExitStack() as stack:
+            if provider.throttle_class is not None:
+                # The throttle keys on the caller and its cache is shared with every other test in
+                # this process, so the cap is held open rather than left to test order.
+                stack.enter_context(patch.object(provider.throttle_class, "allow_request", return_value=True))
+            response = build_webhook_view(provider)(build_request())
 
         # The package default is 500, which would turn every anonymous probe of these public URLs
         # into a server error on any instance that never set the secret.
         self.assertEqual(response.status_code, 403)
         # And the body must not tell that caller which of the two it was.
         self.assertEqual(response.content, b"")
+
+    def test_teams_answers_503_when_the_signing_key_uri_could_not_be_discovered(self) -> None:
+        # Teams alone answers 403 when unconfigured and discovers its signing-key URI over the
+        # network. A failed discovery must keep a 5xx: Bot Framework retries those for about ten
+        # minutes and does not retry a 403, so a 403 here loses every activity in the outage.
+        provider = build_teams_provider(
+            jwks_uri_getter=_no_secret,
+            audience_getter=lambda: "00000000-0000-0000-0000-000000000001",
+            issuers_getter=lambda: frozenset({"https://api.botframework.com"}),
+        )
+        assert provider.throttle_class is not None
+
+        with patch.object(provider.throttle_class, "allow_request", return_value=True):
+            response = build_webhook_view(provider)(_bearer_post())
+
+        self.assertEqual(response.status_code, 503)
