@@ -90,6 +90,27 @@ def format_project_candidate_list(candidates: list[Integration]) -> str:
     return "\n".join(f"• `{c.team_id}` — {project_label(c)}" for c in candidates)
 
 
+def pick_a_project_message(
+    intro: str,
+    candidates: list[Integration],
+    *,
+    set_command: str,
+    home_tab_url: str | None,
+) -> str:
+    """A "which project?" reply: every project the caller can route to, then the two ways
+    to choose one.
+
+    ``home_tab_url`` degrades to plain text for an install that carries no app id, which
+    is the one case ``app_home_url`` cannot build a deep link for.
+    """
+    home_tab = f"<{home_tab_url}|Home tab>" if home_tab_url else "Home tab"
+    return (
+        f"{intro}\n"
+        f"{format_project_candidate_list(candidates)}\n\n"
+        f"Set your default with `{set_command} project <id>`, or pick one on the app's {home_tab}."
+    )
+
+
 def resolve_from_candidates(
     candidates: list[Integration],
     *,

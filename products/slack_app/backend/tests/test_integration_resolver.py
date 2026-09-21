@@ -10,7 +10,11 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, SlackUserProfileCache
-from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_user_for_workspace
+from products.slack_app.backend.services.integration_resolver import (
+    load_integrations,
+    pick_a_project_message,
+    resolve_user_for_workspace,
+)
 
 WORKSPACE = "T_WS"
 SLACK_USER = "U001"
@@ -719,3 +723,38 @@ class TestLoadIntegrationsAuthStateFilter:
         assert {c.id for c in result.candidates} == {self.integration_new.id}
         assert result.integration == self.integration_new
         assert result.source == "sole_candidate"
+
+
+class TestPickAProjectMessage:
+    # No database: the message builder only reads names and ids off the objects handed to
+    # it, so unsaved instances exercise it exactly as saved ones would.
+    @staticmethod
+    def _candidate(team_id: int, org_name: str, team_name: str) -> Integration:
+        organization = Organization(name=org_name)
+        team = Team(id=team_id, organization=organization, name=team_name)
+        return Integration(team=team, kind="slack", integration_id=WORKSPACE)
+
+    def test_lists_every_project_and_both_ways_to_set_one(self):
+        message = pick_a_project_message(
+            "You can route your mentions to:",
+            [self._candidate(1, "Acme", "Production"), self._candidate(2, "Acme", "Staging")],
+            set_command="/posthog",
+            home_tab_url="slack://app?team=T_WS&id=A1&tab=home",
+        )
+
+        assert "`1` — Acme · Production" in message
+        assert "`2` — Acme · Staging" in message
+        assert "`/posthog project <id>`" in message
+        assert "<slack://app?team=T_WS&id=A1&tab=home|Home tab>" in message
+
+    def test_home_tab_stays_plain_text_when_the_install_has_no_deep_link(self):
+        message = pick_a_project_message(
+            "You can route your mentions to:",
+            [self._candidate(1, "Acme", "Production")],
+            set_command="/posthog",
+            home_tab_url=None,
+        )
+
+        assert "the app's Home tab." in message
+        assert "|Home tab>" not in message
+        assert "None" not in message
