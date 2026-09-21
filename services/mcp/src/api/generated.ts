@@ -50355,7 +50355,7 @@ export namespace Schemas {
          * @maxLength 20000
          */
       prompt: string;
-      /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt.
+      /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording, the same summary the Summarize button in the replay player produces.
        *
        * * `monitor` - Monitor
        * * `classifier` - Classifier
