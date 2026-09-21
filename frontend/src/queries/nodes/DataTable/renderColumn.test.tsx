@@ -17,61 +17,45 @@ const eventsTable = setLatestVersionsOnQuery({
     source: { kind: NodeKind.EventsQuery, select },
 }) as DataTableNode
 
+function renderPersonCell(displayName: string): void {
+    render(
+        <Provider>
+            {renderColumn(
+                'person_display_name',
+                {
+                    id: 'c3b1f6a2-0000-0000-0000-000000000000',
+                    distinct_id: 'the-distinct-id',
+                    display_name: displayName,
+                },
+                select.map(() => null),
+                0,
+                1,
+                eventsTable
+            )}
+        </Provider>
+    )
+}
+
 describe('renderColumn', () => {
     beforeEach(() => initKeaTests())
     afterEach(() => cleanup())
 
     it.each([
-        ['full', true],
-        ['force_upgrade', true],
-        ['propertyless', false],
-    ])('links the person column of a %s event: %s', (personMode, linked) => {
-        const value = {
-            id: 'c3b1f6a2-0000-0000-0000-000000000000',
-            distinct_id: 'the-distinct-id',
-            display_name: 'the-distinct-id',
-            person_mode: personMode,
-        }
+        ['a person profile supplied the name', 'someone@example.com', 1],
+        ['the name fell back to the distinct ID', 'the-distinct-id', 0],
+    ])('person_display_name links %s: %s', (_case, displayName, links) => {
+        renderPersonCell(displayName)
 
-        render(
-            <Provider>
-                {renderColumn(
-                    'person_display_name',
-                    value,
-                    select.map(() => null),
-                    0,
-                    1,
-                    eventsTable
-                )}
-            </Provider>
-        )
-
-        expect(screen.getByText('the-distinct-id')).toBeInTheDocument()
-        expect(screen.queryAllByRole('link')).toHaveLength(linked ? 1 : 0)
+        expect(screen.getByText(displayName)).toBeInTheDocument()
+        expect(screen.queryAllByRole('link')).toHaveLength(links)
     })
 
-    it('opens no profile popover for a personless event', async () => {
-        const value = {
-            id: 'c3b1f6a2-0000-0000-0000-000000000000',
-            distinct_id: 'the-distinct-id',
-            display_name: 'the-distinct-id',
-            person_mode: 'propertyless',
-        }
-
-        render(
-            <Provider>
-                {renderColumn(
-                    'person_display_name',
-                    value,
-                    select.map(() => null),
-                    0,
-                    1,
-                    eventsTable
-                )}
-            </Provider>
-        )
+    it('opens the person popover even when the name fell back to the distinct ID', async () => {
+        // A profile created after the event still answers a lookup by distinct ID, so the popover
+        // is the reader's only path to it. Suppressing it strands them on an unlinked cell.
+        renderPersonCell('the-distinct-id')
         await userEvent.click(screen.getByText('the-distinct-id'))
 
-        expect(screen.queryByText('No profile associated with this ID')).toBeNull()
+        expect(await screen.findByText('No profile associated with this ID')).toBeInTheDocument()
     })
 })
