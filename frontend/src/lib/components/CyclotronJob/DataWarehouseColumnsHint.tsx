@@ -44,7 +44,7 @@ export function DataWarehouseColumnsHint({
                                 synced row.{' '}
                                 {personAvailable ? (
                                     <>
-                                        <code>{'{person}'}</code> and <code>{'{event}'}</code> are also available.{' '}
+                                        <code>person</code> and <code>event</code> work the same way.{' '}
                                     </>
                                 ) : null}
                                 Click a column to copy the Hog form.
