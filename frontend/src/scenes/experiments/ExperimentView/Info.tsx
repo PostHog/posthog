@@ -250,7 +250,7 @@ export function Info(): JSX.Element {
                             {CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]?.title || experiment.conclusion}
                         </span>
                     </div>
-                    <p className="metric-cell font-normal m-0 mt-1 leading-relaxed whitespace-pre-wrap">
+                    <p className="metric-cell font-normal m-0 mt-1 leading-relaxed whitespace-pre-wrap break-words">
                         {experiment.conclusion_comment}
                     </p>
                 </div>
