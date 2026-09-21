@@ -5,6 +5,8 @@ import {
   type CanvasTextSelection,
   canvasToHostMessageSchema,
 } from "@posthog/core/canvas/freeformSchemas";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
@@ -172,6 +174,13 @@ export function FreeformCanvas({
         onCommentActivate: (id) => latest.current.onCommentActivate?.(id),
       }),
       hasUserActivation: () => navigator.userActivation?.isActive === true,
+      onDataRequestRejected: (reason, method) => {
+        track(ANALYTICS_EVENTS.CANVAS_DATA_REQUEST_REJECTED, {
+          surface: "freeform",
+          reason,
+          method,
+        });
+      },
       openExternal: openExternalUrl,
       // This host's policy is to log dropped opens rather than drop silently.
       onExternalOpenBlocked: (url, reason) => {

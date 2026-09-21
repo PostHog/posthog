@@ -104,10 +104,11 @@ PostHog queries can take several seconds each, and a board usually runs several.
 rendering on all of them:
 
 - Fire independent queries concurrently on mount; never chain unrelated queries with sequential
-  `await`s. The host caps a canvas at 8 in-flight data requests and rejects the ninth ("Canvas
-  data request exceeds runtime limits") rather than queuing it — a board that needs more than 8
-  consolidates them (one query returning every row, sliced client-side) or throttles the overflow
-  behind a small concurrency limiter, still with one state per section.
+  `await`s. The host runs 8 data requests at a time and makes the rest wait in a 32-deep queue,
+  so a board with more sections than slots still loads, section by section. A board wide enough to
+  outlast the queue gets its extra requests refused, with the reason in the error message, and the
+  runtime sends each one again after a backoff before it gives up; a board that wide consolidates
+  its queries (one query returning every row, sliced client-side), still one state per section.
 - Give every query its own `{ loading, error, data }` state and let each card, chart, or table
   swap its skeleton for data the moment its own result arrives. One shared `loading` flag or a
   single `Promise.all` across independent queries makes the fastest metric wait for the slowest —
