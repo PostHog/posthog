@@ -37,6 +37,8 @@ interface PanelState {
     hasAnalyticsEvents: boolean
     eventDefinitionsUnavailable: boolean
     sourceConfigsUnavailable: boolean
+    /** Width of the card the panel sits in, so narrow layouts are a control. */
+    panelWidth: number
 }
 
 function sourceConfig(
@@ -216,7 +218,7 @@ function PanelHarness(state: PanelState): JSX.Element {
     }, [stateKey, loadCurrentTeam])
 
     return (
-        <div className="w-[760px] p-6 bg-surface-primary border rounded">
+        <div className="p-6 bg-surface-primary border rounded" style={{ width: state.panelWidth }}>
             <SignalSourcesPanel key={stateKey} />
         </div>
     )
@@ -246,6 +248,7 @@ const meta: Meta<typeof PanelHarness> = {
         hasAnalyticsEvents: true,
         eventDefinitionsUnavailable: false,
         sourceConfigsUnavailable: false,
+        panelWidth: 760,
     },
 }
 export default meta
@@ -351,6 +354,13 @@ export const ServerSideExceptionsOnly: Story = {
 export const SourceConfigsUnavailable: Story = {
     args: {
         sourceConfigsUnavailable: true,
+    },
+}
+
+/** A narrow card: each row keeps its label on one line and wraps the controls under it. */
+export const NarrowPanel: Story = {
+    args: {
+        panelWidth: 380,
     },
 }
 

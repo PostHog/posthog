@@ -184,8 +184,8 @@ function EntityRow({
     disabledReason?: string
 }): JSX.Element {
     return (
-        <div className="flex h-10 items-center gap-2 border-t border-primary bg-surface-secondary pl-8 pr-2">
-            <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-h-10 flex-wrap items-center justify-end gap-2 border-t border-primary bg-surface-secondary py-1 pl-8 pr-2">
+            <div className="flex min-w-40 flex-1 flex-col">
                 <div className="flex items-center gap-1.5">
                     <span
                         className={`truncate text-[13px] font-medium leading-[18px] ${
@@ -502,13 +502,15 @@ const AgentRow = memo(function AgentRow({
             {/* A legacy row stays dimmed even while in use, so it reads as the older option. */}
             <div
                 onClick={onExpand}
-                className={`group flex h-13 cursor-pointer items-center gap-2 px-2 transition-colors ${
+                className={`group flex min-h-13 cursor-pointer flex-wrap items-center justify-end gap-2 px-2 py-1 transition-colors ${
                     expanded ? 'bg-surface-secondary' : 'hover:bg-surface-secondary'
                 } ${agent.legacy ? 'opacity-60 hover:opacity-100' : ''}`}
             >
                 {!redesign && <StatusDot status={status} tool={tool} toolOff={toolOff} />}
                 <AgentIcon source={agent} />
-                <div className="flex min-w-0 flex-1 flex-col">
+                {/* The floor is also the flex basis: it keeps the label readable, and a row too narrow
+                    to hold the label and every control wraps the controls to a second line. */}
+                <div className="flex min-w-40 flex-1 flex-col">
                     <div className="flex items-center gap-2">
                         <span
                             className={`truncate text-sm leading-5 ${armed ? 'font-medium text-default' : 'text-secondary'}`}
@@ -516,12 +518,12 @@ const AgentRow = memo(function AgentRow({
                             {agent.label}
                         </span>
                         {agent.alpha && (
-                            <LemonTag type="completion" size="small">
+                            <LemonTag className="shrink-0" type="completion" size="small">
                                 Alpha
                             </LemonTag>
                         )}
                         {agent.legacy && (
-                            <LemonTag type="caution" size="small">
+                            <LemonTag className="shrink-0" type="caution" size="small">
                                 Legacy
                             </LemonTag>
                         )}
@@ -529,52 +531,58 @@ const AgentRow = memo(function AgentRow({
                     <span className="truncate text-xs leading-4 text-muted">{agent.watches}</span>
                 </div>
                 {tag && (
-                    <LemonTag type={tag.type} size="small">
+                    <LemonTag className="shrink-0" type={tag.type} size="small">
                         {tag.label}
                     </LemonTag>
                 )}
-                <span className="w-38 shrink-0 truncate text-right text-xs text-muted">
-                    {entities.length > 0 && `${enabledCount} of ${entities.length} ${agent.entityNoun} on`}
-                </span>
-                {(loading || requiresSetup || hasMasterSwitch) && (
-                    // eslint-disable-next-line react/no-unknown-property
-                    <div className="flex w-13 shrink-0 justify-end" onClick={(e) => e.stopPropagation()}>
-                        {loading ? (
-                            <Spinner className="text-base" />
-                        ) : requiresSetup ? (
-                            <LemonButton type="secondary" size="xsmall" onClick={() => onToggle(agent.source)}>
-                                Connect
-                            </LemonButton>
-                        ) : (
-                            <LemonSwitch
-                                checked={armed}
-                                onChange={() => onToggle(agent.source)}
-                                disabledReason={
-                                    armingBlocked
-                                        ? `Turn on ${tool?.toolName} first. This source reads its data.`
-                                        : undefined
-                                }
-                                aria-label={`Arm ${agent.label}`}
+                {/* The controls travel together, so a row too narrow for them drops the whole
+                    group to a second line instead of stranding the chevron on one of its own. */}
+                <div className="flex shrink-0 items-center gap-2">
+                    {entities.length > 0 && (
+                        <span className="w-38 shrink-0 truncate text-right text-xs text-muted">
+                            {`${enabledCount} of ${entities.length} ${agent.entityNoun} on`}
+                        </span>
+                    )}
+                    {(loading || requiresSetup || hasMasterSwitch) && (
+                        // eslint-disable-next-line react/no-unknown-property
+                        <div className="flex w-13 shrink-0 justify-end" onClick={(e) => e.stopPropagation()}>
+                            {loading ? (
+                                <Spinner className="text-base" />
+                            ) : requiresSetup ? (
+                                <LemonButton type="secondary" size="xsmall" onClick={() => onToggle(agent.source)}>
+                                    Connect
+                                </LemonButton>
+                            ) : (
+                                <LemonSwitch
+                                    checked={armed}
+                                    onChange={() => onToggle(agent.source)}
+                                    disabledReason={
+                                        armingBlocked
+                                            ? `Turn on ${tool?.toolName} first. This source reads its data.`
+                                            : undefined
+                                    }
+                                    aria-label={`Arm ${agent.label}`}
+                                />
+                            )}
+                        </div>
+                    )}
+                    {/* A real button inside the clickable row, so keyboard users can reach the
+                        expansion (and the controls inside it, like steering). */}
+                    <LemonButton
+                        size="xsmall"
+                        icon={
+                            <IconChevronRight
+                                className={`shrink-0 text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
                             />
-                        )}
-                    </div>
-                )}
-                {/* A real button inside the clickable row, so keyboard users can reach the
-                    expansion (and the controls inside it, like steering). */}
-                <LemonButton
-                    size="xsmall"
-                    icon={
-                        <IconChevronRight
-                            className={`shrink-0 text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
-                        />
-                    }
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        onExpand()
-                    }}
-                    aria-expanded={expanded}
-                    aria-label={`${expanded ? 'Collapse' : 'Expand'} ${agent.label}`}
-                />
+                        }
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            onExpand()
+                        }}
+                        aria-expanded={expanded}
+                        aria-label={`${expanded ? 'Collapse' : 'Expand'} ${agent.label}`}
+                    />
+                </div>
             </div>
             {expanded && (
                 <Expansion
