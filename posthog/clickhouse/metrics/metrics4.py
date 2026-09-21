@@ -1,33 +1,31 @@
-"""Define the metrics4 tables and their materialized views.
+"""Define the metrics4 ClickHouse tables and materialized views.
 
-`metrics4_samples` groups points by series, hour, and expiry date. It stores up
-to 10,000 points for each series-hour. The materialized view limits each insert
-block. The table applies the same limit during background merges. It stores each
-point field in a parallel array. Readers use `groupArrayArray` to combine partial
-rows. The PromQL bridge already builds this shape from `metrics2` with
-`groupArray`. Readers must sort points because the table does not sort the arrays
-by time.
+`metrics4_samples` groups points by series, hour, and expiry date. A complete
+merge produces one row for each key. The table stores each point field in a
+parallel array. The insert view and background merges keep at most 10,000 points
+in each row. Readers combine partial rows and sort the points by timestamp. The
+PromQL bridge already creates the same array shape from `metrics2`.
 
-`metrics4_series` stores one label row for each series and hour in each expiry
-partition after a merge. This structure records when a series was active.
-`metrics4_names` and `metrics4_attributes` store hourly data for the name and
-attribute selectors.
+After a merge, `metrics4_series` keeps one label row for each active series-hour
+in an expiry partition. `metrics4_names` stores hourly metric names.
+`metrics4_attributes` stores hourly metric and resource attributes. Readers use
+the last two tables for name and attribute selectors.
 
-All tables use `original_expiry_timestamp` from `metrics4_input`. The Kafka view
-calculates this value from the sample timestamp. The default retention period is
-30 days.
+`metrics4_input` supplies `original_expiry_timestamp` to each view. The Kafka
+view calculates this timestamp from the sample timestamp. The tables derive
+their expiry values from it. The default retention period is 30 days.
 
-Each view aggregates one insert block at a time. The Kafka table flushes a block
-every 30 seconds, so one row in `metrics4_samples` holds several samples of a
-series and the tables receive fewer parts. `metrics4_series` uses a small index
-granularity so that a lookup by primary key does not read a whole fresh part.
+The aggregate views process one input block at a time. The Kafka table flushes
+one block every 30 seconds. Larger blocks let `metrics4_samples` combine more
+points before it writes a part. `metrics4_series` uses an index granularity of
+1,024. This smaller granularity reduces the rows that a primary-key lookup reads
+from a new part.
 
-Each `groupArray` function reads the same rows in the same order within one
-insert block. Thus, the fields for a source point use the same array index.
-During a merge, the engine reads equal-key rows in the same sequence for each
-array. The `groupArrayArray` function keeps up to 10,000 elements in that
-sequence. An `ARRAY JOIN` operation fails if parallel arrays have different
-lengths.
+ClickHouse gives each parallel `groupArray` function the same input order for
+one block. Therefore, the same array index identifies all fields of one point.
+During a merge, ClickHouse uses the same row sequence for each array.
+`groupArrayArray` keeps at most 10,000 elements from that sequence. `ARRAY JOIN`
+requires all parallel arrays to have the same length.
 """
 
 from django.conf import settings
@@ -51,7 +49,7 @@ WRITABLE_METRICS4_NAMES_TABLE_NAME = "writable_metrics4_names"
 WRITABLE_METRICS4_ATTRIBUTES_TABLE_NAME = "writable_metrics4_attributes"
 METRICS4_MAX_SAMPLES_PER_SERIES_HOUR = 10_000
 
-# Each tuple gives an input column and the element type for its metrics4 array.
+# Each tuple maps an input column to its metrics4 array element type.
 METRICS4_POINT_ARRAY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("timestamp", "DateTime64(6)"),
     ("observed_timestamp", "DateTime64(6)"),
@@ -63,9 +61,9 @@ METRICS4_POINT_ARRAY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("trace_flags", "Int32"),
 )
 
-# Each codec processes the continuous element stream of an array.
-# Each array keeps its insert order. The delta codecs use this order.
-# T64 and Gorilla do not require ordered values.
+# ClickHouse applies each codec to the continuous stream of array elements.
+# Each array keeps its insert order. The delta codecs compress adjacent values.
+# T64 and Gorilla can process values without a sort.
 _ARRAY_CODECS: dict[str, str] = {
     "timestamp": " CODEC(DoubleDelta, Default)",
     "observed_timestamp": " CODEC(DoubleDelta, Default)",
@@ -192,13 +190,12 @@ def METRICS4_SAMPLES_TABLE_SQL() -> str:
         f"    `{name}_arr` SimpleAggregateFunction(groupArrayArray({METRICS4_MAX_SAMPLES_PER_SERIES_HOUR}), Array({element_type})){_ARRAY_CODECS.get(name, '')}"
         for name, element_type in METRICS4_POINT_ARRAY_COLUMNS
     )
-    # One row contains one offset range for one series and hour.
-    # A granule of 8192 rows can include every series from one insert.
-    # The key filter cannot skip part of such a granule.
-    # A granule can also include several metric names.
-    # Its key range can then include every time bucket for a metric name.
-    # The `time_bucket` minmax index lets an hour filter skip the granule.
-    # The `metrics2` table uses `idx_timestamp_minmax` for the same purpose.
+    # One merged row contains up to 10,000 points for one series-hour and expiry date.
+    # A 128-row granule can contain many series from one insert.
+    # A primary-key filter cannot skip individual rows in that granule.
+    # The granule can contain multiple metric names and time buckets.
+    # The time_bucket minmax index lets an hour filter skip the complete granule.
+    # The metrics2 table uses idx_timestamp_minmax for the same purpose.
     return f"""
 CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
 (
