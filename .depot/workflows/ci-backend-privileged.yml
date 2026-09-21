@@ -5,6 +5,7 @@ name: Privileged Depot backend controls
 # nosemgrep: semgrep.rules.github-actions-pull-request-target
 on:
     pull_request_target:
+        branches: [master]
         types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
@@ -60,8 +61,8 @@ jobs:
                               ;;
                       esac
 
-                      repo_signal=$(check_state "Cancel Backend CI after repo check failure" "$DEPOT_APP_ID")
-                      openapi_signal=$(check_state "Cancel Backend CI after OpenAPI check failure" "$DEPOT_APP_ID")
+                      repo_signal=$(check_state "Backend CI on Depot / Cancel Backend CI after repo check failure" "$DEPOT_APP_ID")
+                      openapi_signal=$(check_state "Backend CI on Depot / Cancel Backend CI after OpenAPI check failure" "$DEPOT_APP_ID")
                       if [ "$repo_signal" = success ]; then
                           echo "reason=repo" >> "$GITHUB_OUTPUT"
                           exit 0
@@ -71,7 +72,7 @@ jobs:
                           exit 0
                       fi
 
-                      gate=$(check_state "Django Tests Pass on Depot" "$DEPOT_APP_ID")
+                      gate=$(check_state "Backend CI on Depot / Django Tests Pass on Depot" "$DEPOT_APP_ID")
                       case "$gate" in
                           success|failure|cancelled|skipped)
                               echo "Depot finished without a deterministic-failure signal (gate: $gate)."

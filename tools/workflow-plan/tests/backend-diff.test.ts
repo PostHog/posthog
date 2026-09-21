@@ -145,6 +145,13 @@ describe('Backend CI comparison boundaries', () => {
         expect(privileged).toContain('pull_request_target:')
         expect(privileged).toContain('DEPOT_CI_CANCEL_TOKEN')
         expect(privileged).not.toContain('actions/checkout')
+        for (const check of [
+            'Backend CI on Depot / Cancel Backend CI after repo check failure',
+            'Backend CI on Depot / Cancel Backend CI after OpenAPI check failure',
+            'Backend CI on Depot / Django Tests Pass on Depot',
+        ]) {
+            expect(privileged).toContain(check)
+        }
     })
 
     it.each(WORKFLOWS)('%s selects a stack layer without counting newer trunk files', (file) => {
