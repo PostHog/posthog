@@ -8,7 +8,7 @@ from __future__ import annotations
 from difflib import SequenceMatcher
 from typing import Literal
 
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Q, QuerySet
 
 from posthog.models.comment import Comment
@@ -16,6 +16,12 @@ from posthog.models.comment import Comment
 from products.conversations.backend.models import Ticket
 
 HumanOutcome = Literal["used", "edited", "ignored"]
+
+
+class AiDraftHumanOutcome(models.TextChoices):
+    USED = "used", "used"
+    EDITED = "edited", "edited"
+
 
 # Near-copy of the draft counts as used; some overlap as edited; the rest as ignored.
 USED_RATIO = 0.85
@@ -47,6 +53,24 @@ def _public_human_comments(comments: QuerySet[Comment]) -> QuerySet[Comment]:
     )
 
 
+def record_human_outcome(*, team_id: int, ticket_id: str, outcome: HumanOutcome) -> bool:
+    """Write `human_outcome` if unset, or upgrade `used` to `edited` after a composer edit."""
+    with transaction.atomic():
+        ticket = Ticket.objects.select_for_update().filter(id=ticket_id, team_id=team_id).first()
+        if ticket is None:
+            return False
+        triage = dict(ticket.ai_triage or {})
+        current = triage.get("human_outcome")
+        if current == outcome:
+            return True
+        if current and not (current == "used" and outcome == "edited"):
+            return False
+        triage["human_outcome"] = outcome
+        ticket.ai_triage = triage
+        ticket.save(update_fields=["ai_triage", "updated_at"])
+        return True
+
+
 def maybe_record_human_outcome(*, team_id: int, ticket_id: str, comment_id: str, human_content: str) -> None:
     """Set `ai_triage.human_outcome` on the first public human reply after the latest AI note."""
     if not human_content.strip():
@@ -57,8 +81,7 @@ def maybe_record_human_outcome(*, team_id: int, ticket_id: str, comment_id: str,
         if ticket is None:
             return
         triage = dict(ticket.ai_triage or {})
-        if triage.get("human_outcome"):
-            return
+        current = triage.get("human_outcome")
 
         comments = _ticket_comments(team_id=team_id, ticket_id=ticket_id)
         this_comment = comments.filter(id=comment_id).first()
@@ -84,6 +107,15 @@ def maybe_record_human_outcome(*, team_id: int, ticket_id: str, comment_id: str,
         if first_after is None or str(first_after.id) != str(comment_id):
             return
 
-        triage["human_outcome"] = classify_human_outcome(ai_note.content or "", human_content)
+        classified = classify_human_outcome(ai_note.content or "", human_content)
+        if current == classified:
+            return
+        # "Use as reply" records used before send. An edited send must be able to upgrade it.
+        if current == "used" and classified != "used":
+            classified = "edited"
+        elif current:
+            return
+
+        triage["human_outcome"] = classified
         ticket.ai_triage = triage
         ticket.save(update_fields=["ai_triage", "updated_at"])

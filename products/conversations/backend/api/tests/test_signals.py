@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from posthog.models.comment import Comment
 
+from products.conversations.backend.ai.human_outcome import record_human_outcome
 from products.conversations.backend.models import (
     ConversationDeliveryPart,
     EmailChannel,
@@ -93,6 +94,15 @@ class TestTicketMessageSignals(BaseTest):
 
         self.ticket.refresh_from_db()
         assert self.ticket.ai_triage["human_outcome"] == "used"
+
+    def test_used_draft_then_edited_send_upgrades_human_outcome(self, mock_on_commit):
+        draft = "Add the snippet to the head of every page, then reload to send a pageview."
+        self._create_ai_message(draft)
+        record_human_outcome(team_id=self.team.id, ticket_id=str(self.ticket.id), outcome="used")
+        self._create_team_message("Drop the recorder snippet on checkout only, then hard-refresh to send a pageview.")
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "edited"
 
     def test_second_public_human_reply_does_not_overwrite_human_outcome(self, mock_on_commit):
         draft = "Add the snippet to the head of every page."

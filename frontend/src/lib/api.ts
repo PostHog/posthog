@@ -7085,6 +7085,10 @@ const api = {
         ): Promise<void> {
             await new ApiRequest().conversationsTicket(ticketId).withAction('ai_feedback').create({ data })
         },
+
+        async submitAiHumanOutcome(ticketId: string, data: { outcome: 'used' | 'edited' }): Promise<void> {
+            await new ApiRequest().conversationsTicket(ticketId).withAction('ai_human_outcome').create({ data })
+        },
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */

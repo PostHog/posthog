@@ -46,6 +46,7 @@ jest.mock('~/lib/api', () => {
             conversationsTickets: {
                 ...actual.default?.conversationsTickets,
                 submitAiFeedback: jest.fn().mockResolvedValue(undefined),
+                submitAiHumanOutcome: jest.fn().mockResolvedValue(undefined),
                 get: jest.fn(),
                 update: jest.fn(),
                 list: jest.fn().mockResolvedValue({ results: [] }),
@@ -74,6 +75,7 @@ import {
 } from 'products/conversations/frontend/generated/api'
 
 const submitAiFeedbackMock = api.conversationsTickets.submitAiFeedback as jest.Mock
+const submitAiHumanOutcomeMock = api.conversationsTickets.submitAiHumanOutcome as jest.Mock
 const fullEmailRetrieveMock = conversationsTicketsMessagesFullEmailRetrieve as jest.Mock
 
 function makeAiComment(id: string, isPrivate: boolean = true): CommentType {
@@ -236,6 +238,10 @@ describe('supportTicketSceneLogic chatMessages mapping', () => {
         logic.actions.setTicket({ ...makeTicket(), anonymous_traits: { name: 'Mark' } } as Ticket)
     })
 
+    afterEach(() => {
+        stopPolling(logic)
+    })
+
     // A thread reply from a second Teams/Slack participant must show its own author,
     // not fall back to the ticket requester's name.
     test.each<[string, Record<string, any>, string]>([
@@ -269,6 +275,71 @@ describe('supportTicketSceneLogic chatMessages mapping', () => {
         expect(logic.values.fullEmailMessageId).toBeNull()
         expect(errorToast).toHaveBeenCalledWith("Couldn't load the full email. Try again.")
         errorToast.mockRestore()
+    })
+
+    it('maps AI citation and persist_as fields onto chat messages', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: true })
+        logic.actions.setMessages([
+            {
+                ...makeAiComment('msg-ai-1'),
+                item_context: {
+                    author_type: 'AI',
+                    is_private: true,
+                    persist_as: 'reply',
+                    confidence: 0.64,
+                    citations: ['https://example.com/docs/sdk'],
+                    clarifying_questions: ['Which SDK?'],
+                },
+            } as unknown as CommentType,
+        ])
+
+        expect(logic.values.chatMessages[0]).toEqual(
+            expect.objectContaining({
+                persistAs: 'reply',
+                confidence: 0.64,
+                citations: ['https://example.com/docs/sdk'],
+                clarifyingQuestions: ['Which SDK?'],
+            })
+        )
+    })
+})
+
+describe('supportTicketSceneLogic applyAiDraft', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        submitAiHumanOutcomeMock.mockClear()
+        logic = supportTicketSceneLogic({ id: 'new' })
+        logic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: true })
+        logic.actions.setTicket(makeTicket())
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
+    })
+
+    it('prefills a public reply and records used', async () => {
+        const message = {
+            id: 'msg-ai-1',
+            content: 'Add the snippet to every page.',
+            authorType: 'AI' as const,
+            authorName: 'PostHog Assistant',
+            createdAt: '2026-01-01T00:00:00Z',
+            isPrivate: true,
+            persistAs: 'reply' as const,
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.applyAiDraft(message)
+        }).toFinishAllListeners()
+
+        expect(logic.values.draftIsPrivate).toBe(false)
+        expect(logic.values.composerPrefillAt).toBe(1)
+        expect(logic.values.aiDraftApplying).toBe(false)
+        expect(logic.values.ticket?.ai_triage?.human_outcome).toBe('used')
+        expect(submitAiHumanOutcomeMock).toHaveBeenCalledWith('ticket-1', { outcome: 'used' })
     })
 })
 

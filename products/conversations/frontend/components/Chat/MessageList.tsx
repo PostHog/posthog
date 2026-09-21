@@ -4,7 +4,7 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { IconArrowDown } from 'lib/lemon-ui/icons'
 
-import type { AiReplyFeedbackRating, ChatMessage, MessageDeliveryStatus } from '../../types'
+import type { AITriageSource, AiReplyFeedbackRating, ChatMessage, MessageDeliveryStatus } from '../../types'
 import { Message } from './Message'
 
 export interface MessageListProps {
@@ -41,6 +41,9 @@ export interface MessageListProps {
     onDeleteMessage?: (messageId: string) => void
     fullEmailLoadingMessageId?: string | null
     onViewFullEmail?: (messageId: string) => void
+    aiSources?: AITriageSource[]
+    aiDraftApplying?: boolean
+    onApplyAiDraft?: (message: ChatMessage) => void
 }
 
 /** A non-message entry in the thread, e.g. an agent's findings. `at` is what orders it among the
@@ -75,6 +78,9 @@ export function MessageList({
     onDeleteMessage,
     fullEmailLoadingMessageId = null,
     onViewFullEmail,
+    aiSources = [],
+    aiDraftApplying = false,
+    onApplyAiDraft,
 }: MessageListProps): JSX.Element {
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -241,6 +247,9 @@ export function MessageList({
                                 ? () => onViewFullEmail(message.id)
                                 : undefined
                         }
+                        aiSources={aiSources}
+                        aiDraftApplying={aiDraftApplying}
+                        onApplyAiDraft={canEditTicket && onApplyAiDraft ? () => onApplyAiDraft(message) : undefined}
                     />
                 ),
             }
