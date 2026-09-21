@@ -14,8 +14,7 @@ from django.views.decorators.csrf import csrf_exempt
 import structlog
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
-from rest_framework.exceptions import PermissionDenied
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
@@ -53,18 +52,24 @@ class SecurityHubThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": "global"}
 
 
+class HubOperationPermission(BasePermission):
+    """Checks the token's op, region and lifetime. DRF runs permissions before throttles, so a refused token never spends the shared budget."""
+
+    message = "This token is not valid for this operation."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return claims_allow(cast(dict[str, Any], request.auth or {}), cast(_HubView, view).op)
+
+
 class _HubView(APIView):
     authentication_classes = [SecurityHubAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HubOperationPermission]
     throttle_classes = [SecurityHubThrottle]
     http_method_names = ["post", "options"]
     op: ClassVar[str]
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
-        claims = cast(dict[str, Any], request.auth or {})
-        if not claims_allow(claims, self.op):
-            raise PermissionDenied("This token is not valid for this operation.")
         HUB_API_AUTH_COUNTER.labels(op=self.op).inc()
 
 

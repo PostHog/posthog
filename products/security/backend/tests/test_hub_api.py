@@ -159,14 +159,8 @@ class TestHubApi(BaseTest):
         assert codes[:100] == [200] * 100
         assert codes[100] == 429
 
-    def test_unauthenticated_requests_do_not_consume_throttle_budget(self) -> None:
-        # DRF's APIView.initial runs check_permissions before check_throttles, so a
-        # request with no or an invalid token (401) never reaches the throttle and
-        # can't be used to burn another caller's budget. A request that fails
-        # claims_allow (wrong op/region/lifetime, 403) has already passed
-        # authentication and DRF's throttle check by the time this view rejects it,
-        # so it *does* count against the shared budget by design — not asserted here,
-        # since asserting the opposite would be false.
+    @parameterized.expand([("no token", None), ("wrong op", "rules:sync_now")])
+    def test_refused_requests_do_not_consume_throttle_budget(self, _name: str, op: str | None) -> None:
         for _ in range(150):
-            assert self.post("resolve", {"query": "x@example.com"}, None).status_code == 401
+            assert self.post("resolve", {"query": "x@example.com"}, op).status_code in (401, 403)
         assert self.post("resolve", {"query": "x@example.com"}, "subject:resolve").status_code == 200
