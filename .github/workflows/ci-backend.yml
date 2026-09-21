@@ -2447,6 +2447,11 @@ jobs:
                   BRANCH: ${{ github.event.pull_request.head.ref }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
+                  if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+                      echo "::error::The checkout was dirty before OpenAPI generation; refusing to commit unrelated files."
+                      git status --short --untracked-files=all
+                      exit 1
+                  fi
                   if ! ./bin/hogli build:openapi; then
                       echo ""
                       echo "::error::OpenAPI schema generation failed."
@@ -2467,7 +2472,10 @@ jobs:
                       exit 1
                   fi
                   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-                  if git diff --exit-code; then
+                  mapfile -t DRIFTED_FILES < <(
+                      git ls-files --modified --deleted --others --exclude-standard | LC_ALL=C sort -u
+                  )
+                  if [ "${#DRIFTED_FILES[@]}" -eq 0 ]; then
                       echo "OpenAPI types are up to date"
                       echo "needs-commit=false" >> $GITHUB_OUTPUT
                       exit 0
@@ -2514,9 +2522,16 @@ jobs:
                   # Commit exactly the files this check flagged. A hand-listed pattern
                   # silently dropped generated paths it did not cover, so the PR passed on
                   # an empty commit and every later master push failed this same check.
-                  DRIFTED_FILES=$(git diff --name-only | tr '\n' ' ')
-                  echo "Committing: $DRIFTED_FILES"
-                  echo "drifted-files=$DRIFTED_FILES" >> $GITHUB_OUTPUT
+                  for file in "${DRIFTED_FILES[@]}"; do
+                      if [[ "$file" =~ [[:space:]] ]]; then
+                          echo "::error::Cannot auto-commit generated path containing whitespace: $file"
+                          exit 1
+                      fi
+                  done
+                  printf -v DRIFTED_FILE_PATTERNS '%s ' "${DRIFTED_FILES[@]}"
+                  DRIFTED_FILE_PATTERNS=${DRIFTED_FILE_PATTERNS% }
+                  echo "Committing: $DRIFTED_FILE_PATTERNS"
+                  echo "drifted-files=$DRIFTED_FILE_PATTERNS" >> $GITHUB_OUTPUT
                   echo "needs-commit=true" >> $GITHUB_OUTPUT
 
             # Deterministic = the OpenAPI check step itself failed (not a transient
