@@ -69,6 +69,16 @@ class PardotSource(ResumableSource[PardotSourceConfig, PardotResumeConfig], OAut
             QUERY_REJECTED_MESSAGE: None,
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `get_rows` (pardot.py) already retries a read timeout and a dropped connection with
+        # backoff; if that budget exhausts, Temporal retries the activity and the sync resumes
+        # from its saved page token, so the failure is transient and self-recovering. Match the
+        # host rather than a path, so any endpoint on either environment is covered.
+        return {
+            "HTTPSConnectionPool(host='pi.pardot.com', port=443)",
+            "HTTPSConnectionPool(host='pi.demo.pardot.com', port=443)",
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(

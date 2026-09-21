@@ -279,6 +279,36 @@ class TestPagination:
         assert _collect(session, FakeResumeManager()) == []
 
 
+class TestTransientNetworkFailures:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            requests.ReadTimeout("HTTPSConnectionPool(host='pi.pardot.com', port=443): Read timed out."),
+            requests.ConnectionError("HTTPSConnectionPool(host='pi.pardot.com', port=443): Connection aborted."),
+        ],
+    )
+    @mock.patch("tenacity.nap.time.sleep")
+    def test_a_slow_host_is_retried_rather_than_failing_the_page(
+        self, _sleep: mock.MagicMock, error: Exception
+    ) -> None:
+        session = _session([error, _response({"values": [{"id": 1}]})])
+
+        rows = _collect(session, FakeResumeManager())
+
+        assert [row["id"] for row in rows] == [1]
+
+    @mock.patch("tenacity.nap.time.sleep")
+    def test_a_host_that_stays_slow_gives_up_and_surfaces_the_timeout(self, _sleep: mock.MagicMock) -> None:
+        # Temporal retries the activity and the sync resumes from its page token, so the
+        # exhausted error has to reach the caller rather than end the walk quietly.
+        session = _session([requests.ReadTimeout("Read timed out.")] * 5)
+
+        with pytest.raises(requests.ReadTimeout):
+            _collect(session, FakeResumeManager())
+
+        assert session.get.call_count == 5
+
+
 class TestResume:
     def test_resumes_from_the_saved_page_token(self) -> None:
         session = _session([_response({"values": [{"id": 9}]})])
