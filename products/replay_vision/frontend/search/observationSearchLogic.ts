@@ -78,7 +78,7 @@ export interface observationSearchLogicActions {
     clearSearch: () => {
         value: true
     }
-    loadSuggestedQueries: (_: any) => any
+    loadSuggestedQueries: (_: void) => void
     loadSuggestedQueriesFailure: (
         error: string,
         errorObject?: any
@@ -283,7 +283,7 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
         suggestedQueries: [
             [] as string[],
             {
-                loadSuggestedQueries: async (_, breakpoint) => {
+                loadSuggestedQueries: async (_: void, breakpoint) => {
                     await breakpoint(SEARCH_COALESCE_MS)
                     const teamId = teamLogic.values.currentTeamId
                     // A deep-linked query renders results, never the empty state, so its suggestions would go unseen.
