@@ -208,10 +208,14 @@ def _check_table_ownership(conn: psycopg.Connection, tables: list[_QualifiedTabl
             )
             row = cur.fetchone()
             if row is not None and row[0] is False:
+                # The user pastes this command, so the identifiers must survive PostgreSQL's
+                # folding of unquoted names to lower case. A table named "Orders" is addressed by
+                # ALTER TABLE public.Orders as `orders`, which does not exist.
+                quoted_name = sql.Identifier(qualified.schema, qualified.table).as_string(None)
                 errors.append(
                     f"The database user does not own table '{qualified.schema}.{qualified.table}'. "
                     "PostgreSQL only lets a table's owner publish it, and CDC publishes every table it syncs. "
-                    f"Grant ownership with ALTER TABLE {qualified.schema}.{qualified.table} OWNER TO <username>, "
+                    f"Grant ownership with ALTER TABLE {quoted_name} OWNER TO <username>, "
                     "or add the user to the role that owns the table with GRANT <owner_role> TO <username>. "
                     "If you can't change ownership, switch this table to Incremental sync instead of CDC. "
                     "Incremental needs only SELECT permission."
