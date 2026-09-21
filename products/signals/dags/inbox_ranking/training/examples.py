@@ -1,32 +1,43 @@
 """Training examples at the grain the feature set asks for.
 
-The default grain is a scoring moment: one example = one report as one daily snapshot saw it.
-Its features are that snapshot's report-state columns (plus `age_hours`, the report's age at the
-snapshot), and its label is whether the head's outcome happened within the head's horizon: the
-label is 0 on the snapshot row and read from the snapshot `horizon_days` later. That is the serving
-situation — a report gets scored, then users see it — replayed over the daily snapshots, and it
-measured better than one row per report on the engagement heads (skill issue 13). Once the scoring
-sweep's append-only score log has accrued it becomes this table's source; the snapshots are the
-bootstrap.
+The default grain is the report's birth: one example = one report as the snapshot of the day it
+was created saw it. Its features are that snapshot's report-state columns (plus `age_hours`, the
+report's age at the snapshot), and its label is whether the head's outcome happened within the
+head's horizon, read from the snapshot `horizon_days` later. That is the moment serving scores a
+report, and the label is a per-report probability, which is what the inbox ordering asks of it.
+Once the scoring sweep's append-only score log has accrued it becomes this table's source; the
+snapshots are the bootstrap.
 
-Rows of one report are near-duplicates, so the holdout is cut BY REPORT (report_created_at),
-never by row. Label-only rows (EU reports, hard-deleted rows) carry no state and are skipped.
-A snapshot is assembled over the state spine (`assemble_snapshot`): a report with no label event
-gets LABEL_DEFAULTS, so never-engaged reports are negatives rather than absent.
+A report born on day D has no scoring moment before D, so an outcome already visible at D is a
+future positive for the moment being built, not a past one. Birth-day outcomes therefore do not
+censor the moment; its label still comes from the horizon snapshot.
 
-A wide set cannot afford that many rows, so a set may ask for the report grain instead (one
-example per report, at its first usable scoring moment of the window) and cap the rows one head
-keeps. Both knobs live on the `FeatureSet`, because the examples object is per set.
+These birth-day rows carry a hindsight the other rows do not. The state snapshot reads
+`signal_count`, `total_weight`, `run_count` and the text sizes live from Postgres a few hours
+after day D ends, and only `priority` and `actionability` are cut at the snapshot. A birth-day
+outcome therefore happened before its own feature read, so both the holdout AUC and the newborn
+unseen grade read optimistically on these rows. What removes it is the scoring sweep's timestamped
+score log becoming this table's source, not censoring the positives again.
+
+The holdout is cut BY REPORT (report_created_at), never by row, so a grain that emits several rows
+of one report cannot straddle the cut. Label-only rows (EU reports, hard-deleted rows) carry no
+state and are skipped. A snapshot is assembled over the state spine (`assemble_snapshot`): a report
+with no label event gets LABEL_DEFAULTS, so never-engaged reports are negatives rather than absent.
+
+A set may ask for the scoring-moment grain instead (one row per report per snapshot, whose label is
+a hazard conditional on the report still being live) or the report grain (the first snapshot of the
+window where the report is a usable moment), and cap the rows one head keeps. Both knobs live on
+the `FeatureSet`, because the examples object is per set.
 """
 
 import datetime
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 import pandas as pd
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.ranking.features import NO_EXTRAS, REPORT_GRAIN, Extras, FeatureSet
+from products.signals.backend.ranking.features import BIRTH_GRAIN, NO_EXTRAS, REPORT_GRAIN, Extras, FeatureSet
 from products.signals.dags.inbox_ranking.common import snapshot_bounds
 from products.signals.dags.inbox_ranking.dataset.dag import label_provenance_ok
 from products.signals.dags.inbox_ranking.dataset.queries import LABEL_DEFAULTS
@@ -126,6 +137,20 @@ def assemble_snapshot(date: datetime.date, state: pd.DataFrame, labels: pd.DataF
     return Snapshot(date=date, state=state, labels=aligned)
 
 
+def birth_day_mask(state: pd.DataFrame, date: datetime.date) -> pd.Series:
+    """True for rows of the reports created on snapshot day `date`.
+
+    Creation day stands in for the report's first scoring moment. The two differ when a report
+    stays `potential` past midnight, because the state spine admits a report only once it promotes
+    or is born visible, so the report's first moment is its promotion day. Such a report is still
+    censored on that day, and the newborn pool never grades it. Closing that gap needs
+    `first_visible_at` carried in the state schema, which no partition has today.
+    """
+    start, end = snapshot_bounds(date.isoformat())
+    created = pd.to_datetime(state["report_created_at"], utc=True)
+    return (created >= start) & (created < end)
+
+
 def point_in_time_mask(state: pd.DataFrame, date: datetime.date) -> pd.Series:
     """True for rows whose Postgres state was read close enough to the snapshot day to stand for
     the state as of that day. Rows without the stamp are kept."""
@@ -165,8 +190,9 @@ def example_moments(
     extras: Extras,
 ) -> pd.DataFrame:
     """The (report, snapshot) moments that are examples for `head`, with their labels and no
-    features. One row per moment at the scoring-moment grain; at the report grain, only the first
-    snapshot of the window where a report is a usable moment."""
+    features. One row per report at the birth grain, on the snapshot of the day it was created; one
+    row per moment at the scoring-moment grain; at the report grain, the first snapshot of the
+    window where a report is a usable moment."""
     frames: list[pd.DataFrame] = []
     covered: set[object] = set()
     for date in sorted(snapshots):
@@ -188,7 +214,11 @@ def example_moments(
         # The cohort reads the later snapshot on purpose. The sweep scores a report before users see
         # it, so the impression that puts a report in the cohort usually lands after `now`. A cohort
         # read at `now` would drop those pre-impression scoring moments, which are the serving case.
-        keep = head.cohort(labels_later) & ~head.label(labels_now) & state["signal_count"].notna()
+        # An outcome already observed at `now` belongs to an earlier moment, so it censors this
+        # one. A report born on this day has no earlier moment to own it.
+        born_today = birth_day_mask(state, date)
+        censored = head.label(labels_now) & ~born_today
+        keep = head.cohort(labels_later) & ~censored & state["signal_count"].notna()
         keep &= point_in_time_mask(state, date)
         if head.status_labels:
             keep &= _flag_or_true(labels_now, "label_provenance_ok") & _flag_or_true(
@@ -198,12 +228,15 @@ def example_moments(
         # snapshot, cannot build the vector this moment had, so the report is not a moment here. At
         # the report grain the report then takes its example on the first snapshot where it can.
         keep &= feature_set.buildable(state, extras, as_of=snapshot_end)
-        if feature_set.example_grain == REPORT_GRAIN:
+        if feature_set.example_grain == BIRTH_GRAIN:
+            keep &= born_today
+        elif feature_set.example_grain == REPORT_GRAIN:
             keep &= ~state.index.isin(covered)
         if not keep.any():
             continue
         kept_ids = state.index[keep.to_numpy()]
-        covered.update(kept_ids)
+        if feature_set.example_grain == REPORT_GRAIN:
+            covered.update(kept_ids)
         frames.append(
             pd.DataFrame(
                 {
@@ -218,6 +251,34 @@ def example_moments(
     if not frames:
         return pd.DataFrame(columns=list(MOMENT_COLUMNS))
     return pd.concat(frames, ignore_index=True)
+
+
+def birth_day_positives(examples: pd.DataFrame) -> int:
+    """How many of `examples`' positives sit on their report's birth day: the size of what the
+    birth-day rule keeps. Read off the moment columns, so a wide set does not copy its feature
+    columns to count them."""
+    if examples.empty:
+        return 0
+    moments = examples[["report_created_at", "snapshot_date", "label"]]
+    return sum(
+        int((birth_day_mask(group, date) & (group["label"] == 1)).sum())
+        for date, group in moments.groupby("snapshot_date", sort=False)
+    )
+
+
+def reports_missing_birth_snapshot(snapshots: Mapping[datetime.date, Snapshot], dates: Sequence[datetime.date]) -> int:
+    """How many reports born on a day of `dates` can be no example at the birth grain, because the
+    snapshot of that day is missing from `snapshots`.
+
+    A report born before the window is not counted: it has no birth-day snapshot by construction,
+    and the birth grain drops it deliberately rather than through a gap. The same snapshot bounds
+    define the birth day here and in the example filter.
+    """
+    if not snapshots:
+        return 0
+    created = pd.concat([snapshot.state["report_created_at"] for snapshot in snapshots.values()])
+    reports = created.dropna().loc[lambda rows: ~rows.index.duplicated()].to_frame()
+    return sum(int(birth_day_mask(reports, date).sum()) for date in set(dates).difference(snapshots))
 
 
 def cap_examples(moments: pd.DataFrame, limit: int | None) -> pd.DataFrame:

@@ -81,4 +81,35 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "id": "Unique identifier of the step type.",
         },
     },
+    "environments": {
+        "description": "A deployment environment tracked by the Codefresh environment dashboard, with the services and release currently deployed to it.",
+        "docs_url": "https://g.codefresh.io/api/",
+    },
+    "teams": {
+        "description": "A team in the Codefresh account, with the users that belong to it.",
+        "docs_url": "https://g.codefresh.io/api/",
+        "columns": {
+            "_id": "Unique identifier of the team.",
+            "name": "Name of the team.",
+            "type": "Kind of team, for example `default` or `admin`.",
+            "account": "Identifier of the Codefresh account the team belongs to.",
+            "tags": "Free-form tags applied to the team.",
+            "users": "Members of the team, each with their user id, user name, and email.",
+        },
+    },
+    "users": {
+        "description": "A user of the Codefresh account. Resolves the user ids that builds carry in `initiator`, `triggeredBy`, and `committer`.",
+        "docs_url": "https://g.codefresh.io/api/",
+        "columns": {
+            "_id": "Unique identifier of the user.",
+            "userName": "Codefresh user name.",
+            "email": "Email address of the user.",
+            "status": "Account membership status of the user, for example `new` or `pending`.",
+            "roles": "Roles granted to the user in the account.",
+            "personal": "Personal profile of the user: first name, last name, company, phone number, and country.",
+            "shortProfile": "Compact profile holding the user name Codefresh shows in build and commit views.",
+            "logins": "Identity provider logins linked to the user.",
+            "register_date": "Timestamp the user registered with Codefresh.",
+        },
+    },
 }

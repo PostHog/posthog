@@ -50,6 +50,15 @@ PROFILE_KEEP_N = 10
 _PROFILE_LOCK_NAMESPACE = 0x5191A1A6  # "SIGNAL"-ish leetspeak; just needs to be unique enough.
 
 
+# Inventory sections repeated in the response's compact `summary` envelope.
+# `emit_eligibility` is the delivery gate the prompt tells every scout to read before it does
+# any work, and `existing_inbox_reports` is what it dedupes against. Both sit deep inside
+# an inventory large enough that a client can cut the response off before reaching them, so a
+# scout that reads only the prefix cannot tell whether its output would go anywhere. Repeating
+# them up front costs a few hundred bytes and keeps them ahead of any truncation point.
+SUMMARY_SECTIONS = ("emit_eligibility", "existing_inbox_reports")
+
+
 @dataclass(frozen=True)
 class ProjectProfile:
     """Wire shape for a `SignalProjectProfile` row.
@@ -67,8 +76,18 @@ class ProjectProfile:
     source_version: str
     payload: dict[str, Any] = field(default_factory=dict)
 
+    def summary(self) -> dict[str, Any]:
+        """The `SUMMARY_SECTIONS` of the inventory, for the compact envelope.
+
+        A missing section reads as `None` rather than raising: a stored row whose inventory
+        predates a section would otherwise turn the whole orientation call into a 500, which
+        is a worse failure than a gate the caller has to treat as unknown.
+        """
+        inventory = self.payload.get("inventory") or {}
+        return {section: inventory.get(section) for section in SUMMARY_SECTIONS}
+
     def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return {**asdict(self), "summary": self.summary()}
 
 
 def get_project_profile(*, team_id: int, force_refresh: bool = False, lazy_build: bool = True) -> ProjectProfile | None:

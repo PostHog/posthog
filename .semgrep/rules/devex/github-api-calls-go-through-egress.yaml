@@ -16,7 +16,7 @@ rules:
 
           Why: a raw call bypasses the shared per-installation rate-limit budget and the
           egress telemetry (request volume + `X-RateLimit-*` gauges), so it can burn a
-          customer's GitHub budget invisibly. See `posthog/egress/README.md`.
+          customer's GitHub budget invisibly. See `posthog/egress/github/README.md`.
 
           This rule only catches literal/f-string URLs; keep URLs inline at the call site.
           Suppress a legitimate exception with

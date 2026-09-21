@@ -30,6 +30,8 @@ import type { IntegrationType } from '../../../../../frontend/src/types'
 import { attachedContextItemKey, attachedContextLogic, runStreamLogic } from '../../api/logics'
 import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
+import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
+import type { ComposerOverride } from '../../logics/composerOverrideLogic'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import type { ComposerSeed } from '../../logics/composerSeedLogic'
 import { modelCatalogueLogic } from '../../logics/modelCatalogueLogic'
@@ -160,6 +162,7 @@ const EMPTY_TASK_FORM: TaskCreateForm = {
 export interface taskTrackerSceneLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     contextItems: AttachedContextItem[] // attachedContextLogic
+    composerOverride: ComposerOverride | null // composerOverrideLogic
     seed: ComposerSeed | null // composerSeedLogic
     integrations: IntegrationType[] | null // integrationsLogic
     catalogue: ModelChoiceApi[] // modelCatalogueLogic
@@ -182,6 +185,7 @@ export interface taskTrackerSceneLogicValues {
     displayEffort: ReasoningEffortEnumApi
     displayHeadline: string
     displayModel: string
+    effectiveRepositoryConfig: RepositoryConfig
     hasDesktopAccess: boolean
     headlineSeed: number
     isDefaultSelection: boolean
@@ -343,6 +347,10 @@ export interface taskTrackerSceneLogicMeta {
             defaultRuntimeAdapter: string | null,
             catalogue: ModelChoiceApi[]
         ) => string
+        effectiveRepositoryConfig: (
+            newTaskData: TaskCreateForm,
+            composerOverride: ComposerOverride | null
+        ) => RepositoryConfig
         isDefaultSelection: (newTaskData: TaskCreateForm) => boolean
     }
 }
@@ -378,6 +386,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             ['currentProjectId'],
             composerSeedLogic(props),
             ['seed'],
+            composerOverrideLogic,
+            ['composerOverride'],
             welcomeOverrideLogic,
             ['overrideHeadlines'],
             modelCatalogueLogic,
@@ -536,6 +546,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     ? getRuntimeAdapterForModel(catalogue, displayModel)
                     : defaultRuntimeAdapter,
         ],
+        // The shared form may still hold a remembered repo while the picker is hidden. Drop it here, not from the form.
+        effectiveRepositoryConfig: [
+            (s) => [s.newTaskData, s.composerOverride],
+            (newTaskData: TaskCreateForm, composerOverride: ComposerOverride | null): RepositoryConfig =>
+                composerOverride?.hideRepositorySelector ? {} : newTaskData.repositoryConfig,
+        ],
         // Neither picker touched: submit omits the triple so the backend resolves it, which also
         // lets a warm run provisioned under the default match.
         isDefaultSelection: [
@@ -572,7 +588,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // accepts AI data processing.
             if (!values.activeCreation && values.dataProcessingAccepted) {
                 const request = buildWarmRequest(
-                    values.newTaskData,
+                    { ...values.newTaskData, repositoryConfig: values.effectiveRepositoryConfig },
                     values.catalogue,
                     values.displayModel,
                     values.displayEffort
@@ -626,7 +642,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 return
             }
 
-            const { description, repositoryConfig, permissionMode } = values.newTaskData
+            const { description, permissionMode } = values.newTaskData
+            const repositoryConfig = values.effectiveRepositoryConfig
 
             if (!description.trim()) {
                 lemonToast.error('Description is required')

@@ -3,7 +3,7 @@
 from typing import Any, Optional
 from uuid import UUID
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import QuerySet
 
 import structlog
@@ -20,6 +20,10 @@ from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrac
 logger = structlog.get_logger(__name__)
 
 NATIVE_ALERTS_FLAG = "error-tracking-native-alerts"
+
+# Longest throttle window an alert may configure. Per-issue throttle claims live in
+# shared Redis for exactly this long, so the API and delivery must agree on it.
+MAX_THROTTLE_SECONDS = 30 * 24 * 60 * 60
 
 
 def native_alerts_enabled(team_id: int) -> bool:
@@ -67,6 +71,17 @@ def get_alert(team_id: int, alert_id: UUID | str) -> Optional[ErrorTrackingAlert
     return ErrorTrackingAlert.objects.for_team(team_id).prefetch_related("destinations").filter(id=parsed_id).first()
 
 
+# Delivery plans every enabled alert and destination of the team on each lifecycle
+# transition, so the graph it loads must stay small.
+MAX_ALERTS_PER_TEAM = 50
+MAX_DESTINATIONS_PER_ALERT = 10
+
+
+def _validate_destination_count(destinations: list[dict[str, Any]]) -> None:
+    if len(destinations) > MAX_DESTINATIONS_PER_ALERT:
+        raise AlertValidationError(f"An alert can have at most {MAX_DESTINATIONS_PER_ALERT} destinations.")
+
+
 def create_alert(
     team_id: int,
     *,
@@ -81,11 +96,17 @@ def create_alert(
     # paths (for_team) all agree on the same team id for child environments.
     team_id = resolve_effective_team_id(team_id)
     compiled_filters = _compile_filters(team_id, filters)
+    _validate_destination_count(destinations)
     _reject_duplicate_destinations(destinations)
     for destination in destinations:
         _validate_destination(team_id, destination)
 
     with transaction.atomic():
+        # Serializes concurrent creates for the team so the cap holds; the lock ends with the transaction.
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"error_tracking_alerts:{team_id}"])
+        if ErrorTrackingAlert.objects.for_team(team_id, canonical=True).count() >= MAX_ALERTS_PER_TEAM:
+            raise AlertValidationError(f"A project can have at most {MAX_ALERTS_PER_TEAM} alerts.")
         alert = ErrorTrackingAlert.objects.for_team(team_id, canonical=True).create(
             team_id=team_id,
             name=name,
@@ -127,6 +148,7 @@ def update_alert(
         return get_alert(team_id, parsed_id)
 
     if destinations is not None:
+        _validate_destination_count(destinations)
         _reject_duplicate_destinations(destinations)
 
     with transaction.atomic():
@@ -173,9 +195,55 @@ def delete_alert(team_id: int, alert_id: UUID | str) -> bool:
     return deleted > 0
 
 
+def _validate_filter_surface(filters: dict[str, Any]) -> None:
+    # Delivery evaluates filters without person, group, or cohort context, and
+    # native alerts have no bytecode refresh when actions or test-account
+    # definitions change. Reject what cannot be honored instead of silently
+    # mis-evaluating it.
+    unsupported_keys = [key for key in ("actions", "filter_test_accounts") if filters.get(key)]
+    if unsupported_keys:
+        raise AlertValidationError(f"Alert filters do not support {', '.join(unsupported_keys)}.")
+    property_lists = [filters.get("properties") or []]
+    for entity in filters.get("events") or []:
+        if isinstance(entity, dict):
+            if entity.get("type") != "events":
+                # A typeless entity compiles without its event-name predicate (a
+                # match-all branch), and an action entity smuggled into the events
+                # list would compile too.
+                raise AlertValidationError(f"Alert event filters must have type events, got: {entity.get('type')}.")
+            # Without an event name the entity compiles to a match-all branch too.
+            if not isinstance(entity.get("id"), str) or not entity["id"]:
+                raise AlertValidationError("Alert event filters must name an event.")
+            property_lists.append(entity.get("properties") or [])
+    for property_list in property_lists:
+        # The compiler accepts an object here and iterating it would only yield keys,
+        # so the leaf checks below would never run.
+        if not isinstance(property_list, list):
+            raise AlertValidationError("Alert property filters must be a list.")
+        for property_filter in property_list:
+            # A leaf without a key makes the compiler fall back to a constant-true
+            # branch, turning a "filtered" alert into a match-all.
+            if not isinstance(property_filter, dict) or not isinstance(property_filter.get("key"), str):
+                raise AlertValidationError("Each alert property filter must be an object with a key.")
+            if property_filter.get("type") not in (None, "event"):
+                raise AlertValidationError(
+                    f"Alert filters support event properties only, got: {property_filter.get('type')}."
+                )
+            # A leaf with a key but no value compiles to constant-true as well. An empty
+            # string is a real comparison value and stays allowed.
+            if property_filter.get("operator") not in ("is_set", "is_not_set") and property_filter.get("value") in (
+                None,
+                [],
+            ):
+                raise AlertValidationError(
+                    f"Alert property filter on {property_filter['key']} needs a value, or an is set / is not set operator."
+                )
+
+
 def _compile_filters(team_id: int, filters: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(filters, dict):
         raise AlertValidationError("Alert filters must be an object.")
+    _validate_filter_surface(filters)
     team = Team.objects.get(id=team_id)
     compiled = compile_filters_bytecode(dict(filters), team)
     if compiled.get("bytecode_error"):

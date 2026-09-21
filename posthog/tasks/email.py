@@ -59,7 +59,6 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.conversations.backend.models import Ticket
 from products.data_modeling.backend.facade.api import (
-    is_suspension_enforced,
     suspended_saved_query_ids_by_team,
     suspension_state_for_saved_query,
 )
@@ -1209,10 +1208,6 @@ def send_matview_failure_digest() -> None:
 
     for team_id in team_ids:
         suspended_ids = suspended_ids_by_team.get(team_id, [])
-        # Markers are written fleet-wide, but a view only stops running where enforcement is on.
-        # Asked only where a marker exists, so a team with failures alone pays no team lookup.
-        if suspended_ids and not is_suspension_enforced(team_id):
-            suspended_ids = []
         suspended = set(suspended_ids)
         # A suspended view failed too, so report it once, under the status that asks for action.
         failed_ids = [qid for qid in failed_ids_by_team.get(team_id, []) if qid not in suspended]

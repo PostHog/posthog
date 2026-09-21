@@ -37,6 +37,7 @@ from posthog.api.streaming import sse_streaming_response
 from posthog.event_usage import report_user_action
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.permissions import is_scout_sandbox_request
 from posthog.rate_limit import ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle
 from posthog.renderers import ServerSentEventRenderer
 
@@ -58,6 +59,7 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin, ScannerType
+from products.replay_vision.backend.observation_formatting import summarize_observation
 from products.replay_vision.backend.scanner_access import (
     accessible_observations,
     can_read_targeted_experiment,
@@ -65,11 +67,13 @@ from products.replay_vision.backend.scanner_access import (
     scanner_for_reading_observations,
 )
 from products.replay_vision.backend.scanning import RetryOutcome, retry_observation
+from products.replay_vision.backend.scout_writes import refuse_scout_scanner_scan
 from products.replay_vision.backend.search import (
     DEFAULT_SEARCH_LIMIT,
     MAX_SEARCH_LIMIT,
     ObservationSearchFilters,
     ObservationSearchResult,
+    is_transient_embedding_error,
     parse_date_bound,
     query_vector_for,
     search_observations,
@@ -80,8 +84,10 @@ from products.replay_vision.backend.search_suggestions import (
     scope_sources,
     stamp_search_viewed,
 )
+from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
+from products.signals.backend.facade.api import get_reports_for_signal_source_slice
 from products.tasks.backend.facade import api as tasks_facade
 
 from ee.hogai.utils.untrusted import as_untrusted_data
@@ -297,6 +303,19 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
 
     viewed = serializers.BooleanField(read_only=True, help_text="Whether the calling user has opened this observation.")
 
+    summary_line = serializers.SerializerMethodField(
+        help_text=(
+            "One line of plain text saying what the scanner found: its verdict, score, tags or title, then its "
+            "own words, with markdown flattened and the text truncated. An observation that produced no result "
+            "carries the reason instead, and one still in flight carries an empty string. Read this in place of "
+            "`scanner_result` when you scan a list of observations."
+        ),
+    )
+
+    @extend_schema_field(serializers.CharField())
+    def get_summary_line(self, obj: ReplayObservation) -> str:
+        return summarize_observation(obj)
+
     class Meta:
         model = ReplayObservation
         fields = [
@@ -318,6 +337,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             "next_observation_id",
             "label",
             "viewed",
+            "summary_line",
             "started_at",
             "completed_at",
             "created_at",
@@ -750,6 +770,23 @@ class CreateTaskFromObservationResponseSerializer(serializers.Serializer):
     )
 
 
+class ObservationSignalReportSerializer(serializers.Serializer):
+    """An inbox report that this observation's emitted signals were grouped into."""
+
+    id = serializers.UUIDField(help_text="ID of the inbox report, for linking to its inbox page.")
+    title = serializers.CharField(
+        allow_null=True,
+        help_text="Report title, null while the report is still too new to have been summarized.",
+    )
+    status = serializers.CharField(
+        help_text=(
+            "The report's status in the inbox: potential, candidate, in_progress, pending_input, ready, "
+            "resolved, failed, or suppressed."
+        ),
+    )
+    created_at = serializers.DateTimeField(help_text="When the report was created.")
+
+
 @dataclass(frozen=True)
 class _TaskContent:
     title: str
@@ -809,6 +846,11 @@ class ReplayObservationViewSet(
     filter_backends = [_TeamAwareFilterBackend]
     filterset_class = ReplayObservationFilter
 
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        if self.action in {"retry"}:
+            refuse_scout_scanner_scan(is_scout_sandbox_request(request))
+
     def _scanner_for_url(self) -> ReplayScanner:
         # Per-request cache so `stats` doesn't re-run the RBAC + scanner-lookup roundtrip.
         cached = getattr(self, "_scanner_for_url_cache", None)
@@ -846,8 +888,8 @@ class ReplayObservationViewSet(
         ).order_by("-created_at", "id")
 
     def filter_queryset(self, queryset: QuerySet[ReplayObservation]) -> QuerySet[ReplayObservation]:
-        # List filters scope prev/next neighbors only; the observation itself must always resolve on retrieve.
-        if self.action == "retrieve":
+        # List filters scope prev/next neighbors only; the observation itself must always resolve on a detail read.
+        if self.action in {"retrieve", "signal_reports"}:
             return queryset
         return super().filter_queryset(queryset)
 
@@ -997,6 +1039,29 @@ class ReplayObservationViewSet(
             locked.created_task_id = task_id
             locked.save(update_fields=["created_task_id"])
         return Response({"task_id": task_id}, status=status.HTTP_201_CREATED)
+
+    @extend_schema(responses={200: ObservationSignalReportSerializer(many=True)})
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="signal_reports",
+        pagination_class=None,
+        required_scopes=["replay_scanner:read", "session_recording:read", "task:read"],
+    )
+    def signal_reports(self, request: Request, **kwargs: Any) -> Response:
+        """The inbox reports this observation's emitted signals were grouped into, newest first."""
+        # `required_scopes` only gates API keys, so a session member denied inbox access would
+        # otherwise read report titles here that the reports endpoint never shows them.
+        if not self.user_access_control.check_access_level_for_resource("task", required_level="viewer"):
+            raise PermissionDenied("Reading an observation's signal reports requires inbox read access.")
+        observation = self.get_object()
+        reports = get_reports_for_signal_source_slice(
+            team=self.team,
+            source_product=VISION_SIGNALS_SOURCE_PRODUCT,
+            source_type=VISION_SIGNALS_SOURCE_TYPE,
+            extra_equals={"observation_id": str(observation.id)},
+        )
+        return Response(ObservationSignalReportSerializer(instance=reports, many=True).data)
 
     @extend_schema(request=None, responses={204: None})
     @action(
@@ -1380,9 +1445,11 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
             )
         try:
             query_vector = query_vector_for(self.team, validated["q"])
-        except (requests.ConnectionError, requests.Timeout):
-            # The embedding worker is unreachable or slow, so the caller can retry. A rejected request
-            # (requests.HTTPError) is a bug, not retryable, and should surface as a 500.
+        except requests.RequestException as error:
+            # The embedding worker is unreachable, slow, or failing, so the caller can retry. A rejected
+            # request is a bug on our side, not retryable, and should surface as a 500.
+            if not is_transient_embedding_error(error):
+                raise
             logger.warning("replay_vision.observation_search.embedding_failed", team_id=self.team_id, exc_info=True)
             raise EmbeddingUnavailableError()
         filters = ObservationSearchFilters.from_raw(

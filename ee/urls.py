@@ -10,6 +10,7 @@ from django.views.generic import RedirectView
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
+from posthog.admin import register_all_admin
 from posthog.middleware import impersonated_session_logout
 from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values_view
 
@@ -22,7 +23,7 @@ from ee.api.vercel import vercel_connect, vercel_sso, vercel_webhooks
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
 
-from .api import authentication, billing, conversation, core_memory, license, subscription
+from .api import authentication, billing, conversation, core_memory, subscription
 from .api.rbac import role
 from .api.scim import views as scim_views
 
@@ -37,7 +38,6 @@ def extend_api_router() -> None:
     from ee.api import hands_free, max_tools
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
-    root_router.register(r"license", license.LicenseViewSet)
     root_router.register(r"integrations", integration.PublicIntegrationViewSet)
     organization_roles_router = organizations_router.register(
         r"roles",
@@ -74,6 +74,11 @@ def extend_api_router() -> None:
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
 if settings.ADMIN_PORTAL_ENABLED:
+    # `AdminSite.get_urls()` derives the `admin:app_list` URL pattern from the registry
+    # when `admin.site.urls` below is read, and never rebuilds it. `LazyAdminRegistry`
+    # fills the registry first, but `posthog/apps.py` skips it under `settings.TEST`.
+    register_all_admin()
+
     # these models are auto-registered but we don't want to expose them to staff
     for model in (StaticDevice, TOTPDevice):
         try:

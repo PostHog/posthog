@@ -11,6 +11,36 @@ const FILE_MISSING_DETAIL = 'not found in skill'
  *  that emits it, so a 404 without it came from somewhere else. */
 const SKILL_MISSING_DETAIL = 'Skill with name'
 
+/** `type` values the store stamps on a skill-level 404, telling the two lookups
+ *  apart: an unknown name, or a known name at a version the store does not hold. */
+const VERSION_MISSING_TYPE = 'skill_version_not_found'
+const NAME_MISSING_TYPE = 'skill_not_found'
+
+/** The store's 404 body, when it carries the typed shape. Anything else parses to
+ *  undefined and the generic messages below stand. */
+interface SkillMissBody {
+    detail?: unknown
+    type?: unknown
+    suggestions?: unknown
+    available_versions?: unknown
+}
+
+function parseSkillMissBody(body: string): SkillMissBody | undefined {
+    try {
+        const parsed: unknown = JSON.parse(body)
+        return parsed && typeof parsed === 'object' ? (parsed as SkillMissBody) : undefined
+    } catch {
+        return undefined
+    }
+}
+
+function typedArray<T>(value: unknown, isT: (item: unknown) => item is T): T[] {
+    return Array.isArray(value) ? value.filter(isT) : []
+}
+
+const isString = (item: unknown): item is string => typeof item === 'string'
+const isNumber = (item: unknown): item is number => typeof item === 'number'
+
 /** Which kind of miss the message answers. Stamped on the errored `$mcp_tool_call`
  *  so "agents asking the store for a built-in skill" is its own line in the data,
  *  rather than hiding among the typos in one undifferentiated 404 count. */
@@ -91,7 +121,42 @@ export function formatSkillLookupMiss(
         return undefined
     }
 
-    // Both read tools take a `version`, and the store returns this same
+    // The store answers from the rows `skill-list` returns, so when it says which
+    // lookup missed, that verdict is authoritative and its detail carries the
+    // recovery the generic messages below can only guess at.
+    const missBody = parseSkillMissBody(apiError.body)
+    const serverDetail = typeof missBody?.detail === 'string' ? missBody.detail : undefined
+
+    const availableVersions = typedArray(missBody?.available_versions, isNumber)
+    if (missBody?.type === VERSION_MISSING_TYPE && serverDetail && availableVersions.length > 0) {
+        // Name the newest one the store holds: a run that pinned a version wants a
+        // real version back, not an unpinned read that can race a mid-run publish.
+        const newest = Math.max(...availableVersions)
+        return {
+            kind: 'version',
+            message: [
+                serverDetail,
+                `Run \`call skill-get {"skill_name": "${skillName}", "version": ${newest}}\` to read the newest one.`,
+            ].join('\n'),
+        }
+    }
+
+    // A near-miss name is the common way a read fails on a skill the store holds,
+    // and the agent cannot recover from a bare "not found" that denies a name
+    // `skill-list` would show. A built-in name keeps the built-in message below:
+    // a store name that merely reads like it is not where that skill lives.
+    const suggestions = typedArray(missBody?.suggestions, isString)
+    if (missBody?.type === NAME_MISSING_TYPE && serverDetail && suggestions.length > 0 && !hint?.isBuiltIn(skillName)) {
+        return {
+            kind: 'unknown',
+            message: [
+                serverDetail,
+                `Run \`call skill-get {"skill_name": "${suggestions[0]}"}\` if that is the one you want, or \`call skill-list\` to see the skills that are available.`,
+            ].join('\n'),
+        }
+    }
+
+    // Both read tools take a `version`, and an older store returns the same
     // skill-level detail when the name resolves but the pinned version does not
     // exist. So a pinned read cannot be told the skill is absent: `skill-list`
     // would then list the skill the message just denied.

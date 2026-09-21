@@ -35,6 +35,7 @@ import type { IndexedTrendResult } from 'products/product_analytics/frontend/ins
 
 import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
+import { getSeriesIdentification } from '../../shared/seriesIdentification'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
@@ -62,6 +63,7 @@ interface TrendsBarChartProps {
 
 const EMPTY_LABELS: string[] = []
 const AGGREGATED_TOOLTIP_CONFIG = { pinnable: false, placement: 'cursor' as const }
+const EMBEDDED_MAX_CATEGORY_LABEL_WIDTH = 64
 
 type AggregationLabelFn = (groupTypeIndex: number | null | undefined) => { plural: string }
 
@@ -116,11 +118,17 @@ export function TrendsBarChart({
         goalLines,
         showValuesOnSeries,
         showMultipleYAxes,
+        isSingleSeriesDefinition,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+
+    const seriesIdentification = useMemo(
+        () => getSeriesIdentification((indexedResults ?? []).map(buildTrendsSeriesMeta)),
+        [indexedResults]
+    )
 
     const isAggregated = display === ChartDisplayType.ActionsBarValue
     const isGrouped = display === ChartDisplayType.ActionsUnstackedBar
@@ -152,8 +160,16 @@ export function TrendsBarChart({
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
+                isSingleSeriesDefinition,
+                seriesIdentification,
             }),
-        [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+        [
+            breakdownFilter,
+            allCohorts?.results,
+            formatPropertyValueForDisplay,
+            isSingleSeriesDefinition,
+            seriesIdentification,
+        ]
     )
 
     const { series, labels, displayLabels } = useMemo(() => {
@@ -211,6 +227,7 @@ export function TrendsBarChart({
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
+    const hideAxes = context?.hideAxes
     const timeSeriesConfig: TimeSeriesBarChartConfig = useChartConfig(
         () => ({
             ...buildTrendsBarTimeSeriesConfig({
@@ -222,6 +239,7 @@ export function TrendsBarChart({
                 interval,
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
+                hideAxes,
                 xAxisLabel: trendsFilter?.xAxisLabel,
                 yAxisLabel: trendsFilter?.yAxisLabel,
                 goalLines,
@@ -241,6 +259,7 @@ export function TrendsBarChart({
             interval,
             timezone,
             currentPeriodResult?.days,
+            hideAxes,
             trendsFilter?.xAxisLabel,
             trendsFilter?.yAxisLabel,
             goalLines,
@@ -275,13 +294,15 @@ export function TrendsBarChart({
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             axisOrientation: 'horizontal',
             barLayout: 'stacked',
+            hideXAxis: hideAxes,
+            hideYAxis: hideAxes,
             yTickFormatter: aggregatedYTickFormatter,
             xTickFormatter,
             xAxisLabel: trendsFilter?.xAxisLabel,
             yAxisLabel: trendsFilter?.yAxisLabel,
             // Breakdown values become category (y-axis) labels here; truncate long ones (e.g. URLs)
             // so they don't grow the margin and push the plot off screen. Full value shows on hover.
-            maxCategoryLabelWidth: MAX_CATEGORY_LABEL_WIDTH,
+            maxCategoryLabelWidth: embedded ? EMBEDDED_MAX_CATEGORY_LABEL_WIDTH : MAX_CATEGORY_LABEL_WIDTH,
             // Dashboard/card tiles are a fixed height, so cap the rows to those that fit. The full
             // insight page is `embedded: false` — even when opened from a dashboard (dashboardId in
             // the URL) — so it keeps the grow-to-fit-all behavior and renders every breakdown row.
@@ -290,6 +311,7 @@ export function TrendsBarChart({
             bars: { fitToHeight: embedded, divergingStack: true },
         }
     }, [
+        hideAxes,
         yAxisScaleType,
         aggregatedYTickFormatter,
         trendsFilter?.xAxisLabel,
