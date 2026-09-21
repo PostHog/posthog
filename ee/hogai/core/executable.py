@@ -39,10 +39,10 @@ class BaseAgentExecutable(Generic[StateType, PartialStateType], AssistantContext
 
     def run(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         """DEPRECATED. Use `arun` instead."""
-        raise NotImplementedError
+        raise NotImplementedError(f"{type(self).__name__} implements neither `arun` nor `run`")
 
     async def arun(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
-        raise NotImplementedError
+        raise NotImplementedError(f"{type(self).__name__} implements neither `arun` nor `run`")
 
     @property
     def context_manager(self) -> AssistantContextManager:
@@ -72,10 +72,9 @@ class BaseAgentExecutable(Generic[StateType, PartialStateType], AssistantContext
         return (*self._node_path, NodePath(name=self.node_name))
 
     async def _execute(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
-        try:
+        # A subclass that overrides `arun` owns every exception it raises, NotImplementedError included.
+        if type(self).arun is not BaseAgentExecutable.arun:
             return await self._arun_with_context(state, config)
-        except NotImplementedError:
-            pass
         return await database_sync_to_async(self._run_with_context, thread_sensitive=False)(state, config)
 
     def _run_with_context(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
