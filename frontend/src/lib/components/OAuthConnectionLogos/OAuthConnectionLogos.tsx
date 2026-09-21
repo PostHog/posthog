@@ -13,7 +13,7 @@ export function OAuthConnectionLogos({ appName, logoUri }: { appName: string; lo
         // first shipped under on the login page.
         <div className="flex items-center justify-center gap-3 mb-4" data-attr="pending-oauth-connection-logos">
             <span className="flex items-center justify-center w-12 h-12 p-2.5 rounded-full border border-border bg-bg-light">
-                <Logomark variant="gradient" size="sm" />
+                <Logomark size="sm" />
             </span>
             <IconPlug className="text-secondary text-lg shrink-0" aria-hidden />
             <span className="flex items-center justify-center w-12 h-12 rounded-full border border-border bg-bg-light overflow-hidden">
