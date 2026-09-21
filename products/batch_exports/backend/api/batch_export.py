@@ -213,7 +213,25 @@ class BatchExportRunListQuerySerializer(serializers.Serializer):
     )
 
 
-class RunsCursorPagination(CursorPagination):
+class TimestampCursorPagination(CursorPagination):
+    """Cursor pagination over timestamps, with the primary key as a tie-breaker.
+
+    Records created at the same moment share a timestamp, so a timestamp alone is not a total
+    order. The database can then return tied rows in a different order on each page, and the
+    cursor skips or repeats them.
+    """
+
+    def get_ordering(self, drf_request: request.Request, queryset: models.QuerySet, view: Any) -> tuple[str, ...]:
+        ordering = super().get_ordering(drf_request, queryset, view)
+
+        if any(field.lstrip("-") in ("id", "pk") for field in ordering):
+            return ordering
+
+        tie_breaker = "-id" if ordering[-1].startswith("-") else "id"
+        return (*ordering, tie_breaker)
+
+
+class RunsCursorPagination(TimestampCursorPagination):
     page_size = 100
 
 
@@ -2114,7 +2132,7 @@ class BatchExportBackfillSerializer(serializers.ModelSerializer):
         )
 
 
-class BackfillsCursorPagination(CursorPagination):
+class BackfillsCursorPagination(TimestampCursorPagination):
     page_size = 50
 
 
