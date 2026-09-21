@@ -275,6 +275,48 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             config: {
+                                conditions: {
+                                    filters: {
+                                        actions?: any[] | undefined
+                                        events?: any[] | undefined
+                                        properties?: any[] | undefined
+                                    }
+                                    name?: string | undefined
+                                }[]
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'conditional_branch'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
                                 reason?: string | undefined
                             }
                             created_at?: number | undefined
@@ -306,49 +348,6 @@ export interface hogFlowEditorLogicActions {
                                 | null
                                 | undefined
                             type: 'exit'
-                            updated_at?: number | undefined
-                        }
-                      | {
-                            config: {
-                                conditions: {
-                                    filters: {
-                                        actions?: any[] | undefined
-                                        events?: any[] | undefined
-                                        properties?: any[] | undefined
-                                    }
-                                    name?: string | undefined
-                                }[]
-                                delay_duration?: string | undefined
-                            }
-                            created_at?: number | undefined
-                            description: string
-                            filters?:
-                                | {
-                                      actions?: any[] | undefined
-                                      events?: any[] | undefined
-                                      properties?: any[] | undefined
-                                  }
-                                | null
-                                | undefined
-                            id: string
-                            name: string
-                            on_error?: 'abort' | 'continue' | null | undefined
-                            output_variable?:
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }[]
-                                | null
-                                | undefined
-                            type: 'conditional_branch'
                             updated_at?: number | undefined
                         }
                       | {
@@ -1133,6 +1132,48 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             config: {
+                                conditions: {
+                                    filters: {
+                                        actions?: any[] | undefined
+                                        events?: any[] | undefined
+                                        properties?: any[] | undefined
+                                    }
+                                    name?: string | undefined
+                                }[]
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'conditional_branch'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
                                 reason?: string | undefined
                             }
                             created_at?: number | undefined
@@ -1164,49 +1205,6 @@ export interface hogFlowEditorLogicActions {
                                 | null
                                 | undefined
                             type: 'exit'
-                            updated_at?: number | undefined
-                        }
-                      | {
-                            config: {
-                                conditions: {
-                                    filters: {
-                                        actions?: any[] | undefined
-                                        events?: any[] | undefined
-                                        properties?: any[] | undefined
-                                    }
-                                    name?: string | undefined
-                                }[]
-                                delay_duration?: string | undefined
-                            }
-                            created_at?: number | undefined
-                            description: string
-                            filters?:
-                                | {
-                                      actions?: any[] | undefined
-                                      events?: any[] | undefined
-                                      properties?: any[] | undefined
-                                  }
-                                | null
-                                | undefined
-                            id: string
-                            name: string
-                            on_error?: 'abort' | 'continue' | null | undefined
-                            output_variable?:
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }[]
-                                | null
-                                | undefined
-                            type: 'conditional_branch'
                             updated_at?: number | undefined
                         }
                       | {
