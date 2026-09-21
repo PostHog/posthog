@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { Popover } from 'lib/lemon-ui/Popover'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
@@ -426,36 +428,70 @@ function SendingTierTable({
     currentTier: number
 }): JSX.Element {
     return (
-        <div className="space-y-1">
-            <div className="font-semibold">Sending tiers</div>
-            <table className="text-xs" data-attr="workflows-sending-tier-table">
-                <thead>
-                    <tr className="text-left">
-                        <th className="pr-3 font-normal">Tier</th>
-                        <th className="pr-3 font-normal text-right">Per hour</th>
-                        <th className="pr-3 font-normal text-right">Per day</th>
-                        <th className="font-normal text-right">Batch audience</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {tiers.map((limits) => {
-                        const isCurrent = limits.tier === currentTier
-                        return (
-                            <tr key={limits.tier} className={isCurrent ? 'font-semibold' : undefined}>
-                                <td className="pr-3">
-                                    {limits.tier}
-                                    {isCurrent ? ' (you)' : ''}
-                                </td>
-                                <td className="pr-3 text-right">{humanFriendlyNumber(limits.per_hour)}</td>
-                                <td className="pr-3 text-right">{humanFriendlyNumber(limits.per_day)}</td>
-                                <td className="text-right">{humanFriendlyNumber(limits.max_batch_audience)}</td>
-                            </tr>
-                        )
-                    })}
-                </tbody>
-            </table>
-            <div>A project moves up one tier at a time by sending with low bounce and complaint rates.</div>
+        <div className="w-96 space-y-2" data-attr="workflows-sending-tier-table">
+            <h4 className="mb-0">Sending tiers</h4>
+            <LemonTable
+                dataSource={[...tiers]}
+                rowKey="tier"
+                size="small"
+                embedded
+                rowClassName={(limits) => (limits.tier === currentTier ? 'font-semibold bg-fill-highlight-50' : null)}
+                columns={[
+                    {
+                        title: 'Tier',
+                        key: 'tier',
+                        render: (_, limits) => (limits.tier === currentTier ? `${limits.tier} (current)` : limits.tier),
+                    },
+                    {
+                        title: 'Per hour',
+                        key: 'per_hour',
+                        align: 'right',
+                        render: (_, limits) => humanFriendlyNumber(limits.per_hour),
+                    },
+                    {
+                        title: 'Per day',
+                        key: 'per_day',
+                        align: 'right',
+                        render: (_, limits) => humanFriendlyNumber(limits.per_day),
+                    },
+                    {
+                        title: 'Batch audience',
+                        key: 'max_batch_audience',
+                        align: 'right',
+                        render: (_, limits) => humanFriendlyNumber(limits.max_batch_audience),
+                    },
+                ]}
+            />
+            <p className="text-secondary text-xs mb-0">
+                A project moves up one tier at a time by sending with low bounce and complaint rates.{' '}
+                <Link to={SENDING_TIER_DOCS_URL} target="_blank">
+                    Read the docs
+                </Link>
+            </p>
         </div>
+    )
+}
+
+function SendingTierInfo({ allowance }: { allowance: EmailSendingAllowanceApi }): JSX.Element {
+    const [visible, setVisible] = useState(false)
+    return (
+        <Popover
+            visible={visible}
+            overlay={<SendingTierTable tiers={allowance.tiers} currentTier={allowance.tier} />}
+            onMouseEnterInside={() => setVisible(true)}
+            onMouseLeaveInside={() => setVisible(false)}
+            placement="bottom-start"
+            showArrow
+        >
+            <span
+                className="flex items-center text-secondary cursor-help"
+                onMouseEnter={() => setVisible(true)}
+                onMouseLeave={() => setVisible(false)}
+                data-attr="workflows-sending-tier-info"
+            >
+                <IconInfo className="text-base" />
+            </span>
+        </Popover>
     )
 }
 
@@ -471,16 +507,7 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                         Tier {allowance.tier} of {allowance.max_tier}
                     </LemonTag>
                 </Tooltip>
-                <Tooltip
-                    title={<SendingTierTable tiers={allowance.tiers} currentTier={allowance.tier} />}
-                    docLink={SENDING_TIER_DOCS_URL}
-                    containerClassName="max-w-md"
-                >
-                    <IconInfo
-                        className="text-base text-secondary cursor-help"
-                        data-attr="workflows-sending-tier-info"
-                    />
-                </Tooltip>
+                <SendingTierInfo allowance={allowance} />
             </div>
             <p className="text-secondary mt-2 mb-0">
                 Your allowance grows as your workflows keep sending with low bounce and spam complaint rates. Emails
