@@ -1,4 +1,4 @@
-import { API_DOWNLOAD_TIMEOUT_MS } from "@posthog/shared";
+import { API_DOWNLOAD_TIMEOUT_MS } from "@posthog/agent-contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PostHogAPIClient } from "./posthog-api";
 

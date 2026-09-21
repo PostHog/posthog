@@ -1,6 +1,10 @@
+import type {
+  Adapter,
+  ModelAccess,
+  PostHogAPIConfig,
+} from "@posthog/agent-contracts";
+import type { EffortLevel } from "@posthog/agent-contracts/domain-types";
 import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
-import type { Adapter, ModelAccess, PostHogAPIConfig } from "@posthog/shared";
-import type { EffortLevel } from "@posthog/shared/domain-types";
 
 export type {
   ArtifactSource,
@@ -13,7 +17,7 @@ export type {
   TaskRunState,
   TaskRunStateField,
   TaskRunStatus,
-} from "@posthog/shared";
+} from "@posthog/agent-contracts";
 
 /**
  * Stored custom notification following ACP extensibility model.

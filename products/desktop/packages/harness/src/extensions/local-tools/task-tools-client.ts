@@ -8,7 +8,7 @@ import {
   type TaskRunArtifact,
   type TaskRunUpdate,
   transferTimeoutMs,
-} from "@posthog/shared";
+} from "@posthog/agent-contracts";
 
 export { API_TRANSFER_TIMEOUT_MS, transferTimeoutMs, type TaskRunUpdate };
 

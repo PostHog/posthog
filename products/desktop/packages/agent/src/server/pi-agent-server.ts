@@ -4,11 +4,6 @@ import { basename, dirname, join } from "node:path";
 import type { RpcSessionState } from "@earendil-works/pi-coding-agent";
 import type { ServerType } from "@hono/node-server";
 import { serve } from "@hono/node-server";
-import { resolveContextWikiPath } from "@posthog/harness/extensions/context-wiki";
-import {
-  buildStoreSkillsInstructions,
-  syncStoreSkills,
-} from "@posthog/harness/extensions/skills-store";
 import {
   type AgentConversationEvent,
   type AgentTurnUsage,
@@ -20,9 +15,14 @@ import {
   type StoredLogEntry,
   serializeError,
   type TaskRunArtifact,
-} from "@posthog/shared";
-import { buildPosthogPropertyHeaderRecord } from "@posthog/shared/posthog-property-headers";
-import type { TaskContext } from "@posthog/shared/task-context";
+} from "@posthog/agent-contracts";
+import { buildPosthogPropertyHeaderRecord } from "@posthog/agent-contracts/posthog-property-headers";
+import type { TaskContext } from "@posthog/agent-contracts/task-context";
+import { resolveContextWikiPath } from "@posthog/harness/extensions/context-wiki";
+import {
+  buildStoreSkillsInstructions,
+  syncStoreSkills,
+} from "@posthog/harness/extensions/skills-store";
 import { Hono } from "hono";
 import { z } from "zod/v4";
 import packageJson from "../../package.json" with { type: "json" };

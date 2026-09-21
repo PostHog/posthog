@@ -132,7 +132,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@posthog/enricher": "workspace:*",
     "@posthog/git": "workspace:*",
-    "@posthog/shared": "workspace:*",
+    "@posthog/agent-contracts": "workspace:*",
     "fflate": "^0.8.2",
     "lru-cache": "^11.1.0",
     "turndown": "^7.2.4",

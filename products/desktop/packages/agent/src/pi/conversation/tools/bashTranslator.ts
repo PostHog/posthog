@@ -1,4 +1,4 @@
-import type { AgentToolCallContent } from "@posthog/shared";
+import type { AgentToolCallContent } from "@posthog/agent-contracts";
 import type { PiToolTranslator } from "../toolTranslator";
 
 export const bashTranslator: PiToolTranslator = ({ resultContent }) => {

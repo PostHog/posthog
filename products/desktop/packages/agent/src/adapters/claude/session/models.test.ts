@@ -1,4 +1,7 @@
-import { isDefaultSelectOption, selectOptionDocsUrl } from "@posthog/shared";
+import {
+  isDefaultSelectOption,
+  selectOptionDocsUrl,
+} from "@posthog/agent-contracts";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_EFFORT,

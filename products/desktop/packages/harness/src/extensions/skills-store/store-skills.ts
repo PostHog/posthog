@@ -9,7 +9,7 @@ import {
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { StoreSkillStub, TaskRunState } from "@posthog/shared";
+import type { StoreSkillStub, TaskRunState } from "@posthog/agent-contracts";
 
 /**
  * The store stamps every stub's frontmatter with `metadata.source`. Only a

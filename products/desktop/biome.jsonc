@@ -128,7 +128,7 @@
       // compares against, so no formatter may touch it.
       "includes": [
         "packages/core/src/inbox/objectKinds.generated.ts",
-        "packages/shared/src/objectTagKinds.generated.ts"
+        "packages/agent-contracts/src/objectTagKinds.generated.ts"
       ],
       "formatter": {
         "enabled": false
@@ -272,6 +272,32 @@
                       "!@posthog/workspace-server"
                     ],
                     "message": "workspace-client must run in any JS environment."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/agent/**/*.ts",
+        "packages/agent-contracts/**/*.ts",
+        "packages/enricher/**/*.ts",
+        "packages/git/**/*.ts",
+        "packages/harness/**/*.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["@posthog/shared", "@posthog/shared/*"],
+                    "message": "The agent runtime must not depend on desktop code. Import from @posthog/agent-contracts."
                   }
                 ]
               }

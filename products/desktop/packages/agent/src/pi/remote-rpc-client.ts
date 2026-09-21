@@ -3,7 +3,7 @@ import type {
   RpcCommand,
   RpcResponse,
 } from "@earendil-works/pi-coding-agent";
-import type { AgentConversationEvent } from "@posthog/shared";
+import type { AgentConversationEvent } from "@posthog/agent-contracts";
 import { createPiConversationTranslator } from "./conversation/translatePiConversation";
 import { type PiRpcTransport, parsePiRpcResponse } from "./rpc-transport";
 

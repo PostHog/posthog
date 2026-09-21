@@ -90,7 +90,7 @@ export {
   BEDROCK_GATEWAY_VARIANTS,
   BEDROCK_LLM_GATEWAY_FLAG,
   type BedrockGatewayVariant,
-} from "./bedrock-gateway";
+} from "@posthog/agent-contracts/bedrock-gateway";
 /** Gates the organization context wiki: the Context explorer in the nav rails. */
 export const CONTEXT_LAYER_FLAG = featureFlagKeys.CONTEXT_LAYER_FLAG;
 /** Gates the "set up this space for" step in the create-space flow. */

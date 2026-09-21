@@ -22,7 +22,8 @@ Principle: logic is portable; hosts are thin.
 | Package | Owns | Must not contain |
 | --- | --- | --- |
 | `@posthog/platform` | Host-capability interfaces and DI tokens. Host-neutral, zero runtime dependencies. | Implementations, Node, DOM, tRPC, Electron |
-| `@posthog/shared` | Host-neutral primitives, types, Saga pattern, cloud-prompt encoding. Depends on published packages only. | Internal package imports, I/O |
+| `@posthog/agent-contracts` | Types, schemas and helpers the agent runtime shares with its hosts: task and run domain types, model catalog, Saga pattern, cloud-prompt encoding. Depends on published packages only. | Internal package imports, I/O, desktop-only code |
+| `@posthog/shared` | Host-neutral desktop primitives and types. Re-exports `@posthog/agent-contracts`, so desktop code imports both through `@posthog/shared`. | Internal package imports other than `agent-contracts`, I/O |
 | `@posthog/api-client` | PostHog/Django HTTPS client. Constructed by factory, not DI. | UI, Node-only host syscalls |
 | `@posthog/workspace-client` | Thin tRPC client for local or sandbox workspace-server. Runs in any JS environment. | Business logic, UI |
 | `@posthog/workspace-server` | Node backend services and colocated tRPC routers for git, fs, watchers, processes. | UI, core, Electron |
@@ -64,7 +65,8 @@ Hard boundary: no new `@radix-ui/*` imports anywhere in the repo.
 
 Enforced by Biome `noRestrictedImports`.
 
-- `platform` and `shared` import no internal packages.
+- `platform` and `agent-contracts` import no internal packages. `shared` imports `agent-contracts` only.
+- `agent`, `harness`, `git`, and `enricher` import `agent-contracts`, never `shared`, so the agent runtime does not depend on desktop code.
 - `api-client` and `workspace-client` may import `shared` and relevant `platform` contracts. No UI or Node host syscalls.
 - `workspace-server` may import `shared`, `platform` contracts, Node modules, and workspace-server code. Never `core` or `ui`.
 - `core` may import `shared`, `platform`, `workspace-client`, `api-client`, and other core code. Never `ui`, `workspace-server`, `electron`, `node:*`, `trpcClient`, or host-router runtime.

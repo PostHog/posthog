@@ -15,6 +15,24 @@ import {
   RequestError,
 } from "@agentclientprotocol/sdk";
 import { type ServerType, serve } from "@hono/node-server";
+import {
+  type AcpMcpServer,
+  type Adapter,
+  buildPrOutput,
+  getErrorMessage,
+  IDLE_RESUME_STOP_REASON,
+  isIgnoredSkillPath,
+  isSkillBundleArtifactMetadata,
+  type McpServerConnection,
+  mergePrUrls,
+  parseMcpToolName,
+  readMcpToolDescriptor,
+  readPrUrls,
+  sleepWithBackoff,
+  toAcpMcpServers,
+} from "@posthog/agent-contracts";
+import { prependProductEngineerPrompt } from "@posthog/agent-contracts/product-engineer-prompt";
+import { appendRichOutputPrompt } from "@posthog/agent-contracts/rich-output-prompt";
 import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
@@ -44,24 +62,6 @@ import {
   CloudTaskPrompt,
   parseLocalSkillInvocation,
 } from "@posthog/harness/extensions/task-system-prompt";
-import {
-  type AcpMcpServer,
-  type Adapter,
-  buildPrOutput,
-  getErrorMessage,
-  IDLE_RESUME_STOP_REASON,
-  isIgnoredSkillPath,
-  isSkillBundleArtifactMetadata,
-  type McpServerConnection,
-  mergePrUrls,
-  parseMcpToolName,
-  readMcpToolDescriptor,
-  readPrUrls,
-  sleepWithBackoff,
-  toAcpMcpServers,
-} from "@posthog/shared";
-import { prependProductEngineerPrompt } from "@posthog/shared/product-engineer-prompt";
-import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
 import { unzipSync } from "fflate";
 import { Hono } from "hono";
 import { z } from "zod";

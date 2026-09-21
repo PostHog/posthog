@@ -2,14 +2,14 @@ import type {
   SerializedEnrichment,
   SerializedEvent,
   SerializedFlag,
-} from "@posthog/shared";
+} from "@posthog/agent-contracts";
 import type { EnrichedResult } from "./enriched-result.js";
 
 export type {
   SerializedEnrichment,
   SerializedEvent,
   SerializedFlag,
-} from "@posthog/shared";
+} from "@posthog/agent-contracts";
 
 export function toSerializable(enriched: EnrichedResult): SerializedEnrichment {
   const flags: SerializedFlag[] = enriched.flags.map((f) => ({

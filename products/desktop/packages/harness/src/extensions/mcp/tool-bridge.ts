@@ -22,7 +22,7 @@ import {
   CallToolResultSchema,
   ListToolsResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { boundPersistedMcpResult } from "@posthog/shared";
+import { boundPersistedMcpResult } from "@posthog/agent-contracts";
 import type { McpServerConfig, McpSettings } from "./config";
 import { McpError } from "./errors";
 import { renderMcpToolCall, stripTerminalSequences } from "./render";

@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { PRODUCT_ENGINEER_PROMPT } from "@posthog/shared/product-engineer-prompt";
+import { PRODUCT_ENGINEER_PROMPT } from "@posthog/agent-contracts/product-engineer-prompt";
 import { describe, expect, it } from "vitest";
 import { createProductEngineerExtension } from "./extension";
 

@@ -823,21 +823,40 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
     devDependencies:
+      '@posthog/agent-contracts':
+        specifier: workspace:*
+        version: link:../agent-contracts
       '@posthog/git':
         specifier: workspace:*
         version: link:../git
       '@posthog/harness':
         specifier: workspace:*
         version: link:../harness
-      '@posthog/shared':
-        specifier: workspace:*
-        version: link:../shared
       '@types/bun':
         specifier: 1.3.14
         version: 1.3.14
       msw:
         specifier: ^2.12.7
         version: 2.12.8(@types/node@25.2.0)(typescript@5.9.3)
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(@swc/core@1.15.43)(jiti@2.7.0)(postcss@8.5.23)(tsx@4.22.4)(typescript@5.9.3)(yaml@2.9.0)
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.8
+        version: 4.1.8(@opentelemetry/api@1.9.1)(@types/node@25.2.0)(@vitest/ui@4.1.8)(jsdom@26.1.0)(msw@2.12.8(@types/node@25.2.0)(typescript@5.9.3))(vite@7.3.5(@types/node@25.2.0)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.46.0)(tsx@4.22.4)(yaml@2.9.0))
+
+  packages/agent-contracts:
+    dependencies:
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@agentclientprotocol/sdk':
+        specifier: 0.19.0
+        version: 0.19.0(zod@4.4.3)
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(@swc/core@1.15.43)(jiti@2.7.0)(postcss@8.5.23)(tsx@4.22.4)(typescript@5.9.3)(yaml@2.9.0)
@@ -991,9 +1010,9 @@ importers:
 
   packages/enricher:
     dependencies:
-      '@posthog/shared':
+      '@posthog/agent-contracts':
         specifier: workspace:*
-        version: link:../shared
+        version: link:../agent-contracts
       web-tree-sitter:
         specifier: ^0.24.7
         version: 0.24.7
@@ -1013,9 +1032,9 @@ importers:
 
   packages/git:
     dependencies:
-      '@posthog/shared':
+      '@posthog/agent-contracts':
         specifier: workspace:*
-        version: link:../shared
+        version: link:../agent-contracts
       git-url-parse:
         specifier: ^16.1.0
         version: 16.1.0
@@ -1044,15 +1063,15 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
+      '@posthog/agent-contracts':
+        specifier: workspace:*
+        version: link:../agent-contracts
       '@posthog/enricher':
         specifier: workspace:*
         version: link:../enricher
       '@posthog/git':
         specifier: workspace:*
         version: link:../git
-      '@posthog/shared':
-        specifier: workspace:*
-        version: link:../shared
       fflate:
         specifier: ^0.8.2
         version: 0.8.3
@@ -1173,6 +1192,9 @@ importers:
 
   packages/shared:
     dependencies:
+      '@posthog/agent-contracts':
+        specifier: workspace:*
+        version: link:../agent-contracts
       '@posthog/brand':
         specifier: 'catalog:'
         version: 0.11.0(react@19.2.6)

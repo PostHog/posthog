@@ -23,6 +23,12 @@ import type {
 } from "@agentclientprotocol/sdk";
 import { RequestError } from "@agentclientprotocol/sdk";
 import {
+  classifyGatewayLimitError,
+  mcpToolKey,
+  posthogToolMeta,
+  serializeError,
+} from "@posthog/agent-contracts";
+import {
   buildContextWikiInstructions,
   type ContextWikiEnv,
   resolveContextWikiPath,
@@ -34,12 +40,6 @@ import {
   matchesPostHogExecPermission,
   resolvePostHogExecPermissionRegex,
 } from "@posthog/harness/extensions/posthog-mcp-policy";
-import {
-  classifyGatewayLimitError,
-  mcpToolKey,
-  posthogToolMeta,
-  serializeError,
-} from "@posthog/shared";
 import {
   isMethod,
   type NativeGoalState,

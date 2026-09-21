@@ -9,16 +9,16 @@ import {
   type RpcClientOptions,
   type RpcEventListener,
 } from "@earendil-works/pi-coding-agent";
-import type { PiEnrichmentConfig } from "@posthog/harness/extensions/enrichment";
-import type { McpConfig } from "@posthog/harness/extensions/mcp/config";
 import type {
   CloudRegion,
   McpServerConnection,
   McpToolPermissionDecision,
   McpToolPermissionRequest,
   McpToolPolicy,
-} from "@posthog/shared";
-import type { TaskContext } from "@posthog/shared/task-context";
+} from "@posthog/agent-contracts";
+import type { TaskContext } from "@posthog/agent-contracts/task-context";
+import type { PiEnrichmentConfig } from "@posthog/harness/extensions/enrichment";
+import type { McpConfig } from "@posthog/harness/extensions/mcp/config";
 import { buildLocalToolsServer } from "../adapters/codex-app-server/local-tools-mcp";
 import { safePiEnvironment } from "./rpc-environment";
 import type {

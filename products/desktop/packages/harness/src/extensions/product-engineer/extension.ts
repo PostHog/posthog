@@ -4,7 +4,7 @@ import type {
   ExtensionAPI,
   ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
-import { prependProductEngineerPrompt } from "@posthog/shared/product-engineer-prompt";
+import { prependProductEngineerPrompt } from "@posthog/agent-contracts/product-engineer-prompt";
 
 function resolveProductEngineerResource(relativePath: string): string {
   const adjacentPath = fileURLToPath(new URL(relativePath, import.meta.url));

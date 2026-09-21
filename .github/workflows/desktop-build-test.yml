@@ -135,7 +135,7 @@ jobs:
               run: |
                   pnpm --filter @posthog/electron-trpc run build
                   pnpm --filter @posthog/platform run build
-                  pnpm --filter @posthog/shared run build
+                  pnpm --filter @posthog/shared... run build
                   pnpm --filter @posthog/git run build
                   pnpm --filter @posthog/enricher run build
                   pnpm --filter @posthog/harness run build
@@ -301,7 +301,7 @@ jobs:
               run: |
                   pnpm --filter @posthog/electron-trpc run build
                   pnpm --filter @posthog/platform run build
-                  pnpm --filter @posthog/shared run build
+                  pnpm --filter @posthog/shared... run build
                   pnpm --filter @posthog/git run build
                   pnpm --filter @posthog/enricher run build
                   pnpm --filter @posthog/harness run build
@@ -427,7 +427,7 @@ jobs:
               run: |
                   pnpm --filter @posthog/electron-trpc run build
                   pnpm --filter @posthog/platform run build
-                  pnpm --filter @posthog/shared run build
+                  pnpm --filter @posthog/shared... run build
                   pnpm --filter @posthog/git run build
                   pnpm --filter @posthog/enricher run build
                   pnpm --filter @posthog/harness run build

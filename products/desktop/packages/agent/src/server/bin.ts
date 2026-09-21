@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 import { closeSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import {
+  EFFORT_LEVELS,
+  SERVICE_TIERS,
+} from "@posthog/agent-contracts/domain-types";
 import { DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE } from "@posthog/harness/extensions/posthog-mcp-policy";
-import { EFFORT_LEVELS, SERVICE_TIERS } from "@posthog/shared/domain-types";
 import { Command } from "commander";
 import { z } from "zod/v4";
 import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";

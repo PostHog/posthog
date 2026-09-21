@@ -1,5 +1,5 @@
 import type { FindToolInput } from "@earendil-works/pi-coding-agent";
-import type { AgentToolCallLocation } from "@posthog/shared";
+import type { AgentToolCallLocation } from "@posthog/agent-contracts";
 import type { PiToolTranslator } from "../toolTranslator";
 
 export const findTranslator: PiToolTranslator = ({

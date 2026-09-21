@@ -11,8 +11,7 @@
  * before reading the fallback one, and its direct-Bedrock path has no reverse
  * fallback to Anthropic. So a Bedrock outage fails a `test` session outright.
  *
- * The key is a literal because the agent runtime reads it and must not depend
- * on the desktop flag registry. It must match `feature-flag-keys.json`.
+ * Literal rather than read from the desktop flag registry; flags.test.ts keeps it in step.
  */
 export const BEDROCK_LLM_GATEWAY_FLAG = "bedrock-llm-gateway";
 

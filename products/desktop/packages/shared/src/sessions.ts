@@ -6,11 +6,14 @@ import type {
   SessionConfigSelectOption,
   SessionConfigSelectOptions,
 } from "@agentclientprotocol/sdk";
-import type { Adapter, ModelAccess } from "./adapter";
+import type { Adapter, ModelAccess } from "@posthog/agent-contracts/adapter";
+import type {
+  TaskRunArtifact,
+  TaskRunStatus,
+} from "@posthog/agent-contracts/domain-types";
+import type { ExecutionMode } from "@posthog/agent-contracts/exec-types";
+import type { AcpMessage } from "@posthog/agent-contracts/session-events";
 import type { SkillButtonId } from "./analytics-events";
-import type { TaskRunArtifact, TaskRunStatus } from "./domain-types";
-import type { ExecutionMode } from "./exec-types";
-import type { AcpMessage } from "./session-events";
 
 export type { Adapter };
 

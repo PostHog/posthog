@@ -163,7 +163,7 @@ jobs:
               run: pnpm --filter @posthog/platform run build
 
             - name: Build shared package
-              run: pnpm --filter @posthog/shared run build
+              run: pnpm --filter @posthog/shared... run build
 
             - name: Build git package
               run: pnpm --filter @posthog/git run build
@@ -394,7 +394,7 @@ jobs:
               run: pnpm --filter @posthog/platform run build
 
             - name: Build shared package
-              run: pnpm --filter @posthog/shared run build
+              run: pnpm --filter @posthog/shared... run build
 
             - name: Build git package
               run: pnpm --filter @posthog/git run build
@@ -588,7 +588,7 @@ jobs:
               run: pnpm --filter @posthog/platform run build
 
             - name: Build shared package
-              run: pnpm --filter @posthog/shared run build
+              run: pnpm --filter @posthog/shared... run build
 
             - name: Build git package
               run: pnpm --filter @posthog/git run build

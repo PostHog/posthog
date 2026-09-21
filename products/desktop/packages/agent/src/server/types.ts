@@ -1,5 +1,8 @@
-import type { Adapter, McpServerConnection } from "@posthog/shared";
-import type { EffortLevel, ServiceTier } from "@posthog/shared/domain-types";
+import type { Adapter, McpServerConnection } from "@posthog/agent-contracts";
+import type {
+  EffortLevel,
+  ServiceTier,
+} from "@posthog/agent-contracts/domain-types";
 import type { AgentMode } from "../types";
 import type { RtkSavingsSummary } from "./rtk-savings";
 

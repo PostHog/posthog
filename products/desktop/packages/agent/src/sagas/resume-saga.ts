@@ -1,5 +1,5 @@
 import type { ContentBlock } from "@agentclientprotocol/sdk";
-import { Saga } from "@posthog/shared";
+import { Saga } from "@posthog/agent-contracts";
 import {
   isNotification,
   type NativeGoalState,

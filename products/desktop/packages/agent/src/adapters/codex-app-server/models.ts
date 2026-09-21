@@ -3,9 +3,9 @@ import type {
   SessionConfigSelectGroup,
   SessionConfigSelectOption,
 } from "@agentclientprotocol/sdk";
-import { DEFAULT_OPTION_META_KEY } from "@posthog/shared";
-import { EFFORT_LEVEL_LABELS } from "@posthog/shared/domain-types";
-import { reasoningEffortsForModel } from "@posthog/shared/model-catalog";
+import { DEFAULT_OPTION_META_KEY } from "@posthog/agent-contracts";
+import { EFFORT_LEVEL_LABELS } from "@posthog/agent-contracts/domain-types";
+import { reasoningEffortsForModel } from "@posthog/agent-contracts/model-catalog";
 
 interface ReasoningEffortOption {
   value: string;

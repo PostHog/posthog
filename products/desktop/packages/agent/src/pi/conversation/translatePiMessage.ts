@@ -4,10 +4,6 @@ import type {
   ToolResultMessage,
   UserMessage,
 } from "@earendil-works/pi-ai";
-import type {
-  McpCallDetails,
-  McpResultMeta,
-} from "@posthog/harness/extensions/mcp/tool-bridge";
 import {
   type AgentContent,
   type AgentConversationEvent,
@@ -20,7 +16,11 @@ import {
   type PiToolName,
   parsePiMcpCallDetails,
   posthogToolMeta,
-} from "@posthog/shared";
+} from "@posthog/agent-contracts";
+import type {
+  McpCallDetails,
+  McpResultMeta,
+} from "@posthog/harness/extensions/mcp/tool-bridge";
 import { z } from "zod";
 import { bashTranslator } from "./tools/bashTranslator";
 import { editTranslator } from "./tools/editTranslator";

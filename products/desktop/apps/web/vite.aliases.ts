@@ -18,6 +18,7 @@ export const posthogSrcAliases = [
   subpath("ui"),
   subpath("core"),
   subpath("shared"),
+  subpath("agent-contracts"),
   subpath("host-router"),
   subpath("host-trpc"),
   subpath("platform"),

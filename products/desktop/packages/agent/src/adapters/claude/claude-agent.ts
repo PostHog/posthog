@@ -45,6 +45,7 @@ import {
   type SDKUserMessage,
   type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
+import { leadingSlashCommand, serializeError } from "@posthog/agent-contracts";
 import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
 import {
   createEnrichment,
@@ -64,7 +65,6 @@ import {
   type PostHogProductId,
   resolvePostHogExecPermissionRegex,
 } from "@posthog/harness/extensions/posthog-mcp-policy";
-import { leadingSlashCommand, serializeError } from "@posthog/shared";
 import { v7 as uuidv7 } from "uuid";
 import packageJson from "../../../package.json" with { type: "json" };
 import {

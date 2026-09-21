@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { type ServerType, serve } from "@hono/node-server";
-import type { McpServerConnection } from "@posthog/shared";
+import type { McpServerConnection } from "@posthog/agent-contracts";
 import { Hono } from "hono";
 import type { Logger } from "../utils/logger";
 

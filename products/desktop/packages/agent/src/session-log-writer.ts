@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { serializeError, TranscriptBoundaries } from "@posthog/shared";
+import { serializeError, TranscriptBoundaries } from "@posthog/agent-contracts";
 import { type PostHogAPIClient, PostHogAPIError } from "./posthog-api";
 import type { StoredNotification } from "./types";
 import { isEmptyContentBlock } from "./utils/acp-content";

@@ -4,7 +4,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { SagaLogger } from "@posthog/shared";
+import type { SagaLogger } from "@posthog/agent-contracts";
 import { vi } from "vitest";
 import type { PostHogAPIClient } from "../posthog-api";
 import type { StoredNotification, TaskRun } from "../types";

@@ -1,4 +1,4 @@
-import type { BedrockGatewayVariant } from "@posthog/shared";
+import type { BedrockGatewayVariant } from "@posthog/agent-contracts";
 
 /** Minimal shape needed to resolve the effective task id from session meta. */
 interface TaskIdSource {

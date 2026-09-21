@@ -109,7 +109,7 @@ def render_prompt_kinds_ts() -> str:
 
 OUTPUTS: dict[Path, Callable[[], str]] = {
     REPO_ROOT / "products/desktop/packages/core/src/inbox/objectKinds.generated.ts": render_registry_ts,
-    REPO_ROOT / "products/desktop/packages/shared/src/objectTagKinds.generated.ts": render_prompt_kinds_ts,
+    REPO_ROOT / "products/desktop/packages/agent-contracts/src/objectTagKinds.generated.ts": render_prompt_kinds_ts,
     REPO_ROOT / "frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts": render_registry_ts,
 }
 

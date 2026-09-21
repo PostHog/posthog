@@ -12,7 +12,10 @@
  * the single source of truth for the product id → label set; the renderer maps
  * ids to icons/styling for display.
  */
-import { POSTHOG_PRODUCTS, type PostHogProductId } from "@posthog/shared";
+import {
+  POSTHOG_PRODUCTS,
+  type PostHogProductId,
+} from "@posthog/agent-contracts";
 
 export { POSTHOG_PRODUCTS, type PostHogProductId };
 

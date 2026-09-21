@@ -8,7 +8,7 @@ import {
   type StoredLogEntry,
   type TaskRunUpdate,
   taskRunStateSchema,
-} from "@posthog/shared";
+} from "@posthog/agent-contracts";
 import packageJson from "../package.json" with { type: "json" };
 import type { PostHogAPIConfig, StoredEntry, Task, TaskRun } from "./types";
 import { getGatewayUsageUrl, getLlmGatewayUrl } from "./utils/gateway";

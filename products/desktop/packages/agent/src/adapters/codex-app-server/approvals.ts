@@ -11,7 +11,7 @@ import type {
   PermissionOption,
   RequestPermissionResponse,
 } from "@agentclientprotocol/sdk";
-import { mcpToolKey, posthogToolMeta } from "@posthog/shared";
+import { mcpToolKey, posthogToolMeta } from "@posthog/agent-contracts";
 import type { Logger } from "../../utils/logger";
 import { OPTION_PREFIX } from "../claude/questions/utils";
 import { APP_SERVER_REQUESTS } from "./protocol";

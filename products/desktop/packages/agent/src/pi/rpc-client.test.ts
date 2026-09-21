@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RpcClient } from "@earendil-works/pi-coding-agent";
-import type { TaskContext } from "@posthog/shared/task-context";
+import type { TaskContext } from "@posthog/agent-contracts/task-context";
 import { describe, expect, it, vi } from "vitest";
 import {
   createPiRpcClient,

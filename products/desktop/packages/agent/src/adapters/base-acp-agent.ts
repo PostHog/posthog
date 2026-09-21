@@ -20,7 +20,7 @@ import {
   customModelMeta,
   isAnthropicModelId,
   restrictedModelMeta,
-} from "@posthog/shared";
+} from "@posthog/agent-contracts";
 import {
   compareModelsForPicker,
   DEFAULT_GATEWAY_MODEL,

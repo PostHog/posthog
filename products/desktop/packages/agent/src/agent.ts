@@ -3,14 +3,14 @@ import {
   isAnthropicModelId,
   mergePrUrls,
   readPrUrls,
-} from "@posthog/shared";
-import { isRetiredModel } from "@posthog/shared/model-catalog";
+} from "@posthog/agent-contracts";
+import { isRetiredModel } from "@posthog/agent-contracts/model-catalog";
 import {
   buildPosthogPropertyHeaderLines,
   buildPosthogPropertyHeaderRecord,
   buildPosthogUserHeaderLines,
   buildPosthogUserHeaderRecord,
-} from "@posthog/shared/posthog-property-headers";
+} from "@posthog/agent-contracts/posthog-property-headers";
 import {
   createAcpConnection,
   type InProcessAcpConnection,

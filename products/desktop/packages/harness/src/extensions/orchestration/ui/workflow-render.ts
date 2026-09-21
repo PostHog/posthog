@@ -21,7 +21,7 @@ import type {
   PiSubagentToolCall,
   PiWorkflowToolDetails,
   WorkflowAgentState,
-} from "@posthog/shared";
+} from "@posthog/agent-contracts";
 import {
   extractWorkflowName,
   type WorkflowInputs,

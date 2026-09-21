@@ -20,7 +20,7 @@ import {
   Text,
   truncateToWidth,
 } from "@earendil-works/pi-tui";
-import type { AgentRunState } from "@posthog/shared";
+import type { AgentRunState } from "@posthog/agent-contracts";
 import { getFinalOutput } from "../format";
 import {
   isFailedResult,

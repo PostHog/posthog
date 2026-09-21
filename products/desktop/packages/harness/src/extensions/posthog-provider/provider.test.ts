@@ -1,5 +1,5 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { CloudRegion } from "@posthog/shared";
+import type { CloudRegion } from "@posthog/agent-contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getLlmGatewayUrl } from "./gateway";
 import {

@@ -1,6 +1,6 @@
 // PostHog enrichment boundary data types. These are the serialized output of the
 // (workspace-server) enrichment scan, consumed by the renderer to render flag/event
-// annotations. They live in @posthog/shared so both the renderer (ui) and the
+// annotations. They live in @posthog/agent-contracts so both the renderer (ui) and the
 // enricher/ws-server can import them without crossing layer boundaries.
 // @posthog/enricher re-exports these for its own consumers.
 

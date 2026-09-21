@@ -1,4 +1,4 @@
-// Port of desktop `packages/shared/src/dismissal-reasons.ts`. Canonical reason codes recorded when a
+// Port of desktop `packages/agent-contracts/src/dismissal-reasons.ts`. Canonical reason codes recorded when a
 // report is dismissed or resolved. Values are persisted on dismissal artefacts by the backend `state`
 // action – add or reorder options here only, and keep the values in sync with desktop and with
 // `SIGNAL_REPORT_DISMISSAL_REASON_CHOICES` in `products/signals/backend/views.py`.

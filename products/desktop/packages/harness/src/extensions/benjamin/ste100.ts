@@ -1,4 +1,4 @@
-import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION } from "@posthog/shared/product-engineer-prompt";
+import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION } from "@posthog/agent-contracts/product-engineer-prompt";
 import { isBenjaminEnabled } from "./guidance";
 
 export { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION };

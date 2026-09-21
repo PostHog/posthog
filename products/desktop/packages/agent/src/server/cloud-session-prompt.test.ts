@@ -1,5 +1,5 @@
-import { PRODUCT_ENGINEER_PROMPT } from "@posthog/shared/product-engineer-prompt";
-import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
+import { PRODUCT_ENGINEER_PROMPT } from "@posthog/agent-contracts/product-engineer-prompt";
+import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/agent-contracts/rich-output-prompt";
 import { describe, expect, it } from "vitest";
 import { buildCloudSessionSystemPrompt } from "./agent-server";
 
