@@ -1,7 +1,8 @@
 import gzip
 import hashlib
+from collections.abc import Generator
 from datetime import UTC, date, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from freezegun import freeze_time
@@ -1303,15 +1304,18 @@ class TestAnalyticsSnapshotBackfill:
             patch(f"{MODULE}._make_session", return_value=session),
             patch(f"{MODULE}._make_segment_download_session", return_value=session),
         ):
-            rows = get_rows(
-                issuer_id="issuer",
-                key_id="KEY123",
-                private_key=PRIVATE_KEY_PEM,
-                vendor_number=None,
-                endpoint="analytics_app_sessions",
-                logger=MagicMock(),
-                resumable_source_manager=manager,
-                should_use_incremental_field=True,
+            rows = cast(
+                Generator[list[dict[str, Any]]],
+                get_rows(
+                    issuer_id="issuer",
+                    key_id="KEY123",
+                    private_key=PRIVATE_KEY_PEM,
+                    vendor_number=None,
+                    endpoint="analytics_app_sessions",
+                    logger=MagicMock(),
+                    resumable_source_manager=manager,
+                    should_use_incremental_field=True,
+                ),
             )
             next(rows)
             rows.close()
