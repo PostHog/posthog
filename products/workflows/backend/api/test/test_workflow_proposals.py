@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -267,6 +268,11 @@ class TestWorkflowProposals(APIBaseTest):
                 "a number with no unit",
                 {"metric": "complaints", "current_value": 1, "n": 208, "guardrails": []},
                 "`unit`",
+            ),
+            (
+                "a denominator that is a boolean",
+                {"metric": "email open rate", "current_value": 0.07, "unit": "rate", "n": True, "guardrails": []},
+                "`n`",
             ),
             (
                 "a guardrail with no unit",
@@ -542,6 +548,19 @@ class TestWorkflowProposals(APIBaseTest):
         applied = WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"])
         assert applied.status == WorkflowProposal.Status.SUGGESTED
         assert applied.applied_version is None
+
+    def test_resolving_a_suggestion_lands_in_the_workflow_history(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        approved = self._propose(flow_id, source_id="history:approved")
+        rejected = self._propose(flow_id, source_id="history:rejected")
+        self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{rejected['id']}/reject/", {})
+        self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{approved['id']}/approve/", {})
+
+        activities = list(
+            ActivityLog.objects.filter(team_id=self.team.id, item_id=flow_id).values_list("activity", flat=True)
+        )
+        assert "proposal_approved" in activities
+        assert "proposal_rejected" in activities
 
     def test_applied_suggestions_are_listed_by_the_version_that_carried_them(self, _mock_flag):
         flow_id = self._create_active_flow()

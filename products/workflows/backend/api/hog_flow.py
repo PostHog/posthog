@@ -3944,7 +3944,7 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
                 f"Include `unit`, one of: {', '.join(EVIDENCE_UNITS)}. Without it the panel cannot tell "
                 "a rate of 1.0 from a count of 1, and would show the count as 100%."
             )
-        if not isinstance(value.get("n"), int):
+        if not isinstance(value.get("n"), int) or isinstance(value.get("n"), bool):
             raise exceptions.ValidationError(
                 "Include `n`, the number of observations behind current_value. A rate without its "
                 "denominator cannot be judged."
@@ -5807,11 +5807,16 @@ class HogFlowViewSet(
             locked_proposal = WorkflowProposal.objects.select_for_update().get(pk=proposal.pk)
             if locked_proposal.status != WorkflowProposal.Status.SUGGESTED:
                 raise ProposalAlreadyResolvedError()
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
+            before_update = HogFlow.objects.get(pk=instance.pk)
             locked_proposal.status = WorkflowProposal.Status.REJECTED
             locked_proposal.resolved_at = timezone.now()
             locked_proposal.resolved_by = request.user if request.user.is_authenticated else None
             locked_proposal.save(update_fields=["status", "resolved_at", "resolved_by"])
 
+        log_activity_from_viewset(
+            self, instance, activity="proposal_rejected", name=instance.name, previous=before_update
+        )
         self._report_workflow_action("hog_flow_proposal_rejected", instance, {"proposal_id": str(locked_proposal.id)})
         return Response(WorkflowProposalSerializer(locked_proposal).data)
 
