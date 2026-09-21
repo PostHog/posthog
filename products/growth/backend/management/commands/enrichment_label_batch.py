@@ -93,7 +93,12 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--label", required=True, help="EnrichmentPromptConfig.name to run")
-        parser.add_argument("--limit", type=int, default=None, help="Attempt at most this many (non-skipped) orgs")
+        parser.add_argument(
+            "--limit",
+            type=int,
+            default=None,
+            help="Classify at most this many new orgs and repair at most this many stored scores",
+        )
         parser.add_argument("--workers", type=int, default=5, help="Bounded concurrency for LLM calls")
         parser.add_argument(
             "--max-failures",
@@ -202,6 +207,7 @@ class Command(BaseCommand):
         counts_lock = threading.Lock()
         failure_streak = 0
         score_failure_streak = 0
+        repair_attempted = 0
         circuit_open = threading.Event()
 
         def _existing_result(fetch: OrganizationEnrichmentFetch, label_name: str) -> EnrichmentLabelResult | None:
@@ -212,8 +218,8 @@ class Command(BaseCommand):
                 fetch=fetch,
             ).first()
 
-        def _apply_score(result: EnrichmentLabelResult) -> None:
-            nonlocal score_failure_streak
+        def _apply_score(result: EnrichmentLabelResult, *, repair: bool) -> None:
+            nonlocal score_failure_streak, repair_attempted
             lists = load_active_lists()
             if (
                 lists is None
@@ -224,8 +230,10 @@ class Command(BaseCommand):
             ):
                 return
             with counts_lock:
-                if circuit_open.is_set() or (limit is not None and counts["score_attempted"] >= limit):
+                if circuit_open.is_set() or (repair and limit is not None and repair_attempted >= limit):
                     return
+                if repair:
+                    repair_attempted += 1
                 counts["score_attempted"] += 1
             try:
                 applied = apply_ai_pilled_label(result)
@@ -271,7 +279,7 @@ class Command(BaseCommand):
                 live_label = _live_label_name()
                 existing = _existing_result(fetch, live_label)
                 if existing is not None:
-                    _apply_score(existing)
+                    _apply_score(existing, repair=True)
                     with counts_lock:
                         counts["skipped_existing"] += 1
                     return
@@ -303,7 +311,7 @@ class Command(BaseCommand):
                             "inputs": inputs,
                         },
                     )
-                _apply_score(result)
+                _apply_score(result, repair=False)
             except TransientToolError:
                 with counts_lock:
                     counts["tools_deferred"] += 1
@@ -368,11 +376,11 @@ class Command(BaseCommand):
                     id__in=[fetch_id for fetch_id, _ in page]
                 ).select_related("organization")
                 for fetch in fetches:
-                    if circuit_open.is_set() or (limit is not None and counts["score_attempted"] >= limit):
+                    if circuit_open.is_set():
                         return
                     existing = _existing_result(fetch, label)
                     if existing is not None:
-                        _apply_score(existing)
+                        _apply_score(existing, repair=True)
                         with counts_lock:
                             counts["skipped_existing"] += 1
                         continue

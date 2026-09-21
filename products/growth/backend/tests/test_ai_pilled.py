@@ -449,6 +449,59 @@ class TestAiPilledScoreApplication(BaseTest):
         assert client.group_identify.call_count == 1
         gateway.chat.completions.create.assert_not_called()
 
+    @parameterized.expand([("delivered", False), ("failed", True)])
+    def test_score_repairs_do_not_consume_the_classification_limit(self, _name, fail_repair):
+        repair, new_label = sorted([self.label, self._additional_label()], key=lambda label: label.organization_id)
+        new_fetch = new_label.fetch
+        output = new_label.output
+        new_label.delete()
+        gateway = MagicMock()
+        gateway.with_options.return_value = gateway
+        gateway.chat.completions.create.return_value = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content=json.dumps(output), tool_calls=None), finish_reason="stop"
+                )
+            ],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+        )
+        client = MagicMock()
+
+        def deliver_group(_group_type, organization_id, **kwargs):
+            if fail_repair and organization_id == str(repair.organization_id):
+                raise RuntimeError("synthetic projection outage")
+            return "event"
+
+        client.group_identify.side_effect = deliver_group
+        with (
+            patch("products.growth.backend.enrichment.gates.get_instance_region", return_value="US"),
+            patch("products.growth.backend.enrichment.gates.enrichment_enabled", return_value=True),
+            patch("products.growth.backend.enrichment.fit_recomputation.get_regional_ph_client", return_value=client),
+            patch(
+                "products.growth.backend.enrichment.fit_recomputation.read_organization_bridge_inputs",
+                return_value=OrganizationBridgeInputs(),
+            ),
+            patch(
+                "products.growth.backend.management.commands.enrichment_label_batch.get_llm_client",
+                return_value=gateway,
+            ),
+            patch("products.growth.backend.management.commands.enrichment_label_batch._ID_BATCH_SIZE", 1),
+        ):
+            if fail_repair:
+                with self.assertRaisesRegex(CommandError, "failed to apply 1 stored AI labels"):
+                    call_command("enrichment_label_batch", label="ai_pilled", workers=1, limit=1)
+            else:
+                call_command("enrichment_label_batch", label="ai_pilled", workers=1, limit=1)
+
+        gateway.chat.completions.create.assert_called_once()
+        created = EnrichmentLabelResult.objects.get(fetch=new_fetch)
+        record = OrganizationEnrichment.objects.get(organization_id=new_fetch.organization_id)
+        assert record.data["icp_fit_score"] == 15
+        assert record.data["icp_fit_ai_label_projected_result_id"] == str(created.id)
+        repair_record = OrganizationEnrichment.objects.get(organization_id=repair.organization_id)
+        assert (repair_record.data.get("icp_fit_ai_label_projected_result_id") == str(repair.id)) is not fail_repair
+        assert client.group_identify.call_count == 2
+
     @parameterized.expand([("consent",), ("signup_user_left",), ("domain",)])
     def test_ineligible_stored_result_does_not_exhaust_repair_limit(self, reason):
         eligible = self._additional_label()
