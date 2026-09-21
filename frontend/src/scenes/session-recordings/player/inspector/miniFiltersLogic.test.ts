@@ -10,6 +10,7 @@ describe('miniFiltersLogic', () => {
     let eventLogic: ReturnType<typeof sessionRecordingEventUsageLogic.build>
 
     beforeEach(() => {
+        localStorage.clear()
         initKeaTests()
         eventLogic = sessionRecordingEventUsageLogic()
         eventLogic.mount()
@@ -58,10 +59,6 @@ describe('miniFiltersLogic', () => {
     })
 
     describe('miniFilters', () => {
-        afterEach(() => {
-            localStorage.clear()
-        })
-
         it('can unselect', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setMiniFilter('events-posthog', false)
@@ -100,10 +97,6 @@ describe('miniFiltersLogic', () => {
             logic = miniFiltersLogic()
             logic.mount()
         }
-
-        afterEach(() => {
-            localStorage.clear()
-        })
 
         it('turns the new filters on once and then keeps what the user chooses', () => {
             remount(['events-posthog', 'console-info', 'console-error'])
