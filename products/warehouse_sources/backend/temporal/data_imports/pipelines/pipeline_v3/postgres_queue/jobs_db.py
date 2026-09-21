@@ -616,6 +616,23 @@ class GroupLease:
     is_live: bool
 
 
+@dataclass(frozen=True, slots=True)
+class QueueFreshness:
+    """What one freshness probe reads off the pending set.
+
+    Three numbers rather than one because they fail differently: the age says
+    how far the queue head has fallen behind, the blocked count says how much
+    of the table can never move, and the group count says how widely the lag
+    is spread. An alert on the age alone cannot tell one wedged tenant from a
+    fleet-wide stall.
+    """
+
+    # None when nothing claimable is waiting.
+    oldest_age_seconds: float | None
+    blocked_batches: int
+    backlogged_groups: int
+
+
 class BatchQueue:
     """
     Async interface to the Postgres batch queue tables. Each method runs
@@ -1350,36 +1367,74 @@ class BatchQueue:
         ]
 
     @staticmethod
-    async def get_oldest_unclaimed_batch_age_seconds(
+    async def get_queue_freshness(
         conn: psycopg.AsyncConnection[Any],
-    ) -> float | None:
-        """Age in seconds of the oldest batch no consumer has ever picked up, or None when none are waiting.
+        *,
+        backlog_threshold_seconds: int,
+    ) -> QueueFreshness:
+        """Three readings off one scan of the pending set, bounded to ``FRESHNESS_WINDOW``.
 
-        'pending' means no status row yet — this is the queue's data-freshness
-        signal, and it rises whenever loading stalls regardless of the cause.
-        Answered from the claimable partial index; bounded to
-        ``FRESHNESS_WINDOW`` so the reported age saturates instead of scanning
-        unbounded history.
+        ``oldest_age_seconds`` excludes batches whose run already holds a
+        ``failed`` batch. The claim query refuses those (see
+        ``_state_claim_candidates_sql``) and the stranded sweep skips them too,
+        so nothing can ever pick them up: counting them made the gauge report
+        the age of an abandoned row rather than the queue's lag, and it grew at
+        exactly one second per second until retention pruned it.
+        ``get_oldest_non_terminal_batch_age_seconds`` already excludes them for
+        the same reason.
+
+        ``blocked_batches`` keeps that excluded population visible in its own
+        lane, so a leak still shows up somewhere instead of disappearing.
+
+        ``backlogged_groups`` is the breadth companion to the age: the age is a
+        fleet-wide max, so one wedged (team, schema) pins it and a fleet-wide
+        alert cannot tell one stuck tenant from a real stall. Counting the
+        groups past the threshold separates those.
         """
         async with conn.cursor() as cur:
             await cur.execute(
                 f"""
-                SELECT EXTRACT(EPOCH FROM (now() - min(b.created_at)))
-                FROM {BATCH_TABLE} b
-                WHERE b.created_at > now() - interval '{FRESHNESS_WINDOW}'
-                  AND b.latest_state = 'pending'
-                """
+                WITH pending AS (
+                    SELECT
+                        b.team_id,
+                        b.schema_id,
+                        b.created_at,
+                        EXISTS (
+                            SELECT 1
+                            FROM {BATCH_TABLE} b_failed
+                            WHERE b_failed.run_uuid = b.run_uuid
+                                AND b_failed.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                                AND b_failed.latest_state = 'failed'
+                        ) AS blocked
+                    FROM {BATCH_TABLE} b
+                    WHERE b.created_at > now() - interval '{FRESHNESS_WINDOW}'
+                      AND b.latest_state = 'pending'
+                )
+                SELECT
+                    EXTRACT(EPOCH FROM (now() - min(created_at) FILTER (WHERE NOT blocked))),
+                    count(*) FILTER (WHERE blocked),
+                    count(DISTINCT (team_id, schema_id)) FILTER (
+                        WHERE NOT blocked
+                          AND created_at <= now() - make_interval(secs => %(backlog_threshold)s)
+                    )
+                FROM pending
+                """,
+                {"backlog_threshold": backlog_threshold_seconds},
             )
             row = await cur.fetchone()
-        if row is None or row[0] is None:
-            return None
-        return float(row[0])
+        if row is None:
+            return QueueFreshness(oldest_age_seconds=None, blocked_batches=0, backlogged_groups=0)
+        return QueueFreshness(
+            oldest_age_seconds=float(row[0]) if row[0] is not None else None,
+            blocked_batches=int(row[1] or 0),
+            backlogged_groups=int(row[2] or 0),
+        )
 
     @staticmethod
     async def get_claimable_batch_count(conn: psycopg.AsyncConnection[Any]) -> int:
         """How many batches are state-eligible for claiming right now (queue depth).
 
-        The depth companion to :meth:`get_oldest_unclaimed_batch_age_seconds`:
+        The depth companion to :meth:`get_queue_freshness`:
         the claim's per-run, schema-busy, and lease gates are deliberately not
         applied (they need per-row probes; this must stay one cheap partial-index
         scan), and neither is the retry-backoff gate (it needs the fleet's backoff

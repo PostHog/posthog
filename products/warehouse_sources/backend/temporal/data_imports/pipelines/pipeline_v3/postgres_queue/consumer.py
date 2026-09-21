@@ -53,6 +53,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _Unset,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
+    BACKLOGGED_GROUPS,
+    BLOCKED_BATCHES,
     CLAIMABLE_BATCHES,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     RUNS_RECONCILED_TOTAL,
@@ -76,6 +78,13 @@ DeltaProcessBatchFn = Callable[[PendingBatch, VerifyOwnership | None], Coroutine
 # Ceiling for the queue-freshness probe, deliberately far below the sweep
 # timeout so a degraded probe can't starve the reconcile sweep it rides on.
 FRESHNESS_PROBE_TIMEOUT_SECONDS = 30.0
+
+# A group whose oldest claimable batch is older than this counts as backlogged.
+# Set above the reconcile cadence that samples it (300s) so a group cannot be
+# counted purely because it was enqueued between two probes, and well below the
+# lease TTL, so a group that is merely waiting its turn behind a sibling run
+# does not register while the loader is still working the group normally.
+BACKLOG_THRESHOLD_SECONDS = 900
 
 # Stamped on a run the loader abandoned: its extraction ended without a final batch, so nothing
 # finalized it and there is no failed queue batch for the failed-run reconcile to key on.
@@ -638,10 +647,14 @@ class DeltaBatchConsumerAdapter:
         try:
             async with asyncio.timeout(FRESHNESS_PROBE_TIMEOUT_SECONDS):
                 with observe_queue_query("oldest_unclaimed_probe"):
-                    age = await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn)
+                    freshness = await BatchQueue.get_queue_freshness(
+                        conn, backlog_threshold_seconds=BACKLOG_THRESHOLD_SECONDS
+                    )
                 # Set immediately, so a failure in the depth probe below can never
                 # blind the age gauge this alert hangs off.
-                OLDEST_UNCLAIMED_BATCH_SECONDS.set(age or 0.0)
+                OLDEST_UNCLAIMED_BATCH_SECONDS.set(freshness.oldest_age_seconds or 0.0)
+                BLOCKED_BATCHES.set(freshness.blocked_batches)
+                BACKLOGGED_GROUPS.set(freshness.backlogged_groups)
                 # Depth rides the same probe and timeout: age says how stale the head
                 # of the queue is, depth says how much sits behind it — a stall and a
                 # burst are indistinguishable on age alone.

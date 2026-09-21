@@ -90,8 +90,33 @@ RUNS_TERMINALIZED_STALE_TOTAL = Counter(
 # briefly co-exist in one pod, where livesum would double the age.
 OLDEST_UNCLAIMED_BATCH_SECONDS = Gauge(
     "warehouse_pg_queue_oldest_unclaimed_batch_seconds",
-    "Age of the oldest queue batch no consumer has picked up yet (0 = none waiting). "
+    "Age of the oldest queue batch no consumer has picked up yet, counting only batches a "
+    "consumer could still pick up (0 = none waiting). Batches whose run already holds a failed "
+    "batch are excluded — the claim query refuses those, so their age is not queue lag; they are "
+    "counted by warehouse_pg_queue_blocked_batches instead. "
     "Sampled on the reconcile cadence; saturates at the freshness probe window.",
+    multiprocess_mode="livemax",
+)
+
+# The population the age gauge above excludes. Split out rather than dropped: these
+# rows are a real leak (nothing claims them, and the stranded sweep skips runs with a
+# failed batch), they just are not latency. Folding them into the age made a fleet-wide
+# alert fire on one abandoned run and climb at one second per second until retention
+# pruned it.
+BLOCKED_BATCHES = Gauge(
+    "warehouse_pg_queue_blocked_batches",
+    "Pending batches no consumer can ever claim because their run already holds a failed "
+    "batch. Sampled on the reconcile cadence, within the freshness probe window.",
+    multiprocess_mode="livemax",
+)
+
+# Breadth companion to the age gauge. The age is a fleet-wide max, so a single wedged
+# (team, schema) group reads identically to every group falling behind. This separates
+# them: alert on groups, diagnose on age.
+BACKLOGGED_GROUPS = Gauge(
+    "warehouse_pg_queue_backlogged_groups",
+    "Distinct (team_id, schema_id) groups whose oldest claimable batch is older than the "
+    "backlog threshold. Sampled on the reconcile cadence.",
     multiprocess_mode="livemax",
 )
 

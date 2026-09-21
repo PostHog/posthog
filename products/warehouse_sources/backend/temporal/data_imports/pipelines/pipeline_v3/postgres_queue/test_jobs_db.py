@@ -632,17 +632,76 @@ class TestVerifyGroupLeaseSync:
 
 @pytest.mark.django_db(transaction=True)
 class TestQueueFreshnessProbe:
+    @staticmethod
+    async def _freshness(conn, *, backlog_threshold_seconds: int = 900):
+        return await BatchQueue.get_queue_freshness(conn, backlog_threshold_seconds=backlog_threshold_seconds)
+
     @pytest.mark.asyncio
     async def test_reports_only_batches_never_picked_up(self, conn):
-        assert await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn) is None
+        assert (await self._freshness(conn)).oldest_age_seconds is None
 
         bid = await _insert_batch(conn)
-        age = await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn)
-        assert age is not None and age >= 0
+        assert (await self._freshness(conn)).oldest_age_seconds is not None
 
         # Any status row means the batch was picked up — it must stop counting.
         await BatchQueue.update_status(conn, batch_id=bid, job_state="executing", attempt=1)
-        assert await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn) is None
+        assert (await self._freshness(conn)).oldest_age_seconds is None
+
+    @pytest.mark.asyncio
+    async def test_batch_blocked_behind_failed_sibling_is_not_queue_lag(self, conn):
+        # The claim query refuses a run that holds a failed batch, so its pending siblings
+        # can never be picked up. Counting their age made the gauge climb at one second
+        # per second until retention pruned them.
+        failed = await _insert_batch(conn, batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
+        await _insert_batch(conn, batch_index=1)
+
+        freshness = await self._freshness(conn)
+
+        assert freshness.oldest_age_seconds is None
+        assert freshness.blocked_batches == 1
+
+    @pytest.mark.asyncio
+    async def test_a_healthy_run_is_unaffected_by_another_runs_failure(self, conn):
+        failed = await _insert_batch(conn, run_uuid="run-dead", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
+        await _insert_batch(conn, run_uuid="run-dead", batch_index=1)
+        await _insert_batch(conn, run_uuid="run-live", batch_index=0)
+
+        freshness = await self._freshness(conn)
+
+        assert freshness.oldest_age_seconds is not None
+        assert freshness.blocked_batches == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "threshold_seconds,expected_groups",
+        [
+            (0, 2),  # everything waiting is past a zero threshold
+            (900, 0),  # nothing has waited 15 minutes in a fresh table
+        ],
+    )
+    async def test_backlogged_groups_counts_distinct_groups_past_the_threshold(
+        self, conn, threshold_seconds, expected_groups
+    ):
+        await _insert_batch(conn, team_id=1, schema_id="schema-a", run_uuid="run-a")
+        await _insert_batch(conn, team_id=1, schema_id="schema-b", run_uuid="run-b")
+        # Same group, second batch: breadth counts groups, not batches.
+        await _insert_batch(conn, team_id=1, schema_id="schema-b", run_uuid="run-b", batch_index=1)
+
+        freshness = await self._freshness(conn, backlog_threshold_seconds=threshold_seconds)
+
+        assert freshness.backlogged_groups == expected_groups
+
+    @pytest.mark.asyncio
+    async def test_blocked_batches_do_not_count_as_backlogged_groups(self, conn):
+        failed = await _insert_batch(conn, batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
+        await _insert_batch(conn, batch_index=1)
+
+        freshness = await self._freshness(conn, backlog_threshold_seconds=0)
+
+        assert freshness.backlogged_groups == 0
 
 
 @pytest.mark.django_db(transaction=True)

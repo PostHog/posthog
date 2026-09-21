@@ -38,14 +38,27 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     FRESHNESS_WINDOW_SECONDS,
     FailedRunRef,
     PendingBatch,
+    QueueFreshness,
     StrandedRunRef,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
+    BACKLOGGED_GROUPS,
+    BLOCKED_BATCHES,
     CLAIMABLE_BATCHES,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     RUNS_RECONCILED_TOTAL,
 )
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
+
+
+def _freshness(
+    oldest_age_seconds: float | None, *, blocked_batches: int = 0, backlogged_groups: int = 0
+) -> QueueFreshness:
+    return QueueFreshness(
+        oldest_age_seconds=oldest_age_seconds,
+        blocked_batches=blocked_batches,
+        backlogged_groups=backlogged_groups,
+    )
 
 
 def _make_batch(**overrides: Any) -> PendingBatch:
@@ -1824,9 +1837,9 @@ class TestReconcileFailedRuns:
                 return_value=False,
             ),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_oldest_unclaimed_batch_age_seconds",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_queue_freshness",
                 new_callable=AsyncMock,
-                return_value=42.0,
+                return_value=_freshness(42.0),
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_claimable_batch_count",
@@ -1856,9 +1869,9 @@ class TestReconcileFailedRuns:
                 return_value=[],
             ),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_oldest_unclaimed_batch_age_seconds",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_queue_freshness",
                 new_callable=AsyncMock,
-                return_value=1234.5,
+                return_value=_freshness(1234.5, blocked_batches=7, backlogged_groups=3),
             ) as mock_probe,
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_claimable_batch_count",
@@ -1869,8 +1882,10 @@ class TestReconcileFailedRuns:
             await consumer._reconcile_failed_runs()
         assert OLDEST_UNCLAIMED_BATCH_SECONDS._value.get() == 1234.5
         assert CLAIMABLE_BATCHES._value.get() == 321
+        assert BLOCKED_BATCHES._value.get() == 7
+        assert BACKLOGGED_GROUPS._value.get() == 3
 
-        mock_probe.return_value = None  # empty queue -> gauge resets to 0
+        mock_probe.return_value = _freshness(None)  # empty queue -> gauge resets to 0
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_failed_runs",
             new_callable=AsyncMock,
@@ -1878,7 +1893,7 @@ class TestReconcileFailedRuns:
         ):
             with (
                 patch(
-                    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_oldest_unclaimed_batch_age_seconds",
+                    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_queue_freshness",
                     mock_probe,
                 ),
                 patch(
@@ -1895,9 +1910,9 @@ class TestReconcileFailedRuns:
         # pin the last good value — and the probe must not eat the sweep's budget.
         consumer = _make_consumer()
 
-        async def hung_probe(*args: Any, **kwargs: Any) -> float:
+        async def hung_probe(*args: Any, **kwargs: Any) -> QueueFreshness:
             await asyncio.sleep(3600)
-            return 0.0
+            return _freshness(0.0)
 
         with (
             patch(
@@ -1905,7 +1920,7 @@ class TestReconcileFailedRuns:
                 0.05,
             ),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_oldest_unclaimed_batch_age_seconds",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_queue_freshness",
                 side_effect=hung_probe,
             ),
             patch(
@@ -2071,9 +2086,9 @@ class TestReconcileFailedRuns:
 
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_oldest_unclaimed_batch_age_seconds",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_queue_freshness",
                 new_callable=AsyncMock,
-                return_value=0.0,
+                return_value=_freshness(0.0),
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_claimable_batch_count",
@@ -2122,9 +2137,9 @@ class TestReconcileFailedRuns:
 
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_oldest_unclaimed_batch_age_seconds",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_queue_freshness",
                 new_callable=AsyncMock,
-                return_value=0.0,
+                return_value=_freshness(0.0),
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_claimable_batch_count",
@@ -2184,9 +2199,9 @@ class TestReconcileFailedRuns:
 
         with (
             patch(
-                f"{consumer_module.__name__}.BatchQueue.get_oldest_unclaimed_batch_age_seconds",
+                f"{consumer_module.__name__}.BatchQueue.get_queue_freshness",
                 new_callable=AsyncMock,
-                return_value=0.0,
+                return_value=_freshness(0.0),
             ),
             patch(
                 f"{consumer_module.__name__}.BatchQueue.get_claimable_batch_count",
@@ -2231,9 +2246,9 @@ class TestReconcileFailedRuns:
 
         with (
             patch(
-                f"{consumer_module.__name__}.BatchQueue.get_oldest_unclaimed_batch_age_seconds",
+                f"{consumer_module.__name__}.BatchQueue.get_queue_freshness",
                 new_callable=AsyncMock,
-                return_value=0.0,
+                return_value=_freshness(0.0),
             ),
             patch(
                 f"{consumer_module.__name__}.BatchQueue.get_claimable_batch_count",
