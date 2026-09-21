@@ -1,17 +1,25 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
 import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
+import {
+    createCookielessRedisConnectionConfig,
+    createIngestionRedisConnectionConfig,
+} from '~/common/config/redis-pools'
 import { HogTransformerComponent } from '~/common/hog-transformations/hog-transformer-component'
 import { IngestionOutputsComponent } from '~/common/outputs/ingestion-outputs'
 import { PersonHogConfig } from '~/common/personhog'
 import { UsageIngestionConfig } from '~/common/usage-ingestion'
 import { ServerCommands } from '~/common/utils/commands'
-import { PostgresRouter } from '~/common/utils/db/postgres'
+import { PostgresRouter, PostgresRouterComponent } from '~/common/utils/db/postgres'
+import { RedisPoolComponent } from '~/common/utils/db/redis'
 import { GeoIPService } from '~/common/utils/geoip'
+import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
-import { CookielessServerConfig } from '~/ingestion/common/cookieless/cookieless-manager'
+import { TeamManagerComponent } from '~/common/utils/team-manager'
+import { CookielessManagerComponent, CookielessServerConfig } from '~/ingestion/common/cookieless/cookieless-manager'
 import { ingestionConsumerService } from '~/ingestion/common/ingestion-consumer'
+import { KafkaProducerRegistryComponent } from '~/ingestion/common/outputs/producer-registry'
 import {
     KafkaDownstreamProducerEnvConfig,
     KafkaUpstreamProducerEnvConfig,
@@ -45,7 +53,6 @@ import {
 } from '../ingestion/config'
 import { PluginServerService, RedisPool } from '../types'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
-import { addSharedInfra, addSharedServices } from './shared-scopes'
 
 /**
  * Complete config type for an error tracking ingestion deployment.
@@ -129,9 +136,38 @@ export class ErrorTrackingServer implements NodeServer {
         //    as handles without taking ownership.
         logger.info('ℹ️', 'Connecting to shared infrastructure...')
 
-        const sharedInfraScope = newScope('shared-infra', (builder) => addSharedInfra(builder, this.config))
+        const sharedInfraScope = newScope('shared-infra', (builder) =>
+            builder
+                .add('postgres', new PostgresRouterComponent(this.config, this.config.PLUGIN_SERVER_MODE!))
+                .add(
+                    'redisPool',
+                    new RedisPoolComponent({
+                        connection: createIngestionRedisConnectionConfig(this.config),
+                        poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+                        poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+                    })
+                )
+                .add(
+                    'cookielessRedisPool',
+                    new RedisPoolComponent({
+                        connection: createCookielessRedisConnectionConfig(this.config),
+                        poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+                        poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+                    })
+                )
+                .add('producerRegistry', new KafkaProducerRegistryComponent(this.config.KAFKA_CLIENT_RACK, this.config))
+        )
+
         const sharedServicesScope = extend(sharedInfraScope, 'shared', (container, builder) =>
-            addSharedServices(container, builder, this.config)
+            builder
+                .add(
+                    'teamManager',
+                    // Retry transient team-load failures (e.g. a Postgres pooler scale-down returning
+                    // ECONNREFUSED). The team loader runs detached in the LazyLoader buffer, so an un-retried
+                    // transient failure can surface as an unhandled rejection and restart the worker.
+                    new TeamManagerComponent(container.postgres, { loaderRetry: DEFAULT_LOADER_RETRY })
+                )
+                .add('cookielessManager', new CookielessManagerComponent(this.config, container.cookielessRedisPool))
         )
 
         const sharedServices = await sharedServicesScope.start()

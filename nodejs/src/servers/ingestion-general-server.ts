@@ -7,7 +7,11 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from '~/common/config/kafka-topics'
-import { createFeatureFlagCalledDedupRedisConnectionConfig } from '~/common/config/redis-pools'
+import {
+    createCookielessRedisConnectionConfig,
+    createFeatureFlagCalledDedupRedisConnectionConfig,
+    createIngestionRedisConnectionConfig,
+} from '~/common/config/redis-pools'
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
@@ -17,12 +21,15 @@ import { PersonHogConfig, buildGroupRepository, buildPersonRepository, createPer
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { UsageIngestionConfig } from '~/common/usage-ingestion'
 import { ServerCommands } from '~/common/utils/commands'
-import { PostgresRouter } from '~/common/utils/db/postgres'
+import { PostgresRouter, PostgresRouterComponent } from '~/common/utils/db/postgres'
 import { RedisPoolComponent } from '~/common/utils/db/redis'
 import { GeoIPService } from '~/common/utils/geoip'
 import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
+import { TeamManagerComponent } from '~/common/utils/team-manager'
+import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
+import { KafkaProducerRegistryComponent } from '~/ingestion/common/outputs/producer-registry'
 import {
     KafkaDownstreamProducerEnvConfig,
     KafkaUpstreamProducerEnvConfig,
@@ -57,7 +64,6 @@ import {
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
 import { PluginServerService, RedisPool } from '../types'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
-import { addSharedInfra, addSharedServices } from './shared-scopes'
 
 /**
  * Complete config type for an ingestion-v2 deployment.
@@ -144,7 +150,26 @@ export class IngestionGeneralServer implements NodeServer {
         logger.info('ℹ️', 'Connecting to shared infrastructure...')
 
         const sharedInfraScope = newScope('shared-infra', (builder) =>
-            addSharedInfra(builder, this.config)
+            builder
+                .add('postgres', new PostgresRouterComponent(this.config, this.config.PLUGIN_SERVER_MODE!))
+                .add(
+                    'redisPool',
+                    new RedisPoolComponent({
+                        connection: createIngestionRedisConnectionConfig(this.config),
+                        poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+                        poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+                    })
+                )
+                // Cookieless Redis is a separate pool, shared by every consumer that runs cookieless
+                // processing (analytics, heatmaps, …).
+                .add(
+                    'cookielessRedisPool',
+                    new RedisPoolComponent({
+                        connection: createCookielessRedisConnectionConfig(this.config),
+                        poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+                        poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+                    })
+                )
                 // Dedicated $feature_flag_called dedup Redis, so its claim keys don't compete
                 // with ingestion's overflow-redirect keys under eviction. Falls back to the
                 // ingestion connection until the dedup host is configured.
@@ -156,13 +181,24 @@ export class IngestionGeneralServer implements NodeServer {
                         poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
                     })
                 )
+                .add('producerRegistry', new KafkaProducerRegistryComponent(this.config.KAFKA_CLIENT_RACK, this.config))
         )
 
         // Services are built off the started infra scope (postgres, redis pools, kafka). They're
         // owned by this scope, so consumers can `Scope.extend` off it to read shared services like
         // the team manager and cookieless manager without taking ownership of their lifecycle.
         const sharedServicesScope = extend(sharedInfraScope, 'shared', (container, builder) =>
-            addSharedServices(container, builder, this.config)
+            builder
+                .add(
+                    'teamManager',
+                    // Retry transient team-load failures (e.g. a Postgres pooler scale-down returning
+                    // ECONNREFUSED). The team loader runs detached in the LazyLoader buffer, so an un-retried
+                    // transient failure can surface as an unhandled rejection and restart the worker.
+                    new TeamManagerComponent(container.postgres, {
+                        loaderRetry: DEFAULT_LOADER_RETRY,
+                    })
+                )
+                .add('cookielessManager', new CookielessManagerComponent(this.config, container.cookielessRedisPool))
         )
 
         const sharedServices = await sharedServicesScope.start()
