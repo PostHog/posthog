@@ -1,4 +1,4 @@
-import { RefObject, useEffect, useMemo, useRef, useState } from 'react'
+import { RefObject, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { objectsEqual } from 'lib/utils/objects'
 
@@ -206,7 +206,7 @@ export function useAccountColumnAutoSizing(
     const widthCache = useRef(new Map<string, WidthCacheEntry>())
     const [contentWidths, setContentWidths] = useState<Record<string, number>>({})
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         const table = tableRef.current?.querySelector<HTMLTableElement>('.LemonTable__content > table')
         const columnNames = Object.keys(columns).filter((key) => columns[key].width === undefined)
         if (!table || loading || response === null || response === undefined || columnNames.length === 0) {
