@@ -22,7 +22,7 @@ from posthog.schema import (
 )
 
 from ee.hogai.utils.anthropic import convert_to_anthropic_messages
-from ee.hogai.utils.helpers import convert_tool_messages_to_dict
+from ee.hogai.utils.helpers import convert_tool_messages_to_dict, should_output_assistant_message
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantMessageUnion
 
 from ..compaction_manager import AnthropicConversationCompactionManager
@@ -90,6 +90,15 @@ class TestAnthropicConversationCompactionManager(SimpleTestCase):
         self.assertIn("product_analytics mode", text)
         self.assertNotIn("x" * 9000, text)
         self.assertTrue(all(message in result.messages for message in messages))
+        self.assertEqual(result.updated_start_id, request.id)
+        rendered_requests = [
+            message
+            for message in result.messages
+            if should_output_assistant_message(message)
+            and isinstance(message, HumanMessage)
+            and message.content == request.content
+        ]
+        self.assertEqual(rendered_requests, [request])
         if boundary != "oversized_final_result":
             tool_calls = [
                 call["id"]
@@ -123,9 +132,8 @@ class TestAnthropicConversationCompactionManager(SimpleTestCase):
         self.assertEqual(window[0].id, "summary-two")
         self.assertNotIn("summary-one", [message.id for message in window])
         self.assertNotIn("old-result", [message.id for message in window])
-        self.assertTrue(
-            any(isinstance(message, HumanMessage) and message.content == "Compare the cohorts" for message in window)
-        )
+        model_input = convert_to_anthropic_messages(window, convert_tool_messages_to_dict(window))
+        self.assertIn("Compare the cohorts", str([message.content for message in model_input]))
         self.assertTrue(all(message in second.messages for message in first.messages))
 
     def test_find_window_boundary_basic(self):
@@ -475,10 +483,10 @@ class TestAnthropicConversationCompactionManager(SimpleTestCase):
         self.assertEqual(result.messages[0].id, start_id)
         self.assertEqual(result.messages[-3].id, summary_id)
         last_msg = result.messages[-1]
-        assert isinstance(last_msg, HumanMessage)  # Type narrowing
+        assert isinstance(last_msg, ContextMessage)  # Type narrowing
         self.assertEqual(last_msg.content, "Initial question")
         self.assertNotEqual(last_msg.id, start_id)
-        self.assertEqual(result.updated_start_id, last_msg.id)
+        self.assertEqual(result.updated_start_id, start_id)
         self.assertEqual(result.updated_window_start_id, summary_id)
 
     def test_update_window_initiator_in_window(self):
@@ -551,15 +559,15 @@ class TestAnthropicConversationCompactionManager(SimpleTestCase):
 
         # Find the copied start message (same content, different ID)
         copied_start = next(
-            (msg for msg in window if isinstance(msg, HumanMessage) and msg.content == "Initial question"),
+            (msg for msg in window if isinstance(msg, ContextMessage) and msg.content == "Initial question"),
             None,
         )
         self.assertIsNotNone(copied_start, "Copied start message should exist")
         assert copied_start is not None  # Type narrowing
         self.assertNotEqual(copied_start.id, start_id, "Copied message should have new ID")
 
-        # The copied start message should have a new ID returned
-        self.assertEqual(result.updated_start_id, copied_start.id)
+        # The start ID keeps pointing at the original request
+        self.assertEqual(result.updated_start_id, start_id)
 
         # Summary, mode reminder, and copied start should be at the beginning of the window
         summary_idx = next(i for i, msg in enumerate(result.messages) if msg.id == summary_id)
@@ -806,8 +814,8 @@ class TestAnthropicConversationCompactionManager(SimpleTestCase):
         self.assertEqual(len(result.messages), 5)  # original 2 + summary + mode reminder + copied start
         self.assertEqual(result.messages[-3].id, summary_id)
         self.assertEqual(result.updated_window_start_id, summary_id)
-        # Updated start ID should be the copied message
-        self.assertNotEqual(result.updated_start_id, start_id)
+        # Updated start ID keeps pointing at the original request
+        self.assertEqual(result.updated_start_id, start_id)
 
     def test_update_window_single_message_conversation(self):
         """Test update_window with a minimal single-message conversation"""
@@ -861,7 +869,7 @@ class TestAnthropicConversationCompactionManager(SimpleTestCase):
         assert isinstance(result.messages[3], ContextMessage)
         self.assertIn("product_analytics", result.messages[3].content)
         self.assertNotEqual(result.messages[3].id, summary_id)
-        self.assertIsInstance(result.messages[4], HumanMessage)
+        self.assertIsInstance(result.messages[4], ContextMessage)
         self.assertNotEqual(result.messages[4].id, start_id)  # Copied start message has new ID
 
     def test_mode_message_injection_when_feature_flag_enabled_start_in_window(self):
@@ -936,7 +944,7 @@ class TestAnthropicConversationCompactionManager(SimpleTestCase):
             if isinstance(msg, ContextMessage) and "session_replay" in msg.content
         )
         copied_start = next(
-            (msg for msg in result.messages if isinstance(msg, HumanMessage) and msg.id == result.updated_start_id),
+            (msg for msg in result.messages if isinstance(msg, ContextMessage) and msg.content == "Initial question"),
             None,
         )
         self.assertIsNotNone(copied_start)
@@ -954,7 +962,7 @@ class TestAnthropicConversationCompactionManager(SimpleTestCase):
         self.assertIsInstance(mode_msg, ContextMessage)
         assert isinstance(mode_msg, ContextMessage)
         self.assertIn("session_replay", mode_msg.content)
-        self.assertIsInstance(result.messages[copied_start_idx], HumanMessage)
+        self.assertIsInstance(result.messages[copied_start_idx], ContextMessage)
         self.assertNotEqual(copied_start.id, start_id)
 
     def test_no_mode_message_injection_when_mode_evident_in_window(self):
@@ -1139,7 +1147,9 @@ class TestAnthropicConversationCompactionManager(SimpleTestCase):
         self.assertIsInstance(window_messages[1], ContextMessage)
         assert isinstance(window_messages[1], ContextMessage)
         self.assertIn("product_analytics", window_messages[1].content)
-        self.assertIsInstance(window_messages[2], HumanMessage)
+        self.assertIsInstance(window_messages[2], ContextMessage)
+        assert isinstance(window_messages[2], ContextMessage)
+        self.assertEqual(window_messages[2].content, "Question")
 
         # Verify the mode reminder is NOT the switch_mode tool call
         has_switch_mode_in_window = any(
@@ -1570,9 +1580,9 @@ class TestAnthropicConversationCompactionManager(SimpleTestCase):
         ]
         self.assertGreater(len(todo_reminders), 0)
 
-        # Should NOT have mode reminder (only summary context message)
+        # Should NOT have mode reminder (context messages are only the summary and the copied start)
         context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
-        mode_reminders = [msg for msg in context_messages if msg.id != summary_id]
+        mode_reminders = [msg for msg in context_messages if "product_analytics" in msg.content]
         self.assertEqual(len(mode_reminders), 0)
 
     def test_mode_reminder_only_no_todo_reminder(self):
