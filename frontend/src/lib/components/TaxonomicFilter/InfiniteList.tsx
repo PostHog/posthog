@@ -12,7 +12,12 @@ import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
-import { EntityFilterInfo, getSeriesRename } from 'lib/components/EntityFilterInfo'
+import {
+    DisplayableEntity,
+    EntityFilterInfo,
+    getSeriesRename,
+    toDisplayEntityFilter,
+} from 'lib/components/EntityFilterInfo'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { AUTOCAPTURE_INTERACTIONS } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
@@ -43,7 +48,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
-import { EntityFilter, EventDefinition, PropertyDefinition } from '~/types'
+import { EventDefinition, PropertyDefinition } from '~/types'
 
 import { NO_ITEM_SELECTED, infiniteListLogic } from './infiniteListLogic'
 
@@ -167,15 +172,14 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
  * the user clicked.
  */
 const getSelectedItemRenameMeta = (
-    selectedItemMeta: EntityFilter | null | undefined,
+    selectedItemMeta: DisplayableEntity | null | undefined,
     itemValue: string | number | null | undefined
-): EntityFilter | null => {
-    if (
-        !selectedItemMeta ||
-        selectedItemMeta.id == null ||
-        itemValue == null ||
-        String(selectedItemMeta.id) !== String(itemValue)
-    ) {
+): DisplayableEntity | null => {
+    if (!selectedItemMeta || itemValue == null) {
+        return null
+    }
+    const { id } = toDisplayEntityFilter(selectedItemMeta)
+    if (id == null || String(id) !== String(itemValue)) {
         return null
     }
     return getSeriesRename(selectedItemMeta) ? selectedItemMeta : null
@@ -207,7 +211,7 @@ const renderItemContents = ({
     itemGroup: TaxonomicFilterGroup
     eventNames: string[]
     isActive: boolean
-    selectedRenameMeta?: EntityFilter | null
+    selectedRenameMeta?: DisplayableEntity | null
 }): JSX.Element | string => {
     if (isQuickFilterItem(item)) {
         const icon = itemGroup.getIcon ? (
@@ -371,7 +375,7 @@ interface InfiniteListRowProps {
     groupType: TaxonomicFilterGroupType | undefined
     value: string | number | null | undefined
     selectedProperties: TaxonomicFilterGroupValueMap
-    selectedItemMeta: EntityFilter | null | undefined
+    selectedItemMeta: DisplayableEntity | null | undefined
     eventNames: string[]
     highlightedIndex: number
     isActiveTab: boolean

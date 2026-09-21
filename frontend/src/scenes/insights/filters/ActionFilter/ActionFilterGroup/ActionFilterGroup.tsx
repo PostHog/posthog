@@ -25,19 +25,23 @@ import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { BaseMathType, EntityTypes, InsightType } from '~/types'
+import { GroupNode, NodeKind } from '~/queries/schema/schema-general'
+import { BaseMathType, InsightType } from '~/types'
 
 import { MathCategory, mathsLogic } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
-import { ActionFilterRow, MathSelector, taxonomicFilterGroupTypeToEntityType } from '../ActionFilterRow/ActionFilterRow'
+import { ActionFilterRow, MathSelector } from '../ActionFilterRow/ActionFilterRow'
+import { taxonomicGroupTypeToSeriesNodeKind } from '../ActionFilterRow/actionFilterRowUtils'
 import { getDefaultMathHogQLExpression } from '../ActionFilterRow/mathUtils'
 import { MathAvailability } from '../ActionFilterRow/types'
-import { LocalFilter, entityFilterLogic } from '../entityFilterLogic'
+import { entityFilterLogic } from '../entityFilterLogic'
 import { actionFilterGroupLogic } from './actionFilterGroupLogic'
 import { nestedFilterLogic } from './nestedFilterLogic'
 
 interface ActionFilterGroupProps {
-    filter: LocalFilter
+    node: GroupNode
+    /** Sidecar row identity, for the drag key and the group's own logic key. */
+    uuid: string
     index: number
     typeKey: string
     filterCount: number
@@ -61,7 +65,8 @@ interface ActionFilterGroupProps {
 }
 
 export function ActionFilterGroup({
-    filter,
+    node,
+    uuid,
     index,
     typeKey,
     filterCount,
@@ -88,17 +93,17 @@ export function ActionFilterGroup({
     ].filter((groupType) => groupType !== TaxonomicFilterGroupType.DataWarehouse)
 
     const { currentTeamId } = useValues(teamLogic)
-    const { removeLocalFilter, splitLocalFilter, duplicateFilter, showModal, selectFilter } = useActions(
+    const { removeSeries, splitGroup, duplicateSeries, showModal, selectSeries } = useActions(
         entityFilterLogic({ typeKey })
     )
     const { mathDefinitions } = useValues(mathsLogic)
-    const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: filter.uuid })
+    const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: uuid })
 
-    const groupLogic = actionFilterGroupLogic({ filterUuid: filter.uuid, typeKey, groupIndex: index })
-    const { nestedFilters, operator, isHogQLDropdownVisible, groupFilter } = useValues(groupLogic)
+    const groupLogic = actionFilterGroupLogic({ filterUuid: uuid, typeKey, groupIndex: index })
+    const { nestedNodes, operator, isHogQLDropdownVisible, groupNode } = useValues(groupLogic)
     const {
-        addNestedFilter,
-        updateNestedFilterProperties,
+        addNestedSeries,
+        updateNestedSeriesProperties,
         setMath,
         setMathProperty,
         setMathHogQL,
@@ -106,15 +111,15 @@ export function ActionFilterGroup({
     } = useActions(groupLogic)
     const defaultMathHogQLExpression = getDefaultMathHogQLExpression(insightType)
 
-    const mathCategory = mathDefinitions[filter.math || BaseMathType.TotalCount]?.category
+    const mathCategory = mathDefinitions[node.math || BaseMathType.TotalCount]?.category
     const hasSecondaryMathDropdown =
         mathCategory === MathCategory.PropertyValue || mathCategory === MathCategory.HogQLExpression
     const showMath = mathAvailability !== MathAvailability.None && mathAvailability !== MathAvailability.FunnelsOnly
 
     const mathSelectorProps = {
         size: 'small' as const,
-        math: filter.math,
-        mathGroupTypeIndex: filter.math_group_type_index,
+        math: node.math,
+        mathGroupTypeIndex: node.math_group_type_index,
         index,
         onMathSelect: (_: number, math: any) => setMath(math, defaultMathHogQLExpression),
         disabled: disabled || readOnly,
@@ -181,7 +186,7 @@ export function ActionFilterGroup({
                                                     size: 'medium',
                                                     icon: <IconUndo />,
                                                     onClick: () => {
-                                                        splitLocalFilter(index)
+                                                        splitGroup(index)
                                                         posthog.capture('split_events', {
                                                             insight_type: insightType,
                                                             team_id: currentTeamId,
@@ -198,7 +203,7 @@ export function ActionFilterGroup({
                                                     size: 'medium',
                                                     icon: <IconPencil />,
                                                     onClick: () => {
-                                                        selectFilter(groupFilter ?? null)
+                                                        selectSeries(index, groupNode ?? null, uuid)
                                                         showModal()
                                                     },
                                                     'data-attr': `group-filter-rename-${index}`,
@@ -208,9 +213,7 @@ export function ActionFilterGroup({
                                                     size: 'medium',
                                                     icon: <IconCopy />,
                                                     onClick: () => {
-                                                        if (groupFilter) {
-                                                            duplicateFilter(groupFilter)
-                                                        }
+                                                        duplicateSeries(index)
                                                     },
                                                     'data-attr': `group-filter-duplicate-${index}`,
                                                 },
@@ -219,7 +222,7 @@ export function ActionFilterGroup({
                                                     size: 'medium',
                                                     status: 'danger',
                                                     icon: <IconTrash />,
-                                                    onClick: () => removeLocalFilter({ index }),
+                                                    onClick: () => removeSeries(index),
                                                     'data-attr': `group-filter-delete-${index}`,
                                                 },
                                             ],
@@ -251,7 +254,7 @@ export function ActionFilterGroup({
                                         truncate
                                         size="small"
                                         groupType={
-                                            filter.math_property_type ||
+                                            (node.math_property_type as TaxonomicFilterGroupType) ||
                                             TaxonomicFilterGroupType.NumericalEventProperties
                                         }
                                         groupTypes={[
@@ -261,9 +264,9 @@ export function ActionFilterGroup({
                                             TaxonomicFilterGroupType.PersonProperties,
                                             TaxonomicFilterGroupType.DataWarehousePersonProperties,
                                         ]}
-                                        value={filter.math_property}
+                                        value={node.math_property}
                                         onChange={setMathProperty}
-                                        eventNames={nestedFilters.map((v) => v.name).filter(Boolean) as string[]}
+                                        eventNames={nestedNodes.map((v) => v.name).filter(Boolean) as string[]}
                                         data-attr="math-property-select"
                                         showNumericalPropsOnly={showNumericalPropsOnly}
                                         renderValue={(currentValue) => (
@@ -272,7 +275,7 @@ export function ActionFilterGroup({
                                                     currentValue === '$session_duration' ? (
                                                         <>
                                                             Calculate{' '}
-                                                            {mathDefinitions[filter.math ?? '']?.name.toLowerCase()} of
+                                                            {mathDefinitions[node.math ?? '']?.name.toLowerCase()} of
                                                             the session duration. This is based on the{' '}
                                                             <code>$session_id</code> property associated with events.
                                                             The duration is derived from the time difference between the
@@ -282,10 +285,10 @@ export function ActionFilterGroup({
                                                     ) : (
                                                         <>
                                                             Calculate{' '}
-                                                            {mathDefinitions[filter.math ?? '']?.name.toLowerCase()}{' '}
-                                                            from property <code>{currentValue}</code>. Note that only
-                                                            event occurrences where <code>{currentValue}</code> is set
-                                                            with a numeric value will be taken into account.
+                                                            {mathDefinitions[node.math ?? '']?.name.toLowerCase()} from
+                                                            property <code>{currentValue}</code>. Note that only event
+                                                            occurrences where <code>{currentValue}</code> is set with a
+                                                            numeric value will be taken into account.
                                                         </>
                                                     )
                                                 }
@@ -311,7 +314,7 @@ export function ActionFilterGroup({
                                             // eslint-disable-next-line react/forbid-dom-props
                                             <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
                                                 <HogQLEditor
-                                                    value={filter.math_hogql || defaultMathHogQLExpression}
+                                                    value={node.math_hogql || defaultMathHogQLExpression}
                                                     onChange={(currentValue) => {
                                                         setMathHogQL(currentValue)
                                                         setHogQLDropdownVisible(false)
@@ -329,7 +332,7 @@ export function ActionFilterGroup({
                                             onClick={() => setHogQLDropdownVisible(!isHogQLDropdownVisible)}
                                         >
                                             <code className="truncate">
-                                                {filter.math_hogql || defaultMathHogQLExpression}
+                                                {node.math_hogql || defaultMathHogQLExpression}
                                             </code>
                                         </LemonButton>
                                     </LemonDropdown>
@@ -341,26 +344,27 @@ export function ActionFilterGroup({
 
                 {/* Events list */}
                 <ul className="ActionFilterGroup--events-list flex flex-col px-4 py-2.5 bg-primary [&_.ActionFilterRow]:!border-0 [&_.ActionFilterRow]:!rounded-none [&_.ActionFilterRow]:!p-0">
-                    {nestedFilters.map((eventFilter, eventIndex) => {
+                    {nestedNodes.map((nestedNode, eventIndex) => {
                         const nestedLogicInstance = nestedFilterLogic({
-                            groupFilterUuid: filter.uuid,
+                            groupFilterUuid: uuid,
                             nestedIndex: eventIndex,
                             typeKey,
                             groupIndex: index,
                         })
 
                         return (
-                            <div key={eventFilter.uuid || eventIndex}>
+                            <div key={`${uuid}-${eventIndex}`}>
                                 <ActionFilterRow
                                     logic={nestedLogicInstance as any}
-                                    filter={eventFilter}
-                                    index={eventFilter.order}
+                                    node={nestedNode}
+                                    uuid={`${uuid}-${eventIndex}`}
+                                    index={eventIndex}
                                     typeKey={`group-${index}-${eventIndex}`}
                                     mathAvailability={MathAvailability.None}
                                     hideRename
                                     hideDuplicate
-                                    hideDeleteBtn={nestedFilters.length <= 1 || readOnly}
-                                    filterCount={nestedFilters.length}
+                                    hideDeleteBtn={nestedNodes.length <= 1 || readOnly}
+                                    filterCount={nestedNodes.length}
                                     sortable={false}
                                     hasBreakdown={hasBreakdown}
                                     disabled={disabled || readOnly}
@@ -375,7 +379,7 @@ export function ActionFilterGroup({
                                     includeHiddenEvents={includeHiddenEvents}
                                     definitionPopoverRenderer={definitionPopoverRenderer}
                                 />
-                                {eventIndex < nestedFilters.length - 1 && (
+                                {eventIndex < nestedNodes.length - 1 && (
                                     <div className="flex items-center gap-3 mx-0.5 my-2.5">
                                         <div className="flex-1 h-px bg-border-primary" />
                                         <span className="text-[11px] font-semibold text-tertiary uppercase tracking-wide">
@@ -390,7 +394,7 @@ export function ActionFilterGroup({
                 </ul>
 
                 {/* Add event button */}
-                {!readOnly && nestedFilters.length < 10 && (
+                {!readOnly && nestedNodes.length < 10 && (
                     <div className="ActionFilterGroup--footer px-4 py-2.5 bg-primary">
                         <TaxonomicPopover
                             data-attr={`add-group-event-${index}`}
@@ -402,9 +406,9 @@ export function ActionFilterGroup({
                             onChange={(value, groupType, item) => {
                                 if (isQuickFilterItem(item)) {
                                     if (item.eventName) {
-                                        const newIndex = nestedFilters.length
-                                        addNestedFilter(item.eventName, item.eventName, EntityTypes.EVENTS)
-                                        updateNestedFilterProperties(newIndex, quickFilterToPropertyFilters(item))
+                                        const newIndex = nestedNodes.length
+                                        addNestedSeries(item.eventName, item.eventName, NodeKind.EventsNode)
+                                        updateNestedSeriesProperties(newIndex, quickFilterToPropertyFilters(item))
                                         posthog.capture('add_event_to_group', {
                                             insight_type: insightType,
                                             team_id: currentTeamId,
@@ -412,9 +416,9 @@ export function ActionFilterGroup({
                                     }
                                     return
                                 }
-                                const entityType = taxonomicFilterGroupTypeToEntityType(groupType)
-                                if (entityType && value) {
-                                    addNestedFilter(String(value), item?.name || String(value), entityType)
+                                const kind = taxonomicGroupTypeToSeriesNodeKind(groupType)
+                                if (kind !== NodeKind.GroupNode && value) {
+                                    addNestedSeries(String(value), item?.name || String(value), kind)
                                     posthog.capture('add_event_to_group', {
                                         insight_type: insightType,
                                         team_id: currentTeamId,
