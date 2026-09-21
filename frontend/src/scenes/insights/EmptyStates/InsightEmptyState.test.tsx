@@ -11,8 +11,7 @@ import { useMocks } from '~/mocks/jest'
 import { trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
 import { TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { TeamType } from '~/types'
-import { InsightLogicProps } from '~/types'
+import { InsightLogicProps, TeamType } from '~/types'
 
 import { InsightEmptyState, SlowQuerySuggestions } from './EmptyStates'
 

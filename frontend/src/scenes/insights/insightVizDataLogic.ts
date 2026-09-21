@@ -164,8 +164,8 @@ import type { ActionType, AnyPropertyFilter, GroupTypeIndex, PropertyGroupFilter
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 
-// A range longer than this is worth suggesting the user shortens. The product defaults
-// (last 7, 14 or 30 days) and the "Last 90 days" preset must stay below it.
+// The product defaults (last 7, 14 or 30 days) and the "Last 90 days" preset must stay
+// below this, or a query nobody widened gets told to narrow its range.
 const LARGE_DATE_RANGE_DAYS = 90
 
 // Stable empty list so the allEventNames selector does not recompute while actionsModel is unmounted
