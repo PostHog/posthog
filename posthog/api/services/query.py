@@ -20,6 +20,7 @@ from posthog.schema import (
     HogQLMetadata,
     HogQLMetadataResponse,
     HogQLNotice,
+    HogQLQuery,
     HogQLVariable,
     HogQuery,
     HogQueryResponse,
@@ -102,14 +103,13 @@ def _language_service_eligible(query: HogQLAutocomplete | HogQLMetadata) -> bool
     common = (
         query.language.value == "hogQL"
         and query.connectionId is None
-        and query.sourceQuery is None
         and query.globals is None
         and query.filters is None
         and query.modifiers is None
     )
     if isinstance(query, HogQLMetadata):
-        return common and query.variables is None and not query.debug
-    return common
+        return common and query.sourceQuery is None and query.variables is None and not query.debug
+    return common and (query.sourceQuery is None or isinstance(query.sourceQuery, HogQLQuery))
 
 
 def _language_service_call(team: Team, user: User, query: HogQLAutocomplete | HogQLMetadata) -> _EditorAssistRoute:
