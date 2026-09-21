@@ -178,7 +178,8 @@ Two vLLM caveats, checked 2026-09-21, decide how much of Kev's state reuse survi
 
 Kev's own cache is exact, whole-state, any length, fp32 for the GDN part.
 The port therefore has no state reuse yet, only batching.
-Whether that matters is the first measurement to take: if a request averages five questions on a 772-token state, the port spends about five times the prefill of Kev's cached path on a warm state and the same on a cold one.
+Measured on one H100 on 2026-09-22 (details in the package README): 64 ms per single-question request at concurrency 1, and 88 requests per second at saturation for 783-token rows, which is about 69k prefill tokens per second, with parity to Kev's fp32 path at a 0.0092 maximum probability difference.
+So a cold five-question request on a 772-token state costs about five rows of prefill, roughly 60 ms of GPU time, and a warm one costs the same until state reuse exists.
 
 ### Batching
 

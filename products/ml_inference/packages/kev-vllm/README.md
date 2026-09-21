@@ -70,6 +70,19 @@ The comparison fails above a 0.02 maximum probability difference, just past Kev'
 | fp32 weights                    | 0.0043                     | 0                                                    |
 | bf16 weights (what vLLM serves) | 0.0111                     | 1, on a record whose top two options differ by 0.005 |
 
+Measured 2026-09-22 on a Lambda 2x H100 SXM instance (one GPU used), vLLM 0.29.0, V1 model runner, `--mamba-ssm-cache-dtype float32`, same 32 records through the served `/pooling` endpoint:
+
+| Served on H100                                                       | Value                                                                                               |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Max probability difference vs Kev fp32                               | 0.0092                                                                                              |
+| Argmax flips                                                         | 0                                                                                                   |
+| p50 latency, one request at a time (783 tokens, one 77-way question) | 64 ms                                                                                               |
+| Throughput at concurrency 32 and above                               | 88 requests/s, about 69k prefill tokens/s                                                           |
+| Prefix cache reads                                                   | 0 (the plugin task skips the cache, and vLLM would not serve one for a hybrid pooling model anyway) |
+| Engine start after weights are on disk                               | 31 s                                                                                                |
+
+`bin/load_test.py` produced the throughput row: a closed loop of N workers over the parity records, stdlib only.
+
 ## Tests
 
 ```bash
