@@ -21,12 +21,29 @@ import { tracingDataLogic } from './tracingDataLogic'
 import { TracingDisplayBar } from './TracingDisplayBar'
 import { TracingFilterBar } from './TracingFilterBar'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
-import { TracingSparkline } from './TracingSparkline'
+import { TracingSparkline, type TracingSparklineProps } from './TracingSparkline'
 import type { TracingViewerProps } from './TracingViewer'
 import { tracingViewerLogic } from './tracingViewerLogic'
 import type { Span } from './types'
 
 const TRACING_DOCS_URL = 'https://posthog.com/docs/tracing'
+
+/** `visibleRowDateRange` and `visibleRowDurationRange` recompute on every scroll tick, so they are
+ *  subscribed here rather than in `TracingViewerContent`, where they would re-render the filter bar,
+ *  the facet rail and the row list on each one. `TracingSparkline` stays prop-driven so it can
+ *  render in a story without the keyed logic. */
+function ConnectedTracingSparkline(
+    props: Omit<TracingSparklineProps, 'visibleRowDateRange' | 'visibleRowDurationRange'>
+): JSX.Element | null {
+    const { visibleRowDateRange, visibleRowDurationRange } = useValues(tracingDataLogic)
+    return (
+        <TracingSparkline
+            {...props}
+            visibleRowDateRange={visibleRowDateRange}
+            visibleRowDurationRange={visibleRowDurationRange}
+        />
+    )
+}
 
 export function TracingViewerContent({
     id,
@@ -44,10 +61,8 @@ export function TracingViewerContent({
         spanTree,
         spanTreeLoading,
         hasMoreToLoad,
-        visibleRowDateRange,
         durationHistogramData,
         durationHistogramLoading,
-        visibleRowDurationRange,
         isDurationMode,
         latencyHeatmapData,
         latencyHeatmapLoading,
@@ -115,7 +130,7 @@ export function TracingViewerContent({
             <>
                 <TracingFilterBar id={id} showSavedViewsButton={showSavedViewsButton} />
                 <LemonDivider />
-                <TracingSparkline
+                <ConnectedTracingSparkline
                     sparklineData={sparklineData}
                     sparklineLoading={sparklineLoading || (isDurationMode && !showHeatmap && durationHistogramLoading)}
                     onDateRangeChange={setDateRange}
@@ -123,9 +138,7 @@ export function TracingViewerContent({
                     currentDateTo={utcDateRange.date_to}
                     compare={compareConfig}
                     compareActive={compareActive}
-                    visibleRowDateRange={visibleRowDateRange}
                     durationHistogram={isDurationMode && !showHeatmap ? durationHistogramData : null}
-                    visibleRowDurationRange={visibleRowDurationRange}
                     chartType={filters.chartType}
                     onChartTypeChange={heatmapEnabled ? setChartType : undefined}
                     latencyHeatmap={showHeatmap ? latencyHeatmapData : null}

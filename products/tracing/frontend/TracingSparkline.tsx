@@ -46,7 +46,7 @@ interface CompareConfig {
     onChange: (current: { startMs: number; endMs: number }, previous: { startMs: number; endMs: number }) => void
 }
 
-interface TracingSparklineProps {
+export interface TracingSparklineProps {
     sparklineData: TracingSparklineData
     sparklineLoading: boolean
     onDateRangeChange: (dateRange: DateRange, source: TracingDateRangeSource) => void
