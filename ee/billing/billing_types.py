@@ -131,6 +131,8 @@ class CustomerProduct(TypedDict):
     price_description: Optional[str]
     image_url: Optional[str]
     type: str
+    # Whether the customer is on a paid price for this product. Null when billing omits it.
+    subscribed: Optional[bool]
     free_allocation: int
     tiers: list[Tier]
     tiered: bool
@@ -182,7 +184,8 @@ class CustomerInfo(TypedDict):
     current_total_amount_usd_after_discount: Optional[str]
     projected_total_amount_usd_with_limit_after_discount: Optional[str]
     products: Optional[list[CustomerProduct]]
-    custom_limits_usd: Optional[dict[str, int]]
+    # Keyed by product type or by usage key, and a null value means the customer removed the cap.
+    custom_limits_usd: Optional[dict[str, Optional[int]]]
     usage_summary: Optional[dict[str, dict[str, Optional[int]]]]
     free_trial_until: Optional[str]
     discount_percent: Optional[int]

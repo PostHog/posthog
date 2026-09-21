@@ -10,6 +10,7 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
 import jwt
@@ -33,6 +34,7 @@ from ee.billing.billing_manager import (
     OrganizationFundingStatus,
     PrepaidCreditState,
     _get_user_organization_role,
+    _limit_invariant_report_cache_key,
     _parse_funding_status,
     build_billing_token,
 )
@@ -63,6 +65,47 @@ def create_default_products_response(**kwargs) -> dict[str, list[Product]]:
 
     data.update(kwargs)
     return data
+
+
+# PostHog Code caps are keyed by product type, while the usage summary is keyed by usage key.
+CAPPED_PRODUCT_TYPE = "posthog_code_usage"
+CAPPED_USAGE_KEY = "posthog_code_credits"
+
+# Marks a customer field the payload leaves out entirely, which is not the same as a null value.
+OMIT_FIELD = object()
+
+
+def create_capped_product(subscribed: bool = True) -> dict[str, Any]:
+    return {"type": CAPPED_PRODUCT_TYPE, "usage_key": CAPPED_USAGE_KEY, "subscribed": subscribed}
+
+
+def create_capped_usage_summary(limit: int | None = None) -> dict[str, Any]:
+    return {
+        "events": {"usage": 1000, "limit": None},
+        "recordings": {"usage": 0, "limit": None},
+        CAPPED_USAGE_KEY: {"usage": 900, "limit": limit},
+    }
+
+
+# A subscribed customer with a $250 cap on a product whose usage limit came back null.
+def create_capped_billing_status(**customer_overrides: Any) -> dict[str, Any]:
+    customer: dict[str, Any] = {
+        "has_active_subscription": True,
+        "free_trial_until": "2026-08-27T00:00:00Z",
+        "custom_limits_usd": {CAPPED_PRODUCT_TYPE: 250},
+        "products": [create_capped_product()],
+        "usage_summary": create_capped_usage_summary(),
+        "billing_period": {
+            "current_period_start": "2026-08-01T00:00:00Z",
+            "current_period_end": "2026-09-01T00:00:00Z",
+        },
+    }
+    for key, value in customer_overrides.items():
+        if value is OMIT_FIELD:
+            customer.pop(key, None)
+        else:
+            customer[key] = value
+    return {"customer": customer}
 
 
 class TestFundingStatusParsing(SimpleTestCase):
@@ -958,6 +1001,105 @@ class TestBillingManager(BaseTest):
             BillingManager(license=None).update_org_details(organization, cast(BillingStatus, billing_status))
         organization.refresh_from_db()
         assert organization.has_active_subscription is expected
+
+    def _update_org_details_capturing_reports(self, billing_status: dict[str, Any]) -> tuple[MagicMock, MagicMock]:
+        with (
+            patch("ee.billing.billing_manager.report_organization_action") as report_mock,
+            patch("ee.billing.billing_manager.capture_exception") as capture_mock,
+        ):
+            BillingManager(license=None).update_org_details(self.organization, cast(BillingStatus, billing_status))
+        return report_mock, capture_mock
+
+    def test_update_org_details_reports_a_cap_keyed_by_usage_key(self):
+        cache.delete(_limit_invariant_report_cache_key(self.organization))
+
+        report_mock, _ = self._update_org_details_capturing_reports(
+            create_capped_billing_status(custom_limits_usd={CAPPED_USAGE_KEY: 250})
+        )
+
+        report_mock.assert_called_once()
+        assert report_mock.call_args.kwargs["properties"]["resource"] == CAPPED_USAGE_KEY
+
+    def test_update_org_details_does_not_fetch_default_products_for_the_detector(self):
+        cache.delete(_limit_invariant_report_cache_key(self.organization))
+
+        with patch.object(BillingManager, "get_default_products") as default_products_mock:
+            report_mock, _ = self._update_org_details_capturing_reports(
+                create_capped_billing_status(products=OMIT_FIELD)
+            )
+
+        default_products_mock.assert_not_called()
+        report_mock.assert_not_called()
+
+    def test_update_org_details_reports_capped_product_with_null_limit(self):
+        cache.delete(_limit_invariant_report_cache_key(self.organization))
+
+        report_mock, capture_mock = self._update_org_details_capturing_reports(create_capped_billing_status())
+
+        report_mock.assert_called_once()
+        assert report_mock.call_args.args[1] == "billing limit missing for capped product"
+        assert report_mock.call_args.kwargs["properties"] == {
+            "resource": CAPPED_USAGE_KEY,
+            "custom_limit_usd": 250,
+            "free_trial_until": "2026-08-27T00:00:00Z",
+            "has_active_subscription": True,
+            "discount_percent": None,
+        }
+        capture_mock.assert_called_once()
+        assert str(capture_mock.call_args.args[0]) == "billing_sync: custom limit set but usage limit is null"
+
+        # The sync itself must be untouched: billing stays the source of truth for the limit.
+        self.organization.refresh_from_db()
+        usage = cast(dict[str, Any], self.organization.usage)
+        assert usage[CAPPED_USAGE_KEY] == {"usage": 900, "limit": None, "todays_usage": 0}
+        assert usage["period"] == ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"]
+
+    @parameterized.expand(
+        [
+            # events and recordings are read directly, so only a .get(key, {}) resource can go
+            # missing quietly enough to reach this.
+            ("resource_absent", {k: v for k, v in create_capped_usage_summary().items() if k != CAPPED_USAGE_KEY}),
+            ("resource_empty", {**create_capped_usage_summary(), CAPPED_USAGE_KEY: {}}),
+        ]
+    )
+    def test_update_org_details_reports_capped_product_missing_from_usage_summary(self, _name, usage_summary):
+        cache.delete(_limit_invariant_report_cache_key(self.organization))
+
+        report_mock, _ = self._update_org_details_capturing_reports(
+            create_capped_billing_status(usage_summary=usage_summary)
+        )
+
+        report_mock.assert_called_once()
+        assert report_mock.call_args.kwargs["properties"]["resource"] == CAPPED_USAGE_KEY
+
+    @parameterized.expand(
+        [
+            ("numeric_limit", {"usage_summary": create_capped_usage_summary(limit=1000)}),
+            ("product_on_free_plan", {"products": [create_capped_product(subscribed=False)]}),
+            ("no_custom_limits_key", {"custom_limits_usd": OMIT_FIELD}),
+            ("custom_limit_removed", {"custom_limits_usd": {CAPPED_PRODUCT_TYPE: None}}),
+            ("no_subscription", {"has_active_subscription": False}),
+            ("full_discount", {"discount_percent": 100}),
+        ]
+    )
+    def test_update_org_details_does_not_report_limit_invariant(self, _name, customer_overrides):
+        cache.delete(_limit_invariant_report_cache_key(self.organization))
+
+        report_mock, capture_mock = self._update_org_details_capturing_reports(
+            create_capped_billing_status(**customer_overrides)
+        )
+
+        report_mock.assert_not_called()
+        capture_mock.assert_not_called()
+
+    def test_update_org_details_reports_capped_product_once_per_day(self):
+        cache.delete(_limit_invariant_report_cache_key(self.organization))
+
+        self._update_org_details_capturing_reports(create_capped_billing_status())
+        report_mock, capture_mock = self._update_org_details_capturing_reports(create_capped_billing_status())
+
+        report_mock.assert_not_called()
+        capture_mock.assert_not_called()
 
 
 class TestBillingProviderWebhookSigning(SimpleTestCase):

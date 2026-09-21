@@ -22,7 +22,7 @@ from rest_framework.exceptions import NotAuthenticated
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
-from posthog.event_usage import report_user_action
+from posthog.event_usage import report_organization_action, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
@@ -32,6 +32,7 @@ from posthog.models.team.event_retention import (
 )
 from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
+from posthog.utils import safe_cache_add
 
 from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
@@ -59,6 +60,9 @@ BILLING_EXPORT_REQUEST_TIMEOUT = (5, 120)
 # Marks tokens minted by the billing alerts evaluation job; billing recognizes this claim
 # on its read-only billing status path for tokens without a user role.
 BILLING_ALERTS_EVALUATION_SERVICE_ACTION = "billing_alerts_evaluation"
+
+# Every sync for an org repeats the same broken payload, so the report runs once per org per day.
+LIMIT_INVARIANT_REPORT_TTL_SECONDS = 24 * 60 * 60
 
 
 StartupProgramLabel = Literal["Startup", "YC"]
@@ -119,6 +123,106 @@ def _free_trial_active(customer: CustomerInfo) -> bool:
     if timezone.is_naive(expires):
         expires = expires.replace(tzinfo=UTC)
     return expires > timezone.now()
+
+
+def _limit_invariant_report_cache_key(organization: Organization) -> str:
+    return f"billing_limit_invariant/{organization.id}/{timezone.now().date().isoformat()}"
+
+
+def _resolve_custom_limit_usage_key(
+    limit_key: str, product_key_to_usage_key: dict[str, str], usage_keys: set[str]
+) -> Optional[str]:
+    """custom_limits_usd is keyed by product type or by usage key. The frontend resolves both
+    (getCustomLimitForProduct in maxBillingContextLogic.tsx), so this does too."""
+    if limit_key in product_key_to_usage_key:
+        return product_key_to_usage_key[limit_key]
+    return limit_key if limit_key in usage_keys else None
+
+
+def _report_capped_products_without_limit(
+    organization: Organization,
+    customer: CustomerInfo,
+    usage_summary: dict[str, Any],
+) -> None:
+    """Report a customer spend cap that arrives with no usage limit behind it.
+
+    A null limit reads as unlimited and clears the org's quota limit, so the cap stops binding.
+    This reports only; billing stays the source of truth for what is enforced.
+    """
+    custom_limits_usd = customer.get("custom_limits_usd")
+    if not custom_limits_usd:
+        # A missing key means the payload does not say, not that the customer set no cap.
+        return
+
+    if customer.get("has_active_subscription") is not True:
+        return
+
+    # A full discount bills nothing, so billing returns a null limit on purpose.
+    discount_percent = customer.get("discount_percent")
+    if discount_percent == 100:
+        return
+
+    # Both lookups read the payload's own products. The default-products fallback used elsewhere
+    # in this sync is a billing request, and without products there is nothing to report anyway,
+    # so reaching for it would put an outbound call on the request path to learn nothing.
+    products = customer.get("products") or []
+    if not products:
+        return
+
+    products_by_usage_key = {product["usage_key"]: product for product in products if product.get("usage_key")}
+    product_key_to_usage_key = {
+        product["type"]: product["usage_key"] for product in products if product.get("usage_key")
+    }
+    usage_keys = set(products_by_usage_key)
+
+    violations: list[tuple[str, int]] = []
+    for limit_key, custom_limit_usd in custom_limits_usd.items():
+        # A null value is a removed cap, not a cap of zero.
+        if custom_limit_usd is None:
+            continue
+
+        usage_key = _resolve_custom_limit_usage_key(limit_key, product_key_to_usage_key, usage_keys)
+        if usage_key is None:
+            continue
+
+        # A product on a free price reports its free allocation as the limit, which is not this bug.
+        product = products_by_usage_key.get(usage_key)
+        if not product or not product.get("subscribed"):
+            continue
+
+        # org_quota_limited_until bails on an empty summary, so a missing or empty entry stops
+        # the cap binding exactly as a null limit does.
+        resource_summary = usage_summary.get(usage_key)
+        if isinstance(resource_summary, dict) and resource_summary.get("limit") is not None:
+            continue
+
+        violations.append((usage_key, custom_limit_usd))
+
+    if not violations:
+        return
+
+    if not safe_cache_add(_limit_invariant_report_cache_key(organization), True, LIMIT_INVARIANT_REPORT_TTL_SECONDS):
+        return
+
+    for usage_key, custom_limit_usd in violations:
+        properties = {
+            "resource": usage_key,
+            "custom_limit_usd": custom_limit_usd,
+            "free_trial_until": customer.get("free_trial_until"),
+            "has_active_subscription": customer.get("has_active_subscription"),
+            # An unlimited free tier or a partial discount also nulls a limit, so tag rather
+            # than exclude and keep the baseline filterable.
+            "discount_percent": discount_percent,
+        }
+        capture_exception(
+            Exception("billing_sync: custom limit set but usage limit is null"),
+            {"organization_id": organization.id, **properties},
+        )
+        report_organization_action(
+            organization,
+            "billing limit missing for capped product",
+            properties=properties,
+        )
 
 
 def _get_user_organization_role(user: User, organization: Organization) -> Optional[str]:
@@ -591,6 +695,12 @@ class BillingManager:
 
         return res.json().get("products", [])
 
+    def _product_key_to_usage_key(self, customer: CustomerInfo, organization: Organization) -> dict[str, str]:
+        return {
+            product["type"]: product["usage_key"]
+            for product in (customer.get("products") or self.get_default_products(organization)["products"])
+        }
+
     def update_org_details(self, organization: Organization, billing_status: BillingStatus) -> Organization:
         """
         Ensure the relevant organization details are up-to-date locally
@@ -644,6 +754,12 @@ class BillingManager:
 
             should_update_org_billing_quotas = usage_changed or had_quota_limiting_markers
 
+            # Reporting only. It must never stop the org usage below from being saved.
+            try:
+                _report_capped_products_without_limit(organization, data, usage_summary)
+            except Exception as e:
+                capture_exception(e, {"organization_id": organization.id})
+
         available_product_features = data.get("available_product_features", None)
         revoked_feature_keys: set[str] = set()
         events_retention_changed = False
@@ -680,12 +796,7 @@ class BillingManager:
         customer_trust_scores = data.get("customer_trust_scores", {})
 
         if customer_trust_scores:
-            product_key_to_usage_key = {
-                product["type"]: product["usage_key"]
-                for product in (
-                    billing_status["customer"].get("products") or self.get_default_products(organization)["products"]
-                )
-            }
+            product_key_to_usage_key = self._product_key_to_usage_key(data, organization)
             org_customer_trust_scores = {}
             for product_key in customer_trust_scores:
                 if product_key in product_key_to_usage_key:
