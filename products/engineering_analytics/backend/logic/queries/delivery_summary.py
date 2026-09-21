@@ -25,7 +25,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.logic.cost import PRCostAggregate
 from products.engineering_analytics.backend.logic.delivery_scope import CI_LOOKBACK, DeliveryScope, SummaryScope
-from products.engineering_analytics.backend.logic.merge_queue import GATE_RUN_LOOKBACK, gate_attempt_expr
+from products.engineering_analytics.backend.logic.merge_queue import GATE_RUN_LOOKBACK, GateAttempt, gate_attempts_sql
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     DECISIVE_FAILURE_CONCLUSIONS_SQL,
@@ -84,24 +84,6 @@ _PUSHES_SELECT = f"""
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
-_GATE_ATTEMPTS_SELECT = f"""
-    SELECT
-        r.pr_number AS pr_number,
-        __GATE_ATTEMPT__ AS attempt,
-        min(r.run_started_at) AS started_at,
-        max(r.status = 'completed' AND r.conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) AS failed
-    FROM __RUNS_SOURCE__ AS r
-    WHERE r.is_merge_queue AND r.pr_number IN {{pr_numbers}} AND r.run_started_at >= {{gate_from}}
-    GROUP BY pr_number, attempt
-    LIMIT {UNPAGED_SCAN_LIMIT}
-"""
-
-
-@dataclass(frozen=True, kw_only=True)
-class _GateAttempt:
-    started_at: datetime
-    failed: bool
-
 
 @dataclass(frozen=True, kw_only=True)
 class MergedPRFacts:
@@ -113,7 +95,7 @@ class MergedPRFacts:
     ready_to_merge_seconds: int | None
     approved_at: list[datetime]
     pushed_at: list[datetime]
-    gate_attempts: list[_GateAttempt]
+    gate_attempts: list[GateAttempt]
     cost: PRCostAggregate | None
 
     @property
@@ -137,11 +119,6 @@ class MergedPRFacts:
     @property
     def pushes(self) -> int:
         return sum(1 for at in self.pushed_at if at <= self.merged_at)
-
-    @property
-    def landing_gate_attempts(self) -> list[_GateAttempt]:
-        # Bisection probes after the merge are not attempts to land it.
-        return [gate for gate in self.gate_attempts if gate.started_at <= self.merged_at]
 
 
 def quantile(values: list[float], q: float) -> float | None:
@@ -261,15 +238,15 @@ def _pushes_after_approval(facts: list[MergedPRFacts]) -> float | None:
 
 
 def _queue_attempts(facts: list[MergedPRFacts]) -> float | None:
-    counts = [len(f.landing_gate_attempts) for f in facts if f.landing_gate_attempts]
+    counts = [len(f.gate_attempts) for f in facts if f.gate_attempts]
     return statistics.fmean(counts) if counts else None
 
 
 def _failed_queue_share(facts: list[MergedPRFacts]) -> float | None:
-    queued = [f for f in facts if f.landing_gate_attempts]
+    queued = [f for f in facts if f.gate_attempts]
     if not queued:
         return None
-    return sum(1 for f in queued if any(gate.failed for gate in f.landing_gate_attempts)) / len(queued)
+    return sum(1 for f in queued if any(gate.failed for gate in f.gate_attempts)) / len(queued)
 
 
 def scope_repo_figure(
@@ -392,7 +369,7 @@ def _merged_facts(
     *,
     approved_at: list[datetime],
     pushed_at: list[datetime] | None = None,
-    gate_attempts: list[_GateAttempt] | None = None,
+    gate_attempts: list[GateAttempt] | None = None,
     cost: PRCostAggregate | None = None,
 ) -> MergedPRFacts:
     return MergedPRFacts(
@@ -446,9 +423,13 @@ def _query_merged_facts(
 
     gate_from = date_from - GATE_RUN_LOOKBACK
     gates_response = curated.run(
-        _GATE_ATTEMPTS_SELECT.replace("__RUNS_SOURCE__", runs_source).replace(
-            "__GATE_ATTEMPT__", gate_attempt_expr("r.head_branch")
-        ),
+        gate_attempts_sql(
+            runs_source=runs_source,
+            pull_requests_source=curated.pr_source(),
+            pull_request_filter="pr.number IN {pr_numbers} AND pr.merged_at IS NOT NULL",
+            decisive_failure_conclusions_sql=DECISIVE_FAILURE_CONCLUSIONS_SQL,
+        )
+        + f"\nLIMIT {UNPAGED_SCAN_LIMIT}",
         query_type="engineering_analytics.delivery_summary_gate_attempts",
         placeholders={
             "pr_numbers": numbers,
@@ -456,10 +437,17 @@ def _query_merged_facts(
             "run_started_floor": run_started_floor_constant(gate_from),
         },
     )
-    gates: dict[int, list[_GateAttempt]] = defaultdict(list)
-    for number, _attempt, started_at, failed in gates_response.results or []:
+    gates: dict[int, list[GateAttempt]] = defaultdict(list)
+    for number, attempt, started_at, completed_at, unfinished, failed, _merged_at in gates_response.results or []:
         if started_at is not None:
-            gates[int(number)].append(_GateAttempt(started_at=started_at, failed=bool(failed)))
+            gates[int(number)].append(
+                GateAttempt(
+                    started_at=started_at,
+                    completed_at=None if unfinished else completed_at,
+                    attempt=attempt or "",
+                    failed=bool(failed),
+                )
+            )
 
     # A resolved source is one repository's tables, so dropping the owner and name cannot collide two
     # pull requests. The timelines read keeps the full key, because it shows the repository per row.

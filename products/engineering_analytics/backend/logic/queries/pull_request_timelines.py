@@ -23,9 +23,8 @@ from products.engineering_analytics.backend.facade.contracts import (
     RepoRef,
 )
 from products.engineering_analytics.backend.logic.delivery_scope import CI_LOOKBACK, DeliveryScope
-from products.engineering_analytics.backend.logic.merge_queue import gate_attempt_expr
+from products.engineering_analytics.backend.logic.merge_queue import GATE_RUN_LOOKBACK, GateAttempt, gate_attempts_sql
 from products.engineering_analytics.backend.logic.pr_timeline import (
-    GateAttempt,
     MasterFailureIndex,
     PRTimelineBuilder,
     PRTimelineInput,
@@ -43,11 +42,9 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
 )
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_costs
 from products.engineering_analytics.backend.logic.views import issue_events
+from products.engineering_analytics.backend.logic.views.trunk_merge_queue import TRUNK_OUT_OF_QUEUE_STATES
 
 _LIMIT = 200
-
-# Trunk states that mean the entry left the queue without landing.
-_OUT_OF_QUEUE_STATES = frozenset({"failed", "cancelled"})
 
 # A list scope shows what is still open plus what merged in the window; closed-unmerged work is not
 # listed. A single pull request is shown whatever its state.
@@ -87,27 +84,14 @@ _REVIEWS_SELECT = f"""
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
-# Skipped runs add no red or running time, and _GATE_ATTEMPTS_SELECT reads gate runs. Leaving both out
-# keeps this list under UNPAGED_SCAN_LIMIT.
+# Skipped runs add no red or running time, and the shared gate-attempt read handles queue runs. Leaving
+# both out keeps this list under UNPAGED_SCAN_LIMIT.
 _RUNS_SELECT = f"""
     SELECT
         id, pr_number, workflow_name, head_sha, status, conclusion, run_started_at, updated_at, run_attempt, created_at
     FROM __RUNS_SOURCE__ AS r
     WHERE pr_number IN {{pr_numbers}} AND run_started_at >= {{run_from}}
         AND NOT is_merge_queue AND ifNull(conclusion, '') != 'skipped'
-    LIMIT {UNPAGED_SCAN_LIMIT}
-"""
-
-# One row per merge-queue attempt: the queue runs several workflows for each attempt.
-_GATE_ATTEMPTS_SELECT = f"""
-    SELECT
-        pr_number,
-        min(run_started_at) AS started_at,
-        max(updated_at) AS completed_at,
-        countIf(status != 'completed' OR updated_at IS NULL) AS unfinished
-    FROM __RUNS_SOURCE__ AS r
-    WHERE pr_number IN {{pr_numbers}} AND run_started_at >= {{run_from}} AND is_merge_queue
-    GROUP BY pr_number, __GATE_ATTEMPT__
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
@@ -203,7 +187,7 @@ class PullRequestTimelinesQuery:
         ready_at = self._query_ready_at(pr_numbers, run_from)
         reviews = self._query_reviews(pr_numbers)
         attempts = self._query_run_attempts(pr_numbers, run_from)
-        gates = self._query_gate_attempts(pr_numbers, run_from)
+        gates = self._query_gate_attempts(pr_numbers)
         default_branch = next((row[9] for row in prs if row[9]), "")
         master_failures = self._query_master_failures(attempts, default_branch, run_from)
         out_of_queue = self._query_out_of_queue(pr_numbers)
@@ -415,19 +399,33 @@ class PullRequestTimelinesQuery:
             )
         return attempts
 
-    def _query_gate_attempts(self, pr_numbers: list[int], run_from: datetime) -> dict[int, list[GateAttempt]]:
+    def _query_gate_attempts(self, pr_numbers: list[int]) -> dict[int, list[GateAttempt]]:
+        gate_from = self._date_from - GATE_RUN_LOOKBACK
         gates_response = self._curated.run(
-            _GATE_ATTEMPTS_SELECT.replace("__RUNS_SOURCE__", self._curated.run_source(started_floor=True)).replace(
-                "__GATE_ATTEMPT__", gate_attempt_expr("r.head_branch")
-            ),
+            gate_attempts_sql(
+                runs_source=self._curated.run_source(started_floor=True),
+                pull_requests_source=self._curated.pr_source(),
+                pull_request_filter="pr.number IN {pr_numbers}",
+                decisive_failure_conclusions_sql=DECISIVE_FAILURE_CONCLUSIONS_SQL,
+            )
+            + f"\nLIMIT {UNPAGED_SCAN_LIMIT}",
             query_type="engineering_analytics.pull_request_timelines_gate_attempts",
-            placeholders=self._runs_placeholders(pr_numbers, run_from),
+            placeholders={
+                "pr_numbers": ast.Constant(value=pr_numbers),
+                "gate_from": ast.Constant(value=gate_from),
+                "run_started_floor": run_started_floor_constant(gate_from),
+            },
         )
         gates: dict[int, list[GateAttempt]] = defaultdict(list)
-        for number, started_at, completed_at, unfinished in gates_response.results or []:
+        for number, attempt, started_at, completed_at, unfinished, failed, _merged_at in gates_response.results or []:
             if started_at is not None:
                 gates[int(number)].append(
-                    GateAttempt(started_at=started_at, completed_at=None if unfinished else completed_at)
+                    GateAttempt(
+                        started_at=started_at,
+                        completed_at=None if unfinished else completed_at,
+                        attempt=attempt or "",
+                        failed=bool(failed),
+                    )
                 )
         return gates
 
@@ -502,7 +500,7 @@ class PullRequestTimelinesQuery:
             query_type="engineering_analytics.pull_request_timelines_trunk_state",
             placeholders={"pr_numbers": ast.Constant(value=pr_numbers)},
         )
-        return {int(number) for number, state in response.results or [] if state in _OUT_OF_QUEUE_STATES}
+        return {int(number) for number, state in response.results or [] if state in TRUNK_OUT_OF_QUEUE_STATES}
 
 
 def query_pull_request_timelines(
