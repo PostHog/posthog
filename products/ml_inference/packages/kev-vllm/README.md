@@ -61,6 +61,13 @@ uv run kev-vllm-parity compare --base-url http://<gpu box>:8000 --reference ref.
 
 The comparison fails above a 0.02 maximum probability difference, just past Kev's own measured bf16-versus-fp32 gap of 0.017.
 
+`local` runs the exported directory through transformers on this machine instead of a server, which checks the export itself before any GPU is involved. Measured 2026-09-21 for `jaredpalmer/kev-4b` at Hub revision `485ace87`, 32 records from `evals/public-pool-v6/test.jsonl` (one 77-way choice each, median 762 tokens), against Kev's fp32 path on the same Mac:
+
+| Export check                    | Max probability difference | Argmax flips                                         |
+| ------------------------------- | -------------------------- | ---------------------------------------------------- |
+| fp32 weights                    | 0.0043                     | 0                                                    |
+| bf16 weights (what vLLM serves) | 0.0111                     | 1, on a record whose top two options differ by 0.005 |
+
 ## Tests
 
 ```bash
