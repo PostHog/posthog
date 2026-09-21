@@ -172,7 +172,12 @@ export class ImageBatcher {
     private outgoing: ScrubbedRef[] = []
     private outgoingBytes = 0
     private outgoingOffsets = new Map<string, TopicPartitionOffset>()
-    /** Undefined until the first hand-off, so the first batch does not wait a whole interval. */
+    /**
+     * When an interval-driven hand-off last happened. Undefined until the first one, so the first
+     * batch does not wait a whole interval. Capacity hand-offs do not reset it: the batch clock is
+     * read once per batch, so a reset would leave the tail behind a capacity hand-off waiting for a
+     * later batch with its offsets uncommitted.
+     */
     private lastHandOffMs: number | undefined
     /**
      * Writes hand-offs one at a time, in the order the batches retired them.
@@ -303,7 +308,11 @@ export class ImageBatcher {
             // its shards would be written again after the restart. A poisoned lane has nothing left
             // that could store, so its own failure is raised straight away.
             if (error !== this.writeFailure) {
-                await this.drain().catch(() => undefined)
+                // Logged rather than raised, so the batch failure stays the one the process exits on,
+                // and the storage failure behind it is still on record for whoever reads the logs.
+                await this.drain().catch((writeError) =>
+                    logger.error('🔥', 'image_scrub_write_failed_behind_failed_batch', { error: String(writeError) })
+                )
             }
             throw error
         } finally {
@@ -425,7 +434,7 @@ export class ImageBatcher {
             }
             // Only reachable over capacity with work left: hand off to make room rather than spin.
             if (inFlight.size === 0) {
-                await this.handOffOrAbort(controller, nowMs)
+                await this.handOffOrAbort(controller)
                 if (this.partitionsRevoked) {
                     break
                 }
@@ -487,7 +496,7 @@ export class ImageBatcher {
                 spanStart = spanEnd
             }
             if (this.overCapacity(stagedCount, stagedBytes)) {
-                await this.handOffOrAbort(controller, nowMs)
+                await this.handOffOrAbort(controller)
             }
             if (this.partitionsRevoked) {
                 controller.abort()
@@ -507,20 +516,21 @@ export class ImageBatcher {
         if (this.stopping) {
             // Deliberately no tail recordOffsets: past the last retired image nothing was finished,
             // and moving offsets over it here would lose exactly what the wait exists to protect.
-            await this.handOff(nowMs)
+            await this.handOff()
             return
         }
         // A batch whose tail is all skips, or which is nothing but skips, still has to move offsets.
         this.recordOffsets(messages.slice(spanStart))
         if (this.lastHandOffMs === undefined || nowMs - this.lastHandOffMs >= this.options.flushIntervalMs) {
-            await this.handOff(nowMs)
+            this.lastHandOffMs = nowMs
+            await this.handOff()
         }
     }
 
     /** A rejected wait on the lane ends the batch like a failed scrub does: the sidecar must not keep working on results nobody will read. */
-    private async handOffOrAbort(controller: AbortController, nowMs: number): Promise<void> {
+    private async handOffOrAbort(controller: AbortController): Promise<void> {
         try {
-            await this.handOff(nowMs)
+            await this.handOff()
         } catch (error) {
             controller.abort()
             throw error
@@ -532,8 +542,7 @@ export class ImageBatcher {
      * so the scrub of the next batch overlaps the S3 round trips of this one. The wait on the
      * oldest hand-off is the only place a slow S3 reaches the scrub, and it is what bounds memory.
      */
-    private async handOff(nowMs: number): Promise<void> {
-        this.lastHandOffMs = nowMs
+    private async handOff(): Promise<void> {
         if (this.outgoing.length === 0 && this.outgoingOffsets.size === 0) {
             return
         }

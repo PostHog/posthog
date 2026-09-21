@@ -1196,6 +1196,30 @@ describe('ImageBatcher', () => {
         expect(offsets.received.flat().map((offset) => offset.offset)).toEqual([1, 4])
     })
 
+    it('hands off the tail of a batch once the interval has passed, even after a capacity hand-off in the same batch', async () => {
+        // The batch clock is read once per batch, so a capacity hand-off must not reset the interval
+        // or the tail behind it would wait for a later batch and hold its offsets uncommitted.
+        const store = new FakeStore()
+        const offsets = new FakeOffsets()
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, scrubClient, {
+            ...options,
+            flushIntervalMs: 30_000,
+            maxImages: 2,
+            scrubConcurrency: 1,
+        })
+
+        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 0)
+        await batcher.drain()
+        expect(store.writes).toHaveLength(1)
+
+        const late = Array.from({ length: 5 }, (_, i) => msg(0, 1 + i, pt(1), Buffer.from(`late-${i}`)))
+        await batcher.handleBatch(late, 40_000)
+        await batcher.drain()
+
+        expect(store.writes.flat()).toHaveLength(6)
+        expect(offsets.received.at(-1)).toEqual([{ topic: 'session_replay_image_scrub', partition: 0, offset: 6 }])
+    })
+
     it('stop() waits for the write lane, so finished images reach S3 and their offsets are stored', async () => {
         // disconnect() commits whatever offsets are stored when it runs, so a stop that returned
         // before the lane finished would leave the last written images to be scrubbed again.
