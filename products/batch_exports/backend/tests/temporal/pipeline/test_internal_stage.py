@@ -47,6 +47,7 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
 )
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
+from products.batch_exports.backend.tests.temporal.utils.clickhouse import execute_query
 from products.batch_exports.backend.tests.temporal.utils.mock_clickhouse import MockClickHouseClient
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     PersonValues,
@@ -842,40 +843,46 @@ async def test_insert_into_stage_activity_for_persons_model_with_out_of_order_pe
     latest_version_timestamp = data_interval_start + dt.timedelta(seconds=10)
     stale_version_timestamp = data_interval_start + dt.timedelta(seconds=20)
 
-    # one insert per row, so ReplacingMergeTree cannot collapse them into the highest version
-    for version, timestamp in ((2, latest_version_timestamp), (1, stale_version_timestamp)):
-        await insert_person_values_in_clickhouse(
+    # `person` is a ReplacingMergeTree keyed on (team_id, id), so a merge would keep only version 2
+    # and hide the mismatch this test relies on. Hold merges off, and insert each row on its own to
+    # keep the insert-time dedup of `optimize_on_insert` from collapsing them first.
+    await execute_query(clickhouse_client, "SYSTEM STOP MERGES person")
+    try:
+        for version, timestamp in ((2, latest_version_timestamp), (1, stale_version_timestamp)):
+            await insert_person_values_in_clickhouse(
+                client=clickhouse_client,
+                persons=[
+                    PersonValues(
+                        id=str(person_id),
+                        created_at=data_interval_start.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                        team_id=ateam.pk,
+                        properties=test_person_properties,
+                        is_identified=True,
+                        is_deleted=False,
+                        version=version,
+                        _timestamp=timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                    )
+                ],
+            )
+
+        person_distinct_id, _ = await generate_test_person_distinct_id2_in_clickhouse(
             client=clickhouse_client,
-            persons=[
-                PersonValues(
-                    id=str(person_id),
-                    created_at=data_interval_start.strftime("%Y-%m-%d %H:%M:%S.%f"),
-                    team_id=ateam.pk,
-                    properties=test_person_properties,
-                    is_identified=True,
-                    is_deleted=False,
-                    version=version,
-                    _timestamp=timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-                )
-            ],
+            team_id=ateam.pk,
+            person_id=person_id,
+            distinct_id=f"distinct-id-{person_id}",
+            timestamp=latest_version_timestamp,
         )
 
-    person_distinct_id, _ = await generate_test_person_distinct_id2_in_clickhouse(
-        client=clickhouse_client,
-        team_id=ateam.pk,
-        person_id=person_id,
-        distinct_id=f"distinct-id-{person_id}",
-        timestamp=latest_version_timestamp,
-    )
-
-    records_exported = await _run_activity(
-        activity_environment=activity_environment,
-        object_storage_client=object_storage_client,
-        team_id=ateam.pk,
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
-        model=model,
-    )
+        records_exported = await _run_activity(
+            activity_environment=activity_environment,
+            object_storage_client=object_storage_client,
+            team_id=ateam.pk,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            model=model,
+        )
+    finally:
+        await execute_query(clickhouse_client, "SYSTEM START MERGES person")
 
     assert_exported_rows_match_persons_to_export(
         records_exported,
