@@ -184,6 +184,7 @@ export interface maxLogicValues {
     conversation: ConversationDetail | null
     conversationHistoryVisible: boolean
     conversationId: string | null
+    conversationIdsNotFound: Record<string, true>
     conversationLoading: boolean
     fillInHint: string | null
     focusCounter: number
@@ -272,6 +273,9 @@ export interface maxLogicActions {
     }
     loadThread: (conversation: ConversationDetail) => {
         conversation: ConversationDetail
+    }
+    markConversationNotFound: (conversationId: string) => {
+        conversationId: string
     }
     openConversation: (conversationId: string) => {
         conversationId: string
@@ -431,6 +435,7 @@ export const maxLogic = kea<maxLogicType>([
         startNewConversation: true,
         toggleConversationHistory: (visible?: boolean) => ({ visible }),
         loadThread: (conversation: ConversationDetail) => ({ conversation }),
+        markConversationNotFound: (conversationId: string) => ({ conversationId }),
         pollConversation: (
             conversationId: string,
             currentRecursionDepth: number = 0,
@@ -475,6 +480,25 @@ export const maxLogic = kea<maxLogicType>([
                 setConversationId: (_, { conversationId }) => conversationId,
                 startNewConversation: () => null,
                 toggleConversationHistory: (state, { visible }) => (visible ? null : state),
+            },
+        ],
+
+        // Chats the server has answered 404 for. Every history load asks again for a chat it does
+        // not list, so without this the same missing chat is fetched once per load. An id leaves the
+        // set as soon as the chat turns up, which covers the race where a chat is still being made.
+        conversationIdsNotFound: [
+            {} as Record<string, true>,
+            {
+                markConversationNotFound: (state, { conversationId }) => ({ ...state, [conversationId]: true }),
+                prependOrReplaceConversation: (state, { conversation }) => {
+                    if (!(conversation.id in state)) {
+                        return state
+                    }
+                    const rest = { ...state }
+                    delete rest[conversation.id]
+                    return rest
+                },
+                startNewConversation: () => ({}),
             },
         ],
 
@@ -828,7 +852,7 @@ export const maxLogic = kea<maxLogicType>([
          * Polls the conversation status until it's idle or reaches a max recursion depth.
          */
         pollConversation: async ({ conversationId, currentRecursionDepth, leadingTimeout }, breakpoint) => {
-            if (currentRecursionDepth > 10) {
+            if (currentRecursionDepth > 10 || values.conversationIdsNotFound[conversationId]) {
                 return
             }
 
@@ -846,6 +870,7 @@ export const maxLogic = kea<maxLogicType>([
                     // There's also a not-quite-normal case of a race condition: when loadConversationHistory succeeds WHILE
                     // a message is being generated (e.g. because user messaged Max before initial load of conversations completed).
                     // In this case, we especially want to do nothing, so that the normal course of generation isn't interrupted.
+                    actions.markConversationNotFound(conversationId)
                     return
                 }
 

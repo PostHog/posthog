@@ -282,6 +282,44 @@ describe('maxLogic', () => {
         expect(Array.isArray(logic.values.conversationHistory)).toBe(true)
     })
 
+    it('asks only once for a chat the server does not have', async () => {
+        const missingConversationId = 'missing-conversation-id'
+        let requests = 0
+
+        useMocks({
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                '/api/environments/:team_id/conversations/': { results: [] },
+                [`/api/environments/:team_id/conversations/${missingConversationId}`]: () => {
+                    requests += 1
+                    return [404, { detail: 'Not found' }]
+                },
+            },
+        })
+
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+
+        logic.actions.setConversationId(missingConversationId)
+        await expectLogic(logic, () => {
+            logic.actions.pollConversation(missingConversationId, 0, 0)
+        }).toFinishAllListeners()
+
+        expect(requests).toBe(1)
+
+        // Every later history load asks after a chat it does not list, so the missing chat would
+        // otherwise be fetched again on each one.
+        await expectLogic(logic, () => {
+            logic.actions.loadConversationHistory()
+        })
+            .toDispatchActions(['loadConversationHistorySuccess'])
+            .toFinishAllListeners()
+
+        expect(requests).toBe(1)
+    })
+
     it('manages suggestion group selection correctly', async () => {
         logic = maxLogic({ panelId: 'test' })
         logic.mount()
