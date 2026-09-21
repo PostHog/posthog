@@ -5,10 +5,7 @@ export interface DashboardLoadProgressProps {
     total: number
 }
 
-/**
- * Tiles are fetched a few at a time, so a tile that has no slot yet draws the same spinner as a
- * running one. The count beside the grid is the evidence that the dashboard is still filling in.
- */
+/** Tiles are fetched a few at a time, so a tile still waiting for a slot draws the same spinner as a running one. */
 export function DashboardLoadProgress({ completed, total }: DashboardLoadProgressProps): JSX.Element | null {
     if (total < 2) {
         return null
