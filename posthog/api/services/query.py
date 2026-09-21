@@ -63,6 +63,7 @@ from posthog.hogql_queries.query_runner import (
     get_query_runner_or_none,
 )
 from posthog.models import Team, User
+from posthog.redis import get_client
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
@@ -87,6 +88,11 @@ type _EditorAssistOperation = Literal["autocomplete", "metadata"]
 type _MalformedResponseStage = Literal["http_response", "response_mapping"]
 type _CatalogTelemetryStage = Literal["catalog_validation", "catalog_build", "catalog_publish", "service_request"]
 type _CatalogTelemetryReason = Literal["partial_catalog", "language_service_error", "unexpected_error"]
+type _ErrorTrackingReason = _CatalogTelemetryReason | Literal["malformed_response"]
+
+_EDITOR_ASSIST_ERROR_TRACKING_TTL_SECONDS = 300
+_EDITOR_ASSIST_ERROR_TRACKING_REDIS_TIMEOUT_SECONDS = 0.1
+_EDITOR_ASSIST_ERROR_TRACKING_KEY_PREFIX = "hogql:editor-assist:error-tracking:v1"
 
 
 @frozen
@@ -255,9 +261,31 @@ def _route_editor_assist(team: Team, user: User | None, query: HogQLAutocomplete
     return _language_service_call(team, user, query)
 
 
+def _claim_editor_assist_error_tracking(
+    stage: _CatalogTelemetryStage | _MalformedResponseStage, reason: _ErrorTrackingReason
+) -> bool:
+    try:
+        redis_client = get_client(
+            socket_timeout=_EDITOR_ASSIST_ERROR_TRACKING_REDIS_TIMEOUT_SECONDS,
+            socket_connect_timeout=_EDITOR_ASSIST_ERROR_TRACKING_REDIS_TIMEOUT_SECONDS,
+        )
+        return bool(
+            redis_client.set(
+                f"{_EDITOR_ASSIST_ERROR_TRACKING_KEY_PREFIX}:{stage}:{reason}",
+                "1",
+                nx=True,
+                ex=_EDITOR_ASSIST_ERROR_TRACKING_TTL_SECONDS,
+            )
+        )
+    except Exception:
+        return False
+
+
 def _capture_malformed_language_service_response(
     operation: _EditorAssistOperation, stage: _MalformedResponseStage
 ) -> None:
+    if not _claim_editor_assist_error_tracking(stage, "malformed_response"):
+        return
     try:
         with posthoganalytics.new_context(fresh=True, capture_exceptions=False):
             posthoganalytics.set_capture_exception_code_variables_context(False)
@@ -306,6 +334,8 @@ def _capture_catalog_telemetry(
                 schema_table_id=omission.schema_table_id[:256] if omission.schema_table_id is not None else None,
                 resolver_table_id=omission.resolver_table_id[:256] if omission.resolver_table_id is not None else None,
             )
+        if not _claim_editor_assist_error_tracking(event.stage, event.reason):
+            continue
         try:
             with posthoganalytics.new_context(fresh=True, capture_exceptions=False):
                 posthoganalytics.set_capture_exception_code_variables_context(False)

@@ -341,9 +341,11 @@ When one canonical warehouse table does not match the permission-filtered HogQL 
 Canonical names stay reserved after omission, so another alias cannot restore a rejected table spelling.
 An editor query that references an omitted table can report an unknown table until its warehouse metadata is corrected, while unrelated queries continue to use the language service.
 
-Django writes one structured error for each omitted table or alias with its bounded name, tenant scope, and stable rejection reason.
+Django writes one structured error for each omitted table or alias in each catalog build with its bounded name, tenant scope, and stable rejection reason.
 ID mismatches also include the bounded serialized and resolver table IDs.
 It sends one aggregate Error Tracking event without table names, alias names, SQL, columns, catalog contents, raw responses, or exception messages.
+Error Tracking accepts at most one event for each stable stage and reason in a five-minute window across all editor operations, teams, users, and web workers that share Redis.
+If Redis cannot apply the throttle, Django suppresses the Error Tracking event to avoid a flood; structured errors and Prometheus response counters continue normally.
 Global permission, schema, or property collection failures do not publish a partial catalog.
 Recoverable catalog-build, publication, and language-service request failures use the Python editor path and the same sanitized Error Tracking path.
 Ordinary catalog misses, legacy refreshes, and Redis lock contention are not errors.
