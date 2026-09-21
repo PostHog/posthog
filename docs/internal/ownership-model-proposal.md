@@ -90,9 +90,9 @@ status: active
 # ancestor owners.yaml. false = Gerrit's `set noparent`.
 inherit: true
 
-# Per-path overrides inside this directory, evaluated last-match-wins
-# *within this file only*. owners, status, and inherit can be overridden
-# per rule. `match` is one glob or a list of globs (each is its own
+# Per-path overrides inside this directory, *within this file only*.
+# Every matching rule applies in order, and each replaces only the fields
+# it sets: owners, status, or inherit. `match` is one glob or a list of globs (each is its own
 # boundary — the list is just shorthand for repeating owners/status).
 rules:
   - match: 'generated/**'
