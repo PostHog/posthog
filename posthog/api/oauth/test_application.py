@@ -103,8 +103,8 @@ class TestOrganizationOAuthApplicationViewSet(APIBaseTest):
 
     def test_list_pages_stay_stable_when_created_timestamps_tie(self):
         app_ids = [UUID(f"0190a000-0000-7000-8000-00000000000{index}") for index in range(1, 5)]
-        for index, app_id in enumerate(app_ids):
-            self._create_app(self.organization, name=f"App {index}", id=app_id)
+        for app_id in app_ids:
+            self._create_app(self.organization, id=app_id)
         OAuthApplication.objects.filter(id__in=app_ids).update(created=now())
 
         paged_ids = []
