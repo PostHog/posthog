@@ -304,12 +304,6 @@ database "posthog" {
     column "trace_flags_arr" {
       type = "SimpleAggregateFunction(groupArrayArray, Array(Int32))"
     }
-    column "_partition_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(UInt32))"
-    }
-    column "_offset_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(UInt64))"
-    }
     engine "distributed" {
       cluster_name    = "logs"
       remote_database = "posthog"
@@ -798,9 +792,7 @@ SELECT
   groupArray(histogram_counts) AS histogram_counts_arr,
   groupArray(trace_id) AS trace_id_arr,
   groupArray(span_id) AS span_id_arr,
-  groupArray(trace_flags) AS trace_flags_arr,
-  groupArray(_partition) AS _partition_arr,
-  groupArray(_offset) AS _offset_arr
+  groupArray(trace_flags) AS trace_flags_arr
 FROM posthog.metrics4_input
 GROUP BY
   team_id, metric_name, time_bucket, series_fingerprint, original_expiry_date, source_partition, source_offset_bucket
@@ -880,12 +872,6 @@ SQL
     }
     column "trace_flags_arr" {
       type = "Array(Int32)"
-    }
-    column "_partition_arr" {
-      type = "Array(UInt32)"
-    }
-    column "_offset_arr" {
-      type = "Array(UInt64)"
     }
   }
 

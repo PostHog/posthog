@@ -661,8 +661,6 @@ CREATE TABLE posthog.metrics4_samples (
   trace_id_arr SimpleAggregateFunction(groupArrayArray, Array(String)),
   span_id_arr SimpleAggregateFunction(groupArrayArray, Array(String)),
   trace_flags_arr SimpleAggregateFunction(groupArrayArray, Array(Int32)),
-  _partition_arr SimpleAggregateFunction(groupArrayArray, Array(UInt32)),
-  _offset_arr SimpleAggregateFunction(groupArrayArray, Array(UInt64)) CODEC(Delta(8), Default),
   INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
   INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
   INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1

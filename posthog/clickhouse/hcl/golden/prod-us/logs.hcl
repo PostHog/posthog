@@ -2294,13 +2294,6 @@ SQL
     column "trace_flags_arr" {
       type = "SimpleAggregateFunction(groupArrayArray, Array(Int32))"
     }
-    column "_partition_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(UInt32))"
-    }
-    column "_offset_arr" {
-      type  = "SimpleAggregateFunction(groupArrayArray, Array(UInt64))"
-      codec = "Delta(8), Default"
-    }
     index "idx_metric_type_set" {
       expr        = "metric_type"
       type        = "set(10)"

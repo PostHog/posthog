@@ -60,8 +60,6 @@ METRICS4_POINT_ARRAY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("trace_id", "String"),
     ("span_id", "String"),
     ("trace_flags", "Int32"),
-    ("_partition", "UInt32"),
-    ("_offset", "UInt64"),
 )
 
 # Each codec processes the continuous element stream of an array.
@@ -73,7 +71,6 @@ _ARRAY_CODECS: dict[str, str] = {
     "value": " CODEC(Gorilla, Default)",
     "count": " CODEC(T64, Default)",
     "histogram_counts": " CODEC(T64, Default)",
-    "_offset": " CODEC(Delta, Default)",
 }
 
 

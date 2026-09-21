@@ -5152,9 +5152,7 @@
       groupArray(histogram_counts) AS histogram_counts_arr,
       groupArray(trace_id) AS trace_id_arr,
       groupArray(span_id) AS span_id_arr,
-      groupArray(trace_flags) AS trace_flags_arr,
-      groupArray(_partition) AS _partition_arr,
-      groupArray(_offset) AS _offset_arr
+      groupArray(trace_flags) AS trace_flags_arr
   FROM posthog_test.metrics4_input
   GROUP BY
       team_id,
@@ -5239,8 +5237,6 @@
       `trace_id_arr` SimpleAggregateFunction(groupArrayArray, Array(String)),
       `span_id_arr` SimpleAggregateFunction(groupArrayArray, Array(String)),
       `trace_flags_arr` SimpleAggregateFunction(groupArrayArray, Array(Int32)),
-      `_partition_arr` SimpleAggregateFunction(groupArrayArray, Array(UInt32)),
-      `_offset_arr` SimpleAggregateFunction(groupArrayArray, Array(UInt64)) CODEC(Delta, Default),
       INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
       INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
       INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1
@@ -10610,9 +10606,7 @@
       `histogram_counts_arr` SimpleAggregateFunction(groupArrayArray, Array(Array(UInt64))),
       `trace_id_arr` SimpleAggregateFunction(groupArrayArray, Array(String)),
       `span_id_arr` SimpleAggregateFunction(groupArrayArray, Array(String)),
-      `trace_flags_arr` SimpleAggregateFunction(groupArrayArray, Array(Int32)),
-      `_partition_arr` SimpleAggregateFunction(groupArrayArray, Array(UInt32)),
-      `_offset_arr` SimpleAggregateFunction(groupArrayArray, Array(UInt64))
+      `trace_flags_arr` SimpleAggregateFunction(groupArrayArray, Array(Int32))
   )
   ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'metrics4_samples')
   
@@ -12579,8 +12573,6 @@
       `trace_id_arr` SimpleAggregateFunction(groupArrayArray, Array(String)),
       `span_id_arr` SimpleAggregateFunction(groupArrayArray, Array(String)),
       `trace_flags_arr` SimpleAggregateFunction(groupArrayArray, Array(Int32)),
-      `_partition_arr` SimpleAggregateFunction(groupArrayArray, Array(UInt32)),
-      `_offset_arr` SimpleAggregateFunction(groupArrayArray, Array(UInt64)) CODEC(Delta, Default),
       INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
       INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
       INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1
