@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     NON_RETRYABLE_ERROR_RETRY_LIMIT,
     _get_redis,
+    advance_source_incremental_cursor,
     handle_corrupted_delta_log,
     handle_non_retryable_error,
     handle_reset_or_full_refresh,
@@ -144,6 +145,63 @@ class TestPersistPrimaryKeys:
             await persist_primary_keys(schema, resource, True, logger)
 
         logger.aexception.assert_awaited_once()
+
+
+class TestAdvanceSourceIncrementalCursor:
+    @parameterized.expand(
+        [
+            # A source whose cursor is a log position reports it here, and a completed run stores it
+            # even though no row carries a value that high.
+            ("stores_the_reported_cursor", True, 9000, None, 9000, None),
+            # v3 stages the value so a failed load cannot leave the watermark ahead of the data.
+            ("stages_when_the_run_stages", True, 9000, "run-1", None, 9000),
+            # A run that produced no cursor leaves the row-derived watermark in place.
+            ("no_cursor_writes_nothing", True, None, None, None, None),
+            # A full-refresh schema has no watermark to advance.
+            ("full_refresh_writes_nothing", False, 9000, None, None, None),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_persists_only_a_reported_cursor(
+        self,
+        _name: str,
+        should_use_incremental_field: bool,
+        reported_cursor: int | None,
+        staging_run_uuid: str | None,
+        expected_update: int | None,
+        expected_staged: int | None,
+    ):
+        schema = MagicMock(should_use_incremental_field=should_use_incremental_field)
+        resource = MagicMock(incremental_field_last_value_provider=lambda: reported_cursor)
+
+        def fake_pool(fn):
+            async def _call(*args, **kwargs):
+                return fn(*args, **kwargs)
+
+            return _call
+
+        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", fake_pool):
+            await advance_source_incremental_cursor(resource, schema, AsyncMock(), staging_run_uuid=staging_run_uuid)
+
+        if expected_update is None:
+            schema.update_incremental_field_value.assert_not_called()
+        else:
+            schema.update_incremental_field_value.assert_called_once_with(expected_update)
+
+        if expected_staged is None:
+            schema.stage_incremental_field_value.assert_not_called()
+        else:
+            schema.stage_incremental_field_value.assert_called_once_with(staging_run_uuid, expected_staged)
+
+    @pytest.mark.asyncio
+    async def test_source_without_a_provider_writes_nothing(self):
+        schema = MagicMock(should_use_incremental_field=True)
+        resource = MagicMock(incremental_field_last_value_provider=None)
+
+        await advance_source_incremental_cursor(resource, schema, AsyncMock())
+
+        schema.update_incremental_field_value.assert_not_called()
+        schema.stage_incremental_field_value.assert_not_called()
 
 
 class TestTrimSourceJobInputs:
