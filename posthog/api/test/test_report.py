@@ -212,6 +212,22 @@ class TestCspReport(BaseTest):
                     }
                 ],
             ),
+            # Not a shape browsers send, but the endpoint accepts it, so it must not store URLs verbatim.
+            (
+                "violation_report_to_with_top_level_fields",
+                "application/reports+json",
+                lambda url: [
+                    {
+                        "type": "csp-violation",
+                        "url": url,
+                        "document-uri": url,
+                        "referrer": url,
+                        "blocked-uri": url,
+                        "source-file": url,
+                        "effective-directive": "img-src",
+                    }
+                ],
+            ),
             (
                 "violation_report_uri",
                 "application/csp-report",
