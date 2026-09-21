@@ -250,8 +250,7 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         with time_machine.travel(opened_at + timedelta(days=7), tick=False):
             close_sandbox_session("sb-stale", reason=SandboxSession.EndedReason.CLEANUP)
 
-        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "sandbox_session_closed"]
-        props = captured[0].kwargs["properties"]
+        props = self._closed_event_properties(mock_capture)
         assert props["sandbox_backend"] == sandbox_backend
         assert props["attributed_seconds"] == expected_seconds
         assert props["runtime_seconds"] == expected_seconds
