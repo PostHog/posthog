@@ -1071,7 +1071,7 @@ def validate_test_account_filters(value: object) -> list[dict[str, object]]:
     filters = cast(list[dict[str, object]], value)
 
     for property_filter in filters:
-        if not isinstance(property_filter, dict) or property_filter.get("type") != "hogql":
+        if property_filter.get("type") != "hogql":
             continue
         key = property_filter.get("key")
         if not isinstance(key, str):
