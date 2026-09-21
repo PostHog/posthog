@@ -100,7 +100,7 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.3.0",
     "protobuf~=6.31.1",
-    "posthoganalytics==7.54.1",
+    "posthoganalytics==7.58.0",
     "polars==1.37.1",
     "psycopg2-binary==2.9.11",
     "psycopg[binary]==3.2.10",
@@ -241,7 +241,7 @@ dev = [
     "ipython~=9.3.0",
     "mypy~=2.1.0",
     "mypy-extensions~=1.1.0",
-    "ty==0.0.74",
+    "ty==0.0.80",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
     "orjson==3.11.9",
@@ -708,6 +708,7 @@ ignore_imports = [
     "products.experiments.backend.presentation.serializers -> products.experiments.backend.session_buckets",
     "products.experiments.backend.presentation.serializers -> products.experiments.backend.session_context",
     "products.experiments.backend.presentation.serializers -> products.experiments.backend.session_event_deltas",
+    "products.experiments.backend.presentation.serializers -> products.experiments.backend.setup_context",
     "products.experiments.backend.presentation.serializers -> products.feature_flags.backend.api.feature_flag",
     "products.experiments.backend.presentation.serializers -> products.feature_flags.backend.models.feature_flag",
     "products.experiments.backend.presentation.views -> products.approvals.backend.mixins",
@@ -719,6 +720,7 @@ ignore_imports = [
     "products.experiments.backend.presentation.views -> products.experiments.backend.session_buckets",
     "products.experiments.backend.presentation.views -> products.experiments.backend.session_context",
     "products.experiments.backend.presentation.views -> products.experiments.backend.session_event_deltas",
+    "products.experiments.backend.presentation.views -> products.experiments.backend.setup_context",
     "products.experiments.backend.presentation.views -> products.experiments.backend.temporal.models",
     "products.experiments.backend.presentation.views -> products.feature_flags.backend.models.evaluation_context",
     "products.experiments.backend.presentation.views -> products.feature_flags.backend.models.feature_flag",
@@ -877,6 +879,10 @@ too-many-positional-arguments = "ignore"  # Django metaprogramming signatures
 redundant-cast = "ignore"  # casts needed by mypy that ty resolves
 unused-type-ignore-comment = "ignore"  # type: ignore comments required by mypy
 unused-ignore-comment = "error"  # default is warn, which does not fail CI; error keeps stale ty: ignore directives out
+
+# Flags guards on stub and TypedDict types that runtime data does not honor
+# (billing JSON, posthoganalytics.api_key, untyped access-control callers)
+redundant-condition = "ignore"
 
 # Django lazy imports and settings indirection
 possibly-missing-submodule = "ignore"
