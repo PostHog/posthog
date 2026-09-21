@@ -170,6 +170,10 @@ def delete_holdout_and_clear_flags(holdout: ExperimentHoldout, *, user: Any, req
 
 @extend_schema(extensions={"x-swagger-tag": "experiment_holdouts", "x-product": "experiments"})
 class ExperimentHoldoutViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """
+    Create, read, update and delete experiment holdouts.
+    """
+
     # Deliberately NOT an AccessControlViewSetMixin: holdouts are shared project config that
     # inherit experiment access, with no per-holdout grants. Exposing `/{id}/access_controls`
     # would let an object-level holdout grant bypass resource-level experiment access.
