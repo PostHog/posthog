@@ -1,5 +1,6 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 
 import { UUIDT } from '~/common/utils/utils'
 
@@ -16,6 +17,17 @@ import {
 } from '../types'
 import { HogFunctionType } from '../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from './hog-function-filtering'
+
+/**
+ * The inputs step of the dead-letter pipeline, which until now only existed as an app metric in
+ * ClickHouse. A record is parked per event, so read this next to cdp_hog_function_filter_error to
+ * see which step fills the queue.
+ */
+const hogFunctionInputsErrors = new Counter({
+    name: 'cdp_hog_function_inputs_error',
+    help: 'Building the inputs for an invocation threw, so no invocation was created',
+    labelNames: ['type'],
+})
 
 export function createInvocation(
     globals: HogFunctionInvocationGlobalsWithInputs,
@@ -105,6 +117,8 @@ export async function buildHogFunctionInvocations(
                 level: 'error',
                 message: `Error building inputs for event ${triggerGlobals.event.uuid}: ${error.message}`,
             })
+
+            hogFunctionInputsErrors.inc({ type: hogFunction.type })
 
             metrics.push({
                 team_id: hogFunction.team_id,

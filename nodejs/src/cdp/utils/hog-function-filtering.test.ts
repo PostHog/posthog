@@ -1,3 +1,5 @@
+import { register } from 'prom-client'
+
 import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent } from '../../types'
 import { HogFunctionFilterGlobals, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import {
@@ -237,6 +239,36 @@ describe('hog-function-filtering', () => {
             expect(result.elements_chain_texts).toEqual(['Click me'])
             expect(result.elements_chain_ids).toEqual(['button1'])
             expect(result.elements_chain_elements).toEqual(['a', 'button'])
+        })
+    })
+
+    describe('Filter error reasons', () => {
+        const errorCount = async (reason: string): Promise<number> => {
+            const metric = await register.getSingleMetric('cdp_hog_function_filter_error')?.get()
+            const sample = metric?.values.find((value) => value.labels.reason === reason)
+            return sample?.value ?? 0
+        }
+
+        // The label is the whole point of the counter: a destination that never compiled breaks
+        // every event and floods the dead-letter queue on its own, while a VM error breaks the
+        // events whose shape the filter cannot handle. Without the label both read as one number.
+        it.each([
+            ['not_compiled', { bytecode_error: 'Cohort membership cannot be evaluated' }],
+            ['no_bytecode', {}],
+            // filter_test_accounts keeps the bytecode-only shortcut from returning before the VM runs.
+            ['vm_error', { bytecode: ['_H', 1, 999], filter_test_accounts: true }],
+        ])('reports %s', async (reason, filters) => {
+            const before = await errorCount(reason)
+
+            const result = await filterFunctionInstrumented({
+                caller: 'build_hog_function_invocations',
+                fn: { id: 'test-function', team_id: 1, name: 'Test Function' } as unknown as HogFunctionType,
+                filters: filters as HogFunctionType['filters'],
+                filterGlobals: { event: '$pageview' } as HogFunctionFilterGlobals,
+            })
+
+            expect(result.error).not.toBeUndefined()
+            expect(await errorCount(reason)).toBe(before + 1)
         })
     })
 
