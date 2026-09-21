@@ -82,6 +82,32 @@ def is_context_window_error_message(message: str) -> bool:
     return any(marker in lowered for marker in _CONTEXT_WINDOW_ERROR_MARKERS)
 
 
+class OutputTokenLimitError(LLMError):
+    """Raised when the model stopped because it hit its output token limit.
+
+    The other side of `ContextWindowExceededError`: the prompt fitted, the reply did not. Providers
+    report it in two shapes — a 400 whose text names the output limit, and a successful response
+    whose finish reason is `length` (the OpenAI SDK raises `LengthFinishReasonError` for it, and a
+    truncated structured reply is invalid JSON). Both mean the same thing, so both map here: one
+    error type with one message keeps the fingerprint stable instead of filing a new error tracking
+    issue every time a provider rewords the sentence.
+    """
+
+
+_OUTPUT_LIMIT_ERROR_MARKERS = (
+    "model output limit",
+    "output limit was reached",
+    "higher max_tokens",
+    "max_output_tokens",
+    "maximum allowed number of output tokens",
+)
+
+
+def is_output_limit_error_message(message: str) -> bool:
+    lowered = message.lower()
+    return any(marker in lowered for marker in _OUTPUT_LIMIT_ERROR_MARKERS)
+
+
 class ModelPermissionError(LLMError):
     """Raised when the API key doesn't have permission to access a model"""
 
@@ -141,6 +167,8 @@ def user_facing_error_message(error: Exception | None) -> str:
         return "The provider is rate limiting this key. Wait a moment, then try again."
     if isinstance(error, ContextWindowExceededError):
         return "This conversation is too long for the model's context window. Shorten it, then try again."
+    if isinstance(error, OutputTokenLimitError):
+        return "The model ran out of room before it finished its reply. Ask for a shorter answer, then try again."
     if isinstance(error, ProviderConnectionError):
         return "Could not reach the model provider. Try again."
     if isinstance(error, StructuredOutputParseError):

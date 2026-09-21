@@ -14,6 +14,7 @@ from pydantic import BaseModel, ValidationError, model_validator
 
 from products.ai_observability.backend.llm.errors import (
     ContextWindowExceededError,
+    OutputTokenLimitError,
     QuotaExceededError,
     StructuredOutputParseError,
 )
@@ -203,15 +204,39 @@ class TestOpenAIAdapterErrorMapping:
             with pytest.raises(ContextWindowExceededError):
                 adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
 
+    def test_structured_output_parse_errors_map_to_parse_error(self) -> None:
+        adapter = OpenAIAdapter()
+        mock_client = MagicMock()
+        mock_client.beta.chat.completions.parse.side_effect = _cross_field_error()
+        request = CompletionRequest(
+            model="gpt-5-mini",
+            system="s",
+            messages=[{"role": "user", "content": "x"}],
+            provider="openai",
+            response_format=_Verdict,
+        )
+
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            with pytest.raises(StructuredOutputParseError):
+                adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
+
     @parameterized.expand(
         [
             ("length_finish_reason", _length_finish_reason_error),
-            ("cross_field_validator", _cross_field_error),
+            (
+                "output_limit_400",
+                lambda: _make_bad_request_error(
+                    "Error code: 400 - {'error': {'message': 'Could not finish the message because max_tokens "
+                    "or model output limit was reached. Please try again with higher max_tokens.'}}"
+                ),
+            ),
         ]
     )
-    def test_structured_output_parse_errors_map_to_parse_error(
+    def test_output_limit_failures_map_to_output_token_limit(
         self, _name: str, make_error: Callable[[], Exception]
     ) -> None:
+        # Both shapes are one condition — the reply did not fit. One error type keeps them in one
+        # error tracking issue instead of one per provider wording.
         adapter = OpenAIAdapter()
         mock_client = MagicMock()
         mock_client.beta.chat.completions.parse.side_effect = make_error()
@@ -224,7 +249,7 @@ class TestOpenAIAdapterErrorMapping:
         )
 
         with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
-            with pytest.raises(StructuredOutputParseError):
+            with pytest.raises(OutputTokenLimitError):
                 adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
 
 
