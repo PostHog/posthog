@@ -1,8 +1,8 @@
 # This pull_request_target workflow runs from the base revision. It must never check out
 # or execute pull request code because it holds credentials that write GitHub checks and
 # pull request comments. The Backend CI workflow supplies report data through artifacts.
-# Scope DEPOT_CI_MIGRATIONS_TOKEN and GH_APP_POSTHOG_TESTS_* to PostHog/posthog, master,
-# and ci-backend-report.yml. Do not configure broader fallback secrets.
+# Scope DEPOT_CI_BACKEND_TRUSTED_TOKEN and GH_APP_POSTHOG_TESTS_* to PostHog/posthog,
+# master, and this trusted workflow. Do not configure broader fallback secrets.
 name: Backend CI Depot migration reports
 
 on:
@@ -133,7 +133,7 @@ jobs:
               if: steps.source.outputs.workflow_id != ''
               id: artifacts
               env:
-                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_MIGRATIONS_TOKEN }}
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_BACKEND_TRUSTED_TOKEN }}
                   WORKFLOW_ID: ${{ steps.source.outputs.workflow_id }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
                   REPO: ${{ github.repository }}
@@ -141,7 +141,7 @@ jobs:
               run: |
                   set -euo pipefail
                   if [ -z "$DEPOT_TOKEN" ]; then
-                      echo "::error::DEPOT_CI_MIGRATIONS_TOKEN is not configured for this trusted workflow"
+                      echo "::error::DEPOT_CI_BACKEND_TRUSTED_TOKEN is not configured for this trusted workflow"
                       exit 1
                   fi
 
