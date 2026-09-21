@@ -78,6 +78,7 @@ from posthog.clickhouse.preaggregation.experiment_metric_events_sql import (
     DISTRIBUTED_EXPERIMENT_METRIC_EVENTS_TABLE_SQL,
     SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE_SQL,
 )
+from posthog.clickhouse.preaggregation.hourly_uniq_sql import HOURLY_UNIQ_TABLE_SQL, SHARDED_HOURLY_UNIQ_TABLE_SQL
 from posthog.clickhouse.preaggregation.marketing_conversions_sql import (
     DISTRIBUTED_MARKETING_CONVERSIONS_TABLE_SQL,
     SHARDED_MARKETING_CONVERSIONS_TABLE_SQL,
@@ -386,6 +387,7 @@ from products.event_definitions.backend.models.property_definition import PROPER
 # Queries to create tables, you must pass function, otherwise the table is created before
 # objects are mocked and the ambr will go into infinite loop update.
 CREATE_MERGETREE_TABLE_QUERIES = (
+    SHARDED_HOURLY_UNIQ_TABLE_SQL,
     PERSON_PROPERTY_MUTATION_LOG_DATA_TABLE_SQL,
     LOG_ENTRIES_TABLE_SQL,
     CREATE_COHORTPEOPLE_TABLE_SQL,
@@ -477,6 +479,7 @@ CREATE_MERGETREE_TABLE_QUERIES = (
     DMAT_SLOT_ASSIGNMENTS_TABLE_SQL,
 )
 CREATE_DISTRIBUTED_TABLE_QUERIES = (
+    HOURLY_UNIQ_TABLE_SQL,
     PERSON_PROPERTY_MUTATION_LOG_TABLE_SQL,
     WRITABLE_EVENTS_TABLE_SQL,
     DISTRIBUTED_EVENTS_TABLE_SQL,
