@@ -3703,6 +3703,16 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [long_session],
         )
 
+        # A string literal that reads like a property reference must not send the same filter
+        # back to WHERE.
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"type":"hogql","key":"console_error_count > 0 '
+                "and first_url not ilike '%properties.internal%'\"}]"
+            },
+            [long_session],
+        )
+
     def test_filter_for_recordings_by_visited_page(self):
         user = "test_visited_page_filter-user"
         create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})

@@ -140,10 +140,6 @@ def is_aggregated_listing_hogql_property(p: AnyPropertyFilter) -> bool:
 
     if getattr(p, "type", None) != "hogql":
         return False
-    # An expression over event or person properties is answered by a sub-query, not by the listing's
-    # own columns, so it keeps its existing route.
-    if is_event_property(p) or is_person_property(p) or is_session_property(p):
-        return False
 
     try:
         expr = parse_expr(getattr(p, "key", "") or "")
@@ -151,10 +147,18 @@ def is_aggregated_listing_hogql_property(p: AnyPropertyFilter) -> bool:
         # An unparseable expression fails later with its own message, which is clearer than this one.
         return False
 
-    return any(
-        len(field.chain) == 1 and field.chain[0] in AGGREGATED_LISTING_COLUMNS
-        for field in GetFieldsTraverser(expr).fields
-    )
+    reads_aggregate = False
+    for field in GetFieldsTraverser(expr).fields:
+        root = field.chain[0]
+        # An expression over event, person or session properties is answered by a sub-query, not by
+        # the listing's own columns, so it keeps its existing route. The roots come from the parsed
+        # expression, so a string literal that reads like a property reference does not count.
+        if root in ("properties", "person", "session"):
+            return False
+        if len(field.chain) == 1 and root in AGGREGATED_LISTING_COLUMNS:
+            reads_aggregate = True
+
+    return reads_aggregate
 
 
 def expand_test_account_filters(team: Team) -> list[AnyPropertyFilter]:
