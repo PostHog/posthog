@@ -30,10 +30,24 @@ export function ChartEmptyState({
     retryDisabledReason,
 }: ChartEmptyStateProps): JSX.Element | null {
     /**
-     * early return if experiment has not started
+     * two neutral waits rather than failures: the experiment has not started, or it has but
+     * nobody has been exposed to the baseline variant yet, which is how every experiment starts
      */
-    if (!experimentStarted) {
-        return <WaitingState>Waiting for experiment to start&hellip;</WaitingState>
+    const waitingFor = !experimentStarted
+        ? 'Waiting for experiment to start'
+        : isNoExposuresError(error)
+          ? 'Waiting for exposures'
+          : null
+
+    if (waitingFor) {
+        return (
+            <div className="flex items-center justify-center text-secondary cursor-default text-[12px] font-normal">
+                <LemonTag size="small" className="mr-2">
+                    <IconClock fontSize="1em" />
+                </LemonTag>
+                <span>{waitingFor}&hellip;</span>
+            </div>
+        )
     }
 
     /**
@@ -41,14 +55,6 @@ export function ChartEmptyState({
      */
     if (!error) {
         return null
-    }
-
-    /**
-     * the experiment is running but nobody has been exposed to the baseline variant yet, which is
-     * how every experiment starts out, so wait rather than report a failure the user must act on
-     */
-    if (isNoExposuresError(error)) {
-        return <WaitingState>Waiting for exposures&hellip;</WaitingState>
     }
 
     const isLegacyMetric = isLegacyExperimentQuery(metric)
@@ -83,17 +89,6 @@ export function ChartEmptyState({
                     height={height}
                 />
             )}
-        </div>
-    )
-}
-
-function WaitingState({ children }: { children: React.ReactNode }): JSX.Element {
-    return (
-        <div className="flex items-center justify-center text-secondary cursor-default text-[12px] font-normal">
-            <LemonTag size="small" className="mr-2">
-                <IconClock fontSize="1em" />
-            </LemonTag>
-            <span>{children}</span>
         </div>
     )
 }
