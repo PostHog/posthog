@@ -24,6 +24,16 @@ describe('renderEmailPreview', () => {
             'Hi {{\n person.properties.nickname \n}}',
             'Hi {{\n person.properties.nickname \n}}',
         ],
+        [
+            'leaves a tag the template already marked raw alone',
+            'Hi {% raw %}{{ person.properties.nickname }}{% endraw %}',
+            'Hi {{ person.properties.nickname }}',
+        ],
+        [
+            'reads a filter argument containing the closing braces as part of the expression',
+            'Hi {{ person.properties.nickname | default: "}}" }}',
+            'Hi }}',
+        ],
     ])('%s', (_name, template, expected) => {
         expect(renderEmailPreview(template, person)).toBe(expected)
     })
