@@ -24,8 +24,10 @@ export interface WorkflowTreeBranch {
 
 // A wait can run without a timeout, and the duration field keeps a unit-only value such as "m"
 // while its number input is empty. Neither names a window, so accept only the complete duration
-// that the step schema accepts.
-const COMPLETE_DURATION_PATTERN = /^(\d*\.?\d+)([dhms])$/
+// that the step schema accepts. The alternation is the grammar the API and the worker already
+// share: it keeps each digit run owned by one quantifier, where `\d*\.?\d+` lets both claim the
+// same digits and backtracks quadratically on a long stored value that never matches.
+const COMPLETE_DURATION_PATTERN = /^([0-9]+(?:\.[0-9]+)?|\.[0-9]+)([dhms])$/
 
 // The executor holds a wait to the ceiling of its unit, and the API stores a larger amount
 // unchanged. Use the same ceilings here so the label names the window the wait really honors.
