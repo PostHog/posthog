@@ -1,5 +1,6 @@
 # These tables store hourly data from metrics4_input.
 # metrics4_samples stores each sample field in a parallel array.
+# Kafka offset ranges limit each stored sample row to 1,000 source records.
 # The other tables store series, name, and attribute data.
 # posthog/clickhouse/metrics/metrics4.py defines the source schema.
 database "posthog" {
@@ -93,7 +94,7 @@ database "posthog" {
   }
 
   table "metrics4_samples" {
-    order_by     = ["team_id", "metric_name", "time_bucket", "series_fingerprint"]
+    order_by     = ["team_id", "metric_name", "time_bucket", "series_fingerprint", "source_partition", "source_offset_bucket"]
     partition_by = "original_expiry_date"
     ttl          = "original_expiry_date"
     settings = {
@@ -115,6 +116,12 @@ database "posthog" {
     }
     column "original_expiry_date" {
       type = "Date32"
+    }
+    column "source_partition" {
+      type = "UInt32"
+    }
+    column "source_offset_bucket" {
+      type = "UInt64"
     }
     column "resource_fingerprint" {
       type = "SimpleAggregateFunction(any, UInt64)"

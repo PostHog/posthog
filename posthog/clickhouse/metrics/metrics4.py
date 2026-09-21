@@ -1,10 +1,12 @@
 """Define the metrics4 tables and their materialized views.
 
-`metrics4_samples` groups points by series, hour, and expiry date. It stores each
-point field in a parallel array. Readers use `groupArrayArray` to combine partial
-rows. The PromQL bridge already builds this shape from `metrics2` with
-`groupArray`. Readers must sort points because the table does not sort the arrays
-by time.
+`metrics4_samples` groups points by series, hour, expiry date, Kafka partition,
+and Kafka offset range. Each offset range contains 1,000 source records. This
+chunk key limits the size of a row during background merges. The table stores
+each point field in a parallel array. Readers use `groupArrayArray` to combine
+partial rows. The PromQL bridge already builds this shape from `metrics2` with
+`groupArray`. Readers must sort points because the table does not sort the
+arrays by time.
 
 `metrics4_series` stores one label row for each series and hour in each expiry
 partition after a merge. This structure records when a series was active.
@@ -46,6 +48,7 @@ WRITABLE_METRICS4_SAMPLES_TABLE_NAME = "writable_metrics4_samples"
 WRITABLE_METRICS4_SERIES_TABLE_NAME = "writable_metrics4_series"
 WRITABLE_METRICS4_NAMES_TABLE_NAME = "writable_metrics4_names"
 WRITABLE_METRICS4_ATTRIBUTES_TABLE_NAME = "writable_metrics4_attributes"
+METRICS4_SAMPLES_PER_CHUNK = 1_000
 
 # Each tuple gives an input column and the element type for its metrics4 array.
 METRICS4_POINT_ARRAY_COLUMNS: tuple[tuple[str, str], ...] = (
@@ -122,6 +125,8 @@ def WRITABLE_METRICS4_SAMPLES_TABLE_SQL() -> str:
     `time_bucket` DateTime,
     `series_fingerprint` UInt64,
     `original_expiry_date` Date32,
+    `source_partition` UInt32,
+    `source_offset_bucket` UInt64,
     `resource_fingerprint` SimpleAggregateFunction(any, UInt64),
     `service_name` SimpleAggregateFunction(any, LowCardinality(String)),
     `metric_type` SimpleAggregateFunction(any, LowCardinality(String)),
@@ -191,7 +196,7 @@ def METRICS4_SAMPLES_TABLE_SQL() -> str:
         f"    `{name}_arr` SimpleAggregateFunction(groupArrayArray, Array({element_type})){_ARRAY_CODECS.get(name, '')}"
         for name, element_type in METRICS4_POINT_ARRAY_COLUMNS
     )
-    # One row contains one hour of data for one series.
+    # One row contains one offset range for one series and hour.
     # A granule of 8192 rows can include every series from one insert.
     # The key filter cannot skip part of such a granule.
     # A granule can also include several metric names.
@@ -206,6 +211,8 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
     `time_bucket` DateTime,
     `series_fingerprint` UInt64 CODEC(Delta(8), Default),
     `original_expiry_date` Date32,
+    `source_partition` UInt32,
+    `source_offset_bucket` UInt64,
     `resource_fingerprint` SimpleAggregateFunction(any, UInt64),
     `service_name` SimpleAggregateFunction(any, LowCardinality(String)),
     `metric_type` SimpleAggregateFunction(any, LowCardinality(String)),
@@ -223,7 +230,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
 )
 ENGINE = {AggregatingMergeTree(METRICS4_SAMPLES_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY original_expiry_date
-ORDER BY (team_id, metric_name, time_bucket, series_fingerprint)
+ORDER BY (team_id, metric_name, time_bucket, series_fingerprint, source_partition, source_offset_bucket)
 TTL original_expiry_date
 SETTINGS
     index_granularity = 128,
@@ -324,6 +331,8 @@ AS SELECT
     toDateTime(toStartOfHour(timestamp)) AS time_bucket,
     series_fingerprint,
     toDate32(original_expiry_timestamp) AS original_expiry_date,
+    toUInt32(_partition) AS source_partition,
+    intDiv(_offset, {METRICS4_SAMPLES_PER_CHUNK}) AS source_offset_bucket,
     any(resource_fingerprint) AS resource_fingerprint,
     any(service_name) AS service_name,
     any(metric_type) AS metric_type,
@@ -341,7 +350,9 @@ GROUP BY
     metric_name,
     time_bucket,
     series_fingerprint,
-    original_expiry_date
+    original_expiry_date,
+    source_partition,
+    source_offset_bucket
 """
 
 

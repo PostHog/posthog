@@ -5133,6 +5133,8 @@
       toDateTime(toStartOfHour(timestamp)) AS time_bucket,
       series_fingerprint,
       toDate32(original_expiry_timestamp) AS original_expiry_date,
+      toUInt32(_partition) AS source_partition,
+      intDiv(_offset, 1000) AS source_offset_bucket,
       any(resource_fingerprint) AS resource_fingerprint,
       any(service_name) AS service_name,
       any(metric_type) AS metric_type,
@@ -5159,7 +5161,9 @@
       metric_name,
       time_bucket,
       series_fingerprint,
-      original_expiry_date
+      original_expiry_date,
+      source_partition,
+      source_offset_bucket
   
   '''
 # ---
@@ -5215,6 +5219,8 @@
       `time_bucket` DateTime,
       `series_fingerprint` UInt64 CODEC(Delta(8), Default),
       `original_expiry_date` Date32,
+      `source_partition` UInt32,
+      `source_offset_bucket` UInt64,
       `resource_fingerprint` SimpleAggregateFunction(any, UInt64),
       `service_name` SimpleAggregateFunction(any, LowCardinality(String)),
       `metric_type` SimpleAggregateFunction(any, LowCardinality(String)),
@@ -5241,7 +5247,7 @@
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics4_samples', '{replica}-{shard}')
   PARTITION BY original_expiry_date
-  ORDER BY (team_id, metric_name, time_bucket, series_fingerprint)
+  ORDER BY (team_id, metric_name, time_bucket, series_fingerprint, source_partition, source_offset_bucket)
   TTL original_expiry_date
   SETTINGS
       index_granularity = 128,
@@ -10585,6 +10591,8 @@
       `time_bucket` DateTime,
       `series_fingerprint` UInt64,
       `original_expiry_date` Date32,
+      `source_partition` UInt32,
+      `source_offset_bucket` UInt64,
       `resource_fingerprint` SimpleAggregateFunction(any, UInt64),
       `service_name` SimpleAggregateFunction(any, LowCardinality(String)),
       `metric_type` SimpleAggregateFunction(any, LowCardinality(String)),
@@ -12551,6 +12559,8 @@
       `time_bucket` DateTime,
       `series_fingerprint` UInt64 CODEC(Delta(8), Default),
       `original_expiry_date` Date32,
+      `source_partition` UInt32,
+      `source_offset_bucket` UInt64,
       `resource_fingerprint` SimpleAggregateFunction(any, UInt64),
       `service_name` SimpleAggregateFunction(any, LowCardinality(String)),
       `metric_type` SimpleAggregateFunction(any, LowCardinality(String)),
@@ -12577,7 +12587,7 @@
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics4_samples', '{replica}-{shard}')
   PARTITION BY original_expiry_date
-  ORDER BY (team_id, metric_name, time_bucket, series_fingerprint)
+  ORDER BY (team_id, metric_name, time_bucket, series_fingerprint, source_partition, source_offset_bucket)
   TTL original_expiry_date
   SETTINGS
       index_granularity = 128,

@@ -528,6 +528,8 @@ CREATE TABLE posthog.metrics4_samples (
   time_bucket DateTime,
   series_fingerprint UInt64 CODEC(Delta(8), Default),
   original_expiry_date Date32,
+  source_partition UInt32,
+  source_offset_bucket UInt64,
   resource_fingerprint SimpleAggregateFunction(any, UInt64),
   service_name SimpleAggregateFunction(any, LowCardinality(String)),
   metric_type SimpleAggregateFunction(any, LowCardinality(String)),
@@ -551,7 +553,7 @@ CREATE TABLE posthog.metrics4_samples (
   INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
   INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
   INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_samples', '{replica}-{shard}') ORDER BY (team_id, metric_name, time_bucket, series_fingerprint) PARTITION BY original_expiry_date TTL original_expiry_date SETTINGS index_granularity = 128, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_samples', '{replica}-{shard}') ORDER BY (team_id, metric_name, time_bucket, series_fingerprint, source_partition, source_offset_bucket) PARTITION BY original_expiry_date TTL original_expiry_date SETTINGS index_granularity = 128, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics4_series (
   team_id Int32,
   metric_name LowCardinality(String),

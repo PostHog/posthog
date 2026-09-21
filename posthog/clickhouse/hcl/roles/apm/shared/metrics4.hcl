@@ -79,6 +79,8 @@ database "posthog" {
     column "time_bucket" { type = "DateTime" }
     column "series_fingerprint" { type = "UInt64" }
     column "original_expiry_date" { type = "Date32" }
+    column "source_partition" { type = "UInt32" }
+    column "source_offset_bucket" { type = "UInt64" }
     column "resource_fingerprint" { type = "SimpleAggregateFunction(any, UInt64)" }
     column "service_name" { type = "SimpleAggregateFunction(any, LowCardinality(String))" }
     column "metric_type" { type = "SimpleAggregateFunction(any, LowCardinality(String))" }
@@ -208,6 +210,8 @@ database "posthog" {
     column "time_bucket" { type = "DateTime" }
     column "series_fingerprint" { type = "UInt64" }
     column "original_expiry_date" { type = "Date32" }
+    column "source_partition" { type = "UInt32" }
+    column "source_offset_bucket" { type = "UInt64" }
     column "resource_fingerprint" { type = "UInt64" }
     column "service_name" { type = "String" }
     column "metric_type" { type = "String" }

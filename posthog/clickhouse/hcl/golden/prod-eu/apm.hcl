@@ -244,6 +244,12 @@ database "posthog" {
     column "original_expiry_date" {
       type = "Date32"
     }
+    column "source_partition" {
+      type = "UInt32"
+    }
+    column "source_offset_bucket" {
+      type = "UInt64"
+    }
     column "resource_fingerprint" {
       type = "SimpleAggregateFunction(any, UInt64)"
     }
@@ -773,6 +779,8 @@ SELECT
   toDateTime(toStartOfHour(timestamp)) AS time_bucket,
   series_fingerprint,
   toDate32(original_expiry_timestamp) AS original_expiry_date,
+  toUInt32(_partition) AS source_partition,
+  intDiv(_offset, 1000) AS source_offset_bucket,
   any(resource_fingerprint) AS resource_fingerprint,
   any(service_name) AS service_name,
   any(metric_type) AS metric_type,
@@ -795,7 +803,7 @@ SELECT
   groupArray(_offset) AS _offset_arr
 FROM posthog.metrics4_input
 GROUP BY
-  team_id, metric_name, time_bucket, series_fingerprint, original_expiry_date
+  team_id, metric_name, time_bucket, series_fingerprint, original_expiry_date, source_partition, source_offset_bucket
 SQL
 
     column "team_id" {
@@ -812,6 +820,12 @@ SQL
     }
     column "original_expiry_date" {
       type = "Date32"
+    }
+    column "source_partition" {
+      type = "UInt32"
+    }
+    column "source_offset_bucket" {
+      type = "UInt64"
     }
     column "resource_fingerprint" {
       type = "UInt64"

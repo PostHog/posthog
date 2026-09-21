@@ -2620,7 +2620,7 @@ SQL
   }
 
   table "metrics4_samples" {
-    order_by     = ["team_id", "metric_name", "time_bucket", "series_fingerprint"]
+    order_by     = ["team_id", "metric_name", "time_bucket", "series_fingerprint", "source_partition", "source_offset_bucket"]
     partition_by = "original_expiry_date"
     ttl          = "original_expiry_date"
     settings = {
@@ -2642,6 +2642,12 @@ SQL
     }
     column "original_expiry_date" {
       type = "Date32"
+    }
+    column "source_partition" {
+      type = "UInt32"
+    }
+    column "source_offset_bucket" {
+      type = "UInt64"
     }
     column "resource_fingerprint" {
       type = "SimpleAggregateFunction(any, UInt64)"
