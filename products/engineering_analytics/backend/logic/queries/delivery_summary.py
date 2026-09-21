@@ -283,7 +283,9 @@ def _lead_time(
     def in_window(at: datetime) -> bool:
         return at >= date_from and (date_to is None or at <= date_to)
 
-    repo_rows = [row for row in deployed.rows if in_window(row.deployed_at)]
+    repo_rows = [
+        row for row in deployed.rows if in_window(row.merged_at) and (date_to is None or row.deployed_at <= date_to)
+    ]
     scope_rows = [row for row in repo_rows if row.in_scope]
 
     def pair(stage: Callable[[DeployedPR], float]) -> ScopeRepoDistribution:
@@ -296,12 +298,7 @@ def _lead_time(
         deploy_data_available=True,
         environment_scope=deployed.environment_scope,
         merged_pr_count=scope_merged_count,
-        # A deploy after the window end had not happened yet in the selected horizon.
-        deployed_merged_pr_count=sum(
-            1
-            for row in deployed.rows
-            if row.in_scope and in_window(row.merged_at) and (date_to is None or row.deployed_at <= date_to)
-        ),
+        deployed_merged_pr_count=len(scope_rows),
         open_to_deploy=pair(lambda row: row.open_to_deploy_seconds),
         open_to_merge=pair(lambda row: row.open_to_merge_seconds),
         merge_to_deploy=pair(lambda row: row.merge_to_deploy_seconds),

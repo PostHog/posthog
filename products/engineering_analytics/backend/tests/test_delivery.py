@@ -917,12 +917,21 @@ class TestDeliveryComparisonOnWarehouse(_WarehouseMixin):
 
 class TestDeliveryDeployWindow(_WarehouseMixin):
     def _seed(self) -> None:
-        # Two merges inside the window, each heading its own production deploy: one deploy lands
-        # inside the reported window, the other two days after it.
         self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
             [
+                _pr_row(
+                    30,
+                    "alice",
+                    "closed",
+                    0,
+                    "2026-01-07 08:00:00",
+                    merged_at="2026-01-08 08:00:00",
+                    merge_commit_sha="sha-before",
+                    base_ref="main",
+                    default_branch="main",
+                ),
                 _pr_row(
                     31,
                     "alice",
@@ -952,6 +961,7 @@ class TestDeliveryDeployWindow(_WarehouseMixin):
             "github_deployments",
             DEPLOYMENTS_COLUMNS,
             [
+                _deployment_row(3, "sha-before", "prod", "2026-01-11 09:30:00", production=True),
                 _deployment_row(1, "sha-inside", "prod", "2026-01-12 09:30:00", production=True),
                 _deployment_row(2, "sha-after", "prod", "2026-01-14 09:30:00", production=True),
             ],
@@ -960,12 +970,13 @@ class TestDeliveryDeployWindow(_WarehouseMixin):
             "github_deployment_statuses",
             DEPLOYMENT_STATUSES_COLUMNS,
             [
+                _status_row(31, 3, "success", "prod", "2026-01-11 10:00:00"),
                 _status_row(11, 1, "success", "prod", "2026-01-12 10:00:00"),
                 _status_row(21, 2, "success", "prod", "2026-01-14 10:00:00"),
             ],
         )
 
-    def test_deployed_count_stops_at_the_report_end(self) -> None:
+    def test_lead_time_population_matches_the_merged_count(self) -> None:
         self._seed()
         curated = CuratedGitHubSource.for_team(self.team)
 
@@ -979,8 +990,8 @@ class TestDeliveryDeployWindow(_WarehouseMixin):
         lead_time = summary.lead_time
         assert lead_time.deploy_data_available is True
         assert lead_time.merged_pr_count == 2
-        # The second PR's deploy is two days past the window end, so it is not deployed work yet,
-        # and the count has to agree with the distribution beside it.
+        # One deploy follows the report end and another belongs to an earlier merge, so neither
+        # belongs in the count or its adjacent distribution.
         assert lead_time.deployed_merged_pr_count == 1
         assert lead_time.open_to_deploy.scope.pr_count == 1
 
