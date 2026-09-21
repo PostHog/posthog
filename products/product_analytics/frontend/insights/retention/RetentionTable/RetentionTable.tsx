@@ -68,10 +68,10 @@ export function RetentionTable({
                 } as React.CSSProperties
             }
         >
-            <tbody>
+            <thead>
                 <tr>
-                    <th className="bg whitespace-nowrap">Cohort</th>
-                    {!hideSizeColumn && <th className="bg">Size</th>}
+                    <th className="whitespace-nowrap">Cohort</th>
+                    {!hideSizeColumn && <th>Size</th>}
                     {tableHeaders.map((header, columnIndex) => (
                         <th
                             key={header}
@@ -104,7 +104,9 @@ export function RetentionTable({
                         </th>
                     ))}
                 </tr>
+            </thead>
 
+            <tbody>
                 {Object.entries(tableRowsSplitByBreakdownValue).map(([breakdownValue, cohortRows], breakdownIndex) => {
                     const noBreakdown = breakdownValue === NO_BREAKDOWN_VALUE
                     const keyForMeanData = noBreakdown ? OVERALL_MEAN_KEY : breakdownValue
