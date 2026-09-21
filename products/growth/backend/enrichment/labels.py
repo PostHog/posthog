@@ -1,8 +1,7 @@
 """Classifier runner for versioned AI enrichment labels.
 
-Pure functions only: no persistence, no client construction. Callers build the OpenAI
-client via `get_llm_client(product="growth")` and pass it in — this module just turns
-an archived Harmonic payload plus a prompt config into a stamped verdict.
+Turns an archived Harmonic payload and prompt config into a stamped verdict without
+persistence. Gateway models use the caller's OpenAI client; Jev uses its egress adapter.
 """
 
 import re
@@ -12,15 +11,24 @@ from collections.abc import Callable
 from typing import Any, Literal, TypeIs, cast
 from urllib.parse import urlsplit, urlunsplit
 
+from django.conf import settings
 from django.db.models import QuerySet
 
 from openai import APIConnectionError, InternalServerError, OpenAI, RateLimitError
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential, wait_random
 
+from posthog.egress.limiter.policies import Priority
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models.organization import Organization, OrganizationMembership
 
+from products.growth.backend.enrichment.jev import (
+    JevConfigError,
+    JevResearchUnavailable,
+    JevTransientError,
+    classify_with_jev,
+    validate_jev_output_fields,
+)
 from products.growth.backend.enrichment.tools import TOOLS, TRANSIENT_TOOL_ERRORS, ToolOutcome, run_tool
 from products.growth.backend.models import EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
@@ -304,6 +312,11 @@ def validate_output_fields(config: EnrichmentPromptConfig) -> None:
     against a schema it could never satisfy - the exact amplification the retry predicate on
     OutputParseError exists to prevent. Raises PromptConfigError, not OutputParseError, since this
     is a config problem, not a model reply problem."""
+    if config.model.startswith("jev-"):
+        try:
+            validate_jev_output_fields(config.output_fields)
+        except JevConfigError as error:
+            raise PromptConfigError(str(error)) from error
     for field in config.output_fields:
         key = field.get("key")
         field_type = field.get("type")
@@ -648,7 +661,9 @@ def classify_payload(
     config: EnrichmentPromptConfig,
     payload: dict[str, Any] | None,
     signup_domain: str | None,
-    client: OpenAI,
+    client: OpenAI | None,
+    *,
+    priority: Priority = Priority.BATCH,
 ) -> dict[str, Any]:
     validate_input_fields(config)
     validate_output_fields(config)
@@ -662,6 +677,52 @@ def classify_payload(
     if not inputs:
         return unknown_output(config, signup_domain, "archived payload has none of the configured input fields")
 
+    if config.model.startswith("jev-"):
+        website = payload.get("website")
+        website_url = (
+            ((website.get("url") or website.get("domain")) if isinstance(website, dict) else website)
+            or payload.get("website_url")
+            or payload.get("websiteUrl")
+        )
+        try:
+            classified = classify_with_jev(
+                model=config.model,
+                prompt_text=config.prompt_text.replace("{email}", signup_domain or "unknown"),
+                output_fields=config.output_fields,
+                inputs=inputs,
+                signup_domain=signup_domain,
+                website_url=website_url if isinstance(website_url, str) else None,
+                api_key=settings.TYPESAFE_API_KEY,
+                priority=priority,
+            )
+        except (JevResearchUnavailable, JevTransientError) as error:
+            raise TransientToolError(str(error)) from error
+        return {
+            **classified.output,
+            "inputs": {
+                "signup_domain": signup_domain,
+                "fields": inputs,
+                "pages": [{"url": page.url, "markdown": page.markdown} for page in classified.pages],
+            },
+            "meta": {
+                **(
+                    {"skipped": "Insufficient evidence for AI classification"}
+                    if classified.output["ai_pilled"] == UNKNOWN
+                    else {}
+                ),
+                "response_model": classified.model,
+                "prompt_tokens": classified.usage.input_tokens,
+                "completion_tokens": classified.usage.output_tokens,
+                "answers": {name: answer.model_dump() for name, answer in classified.answers.items()},
+                "tool_calls": [
+                    {"name": call.name, "arguments": call.arguments, "error": call.error}
+                    for call in classified.tool_calls
+                ],
+                "tool_urls": [page.url for page in classified.pages],
+            },
+        }
+    if client is None:
+        raise PromptConfigError("The configured model requires a gateway client")
     messages = build_messages(config, inputs, signup_domain)
     output, meta = _call_and_parse(config, messages, client, signup_domain=signup_domain)
     tool_calls = meta.pop("tool_calls", None)

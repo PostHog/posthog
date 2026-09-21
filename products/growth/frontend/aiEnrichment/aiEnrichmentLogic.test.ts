@@ -108,6 +108,48 @@ describe('aiEnrichmentLogic', () => {
         })
     })
 
+    it('keeps existing prompt edits when selecting Jev and replaces them only when its template is requested', async () => {
+        const fields = [
+            { key: 'ai_pilled', type: 'boolean' as const, description: 'Derived from either answer.' },
+            {
+                key: 'internal_ai_development',
+                type: 'boolean' as const,
+                description: 'Does the team use AI development tools?',
+            },
+            {
+                key: 'owned_ai_product',
+                type: 'boolean' as const,
+                description: 'Does the company own an available AI product?',
+            },
+        ]
+        useMocks({
+            get: {
+                '/api/growth_ai_enrichment/models/': {
+                    results: [
+                        {
+                            id: 'jev-latest',
+                            default_prompt: 'Use only the supplied company evidence.',
+                            default_output_fields: fields,
+                        },
+                    ],
+                },
+            },
+        })
+        await expectLogic(logic, () => logic.actions.loadModels()).toFinishAllListeners()
+        logic.actions.loadVersionIntoEditor(CONFIG_V1)
+        logic.actions.setEditorPromptText('My unsaved prompt')
+        logic.actions.setEditorModel('jev-latest')
+
+        expect(logic.values.editorPromptText).toBe('My unsaved prompt')
+        expect(logic.values.editorOutputFields).toEqual(CONFIG_V1.output_fields)
+
+        await expectLogic(logic, () => logic.actions.applyModelTemplate()).toFinishAllListeners()
+        expect(logic.values.editorPromptText).toBe('Use only the supplied company evidence.')
+        expect(logic.values.editorOutputFields).toEqual(fields)
+        expect(logic.values.editorInputFields).toEqual(CONFIG_V1.input_fields)
+        expect(logic.values.isEditorDirty).toBe(true)
+    })
+
     describe('canRun', () => {
         it('requires a label, prompt, input field, and valid output field before a test run is allowed', () => {
             logic.actions.setSelectedLabel('test_label')

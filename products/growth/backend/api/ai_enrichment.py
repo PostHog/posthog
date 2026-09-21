@@ -16,6 +16,7 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Count
 from django.http.response import HttpResponseBase
@@ -50,6 +51,7 @@ from products.growth.backend.api.ai_enrichment_serializers import (
     RunRequestSerializer,
     SaveRequestSerializer,
 )
+from products.growth.backend.enrichment.jev import DEFAULT_JEV_OUTPUT_FIELDS, DEFAULT_JEV_PROMPT
 from products.growth.backend.enrichment.lab import (
     DRAFT_VERSION_SENTINEL,
     MAX_SAMPLE_SIZE,
@@ -170,7 +172,15 @@ class AIEnrichmentViewSet(viewsets.ViewSet):
     @validated_request(responses={200: OpenApiResponse(response=GatewayModelListResponseSerializer)})
     @action(methods=["GET"], detail=False)
     def models(self, request: request.Request, **kwargs: Any) -> response.Response:
-        results = [{"id": model_id} for model_id in list_gateway_models()]
+        results: list[dict[str, Any]] = [{"id": model_id} for model_id in list_gateway_models()]
+        if settings.TYPESAFE_API_KEY:
+            results.append(
+                {
+                    "id": "jev-latest",
+                    "default_prompt": DEFAULT_JEV_PROMPT,
+                    "default_output_fields": DEFAULT_JEV_OUTPUT_FIELDS,
+                }
+            )
         return response.Response(GatewayModelListResponseSerializer({"results": results}).data)
 
     @validated_request(
@@ -237,7 +247,11 @@ class AIEnrichmentViewSet(viewsets.ViewSet):
         # stop_after_attempt(3)); the SDK's own internal retries underneath would multiply that
         # budget several-fold per fetch and actively worsen a 429 the tenacity layer is already
         # backing off from.
-        client = get_llm_client(product="growth").with_options(max_retries=0)
+        client = (
+            None
+            if draft_config.model.startswith("jev-")
+            else get_llm_client(product="growth").with_options(max_retries=0)
+        )
 
         logger.info(
             "growth_ai_enrichment_run",

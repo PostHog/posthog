@@ -75,6 +75,9 @@ The `preview_icp_scoring_config` command also compares saved configurations agai
 The preview does not lock prompt configurations. In `enrichment_label_batch`, `--limit` separately bounds new classifications and repairs of stored scores.
 Scores record the configuration version in `icp_fit_lists_version`; activation affects subsequent evaluations, and `backfill_icp_fit_scores` reapplies the rules to archived data.
 Failed label-driven score updates retry the stored label without another model request.
+With `TYPESAFE_API_KEY` configured, staff can select Jev and apply its starting template in the label editor.
+Jev uses bounded Firecrawl research to answer two questions about internal AI development and an owned AI product; either positive answer makes `ai_pilled` positive.
+Selecting a model does not replace a draft. Staff must save and activate the prompt version to change subsequent batch classifications.
 
 One exception to the Django-plus-React shape: `products/desktop/` is the PostHog desktop app (Electron, plus mobile and web hosts), imported from the PostHog/code repo. It is a nested standalone pnpm workspace with its own lockfile, Node version and Biome toolchain, deliberately excluded from the root pnpm workspace, with its own `desktop-*` CI. Its `AGENTS.md` covers the architecture. Day to day, drive it through `hogli desktop:*` commands, or `cd products/desktop` and use pnpm directly.
 

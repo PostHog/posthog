@@ -784,7 +784,9 @@ class TestAIEnrichmentRunClassification(NonAtomicAPIBaseTest):
             rows = _drain_ndjson(response.streaming_content)  # type: ignore[attr-defined]
 
         verdict_rows = [row for row in rows if "summary" not in row]
-        self.assertEqual(verdict_rows[0]["error"], "web search unavailable, retry later")
+        self.assertEqual(
+            verdict_rows[0]["error"], "Research or classification is temporarily unavailable. Try again later."
+        )
 
 
 class TestRunError(SimpleTestCase):

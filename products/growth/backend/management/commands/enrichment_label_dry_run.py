@@ -94,7 +94,9 @@ class Command(BaseCommand):
 
         # tenacity in labels.py already owns retries; the SDK's own internal retries underneath
         # would multiply that budget nine-fold per row.
-        client = get_llm_client(product="growth").with_options(max_retries=0)
+        client = (
+            None if config.model.startswith("jev-") else get_llm_client(product="growth").with_options(max_retries=0)
+        )
         # A custom output schema's pass/fail key differs from `label` - see
         # verdict_field_key's docstring.
         verdict_key = verdict_field_key(config)

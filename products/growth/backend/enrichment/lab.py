@@ -17,6 +17,7 @@ from django.db import close_old_connections, connection
 import structlog
 from openai import OpenAI
 
+from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import get_llm_client
 
@@ -95,7 +96,7 @@ def _run_error(config: EnrichmentPromptConfig, e: Exception, path: str) -> str:
 
 
 def classify_fetch_for_run(
-    config: EnrichmentPromptConfig, pair: tuple[OrganizationEnrichmentFetch, str | None], client: OpenAI
+    config: EnrichmentPromptConfig, pair: tuple[OrganizationEnrichmentFetch, str | None], client: OpenAI | None
 ) -> RunClassifyResult:
     fetch, signup_domain = pair
     company = fetch.payload.get("name") or fetch.organization.name
@@ -119,9 +120,15 @@ def classify_fetch_for_run(
         if not ai_processing_approved(fetch.organization_id):
             output = unknown_output(config, signup_domain, "AI processing consent was revoked mid-run")
             return company, signup_domain, output, None, {}
-        output = classify_payload(config, fetch.payload, signup_domain, client)
+        output = classify_payload(config, fetch.payload, signup_domain, client, priority=Priority.NORMAL)
     except TransientToolError:
-        return company, signup_domain, None, "web search unavailable, retry later", inputs
+        return (
+            company,
+            signup_domain,
+            None,
+            "Research or classification is temporarily unavailable. Try again later.",
+            inputs,
+        )
     except Exception as e:
         return company, signup_domain, None, _run_error(config, e, "classify_fetch_for_run"), inputs
     finally:
@@ -132,7 +139,7 @@ def classify_fetch_for_run(
 async def stream_run_classifications(
     config: EnrichmentPromptConfig,
     items: list[tuple[OrganizationEnrichmentFetch, str | None]],
-    client: OpenAI,
+    client: OpenAI | None,
     workers: int = DEFAULT_WORKERS,
 ) -> AsyncIterator[RunClassifyResult]:
     """Classify each archived fetch concurrently, yielding one result as each completes.

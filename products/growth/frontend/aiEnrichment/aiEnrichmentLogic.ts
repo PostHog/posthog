@@ -19,6 +19,7 @@ import {
 import type {
     ConfigListResponseApi,
     ConfigVersionApi,
+    GatewayModelApi,
     GatewayModelListResponseApi,
     LabelListResponseApi,
     RunRequestApi,
@@ -135,6 +136,7 @@ export interface aiEnrichmentLogicValues {
     saveResult: ConfigVersionApi | null
     saveResultLoading: boolean
     selectedLabel: string | null
+    selectedModel: GatewayModelApi | null
     selectedVersion: ConfigVersionApi | null
     selectedVersionId: string | null
     versions: ConfigVersionApi[]
@@ -162,6 +164,9 @@ export interface aiEnrichmentLogicActions {
     }
     appendRunRow: (row: AIEnrichmentRunRow) => {
         row: AIEnrichmentRunRow
+    }
+    applyModelTemplate: () => {
+        value: true
     }
     consumeRunLine: (line: string) => {
         line: string
@@ -222,6 +227,9 @@ export interface aiEnrichmentLogicActions {
     }
     removeOutputField: (index: number) => {
         index: number
+    }
+    replaceEditorOutputFields: (fields: AIEnrichmentOutputField[]) => {
+        fields: AIEnrichmentOutputField[]
     }
     resetRunResults: () => {
         value: true
@@ -306,6 +314,7 @@ export interface aiEnrichmentLogicMeta {
             editorOutputFields: AIEnrichmentOutputField[],
             isRunning: boolean
         ) => boolean
+        selectedModel: (models: GatewayModelListResponseApi | null, editorModel: string) => GatewayModelApi | null
         modelOptions: (
             models: GatewayModelListResponseApi | null,
             editorModel: string
@@ -332,6 +341,8 @@ export const aiEnrichmentLogic = kea<aiEnrichmentLogicType>([
         removeOutputField: (index: number) => ({ index }),
         updateOutputField: (index: number, patch: Partial<AIEnrichmentOutputField>) => ({ index, patch }),
         seedDefaultOutputFields: true,
+        applyModelTemplate: true,
+        replaceEditorOutputFields: (fields: AIEnrichmentOutputField[]) => ({ fields }),
         setSampleSize: (sampleSize: number) => ({ sampleSize }),
         runClassification: true,
         consumeRunLine: (line: string) => ({ line }),
@@ -444,6 +455,7 @@ export const aiEnrichmentLogic = kea<aiEnrichmentLogicType>([
                 updateOutputField: (state, { index, patch }) =>
                     state.map((field, existingIndex) => (existingIndex === index ? { ...field, ...patch } : field)),
                 seedDefaultOutputFields: () => DEFAULT_OUTPUT_FIELD_SEED.map((field) => ({ ...field })),
+                replaceEditorOutputFields: (_, { fields }) => fields,
             },
         ],
         sampleSize: [
@@ -545,6 +557,11 @@ export const aiEnrichmentLogic = kea<aiEnrichmentLogicType>([
                 hasValidOutputFields(editorOutputFields) &&
                 !isRunning,
         ],
+        selectedModel: [
+            (s) => [s.models, s.editorModel],
+            (models: GatewayModelListResponseApi | null, editorModel: string): GatewayModelApi | null =>
+                models?.results.find((model) => model.id === editorModel) ?? null,
+        ],
         modelOptions: [
             (s) => [s.models, s.editorModel],
             (models: GatewayModelListResponseApi | null, editorModel: string): LemonInputSelectOption<string>[] => {
@@ -571,6 +588,19 @@ export const aiEnrichmentLogic = kea<aiEnrichmentLogicType>([
         }
 
         return {
+            applyModelTemplate: () => {
+                const model = values.selectedModel
+                if (model?.default_prompt && model.default_output_fields?.length) {
+                    actions.setEditorPromptText(model.default_prompt)
+                    actions.replaceEditorOutputFields(
+                        model.default_output_fields.map((field) => ({
+                            key: field.key,
+                            type: field.type,
+                            description: field.description ?? '',
+                        }))
+                    )
+                }
+            },
             setSelectedLabel: ({ label }) => {
                 stopRunIfInFlight()
                 if (label) {

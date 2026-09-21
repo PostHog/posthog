@@ -216,8 +216,8 @@ export function AIEnrichmentVersionRail(): JSX.Element {
 }
 
 function AIEnrichmentOutputFieldsEditor(): JSX.Element {
-    const { editorOutputFields } = useValues(aiEnrichmentLogic)
-    const { addOutputField, removeOutputField, updateOutputField, seedDefaultOutputFields } =
+    const { editorOutputFields, selectedModel, editorModel } = useValues(aiEnrichmentLogic)
+    const { addOutputField, removeOutputField, updateOutputField, seedDefaultOutputFields, applyModelTemplate } =
         useActions(aiEnrichmentLogic)
 
     if (editorOutputFields.length === 0) {
@@ -226,9 +226,15 @@ function AIEnrichmentOutputFieldsEditor(): JSX.Element {
                 <span className="text-secondary text-sm">
                     Output fields are what the model returns. Add at least one to save or test-run.
                 </span>
-                <LemonButton type="secondary" size="small" onClick={() => seedDefaultOutputFields()}>
-                    Start with verdict, confidence, reasoning
-                </LemonButton>
+                {selectedModel?.default_output_fields?.length ? (
+                    <LemonButton type="secondary" size="small" onClick={() => applyModelTemplate()}>
+                        Use model template
+                    </LemonButton>
+                ) : editorModel !== 'jev-latest' ? (
+                    <LemonButton type="secondary" size="small" onClick={() => seedDefaultOutputFields()}>
+                        Start with verdict, confidence, reasoning
+                    </LemonButton>
+                ) : null}
             </div>
         )
     }
@@ -246,7 +252,11 @@ function AIEnrichmentOutputFieldsEditor(): JSX.Element {
                     <LemonSelect
                         value={field.type}
                         onChange={(type) => type && updateOutputField(index, { type })}
-                        options={OUTPUT_FIELD_TYPE_OPTIONS}
+                        options={
+                            editorModel === 'jev-latest'
+                                ? OUTPUT_FIELD_TYPE_OPTIONS.filter((option) => option.value === 'boolean')
+                                : OUTPUT_FIELD_TYPE_OPTIONS
+                        }
                     />
                     <LemonInput
                         className="flex-[2]"
@@ -271,9 +281,19 @@ function AIEnrichmentOutputFieldsEditor(): JSX.Element {
 }
 
 function AIEnrichmentEditorPanel(): JSX.Element {
-    const { editorPromptText, editorModel, editorInputFields, isEditorDirty, modelOptions, selectedVersion } =
-        useValues(aiEnrichmentLogic)
-    const { setEditorPromptText, setEditorModel, setEditorInputFields } = useActions(aiEnrichmentLogic)
+    const {
+        editorPromptText,
+        editorModel,
+        editorInputFields,
+        isEditorDirty,
+        modelOptions,
+        selectedVersion,
+        selectedModel,
+        isRunning,
+        saveResultLoading,
+    } = useValues(aiEnrichmentLogic)
+    const { setEditorPromptText, setEditorModel, setEditorInputFields, applyModelTemplate } =
+        useActions(aiEnrichmentLogic)
 
     return (
         <div className="space-y-2">
@@ -301,6 +321,36 @@ function AIEnrichmentEditorPanel(): JSX.Element {
                     />
                 </div>
             </div>
+            {editorModel === 'jev-latest' && (
+                <LemonBanner type="info">
+                    <div className="space-y-2">
+                        <p className="mb-0">
+                            Jev answers the boolean questions in the output field descriptions. The AI-pilled label is
+                            true when either AI development or an owned AI product is supported.
+                        </p>
+                        {selectedModel?.default_prompt && selectedModel.default_output_fields?.length ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => applyModelTemplate()}
+                                    disabledReason={
+                                        isRunning || saveResultLoading
+                                            ? 'Wait for the current run or save to finish'
+                                            : undefined
+                                    }
+                                    data-attr="ai-enrichment-jev-template"
+                                >
+                                    Use Jev template
+                                </LemonButton>
+                                <span className="text-secondary text-xs">
+                                    Replaces the prompt and output fields with the starting template.
+                                </span>
+                            </div>
+                        ) : null}
+                    </div>
+                </LemonBanner>
+            )}
             <CodeEditor
                 // Remount when a version loads: monaco can mount before async state hydrates and
                 // miss the first controlled value update.

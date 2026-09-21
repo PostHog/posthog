@@ -100,12 +100,16 @@ export interface LabelListResponseApi {
 }
 
 export interface GatewayModelApi {
-    /** Gateway model id, usable as `model` on save/run. */
+    /** Model id, usable as `model` on save/run. */
     id: string
+    /** Suggested initial instructions for this model. */
+    default_prompt?: string
+    /** Suggested output fields for this model. */
+    default_output_fields?: OutputFieldApi[]
 }
 
 export interface GatewayModelListResponseApi {
-    /** Models the gateway currently lists (cached for 5 minutes), or empty if it is unreachable - there is no curated mirror, since one goes stale silently. */
+    /** Available gateway models (cached for 5 minutes), plus Jev when its API key is configured. */
     results: GatewayModelApi[]
 }
 
@@ -121,7 +125,7 @@ export interface RunRequestApi {
      */
     prompt_text: string
     /**
-     * Gateway model to classify with, routed through the LLM gateway. See GET /models/ for what it serves.
+     * Model to classify with. See GET /models/ for available gateway models and Jev.
      * @maxLength 128
      */
     model: string
@@ -154,7 +158,7 @@ export interface SaveRequestApi {
      */
     prompt_text: string
     /**
-     * Gateway model to classify with, routed through the LLM gateway. See GET /models/ for what it serves.
+     * Model to classify with. See GET /models/ for available gateway models and Jev.
      * @maxLength 128
      */
     model: string

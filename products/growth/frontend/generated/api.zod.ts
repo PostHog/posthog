@@ -54,9 +54,7 @@ export const GrowthAiEnrichmentRunCreateBody = /* @__PURE__ */ zod.object({
     model: zod
         .string()
         .max(growthAiEnrichmentRunCreateBodyModelMax)
-        .describe(
-            'Gateway model to classify with, routed through the LLM gateway. See GET \/models\/ for what it serves.'
-        ),
+        .describe('Model to classify with. See GET \/models\/ for available gateway models and Jev.'),
     input_fields: zod
         .array(zod.string())
         .optional()
@@ -139,9 +137,7 @@ export const GrowthAiEnrichmentSaveCreateBody = /* @__PURE__ */ zod.object({
     model: zod
         .string()
         .max(growthAiEnrichmentSaveCreateBodyModelMax)
-        .describe(
-            'Gateway model to classify with, routed through the LLM gateway. See GET \/models\/ for what it serves.'
-        ),
+        .describe('Model to classify with. See GET \/models\/ for available gateway models and Jev.'),
     input_fields: zod
         .array(zod.string())
         .optional()

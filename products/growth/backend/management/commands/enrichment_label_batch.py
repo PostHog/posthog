@@ -176,7 +176,9 @@ class Command(BaseCommand):
         # tenacity in labels.py already owns retries (stop_after_attempt(3)); the SDK's own
         # internal retries underneath would multiply that budget nine-fold per fetch and actively
         # worsen a 429 the tenacity layer is already backing off from.
-        client = get_llm_client(product="growth").with_options(max_retries=0)
+        client = (
+            None if config.model.startswith("jev-") else get_llm_client(product="growth").with_options(max_retries=0)
+        )
 
         counts: dict[str, int] = {
             "attempted": 0,

@@ -38,7 +38,7 @@ _PROMPT_TEXT_HELP = (
     f"Firecrawl credits. At most {MAX_PROMPT_TEXT_CHARS} characters."
 )
 
-_MODEL_HELP = "Gateway model to classify with, routed through the LLM gateway. See GET /models/ for what it serves."
+_MODEL_HELP = "Model to classify with. See GET /models/ for available gateway models and Jev."
 
 _INPUT_FIELDS_HELP = (
     "Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected "
@@ -166,15 +166,18 @@ class ActivateRequestSerializer(serializers.Serializer):
 
 
 class GatewayModelSerializer(serializers.Serializer):
-    id = serializers.CharField(help_text="Gateway model id, usable as `model` on save/run.")
+    id = serializers.CharField(help_text="Model id, usable as `model` on save/run.")
+    default_prompt = serializers.CharField(required=False, help_text="Suggested initial instructions for this model.")
+    default_output_fields = OutputFieldSerializer(
+        many=True, required=False, help_text="Suggested output fields for this model."
+    )
 
 
 @extend_schema_serializer(many=False)
 class GatewayModelListResponseSerializer(serializers.Serializer):
     results = GatewayModelSerializer(
         many=True,
-        help_text="Models the gateway currently lists (cached for 5 minutes), or empty if it is unreachable - "
-        "there is no curated mirror, since one goes stale silently.",
+        help_text="Available gateway models (cached for 5 minutes), plus Jev when its API key is configured.",
     )
 
 
