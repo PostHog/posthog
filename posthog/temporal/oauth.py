@@ -22,6 +22,10 @@ from posthog.scopes import (
 )
 from posthog.utils import get_instance_region
 
+from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
+
 logger = structlog.get_logger(__name__)
 
 ARRAY_APP_CLIENT_ID_US = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W"
@@ -634,6 +638,16 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
         team_ids=[team_id],
     ):
         raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
+
+    security_shadow_check(
+        SecuritySubject(
+            email=user.email,
+            user_uuid=str(user.uuid),
+            organization_ids=(_organization_id_for_team(team_id),),
+        ),
+        SecuritySurface.AI_GATEWAY,
+        call_site="wizard_mint",
+    )
 
     app = get_wizard_app()
 
