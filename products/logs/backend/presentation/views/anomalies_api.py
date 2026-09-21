@@ -29,7 +29,6 @@ from products.logs.backend.series_bands import (
     MAX_BUCKETS_PER_SERIES,
     MAX_WINDOW_DAYS,
     MAX_WINDOW_START_AGE_DAYS,
-    MIN_BASELINE_WEEKS_FOR_BAND,
     MIN_MEAN_PER_ALIVE_BUCKET,
     SeriesBandsFetchTruncated,
     SeriesBandsWindowInvalid,
@@ -271,11 +270,11 @@ class LogsSeriesBandBucketSerializer(serializers.Serializer):
     observed = serializers.IntegerField(help_text="Log count observed in this bucket.")
     lower = serializers.FloatField(
         allow_null=True,
-        help_text="Lower edge of the expected band. Null while the series has too little history to band.",
+        help_text="Lower edge of the expected band. Null while no validated band is available for this series.",
     )
     upper = serializers.FloatField(
         allow_null=True,
-        help_text="Upper edge of the expected band. Null while the series has too little history to band.",
+        help_text="Upper edge of the expected band. Null while no validated band is available for this series.",
     )
     verdict = serializers.ChoiceField(
         choices=LogsSeriesBandVerdict.choices,
@@ -301,7 +300,7 @@ class LogsSeriesBandSeriesSerializer(serializers.Serializer):
     baseline_weeks = serializers.IntegerField(
         help_text=(
             f"Full weeks of history behind the band, 0 to {BASELINE_WEEKS}. "
-            f"Below {MIN_BASELINE_WEEKS_FOR_BAND} the series is still learning and its buckets carry no band."
+            "History depth alone does not enable a band; a validated readiness policy is also required."
         )
     )
     history_start = serializers.DateTimeField(
@@ -314,7 +313,9 @@ class LogsSeriesBandSeriesSerializer(serializers.Serializer):
     band_ready_at = serializers.DateTimeField(
         allow_null=True,
         help_text=(
-            "When this series gains its band, so a learning series can count down to it. Null once the band is drawn."
+            "When this series gains its band under a validated readiness policy. "
+            "Null when the band is ready or no validated readiness date is available. "
+            "Check the buckets' lower and upper values to determine whether a band is present."
         ),
     )
     interval_minutes = serializers.IntegerField(

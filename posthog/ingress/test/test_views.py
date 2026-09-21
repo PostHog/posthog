@@ -5,7 +5,7 @@ from dataclasses import replace
 from typing import Any, cast
 from urllib.parse import urlencode
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, PropertyMock, patch
 
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -33,6 +33,7 @@ from posthog.ingress.github.provider import GitHubProvider, build_github_provide
 from posthog.ingress.pandadoc.provider import build_pandadoc_provider
 from posthog.ingress.providers import WebhookProvider
 from posthog.ingress.slack.provider import build_slack_provider
+from posthog.ingress.vapi.provider import VapiProvider
 from posthog.ingress.verify.schemes import Verification, VerificationOutcome
 from posthog.ingress.views import build_webhook_view
 from posthog.regions import SECONDARY_REGION_DOMAIN
@@ -196,6 +197,34 @@ class TestWebhookView(SimpleTestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.content, b"Invalid signature")
+        self.dispatcher.dispatch.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("missing_header", {}, False),
+            ("empty_header", {"X-Vapi-Signature": ""}, False),
+            ("malformed_header", {"X-Vapi-Signature": "not-a-digest"}, False),
+            ("well_formed_but_wrong_digest", {"X-Vapi-Signature": "0" * 64}, True),
+        ]
+    )
+    @override_settings(VAPI_WEBHOOK_SECRET=SECRET)
+    def test_a_signature_header_that_cannot_pass_is_refused_before_the_body_is_read(
+        self, _name: str, headers: dict[str, str], reads_body: bool
+    ) -> None:
+        request = self.factory.post(
+            "/webhooks/vapi/",
+            data=json.dumps({"message": {"type": "status-update"}}).encode(),
+            content_type="application/json",
+            headers=headers,
+        )
+
+        with patch.object(HttpRequest, "body", new_callable=PropertyMock, return_value=b"{}") as body:
+            response = build_webhook_view(VapiProvider())(request)
+
+        # Same answer either way, so only the body read separates the two paths.
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.content, b"Invalid signature")
+        self.assertEqual(body.called, reads_body)
         self.dispatcher.dispatch.assert_not_called()
 
     def test_an_unparseable_body_is_400_and_logs_the_parser_error(self) -> None:

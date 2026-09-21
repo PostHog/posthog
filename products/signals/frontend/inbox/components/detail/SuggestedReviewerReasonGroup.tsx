@@ -6,6 +6,7 @@ import { PersonDisplay } from 'products/persons/frontend/components/PersonDispla
 import { EnrichedReviewer } from '../../types'
 import { getReviewerDisplayName } from './reviewerDisplay'
 import { getReviewerSourceLabel, isScoutReviewer } from './SuggestedReviewerPerson'
+import { SuggestedReviewerScoutTag } from './SuggestedReviewerScoutTag'
 
 export function SuggestedReviewerReasonGroup({
     reviewers,
@@ -30,7 +31,7 @@ export function SuggestedReviewerReasonGroup({
     }
 
     return (
-        <div className="rounded border bg-primary">
+        <div className="mr-2 -ml-2 rounded border bg-primary">
             <div className="flex flex-col p-1">
                 {reviewers.map((reviewer) => {
                     const displayName = getReviewerDisplayName(reviewer)
@@ -70,30 +71,16 @@ export function SuggestedReviewerReasonGroup({
                     )
                 })}
             </div>
-            <div className="flex min-w-0 items-start justify-between gap-2 border-t px-2.5 py-2">
-                <span className="min-w-0 text-xs leading-snug text-tertiary [overflow-wrap:anywhere]">{reason}</span>
-                <span className="flex min-w-0 flex-wrap justify-end gap-1">
-                    {scoutNames.size > 0 && (
-                        <Tooltip
-                            title={
-                                <div className="flex flex-col">
-                                    {[...scoutNames].map((scoutName) => (
-                                        <span key={scoutName}>{scoutName}</span>
-                                    ))}
-                                </div>
-                            }
-                        >
-                            <LemonTag type="muted" size="small" className="cursor-help">
-                                Added by scout
-                            </LemonTag>
-                        </Tooltip>
-                    )}
+            <div className="flow-root min-w-0 border-t px-2.5 py-2">
+                <span className="float-right ml-2 flex min-w-0 flex-wrap justify-end gap-1">
+                    {scoutNames.size > 0 && <SuggestedReviewerScoutTag scoutNames={[...scoutNames]} />}
                     {[...otherSourceLabels].map((sourceLabel) => (
                         <LemonTag key={sourceLabel} type="muted" size="small" wrap className="max-w-32">
                             {sourceLabel}
                         </LemonTag>
                     ))}
                 </span>
+                <span className="min-w-0 text-xs leading-snug text-tertiary [overflow-wrap:anywhere]">{reason}</span>
             </div>
         </div>
     )

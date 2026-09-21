@@ -248,12 +248,20 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         # maintenance. The driver reconnects to the newly-elected primary, so Temporal retrying the
         # whole activity is self-recovering. Match the stable errmsg phrase, not the volatile
         # topologyVersion/clusterTime blob pymongo appends.
+        #
+        # pymongo raises NetworkTimeout (a socket.timeout wrapped by _raise_connection_failure) when
+        # opening a fresh connection — to replace one the pool dropped, mid-sync — takes longer than
+        # connectTimeoutMS. This is the same class of momentary network blip as "connection pool
+        # paused" above, not a persistently unreachable cluster: it carries a host and configured
+        # timeouts but no "Topology Description:" dump, and the next connection attempt (this one,
+        # or a fresh one on the activity's Temporal retry) succeeds once the network recovers.
         return {
             "The resolution lifetime expired",
             "connection pool paused",
             "the cluster's signing keys were briefly unavailable",
             "interrupted at shutdown",
             "Topology Description:",
+            "timed out (configured timeouts:",
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:

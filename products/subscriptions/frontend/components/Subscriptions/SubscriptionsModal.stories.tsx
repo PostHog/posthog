@@ -15,7 +15,8 @@ import { DashboardType, InsightShortId, Realm, SubscriptionType } from '~/types'
 import { SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModal'
 
 type StoryArgs = SubscriptionsModalProps & {
-    formScenario?: 'default' | 'ai-summary-limit' | 'free-tier-limit'
+    formScenario?: 'default' | 'ai-summary-limit' | 'free-tier-limit' | 'long-ai-prompt'
+    openAsModal?: boolean
 }
 
 const DASHBOARD = {
@@ -164,6 +165,19 @@ const AI_PROMPT_SUBSCRIPTIONS = [
     }),
 ]
 
+const LONG_AI_PROMPT_SUBSCRIPTION = createMockSubscription({
+    id: 21,
+    resource_type: 'ai_prompt',
+    title: 'Weekly product health report',
+    prompt: Array.from(
+        { length: 18 },
+        () => 'Compare activation, retention, and revenue with the previous week. Explain each important change.'
+    ).join('\n\n'),
+    target_type: 'email',
+    target_value: 'reports@example.com',
+    created_by: mockBasicUser,
+})
+
 const AI_PROMPT_PARAMETERS = {
     featureFlags: {
         [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true,
@@ -181,17 +195,17 @@ const meta: Meta<StoryArgs> = {
     argTypes: {
         formScenario: {
             control: 'select',
-            options: ['default', 'ai-summary-limit', 'free-tier-limit'],
+            options: ['default', 'ai-summary-limit', 'free-tier-limit', 'long-ai-prompt'],
         },
     },
     render: (args) => {
-        const { formScenario = 'default', ...props } = args
+        const { formScenario = 'default', openAsModal = false, ...props } = args
         const aiSummaryAtLimit = formScenario === 'ai-summary-limit'
         const freeTierSubscriptionCount = formScenario === 'free-tier-limit' ? 5 : undefined
         const insightShortIdRef = useRef(props.insightShortId || (uuid() as InsightShortId))
         // Dashboard-context stories must not also pass an insight, or the modal renders the insight flow.
         const insightShortId = props.dashboard ? undefined : insightShortIdRef.current
-        const [modalOpen, setModalOpen] = useState(false)
+        const [modalOpen, setModalOpen] = useState(openAsModal)
         const contextualSubscriptions: SubscriptionType[] = props.dashboard
             ? DASHBOARD_SUBSCRIPTIONS
             : INSIGHT_SUBSCRIPTIONS
@@ -222,7 +236,9 @@ const meta: Meta<StoryArgs> = {
 
                     return { count: results.length, results }
                 },
-                '/api/environments/:id/subscriptions/:subId': createMockSubscription(),
+                '/api/environments/:id/subscriptions/:subId':
+                    formScenario === 'long-ai-prompt' ? LONG_AI_PROMPT_SUBSCRIPTION : createMockSubscription(),
+                '/api/projects/:id/subscriptions/:subId/deliveries': { results: [] },
                 ...(freeTierSubscriptionCount !== undefined
                     ? { '/api/projects/:id/subscriptions/': { count: freeTierSubscriptionCount, results: [] } }
                     : {}),
@@ -280,6 +296,17 @@ export const SubscriptionWizardNew: Story = {
         },
     },
     args: { isCreating: true, formScenario: 'default' },
+}
+
+export const LongAiPrompt: Story = {
+    parameters: {
+        ...AI_PROMPT_PARAMETERS,
+        pageUrl: '/subscriptions/21/edit',
+        testOptions: {
+            viewport: { width: 1032, height: 900 },
+        },
+    },
+    args: { subscriptionId: 21, formScenario: 'long-ai-prompt', openAsModal: true },
 }
 
 // Tabbed overview, dashboard context: This dashboard / Insights / AI prompt reports tabs.

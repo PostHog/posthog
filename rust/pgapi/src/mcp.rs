@@ -106,6 +106,13 @@ pub struct EventsArg {
     pub limit: Option<i64>,
 }
 #[derive(Deserialize, schemars::JsonSchema)]
+pub struct LocksArg {
+    pub server: String,
+    pub since: Option<String>,
+    /// Rows per list (pairs and episodes), default 50.
+    pub limit: Option<i64>,
+}
+#[derive(Deserialize, schemars::JsonSchema)]
 pub struct SchemaArg {
     pub server: String,
     pub datname: String,
@@ -230,6 +237,25 @@ impl PgMcp {
             .map_err(err)?)
     }
     #[tool(
+        description = "Who waited for whom over a window: sessions waiting on locks per bucket by lock type, (blocker statement, waiter statement) pairs with waiter-seconds and how often the blocker was idle in transaction, blocking episodes with start/end and the blocker's transaction age, and deadlocks from the log."
+    )]
+    async fn lock_waits(
+        &self,
+        Parameters(a): Parameters<LocksArg>,
+    ) -> Result<CallToolResult, McpError> {
+        let (f, t) = range(&a.since)?;
+        ok(q::lock_waits(
+            &self.state.db,
+            &a.server,
+            f,
+            t,
+            "1m",
+            a.limit.unwrap_or(50).clamp(1, 500),
+        )
+        .await
+        .map_err(err)?)
+    }
+    #[tool(
         description = "What is happening right now: connection counts by state, long-running / lock-waiting / idle-in-transaction sessions, blocking graph, memory-hungry backends."
     )]
     async fn current_activity(
@@ -299,6 +325,7 @@ impl PgMcp {
             f,
             t,
             a.kind.as_deref(),
+            &[],
             a.limit.unwrap_or(100).clamp(1, 1000),
         )
         .await
@@ -382,7 +409,7 @@ impl ServerHandler for PgMcp {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::from_build_env())
-            .with_instructions("Read-only access to PostHog's Postgres telemetry (pgcollector). Start with list_servers, then server_overview; drill into top_queries / query_detail for performance, query_tags for load per code path, current_activity for live issues, vacuum_status and events for maintenance. query_stats_db runs arbitrary read-only SQL against the stats database.")
+            .with_instructions("Read-only access to PostHog's Postgres telemetry (pgcollector). Start with list_servers, then server_overview; drill into top_queries / query_detail for performance, query_tags for load per code path, lock_waits for who blocked whom, current_activity for live issues, vacuum_status and events for maintenance. query_stats_db runs arbitrary read-only SQL against the stats database.")
     }
 }
 

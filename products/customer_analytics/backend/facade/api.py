@@ -97,7 +97,11 @@ from products.customer_analytics.backend.facade.contracts import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
 )
 from products.customer_analytics.backend.facade.email_matching import schedule_email_thread_link_recalculation
-from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind, AccountRelationshipSource
+from products.customer_analytics.backend.facade.enums import (
+    AccountPropertyPinKind,
+    AccountRelationshipSource,
+    TaskDigestCadence,
+)
 from products.customer_analytics.backend.logic import (
     account_presence as _account_presence_logic,
     account_track_rules as _account_track_rules_logic,
@@ -250,7 +254,7 @@ def _get_account_search_q(team_id: int, query: str, user_access_control: "UserAc
 
 
 def _account_tags(account: Account) -> list[str]:
-    return sorted(TaggedItem.objects.filter(account=account).values_list("tag__name", flat=True))
+    return sorted(TaggedItem.objects.for_object(account).values_list("tag__name", flat=True))
 
 
 def _account_notes(account: Account) -> list[contracts.AccountNote]:
@@ -1213,7 +1217,8 @@ def _to_user_customer_analytics_config(
         pinned_properties=[
             contracts.PinnedAccountProperty(kind=reference["kind"], id=UUID(str(reference["id"])))
             for reference in raw_references
-        ]
+        ],
+        task_digest=_user_customer_analytics_config_logic.read_task_digest(config),
     )
 
 
@@ -1229,6 +1234,24 @@ def update_user_customer_analytics_config(
         team_id=team_id,
         user_id=user_id,
         references=[(AccountPropertyPinKind(reference.kind), reference.id) for reference in pinned_properties],
+    )
+    return _to_user_customer_analytics_config(config)
+
+
+def update_user_task_digest_preferences(
+    *,
+    team_id: int,
+    user_id: int,
+    enabled: bool | None = None,
+    send_time: time | None = None,
+    cadence: str | None = None,
+) -> contracts.UserCustomerAnalyticsConfig:
+    config = _user_customer_analytics_config_logic.update_task_digest(
+        team_id=team_id,
+        user_id=user_id,
+        enabled=enabled,
+        send_time=send_time,
+        cadence=TaskDigestCadence(cadence) if cadence is not None else None,
     )
     return _to_user_customer_analytics_config(config)
 
@@ -3065,8 +3088,9 @@ def _apply_account_table_sort(
             queryset = queryset.annotate(_account_table_sort=KeyTextTransform(sort.account_field.value, "_properties"))
     elif sort.kind == contracts.AccountTableSortKind.TAGS:
         tag_values = (
-            TaggedItem.objects.filter(account_id=OuterRef("pk"), tag__team_id=team_id)
-            .values("account_id")
+            TaggedItem.objects.matching_outer(Account)
+            .filter(tag__team_id=team_id)
+            .values("object_key")
             .annotate(value=ArrayAgg("tag__name", order_by="tag__name"))
             .values("value")
         )
@@ -3273,9 +3297,9 @@ def query_accounts_table(
     tags_by_account: dict[UUID, list[str]] = {account_id: [] for account_id in account_ids}
     if selection.include_tags:
         for account_id, tag_name in (
-            TaggedItem.objects.filter(account_id__in=account_ids)
+            TaggedItem.objects.for_objects(Account, account_ids)
             .order_by("tag__name")
-            .values_list("account_id", "tag__name")
+            .values_list("object_key", "tag__name")
         ):
             tags_by_account[account_id].append(tag_name)
 
