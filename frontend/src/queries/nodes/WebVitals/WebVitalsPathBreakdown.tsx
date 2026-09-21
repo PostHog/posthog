@@ -94,7 +94,7 @@ export function WebVitalsPathBreakdown(props: {
  * unmaterialized property over the same events again. Hold each metric's response while the rest of
  * the query is unchanged, so a tab the person already opened costs no query at all.
  */
-export function useMetricResponseCache(
+function useMetricResponseCache(
     query: WebVitalsPathBreakdownQuery
 ): [AnyResponseType | undefined, (response: AnyResponseType) => void] {
     const { metric, thresholds, ...queryWithoutMetric } = query
