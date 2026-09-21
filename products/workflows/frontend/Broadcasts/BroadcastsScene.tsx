@@ -1,6 +1,7 @@
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -10,6 +11,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { messagingNavTabs } from '../messagingTabs'
 import { BroadcastsTable } from './BroadcastsTable'
 import { broadcastsFeaturePreviewGate } from './featurePreviewGate'
 
@@ -41,6 +43,11 @@ export function BroadcastsScene(): JSX.Element {
                             </LemonButton>
                         </AccessControlAction>
                     }
+                />
+                <LemonTabs
+                    activeKey="broadcasts"
+                    tabs={[{ label: 'Broadcasts', key: 'broadcasts', link: urls.broadcasts() }, ...messagingNavTabs()]}
+                    sceneInset
                 />
                 <BroadcastsTable />
             </SceneContent>

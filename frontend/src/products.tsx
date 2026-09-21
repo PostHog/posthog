@@ -284,9 +284,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/heatmaps/:id': ['Heatmap', 'heatmap'],
     '/wizard/runs': ['WizardRuns', 'wizardRuns'],
     '/workflows': ['Workflows', 'workflows'],
-    '/workflows/broadcasts': ['Broadcasts', 'broadcasts'],
-    '/workflows/broadcasts/new': ['Broadcast', 'broadcast'],
-    '/workflows/broadcasts/:id': ['Broadcast', 'broadcast'],
     '/workflows/:tab': ['Workflows', 'workflows'],
     '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
     '/workflows/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
@@ -295,6 +292,9 @@ export const productRoutes: Record<string, [string, string]> = {
         'WorkflowsLibraryTemplate',
         'workflowsLibraryTemplateFromMessage',
     ],
+    '/broadcasts': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/new': ['Broadcast', 'broadcast'],
+    '/broadcasts/:id': ['Broadcast', 'broadcast'],
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -1662,9 +1662,9 @@ export const productUrls = {
     workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
     workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
     workflowsLibraryTemplateFromMessage: (id?: string): string => `/workflows/library/templates/new?messageId=${id}`,
-    broadcasts: (): string => '/workflows/broadcasts',
-    broadcast: (id: string): string => `/workflows/broadcasts/${id}`,
-    broadcastNew: (): string => '/workflows/broadcasts/new',
+    broadcasts: (): string => '/broadcasts',
+    broadcast: (id: string): string => `/broadcasts/${id}`,
+    broadcastNew: (): string => '/broadcasts/new',
 }
 
 /** This const is auto-generated, as is the whole file */

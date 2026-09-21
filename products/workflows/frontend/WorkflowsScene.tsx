@@ -2,7 +2,7 @@ import { MakeLogicType, actions, kea, path, props, reducers, selectors, useActio
 import { urlToAction } from 'kea-router'
 
 import { IconApple, IconAndroid, IconLetter, IconPlusSmall } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -26,6 +26,7 @@ import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/typ
 
 import { MessageChannels } from './Channels/MessageChannels'
 import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
+import { messagingNavTabs } from './messagingTabs'
 import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
 import { OptOutScene } from './OptOuts/OptOutScene'
 import { SuppressionScene } from './Suppression/SuppressionScene'
@@ -133,6 +134,14 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
     emptyState: workflowsEmptyState,
 }
 
+const MESSAGING_TAB_CONTENT: Record<string, JSX.Element> = {
+    library: <MessageTemplatesTable />,
+    channels: <MessageChannels />,
+    'opt-outs': <OptOutScene />,
+    suppression: <SuppressionScene />,
+    reputation: <WorkflowsReputation />,
+}
+
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
     const { emailSendingSuspended, emailSendingSuspensionReason } = useValues(workflowsEmailSuspensionLogic)
@@ -204,48 +213,9 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             content: <WorkflowsTable />,
             link: urls.workflows(),
         },
-        {
-            label: 'Library',
-            key: 'library',
-            content: (
-                <>
-                    <MessageTemplatesTable />
-                </>
-            ),
-            link: urls.workflows('library'),
-        },
-        {
-            label: 'Channels',
-            key: 'channels',
-            content: <MessageChannels />,
-            link: urls.workflows('channels'),
-        },
-        {
-            label: 'Opt-outs',
-            key: 'opt-outs',
-            content: <OptOutScene />,
-            link: urls.workflows('opt-outs'),
-        },
-        {
-            label: 'Suppression list',
-            key: 'suppression',
-            content: <SuppressionScene />,
-            link: urls.workflows('suppression'),
-        },
-        {
-            label: (
-                <>
-                    Reputation{' '}
-                    <LemonTag className="ml-1" type="completion">
-                        Beta
-                    </LemonTag>
-                </>
-            ),
-            key: 'reputation',
-            content: <WorkflowsReputation />,
-            link: urls.workflows('reputation'),
-        },
-    ]
+        // Shared with the broadcasts scene; the content lives here because this is where they open.
+        ...messagingNavTabs().map((tab) => ({ ...tab, content: MESSAGING_TAB_CONTENT[tab.key] })),
+    ] as LemonTab<WorkflowsSceneTab>[]
 
     return (
         <SceneContent className="workflows">

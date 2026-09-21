@@ -47,11 +47,6 @@ export const manifest: ProductManifest = {
     routes: {
         // URL: [Scene, SceneKey]
         '/workflows': ['Workflows', 'workflows'],
-        // kea-router matches in declaration order, so every literal 'broadcasts' route is listed
-        // before the ':tab' and ':id/:tab' patterns that would otherwise swallow it.
-        '/workflows/broadcasts': ['Broadcasts', 'broadcasts'],
-        '/workflows/broadcasts/new': ['Broadcast', 'broadcast'],
-        '/workflows/broadcasts/:id': ['Broadcast', 'broadcast'],
         '/workflows/:tab': ['Workflows', 'workflows'],
         '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
         '/workflows/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
@@ -60,6 +55,10 @@ export const manifest: ProductManifest = {
             'WorkflowsLibraryTemplate',
             'workflowsLibraryTemplateFromMessage',
         ],
+        '/broadcasts': ['Broadcasts', 'broadcasts'],
+        // kea-router matches in declaration order, so the literal 'new' comes before ':id'.
+        '/broadcasts/new': ['Broadcast', 'broadcast'],
+        '/broadcasts/:id': ['Broadcast', 'broadcast'],
     },
     urls: {
         workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
@@ -70,9 +69,9 @@ export const manifest: ProductManifest = {
         workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
         workflowsLibraryTemplateFromMessage: (id?: string): string =>
             `/workflows/library/templates/new?messageId=${id}`,
-        broadcasts: (): string => '/workflows/broadcasts',
-        broadcast: (id: string): string => `/workflows/broadcasts/${id}`,
-        broadcastNew: (): string => '/workflows/broadcasts/new',
+        broadcasts: (): string => '/broadcasts',
+        broadcast: (id: string): string => `/broadcasts/${id}`,
+        broadcastNew: (): string => '/broadcasts/new',
     },
     fileSystemTypes: {
         workflows: {

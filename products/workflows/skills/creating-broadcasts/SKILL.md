@@ -150,7 +150,7 @@ Content edits after enabling stage a draft that must go through `workflows-publi
 - `workflows-list-batch-jobs` — past runs for the broadcast (one-off and schedule-triggered), each with the audience filters and variables it used. Run outcome isn't on the job row — use stats/logs.
 - `workflows-stats` — time-series success/failure plus email engagement: read `email_opened` and `email_link_clicked` against (`email_sent` − `email_untracked`), and `email_delivered` for deliverability. Conversion counts appear here when a goal is set.
 - `workflows-logs` / `workflows-list-invocations` — per-recipient traces when sends fail.
-- Point the user at **`/workflows/broadcasts`** in the app — the broadcasts list and per-broadcast detail (`/workflows/broadcasts/<id>`) are the human-facing view of everything above.
+- Point the user at **`/broadcasts`** in the app — the broadcasts list and per-broadcast detail (`/broadcasts/<id>`) are the human-facing view of everything above.
 
 [building-workflows]: ../building-workflows/SKILL.md
 [designing-email-templates]: ../designing-email-templates/SKILL.md
