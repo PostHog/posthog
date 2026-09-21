@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 
 from unittest.mock import Mock, PropertyMock, patch
 
-from django.core.cache import cache
+from django.core.cache import caches
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.http import HttpRequest
 from django.test import RequestFactory, SimpleTestCase, override_settings
@@ -26,6 +26,7 @@ from posthog.ingress.contracts import (
     WebhookConsumer,
     WebhookDelivery,
 )
+from posthog.ingress.dispatch.dedup import INGRESS_DEDUP_CACHE_ALIAS
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
 from posthog.ingress.dispatch.forward import HOST_IDENTIFYING_HEADERS, forward_to_secondary_region
 from posthog.ingress.dispatch.registry import ConsumerRegistry
@@ -33,6 +34,7 @@ from posthog.ingress.github.provider import GitHubProvider, build_github_provide
 from posthog.ingress.pandadoc.provider import build_pandadoc_provider
 from posthog.ingress.providers import WebhookProvider
 from posthog.ingress.slack.provider import build_slack_provider
+from posthog.ingress.test import LOCMEM_CACHES
 from posthog.ingress.vapi.provider import VapiProvider
 from posthog.ingress.verify.schemes import Verification, VerificationOutcome
 from posthog.ingress.views import build_webhook_view
@@ -424,12 +426,12 @@ def _consumer(
     )
 
 
-@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+@override_settings(CACHES=LOCMEM_CACHES)
 class _DispatchingViewTestCase(SimpleTestCase):
     """A view driving the real dispatcher and registry, rather than a mocked one."""
 
     def setUp(self) -> None:
-        cache.clear()
+        caches[INGRESS_DEDUP_CACHE_ALIAS].clear()
         self.factory = RequestFactory()
         self.handler = Mock()
 
