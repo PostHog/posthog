@@ -833,7 +833,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             and len(self.team.test_account_filters) > 0
         ):
             for property in self.team.test_account_filters:
-                filters.append(property_to_expr(property, self.team))
+                filters.append(
+                    property_to_expr(property, self.team, cohort_via_distinct_id=isinstance(series, DataWarehouseNode))
+                )
 
         # Properties
         if self.query.properties is not None and self.query.properties != []:

@@ -242,13 +242,16 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert set(response.columns).issubset({"date", "total"})
         assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
 
+    @parameterized.expand(["series", "query"])
     @snapshot_clickhouse_queries
-    def test_trends_entity_property(self):
+    def test_trends_property_filter(self, placement: str):
         table_name = self.setup_data_warehouse()
+        property_filter = DataWarehousePropertyFilter(key="prop_1", value="a", operator=PropertyOperator.EXACT)
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
             dateRange=DateRange(date_from="2023-01-01"),
+            properties=[property_filter] if placement == "query" else [],
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -256,7 +259,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                     id_field="id",
                     timestamp_field="created",
                     distinct_id_field="customer_email",
-                    properties=[DataWarehousePropertyFilter(key="prop_1", value="a", operator=PropertyOperator.EXACT)],
+                    properties=[property_filter] if placement == "series" else [],
                 )
             ],
         )
@@ -268,10 +271,18 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert set(response.columns).issubset({"date", "total"})
         assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
 
-    def test_trends_cohort_property_matches_through_distinct_id(self):
+    @parameterized.expand(
+        [
+            ("series", [0, 1, 0, 0, 0, 0, 0]),
+            ("query", [0, 1, 0, 0, 0, 0, 0]),
+            ("test_accounts", [1, 0, 1, 1, 0, 0, 0]),
+        ]
+    )
+    def test_trends_cohort_property_matches_through_distinct_id(self, placement: str, expected: list[int]):
         table_name = self.setup_data_warehouse()
 
         # `id` holds "1".."4", which ClickHouse cannot parse as the person UUIDs a cohort holds.
+        # Only the person on distinct ID "2" is a member, which is the 2023-01-02 row.
         _create_person(team_id=self.team.pk, distinct_ids=["2"], properties={"$os": "Chrome"})
         flush_persons_and_events()
         cohort = Cohort.objects.create(
@@ -279,10 +290,18 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
         )
         cohort.calculate_people_ch(pending_version=0)
+        cohort_filter = {"type": "cohort", "key": "id", "value": cohort.pk}
+
+        if placement == "test_accounts":
+            # A cohort exclusion is what every new team gets, so warehouse insights meet this path first.
+            self.team.test_account_filters = [{**cohort_filter, "operator": "not_in"}]
+            self.team.save()
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
             dateRange=DateRange(date_from="2023-01-01"),
+            filterTestAccounts=placement == "test_accounts",
+            properties=[cohort_filter] if placement == "query" else [],
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -290,7 +309,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                     id_field="id",
                     timestamp_field="created",
                     distinct_id_field="id",
-                    properties=[{"type": "cohort", "key": "id", "value": cohort.pk}],
+                    properties=[cohort_filter] if placement == "series" else [],
                 )
             ],
         )
@@ -298,7 +317,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         with time_machine.travel("2023-01-07", tick=False):
             response = self.get_response(trends_query=trends_query)
 
-        assert response.results[0][1] == [0, 1, 0, 0, 0, 0, 0]
+        assert response.results[0][1] == expected
 
     def _avg_view_setup(self, function_name: str):
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -364,32 +383,6 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
     def test_trends_view_quartile(self):
         assert 4 < self._avg_view_setup("p99") < 5
-
-    @snapshot_clickhouse_queries
-    def test_trends_query_properties(self):
-        table_name = self.setup_data_warehouse()
-
-        trends_query = TrendsQuery(
-            kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
-            series=[
-                DataWarehouseNode(
-                    id=table_name,
-                    table_name=table_name,
-                    id_field="id",
-                    distinct_id_field="customer_email",
-                    timestamp_field="created",
-                )
-            ],
-            properties=[DataWarehousePropertyFilter(key="prop_1", value="a", operator=PropertyOperator.EXACT)],
-        )
-
-        with time_machine.travel("2023-01-07", tick=False):
-            response = self.get_response(trends_query=trends_query)
-
-        assert response.columns is not None
-        assert set(response.columns).issubset({"date", "total"})
-        assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
 
     @snapshot_clickhouse_queries
     def test_trends_breakdown(self):
