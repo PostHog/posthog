@@ -105,7 +105,7 @@ export const DEFAULT_BROADCAST_CONVERSION: HogFlowConversionApi = {
     window: '7d',
 }
 
-// pinned: action node ids referenced by saved broadcasts — renaming breaks resume of existing drafts
+// pinned: action node ids referenced by saved broadcasts, so renaming breaks resume of existing drafts
 const TRIGGER_ACTION_ID = 'trigger_node'
 const EMAIL_ACTION_ID = 'email_node'
 const EXIT_ACTION_ID = 'exit_node'
@@ -574,8 +574,6 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 launchBroadcastFinished: () => false,
             },
         ],
-        // Set once the initial load of an existing draft has hydrated the reducers, so the wizard can
-        // resume at the first incomplete step exactly once.
         // A new broadcast opens on the AI start screen; this flips once the sender asks for the
         // step-by-step wizard instead. An existing broadcast always opens straight into the wizard.
         hasOpenedFullEditor: [
@@ -590,6 +588,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 setSummaryTab: (_, { tab }) => tab,
             },
         ],
+        // Set once the initial load of an existing draft has hydrated the reducers, so the wizard
+        // resumes at the first incomplete step exactly once.
         hasHydrated: [
             props.id !== 'new' ? false : true,
             {
@@ -848,7 +848,6 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             }
             const projectId = String(values.currentProjectId)
             try {
-                // Save the latest edits (creating the draft if the user skipped ahead).
                 let broadcastId = values.broadcastId
                 if (!broadcastId) {
                     const created = await hogFlowsCreate(
@@ -929,7 +928,6 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             }
         },
         hydrateFromBroadcast: () => {
-            // Resume a draft at the first incomplete step; complete drafts land on review.
             if (values.broadcast?.status === 'draft') {
                 actions.setStep(values.firstInvalidStep ?? 'review')
             }

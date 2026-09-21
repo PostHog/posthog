@@ -48,7 +48,7 @@ export const BROADCAST_AGENT_HEADLINES: string[] = [
     'What should this email say?',
 ]
 
-// pinned: must match EMAIL_ACTION_ID in broadcastWizardLogic — the wizard builds every broadcast
+// pinned: must match EMAIL_ACTION_ID in broadcastWizardLogic, because the wizard builds every broadcast
 // flow with this email step id, and the agent addresses its patches to it.
 const EMAIL_ACTION_ID = 'email_node'
 
@@ -74,7 +74,7 @@ export function serializeBroadcastEmailState(email: BroadcastEmailValue): string
 }
 
 // All static strings below are build-time constants from our own repo, which is what makes them
-// safe to attach as trusted `instructions` items — never interpolate ids or user text into them.
+// safe to attach as trusted `instructions` items. Never interpolate ids or user text into them.
 const PREAMBLE_BASE =
     'The user has the PostHog broadcast wizard open. The creating-broadcasts skill and the workflows MCP ' +
     'tool catalog are included in this context, so you already have what you need to act. Do not spend ' +

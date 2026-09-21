@@ -1,3 +1,4 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -28,10 +29,17 @@ export const manifest: ProductManifest = {
             iconType: 'workflows',
             projectBased: true,
         },
+        Broadcasts: {
+            import: () => import('./frontend/Broadcasts/BroadcastsScene'),
+            name: 'Broadcasts',
+            iconType: 'broadcasts',
+            projectBased: true,
+            description: 'Send a one-time or scheduled email to a group of people',
+        },
         Broadcast: {
             import: () => import('./frontend/Broadcasts/BroadcastScene'),
-            name: 'Broadcast',
-            iconType: 'workflows',
+            name: 'Broadcasts',
+            iconType: 'broadcasts',
             projectBased: true,
             description: 'Send a one-time or scheduled email to a group of people',
         },
@@ -39,11 +47,12 @@ export const manifest: ProductManifest = {
     routes: {
         // URL: [Scene, SceneKey]
         '/workflows': ['Workflows', 'workflows'],
-        '/workflows/:tab': ['Workflows', 'workflows'],
-        // Broadcast routes must precede '/workflows/:id/:tab': kea-router matches routes in
-        // declaration order, so the literal 'broadcasts' segment only wins if it's listed first.
+        // kea-router matches in declaration order, so every literal 'broadcasts' route is listed
+        // before the ':tab' and ':id/:tab' patterns that would otherwise swallow it.
+        '/workflows/broadcasts': ['Broadcasts', 'broadcasts'],
         '/workflows/broadcasts/new': ['Broadcast', 'broadcast'],
         '/workflows/broadcasts/:id': ['Broadcast', 'broadcast'],
+        '/workflows/:tab': ['Workflows', 'workflows'],
         '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
         '/workflows/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
         '/workflows/library/templates/new': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
@@ -93,7 +102,9 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.MESSAGING,
             iconType: 'broadcasts',
             iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
-            sceneKey: 'Broadcast',
+            flag: FEATURE_FLAGS.BROADCASTS,
+            tags: ['beta'],
+            sceneKey: 'Broadcasts',
         },
     ],
 }

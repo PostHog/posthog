@@ -265,6 +265,7 @@ export const FEATURE_FLAGS = {
     BACKFILL_WORKFLOWS_DESTINATION: 'backfill-workflows-destination', // owner: #team-batch-exports
     BILLING_ALERTS: 'billing-alerts', // owner: #team-billing, gates the Billing > Alerts tab
     BILLING_REAL_TIME_USAGE: 'billing-real-time-usage', // owner: #team-billing, gates the Real-time usage scene
+    BROADCASTS: 'broadcasts', // owner: #team-workflows
     CDP_DWH_TABLE_SOURCE: 'cdp-dwh-table-source', // owner: #team-workflows-cdp
     CDP_DWH_VIEW_SOURCE: 'cdp-dwh-view-source', // owner: #team-workflows-cdp
     CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-workflows-cdp
@@ -342,8 +343,6 @@ export const FEATURE_FLAGS = {
     GITHUB_WORKFLOW_TRIGGERS: 'github-workflow-triggers', // owner: #team-workflows-cdp
     GROUP_PROFILE_EXPERIMENT: 'group-profile-experiment', // owner: @arthurdedeus #team-customer-analytics
     HEALTH_ASK_AI: 'health-ask-ai', // owner: @jordanm-posthog #team-web-analytics, gates the "Ask PostHog AI" buttons on the Health overview
-    // Disabling this for an org restores every event marked hidden_in_query_builders at once, in every
-    // picker. There is no per-event or per-picker granularity, so weigh that before marking a second event.
     HIDE_EVENTS_IN_QUERY_BUILDERS: 'hide-events-in-query-builders', // owner: #team-feature-flags, kill switch for hiding events marked hidden_in_query_builders from insight/cohort/destination pickers
     HOGQL_WAREHOUSE_ACCESS_CONTROL: 'hogql-warehouse-access-control', // owner: @a-lider #team-platform-features, gates per-object access control for warehouse tables and views
     IDENTITY_MATCHING: 'identity-matching', // owner: @fercgomes #team-growth, gates new identity matching scene on marketing analytics

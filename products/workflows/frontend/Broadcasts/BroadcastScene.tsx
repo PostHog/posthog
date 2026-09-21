@@ -9,6 +9,7 @@ import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { useToolStreamListener } from 'products/posthog_ai/frontend/api/logics'
@@ -21,6 +22,7 @@ import { BroadcastSummary } from './BroadcastSummary'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 import { BroadcastWizard } from './BroadcastWizard'
 import { BroadcastWizardLogicProps, broadcastWizardLogic } from './broadcastWizardLogic'
+import { broadcastsFeaturePreviewGate } from './featurePreviewGate'
 
 export const scene: SceneExport<BroadcastWizardLogicProps> = {
     component: BroadcastScene,
@@ -33,13 +35,15 @@ export function BroadcastScene({ id }: BroadcastWizardLogicProps): JSX.Element {
     const logicProps: BroadcastWizardLogicProps = { id: id || 'new' }
 
     return (
-        <BindLogic logic={broadcastWizardLogic} props={logicProps}>
-            <BindLogic logic={broadcastPreviewLogic} props={logicProps}>
-                <BindLogic logic={broadcastTestSendLogic} props={logicProps}>
-                    <BroadcastSceneContent id={logicProps.id} />
+        <FeaturePreviewSceneGate config={broadcastsFeaturePreviewGate}>
+            <BindLogic logic={broadcastWizardLogic} props={logicProps}>
+                <BindLogic logic={broadcastPreviewLogic} props={logicProps}>
+                    <BindLogic logic={broadcastTestSendLogic} props={logicProps}>
+                        <BroadcastSceneContent id={logicProps.id} />
+                    </BindLogic>
                 </BindLogic>
             </BindLogic>
-        </BindLogic>
+        </FeaturePreviewSceneGate>
     )
 }
 
