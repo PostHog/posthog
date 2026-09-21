@@ -1073,15 +1073,15 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         assert "JSONExtractKeysAndValuesRaw" not in printed, printed
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_new_events_schema_jsonextract_array_casts_native_subcolumn_safely(self):
+    def test_new_events_schema_jsonextract_array_uses_json_serialized_subcolumn(self):
         printed = self._print_select(
             "select JSONExtract(ifNull(properties.arr_field, '[]'), 'Array(String)') from events"
         )
 
         assert "events_json" in printed, printed
-        assert "ifNull(accurateCastOrNull(events.properties.arr_field," in printed, printed
-        assert "toJSONString" not in printed, printed
-        assert "JSONExtract" not in printed, printed
+        assert "JSONExtract(ifNull(" in printed, printed
+        assert "toJSONString(events.properties.arr_field)" in printed, printed
+        assert "accurateCastOrNull" not in printed, printed
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_jsonextract_respects_restricted_properties(self):

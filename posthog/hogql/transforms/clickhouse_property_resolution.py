@@ -1028,14 +1028,45 @@ class ClickHousePropertyResolver(CloningVisitor):
         if source is None or source.kind != "json_subcolumn":
             return None
 
-        value = _json_subcolumn_access(field_type, [property_name], source=source, is_nullable=True)
+        string_array = self._materialized_string_array_property(source_arg.args[0])
+        if string_array is not None:
+            source_type = parse_sql_runtime_type(string_array.source.column_type or "String")
+            if (
+                source_type.item_type is not None
+                and requested_type.item_type is not None
+                and source_type.item_type.family == requested_type.item_type.family
+            ):
+                return _json_subcolumn_access(
+                    string_array.field_type,
+                    [string_array.key],
+                    source=string_array.source,
+                    is_nullable=False,
+                )
+
+        json_value = _json_subcolumn_value_expr(
+            field_type,
+            [property_name],
+            source=source,
+            as_json=True,
+        )
         return ast.Call(
-            name="ifNull",
-            args=[
-                ast.Call(name="accurateCastOrNull", args=[value, type_arg]),
-                ast.Constant(value=[]),
-            ],
+            start=node.start,
+            end=node.end,
             type=node.type,
+            name=node.name,
+            args=[
+                ast.Call(
+                    name="ifNull",
+                    args=[json_value, self.visit(source_arg.args[1])],
+                    type=ast.StringType(nullable=False),
+                ),
+                type_arg,
+            ],
+            params=node.params,
+            distinct=node.distinct,
+            within_group=node.within_group,
+            order_by=node.order_by,
+            filter_expr=node.filter_expr,
         )
 
     def _optimize_json_has_on_events_json(self, node: ast.Call) -> ast.Expr | None:
