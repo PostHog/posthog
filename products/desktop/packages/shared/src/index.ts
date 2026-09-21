@@ -280,11 +280,16 @@ export {
 export type { PiMessagingMode, PiRuntimeHealth } from "./pi-session";
 export {
   createPiToolCallRecord,
+  formatMcpToolLabel,
+  formatPiMcpToolName,
   isPiToolName,
   PI_TOOL_KIND_BY_NAME,
+  type PiMcpCallDetails,
   type PiToolCallInput,
   type PiToolCallRecord,
   type PiToolName,
+  parsePiMcpCallDetails,
+  readPiMcpCallDetails,
 } from "./pi-tool-call";
 export { POSTHOG_PRODUCTS, type PostHogProductId } from "./posthog-products";
 export {
@@ -388,6 +393,7 @@ export {
   posthogToolMeta,
   readAgentToolName,
   readMcpInstallationId,
+  readMcpProxyCallDetails,
   readMcpToolDescriptor,
   readMcpToolName,
   readParentToolCallId,
