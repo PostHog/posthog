@@ -48,6 +48,28 @@ Prefer reusing existing insights over recreating them.
 - For anything missing, create it with `insight-create` (see the product-analytics insight skills for query shape).
 - Keep the set minimal — only the insights the request needs. A focused dashboard is more useful than an exhaustive one.
 
+## Write short titles and descriptions
+
+A dashboard is read at a glance.
+Long titles and paragraph-length descriptions make it harder to scan; they do not document it better.
+Keep the text on every tile terse.
+
+- **Title**: name what the tile measures, and nothing more.
+  Leave out the time range, the interval, and notes about scope the query does not narrow, because the dashboard and the chart already show them.
+  "Weekly active users" is better than "Weekly active users (30d, all plans, post-cutover)".
+- **Description**: one short line, or none.
+  Write one only when the title cannot carry the meaning on its own, for example when the tile counts something with a definition a reader would not guess.
+  A self-explanatory title needs no description.
+- **Caveats**: prefer to remove the need for them.
+  If a tile wants a warning such as "do not sum these values" or "excludes traffic before the migration", change the query, the chart type, or the title instead.
+  Where a caveat is genuinely necessary, keep it to one clause.
+- **Combine tiles that answer the same question**.
+  Several near-identical charts that differ by one property are one chart with a breakdown.
+  A few clear tiles beat an exhaustive grid.
+- **Notes for future agent sessions are not dashboard copy**.
+  Durable context such as migration dates, links, metric definitions, and data-quality quirks belongs in a business knowledge text source (`business-knowledge-sources-text-create`), where any later session can search it.
+  An insight description is not that store.
+
 ## Assemble the dashboard
 
 - New dashboard: `dashboard-create` with a short (3–7 word) name and a concise description, then add the insight tiles.

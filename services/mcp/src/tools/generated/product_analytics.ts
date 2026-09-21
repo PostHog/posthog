@@ -266,8 +266,11 @@ const InsightCreateSchema = () => {
         dashboards: InsightsCreateBody.shape['dashboards'].describe(
             'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
         ),
+        name: InsightsCreateBody.shape['name'].describe(
+            'Short title naming what the insight measures. Leave out the time range, the interval, and notes about scope the query does not narrow, because the chart already shows them. "Weekly active users" is better than "Weekly active users (30d, all plans, post-cutover)".'
+        ),
         description: InsightsCreateBody.shape['description'].describe(
-            'Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).'
+            'Optional one-line summary of what the insight shows, for when the name cannot carry the meaning on its own. Keep it to one short sentence, and leave it empty when the name already explains the insight. 400 characters is a hard ceiling, not a target: longer values are rejected, and a value anywhere near it is too long to read on a dashboard tile. Durable context such as migration dates, links, and data caveats belongs in a business knowledge text source, not here.'
         ),
     })
 }
@@ -406,8 +409,11 @@ const InsightUpdateSchema = () => {
                 dashboards: InsightsPartialUpdateBody.shape['dashboards'].describe(
                     'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
                 ),
+                name: InsightsPartialUpdateBody.shape['name'].describe(
+                    'Short title naming what the insight measures. Leave out the time range, the interval, and notes about scope the query does not narrow, because the chart already shows them. "Weekly active users" is better than "Weekly active users (30d, all plans, post-cutover)".'
+                ),
                 description: InsightsPartialUpdateBody.shape['description'].describe(
-                    'Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).'
+                    'Optional one-line summary of what the insight shows, for when the name cannot carry the meaning on its own. Keep it to one short sentence, and leave it empty when the name already explains the insight. 400 characters is a hard ceiling, not a target: longer values are rejected, and a value anywhere near it is too long to read on a dashboard tile. Durable context such as migration dates, links, and data caveats belongs in a business knowledge text source, not here.'
                 ),
             })
     )
