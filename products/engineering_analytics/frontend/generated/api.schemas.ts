@@ -2029,7 +2029,7 @@ export interface WorkflowHealthItemApi {
      * @nullable
      */
     success_rate_prev?: number | null
-    /** Successful runs in the p50/p95 sample. Fast no-work runs are excluded when longer successful runs exist; an all-fast workflow uses every successful run. */
+    /** Successful runs lasting at least 10 seconds. Zero when p50/p95 fall back to shorter successful runs. */
     percentile_run_count?: number
     /** Runs on merge-queue gate branches (trunk-merge/**) in the window, counted regardless of branch or run_scope. Non-zero marks a workflow the queue runs before a merge lands, the closest available proxy for a required check. */
     merge_queue_run_count?: number

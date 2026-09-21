@@ -253,8 +253,8 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "percentile_run_count": {
-                "help_text": "Successful runs in the p50/p95 sample. Fast no-work runs are excluded when longer "
-                "successful runs exist; an all-fast workflow uses every successful run."
+                "help_text": "Successful runs lasting at least 10 seconds. Zero when p50/p95 fall back to "
+                "shorter successful runs."
             },
             "merge_queue_run_count": {
                 "help_text": "Runs on merge-queue gate branches (trunk-merge/**) in the window, counted regardless "
