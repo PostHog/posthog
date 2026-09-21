@@ -335,8 +335,6 @@ Redis outages use the existing direct publication path.
 If catalog construction outlives the lease, a second publisher can duplicate the Go catalog build and publication.
 
 Warehouse table and alias validation is isolated per exported entry.
-The shared catalog excludes direct-connection table rows because those rows belong only to an explicit `connectionId` database.
-This keeps a direct table's raw dotted name from replacing a synced table that resolves to the same catalog key.
 When one canonical warehouse table does not match the permission-filtered HogQL resolver, Django omits that table and its dependent aliases while publishing unrelated tables, aliases, and properties.
 Canonical names stay reserved after omission, so another alias cannot restore a rejected table spelling.
 An editor query that references an omitted table can report an unknown table until its warehouse metadata is corrected, while unrelated queries continue to use the language service.
