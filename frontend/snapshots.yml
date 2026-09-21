@@ -2452,6 +2452,10 @@ snapshots:
         hash: v1.k794b7964.ae01056717a47bec34aec4b29b51dbffdbad9f3beadf2f27835712948b272416.ZlnJyGQQVpAQjUJGC2vWJ24-RI0fBAIuQWoesC_kfu0
     customer-analytics-task-digest--saving--light:
         hash: v1.k794b7964.0f54b9aae06c11ec7e578b8e719a6601a02c8a046dbf5637ba1e7dfa7ee29afa.wzf112F8I-WiRTpSK7sJTTxLWojQAu-fok0y6YGkXKo
+    customer-analytics-task-digest--tasks-modal--dark:
+        hash: v1.k794b7964.7e808d1acde79b48d8f6c2d7139a9a11e2c33e0579b69636176f4f3b06f0fd94.4U7X0_N-c7UsfP55hsEDM_-nKHMzZYtNczPj2K5penI
+    customer-analytics-task-digest--tasks-modal--light:
+        hash: v1.k794b7964.d699105ed3649edc2776b326c0b8417aaf3d6b22573537c1812e5cee2917f13a.yH78vgMSeg2K_yuHa4ej4U_5g6atJd_s4pbbMFhbVlA
     data-catalog-metric-tests--empty--dark:
         hash: v1.k794b7964.8c5bed6e45ecc0ce83e4fcb37057c6d87aad0a974e8ed035b9fc9e67a8c1dbd9.jNr2vi0P9-nEfiRddJJjwFg4ZekchSpeyXxdxNfAF1E
     data-catalog-metric-tests--empty--light:
