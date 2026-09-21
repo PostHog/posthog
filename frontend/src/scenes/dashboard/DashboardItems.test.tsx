@@ -602,4 +602,52 @@ describe('DashboardItems', () => {
         expect(insightCard).toHaveAttribute('data-api-error-code', 'refresh_failed')
         expect(insightCard).toHaveAttribute('data-api-error-detail', 'The refreshed query failed')
     })
+
+    it.each([
+        ['a dashboard load fills the tiles in', DashboardPlacement.Dashboard, true, 'Loaded 4 of 19 tiles'],
+        ['the tiles are all settled', DashboardPlacement.Dashboard, false, null],
+        ['the dashboard renders for an export', DashboardPlacement.Export, true, null],
+    ] as const)('load progress when %s', (_case, placement, itemsLoading, expected) => {
+        mockedUseValues.mockImplementation((logic) => {
+            if (logic === dashboardLogic) {
+                return {
+                    dashboard: { id: 5 },
+                    tiles: [],
+                    layouts: { sm: [] },
+                    dashboardMode: null,
+                    placement,
+                    isRefreshingQueued: () => false,
+                    isRefreshing: () => false,
+                    highlightedInsightId: null,
+                    refreshStatus: {},
+                    refreshMetrics: { completed: 4, total: 19 },
+                    itemsLoading,
+                    dashboardStreaming: false,
+                    effectiveEditBarFilters: {},
+                    currentDashboardVariables: {},
+                    temporaryBreakdownColors: [],
+                    dataColorThemeId: null,
+                    canEditDashboard: true,
+                    layoutZoom: 1,
+                    widgetResultsByTileId: {},
+                    widgetRefreshStatus: {},
+                }
+            }
+
+            if (logic === dashboardsModel) {
+                return { nameSortedDashboards: [] }
+            }
+
+            return {}
+        })
+
+        const { container } = render(<DashboardItems />)
+        const progress = container.querySelector('[data-attr="dashboard-load-progress"]')
+
+        if (expected === null) {
+            expect(progress).not.toBeInTheDocument()
+        } else {
+            expect(progress).toHaveTextContent(expected)
+        }
+    })
 })

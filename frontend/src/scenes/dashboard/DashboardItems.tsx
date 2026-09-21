@@ -37,6 +37,7 @@ import { DashboardLayoutSize, DashboardPlacement, DashboardType } from '~/types'
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
 
+import { DashboardLoadProgress } from './DashboardLoadProgress'
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
 
@@ -86,6 +87,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         isRefreshing,
         highlightedInsightId,
         refreshStatus,
+        refreshMetrics,
+        itemsLoading,
         dashboardStreaming,
         dashboardLoading,
         effectiveEditBarFilters,
@@ -460,6 +463,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     Layout editing is disabled on smaller screens. Please zoom out or use a larger screen to move or
                     resize tiles.
                 </LemonBanner>
+            )}
+            {itemsLoading && placement !== DashboardPlacement.Export && (
+                <DashboardLoadProgress completed={refreshMetrics.completed} total={refreshMetrics.total} />
             )}
             {mounted && (
                 <div className="relative">
