@@ -23,6 +23,14 @@ export const counterHogflowWaitAdvancedAtMaxWait = new Counter({
     labelNames: ['team_id', 'hog_flow_id'],
 })
 
+// A person re-read that failed, so the wait evaluated against the person the dequeue read. Kept as
+// a counter because swallowing the failure is what stops it from ending the wait early, and a
+// sustained non-zero reading means waits are routing on person data that is older than they expect.
+export const counterHogflowWaitPersonRefreshFailed = new Counter({
+    name: 'cdp_hogflow_wait_person_refresh_failed',
+    help: 'wait_until_condition evaluations whose person re-read failed, falling back to the dequeue read.',
+})
+
 // Outcome of a wait_until_condition re-check that ran because a person merge re-keyed the parked job
 // onto the survivor and woke it (scheduled=now). 'advanced' = the merge made the condition match;
 // 'reparked' = it didn't, so waking was wasted churn. A high reparked:advanced ratio means the wake
@@ -76,7 +84,13 @@ export class ConditionalBranchHandler implements ActionHandler {
         // follows to wake it. Re-read before every evaluation of a wait: on entry, and on each
         // matcher wake, where the person the wake refers to is the point of the re-check.
         if (action.type === 'wait_until_condition') {
-            const refreshed = await invocation.refreshPerson?.()
+            const refreshed = await invocation.refreshPerson?.().catch(() => {
+                // A read that throws keeps the dequeue's person as well. Letting it reach the
+                // executor's error handling would follow the continue edge, which for a wait is the
+                // timeout edge, so one failed read would end a multi-day wait early.
+                counterHogflowWaitPersonRefreshFailed.inc()
+                return undefined
+            })
             // A refresh that finds no person keeps the dequeue's read. The refresh exists to make a
             // just-written property visible, not to drop a person: a lookup that comes back empty
             // (replica lag, a transient miss) would otherwise evaluate the condition against nothing.

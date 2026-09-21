@@ -14,6 +14,7 @@ import {
     checkConditions,
     counterHogflowRekeyWake,
     counterHogflowWaitAdvancedAtMaxWait,
+    counterHogflowWaitPersonRefreshFailed,
 } from './conditional_branch'
 
 const lateAdvanceCount = async (): Promise<number> =>
@@ -21,6 +22,9 @@ const lateAdvanceCount = async (): Promise<number> =>
 
 const lateAdvanceLabels = async (): Promise<Record<string, string | number> | undefined> =>
     (await counterHogflowWaitAdvancedAtMaxWait.get()).values[0]?.labels
+
+const personRefreshFailedCount = async (): Promise<number> =>
+    (await counterHogflowWaitPersonRefreshFailed.get()).values[0]?.value ?? 0
 
 const rekeyWakeCount = async (outcome: 'advanced' | 'reparked'): Promise<number> =>
     (await counterHogflowRekeyWake.get()).values.find((v) => v.labels.outcome === outcome)?.value ?? 0
@@ -350,6 +354,7 @@ describe('action.conditional_branch', () => {
             handler = new ConditionalBranchHandler(stubCohortMembershipRepository)
             counterHogflowWaitAdvancedAtMaxWait.reset()
             counterHogflowRekeyWake.reset()
+            counterHogflowWaitPersonRefreshFailed.reset()
         })
 
         it('evaluates a first wait against the refreshed person, on the invocation and the result alike', async () => {
@@ -382,6 +387,25 @@ describe('action.conditional_branch', () => {
 
             expect(waitInvocation.person).toEqual(before)
             expect(waitInvocation.filterGlobals.person).not.toBeNull()
+        })
+
+        it('keeps the person it already had when the refresh fails, and stays parked', async () => {
+            // A failed read must not reach the executor's error handling: that follows the continue
+            // edge, which for a wait is the timeout edge, so the run would leave the wait early.
+            const before = waitInvocation.person
+            waitInvocation.refreshPerson = jest.fn().mockRejectedValue(new Error('person read failed'))
+            const result = createInvocationResult<CyclotronJobInvocationHogFlow>(waitInvocation)
+
+            const handlerResult = await handler.execute({
+                invocation: waitInvocation,
+                action: waitAction,
+                result,
+            })
+
+            expect(handlerResult.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 10 }))
+            expect(handlerResult.nextAction).toBeUndefined()
+            expect(waitInvocation.person).toEqual(before)
+            expect(await personRefreshFailedCount()).toBe(1)
         })
 
         it('advances to the matched branch and clears eventMatched', async () => {
