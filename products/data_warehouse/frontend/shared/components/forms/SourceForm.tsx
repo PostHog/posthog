@@ -31,9 +31,9 @@ import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/gen
 
 import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
 import {
-    SSH_FIELD,
     type SourceWizardLogicProps,
     sourceWizardLogic,
+    sshTunnelFieldConfig,
 } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 import { CDC_SOURCE_TYPES } from '../../cdc'
 import { isCustomSourceAiBuilderEnabled } from './customSourceManifest'
@@ -422,7 +422,7 @@ export const sourceFieldToElement = (
 
     if (field.type === 'ssh-tunnel') {
         return sourceFieldToElement(
-            { ...SSH_FIELD, name: field.name, label: field.label },
+            sshTunnelFieldConfig(field),
             sourceConfig,
             lastValue,
             isUpdateMode,

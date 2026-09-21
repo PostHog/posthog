@@ -328,6 +328,30 @@ describe('sourceWizardLogic', () => {
                 payload: { test_field: { enabled: true, option_field: '' } },
             })
         })
+
+        // Only a source that reads `require_tls` gets the "Require TLS through tunnel?" switch.
+        // Every other tunnel source ignores the value, so offering the switch promises a
+        // protection the sync never applies.
+        it.each([
+            [true, true],
+            [false, undefined],
+        ])('with supportsRequireTls %s the tunnel default carries require_tls %s', async (supports, expected) => {
+            const sourceWizardLogic = await import('../sourceWizardLogic')
+            const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
+                Test: buildSourceConfig({
+                    fields: [
+                        {
+                            name: 'ssh_tunnel',
+                            label: 'Use SSH tunnel?',
+                            type: 'ssh-tunnel',
+                            supportsRequireTls: supports,
+                        },
+                    ],
+                }),
+            })
+
+            expect(res.payload.ssh_tunnel.require_tls?.enabled).toEqual(expected)
+        })
     })
 
     describe('getErrorsForFields', () => {

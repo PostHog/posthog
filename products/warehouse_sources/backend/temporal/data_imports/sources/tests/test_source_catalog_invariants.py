@@ -5,7 +5,7 @@ import pytest
 from django.test import override_settings
 
 import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldSSHTunnelConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 
@@ -80,6 +80,21 @@ HTTP_SOURCES_WITHOUT_THE_HOST_MIXIN = {
     "Windmill",
     "Wrike",
 }
+
+# Sources whose connect path reads the tunnel's `require_tls` value. Only these may declare
+# `supportsRequireTls`, because the wizard renders the "Require TLS through tunnel?" switch from
+# that flag — a source that ignores the value would show a security control that changes nothing.
+# Neon and Supabase share the Postgres connect path, so they read the value too.
+SOURCES_THAT_READ_REQUIRE_TLS = {"Postgres", "Neon", "Supabase"}
+
+SSH_TUNNEL_SOURCES = sorted(
+    (
+        source_type
+        for source_type, source in ALL_SOURCES.items()
+        if any(isinstance(field, SourceFieldSSHTunnelConfig) for field in source.get_source_config.fields)
+    ),
+    key=str,
+)
 
 HOST_FIELD_SOURCES = sorted(
     (
@@ -195,3 +210,20 @@ def test_sources_with_a_host_field_refuse_an_internal_host(source_type):
         is_valid, _ = source.is_database_host_valid("169.254.169.254", team_id=999)
 
     assert not is_valid, f"{source_type} accepts a link-local host."
+
+
+@pytest.mark.parametrize("source_type", SSH_TUNNEL_SOURCES, ids=str)
+def test_only_sources_that_read_require_tls_offer_the_switch(source_type):
+    source = ALL_SOURCES[source_type]
+    reads_require_tls = str(source_type) in SOURCES_THAT_READ_REQUIRE_TLS
+
+    for field in source.get_source_config.fields:
+        if not isinstance(field, SourceFieldSSHTunnelConfig):
+            continue
+
+        assert field.supportsRequireTls == reads_require_tls, (
+            f"{source_type} offers the 'Require TLS through tunnel?' switch but its connect path "
+            f"does not read require_tls, so the switch changes nothing. Read the value where the "
+            f"source connects, or drop supportsRequireTls. If the source now reads it, add it to "
+            f"SOURCES_THAT_READ_REQUIRE_TLS."
+        )

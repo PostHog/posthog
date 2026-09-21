@@ -101,6 +101,10 @@ class SourceFieldSSHTunnelConfig(BaseModel):
     label: str
     name: str
     type: Literal["ssh-tunnel"] = "ssh-tunnel"
+    # Only a source whose connect path reads `require_tls` sets this. The wizard hides the
+    # "Require TLS through tunnel?" switch for every other source, so the form does not offer a
+    # security control the sync ignores.
+    supportsRequireTls: bool = False
 
 
 class SourceFieldOauthConfig(BaseModel):
