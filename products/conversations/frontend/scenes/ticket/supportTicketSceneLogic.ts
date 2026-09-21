@@ -61,7 +61,7 @@ import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/feat
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 import { assigneeSelectLogic } from '../../components/Assignee'
 import type { Assignee, TicketAssignee } from '../../components/Assignee'
-import { aiDraftComposerText } from '../../components/Chat/aiDraftAction'
+import { aiDraftComposerHtml } from '../../components/Chat/aiDraftAction'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import { priorityOptions } from '../../types'
 import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketPriority, TicketStatus } from '../../types'
@@ -1508,7 +1508,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     actions.clearEditingMessage()
                 }
                 actions.setDraftIsPrivate(false)
-                actions.setDraftContent(markdownToHtml(aiDraftComposerText(message)))
+                actions.setDraftContent(aiDraftComposerHtml(message))
                 actions.bumpComposerPrefill()
                 if (!values.ticket?.id) {
                     return

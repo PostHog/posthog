@@ -1,3 +1,6 @@
+import { markdownToHtml } from 'lib/utils/markdown'
+import { isTrustedPostHogUrl } from 'lib/utils/trustedUrl'
+
 import type { ChatMessage } from '../../types'
 
 export type AiDraftActionKind = 'reply' | 'question'
@@ -36,4 +39,21 @@ export function aiDraftComposerText(
         return firstClarifyingQuestion(message.clarifyingQuestions) ?? message.content
     }
     return message.content
+}
+
+export function aiDraftComposerHtml(
+    message: Pick<ChatMessage, 'content' | 'authorType' | 'isPrivate' | 'persistAs' | 'clarifyingQuestions'>
+): string {
+    // A draft repeats what the customer wrote, so an image ref in the ticket can reach it. The
+    // composer loads images, which would make the agent's browser fetch a host the customer chose.
+    // DOMParser gives an inert document, so nothing loads while the images are taken out.
+    const parsed = new DOMParser().parseFromString(markdownToHtml(aiDraftComposerText(message)), 'text/html')
+    for (const image of Array.from(parsed.querySelectorAll('img'))) {
+        const source = image.getAttribute('src')
+        if (isTrustedPostHogUrl(source ?? undefined)) {
+            continue
+        }
+        image.replaceWith(parsed.createTextNode(image.getAttribute('alt') || source || ''))
+    }
+    return parsed.body.innerHTML
 }
