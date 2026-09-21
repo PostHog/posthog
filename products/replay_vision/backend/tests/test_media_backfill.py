@@ -2,6 +2,8 @@ from datetime import timedelta
 
 from posthog.test.base import BaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -173,3 +175,14 @@ class TestMediaBackfillCandidates(BaseTest):
 
         assert result.candidates == []
         assert result.cooling_off == 0
+
+    def test_a_page_of_candidates_costs_a_fixed_number_of_queries(self) -> None:
+        # The tick dispatches up to 250, so a per-candidate lookup would be hundreds of round trips.
+        for _ in range(6):
+            self._analysis_video(self._observation())
+
+        with CaptureQueriesContext(connection) as queries:
+            result = self._candidates()
+
+        assert len(result.candidates) == 6
+        assert len(queries.captured_queries) <= 4
