@@ -522,6 +522,13 @@ def clamp_scopes_to_ceiling(
     return sorted(granted | always_allowed)
 
 
+# How many real scopes a request has to carry before its trailing fragment reads as a cut
+# URL rather than as a junk token. A false positive costs the app's whole ceiling, while a
+# missed one only costs a short consent list, so the bar sits well above the length any
+# deliberate request reaches by accident.
+MIN_SCOPES_BEFORE_TRUNCATION = 20
+
+
 def is_truncated_scope_request(requested: Sequence[str]) -> bool:
     """Whether a `scope` list looks cut off mid-token rather than merely stale.
 
@@ -535,8 +542,15 @@ def is_truncated_scope_request(requested: Sequence[str]) -> bool:
     before it a real scope. A fragment can only ever be last, because the cut takes the
     rest of the string with it, and requiring a clean head keeps a client with one stale
     scope from reading as truncated. `requested` must preserve request order.
+
+    The head also has to be long: `MIN_SCOPES_BEFORE_TRUNCATION` real scopes have to come
+    through before a trailing fragment counts. Scope names are short common words, so a
+    two-token request like `openid insight` prefixes a real scope by coincidence, and
+    reading that as truncation hands the caller the app's whole ceiling. A URL that was
+    actually cut carries most of the list before the cut, so the length is what separates
+    the two.
     """
-    if len(requested) < 2:
+    if len(requested) <= MIN_SCOPES_BEFORE_TRUNCATION:
         return False
 
     *head, tail = requested

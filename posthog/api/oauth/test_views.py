@@ -49,11 +49,15 @@ from posthog.models.oauth import (
 )
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
-from posthog.scopes import ALWAYS_ALLOWED_SCOPES, get_oauth_scopes_supported
+from posthog.scopes import ALL_SCOPES, ALWAYS_ALLOWED_SCOPES, MIN_SCOPES_BEFORE_TRUNCATION, get_oauth_scopes_supported
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.utils import absolute_uri
 
 from products.access_control.backend.models.access_control import AccessControl
+
+# A cut-off `scope` parameter only reads as truncated once enough real scopes come through
+# before the fragment, so a fixture standing in for one has to be that long.
+TRUNCATED_SCOPE_REQUEST = " ".join([*sorted(ALL_SCOPES)[:MIN_SCOPES_BEFORE_TRUNCATION], "can"])
 
 
 def jwks_entry_to_public_key(key_data: dict):
@@ -274,8 +278,9 @@ class TestOAuthAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("truncated", "insight:read canvas:read can", ["canvas:read", "insight:read", "notebook:read"], True),
+            ("truncated", TRUNCATED_SCOPE_REQUEST, ["canvas:read", "insight:read", "notebook:read"], True),
             ("complete", "insight:read canvas:read", ["canvas:read", "insight:read"], False),
+            ("short_request_with_a_fragment_tail", "insight:read can", ["insight:read"], False),
         ]
     )
     @patch("posthog.api.oauth.views.render_template")
@@ -304,7 +309,7 @@ class TestOAuthAPI(APIBaseTest):
         self.confidential_application.scopes = ["insight:read", "canvas:read"]
         self.confidential_application.save()
 
-        response = self.client.get(f"{self.base_authorization_url}&scope={quote('insight:read can')}")
+        response = self.client.get(f"{self.base_authorization_url}&scope={quote(TRUNCATED_SCOPE_REQUEST)}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # The serialized bootstrap, not the view's own template context: `_build_template_context`

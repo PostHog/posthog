@@ -12,6 +12,7 @@ from posthog.scopes import (
     API_SCOPE_ACTIONS,
     API_SCOPE_OBJECTS,
     INTERNAL_API_SCOPE_OBJECTS,
+    MIN_SCOPES_BEFORE_TRUNCATION,
     OAUTH_HIDDEN_SCOPE_OBJECTS,
     OAUTH_SCOPES_HIDDEN,
     PRIVILEGED_SCOPES,
@@ -456,16 +457,26 @@ class TestClampScopesToCeiling(SimpleTestCase):
             assert scopes_within_ceiling(clamped, app_scopes, allow_wildcard_under_empty_ceiling=True)
 
 
+def _real_scopes(count: int) -> list[str]:
+    return sorted(ALL_SCOPES)[:count]
+
+
+LONG_HEAD = _real_scopes(MIN_SCOPES_BEFORE_TRUNCATION)
+
+
 class TestIsTruncatedScopeRequest(SimpleTestCase):
     @parameterized.expand(
         [
-            ("cut_mid_token", ["insight:read", "canvas:read", "can"], True),
-            ("cut_after_the_colon", ["insight:read", "feature_flag:"], True),
-            ("complete_request", ["insight:read", "canvas:read"], False),
-            ("stale_scope", ["insight:read", "legacy_object:read"], False),
-            ("junk_tail_that_prefixes_nothing", ["insight:read", "zzz"], False),
-            ("fragment_in_the_middle", ["insight:read", "can", "canvas:read"], False),
-            ("stale_scope_before_the_fragment", ["legacy_object:read", "can"], False),
+            ("cut_mid_token", [*LONG_HEAD, "can"], True),
+            ("cut_after_the_colon", [*LONG_HEAD, "feature_flag:"], True),
+            ("complete_request", [*LONG_HEAD, "canvas:read"], False),
+            ("stale_scope", [*LONG_HEAD, "legacy_object:read"], False),
+            ("junk_tail_that_prefixes_nothing", [*LONG_HEAD, "zzz"], False),
+            ("fragment_in_the_middle", [*LONG_HEAD, "can", "canvas:read"], False),
+            ("stale_scope_before_the_fragment", ["legacy_object:read", *LONG_HEAD, "can"], False),
+            ("short_request_with_a_prefix_tail", ["openid", "insight"], False),
+            ("short_request_with_a_single_letter_tail", ["openid", "a"], False),
+            ("one_scope_short_of_the_bar", [*_real_scopes(MIN_SCOPES_BEFORE_TRUNCATION - 1), "can"], False),
             ("fragment_alone", ["can"], False),
             ("empty", [], False),
         ]
