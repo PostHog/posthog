@@ -105,7 +105,6 @@ pub const STORE_CREATION_EVENTS: &str = "store_creation_events_total";
 
 pub const ACTIVE_STORE_COUNT: &str = "active_store_count";
 
-/// Counts overlapping rebalances in progress.
 /// Value > 0 means rebalance async work is ongoing; used to block orphan cleanup
 pub const REBALANCING_COUNT: &str = "rebalancing_count";
 
@@ -152,7 +151,6 @@ pub const BATCH_PROCESSING_ERROR: &str = "batch_processing_error_total";
 
 // ==== Rebalance Resume ====
 
-/// Incremented when a Resume command is skipped because no partitions are owned
 pub const REBALANCE_RESUME_SKIPPED_NO_OWNED: &str = "rebalance_resume_skipped_no_owned_total";
 
 /// Labels: event_type (assign|revoke)
@@ -161,8 +159,7 @@ pub const REBALANCE_RESUME_SKIPPED_NO_OWNED: &str = "rebalance_resume_skipped_no
 /// how many of these empty rebalances we short-circuit.
 pub const REBALANCE_EMPTY_SKIPPED: &str = "rebalance_empty_skipped_total";
 
-/// Measures total time for parallel scatter-gather deletion of unowned partition directories
-/// at the end of a rebalance cycle.
+/// Measures total time for parallel scatter-gather deletion of unowned partition directories.
 /// Use to monitor cleanup performance and detect I/O bottlenecks blocking consumption resume.
 pub const REBALANCE_DIRECTORY_CLEANUP_DURATION_HISTOGRAM: &str =
     "rebalance_directory_cleanup_duration_seconds";
