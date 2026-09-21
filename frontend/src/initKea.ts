@@ -16,6 +16,7 @@ import {
     ensureRoutablePathname,
     removeProjectIdIfPresent,
     stripTrailingSlash,
+    stripTrailingSlashFromUrl,
 } from 'lib/utils/kea-router'
 import { identifierToHuman } from 'lib/utils/strings'
 
@@ -141,7 +142,11 @@ export function initKea({
                 // Runs before kea-router's `decodeURI(pathname)` on every navigation (initial
                 // load, push/replace, popstate). Keep the path decodable so a malformed `%`
                 // routes to 404 instead of crashing the router.
-                return addProjectIdIfMissing(ensureRoutablePathname(path))
+                // Drop the trailing slash here too, so the router's location matches the path
+                // `pathFromWindowToRoutes` matches routes against. The address bar is then
+                // corrected by a silent `replaceState` on mount, rather than by a second
+                // navigation that runs every `urlToAction` of the scene again.
+                return addProjectIdIfMissing(stripTrailingSlashFromUrl(ensureRoutablePathname(path)))
             },
             pathFromWindowToRoutes: (path) => {
                 return stripTrailingSlash(removeProjectIdIfPresent(path))
