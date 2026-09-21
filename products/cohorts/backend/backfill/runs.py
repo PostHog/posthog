@@ -96,6 +96,18 @@ def _contains_person_metadata_leaf(cohort: Cohort) -> bool:
     return any(leaf.get("type") == "person_metadata" for leaf in walk_filter_leaves(properties))
 
 
+def _catalog_drop_reason(cohort: Cohort) -> str | None:
+    """The refusal for the first leaf of any type the frozen catalog drops, or ``None``.
+
+    The catalog excludes a cohort whole for one dropped leaf, so both run kinds screen every leaf.
+    """
+    for leaf in walk_filter_leaves((cohort.filters or {}).get("properties")):
+        reason = leaf_unpinnable_reason(leaf)
+        if reason is not None:
+            return f"has a filter the realtime catalog drops ({reason})"
+    return None
+
+
 NO_BEHAVIORAL_FILTER = "has no behavioral filter"
 NO_PERSON_FILTER = "has no person filter with a condition hash"
 # Reasons that say only that this run kind does not apply to the cohort. Every save of a cohort
@@ -116,7 +128,7 @@ def person_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
         return "contains person_metadata filters"
     if not _has_pinnable_person_filters(cohort):
         return NO_PERSON_FILTER
-    return None
+    return _catalog_drop_reason(cohort)
 
 
 def behavioral_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
@@ -136,14 +148,10 @@ def behavioral_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
         return "static"
     if cohort.deleted:
         return "deleted"
-    leaves = list(walk_filter_leaves((cohort.filters or {}).get("properties")))
-    if not any(leaf.get("type") == "behavioral" for leaf in leaves):
+    properties = (cohort.filters or {}).get("properties")
+    if not any(leaf.get("type") == "behavioral" for leaf in walk_filter_leaves(properties)):
         return NO_BEHAVIORAL_FILTER
-    for leaf in leaves:
-        reason = leaf_unpinnable_reason(leaf)
-        if reason is not None:
-            return f"has a filter the realtime catalog drops ({reason})"
-    return None
+    return _catalog_drop_reason(cohort)
 
 
 def _run_status(preconditions_missing: list[str]) -> tuple[str, str]:

@@ -326,6 +326,7 @@ class TestPersonBackfillRuns(BaseTest):
         *,
         person_hashes: tuple[str | None, ...] = ("person0000000001",),
         behavioral: bool = True,
+        windowless: bool = False,
         person_metadata: bool = False,
     ) -> dict:
         values: list[dict] = [
@@ -340,18 +341,20 @@ class TestPersonBackfillRuns(BaseTest):
             for condition_hash in person_hashes
         ]
         if behavioral:
-            values.append(
-                {
-                    "type": "behavioral",
-                    "key": "$pageview",
-                    "event_type": "events",
-                    "value": "performed_event",
-                    "conditionHash": "behavior00000001",
-                    "time_value": 7,
-                    "time_interval": "day",
-                    "bytecode": _BYTECODE,
-                }
-            )
+            leaf = {
+                "type": "behavioral",
+                "key": "$pageview",
+                "event_type": "events",
+                "value": "performed_event",
+                "conditionHash": "behavior00000001",
+                "time_value": 7,
+                "time_interval": "day",
+                "bytecode": _BYTECODE,
+            }
+            if windowless:
+                # The API accepts a behavioral leaf with no time window; the catalog drops it.
+                del leaf["time_value"], leaf["time_interval"]
+            values.append(leaf)
         if person_metadata:
             values.append(
                 {
@@ -678,6 +681,9 @@ class TestPersonBackfillRuns(BaseTest):
             ("non_realtime", {"cohort_type": CohortType.BEHAVIORAL}),
             ("hashless", {"filters": "hashless"}),
             ("person_metadata", {"filters": "person_metadata"}),
+            # The seeder fails a person run for this cohort on its first tick, so a person gate
+            # admitting it would create one failed run per save.
+            ("windowless_behavioral_sibling", {"filters": "windowless"}),
         ]
     )
     def test_ineligible_cohort_is_refused(self, _name: str, overrides: dict[str, object]) -> None:
@@ -688,6 +694,8 @@ class TestPersonBackfillRuns(BaseTest):
             filters = self._filters(person_hashes=(None,), behavioral=False)
         elif _name == "person_metadata":
             filters = self._filters(person_metadata=True)
+        elif _name == "windowless_behavioral_sibling":
+            filters = self._filters(windowless=True)
         cohort_type = overrides.pop("cohort_type", CohortType.REALTIME)
         cohort = Cohort.objects.create(
             team=self.team,
