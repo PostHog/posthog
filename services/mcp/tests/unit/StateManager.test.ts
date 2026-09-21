@@ -103,9 +103,8 @@ describe('StateManager', () => {
         }
 
         it.each([true, false, undefined])(
-            'refreshes old token metadata and caches impersonation=%s',
+            'fetches token metadata and caches impersonation=%s',
             async (impersonated) => {
-                await cache.set('apiKey', mockApiKey)
                 stateManager = new StateManager(cache, oauthApi(null, impersonated))
 
                 const result = await stateManager.getApiKey()
@@ -907,12 +906,7 @@ describe('StateManager', () => {
         const projectId = '42'
 
         it('returns undefined without calling the API when the key lacks integration:read', async () => {
-            await cache.set('apiKey', {
-                scopes: ['project:read'],
-                scoped_organizations: [],
-                scoped_teams: [],
-                is_impersonated: false,
-            })
+            await cache.set('apiKey', { scopes: ['project:read'], scoped_organizations: [], scoped_teams: [] })
             const request = vi.fn()
             ;(stateManager as any)._api = { request }
 
@@ -923,12 +917,7 @@ describe('StateManager', () => {
         })
 
         it('fetches, dedupes, and sorts integration kinds when the scope is present', async () => {
-            await cache.set('apiKey', {
-                scopes: ['integration:read'],
-                scoped_organizations: [],
-                scoped_teams: [],
-                is_impersonated: false,
-            })
+            await cache.set('apiKey', { scopes: ['integration:read'], scoped_organizations: [], scoped_teams: [] })
             const request = vi.fn().mockResolvedValue({
                 results: [{ kind: 'slack' }, { kind: 'github' }, { kind: 'github' }],
             })

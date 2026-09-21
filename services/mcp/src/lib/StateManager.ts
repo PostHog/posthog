@@ -103,7 +103,7 @@ export class StateManager {
     async getApiKey(): Promise<NonNullable<State['apiKey']>> {
         let _apiKey = await this._cache.get('apiKey')
 
-        if (!_apiKey || _apiKey.is_impersonated === undefined) {
+        if (!_apiKey) {
             _apiKey = await this._fetchApiKey()
             await this._cache.set('apiKey', _apiKey)
         }

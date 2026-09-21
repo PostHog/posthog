@@ -67,7 +67,8 @@ The hosted MCP server and PostHog CLI skip `$mcp_tool_call` during staff imperso
 Both read impersonation status from OAuth token introspection and pass it to the shared SDK client's `before_send` hook.
 Only a confirmed impersonation status causes the hook to drop a tool-call event.
 An absent status defaults to no impersonation.
-MCP refreshes cached token metadata that predates this field.
+MCP reuses cached token metadata until it expires.
+Old cache entries lack this field, so impersonated events can remain in usage counts for up to seven days after deployment.
 This excludes both successful and failed impersonated calls from tool-call usage counts.
 If the CLI cannot fetch the user, it uses its fallback distinct ID.
 If token metadata is unavailable, it assumes no impersonation and captures the event.
