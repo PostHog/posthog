@@ -4,7 +4,8 @@ import userEvent from "@testing-library/user-event";
 import type React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const editorState = vi.hoisted(() => ({ isEmpty: false }));
+const editorState = vi.hoisted(() => ({ isEmpty: false, text: "ship it" }));
+const track = vi.hoisted(() => vi.fn());
 const settingsState = vi.hoisted(() => ({ slotMachineMode: false }));
 
 vi.mock("../tiptap/useTiptapEditor", () => ({
@@ -17,7 +18,7 @@ vi.mock("../tiptap/useTiptapEditor", () => ({
     focus: vi.fn(),
     blur: vi.fn(),
     clear: vi.fn(),
-    getText: vi.fn(),
+    getText: () => (editorState.isEmpty ? "" : editorState.text),
     getContent: vi.fn(),
     setContent: vi.fn(),
     insertChip: vi.fn(),
@@ -28,6 +29,8 @@ vi.mock("../tiptap/useTiptapEditor", () => ({
     removeAttachment: vi.fn(),
   }),
 }));
+
+vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
 
 vi.mock("@posthog/ui/features/settings/settingsStore", () => ({
   useSettingsStore: (selector: (s: typeof settingsState) => unknown) =>
@@ -76,14 +79,18 @@ vi.mock("@posthog/quill", () => ({
     children,
     loading,
     disabled,
+    onClick,
     ...props
   }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
     loading?: boolean;
   }) => (
+    // Mirrors quill, which leaves the native attribute off and marks the
+    // button aria-disabled, so a refused press still dispatches a click.
     <button
       type="button"
-      disabled={disabled || loading}
+      aria-disabled={disabled || loading || undefined}
       aria-busy={loading || undefined}
+      onClick={disabled || loading ? undefined : onClick}
       {...props}
     >
       {children}
@@ -111,6 +118,7 @@ describe("PromptInput submit/stop affordance", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     editorState.isEmpty = false;
+    editorState.text = "ship it";
     settingsState.slotMachineMode = false;
   });
 
@@ -136,7 +144,7 @@ describe("PromptInput submit/stop affordance", () => {
     renderInput({ isLoading: true });
 
     const send = screen.getByRole("button", { name: "Send message" });
-    expect(send).toBeEnabled();
+    expect(send).not.toHaveAttribute("aria-disabled");
   });
 
   it("disables Send when the editor is empty", () => {
@@ -145,7 +153,7 @@ describe("PromptInput submit/stop affordance", () => {
     renderInput({});
 
     const send = screen.getByRole("button", { name: "Send message" });
-    expect(send).toBeDisabled();
+    expect(send).toHaveAttribute("aria-disabled", "true");
   });
 
   it("marks Send busy on click, before the surface reports anything", async () => {
@@ -161,7 +169,65 @@ describe("PromptInput submit/stop affordance", () => {
 
     expect(onSubmitClick).toHaveBeenCalledOnce();
     expect(send).toHaveAttribute("aria-busy", "true");
-    expect(send).toBeDisabled();
+    expect(send).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("names the blocker instead of asking for a message already typed", async () => {
+    const user = userEvent.setup();
+
+    renderInput({
+      submitDisabledExternal: true,
+      submitDisabledReason: "Pick a repository first",
+    });
+
+    await user.hover(screen.getByRole("button", { name: "Send message" }));
+
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Pick a repository first",
+    );
+  });
+
+  it("falls back to the empty-composer hint only when the composer is empty", async () => {
+    const user = userEvent.setup();
+    editorState.isEmpty = true;
+
+    renderInput({});
+
+    await user.hover(screen.getByRole("button", { name: "Send message" }));
+
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Enter a message",
+    );
+  });
+
+  it("records a refused press on a composer that already holds a prompt", async () => {
+    const user = userEvent.setup();
+
+    renderInput({
+      surface: "new_task",
+      submitDisabledExternal: true,
+      submitDisabledReason: "Pick a repository first",
+    });
+
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(track).toHaveBeenCalledWith("Prompt submit blocked", {
+      surface: "new_task",
+      trigger: "click",
+      reason: "Pick a repository first",
+      prompt_length_chars: "ship it".length,
+    });
+  });
+
+  it("does not record a refused press when the composer is empty", async () => {
+    const user = userEvent.setup();
+    editorState.isEmpty = true;
+
+    renderInput({});
+
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(track).not.toHaveBeenCalled();
   });
 
   it("keeps Send busy while the surface is both loading and untypeable", () => {
