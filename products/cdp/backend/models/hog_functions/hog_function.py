@@ -281,9 +281,48 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
     def url(self):
         return absolute_uri(f"/project/{self.team_id}/pipeline/destinations/hog-{str(self.id)}")
 
-    def save(self, *args, **kwargs):
+    def _compile_filters(self) -> dict:
         from posthog.cdp.filters import compile_filters_bytecode
 
+        compiled = compile_filters_bytecode(self.filters, self.team)
+        if not compiled.get("bytecode_error"):
+            return compiled
+
+        # compile_filters_bytecode nulls the bytecode next to the error, so a save that is not about
+        # these filters, such as one after a cohort stops being inlinable, would otherwise leave an
+        # enabled function that matches nothing. The error stays on the filters for the UI.
+        previous = (
+            {}
+            if self._state.adding
+            else (
+                HogFunction.objects.filter(pk=self.pk, team_id=self.team_id).values_list("filters", flat=True).first()
+                or {}
+            )
+        )
+        previous_bytecode = previous.get("bytecode")
+
+        if previous_bytecode is not None:
+            compiled["bytecode"] = previous_bytecode
+            logger.warning(
+                "hog_function_filters_kept_previous_bytecode",
+                hog_function_id=str(self.pk),
+                team_id=self.team_id,
+                bytecode_error=compiled["bytecode_error"],
+            )
+        elif self.enabled:
+            # A new function has no working bytecode to fall back on, so saving it enabled would
+            # create a function that is on and matches nothing.
+            self.enabled = False
+            logger.warning(
+                "hog_function_created_disabled_uncompilable_filters",
+                hog_function_id=str(self.pk),
+                team_id=self.team_id,
+                bytecode_error=compiled["bytecode_error"],
+            )
+
+        return compiled
+
+    def save(self, *args, **kwargs):
         if _is_draft_only_save(kwargs.get("update_fields")):
             # Nothing here writes a live column, so re-splitting live secrets and recompiling filter
             # bytecode (a DB-hitting compile) would be pure waste.
@@ -291,7 +330,7 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
 
         self.move_secret_inputs()
         if self.type not in TYPES_WITH_TRANSPILED_FILTERS:
-            self.filters = compile_filters_bytecode(self.filters, self.team)
+            self.filters = self._compile_filters()
 
         return super().save(*args, **kwargs)
 
