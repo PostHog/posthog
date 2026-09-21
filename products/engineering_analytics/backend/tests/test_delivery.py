@@ -2,6 +2,7 @@ from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -677,6 +678,7 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
             [
                 _pr_row(1, "alice", "closed", 0, _ago(6), merged_at=_ago(1)),
                 *[_pr_row(number, "alice", "closed", 0, _ago(3), merged_at=_ago(2)) for number in range(2, 202)],
+                _pr_row(202, "alice", "open", 0, _ago(1)),
             ],
         )
         self._create_table(
@@ -687,12 +689,27 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
                 _run_row(4002, "CI", "sha-fix", "completed", "success", fix_start, fix_end, pr_number=1),
             ],
         )
-        timelines = query_pull_request_timelines(
-            curated=CuratedGitHubSource.for_team(self.team),
-            scope=_ALICE,
-            date_from=datetime.now(tz=UTC) - timedelta(days=7),
-            date_to=None,
-        )
+        curated = CuratedGitHubSource.for_team(self.team)
+        original_source = curated.pr_source()
+        source_reads = 0
+
+        def source_after_close() -> str:
+            nonlocal source_reads
+            source_reads += 1
+            if source_reads == 1:
+                return original_source
+            return f"(SELECT * FROM {original_source} WHERE number != 202)"
+
+        with (
+            patch.object(curated, "pr_source", side_effect=source_after_close),
+            patch("products.engineering_analytics.backend.logic.queries._curated._QUERY_PAGE_SIZE", 1),
+        ):
+            timelines = query_pull_request_timelines(
+                curated=curated,
+                scope=_ALICE,
+                date_from=datetime.now(tz=UTC) - timedelta(days=7),
+                date_to=None,
+            )
 
         red_by_kind = {entry.kind: entry.seconds_per_merged_pr for entry in timelines.red_seconds_per_merged_pr}
         expected = (_dt(fix_start) - _dt(failure_end)).total_seconds() / 201

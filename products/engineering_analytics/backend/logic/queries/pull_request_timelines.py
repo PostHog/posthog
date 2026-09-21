@@ -48,7 +48,6 @@ from products.engineering_analytics.backend.logic.views.trunk_merge_queue import
 
 _LIMIT = 200
 _PR_BATCH_SIZE = 200
-_EVIDENCE_PAGE_SIZE = 5_000
 
 _RED_KINDS = (
     PRTimelineSegmentKind.RED_FIXED_BY_PUSH,
@@ -67,9 +66,9 @@ _PRS_SELECT = f"""
         pr.created_at, pr.merged_at, pr.closed_at, pr.default_branch,
         pr.author_handle, pr.author_avatar_url, pr.is_bot
     FROM __PR_SOURCE__ AS pr
-    WHERE (__SCOPE__) AND __WINDOW__ AND pr.created_at IS NOT NULL
+    WHERE (__SCOPE__) AND __WINDOW__ AND pr.created_at <= {{scan_end}} __BEFORE__
     ORDER BY pr.created_at DESC, pr.number DESC
-    LIMIT {_PR_BATCH_SIZE} OFFSET {{offset}}
+    LIMIT {_PR_BATCH_SIZE}
 """
 
 _READY_AT_SELECT = f"""
@@ -201,10 +200,10 @@ class PullRequestTimelinesQuery:
         red_totals: defaultdict[PRTimelineSegmentKind, float] = defaultdict(float)
         merged_pr_count = 0
         pr_count = 0
-        offset = 0
+        before: tuple[datetime, int] | None = None
 
-        while prs := self._query_prs(offset=offset):
-            include_details = offset == 0
+        while prs := self._query_prs(before=before):
+            include_details = before is None
             rows_to_build = prs if include_details else [row for row in prs if row[7] is not None]
             batch_items = self._build_items(rows_to_build, include_details=include_details)
             pr_count += len(prs)
@@ -216,7 +215,7 @@ class PullRequestTimelinesQuery:
                             red_totals[segment.kind] += (segment.ended_at - segment.started_at).total_seconds()
                 if include_details:
                     items.append(item)
-            offset += len(prs)
+            before = (prs[-1][6], int(prs[-1][0]))
             if len(prs) < _PR_BATCH_SIZE:
                 break
 
@@ -323,39 +322,31 @@ class PullRequestTimelinesQuery:
             )
         return items
 
-    def _query_prs(self, *, offset: int) -> list[tuple]:
+    def _query_prs(self, *, before: tuple[datetime, int] | None) -> list[tuple]:
         placeholders: dict[str, ast.Expr] = {
             "date_from": ast.Constant(value=self._date_from),
+            "scan_end": ast.Constant(value=self._now),
             **self._scope.placeholders(),
         }
         window = "1 = 1" if self._scope.kind == DeliveryScopeKind.PULL_REQUEST else _LIST_WINDOW
+        before_clause = ""
+        if before is not None:
+            before_clause = "AND (pr.created_at, pr.number) < ({before_created_at}, {before_number})"
+            placeholders["before_created_at"] = ast.Constant(value=before[0])
+            placeholders["before_number"] = ast.Constant(value=before[1])
         sql = (
             _PRS_SELECT.replace("__SCOPE__", self._scope.pr_predicate(self._curated))
             .replace("__WINDOW__", window)
+            .replace("__BEFORE__", before_clause)
             .replace("__PR_SOURCE__", self._curated.pr_source())
             .replace("__DATE_TO__", date_to_filter_clause(self._date_to, placeholders, column="pr.merged_at"))
         )
         response = self._curated.run(
             sql,
             query_type="engineering_analytics.pull_request_timelines_prs",
-            placeholders={**placeholders, "offset": ast.Constant(value=offset)},
+            placeholders=placeholders,
         )
         return list(response.results or [])
-
-    def _run_paged(self, sql: str, *, query_type: str, placeholders: dict[str, ast.Expr]) -> list[tuple]:
-        rows: list[tuple] = []
-        offset = 0
-        while True:
-            response = self._curated.run(
-                f"{sql}\nLIMIT {_EVIDENCE_PAGE_SIZE} OFFSET {offset}",
-                query_type=query_type,
-                placeholders=placeholders,
-            )
-            page = list(response.results or [])
-            rows.extend(page)
-            if len(page) < _EVIDENCE_PAGE_SIZE:
-                return rows
-            offset += len(page)
 
     def _query_ready_at(self, pr_numbers: list[int], run_from: datetime) -> dict[int, datetime]:
         # A timeline never starts before run_from, so an older ready event cannot move its start. The
@@ -368,7 +359,7 @@ class PullRequestTimelinesQuery:
         events_source = self._curated.issue_events_source(created_floor=True)
         if events_source is None:
             return {}
-        rows = self._run_paged(
+        rows = self._curated.run_paged(
             _READY_AT_SELECT.replace("__PR_SOURCE__", pr_source).replace("__ISSUE_EVENTS_SOURCE__", events_source),
             query_type="engineering_analytics.pull_request_timelines_ready_at",
             placeholders={
@@ -383,7 +374,7 @@ class PullRequestTimelinesQuery:
         source = self._curated.reviews_source()
         if source is None:
             return None
-        rows = self._run_paged(
+        rows = self._curated.run_paged(
             _REVIEWS_SELECT.replace("__REVIEWS_SOURCE__", source),
             query_type="engineering_analytics.pull_request_timelines_reviews",
             placeholders={"pr_numbers": ast.Constant(value=pr_numbers)},
@@ -401,7 +392,7 @@ class PullRequestTimelinesQuery:
         }
 
     def _query_run_attempts(self, pr_numbers: list[int], run_from: datetime) -> dict[int, list[RunAttempt]]:
-        rows = self._run_paged(
+        rows = self._curated.run_paged(
             _RUNS_SELECT.replace("__RUNS_SOURCE__", self._curated.run_source(started_floor=True)),
             query_type="engineering_analytics.pull_request_timelines_runs",
             placeholders=self._runs_placeholders(pr_numbers, run_from),
@@ -495,7 +486,7 @@ class PullRequestTimelinesQuery:
 
     def _query_gate_attempts(self, pr_numbers: list[int]) -> dict[int, list[GateAttempt]]:
         gate_from = self._date_from - GATE_RUN_LOOKBACK
-        rows = self._run_paged(
+        rows = self._curated.run_paged(
             gate_attempts_sql(
                 runs_source=self._curated.run_source(started_floor=True),
                 pull_requests_source=self._curated.pr_source(),
@@ -527,7 +518,7 @@ class PullRequestTimelinesQuery:
         source = self._curated.jobs_source(created_floor=True)
         if source is None or not run_ids:
             return {}
-        rows = self._run_paged(
+        rows = self._curated.run_paged(
             _JOB_ATTEMPTS_SELECT.replace("__JOBS_SOURCE__", source),
             query_type="engineering_analytics.pull_request_timelines_job_attempts",
             placeholders={
@@ -566,7 +557,7 @@ class PullRequestTimelinesQuery:
         jobs_source = self._curated.jobs_source(created_floor=True)
         if not workflow_names or not default_branch or jobs_source is None:
             return MasterFailureIndex([])
-        rows = self._run_paged(
+        rows = self._curated.run_paged(
             _MASTER_FAILURES_SELECT.replace("__JOBS_SOURCE__", jobs_source).replace(
                 "__RUNS_SOURCE__", self._curated.run_source(started_floor=True)
             ),
