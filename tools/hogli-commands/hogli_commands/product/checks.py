@@ -451,13 +451,12 @@ class ImportSurfaceCheck(ProductCheck):
     watch. This check reads the same imports straight from the AST, honors the same
     ignore_imports deferrals, and fails on what grimp cannot see.
 
-    The webhook_consumers surface is the one exception to the isolated-only rule: posthog/ingress/
-    imports that module by name and must not reach a product's internals through it, which holds
-    for every product that registers a consumer, sealed or not.
+    A product that is not sealed yet holds the webhook_consumers surface alone: posthog/ingress/
+    imports that module by name and must not reach the product's internals through it, whether or
+    not the product has a contract.
     """
 
     label = "import surface"
-    for_lenient = False
 
     # (source subtree or module, allowed destination subtrees)
     WEBHOOK_CONSUMERS_SURFACE = ("webhook_consumers", ("facade",))
@@ -467,18 +466,22 @@ class ImportSurfaceCheck(ProductCheck):
         WEBHOOK_CONSUMERS_SURFACE,
     )
 
-    def _has_webhook_consumers(self, ctx: CheckContext) -> bool:
-        return (ctx.backend_dir / "webhook_consumers.py").exists()
-
-    def should_run(self, ctx: CheckContext) -> bool:
-        if not ctx.backend_dir.is_dir():
-            return False
-        return super().should_run(ctx) or self._has_webhook_consumers(ctx)
-
     def _surfaces(self, ctx: CheckContext) -> tuple[tuple[str, tuple[str, ...]], ...]:
         """A product that is not sealed yet has no routes/presentation contract to hold, so
         only its ingress entry point is checked."""
         return self.SURFACES if ctx.is_isolated else (self.WEBHOOK_CONSUMERS_SURFACE,)
+
+    def _surface_files(self, ctx: CheckContext, source: str) -> list[Path]:
+        root = ctx.backend_dir / source
+        files = [root.with_suffix(".py")] if root.with_suffix(".py").exists() else []
+        if root.is_dir():
+            files += sorted(f for f in root.rglob("*.py") if "__pycache__" not in f.parts)
+        return files
+
+    def should_run(self, ctx: CheckContext) -> bool:
+        if not super().should_run(ctx) or not ctx.backend_dir.is_dir():
+            return False
+        return any(self._surface_files(ctx, source) for source, _ in self._surfaces(ctx))
 
     def _module_name(self, ctx: CheckContext, path: Path) -> str:
         rel = path.relative_to(ctx.backend_dir).with_suffix("")
@@ -490,12 +493,8 @@ class ImportSurfaceCheck(ProductCheck):
         ignored = ignored_import_edges()
         issues = []
         for source, allowed in self._surfaces(ctx):
-            root = ctx.backend_dir / source
-            files = [root.with_suffix(".py")] if root.with_suffix(".py").exists() else []
-            if root.is_dir():
-                files += sorted(f for f in root.rglob("*.py") if "__pycache__" not in f.parts)
             allowed_prefixes = tuple(f"{prefix}.{a}" for a in allowed)
-            for f in files:
+            for f in self._surface_files(ctx, source):
                 importer = self._module_name(ctx, f)
                 for line, target in module_import_targets(f, ctx.backend_dir, prefix):
                     # Segment boundary on purpose: `facade_legacy` must not pass as `facade`.
