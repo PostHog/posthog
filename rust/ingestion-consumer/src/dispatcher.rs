@@ -138,15 +138,28 @@ impl WorkerAssignments {
         self.by_worker
             .into_iter()
             .filter(|(_, builder)| !builder.is_empty())
-            .map(|((worker, assignment_epoch), builder)| SubBatch {
-                worker,
-                messages: builder.messages,
-                routing_keys: builder.routing_keys,
-                key_offsets: builder.key_offsets,
-                assignment_epoch,
+            .map(|((worker, assignment_epoch), builder)| {
+                record_request_size(&builder.messages);
+                SubBatch {
+                    worker,
+                    messages: builder.messages,
+                    routing_keys: builder.routing_keys,
+                    key_offsets: builder.key_offsets,
+                    assignment_epoch,
+                }
             })
             .collect()
     }
+}
+
+/// The size of one request as sent, in events and payload bytes.
+fn record_request_size(messages: &[SerializedKafkaMessage]) {
+    let bytes: usize = messages
+        .iter()
+        .map(SerializedKafkaMessage::payload_bytes)
+        .sum();
+    histogram!("ingestion_consumer_request_events").record(messages.len() as f64);
+    histogram!("ingestion_consumer_request_bytes").record(bytes as f64);
 }
 
 /// The immediate result of assigning one submission while the scheduler lock
