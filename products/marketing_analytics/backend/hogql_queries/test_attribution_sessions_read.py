@@ -158,6 +158,9 @@ class TestAttributionSessionsRead(SimpleTestCase):
                 "execute_hogql_query",
                 return_value=SimpleNamespace(results=[], error=None),
             ),
+            patch.object(
+                marketing_sessions_precompute, "create_default_modifiers_for_team", return_value=runner.modifiers
+            ),
             patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=flag),
             patch.object(attribution_sessions_read, "handle_stale_served") as revalidate,
             patch.object(
