@@ -149,7 +149,6 @@ def test_list_batch_export_backfills_pages_over_tied_timestamps(
     results = collect_all_pages(client, first_page)
 
     # Every timestamp is tied, so the backfill id alone decides the order.
-    ids_by_id_ascending = sorted(str(backfill.id) for backfill in backfills)
     descending = ordering is None or ordering.startswith("-")
-    expected = list(reversed(ids_by_id_ascending)) if descending else ids_by_id_ascending
+    expected = sorted((str(backfill.id) for backfill in backfills), reverse=descending)
     assert [backfill["id"] for backfill in results] == expected

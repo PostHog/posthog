@@ -313,7 +313,6 @@ def test_get_batch_export_runs_pages_over_tied_timestamps(
     results = collect_all_pages(client, first_page)
 
     # Every timestamp is tied, so the run id alone decides the order.
-    ids_by_id_ascending = sorted(str(run.id) for run in runs)
     descending = ordering is None or ordering.startswith("-")
-    expected = list(reversed(ids_by_id_ascending)) if descending else ids_by_id_ascending
+    expected = sorted((str(run.id) for run in runs), reverse=descending)
     assert [run["id"] for run in results] == expected
