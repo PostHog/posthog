@@ -1,3 +1,5 @@
+import { api } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -153,5 +155,90 @@ describe('productSetupLogic', () => {
         } finally {
             aiLogic.unmount()
         }
+    })
+
+    describe('a task the user checks, unchecks and re-checks', () => {
+        const flushPromises = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
+        const holdTeamUpdate = (): { resolve: (team: unknown) => void; reject: (error: Error) => void } => {
+            const handle = { resolve: (_team: unknown) => {}, reject: (_error: Error) => {} }
+            jest.spyOn(api, 'update').mockImplementation(
+                () =>
+                    new Promise((resolve, reject) => {
+                        handle.resolve = resolve
+                        handle.reject = reject
+                    })
+            )
+            return handle
+        }
+
+        // The reported bug: the guard read the saved team state while the overlay already showed the
+        // task as unchecked, so a re-check before the save landed did nothing however often it was clicked.
+        it('re-checks while the uncheck is still saving', async () => {
+            holdTeamUpdate()
+            await setTeam({
+                ingested_event: true,
+                onboarding_tasks: { [SetupTaskId.CreateFirstInsight]: ActivationTaskStatus.COMPLETED },
+            })
+
+            logic.actions.unmarkTaskAsCompleted(SetupTaskId.CreateFirstInsight)
+            await flushPromises()
+            expect(task(SetupTaskId.CreateFirstInsight).completed).toBe(false)
+
+            logic.actions.markTaskAsCompleted(SetupTaskId.CreateFirstInsight, true)
+            await flushPromises()
+
+            expect(task(SetupTaskId.CreateFirstInsight).completed).toBe(true)
+        })
+
+        // The reported bug: an unchecked task that a team flag also proves done came straight back,
+        // so the count recovered on its own and the user could not uncheck the task at all.
+        it('keeps an auto-completed task unchecked after the user unchecks it', async () => {
+            holdTeamUpdate()
+            await setTeam({ ingested_event: true, onboarding_tasks: {} })
+            expect(task(SetupTaskId.IngestFirstEvent).completed).toBe(true)
+
+            logic.actions.unmarkTaskAsCompleted(SetupTaskId.IngestFirstEvent)
+            await flushPromises()
+            expect(task(SetupTaskId.IngestFirstEvent).completed).toBe(false)
+
+            // An auto-completion from elsewhere in the app must not put the checkmark back.
+            logic.actions.markTaskAsCompleted(SetupTaskId.IngestFirstEvent)
+            await flushPromises()
+
+            expect(task(SetupTaskId.IngestFirstEvent).completed).toBe(false)
+        })
+
+        // The overlay used to outlive its save, so the checklist stayed on a value the team had moved on from.
+        it('hands the task back to the saved state once the save lands', async () => {
+            const update = holdTeamUpdate()
+            await setTeam({ ingested_event: true, onboarding_tasks: {} })
+
+            logic.actions.markTaskAsCompleted(SetupTaskId.CreateFirstInsight, true)
+            await flushPromises()
+            update.resolve({
+                ...teamLogic.values.currentTeam,
+                onboarding_tasks: { [SetupTaskId.CreateFirstInsight]: ActivationTaskStatus.COMPLETED },
+            })
+            await flushPromises()
+
+            expect(globalSetupLogic.values.optimisticTaskStatuses[SetupTaskId.CreateFirstInsight]).toBeUndefined()
+            expect(task(SetupTaskId.CreateFirstInsight).completed).toBe(true)
+        })
+
+        // A save that fails must not leave a checkmark that exists nowhere.
+        it('rolls the checkmark back when the save fails', async () => {
+            const update = holdTeamUpdate()
+            await setTeam({ ingested_event: true, onboarding_tasks: {} })
+
+            logic.actions.markTaskAsCompleted(SetupTaskId.CreateFirstInsight, true)
+            await flushPromises()
+            expect(task(SetupTaskId.CreateFirstInsight).completed).toBe(true)
+
+            update.reject(new Error('team update failed'))
+            await flushPromises()
+
+            expect(task(SetupTaskId.CreateFirstInsight).completed).toBe(false)
+        })
     })
 })

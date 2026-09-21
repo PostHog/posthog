@@ -14,7 +14,7 @@ import { ActivationTaskStatus } from '~/types'
 import type { AvailableSetupTaskIdsEnumApi } from '../../../generated/core/api.schemas'
 import type { TeamPublicType, TeamType } from '../../../types'
 import { reverseProxyCheckerLogic } from '../ReverseProxyChecker/reverseProxyCheckerLogic'
-import { globalSetupLogic } from './globalSetupLogic'
+import { globalSetupLogic, mergeTaskStatuses } from './globalSetupLogic'
 import { getProductSetupConfig, getTasksForProduct } from './productSetupRegistry'
 import type { SetupTaskWithState } from './types'
 import type { ProductSetupConfig, SetupTask } from './types'
@@ -30,7 +30,6 @@ export interface productSetupLogicValues {
     optimisticTaskStatuses: Record<string, ActivationTaskStatus | null> // globalSetupLogic
     isCurrentOrganizationNew: boolean // organizationLogic
     isCloudOrDev: boolean | undefined // preflightLogic
-    hasReverseProxy: boolean | null // reverseProxyCheckerLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     activeTasks: SetupTaskWithState[]
     allTasks: SetupTask[]
@@ -59,8 +58,12 @@ export interface productSetupLogicActions {
     closeGlobalSetup: () => {
         value: true
     } // globalSetupLogic
-    markTaskAsCompleted: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => {
+    markTaskAsCompleted: (
+        taskIdOrIds: SetupTaskId | SetupTaskId[],
+        userInitiated?: boolean
+    ) => {
         taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]
+        userInitiated: boolean
     } // globalSetupLogic
     markTaskAsSkipped: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => {
         taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]
@@ -124,7 +127,6 @@ export interface productSetupLogicMeta {
         tasksWithState: (
             allTasks: SetupTask[],
             savedOnboardingTasks: Record<string, ActivationTaskStatus | null>,
-            hasReverseProxy: boolean | null,
             currentTeam: TeamPublicType | TeamType | null
         ) => SetupTaskWithState[]
         activeTasks: (tasksWithState: SetupTaskWithState[]) => SetupTaskWithState[]
@@ -170,8 +172,6 @@ export const productSetupLogic = kea<productSetupLogicType>([
         values: [
             teamLogic,
             ['currentTeam'],
-            reverseProxyCheckerLogic,
-            ['hasReverseProxy'],
             organizationLogic,
             ['isCurrentOrganizationNew'],
             preflightLogic,
@@ -247,42 +247,44 @@ export const productSetupLogic = kea<productSetupLogicType>([
                 return tasks
             },
         ],
-        // Merge server-saved tasks with optimistic updates (optimistic takes priority for instant feedback)
-        // null in optimistic means "unmarked" - takes priority over saved status
+        // What the team has saved, with the pending optimistic changes on top - the same merge
+        // globalSetupLogic uses to decide whether a task still needs marking.
         savedOnboardingTasks: [
             (s) => [s.currentTeam, s.optimisticTaskStatuses],
             (
                 currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
                 optimisticTaskStatuses: Record<string, ActivationTaskStatus | null>
-            ): Record<string, ActivationTaskStatus | null> => ({
-                ...currentTeam?.onboarding_tasks,
-                ...optimisticTaskStatuses,
-            }),
+            ): Record<string, ActivationTaskStatus | null> =>
+                mergeTaskStatuses(currentTeam?.onboarding_tasks, optimisticTaskStatuses),
         ],
         tasksWithState: [
-            (s) => [s.allTasks, s.savedOnboardingTasks, s.hasReverseProxy, s.currentTeam],
+            (s) => [s.allTasks, s.savedOnboardingTasks, s.currentTeam],
             (
                 allTasks: import('lib/components/ProductSetup').SetupTask[],
                 savedOnboardingTasks: Record<string, ActivationTaskStatus | null>,
-                hasReverseProxy: boolean | null,
                 currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
             ): SetupTaskWithState[] => {
                 // A task auto-completes when a team flag already proves it is done, even without a saved status.
-                const isAutoCompleted = (taskId: SetupTaskId): boolean => {
-                    if (taskId === SetupTaskId.SetUpReverseProxy && hasReverseProxy) {
-                        return true
-                    }
+                // Only a stored flag qualifies: a value that a remount resets would drop the checkmark, and the
+                // count with it, while nothing about the account changed.
+                const isAutoCompleted = (taskId: SetupTaskId): boolean =>
                     // The install page reads `ingested_event`, so the checklist must trust the same flag.
-                    if (taskId === SetupTaskId.IngestFirstEvent && currentTeam?.ingested_event) {
-                        return true
-                    }
-                    return false
-                }
+                    taskId === SetupTaskId.IngestFirstEvent && !!currentTeam?.ingested_event
 
                 // Resolve completion for any task id, including a dependency that this product's list does not
                 // show, so the checkmark and the dependency gate read one completion rule.
-                const isCompleted = (taskId: SetupTaskId): boolean =>
-                    isAutoCompleted(taskId) || savedOnboardingTasks[taskId] === ActivationTaskStatus.COMPLETED
+                const isCompleted = (taskId: SetupTaskId): boolean => {
+                    const status = savedOnboardingTasks[taskId]
+                    if (status === ActivationTaskStatus.COMPLETED) {
+                        return true
+                    }
+                    // An explicit unmark beats the flag the task derives from - otherwise the checkmark
+                    // comes straight back and the user cannot uncheck the task at all.
+                    if (status === null) {
+                        return false
+                    }
+                    return isAutoCompleted(taskId)
+                }
                 // Completion wins over a stale skip: a task the user skipped but later actually finished is
                 // genuinely done, so it counts once instead of as both completed and skipped.
                 const isSkipped = (taskId: SetupTaskId): boolean =>

@@ -18,7 +18,7 @@ import { getTreeItemsProducts } from '~/products'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { ActivationTaskStatus } from '~/types'
 
-import { globalSetupLogic } from './globalSetupLogic'
+import { globalSetupLogic, mergeTaskStatuses } from './globalSetupLogic'
 import { productSetupLogic } from './productSetupLogic'
 import { PRODUCTS_WITH_SETUP, getProductSetupConfig, getTasksForProduct } from './productSetupRegistry'
 import type { SetupTaskWithState } from './types'
@@ -75,9 +75,9 @@ export function ProductSetupPopover({
         setShowCelebration,
     } = useActions(logic)
 
-    const { isProductSelectionLocked } = useValues(globalSetupLogic)
+    const { isProductSelectionLocked, optimisticTaskStatuses } = useValues(globalSetupLogic)
     const { currentTeam } = useValues(teamLogic)
-    const savedOnboardingTasks = currentTeam?.onboarding_tasks ?? {}
+    const savedOnboardingTasks = mergeTaskStatuses(currentTeam?.onboarding_tasks, optimisticTaskStatuses)
 
     const config = getProductSetupConfig(selectedProduct)
     const [hoveredTask, setHoveredTask] = useState<SetupTaskWithState | null>(null)
@@ -167,7 +167,7 @@ export function ProductSetupPopover({
 
     const handleMarkComplete = (e: React.MouseEvent, taskId: SetupTaskId): void => {
         e.stopPropagation()
-        markTaskAsCompleted(taskId)
+        markTaskAsCompleted(taskId, true)
         setAnnouncement(`${getTaskTitle(taskId)} marked as complete`)
     }
 
@@ -852,7 +852,7 @@ function TaskActions({
 
 function useOtherProductsWithTasks(
     selectedProduct: ProductKey,
-    savedOnboardingTasks: Record<string, ActivationTaskStatus>
+    savedOnboardingTasks: Record<string, ActivationTaskStatus | null>
 ): ProductWithTasks[] {
     return useMemo(() => {
         const currentCategory = productCategoryMap[selectedProduct]
