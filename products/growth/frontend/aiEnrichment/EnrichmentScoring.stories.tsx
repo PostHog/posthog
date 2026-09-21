@@ -1,5 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { fireEvent, within } from '@testing-library/react'
+import { within } from '@testing-library/react'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -66,7 +66,8 @@ export const Editor: Story = {}
 export const TenCompanies: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        fireEvent.click(await canvas.findByText('Test 10 companies'))
+        const previewButton = await canvas.findByText('Test 10 companies')
+        previewButton.click()
         await canvas.findByText('Example company 10')
     },
 }
