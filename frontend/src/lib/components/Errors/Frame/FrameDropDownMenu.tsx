@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconCopy, IconExternal, IconGitLab, IconGithub } from '@posthog/icons'
 
@@ -7,7 +8,6 @@ import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPr
 import {
     DropdownMenu,
     DropdownMenuContent,
-    DropdownMenuItem,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -33,6 +33,7 @@ export function FrameDropDownMenu({
     const sourceData = getSourceDataForFrame(raw_id, release?.id)
     const lineLocation = getLineLocation(frame)
     const hasItems = !!(frame.resolved_name || frame.source || lineLocation || sourceData)
+    const [open, setOpen] = useState(false)
 
     if (!hasItems) {
         return (
@@ -43,7 +44,7 @@ export function FrameDropDownMenu({
     }
 
     return (
-        <DropdownMenu>
+        <DropdownMenu open={open} onOpenChange={setOpen}>
             <DropdownMenuTrigger asChild>
                 <ButtonPrimitive className={className}>{children}</ButtonPrimitive>
             </DropdownMenuTrigger>
@@ -52,7 +53,7 @@ export function FrameDropDownMenu({
                 {frame.source && <CopyItem value={frame.source} description="file path" />}
                 {lineLocation && <CopyItem value={lineLocation} description="line location" />}
                 {sourceData && <DropdownMenuSeparator />}
-                {sourceData && <SourceDataLink sourceData={sourceData} />}
+                {sourceData && <SourceDataLink sourceData={sourceData} onClick={() => setOpen(false)} />}
             </DropdownMenuContent>
         </DropdownMenu>
     )
@@ -68,16 +69,21 @@ const PROVIDER_NAME_MAP: Record<string, string> = {
     gitlab: 'GitLab',
 }
 
-export function SourceDataLink({ sourceData }: { sourceData: SourceData }): JSX.Element {
+export function SourceDataLink({ sourceData, onClick }: { sourceData: SourceData; onClick?: () => void }): JSX.Element {
     const ProviderIcon = sourceData.provider ? PROVIDER_ICON_MAP[sourceData.provider] : null
     const Icon = ProviderIcon || IconExternal
+    // Not a Radix menu item, like the copy items next to it. Radix focuses an item on hover, and a
+    // focused link gets the global focus outline, which its sibling buttons never show on hover.
     return (
-        <DropdownMenuItem asChild>
-            <LinkPrimitive to={sourceData.url} target="_blank" className={buttonPrimitiveVariants({ menuItem: true })}>
-                <Icon />
-                Open in {PROVIDER_NAME_MAP[sourceData.provider] ?? sourceData.provider}
-            </LinkPrimitive>
-        </DropdownMenuItem>
+        <LinkPrimitive
+            to={sourceData.url}
+            target="_blank"
+            className={buttonPrimitiveVariants({ menuItem: true })}
+            onClick={onClick}
+        >
+            <Icon />
+            Open in {PROVIDER_NAME_MAP[sourceData.provider] ?? sourceData.provider}
+        </LinkPrimitive>
     )
 }
 
