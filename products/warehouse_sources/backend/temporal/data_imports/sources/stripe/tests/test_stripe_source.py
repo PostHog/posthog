@@ -275,6 +275,23 @@ class TestStripeSource:
         assert messages[0] is not None
         assert "isn't authorized for the configured Stripe account" in messages[0]
 
+    def test_nested_connected_account_rejection_surfaces_actionable_message(self):
+        # Raised as `stripe.InvalidRequestError`, never `stripe.PermissionError` (unlike the
+        # account-access rejection above), so this can't collide with the generic "PermissionError"
+        # catch-all — but the friendly guidance should still win over Stripe's raw text.
+        observed_error = (
+            "InvalidRequestError: You cannot access the connected accounts of your platform's "
+            "connected accounts."
+        )
+        messages = [
+            message
+            for pattern, message in self.source.get_non_retryable_errors().items()
+            if error_message_matches(observed_error, [pattern])
+        ]
+        assert messages
+        assert messages[0] is not None
+        assert "can't have connected accounts of its own" in messages[0]
+
     @pytest.mark.parametrize(
         "other_error",
         [
