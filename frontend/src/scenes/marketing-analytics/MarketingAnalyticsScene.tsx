@@ -394,9 +394,7 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
 const MarketingAnalyticsAIToolWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
     const { activeTab, dateFilter, integrationFilter, compareFilter } = useValues(marketingAnalyticsLogic)
     const { conversion_goals, marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const aiEnabled =
-        !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_AI] && activeTab !== MarketingAnalyticsTab.PAGE_VISIBILITY
+    const aiEnabled = activeTab !== MarketingAnalyticsTab.PAGE_VISIBILITY
 
     // Shared context for every Marketing analytics Max tool — consumed by
     // MARKETING_CONTEXT_PROMPT in products/marketing_analytics/backend/max_tools.py.
