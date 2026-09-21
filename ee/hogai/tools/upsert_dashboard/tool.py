@@ -232,7 +232,7 @@ class UpsertDashboardTool(MaxTool):
         dashboard = await self._get_dashboard(action.dashboard_id)
         artifacts = await self._get_visualization_artifacts(action.insight_ids)
         dashboard, resolved_insights = await self._add_dashboard_insights(dashboard, artifacts)
-        await self._report_dashboard_action(dashboard, "dashboard updated")
+        await self._report_dashboard_action(dashboard, "dashboard updated", {"operation": "add_insights"})
         await self._report_new_insights(cast(list[VisualizationWithSourceResult], artifacts), resolved_insights)
 
         sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
