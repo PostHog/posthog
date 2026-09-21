@@ -760,3 +760,15 @@ class TestPickAProjectMessage:
         assert "the app's Home tab," in message
         assert "|Home tab>" not in message
         assert "None" not in message
+
+    def test_project_names_cannot_inject_slack_control_syntax(self):
+        message = pick_a_project_message(
+            "You can route your mentions to:",
+            [self._candidate(1, "<!channel>", "<https://evil.example|Open PostHog>")],
+            set_command="/posthog",
+            home_tab_url=None,
+        )
+
+        assert "<!channel>" not in message
+        assert "&lt;!channel&gt;" in message
+        assert "<https://evil.example|Open PostHog>" not in message

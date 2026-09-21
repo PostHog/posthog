@@ -5,6 +5,7 @@ from django.db.models import Q
 
 import structlog
 
+from posthog.comment.formatting import escape_slack_mrkdwn
 from posthog.helpers.slack_scopes import bot_is_ready
 from posthog.models.integration import Integration
 from posthog.models.user import User
@@ -105,10 +106,16 @@ def pick_a_project_message(
     text for an install that carries no app id, which is the one case ``app_home_url``
     cannot build a deep link for.
     """
+    # Organization and team names are tenant text, and this reply lands in a channel
+    # thread, so an unescaped `<!channel>` in a name broadcasts to everyone reading it and
+    # `<url|label>` renders a link they read as the bot's. Escaped on the way out rather
+    # than inside `format_project_candidate_list`, because that helper also builds an LLM
+    # prompt, which needs the plain name.
+    projects = escape_slack_mrkdwn(format_project_candidate_list(candidates))
     home_tab = f"<{home_tab_url}|Home tab>" if home_tab_url else "Home tab"
     return (
         f"{intro}\n"
-        f"{format_project_candidate_list(candidates)}\n\n"
+        f"{projects}\n\n"
         f"Pick one on the app's {home_tab}, or set your default with `{set_command} project <id>`."
     )
 
