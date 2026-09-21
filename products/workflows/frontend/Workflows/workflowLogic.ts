@@ -13,6 +13,7 @@ import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { LiquidRenderer } from 'lib/utils/liquid'
 import { objectsEqual } from 'lib/utils/objects'
@@ -22,12 +23,13 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlLevel, HogFunctionTemplateType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, HogFunctionTemplateType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 import { hogFlowsResumeEmailSending } from 'products/workflows/frontend/generated/api'
 
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
+import { codeManagedReason, isCodeManagedWorkflow } from './codeManagedWorkflow'
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
 import {
     DEFAULT_STATE,
@@ -272,6 +274,8 @@ export interface workflowLogicValues {
     workflowSanitized: HogFlow
     workflowTouched: boolean
     workflowTouches: Record<string, boolean>
+    workflowEditDisabledReason: string | null
+    canEditWorkflow: boolean
     workflowUserAccessLevel: AccessControlLevel | null
     workflowValidationErrors: DeepPartialMap<HogFlow, ValidationErrorType>
 }
@@ -2817,6 +2821,11 @@ export interface workflowLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         logicProps: (arg: WorkflowLogicProps) => WorkflowLogicProps
         workflowUserAccessLevel: (originalWorkflow: HogFlow | null) => AccessControlLevel | null
+        workflowEditDisabledReason: (
+            originalWorkflow: HogFlow | null,
+            workflowUserAccessLevel: AccessControlLevel | null
+        ) => string | null
+        canEditWorkflow: (workflowEditDisabledReason: string | null) => boolean
         currentSchedule: (schedules: HogFlowSchedule[]) => HogFlowSchedule | null
         pendingSchedule: (
             currentSchedule: HogFlowSchedule | null,
@@ -3193,21 +3202,34 @@ export const workflowLogic = kea<workflowLogicType>([
                         // would create a phantom draft identical to live.
                         const stagingDraft =
                             latest?.status === 'active' && updates.status === 'active' && contentChanged
-                        // A status transition (enable/disable) toggles the lifecycle only. The button is
-                        // disabled while the form is dirty, so content in the payload is at best a no-op
-                        // re-send of the live row and at worst (with a staged draft merged into the form)
-                        // a silent deploy of unpublished content. Metadata-only saves on active workflows
-                        // strip content the same way, so unchanged content never routes to a draft.
-                        const payload: Partial<HogFlow> =
-                            isStatusTransition || (latest?.status === 'active' && !contentChanged)
-                                ? omitWorkflowContent(updates)
-                                : { ...updates }
+                        // A status transition (enable/disable) toggles the lifecycle only, so it sends
+                        // the status and nothing else. The button is disabled while the form is dirty,
+                        // so content in the payload is at best a no-op re-send of the live row and at
+                        // worst (with a staged draft merged into the form) a silent deploy of
+                        // unpublished content. It is also what lets the control keep working on a
+                        // workflow a repository owns: the API takes a status-only write from the editor
+                        // and refuses a payload that carries anything more. Metadata-only saves on
+                        // active workflows strip content the same way, so unchanged content never
+                        // routes to a draft.
+                        const payload: Partial<HogFlow> = isStatusTransition
+                            ? { status: updates.status }
+                            : latest?.status === 'active' && !contentChanged
+                              ? omitWorkflowContent(updates)
+                              : { ...updates }
                         if (!isStatusSave) {
                             // A form save must not speak about the lifecycle. Otherwise one queued
                             // behind a disable carries the pre-change status and puts the workflow
                             // back, so a stopped workflow resumes running and sending.
                             delete payload.status
                         }
+                        // Provenance is server state the form only reads. The form is seeded from the
+                        // whole loaded workflow, so without this every save would send it back and
+                        // read as a claim about who owns the workflow and where its file is.
+                        delete payload.managed_by
+                        delete payload.created_via
+                        delete payload.source_repository
+                        delete payload.source_path
+                        delete payload.source_ref
                         const liveBase = latest?.updated_at
                         // Draft writes race against other draft writes, not the live row, so the staleness
                         // baseline follows the routing: the draft's own stamp once one is staged.
@@ -3501,6 +3523,38 @@ export const workflowLogic = kea<workflowLogicType>([
             (s) => [s.originalWorkflow],
             (originalWorkflow: HogFlow | null): AccessControlLevel | null =>
                 originalWorkflow?.user_access_level ?? null,
+        ],
+        workflowEditDisabledReason: [
+            (s) => [s.originalWorkflow, s.workflowUserAccessLevel],
+            (originalWorkflow: HogFlow | null, workflowUserAccessLevel: AccessControlLevel | null): string | null => {
+                if (!originalWorkflow) {
+                    // A workflow being created has nothing to be locked yet.
+                    return null
+                }
+                // Ownership shadows the access level. Someone with edit rights still cannot change a
+                // workflow a repository owns, and naming the file is the more useful thing to say.
+                if (isCodeManagedWorkflow(originalWorkflow)) {
+                    return codeManagedReason(originalWorkflow)
+                }
+                if (!workflowUserAccessLevel) {
+                    // A response that carries no access level says nothing about what this person may
+                    // do. Locking the canvas on a missing value would break the editor for a case the
+                    // API refuses anyway.
+                    return null
+                }
+                return getAccessControlDisabledReason(
+                    AccessControlResourceType.Workflow,
+                    AccessControlLevel.Editor,
+                    workflowUserAccessLevel
+                )
+            },
+        ],
+        // Read by the canvas mutation listeners and the auto-save rather than by the save loader. The
+        // canvas and its panels stay interactive either way, because per-step metrics and logs are
+        // only reachable by selecting a node, and the enable control saves through the same loader.
+        canEditWorkflow: [
+            (s) => [s.workflowEditDisabledReason],
+            (workflowEditDisabledReason: string | null): boolean => !workflowEditDisabledReason,
         ],
         currentSchedule: [
             (s) => [s.schedules],
@@ -4276,10 +4330,16 @@ export const workflowLogic = kea<workflowLogicType>([
             })
         },
         setWorkflowInfo: async ({ workflow }) => {
+            if (!values.canEditWorkflow) {
+                return
+            }
             actions.setWorkflowValues(workflow)
             actions.autoSaveWorkflow()
         },
         setWorkflowActionConfig: async ({ actionId, config }) => {
+            if (!values.canEditWorkflow) {
+                return
+            }
             const action = values.workflow.actions.find((action) => action.id === actionId)
             if (!action) {
                 return
@@ -4301,6 +4361,9 @@ export const workflowLogic = kea<workflowLogicType>([
             actions.autoSaveWorkflow()
         },
         partialSetWorkflowActionConfig: async ({ actionId, config }) => {
+            if (!values.canEditWorkflow) {
+                return
+            }
             const action = values.workflow.actions.find((action) => action.id === actionId)
             if (!action) {
                 return
@@ -4309,11 +4372,17 @@ export const workflowLogic = kea<workflowLogicType>([
             actions.setWorkflowActionConfig(actionId, { ...action.config, ...config } as HogFlowAction['config'])
         },
         setWorkflowAction: async ({ actionId, action }) => {
+            if (!values.canEditWorkflow) {
+                return
+            }
             const newActions = values.workflow.actions.map((a) => (a.id === actionId ? action : a))
             actions.setWorkflowValues({ actions: newActions })
             actions.autoSaveWorkflow()
         },
         setWorkflowActionEdges: async ({ actionId, edges }) => {
+            if (!values.canEditWorkflow) {
+                return
+            }
             // Helper method - Replaces all edges related to the action with the new edges
             const actionEdges = values.edgesByActionId[actionId] ?? []
             const newEdges = values.workflow.edges.filter((e) => !actionEdges.includes(e))
@@ -4322,6 +4391,9 @@ export const workflowLogic = kea<workflowLogicType>([
             actions.autoSaveWorkflow()
         },
         setWorkflowValue: () => {
+            if (!values.canEditWorkflow) {
+                return
+            }
             actions.autoSaveWorkflow()
         },
         setAutoSaveEnabled: ({ enabled }) => {
@@ -4336,6 +4408,9 @@ export const workflowLogic = kea<workflowLogicType>([
             // (stage_draft in the saveWorkflow loader), so nothing deploys without an explicit publish.
             const shouldSkip =
                 !values.autoSaveEnabled ||
+                // A code-managed workflow, or one the user may only view, must not fire a PATCH that
+                // only the backend would refuse.
+                !values.canEditWorkflow ||
                 !props.id ||
                 props.id === 'new' ||
                 !!props.editTemplateId ||

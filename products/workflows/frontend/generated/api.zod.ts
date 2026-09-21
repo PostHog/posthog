@@ -405,6 +405,12 @@ export const hogFlowsCreateBodyKeyMax = 400
 export const hogFlowsCreateBodyNameMax = 400
 
 export const hogFlowsCreateBodyDescriptionDefault = ``
+export const hogFlowsCreateBodySourceRepositoryMax = 400
+
+export const hogFlowsCreateBodySourcePathMax = 400
+
+export const hogFlowsCreateBodySourceRefMax = 400
+
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -449,6 +455,33 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
+            ),
+        managed_by: zod
+            .union([zod.enum(['gui', 'code']).describe('\* `gui` - GUI\n\* `code` - Code'), zod.null()])
+            .optional()
+            .describe(
+                "What owns this workflow's content. `code` means a repository owns it: the editor is read-only and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.\n\n\* `gui` - GUI\n\* `code` - Code"
+            ),
+        source_repository: zod
+            .string()
+            .max(hogFlowsCreateBodySourceRepositoryMax)
+            .nullish()
+            .describe(
+                "Repository that holds this workflow's file, as the pushing client resolved it from the git remote (e.g. `github.com\/acme\/flows`). Stored as given: the host may be GitHub, GitLab or self-hosted. Null unless a push wrote it."
+            ),
+        source_path: zod
+            .string()
+            .max(hogFlowsCreateBodySourcePathMax)
+            .nullish()
+            .describe(
+                'Repository-relative path of the pushed file (e.g. `workflows\/welcome.ts`). A push compares the path it was given against this one, so a copied file cannot overwrite the wrong workflow. Null unless a push wrote it.'
+            ),
+        source_ref: zod
+            .string()
+            .max(hogFlowsCreateBodySourceRefMax)
+            .nullish()
+            .describe(
+                'Commit sha or branch of the last push, so a link can point at the revision that produced what you see. Overwritten by every push. Null unless a push wrote it.'
             ),
         trigger_masking: zod
             .union([
@@ -819,6 +852,12 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
 export const hogFlowsUpdateBodyNameMax = 400
 
 export const hogFlowsUpdateBodyDescriptionDefault = ``
+export const hogFlowsUpdateBodySourceRepositoryMax = 400
+
+export const hogFlowsUpdateBodySourcePathMax = 400
+
+export const hogFlowsUpdateBodySourceRefMax = 400
+
 export const hogFlowsUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -847,6 +886,33 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+            ),
+        managed_by: zod
+            .union([zod.enum(['gui', 'code']).describe('\* `gui` - GUI\n\* `code` - Code'), zod.null()])
+            .optional()
+            .describe(
+                "What owns this workflow's content. `code` means a repository owns it: the editor is read-only and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.\n\n\* `gui` - GUI\n\* `code` - Code"
+            ),
+        source_repository: zod
+            .string()
+            .max(hogFlowsUpdateBodySourceRepositoryMax)
+            .nullish()
+            .describe(
+                "Repository that holds this workflow's file, as the pushing client resolved it from the git remote (e.g. `github.com\/acme\/flows`). Stored as given: the host may be GitHub, GitLab or self-hosted. Null unless a push wrote it."
+            ),
+        source_path: zod
+            .string()
+            .max(hogFlowsUpdateBodySourcePathMax)
+            .nullish()
+            .describe(
+                'Repository-relative path of the pushed file (e.g. `workflows\/welcome.ts`). A push compares the path it was given against this one, so a copied file cannot overwrite the wrong workflow. Null unless a push wrote it.'
+            ),
+        source_ref: zod
+            .string()
+            .max(hogFlowsUpdateBodySourceRefMax)
+            .nullish()
+            .describe(
+                'Commit sha or branch of the last push, so a link can point at the revision that produced what you see. Overwritten by every push. Null unless a push wrote it.'
             ),
         trigger_masking: zod
             .union([
@@ -1217,6 +1283,12 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
 export const hogFlowsPartialUpdateBodyNameMax = 400
 
 export const hogFlowsPartialUpdateBodyDescriptionDefault = ``
+export const hogFlowsPartialUpdateBodySourceRepositoryMax = 400
+
+export const hogFlowsPartialUpdateBodySourcePathMax = 400
+
+export const hogFlowsPartialUpdateBodySourceRefMax = 400
+
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -1250,6 +1322,33 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+            ),
+        managed_by: zod
+            .union([zod.enum(['gui', 'code']).describe('\* `gui` - GUI\n\* `code` - Code'), zod.null()])
+            .optional()
+            .describe(
+                "What owns this workflow's content. `code` means a repository owns it: the editor is read-only and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.\n\n\* `gui` - GUI\n\* `code` - Code"
+            ),
+        source_repository: zod
+            .string()
+            .max(hogFlowsPartialUpdateBodySourceRepositoryMax)
+            .nullish()
+            .describe(
+                "Repository that holds this workflow's file, as the pushing client resolved it from the git remote (e.g. `github.com\/acme\/flows`). Stored as given: the host may be GitHub, GitLab or self-hosted. Null unless a push wrote it."
+            ),
+        source_path: zod
+            .string()
+            .max(hogFlowsPartialUpdateBodySourcePathMax)
+            .nullish()
+            .describe(
+                'Repository-relative path of the pushed file (e.g. `workflows\/welcome.ts`). A push compares the path it was given against this one, so a copied file cannot overwrite the wrong workflow. Null unless a push wrote it.'
+            ),
+        source_ref: zod
+            .string()
+            .max(hogFlowsPartialUpdateBodySourceRefMax)
+            .nullish()
+            .describe(
+                'Commit sha or branch of the last push, so a link can point at the revision that produced what you see. Overwritten by every push. Null unless a push wrote it.'
             ),
         trigger_masking: zod
             .union([
@@ -1804,6 +1903,12 @@ export const hogFlowsInvocationsCreateBodyConfigurationOneKeyMax = 400
 export const hogFlowsInvocationsCreateBodyConfigurationOneNameMax = 400
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneDescriptionDefault = ``
+export const hogFlowsInvocationsCreateBodyConfigurationOneSourceRepositoryMax = 400
+
+export const hogFlowsInvocationsCreateBodyConfigurationOneSourcePathMax = 400
+
+export const hogFlowsInvocationsCreateBodyConfigurationOneSourceRefMax = 400
+
 export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneDistinctIdMax = 200
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneFirstNameMax = 150
@@ -1872,6 +1977,45 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe(
                     'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
+                ),
+            managed_by: zod
+                .union([zod.enum(['gui', 'code']).describe('\* `gui` - GUI\n\* `code` - Code'), zod.null()])
+                .optional()
+                .describe(
+                    "What owns this workflow's content. `code` means a repository owns it: the editor is read-only and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.\n\n\* `gui` - GUI\n\* `code` - Code"
+                ),
+            created_via: zod
+                .union([
+                    zod
+                        .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
+                        .describe(
+                            '\* `web` - Web\n\* `api` - API\n\* `mcp` - MCP\n\* `wizard` - Wizard\n\* `self_driving` - Self-driving'
+                        ),
+                    zod.null(),
+                ])
+                .describe(
+                    "How this workflow first appeared: `web` for the editor, `api` for a direct API call, `mcp` for an agent, `wizard` for the setup agent, `self_driving` for PostHog's own surfaces. Resolved from the request on create, never from the payload, and never changed afterwards. Null on workflows created before this field existed.\n\n\* `web` - Web\n\* `api` - API\n\* `mcp` - MCP\n\* `wizard` - Wizard\n\* `self_driving` - Self-driving"
+                ),
+            source_repository: zod
+                .string()
+                .max(hogFlowsInvocationsCreateBodyConfigurationOneSourceRepositoryMax)
+                .nullish()
+                .describe(
+                    "Repository that holds this workflow's file, as the pushing client resolved it from the git remote (e.g. `github.com\/acme\/flows`). Stored as given: the host may be GitHub, GitLab or self-hosted. Null unless a push wrote it."
+                ),
+            source_path: zod
+                .string()
+                .max(hogFlowsInvocationsCreateBodyConfigurationOneSourcePathMax)
+                .nullish()
+                .describe(
+                    'Repository-relative path of the pushed file (e.g. `workflows\/welcome.ts`). A push compares the path it was given against this one, so a copied file cannot overwrite the wrong workflow. Null unless a push wrote it.'
+                ),
+            source_ref: zod
+                .string()
+                .max(hogFlowsInvocationsCreateBodyConfigurationOneSourceRefMax)
+                .nullish()
+                .describe(
+                    'Commit sha or branch of the last push, so a link can point at the revision that produced what you see. Overwritten by every push. Null unless a push wrote it.'
                 ),
             created_at: zod.iso.datetime({ offset: true }),
             created_by: zod.object({
@@ -2613,6 +2757,12 @@ export const hogFlowsBulkDeleteCreateBodyKeyMax = 400
 export const hogFlowsBulkDeleteCreateBodyNameMax = 400
 
 export const hogFlowsBulkDeleteCreateBodyDescriptionDefault = ``
+export const hogFlowsBulkDeleteCreateBodySourceRepositoryMax = 400
+
+export const hogFlowsBulkDeleteCreateBodySourcePathMax = 400
+
+export const hogFlowsBulkDeleteCreateBodySourceRefMax = 400
+
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -2662,6 +2812,33 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
+            ),
+        managed_by: zod
+            .union([zod.enum(['gui', 'code']).describe('\* `gui` - GUI\n\* `code` - Code'), zod.null()])
+            .optional()
+            .describe(
+                "What owns this workflow's content. `code` means a repository owns it: the editor is read-only and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.\n\n\* `gui` - GUI\n\* `code` - Code"
+            ),
+        source_repository: zod
+            .string()
+            .max(hogFlowsBulkDeleteCreateBodySourceRepositoryMax)
+            .nullish()
+            .describe(
+                "Repository that holds this workflow's file, as the pushing client resolved it from the git remote (e.g. `github.com\/acme\/flows`). Stored as given: the host may be GitHub, GitLab or self-hosted. Null unless a push wrote it."
+            ),
+        source_path: zod
+            .string()
+            .max(hogFlowsBulkDeleteCreateBodySourcePathMax)
+            .nullish()
+            .describe(
+                'Repository-relative path of the pushed file (e.g. `workflows\/welcome.ts`). A push compares the path it was given against this one, so a copied file cannot overwrite the wrong workflow. Null unless a push wrote it.'
+            ),
+        source_ref: zod
+            .string()
+            .max(hogFlowsBulkDeleteCreateBodySourceRefMax)
+            .nullish()
+            .describe(
+                'Commit sha or branch of the last push, so a link can point at the revision that produced what you see. Overwritten by every push. Null unless a push wrote it.'
             ),
         trigger_masking: zod
             .union([

@@ -18,6 +18,8 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { CodeManagedTag } from './CodeManagedTag'
+import { codeManagedDeleteReason, isCodeManagedWorkflow } from './codeManagedWorkflow'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
@@ -190,6 +192,7 @@ export function WorkflowsTable(): JSX.Element {
                                 truncateDescription
                             />
                         )}
+                        <CodeManagedTag workflow={item} />
                         {stepMatches.length > 0 && <WorkflowStepMatches workflow={item} matches={stepMatches} />}
                     </>
                 )
@@ -346,6 +349,11 @@ export function WorkflowsTable(): JSX.Element {
                                             fullWidth
                                             status="danger"
                                             onClick={() => deleteWorkflow(workflow)}
+                                            disabledReason={
+                                                isCodeManagedWorkflow(workflow)
+                                                    ? codeManagedDeleteReason(workflow)
+                                                    : undefined
+                                            }
                                         >
                                             Delete
                                         </LemonButton>

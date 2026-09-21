@@ -248,6 +248,34 @@ export const HogFlowOriginProductEnumApi = {
 } as const
 
 /**
+ * * `gui` - GUI
+ * * `code` - Code
+ */
+export type HogFlowManagedByEnumApi = (typeof HogFlowManagedByEnumApi)[keyof typeof HogFlowManagedByEnumApi]
+
+export const HogFlowManagedByEnumApi = {
+    Gui: 'gui',
+    Code: 'code',
+} as const
+
+/**
+ * * `web` - Web
+ * * `api` - API
+ * * `mcp` - MCP
+ * * `wizard` - Wizard
+ * * `self_driving` - Self-driving
+ */
+export type HogFlowCreatedViaEnumApi = (typeof HogFlowCreatedViaEnumApi)[keyof typeof HogFlowCreatedViaEnumApi]
+
+export const HogFlowCreatedViaEnumApi = {
+    Web: 'web',
+    Api: 'api',
+    Mcp: 'mcp',
+    Wizard: 'wizard',
+    SelfDriving: 'self_driving',
+} as const
+
+/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -320,6 +348,14 @@ export interface HogFlowMinimalApi {
     readonly version: number
     readonly status: HogFlowStateEnumApi
     readonly origin_product: HogFlowOriginProductEnumApi | null
+    readonly managed_by: HogFlowManagedByEnumApi | null
+    readonly created_via: HogFlowCreatedViaEnumApi | null
+    /** @nullable */
+    readonly source_repository: string | null
+    /** @nullable */
+    readonly source_path: string | null
+    /** @nullable */
+    readonly source_ref: string | null
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
@@ -612,6 +648,37 @@ export interface HogFlowApi {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts */
     origin_product?: HogFlowOriginProductEnumApi | null
+    /** What owns this workflow's content. `code` means a repository owns it: the editor is read-only and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.
+     *
+     * * `gui` - GUI
+     * * `code` - Code */
+    managed_by?: HogFlowManagedByEnumApi | null
+    /** How this workflow first appeared: `web` for the editor, `api` for a direct API call, `mcp` for an agent, `wizard` for the setup agent, `self_driving` for PostHog's own surfaces. Resolved from the request on create, never from the payload, and never changed afterwards. Null on workflows created before this field existed.
+     *
+     * * `web` - Web
+     * * `api` - API
+     * * `mcp` - MCP
+     * * `wizard` - Wizard
+     * * `self_driving` - Self-driving */
+    readonly created_via: HogFlowCreatedViaEnumApi | null
+    /**
+     * Repository that holds this workflow's file, as the pushing client resolved it from the git remote (e.g. `github.com/acme/flows`). Stored as given: the host may be GitHub, GitLab or self-hosted. Null unless a push wrote it.
+     * @maxLength 400
+     * @nullable
+     */
+    source_repository?: string | null
+    /**
+     * Repository-relative path of the pushed file (e.g. `workflows/welcome.ts`). A push compares the path it was given against this one, so a copied file cannot overwrite the wrong workflow. Null unless a push wrote it.
+     * @maxLength 400
+     * @nullable
+     */
+    source_path?: string | null
+    /**
+     * Commit sha or branch of the last push, so a link can point at the revision that produced what you see. Overwritten by every push. Null unless a push wrote it.
+     * @maxLength 400
+     * @nullable
+     */
+    source_ref?: string | null
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
@@ -716,6 +783,37 @@ export interface HogFlowUpdateApi {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts */
     readonly origin_product: HogFlowOriginProductEnumApi | null
+    /** What owns this workflow's content. `code` means a repository owns it: the editor is read-only and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.
+     *
+     * * `gui` - GUI
+     * * `code` - Code */
+    managed_by?: HogFlowManagedByEnumApi | null
+    /** How this workflow first appeared: `web` for the editor, `api` for a direct API call, `mcp` for an agent, `wizard` for the setup agent, `self_driving` for PostHog's own surfaces. Resolved from the request on create, never from the payload, and never changed afterwards. Null on workflows created before this field existed.
+     *
+     * * `web` - Web
+     * * `api` - API
+     * * `mcp` - MCP
+     * * `wizard` - Wizard
+     * * `self_driving` - Self-driving */
+    readonly created_via: HogFlowCreatedViaEnumApi | null
+    /**
+     * Repository that holds this workflow's file, as the pushing client resolved it from the git remote (e.g. `github.com/acme/flows`). Stored as given: the host may be GitHub, GitLab or self-hosted. Null unless a push wrote it.
+     * @maxLength 400
+     * @nullable
+     */
+    source_repository?: string | null
+    /**
+     * Repository-relative path of the pushed file (e.g. `workflows/welcome.ts`). A push compares the path it was given against this one, so a copied file cannot overwrite the wrong workflow. Null unless a push wrote it.
+     * @maxLength 400
+     * @nullable
+     */
+    source_path?: string | null
+    /**
+     * Commit sha or branch of the last push, so a link can point at the revision that produced what you see. Overwritten by every push. Null unless a push wrote it.
+     * @maxLength 400
+     * @nullable
+     */
+    source_ref?: string | null
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
@@ -820,6 +918,37 @@ export interface PatchedHogFlowUpdateApi {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts */
     readonly origin_product?: HogFlowOriginProductEnumApi | null
+    /** What owns this workflow's content. `code` means a repository owns it: the editor is read-only and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.
+     *
+     * * `gui` - GUI
+     * * `code` - Code */
+    managed_by?: HogFlowManagedByEnumApi | null
+    /** How this workflow first appeared: `web` for the editor, `api` for a direct API call, `mcp` for an agent, `wizard` for the setup agent, `self_driving` for PostHog's own surfaces. Resolved from the request on create, never from the payload, and never changed afterwards. Null on workflows created before this field existed.
+     *
+     * * `web` - Web
+     * * `api` - API
+     * * `mcp` - MCP
+     * * `wizard` - Wizard
+     * * `self_driving` - Self-driving */
+    readonly created_via?: HogFlowCreatedViaEnumApi | null
+    /**
+     * Repository that holds this workflow's file, as the pushing client resolved it from the git remote (e.g. `github.com/acme/flows`). Stored as given: the host may be GitHub, GitLab or self-hosted. Null unless a push wrote it.
+     * @maxLength 400
+     * @nullable
+     */
+    source_repository?: string | null
+    /**
+     * Repository-relative path of the pushed file (e.g. `workflows/welcome.ts`). A push compares the path it was given against this one, so a copied file cannot overwrite the wrong workflow. Null unless a push wrote it.
+     * @maxLength 400
+     * @nullable
+     */
+    source_path?: string | null
+    /**
+     * Commit sha or branch of the last push, so a link can point at the revision that produced what you see. Overwritten by every push. Null unless a push wrote it.
+     * @maxLength 400
+     * @nullable
+     */
+    source_ref?: string | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
     readonly updated_at?: string

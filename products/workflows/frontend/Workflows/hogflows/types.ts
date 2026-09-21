@@ -6,7 +6,11 @@ import { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 
 import { AccessControlLevel, UserBasicType } from '~/types'
 
-import { HogFlowOriginProductEnumApi } from '../../generated/api.schemas'
+import {
+    HogFlowCreatedViaEnumApi,
+    HogFlowManagedByEnumApi,
+    HogFlowOriginProductEnumApi,
+} from '../../generated/api.schemas'
 import { CyclotronJobInputSchemaTypeSchema, HogFlowActionSchema, HogFlowTriggerSchema } from './steps/types'
 
 const HogFlowEdgeSchema = z.object({
@@ -96,6 +100,16 @@ export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     // broadcasts UI and hidden from the ordinary workflows list.
     // Product surface that owns this workflow (e.g. `loops` for Desktop loops). Null when built directly in the workflows UI.
     origin_product?: HogFlowOriginProductEnumApi | null
+    // What owns this workflow's content. `code` means a repository owns it, so the editor is read-only
+    // and the API refuses content writes from here. Null reads as `gui`.
+    managed_by?: HogFlowManagedByEnumApi | null
+    // How this workflow first appeared. Stamped by the server, never written from here.
+    created_via?: HogFlowCreatedViaEnumApi | null
+    // Where the owning file lives, in parts: the frontend composes a link from them and falls back to
+    // plain text for a host it does not know. Null until a push writes them.
+    source_repository?: string | null
+    source_path?: string | null
+    source_ref?: string | null
     // Effective access level of the current user for this workflow (resource access control).
     user_access_level?: AccessControlLevel
     // Staged content changes awaiting publish (active workflows only). A full snapshot of the
