@@ -230,7 +230,8 @@ class UpsertDashboardTool(MaxTool):
     async def _handle_add_insights(self, action: AddDashboardInsightsToolArgs) -> tuple[str, dict | None]:
         """Add insights to an existing dashboard while preserving current tiles."""
         dashboard = await self._get_dashboard(action.dashboard_id)
-        artifacts = await self._get_visualization_artifacts(action.insight_ids)
+        insight_ids = list(dict.fromkeys(action.insight_ids))
+        artifacts = await self._get_visualization_artifacts(insight_ids)
         dashboard, resolved_insights = await self._add_dashboard_insights(dashboard, artifacts)
         await self._report_dashboard_action(dashboard, "dashboard updated", {"operation": "add_insights"})
         await self._report_new_insights(cast(list[VisualizationWithSourceResult], artifacts), resolved_insights)
@@ -345,21 +346,14 @@ class UpsertDashboardTool(MaxTool):
     ) -> tuple[Dashboard, list[Insight]]:
         """Add or restore insight tiles without changing any other dashboard tiles."""
         insights = self._create_resolved_insights(self._resolve_insights(artifacts))
-        tiles_by_insight_id = {
-            tile.insight_id: tile
-            for tile in DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard, insight__isnull=False)
-        }
 
         for insight in insights:
-            tile = tiles_by_insight_id.get(insight.id)
-            if tile is None:
-                DashboardTile.objects.create(
-                    dashboard=dashboard,
-                    team_id=dashboard.team_id,
-                    insight=insight,
-                    layouts={},
-                )
-            elif tile.deleted:
+            tile, created = DashboardTile.objects_including_soft_deleted.get_or_create(
+                dashboard=dashboard,
+                insight=insight,
+                defaults={"team_id": dashboard.team_id, "layouts": {}},
+            )
+            if not created and tile.deleted:
                 tile.deleted = False
                 tile.save(update_fields=["deleted"])
 

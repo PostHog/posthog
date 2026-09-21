@@ -204,7 +204,8 @@ class TestUpsertDashboardTool(BaseTest):
         soft_deleted_tiles = [t for t in all_tiles if t.deleted]
         self.assertEqual(len(soft_deleted_tiles), 2)
 
-    async def test_add_insights_preserves_existing_dashboard_tiles(self):
+    @parameterized.expand([("unique", 1), ("duplicate", 2)])
+    async def test_add_insights_preserves_existing_dashboard_tiles(self, _name: str, repeat_count: int):
         dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
         existing_insight = await self._create_insight("Existing insight")
         new_insight = await self._create_insight("New insight")
@@ -212,7 +213,10 @@ class TestUpsertDashboardTool(BaseTest):
 
         tool = self._create_tool()
         await tool._arun_impl(
-            AddDashboardInsightsToolArgs(dashboard_id=str(dashboard.id), insight_ids=[new_insight.short_id])
+            AddDashboardInsightsToolArgs(
+                dashboard_id=str(dashboard.id),
+                insight_ids=[new_insight.short_id] * repeat_count,
+            )
         )
 
         active_tiles = [tile async for tile in DashboardTile.objects.filter(dashboard=dashboard)]
