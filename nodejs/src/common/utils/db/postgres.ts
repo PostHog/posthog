@@ -2,6 +2,7 @@
 import { DateTime } from 'luxon'
 import { hostname } from 'os'
 import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow, types as pgTypes } from 'pg'
+import { Gauge } from 'prom-client'
 
 import { withSpan } from '~/common/tracing/tracing-utils'
 
@@ -100,10 +101,31 @@ export class TransactionClient {
     }
 }
 
-type OpenTransaction = { pool: string; tag: string; client: TransactionClient }
+type OpenTransaction = { pool: string; tag: string; client: TransactionClient; startedAt: number }
 
 /** Process-wide, so shutdown can name the transactions that never finished. */
 const openTransactions = new Set<OpenTransaction>()
+
+/** Separates a wedge from a busy pool, which a plain count cannot. */
+new Gauge({
+    name: 'postgres_oldest_open_transaction_seconds',
+    help: 'Age of the longest-running open transaction',
+    labelNames: ['pool', 'tag'],
+    collect() {
+        const now = performance.now()
+        const oldest = new Map<string, OpenTransaction>()
+        for (const open of openTransactions) {
+            const current = oldest.get(open.pool)
+            if (!current || open.startedAt < current.startedAt) {
+                oldest.set(open.pool, open)
+            }
+        }
+        this.reset()
+        for (const [pool, open] of oldest) {
+            this.set({ pool, tag: open.tag }, (now - open.startedAt) / 1000)
+        }
+    },
+})
 
 function openTransactionFor(client: PoolClient): OpenTransaction | undefined {
     for (const open of openTransactions) {
@@ -319,7 +341,8 @@ export class PostgresRouter {
                         in_flight: transactionClient.inFlightTag,
                     })
             )
-            const openEntry: OpenTransaction = { pool: poolLabel, tag, client: transactionClient }
+            const started = performance.now()
+            const openEntry: OpenTransaction = { pool: poolLabel, tag, client: transactionClient, startedAt: started }
             openTransactions.add(openEntry)
             postgresOpenTransactionsGauge.inc({ pool: poolLabel, tag })
             let clientError: Error | undefined
@@ -340,7 +363,6 @@ export class PostgresRouter {
             }
             client.on('error', onClientError)
 
-            const started = performance.now()
             let outcome = 'commit'
             try {
                 await client.query('BEGIN')

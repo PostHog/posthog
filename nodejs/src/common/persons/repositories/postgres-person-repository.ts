@@ -1485,6 +1485,15 @@ export class PostgresPersonRepository
                 'claimLifecycleMarks'
             )
         } catch (error) {
+            // op_id is a bind parameter, so it is invisible in pg_stat_activity and pg_locks.
+            logger.warn('🔒', 'lifecycle claim failed', {
+                opId,
+                teamId,
+                personIds: sorted.map((p) => p.personId),
+                code: error.code,
+                constraint: error.constraint,
+                error: String(error),
+            })
             // The mark index turns "someone else holds this person" into a unique
             // violation; a duplicate op_id means a concurrent delivery of the same event.
             if (

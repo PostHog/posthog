@@ -60,6 +60,11 @@ const grpcConnectionsRejected = new Counter({
     labelNames: ['reason'],
 })
 
+const grpcSessionsClosedInFlight = new Counter({
+    name: 'ingestion_api_grpc_sessions_closed_in_flight_total',
+    help: 'Sessions that closed while the pipeline still held work fed over them',
+})
+
 /** A batch the pipeline finished processing. */
 export interface CompletedSubBatch {
     streamId: number
@@ -422,6 +427,12 @@ export class WorkerIngestServer {
         session.once('close', () => {
             this.sessionCount--
             this.sessions.delete(session)
+            // A consumer that fences this stream leaves the work it fed us with nobody to ack it.
+            const inFlight = this.totalInFlight()
+            if (inFlight > 0) {
+                grpcSessionsClosedInFlight.inc()
+                logger.warn('🛜', 'WorkerIngest session closed with work in flight', { inFlight })
+            }
         })
     }
 

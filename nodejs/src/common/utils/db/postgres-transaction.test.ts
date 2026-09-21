@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events'
+import { register } from 'prom-client'
 
 import {
     postgresClientErrorCounter,
@@ -60,6 +61,19 @@ describe('postgres transaction client failures', () => {
         pool.emit('remove', client)
 
         expect(await removedInUse()).toBe(before)
+    })
+
+    it('renders the oldest-open-transaction age without breaking the registry', async () => {
+        let rendered = ''
+        await router.transaction(PostgresUse.COMMON_WRITE, 'ageCheck', async () => {
+            rendered = await register.metrics()
+        })
+
+        const line = rendered
+            .split('\n')
+            .find((l) => l.startsWith('postgres_oldest_open_transaction_seconds{') && l.includes('ageCheck'))
+        expect(line).toBeDefined()
+        expect(Number(line!.split(' ').pop())).toBeGreaterThanOrEqual(0)
     })
 
     it('reports a transaction as open only while it is running', async () => {
