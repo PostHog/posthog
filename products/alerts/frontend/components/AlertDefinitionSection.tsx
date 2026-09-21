@@ -2,6 +2,8 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
+import type { EventsNode } from '~/queries/schema/schema-general'
+
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import { getDefaultAnomalyDetectorConfig } from 'products/alerts/frontend/logic/detectorConfigDefaults'
 import { FunnelAlertPreview } from 'products/alerts/frontend/logic/funnelAlertPreview'
@@ -24,7 +26,7 @@ export type { ThresholdRowRenderProps } from './ThresholdDefinitionRow'
 
 export interface TrendsDefinitionProps {
     /** Series in the alerted insight, for the series picker. */
-    alertSeries: Array<{ custom_name?: string | null; name?: string | null; event?: string | null }> | null
+    alertSeries: EventsNode[] | null
     /** Formula nodes in the alerted insight, if any. */
     formulaNodes: Array<{ formula: string; custom_name?: string | null }> | undefined
     /** Whether the insight has a valid breakdown; drives the per-value monitoring banner. */

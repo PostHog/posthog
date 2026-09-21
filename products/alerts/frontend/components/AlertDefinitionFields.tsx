@@ -5,8 +5,10 @@ import { LemonBanner, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { alphabet } from 'lib/utils/strings'
+import { getDisplayNameFromEntityNode } from 'scenes/insights/utils'
 
 import { AlertConditionType } from '~/queries/schema/schema-general'
+import type { EventsNode } from '~/queries/schema/schema-general'
 
 import { AlertDefinitionRow } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
@@ -28,7 +30,7 @@ export function TrendsDefinitionFields({
     isBreakdownValid,
     alertMode,
 }: {
-    alertSeries: Array<{ custom_name?: string | null; name?: string | null; event?: string | null }> | null
+    alertSeries: EventsNode[] | null
     formulaNodes: Array<{ formula: string; custom_name?: string | null }> | undefined
     isBreakdownValid: boolean
     alertMode: 'detector' | 'threshold'
@@ -55,8 +57,8 @@ export function TrendsDefinitionFields({
                                       label: `${custom_name ? custom_name : 'Formula'} (${formula})`,
                                       value: index,
                                   }))
-                                : (alertSeries?.map(({ custom_name, name, event }, index) => ({
-                                      label: `${alphabet[index]} - ${custom_name ?? name ?? event}`,
+                                : (alertSeries?.map((node, index) => ({
+                                      label: `${alphabet[index]} - ${getDisplayNameFromEntityNode(node) ?? ''}`,
                                       value: index,
                                   })) ?? [])
                         }
