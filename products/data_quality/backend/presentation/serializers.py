@@ -35,9 +35,9 @@ class DataQualitySubjectRefSerializer(serializers.Serializer):
 
     subject_type = serializers.ChoiceField(
         choices=[(t.value, t.value) for t in SubjectType],
-        help_text="Kind of catalog object: 'table', 'view', or 'metric'.",
+        help_text="Kind of object: 'table', 'view', 'metric', or 'posthog_table'.",
     )
-    subject_uuid = serializers.UUIDField(help_text="Id of the table, view, or metric.")
+    subject_uuid = serializers.UUIDField(help_text="Id of the table, view, metric, or PostHog table.")
 
 
 @extend_schema_serializer(component_name="DataQualitySubject")
@@ -46,7 +46,8 @@ class DataQualitySubjectSerializer(serializers.Serializer):
 
     subject_type = serializers.ChoiceField(
         choices=[(t.value, t.value) for t in SubjectType],
-        help_text="Kind of object: 'table', 'view', or 'metric'. Pass it back as subject_type when creating a check.",
+        help_text="Kind of object: 'table', 'view', 'metric', or 'posthog_table'. "
+        "Pass it back as subject_type when creating a check.",
     )
     id = serializers.CharField(help_text="Id of the subject. Pass it back as subject_uuid when creating a check.")
     name = serializers.CharField(help_text="Queryable name of the subject.")
@@ -82,12 +83,12 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
     subject_type = serializers.ChoiceField(
         choices=[(t.value, t.value) for t in SubjectType],
         read_only=True,
-        help_text="Kind of catalog object being checked: 'table', 'view', or 'metric'.",
+        help_text="Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.",
     )
     subject_uuid = serializers.UUIDField(
         read_only=True,
         allow_null=True,
-        help_text="Id of the table, view, or metric being checked. Null once the subject is deleted.",
+        help_text="Id of the table, view, metric, or PostHog table being checked. Null once the subject is deleted.",
     )
     check_type = serializers.ChoiceField(
         choices=[(t.value, t.value) for t in CheckType],
@@ -251,9 +252,9 @@ class DataQualityCheckCreateSerializer(DataQualityCheckSerializer):
 
     subject_type = serializers.ChoiceField(
         choices=[(t.value, t.value) for t in SubjectType],
-        help_text="Kind of catalog object to check: 'table', 'view', or 'metric'.",
+        help_text="Kind of object to check: 'table', 'view', 'metric', or 'posthog_table'.",
     )
-    subject_uuid = serializers.UUIDField(help_text="Id of the table, view, or metric to check.")
+    subject_uuid = serializers.UUIDField(help_text="Id of the table, view, metric, or PostHog table to check.")
 
 
 @extend_schema_serializer(component_name="DataQualityOverviewCheck")
@@ -420,8 +421,8 @@ class DataQualitySuiteRunSerializer(serializers.ModelSerializer):
     )
     trigger = serializers.CharField(read_only=True, help_text="manual, materialization, source_sync, or scheduled.")
     subject_type = serializers.SerializerMethodField(
-        help_text="'table', 'view', or 'metric' when the run targets exactly one subject, including a run of a "
-        "single check on that subject; null for a run spanning several subjects."
+        help_text="'table', 'view', 'metric', or 'posthog_table' when the run targets exactly one subject, "
+        "including a run of a single check on that subject; null for a run spanning several subjects."
     )
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -455,8 +456,8 @@ class DataQualitySuiteRunSerializer(serializers.ModelSerializer):
 class SubjectHealthSerializer(serializers.Serializer):
     """Per-subject rollup, the same rule the information_schema.data_quality_health table uses."""
 
-    subject_type = serializers.CharField(help_text="'table', 'view', or 'metric'.")
-    subject_uuid = serializers.CharField(help_text="Id of the table, view, or metric.")
+    subject_type = serializers.CharField(help_text="'table', 'view', 'metric', or 'posthog_table'.")
+    subject_uuid = serializers.CharField(help_text="Id of the table, view, metric, or PostHog table.")
     health = serializers.CharField(
         help_text="failing (an error-severity check failed), erroring (a check could not run), "
         "warn (only warn-severity failures), healthy, or unknown (nothing has run yet)."
