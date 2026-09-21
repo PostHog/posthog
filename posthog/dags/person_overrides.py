@@ -393,9 +393,9 @@ def rewrite_flag_evaluations_person_id():
     """Apply the person overrides to flag_evaluations, without consuming them.
 
     A merge leaves flag_evaluations rows on the person it absorbed until a rewrite moves them, and
-    the weekly squash is the only job that does that today. This one runs the same rewrite daily on
-    that table alone, and stops before the delete: the squash still has to apply the overrides to
-    the events tables, and it is the only job allowed to delete them afterwards.
+    the weekly squash moves them only once a week. This one runs the same rewrite daily on that
+    table alone, and stops before the delete: the squash still has to apply the overrides to the
+    events tables, and it is the only job allowed to delete them afterwards.
     """
     prepared_snapshot_table = wait_for_snapshot_table_replication(populate_snapshot_table(create_snapshot_table()))
     prepared_dictionary = load_and_verify_snapshot_dictionary(create_snapshot_dictionary(prepared_snapshot_table))
