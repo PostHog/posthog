@@ -1327,8 +1327,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         deleteInsight: ({ dashboardId }) => {
             LemonDialog.open({
                 title: 'Delete insight?',
-                description:
-                    'You can restore this insight, but its subscriptions, subscription delivery history, and alerts will be permanently deleted.',
+                description: 'If there are any associated alerts or subscriptions, they will be removed.',
                 primaryButton: {
                     children: 'Delete',
                     status: 'danger',
