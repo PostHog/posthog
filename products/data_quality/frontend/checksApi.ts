@@ -13,6 +13,7 @@ import {
     dataQualityChecksRunsList,
     dataQualityChecksSchedulePartialUpdate,
     dataQualityChecksScheduleRetrieve,
+    dataQualityChecksSchedulesList,
     dataQualityChecksSubjectsList,
     dataQualityRunsCheckRunsList,
     dataQualityRunsCreate,
@@ -28,6 +29,7 @@ import type {
     DataQualityOutputSchemaApi,
     DataQualitySubjectApi,
     DataQualitySubjectHealthApi,
+    DataQualitySubjectScheduleApi,
     DataQualitySuiteRunApi,
     PatchedDataQualityCheckScheduleUpdateApi,
     PaginatedDataQualityOverviewCheckListApi,
@@ -108,6 +110,8 @@ export const checksApi = {
 
     schedule: (ref: DataQualitySubjectRef): Promise<DataQualityCheckScheduleApi> =>
         dataQualityChecksScheduleRetrieve(projectId(), subjectParams(ref)),
+
+    schedules: (): Promise<DataQualitySubjectScheduleApi[]> => dataQualityChecksSchedulesList(projectId()),
 
     updateSchedule: (
         ref: DataQualitySubjectRef,

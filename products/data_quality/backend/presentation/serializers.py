@@ -5,6 +5,8 @@ per-type ``config`` shape is validated against the registry's JSON schema rather
 union: a new check type must not need a serializer change.
 """
 
+from typing import Any
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
@@ -53,6 +55,10 @@ class DataQualitySubjectSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Queryable name of the subject.")
     display_name = serializers.CharField(
         allow_blank=True, help_text="Label shown in the data catalog. Blank for tables and views."
+    )
+    time_column = serializers.CharField(
+        allow_blank=True,
+        help_text="Column a lookback window bounds, or blank for a subject that has none.",
     )
     columns = serializers.DictField(
         child=serializers.CharField(),
@@ -267,8 +273,8 @@ class DataQualityOverviewCheckSerializer(DataQualityCheckSerializer):
     """
 
     subject_node_id = serializers.SerializerMethodField(
-        help_text="Data modeling node of the view this check audits, or null when it is on no DAG "
-        "or the subject is a table."
+        help_text="Data modeling node of the view or PostHog table this check audits, or null when it is on "
+        "no DAG or the subject is a warehouse table."
     )
     subject_source_id = serializers.SerializerMethodField(
         help_text="Warehouse source of the table this check audits, or null when the subject is a view."
@@ -342,6 +348,21 @@ class DataQualityCheckScheduleSerializer(serializers.Serializer):
     last_suite_run = serializers.UUIDField(
         read_only=True, allow_null=True, help_text="Most recent visible scheduled suite."
     )
+
+
+class DataQualitySubjectScheduleSerializer(DataQualityCheckScheduleSerializer):
+    """One subject's schedule, in the project-wide listing."""
+
+    subject_type = serializers.ChoiceField(
+        choices=[(t.value, t.value) for t in SubjectType], read_only=True, help_text="'metric' or 'posthog_table'."
+    )
+    subject_uuid = serializers.UUIDField(read_only=True, help_text="Id of the metric or PostHog table.")
+
+    def to_representation(self, instance: api.SubjectSchedule) -> dict[str, Any]:
+        row = super().to_representation(instance.schedule)
+        row["subject_type"] = str(instance.subject_type)
+        row["subject_uuid"] = str(instance.subject_uuid)
+        return row
 
 
 @extend_schema_serializer(component_name="DataQualityCheckRun")
