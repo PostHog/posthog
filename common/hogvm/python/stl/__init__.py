@@ -18,6 +18,7 @@ from ..utils import (
     HogVMMemoryExceededException,
     _compile_regex,
     _require_string,
+    _validate_regex_pattern,
     get_nested_value,
     like,
     regex_extract,
@@ -978,6 +979,7 @@ def match(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], 
         return False
     input_string = _require_string(args[0], "input", "match")
     pattern = _require_string(args[1], "pattern", "match")
+    _validate_regex_pattern(pattern)
     return _compile_regex(pattern).search(input_string) is not None
 
 
