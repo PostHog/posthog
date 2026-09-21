@@ -1,9 +1,12 @@
+import copy
 import time
 
 from django.core.management.base import BaseCommand
 from django.core.paginator import Paginator
 
 import structlog
+
+from posthog.cdp.filters import compile_filters_bytecode
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
@@ -65,6 +68,27 @@ class Command(BaseCommand):
             for hog_function in page.object_list:
                 try:
                     total_processed += 1
+
+                    # save() turns a compile failure into a null bytecode plus a bytecode_error and
+                    # still reloads the workers, which stops the destination. Compile a throwaway
+                    # copy first so a failure leaves the stored bytecode in place.
+                    compiled = compile_filters_bytecode(copy.deepcopy(hog_function.filters), hog_function.team)
+                    if compiled.get("bytecode_error"):
+                        error_count += 1
+                        logger.warning(
+                            "Skipped HogFunction whose filters no longer compile",
+                            hog_function_id=hog_function.id,
+                            team_id=hog_function.team_id,
+                            error=compiled["bytecode_error"],
+                        )
+                        self.stdout.write(
+                            self.style.WARNING(
+                                f"Skipped {hog_function.id}: filters no longer compile "
+                                f"({compiled['bytecode_error']}). Kept the stored bytecode."
+                            )
+                        )
+                        continue
+
                     hog_function.save()
                     total_updated += 1
                 except Exception as e:

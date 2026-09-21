@@ -139,3 +139,28 @@ class TestRefreshHogFunctions(BaseTest):
         output = out.getvalue()
         self.assertIn("Found 0 HogFunctions to process", output)
         self.assertIn("No HogFunctions found matching criteria", output)
+
+    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+    def test_keeps_stored_bytecode_when_filters_no_longer_compile(self, mock_reload):
+        # A team's test account filters drift independently of the function, and a cohort that
+        # can't be inlined makes the function's filters uncompilable.
+        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": 999999}]
+        self.team.save()
+
+        stored_bytecode = ["_H", 1, 29]
+        HogFunction.objects.filter(id=self.hog_function1.id).update(
+            filters={"filter_test_accounts": True, "bytecode": stored_bytecode}
+        )
+        mock_reload.reset_mock()
+
+        out = StringIO()
+        call_command("refresh_hog_functions", hog_function_id=str(self.hog_function1.id), stdout=out)
+
+        self.hog_function1.refresh_from_db()
+        assert self.hog_function1.filters["bytecode"] == stored_bytecode
+        assert "bytecode_error" not in self.hog_function1.filters
+        assert mock_reload.call_count == 0
+
+        output = out.getvalue()
+        self.assertIn("Updated: 0", output)
+        self.assertIn("Errors: 1", output)
