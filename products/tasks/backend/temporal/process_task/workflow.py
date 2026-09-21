@@ -1192,6 +1192,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
         return CIFollowUpDecision.FIRE
 
+    def _rearm_expired_ci_anchor(self) -> None:
+        """Restart an already-expired countdown after a check somebody asked for.
+
+        A requested check leaves the automated countdown alone, so that a message cannot
+        postpone it. An expired anchor is the exception: the next loop pass would run an
+        automated check at once, which polls GitHub in a tight loop and can retire the CI
+        loop on a run whose agent has not opened its pull request yet.
+        """
+        now = workflow.now()
+        if self._ci_follow_up_anchor_time is None or now - self._ci_follow_up_anchor_time >= CI_FOLLOW_UP_DELAY:
+            self._ci_follow_up_anchor_time = now
+
     async def _dispatch_ci_follow_up(self, *, consume_budget: bool = True) -> None:
         # A check someone asked for does not spend the autonomous budget: those rounds bound
         # what the run does unattended, and spending them on requests would leave an attended
@@ -1342,7 +1354,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         timeout_event = event
                         break
                     case TaskEvent.CI_FOLLOW_UP:
-                        on_demand = self._ci_check_requested
+                        # Gated on the same patch as the timer: a pre-rollout history replays
+                        # the legacy wait, where a flag set at dispatch would otherwise steer
+                        # the budget and the NO_PR exit down a path that history never took.
+                        on_demand = self._ci_check_requested and _ci_follow_up_tracks_agent()
                         self._ci_check_requested = False
                         workflow.logger.info(
                             "CI follow-up event triggered",
@@ -1393,6 +1408,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                                     self._ci_follow_up_anchor_time = self._last_active_time
                             case _:
                                 raise ValueError(f"Unknown CIFollowUpDecision: {follow_up_result}")
+                        if on_demand:
+                            self._rearm_expired_ci_anchor()
                     case TaskEvent.SANDBOX_TTL_APPROACHING:
                         self._sandbox_ttl_snapshot_taken = True
                         deadline_started_at = workflow.now()
