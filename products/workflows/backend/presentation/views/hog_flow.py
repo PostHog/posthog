@@ -3243,6 +3243,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         model = HogFlow
         fields = [
             "id",
+            "key",
             "name",
             "description",
             "version",
@@ -3454,6 +3455,21 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             return
         validated_data["encrypted_inputs"] = strip_secrets_from_content(validated_data, template_cache={})
 
+    def validate_key(self, value: str | None) -> str | None:
+        if value is None:
+            return value
+
+        if HogFlow.objects.filter(team_id=self.context["team_id"], key=value).exists():
+            raise serializers.ValidationError("There is already a workflow with this key.", code="unique")
+
+        if not re.match(r"^[a-zA-Z0-9_-]+$", value):
+            raise serializers.ValidationError(
+                "Only letters, numbers, hyphens (-) & underscores (_) are allowed.",
+                code="invalid_key",
+            )
+
+        return value
+
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlow:
         request = self.context["request"]
         team_id = self.context["team_id"]
@@ -3461,7 +3477,16 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         validated_data["team_id"] = team_id
         self._strip_secret_inputs(validated_data)
 
-        return super().create(validated_data=validated_data)
+        try:
+            return super().create(validated_data=validated_data)
+        except IntegrityError as exc:
+            # A concurrent create can slip past the unlocked validate_key read, so the constraint
+            # is the authoritative guard. Translate its violation into the same field error.
+            if "unique_key_for_team" in str(exc):
+                raise serializers.ValidationError(
+                    {"key": [exceptions.ErrorDetail("There is already a workflow with this key.", code="unique")]}
+                ) from exc
+            raise
 
     def update(self, instance, validated_data):
         self._strip_secret_inputs(validated_data)
@@ -3475,6 +3500,11 @@ class HogFlowUpdateSerializer(HogFlowSerializer):
         allow_null=True,
         help_text="Product surface that owns this workflow. This value cannot change after creation.",
     )
+    key = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Client-chosen identifier, unique within the project. This value cannot change after creation.",
+    )
 
     def validate(self, data: dict) -> dict:
         instance = cast(Optional[HogFlow], self.instance)
@@ -3485,6 +3515,11 @@ class HogFlowUpdateSerializer(HogFlowSerializer):
             and submitted_origin_product != instance.origin_product
         ):
             raise serializers.ValidationError({"origin_product": "origin_product is set on create and cannot change."})
+        # A PATCH that moves a key would be adoption by the back door, so only a repeat of the
+        # stored value passes.
+        submitted_key = self.initial_data.get("key", serializers.empty)
+        if instance is not None and submitted_key is not serializers.empty and submitted_key != instance.key:
+            raise serializers.ValidationError({"key": "key is set on create and cannot change."})
         return super().validate(data)
 
 
@@ -4551,7 +4586,7 @@ class HogFlowFilterSet(FilterSet):
         model = HogFlow
         # `created_by` is filtered by uuid in safely_get_queryset (the list UI's member picker keys on
         # uuid, not pk), so it's deliberately not an exact-match field here.
-        fields = ["id", "created_at", "updated_at", "status", "origin_product"]
+        fields = ["id", "key", "created_at", "updated_at", "status", "origin_product"]
 
     def filter_optimization_enabled(self, queryset, name: str, value: bool):
         # Off keeps its row, so "on" is a row still enabled. Archived workflows drop out: nothing runs there.

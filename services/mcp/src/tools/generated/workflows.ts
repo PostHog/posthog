@@ -74,6 +74,9 @@ const workflowsCreate = (): ToolBase<ReturnType<typeof WorkflowsCreateSchema>, W
         handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsCreateSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
+            if (params.key !== undefined) {
+                body['key'] = params.key
+            }
             if (params.name !== undefined) {
                 body['name'] = params.name
             }
@@ -241,6 +244,7 @@ const workflowsList = (): ToolBase<
                     created_at: params.created_at,
                     created_by: params.created_by,
                     id: params.id,
+                    key: params.key,
                     limit: params.limit,
                     offset: params.offset,
                     optimization_enabled: params.optimization_enabled,
