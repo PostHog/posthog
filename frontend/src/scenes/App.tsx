@@ -9,6 +9,7 @@ import { PostHogProvider } from '@posthog/react'
 import { productSetupPreloadLogic } from 'lib/components/ProductEmptyState/productSetupPreloadLogic'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
+import { useDismissChartTooltipsOnNavigate } from 'lib/hooks/useDismissChartTooltipsOnNavigate'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -138,6 +139,8 @@ function AppScene(): JSX.Element | null {
         useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
     const { isDarkModeOn } = useValues(themeLogic)
+
+    useDismissChartTooltipsOnNavigate()
 
     // Once we know the user is authenticated, kick off an idle prefetch of the
     // AuthenticatedShell chunk so the Suspense fallback rarely actually fires
