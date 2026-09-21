@@ -112,6 +112,7 @@ export enum NodeKind {
     LogAttributesQuery = 'LogAttributesQuery',
     LogValuesQuery = 'LogValuesQuery',
     MetricsQuery = 'MetricsQuery',
+    MetricsHistogramQuery = 'MetricsHistogramQuery',
     TraceSpansQuery = 'TraceSpansQuery',
     TraceSpansAggregationQuery = 'TraceSpansAggregationQuery',
     TraceSpansTreeQuery = 'TraceSpansTreeQuery',
@@ -169,6 +170,7 @@ export enum NodeKind {
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
     ExperimentDataWarehouseNode = 'ExperimentDataWarehouseNode',
+    ExperimentExposureNode = 'ExperimentExposureNode',
 
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
@@ -264,6 +266,7 @@ export type AnyDataNode =
     | LogAttributesQuery
     | LogValuesQuery
     | MetricsQuery
+    | MetricsHistogramQuery
     | TraceSpansQuery
     | TraceSpansAggregationQuery
     | TraceSpansTreeQuery
@@ -388,6 +391,7 @@ export type QuerySchema =
 
     // Metrics
     | MetricsQuery
+    | MetricsHistogramQuery
 
     // Tracing
     | TraceSpansQuery
@@ -488,6 +492,8 @@ export interface QueryLogTags {
     productKey?: string
     /** Name of the query, preferably unique. For example web_analytics_vitals */
     name?: string
+    /** Short id of the saved Web analytics filter preset this query was run under, if any. */
+    presetId?: string
 }
 
 /** @internal - no need to emit to schema.json. */
@@ -595,30 +601,31 @@ export interface AccessControlFilterWarning {
  */
 export type QueryScanFindingKind = 'no_event_filter' | 'no_start_date' | 'persons_join'
 
-/**
- * Why a filter the query does have did not narrow the read. `in_or`: it sits inside an OR. `wrapped`:
- * `event` is inside a function call. `negated`: it excludes events, which narrows nothing. `dynamic`:
- * `event` is compared to a column. `not_pruned`: ClickHouse reported it unused. `filters`: the date
- * range comes from `{filters}` and the insight left it open.
- */
-export type QueryScanFindingReason = 'in_or' | 'wrapped' | 'negated' | 'dynamic' | 'not_pruned' | 'filters'
+/** Where the change that fixes a finding goes. `insight_date_range` is the range a SQL insight takes through `{filters}`. */
+export type QueryScanFixLocation = 'query' | 'subquery' | 'view' | 'insight_date_range' | 'dashboard_date_filter'
 
 /** One finding of a query's analysis. */
 export interface QueryScanWarning {
     kind: QueryScanFindingKind
-    /** Only with `no_event_filter` and `no_start_date`. */
-    reason?: QueryScanFindingReason
+    /** A label for what in the query text kept the read wide, such as `in_or`. Only analytics and the assistant read it, and the labels can change. */
+    cause?: string
+    /** True when the query reads this much on purpose, so reading less would change the answer. Absent means no. */
+    by_design?: boolean
+    /** Where the change goes. Absent means the query itself. */
+    fix_location?: QueryScanFixLocation
     /** Shown to the person: what happened and what to do. */
     message: string
     /** What "Fix with AI" and the assistant are told to do. */
     fix: string
     /** The one fact the finding rests on. */
     evidence?: string
+    /** Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and "Fix with AI" only when a finding is actionable. */
+    actionable: boolean
 }
 
 /** The stored analysis of one query, kept for 30 days by cache key and put on every response for that query. */
 export interface QueryScanAnalysis {
-    /** Empty when the analysis found nothing to fix. */
+    /** Every finding, fixable or not. Empty when the analysis found none. */
     findings: QueryScanWarning[]
     /** How much of the project's events in the query's date range the query read, 0 to 1. */
     range_share?: number
@@ -1945,7 +1952,10 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
      * @default day
      */
     interval?: IntervalType
-    /** Events and actions to include */
+    /**
+     * Events and actions to include
+     * @maxItems 200
+     */
     series: TrendsQuerySeriesNode[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
@@ -2259,6 +2269,8 @@ export type PathsFilter = {
     minEdgeWeight?: PathsFilterLegacy['min_edge_weight']
     maxEdgeWeight?: PathsFilterLegacy['max_edge_weight']
     showFullUrls?: boolean
+    /** Remove the query string from page view URLs, so pages that differ only in query parameters become one path item */
+    stripQueryString?: boolean
     /** Relevant only within actors query */
     pathStartKey?: string
     /** Relevant only within actors query */
@@ -2548,7 +2560,10 @@ export interface StickinessQuery extends Omit<
      * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
      */
     intervalCount?: positive_integer
-    /** Events and actions to include */
+    /**
+     * Events and actions to include
+     * @maxItems 200
+     */
     series: StickinessQuerySeriesNode[]
     /** Properties specific to the stickiness insight */
     stickinessFilter?: StickinessFilter
@@ -3428,6 +3443,8 @@ export interface MCPToolCallBreakdownItem {
     calls: integer
 }
 
+export type MCPAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
+
 export interface MCPToolCallBreakdownQueryResponse extends AnalyticsQueryResponseBase {
     results: MCPToolCallBreakdownItem[]
 }
@@ -3436,7 +3453,7 @@ export interface MCPToolCallBreakdownQueryResponse extends AnalyticsQueryRespons
 export interface MCPToolCallBreakdownQuery extends DataNode<MCPToolCallBreakdownQueryResponse> {
     kind: NodeKind.MCPToolCallBreakdownQuery
     dateRange?: DateRange
-    properties?: AnyPropertyFilter[]
+    properties?: MCPAnalyticsPropertyFilter[]
     filterTestAccounts?: boolean
     /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
     interval?: IntervalType
@@ -3461,7 +3478,7 @@ export interface MCPToolCallsAndErrorsQueryResponse extends AnalyticsQueryRespon
 export interface MCPToolCallsAndErrorsQuery extends DataNode<MCPToolCallsAndErrorsQueryResponse> {
     kind: NodeKind.MCPToolCallsAndErrorsQuery
     dateRange?: DateRange
-    properties?: AnyPropertyFilter[]
+    properties?: MCPAnalyticsPropertyFilter[]
     filterTestAccounts?: boolean
     /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
     interval?: IntervalType
@@ -3487,7 +3504,7 @@ export interface MCPHarnessBreakdownQueryResponse extends AnalyticsQueryResponse
 export interface MCPHarnessBreakdownQuery extends DataNode<MCPHarnessBreakdownQueryResponse> {
     kind: NodeKind.MCPHarnessBreakdownQuery
     dateRange?: DateRange
-    properties?: AnyPropertyFilter[]
+    properties?: MCPAnalyticsPropertyFilter[]
     filterTestAccounts?: boolean
     /** When set, scope to a single effective tool's new-SDK calls (the per-tool "By harness" table). */
     toolName?: string
@@ -3511,7 +3528,7 @@ export interface MCPModelBreakdownQueryResponse extends AnalyticsQueryResponseBa
 export interface MCPModelBreakdownQuery extends DataNode<MCPModelBreakdownQueryResponse> {
     kind: NodeKind.MCPModelBreakdownQuery
     dateRange?: DateRange
-    properties?: AnyPropertyFilter[]
+    properties?: MCPAnalyticsPropertyFilter[]
     filterTestAccounts?: boolean
     /** Return individual reported models, excluding Unknown, instead of the top-six grouping. */
     includeAllModels?: boolean
@@ -3711,6 +3728,8 @@ export interface MCPToolQualityRowsQueryResponse extends AnalyticsQueryResponseB
 export interface MCPToolQualityRowsQuery extends DataNode<MCPToolQualityRowsQueryResponse> {
     kind: NodeKind.MCPToolQualityRowsQuery
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
     /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
     categories?: string[]
     /** Case-insensitive substring search on the effective tool name. */
@@ -3745,6 +3764,8 @@ export interface MCPToolQualityDailyStatsQueryResponse extends AnalyticsQueryRes
 export interface MCPToolQualityDailyStatsQuery extends DataNode<MCPToolQualityDailyStatsQueryResponse> {
     kind: NodeKind.MCPToolQualityDailyStatsQuery
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
     /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
     interval?: IntervalType
     /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
@@ -3769,6 +3790,8 @@ export interface MCPToolCategoryCountsQueryResponse extends AnalyticsQueryRespon
 export interface MCPToolCategoryCountsQuery extends DataNode<MCPToolCategoryCountsQueryResponse> {
     kind: NodeKind.MCPToolCategoryCountsQuery
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolCategoryCountsQueryResponse = CachedQueryResponse<MCPToolCategoryCountsQueryResponse>
@@ -3786,6 +3809,8 @@ export interface MCPToolCategoriesQueryResponse extends AnalyticsQueryResponseBa
 export interface MCPToolCategoriesQuery extends DataNode<MCPToolCategoriesQueryResponse> {
     kind: NodeKind.MCPToolCategoriesQuery
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolCategoriesQueryResponse = CachedQueryResponse<MCPToolCategoriesQueryResponse>
@@ -3939,6 +3964,7 @@ export enum WebStatsBreakdown {
     FirstPageviewUTMContent = 'FirstPageviewUTMContent',
     FirstPageviewUTMSourceMediumCampaign = 'FirstPageviewUTMSourceMediumCampaign',
     Browser = 'Browser',
+    InAppBrowser = 'InAppBrowser',
     OS = 'OS',
     Viewport = 'Viewport',
     DeviceType = 'DeviceType',
@@ -4751,6 +4777,33 @@ export interface MetricsQueryResponse extends AnalyticsQueryResponseBase {
 }
 export type CachedMetricsQueryResponse = CachedQueryResponse<MetricsQueryResponse>
 
+/** Histogram bucket counts per time bucket, for a latency-over-time heatmap. A separate node
+ * from `MetricsQuery` because the response is a grid, not series — a display type must not
+ * change what the runner reads (the cache key excludes display). */
+export interface MetricsHistogramQuery extends DataNode<MetricsHistogramQueryResponse> {
+    kind: NodeKind.MetricsHistogramQuery
+    metricName: string
+    filters?: MetricsQueryFilter[]
+    /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
+    dateRange?: DateRange
+    /** Bucket size; auto-picked from the range when omitted */
+    interval?: string
+    /** UCUM unit for the y-axis bounds, e.g. "s", "ms". Presentation only. */
+    unit?: string
+}
+
+export interface MetricsHistogramQueryResponse extends AnalyticsQueryResponseBase {
+    /** The grid lives in `times`/`bounds`/`counts`; the base `results` array is unused and the
+     * runner returns it as null. */
+    /** Bucket start per column (x axis), ISO 8601, ascending. */
+    times: string[]
+    /** Upper bound per row (y axis), ascending. */
+    bounds: number[]
+    /** Observation count per cell: counts[row][column], row = bound, column = time. */
+    counts: number[][]
+}
+export type CachedMetricsHistogramQueryResponse = CachedQueryResponse<MetricsHistogramQueryResponse>
+
 /** How a metrics result is charted. `stat` is a single headline value plus sparkline, not a time series. */
 export type MetricsDisplayType = 'line' | 'area' | 'bar' | 'stat' | 'gauge' | 'bargauge' | 'table' | 'heatmap'
 
@@ -5542,12 +5595,20 @@ export interface ExperimentApiMetric {
     uuid?: string
     /** Whether higher or lower values indicate success. */
     goal?: ExperimentMetricGoal
-    /** Conversion window duration. */
+    /** Only count metric events within this many units after the user's first exposure. Requires
+     *  conversion_window_unit: a window without a unit is ignored and the metric counts events until
+     *  the experiment ends. Omit both to count until the experiment ends. */
     conversion_window?: integer
+    /** Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when
+     *  conversion_window is set. */
+    conversion_window_unit?: FunnelConversionWindowTimeUnit
     /** For mean metrics: event source. */
     source?: ExperimentApiEventSource
     /** For funnel metrics: array of EventsNode/ActionsNode steps. */
     series?: ExperimentApiEventSource[]
+    /** For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use
+     *  'strict': experiment funnels give wrong counts with it. */
+    funnel_order_type?: StepOrderValue
     /** For ratio metrics: numerator source. */
     numerator?: ExperimentApiEventSource
     /** For ratio metrics: denominator source. */
@@ -5701,6 +5762,27 @@ export type ExperimentFunnelMetricStepUnion = EventsNode | ActionsNode | Experim
 
 export type ExperimentFunnelMetricStep = ExperimentFunnelMetricStepUnion
 
+/** Sentinel start source for retention metrics. It carries no event of its own:
+ *  at query time it resolves to the experiment's exposure, so one shared metric
+ *  anchors correctly on any experiment regardless of that experiment's exposure event. */
+export interface ExperimentExposureNode extends Node {
+    kind: NodeKind.ExperimentExposureNode
+}
+
+export const isExperimentExposureNode = (node: { kind: NodeKind }): node is ExperimentExposureNode =>
+    node.kind === NodeKind.ExperimentExposureNode
+
+/**
+ * @discriminator kind
+ */
+export type ExperimentRetentionStartUnion =
+    | EventsNode
+    | ActionsNode
+    | ExperimentDataWarehouseNode
+    | ExperimentExposureNode
+
+export type ExperimentRetentionStart = ExperimentRetentionStartUnion
+
 export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
     ExperimentMetricOutlierHandling & {
         metric_type: ExperimentMetricType.MEAN
@@ -5742,8 +5824,9 @@ export const isExperimentRatioMetric = (metric: ExperimentMetric): metric is Exp
 
 export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
     metric_type: ExperimentMetricType.RETENTION
-    // Event that defines the start of the retention window
-    start_event: ExperimentMetricSource
+    // Event that defines the start of the retention window. An ExperimentExposureNode
+    // start resolves to the experiment's own exposure event at query time.
+    start_event: ExperimentRetentionStart
     // Event that defines the completion of the retention window
     completion_event: ExperimentMetricSource
 
@@ -5753,7 +5836,8 @@ export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
     retention_window_end: integer
     retention_window_unit: FunnelConversionWindowTimeUnit
 
-    // How to handle the start of the retention window
+    // How to handle the start of the retention window. Ignored for an
+    // ExperimentExposureNode start, which always anchors on the first exposure.
     start_handling: 'first_seen' | 'last_seen'
 }
 

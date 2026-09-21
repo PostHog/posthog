@@ -5,7 +5,7 @@ from dataclasses import replace
 from typing import Any, cast
 from urllib.parse import urlencode
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, PropertyMock, patch
 
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -31,8 +31,9 @@ from posthog.ingress.dispatch.forward import HOST_IDENTIFYING_HEADERS, forward_t
 from posthog.ingress.dispatch.registry import ConsumerRegistry
 from posthog.ingress.github.provider import GitHubProvider, build_github_provider
 from posthog.ingress.pandadoc.provider import build_pandadoc_provider
-from posthog.ingress.providers import WebhookProvider
+from posthog.ingress.providers import InvalidPayload, WebhookProvider
 from posthog.ingress.slack.provider import build_slack_provider
+from posthog.ingress.vapi.provider import VapiProvider
 from posthog.ingress.verify.schemes import Verification, VerificationOutcome
 from posthog.ingress.views import build_webhook_view
 from posthog.regions import SECONDARY_REGION_DOMAIN
@@ -100,6 +101,13 @@ class _ThrottledGitHubProvider(GitHubProvider):
 
 class _ScopedThrottleGitHubProvider(GitHubProvider):
     throttle_class = ScopedRateThrottle
+
+
+class _RefusingDeliveriesGitHubProvider(GitHubProvider):
+    # Stands in for a provider that holds the body to what the signature proved, the way Teams
+    # refuses an activity whose `serviceUrl` the token did not sign.
+    def deliveries(self, request: HttpRequest, payload: Any, facts: Mapping[str, Any]) -> Sequence[WebhookDelivery]:
+        raise InvalidPayload("installation id does not match the signed claim")
 
 
 class _FormBodyGitHubProvider(GitHubProvider):
@@ -196,6 +204,34 @@ class TestWebhookView(SimpleTestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.content, b"Invalid signature")
+        self.dispatcher.dispatch.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("missing_header", {}, False),
+            ("empty_header", {"X-Vapi-Signature": ""}, False),
+            ("malformed_header", {"X-Vapi-Signature": "not-a-digest"}, False),
+            ("well_formed_but_wrong_digest", {"X-Vapi-Signature": "0" * 64}, True),
+        ]
+    )
+    @override_settings(VAPI_WEBHOOK_SECRET=SECRET)
+    def test_a_signature_header_that_cannot_pass_is_refused_before_the_body_is_read(
+        self, _name: str, headers: dict[str, str], reads_body: bool
+    ) -> None:
+        request = self.factory.post(
+            "/webhooks/vapi/",
+            data=json.dumps({"message": {"type": "status-update"}}).encode(),
+            content_type="application/json",
+            headers=headers,
+        )
+
+        with patch.object(HttpRequest, "body", new_callable=PropertyMock, return_value=b"{}") as body:
+            response = build_webhook_view(VapiProvider())(request)
+
+        # Same answer either way, so only the body read separates the two paths.
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.content, b"Invalid signature")
+        self.assertEqual(body.called, reads_body)
         self.dispatcher.dispatch.assert_not_called()
 
     def test_an_unparseable_body_is_400_and_logs_the_parser_error(self) -> None:
@@ -320,6 +356,21 @@ class TestWebhookView(SimpleTestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual([call.kwargs["outcome"] for call in observe.call_args_list], ["verify_unavailable"])
         self.dispatcher.dispatch.assert_not_called()
+
+    def test_a_body_deliveries_refuses_is_400_and_reaches_no_consumer(self) -> None:
+        body = b'{"action":"opened"}'
+        request = self._post(body, {"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "push"})
+
+        with (
+            patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET),
+            patch("posthog.ingress.views.logger") as logger,
+        ):
+            response = build_webhook_view(_RefusingDeliveriesGitHubProvider("posthog"))(request)
+
+        self.assertEqual(response.status_code, 400)
+        self.dispatcher.dispatch.assert_not_called()
+        self.dispatcher.ownership_of.assert_not_called()
+        self.assertEqual(logger.warning.call_args.args[0], "ingress_delivery_invalid_payload")
 
     def test_slack_url_verification_echoes_the_challenge_before_dispatch(self) -> None:
         body = json.dumps({"type": "url_verification", "challenge": "abc123"}).encode()

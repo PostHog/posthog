@@ -101,6 +101,17 @@ describe('the dashboards model', () => {
         logic.mount()
     })
 
+    it('does not load dashboards until a consumer requests them', () => {
+        expect(logic.values.pagedDashboards).toBeNull()
+        expect(logic.values.pagedDashboardsLoading).toBe(false)
+    })
+
+    it('loads dashboards when a consumer requests them', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadDashboardsIfNeeded()
+        }).toDispatchActions(['loadDashboardsSuccess'])
+    })
+
     describe('sorting dashboards', () => {
         it('can sort dashboards correctly', async () => {
             await expectLogic(logic, () => {

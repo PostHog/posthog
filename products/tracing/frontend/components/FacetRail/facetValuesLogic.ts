@@ -32,7 +32,7 @@ export interface facetValuesLogicValues {
     serviceNames: string[] // tracingFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
-        date_to: string | null | undefined
+        date_to: string
     } // tracingFiltersLogic
     collapsed: boolean
     facetSearch: string
@@ -83,7 +83,7 @@ export interface facetValuesLogicMeta {
         scopeSignature: (
             utcDateRange: {
                 date_from: string | null | undefined
-                date_to: string | null | undefined
+                date_to: string
             },
             serviceNames: string[],
             queryFilterGroup: UniversalFiltersGroup,

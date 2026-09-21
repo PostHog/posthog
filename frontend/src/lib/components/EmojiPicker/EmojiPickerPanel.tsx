@@ -6,6 +6,13 @@ import {
     EmojiPickerListRowProps,
 } from 'frimousse'
 
+// frimousse fetches `<emojibaseUrl>/<locale>/data.json` and `messages.json`, and the URL defaults to
+// cdn.jsdelivr.net. The app's connect-src does not allow that CDN, and frimousse has no error state, so a
+// refused fetch leaves the picker on "Loading…". The build copies the pinned emojibase-data files to this
+// path: `build.mjs` for production and the public-assets Vite plugin in development. It copies the `en`
+// locale only, so a `locale` prop needs that locale copied as well.
+const EMOJIBASE_URL = '/static/emoji'
+
 const EmojiPickerCategoryHeader = ({ category, ...props }: EmojiPickerListCategoryHeaderProps): JSX.Element => (
     <div className="bg-bg-light px-3 pt-3 pb-1.5 font-medium text-neutral-600 text-sm" {...props}>
         {category.label}
@@ -48,6 +55,7 @@ export function EmojiPickerPanel({
     return (
         <EmojiPicker.Root
             className={clsx('isolate flex h-[368px] w-fit flex-col bg-bg-light', className)}
+            emojibaseUrl={EMOJIBASE_URL}
             onEmojiSelect={({ emoji }) => {
                 onEmojiSelect(emoji)
             }}

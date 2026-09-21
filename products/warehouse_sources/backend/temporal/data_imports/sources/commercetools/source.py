@@ -75,7 +75,7 @@ class CommercetoolsSource(ResumableSource[CommercetoolsSourceConfig, Commercetoo
             label="commercetools",
             caption="""Enter your commercetools API client credentials to pull your commerce data into the PostHog Data warehouse.
 
-Create an API client in the Merchant Center under Settings > Developer settings with the view scopes for the datasets you want to sync (`view_orders`, `view_customers`, `view_payments`, `view_products`, `view_categories`, `view_discount_codes`). Your project key and region are shown alongside the generated credentials.""",
+Create an API client in the Merchant Center under Settings > Developer settings with the view scopes for the datasets you want to sync (`view_orders`, `view_customers`, `view_payments`, `view_products`, `view_categories`, `view_discount_codes`, `view_stores`, `view_channels`, `view_customer_groups`, `view_states`). Your project key and region are shown alongside the generated credentials.""",
             iconPath="/static/services/commercetools.png",
             docsUrl="https://posthog.com/docs/cdp/sources/commercetools",
             releaseStatus=ReleaseStatus.ALPHA,

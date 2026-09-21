@@ -1446,6 +1446,8 @@ export interface DataWarehouseSavedQueryApi {
     incremental?: IncrementalConfigApi | null
     /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
     readonly incremental_state: IncrementalStateApi | null
+    /** Whether incremental settings participated in any materialization run. */
+    readonly has_incremental_history: boolean
     readonly created_by: UserBasicApi
     readonly created_at: string
     /** @nullable */
@@ -1488,12 +1490,12 @@ export interface DataWarehouseSavedQueryApi {
     /** @nullable */
     readonly latest_error: string | null
     /**
-     * Activity log ID from the last known edit. Used for conflict detection.
+     * The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.
      * @nullable
      */
     edited_history_id?: string | null
     /**
-     * Activity log ID of the most recent query edit to this view. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
+     * Revision of this view's query. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
      * @nullable
      */
     readonly latest_history_id: string | null
@@ -1573,6 +1575,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
     incremental?: IncrementalConfigApi | null
     /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
     readonly incremental_state?: IncrementalStateApi | null
+    /** Whether incremental settings participated in any materialization run. */
+    readonly has_incremental_history?: boolean
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     /** @nullable */
@@ -1615,12 +1619,12 @@ export interface PatchedDataWarehouseSavedQueryApi {
     /** @nullable */
     readonly latest_error?: string | null
     /**
-     * Activity log ID from the last known edit. Used for conflict detection.
+     * The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.
      * @nullable
      */
     edited_history_id?: string | null
     /**
-     * Activity log ID of the most recent query edit to this view. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
+     * Revision of this view's query. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
      * @nullable
      */
     readonly latest_history_id?: string | null
@@ -3264,6 +3268,9 @@ export interface CredentialApi {
  * * `ElectricityMaps` - ElectricityMaps
  * * `Amplemarket` - Amplemarket
  * * `Quo` - Quo
+ * * `HeyReach` - HeyReach
+ * * `MoEngage` - MoEngage
+ * * `Monaco` - Monaco
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4610,6 +4617,9 @@ export const ExternalDataSourceTypeEnumApi = {
     ElectricityMaps: 'ElectricityMaps',
     Amplemarket: 'Amplemarket',
     Quo: 'Quo',
+    HeyReach: 'HeyReach',
+    MoEngage: 'MoEngage',
+    Monaco: 'Monaco',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -5154,6 +5164,10 @@ export type WarehouseExpressionsListParams = {
 }
 
 export type WarehouseSavedQueriesListParams = {
+    /**
+     * Include column definitions. Set to false for table-only lists.
+     */
+    include_columns?: boolean
     /**
      * A page number within the paginated result set.
      */

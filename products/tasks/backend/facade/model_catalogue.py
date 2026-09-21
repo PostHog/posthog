@@ -8,6 +8,7 @@ picker and model-override classifier) import from here rather than reaching into
 """
 
 from products.tasks.backend.logic.services.model_catalogue import (
+    COST_BASELINE_MODEL,
     REASONING_EFFORT_DISPLAY_NAMES,
     RUNTIME_ADAPTER_DISPLAY_NAMES,
     TASK_RUN_GATEWAY_PRODUCT,
@@ -24,6 +25,7 @@ from products.tasks.backend.logic.services.model_catalogue import (
 )
 
 __all__ = [
+    "COST_BASELINE_MODEL",
     "REASONING_EFFORT_DISPLAY_NAMES",
     "RUNTIME_ADAPTER_DISPLAY_NAMES",
     "TASK_RUN_GATEWAY_PRODUCT",

@@ -48,6 +48,61 @@ def connect_task_run_assignment_sync() -> None:
         sync_task_run_pr_to_assignments,
         dispatch_uid="signals_sync_task_run_pr_to_assignments",
     )
+    connect_task_run_post_save(
+        schedule_implementation_handover,
+        dispatch_uid="signals_schedule_implementation_handover",
+    )
+
+
+def schedule_implementation_handover(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
+    # Fires on every TaskRun save (a hot model), so the in-memory checks run before the first query.
+    if created:
+        # A run is created before the agent does anything, and a handover only acts on a finished
+        # run, so the save that matters is a later one.
+        return
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and not {"status", "output"}.intersection(update_fields):
+        return
+    # Only the self-driving implementation run can carry a replacement. Report research and repo
+    # selection share the report and the internal flag with it, so `ai_stage` is what separates
+    # them, and the pipeline stamps it once at run creation (see `pipeline_identity`).
+    if (instance.state or {}).get("ai_stage") != "implementation":
+        return
+    from products.signals.backend.tasks import reconcile_implementation_replacement
+
+    team_id = instance.team_id
+    for replacement_id in SignalReportArtefact.objects.filter(
+        team_id=team_id, task_id=instance.task_id, type="implementation_replacement"
+    ).values_list("id", flat=True):
+        # The id is bound as a default argument because the hooks run after the loop ends, so a
+        # closure over the loop variable would send every one of them the last id. `robust=True`
+        # keeps a broker failure here from cancelling the other hooks this save queued, and Django
+        # cannot log a `partial` in that path because it reads the callback's qualified name.
+        def enqueue_replacement(queued: str = str(replacement_id)) -> None:
+            reconcile_implementation_replacement.delay(team_id, queued)
+
+        transaction.on_commit(enqueue_replacement, robust=True)
+
+
+@receiver(post_save, sender=SignalReportArtefact)
+def schedule_handover_for_work_change(sender: type, instance: SignalReportArtefact, **kwargs: Any) -> None:
+    if instance.type not in {"implementation_replacement", "work_claim", "work_release", "pull_request"}:
+        return
+    from products.signals.backend.supersession import schedule_report_replacements
+
+    team_id, report_id = instance.team_id, str(instance.report_id)
+    transaction.on_commit(lambda: schedule_report_replacements(team_id, report_id), robust=True)
+
+
+@receiver(post_save, sender=SignalReport)
+def schedule_handover_for_report_change(sender: type, instance: SignalReport, **kwargs: Any) -> None:
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and not {"status", "run_count"}.intersection(update_fields):
+        return
+    from products.signals.backend.supersession import schedule_report_replacements
+
+    team_id, report_id = instance.team_id, str(instance.id)
+    transaction.on_commit(lambda: schedule_report_replacements(team_id, report_id), robust=True)
 
 
 def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
@@ -319,6 +374,50 @@ def close_pr_when_report_dismissed(
             actor_user_id=actor_user_id,
         )
     )
+
+
+@receiver(post_save, sender=SignalReport)
+def arm_pending_checks_when_report_resolved(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Start the soak clock on the report's pending checks the moment it resolves.
+
+    A check written during research predates any fix, so it carries a soak duration rather than a
+    date. The resolve is what it waits for, and hooking the model rather than each caller makes
+    every resolve path the same clock: a merged pull request's webhook, a manual resolve in the
+    inbox, and an MCP state write all finish in a ``save``. Plenty of fixes never have a pull
+    request to date a window from, which is why the report's own transition is the event.
+    """
+    if instance.status != SignalReport.Status.RESOLVED:
+        return
+    if not _status_changed_on_this_save(
+        instance, created=created, update_fields=update_fields, prior_status=getattr(instance, "_prior_status", None)
+    ):
+        return
+    team_id = instance.team_id
+    report_id = str(instance.id)
+    resolved_at = timezone.now()
+    # After commit, so a rolled-back resolve never arms a check, and best-effort: a report that
+    # resolved is the outcome that matters, and a failure here leaves the checks pending rather
+    # than losing them.
+    transaction.on_commit(
+        partial(_arm_pending_checks_safely, team_id=team_id, report_id=report_id, resolved_at=resolved_at)
+    )
+
+
+def _arm_pending_checks_safely(*, team_id: int, report_id: str, resolved_at: datetime) -> None:
+    # Function-local: the authoring module reaches the execution module and from there the alerts
+    # facade, which the startup-import-budget test keeps off django.setup().
+    from products.signals.backend.report_check_authoring import arm_pending_checks  # noqa: PLC0415
+
+    try:
+        arm_pending_checks(team_id=team_id, report_id=report_id, resolved_at=resolved_at)
+    except Exception:
+        logger.exception("signals.report_check.arm_on_resolve_failed", report_id=report_id, team_id=team_id)
 
 
 @receiver(post_save, sender=SignalReport)
