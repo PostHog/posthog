@@ -1,12 +1,41 @@
 import { V86 } from 'v86'
 import wasmUrl from 'v86/build/v86.wasm?url'
 
+import doomUrl from 'public/terminal/fbdoom-linux-i386.bin?url'
+import wadUrl from 'public/terminal/freedoom1.wad.gz.bin?url'
 import jqUrl from 'public/terminal/jq-linux-i386.bin?url'
+import kernelUrl from 'public/terminal/linux-fb-bzimage.bin?url'
 import toolsUrl from 'public/terminal/tools-linux-i386.tar.gz.bin?url'
 
 import { NinePServer } from './ninepServer'
 
 const FIRMWARE = 'https://raw.githubusercontent.com/copy/v86/589487c7758a2775f606ec631bd78609497f6e05/bios'
+
+const DOOM_SCRIPT = String.raw`#!/bin/sh
+set -eu
+if [ ! -x /tmp/fbdoom ]; then
+    echo 'Downloading Doom (about 28 MB)...'
+    cp /posthog/bin/fbdoom /tmp/fbdoom && chmod +x /tmp/fbdoom
+    cp /posthog/bin/freedoom1.wad /tmp/freedoom1.wad
+fi
+# The first console already has a shell reading its keys, so Doom takes an unused one.
+# Ctrl+C reaches this script as well as Doom, so the console is restored from a trap.
+trap "printf '\\033[?25h' > /dev/tty5; display off; chvt 1" EXIT
+trap 'exit 0' INT TERM
+chvt 5
+printf '\033[?25l' > /dev/tty5
+display on
+cd /tmp
+/tmp/fbdoom -iwad /tmp/freedoom1.wad "$@" > /tmp/doom.log 2>&1 || true
+`
+
+const DISPLAY_SCRIPT = String.raw`#!/bin/sh
+case "$1" in
+    on) printf '\021' > /dev/ttyS1 ;;
+    off) printf '\022' > /dev/ttyS1 ;;
+    *) echo 'Usage: display on|off' >&2; exit 1 ;;
+esac
+`
 
 function browserClock(): { timestamp: number; timezone: string } {
     const now = new Date()
@@ -39,6 +68,10 @@ async function verifiedImage(url: string, sha256: string, signal: AbortSignal): 
     return buffer
 }
 
+function gunzip(buffer: ArrayBuffer): Promise<ArrayBuffer> {
+    return new Response(new Blob([buffer]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()
+}
+
 export class TerminalRuntime {
     private emulator?: V86
     private output = ''
@@ -47,8 +80,13 @@ export class TerminalRuntime {
     private disposed = false
     private columns = 80
     private rows = 24
+    private displayInput = false
 
-    constructor(private onOutput: (bytes: Uint8Array) => void) {}
+    constructor(
+        private onOutput: (bytes: Uint8Array) => void,
+        private screen: HTMLElement,
+        private onDisplay: (active: boolean) => void
+    ) {}
 
     async start(server: NinePServer, signal: AbortSignal, onReady: () => void): Promise<void> {
         const [bios, vgaBios, kernel, jq, tools] = await Promise.all([
@@ -63,9 +101,9 @@ export class TerminalRuntime {
                 signal
             ),
             verifiedImage(
-                // This image's uncached 9P reads work before API file sizes are known; Linux 6.8 clamps them to zero.
-                'https://i.copy.sh/buildroot-bzimage.bin',
-                '7befbaea31e249d9a518c4b95fa42b2a193d0e3de46250d617cbdeb866ee28b0',
+                // Linux 5.6 serves uncached 9P reads before API file sizes are known; Linux 6.8 clamps them to zero.
+                kernelUrl,
+                '33ca60bd4832f0cf202845fa7ac1a60776c0215e8a20d21a3f07d3722f99e415',
                 signal
             ),
             verifiedImage(jqUrl, 'ba996e8ce436973e2f39e2639405a37e8c81ba8c722b71c83996278ad0af16dd', signal),
@@ -75,9 +113,7 @@ export class TerminalRuntime {
             return
         }
         // The guest's BusyBox tar has no gzip support.
-        const toolsArchive = await new Response(
-            new Blob([tools]).stream().pipeThrough(new DecompressionStream('gzip'))
-        ).arrayBuffer()
+        const toolsArchive = await gunzip(tools)
         if (signal.aborted || this.disposed) {
             return
         }
@@ -85,23 +121,50 @@ export class TerminalRuntime {
         server.filesystem.file('jq', bin, async () => ({ bytes: new Uint8Array(jq) })).size = jq.byteLength
         server.filesystem.file('tools.tar', bin, async () => ({ bytes: new Uint8Array(toolsArchive) })).size =
             toolsArchive.byteLength
+        // Doom downloads on first use, because the game data is larger than everything else combined.
+        const lazy = (name: string, url: string, sha256: string, size: number, gzipped = false): void => {
+            let bytes: Promise<Uint8Array> | undefined
+            server.filesystem.file(name, bin, async () => {
+                bytes ??= verifiedImage(url, sha256, signal)
+                    .then((buffer) => (gzipped ? gunzip(buffer) : buffer))
+                    .then((buffer) => new Uint8Array(buffer))
+                return { bytes: await bytes.catch((error) => ((bytes = undefined), Promise.reject(error))) }
+            }).size = size
+        }
+        lazy('fbdoom', doomUrl, '0a8f549829c113eff1cd1490b2a9a502596490f9a4880d75fdb0d93acc2f01ae', 417_984)
+        lazy(
+            'freedoom1.wad',
+            wadUrl,
+            '8dfc9bcdb4b96809e69c516209048d46cc99d4fdd5e3179a6aaa98f7fe9491e1',
+            28_795_076,
+            true
+        )
+        server.filesystem.text('doom', bin, DOOM_SCRIPT)
+        server.filesystem.text('display', bin, DISPLAY_SCRIPT)
         const emulator = (this.emulator = new V86({
             wasm_path: wasmUrl,
             bios: { buffer: bios },
             vga_bios: { buffer: vgaBios },
             bzimage: { buffer: kernel },
             memory_size: 128 * 1024 * 1024,
+            vga_memory_size: 8 * 1024 * 1024,
             filesystem: { handle9p: server.handle },
-            cmdline: 'tsc=reliable mitigations=off random.trust_cpu=on',
-            disable_keyboard: true,
-            disable_mouse: true,
+            cmdline: 'tsc=reliable mitigations=off random.trust_cpu=on video=640x480',
+            screen: { container: this.screen, use_graphical_text: true },
             disable_speaker: true,
             uart1: true,
             autostart: true,
         }))
+        // v86 listens for keys on the whole window, so the display only takes input while it has focus.
+        // Its input adapters do not exist until the emulator is ready.
+        emulator.add_listener('emulator-ready', () => this.setDisplayInput(this.displayInput))
         let boot = ''
         let configured = false
         emulator.add_listener('serial1-output-byte', (byte: number) => {
+            // The guest's display command sends DC1 when a graphical program starts and DC2 when it exits.
+            if (this.ready && (byte === 17 || byte === 18)) {
+                this.onDisplay(byte === 17)
+            }
             if (configured && !this.ready && byte === 30) {
                 this.ready = true
                 this.resize(this.columns, this.rows)
@@ -130,6 +193,8 @@ export class TerminalRuntime {
                         'export EDITOR=nano VISUAL=nano',
                         'cp /posthog/bin/jq /usr/bin/jq && chmod +x /usr/bin/jq || exit',
                         'cp /posthog/bin/ph /usr/bin/ph && chmod +x /usr/bin/ph || exit',
+                        'cp /posthog/bin/doom /usr/bin/doom && chmod +x /usr/bin/doom || exit',
+                        'cp /posthog/bin/display /usr/bin/display && chmod +x /usr/bin/display || exit',
                         'stty -F /dev/ttyS1 raw -echo',
                         // Detach the control helper so the shell's wait command only waits for user jobs.
                         '(while read -r command first second; do case "$command" in resize) stty -F /dev/ttyS0 rows "$first" cols "$second";; clock) date -s "@$first" > /dev/null; printf "%s\\n" "$second" > /etc/TZ;; esac; done < /dev/ttyS1 &)',
@@ -175,6 +240,24 @@ export class TerminalRuntime {
         if (this.ready) {
             this.emulator?.serial_send_bytes(1, new TextEncoder().encode(`resize ${this.rows} ${this.columns}\n`))
         }
+    }
+
+    setDisplayInput(enabled: boolean): void {
+        this.displayInput = enabled
+        this.emulator?.keyboard_set_enabled(enabled)
+        this.emulator?.mouse_set_enabled(enabled)
+    }
+
+    interrupt(): void {
+        this.emulator?.serial_send_bytes(0, Uint8Array.of(3))
+    }
+
+    fullscreen(): void {
+        this.emulator?.screen_go_fullscreen()
+    }
+
+    captureMouse(): void {
+        this.emulator?.lock_mouse()
     }
 
     dispose(): void {
