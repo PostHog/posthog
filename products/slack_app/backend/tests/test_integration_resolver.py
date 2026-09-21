@@ -744,8 +744,10 @@ class TestPickAProjectMessage:
 
         assert "`1` — Acme · Production" in message
         assert "`2` — Acme · Staging" in message
-        assert "`/posthog project <id>`" in message
-        assert "<slack://app?team=T_WS&id=A1&tab=home|Home tab>" in message
+        # The Home tab is the one-click route, so it leads and the command follows.
+        assert message.index("<slack://app?team=T_WS&id=A1&tab=home|Home tab>") < message.index(
+            "`/posthog project <id>`"
+        )
 
     def test_home_tab_stays_plain_text_when_the_install_has_no_deep_link(self):
         message = pick_a_project_message(
@@ -755,6 +757,6 @@ class TestPickAProjectMessage:
             home_tab_url=None,
         )
 
-        assert "the app's Home tab." in message
+        assert "the app's Home tab," in message
         assert "|Home tab>" not in message
         assert "None" not in message

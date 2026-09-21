@@ -100,14 +100,16 @@ def pick_a_project_message(
     """A "which project?" reply: every project the caller can route to, then the two ways
     to choose one.
 
-    ``home_tab_url`` degrades to plain text for an install that carries no app id, which
-    is the one case ``app_home_url`` cannot build a deep link for.
+    The Home tab leads because it is one click on a dropdown, against a command that asks
+    the reader to copy an id out of the list above it. ``home_tab_url`` degrades to plain
+    text for an install that carries no app id, which is the one case ``app_home_url``
+    cannot build a deep link for.
     """
     home_tab = f"<{home_tab_url}|Home tab>" if home_tab_url else "Home tab"
     return (
         f"{intro}\n"
         f"{format_project_candidate_list(candidates)}\n\n"
-        f"Set your default with `{set_command} project <id>`, or pick one on the app's {home_tab}."
+        f"Pick one on the app's {home_tab}, or set your default with `{set_command} project <id>`."
     )
 
 
