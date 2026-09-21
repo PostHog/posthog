@@ -28,6 +28,7 @@ describe('scannerStepErrors', () => {
             })
         ).toEqual({
             template: [],
+            overview: [],
             details: [],
             configure: ['Prompt is required'],
             triggers: ['Duration filters above 1 hour match nothing'],

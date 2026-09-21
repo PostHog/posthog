@@ -185,7 +185,9 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                             onStepClick={goToStep}
                             stepErrors={stepErrors}
                             disabledSteps={
-                                isNew ? undefined : { template: 'A saved scanner keeps the template it was created from' }
+                                isNew
+                                    ? undefined
+                                    : { template: 'A saved scanner keeps the template it was created from' }
                             }
                             className="flex-wrap justify-center gap-y-1"
                             aria-label="Scanner editor progress"
