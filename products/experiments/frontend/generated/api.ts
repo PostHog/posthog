@@ -32,6 +32,8 @@ import type {
     ExperimentSessionContextsRequestApi,
     ExperimentSessionContextsResponseApi,
     ExperimentSessionEventDeltaResponseApi,
+    ExperimentSetupContextInputApi,
+    ExperimentSetupContextResponseApi,
     ExperimentWriteApi,
     ExperimentsActivityRetrieveParams,
     ExperimentsListParams,
@@ -1288,6 +1290,32 @@ export const experimentsSessionContextsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(experimentSessionContextsRequestApi),
+    })
+}
+
+export const getExperimentsSetupContextCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiments/setup_context/`
+}
+
+/**
+ * Facts about this project that decide how to configure a new experiment.
+ *
+ * Returns the team's experiment defaults, which SDKs call feature flags, traffic on a target
+ * surface, the baseline of a candidate metric, how recent experiments were set up, and the
+ * most reused shared metrics. Each section has its own status, so a slow or failed read
+ * leaves the others valid. POST because the inputs describe a plan rather than a resource;
+ * the endpoint only reads.
+ */
+export const experimentsSetupContextCreate = async (
+    projectId: string,
+    experimentSetupContextInputApi?: ExperimentSetupContextInputApi,
+    options?: RequestInit
+): Promise<ExperimentSetupContextResponseApi> => {
+    return apiMutator<ExperimentSetupContextResponseApi>(getExperimentsSetupContextCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentSetupContextInputApi),
     })
 }
 
