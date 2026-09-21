@@ -8987,6 +8987,31 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
                 {"target_event": "$pageview", "metric_event": "$pageview"},
                 "metric_event",
             ),
+            (
+                "target_properties_without_target_event",
+                {"target_properties": [{"key": "$pathname", "type": "event", "value": ["/"]}]},
+                "target_properties",
+            ),
+            (
+                "metric_properties_without_metric_event",
+                {"metric_properties": [{"key": "plan", "type": "event", "value": ["paid"]}]},
+                "metric_properties",
+            ),
+            (
+                "a_filter_type_the_query_cannot_apply",
+                {"target_event": "$pageview", "target_properties": [{"key": "id", "type": "cohort", "value": 1}]},
+                "target_properties",
+            ),
+            (
+                "more_filters_than_the_maximum",
+                {
+                    "target_event": "$pageview",
+                    "target_properties": [
+                        {"key": f"p-{index}", "type": "event", "value": ["x"]} for index in range(11)
+                    ],
+                },
+                "target_properties",
+            ),
         ]
     )
     def test_rejects_input_that_cannot_produce_an_answer(
@@ -9030,18 +9055,21 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
                 "multivariate": {"variants": [{"key": "control", "rollout_percentage": 50}]},
             },
         )
+        # The result's query_from has to be the experiment's start date to the microsecond: that is
+        # what identifies the current run, so two separate now() calls would drop the result.
+        started_at = timezone.now() - timedelta(days=10)
         experiment = Experiment.objects.create(
             team=self.team,
             name="Populated",
             created_by=self.user,
             feature_flag=flag,
-            start_date=timezone.now() - timedelta(days=10),
+            start_date=started_at,
             metrics=[{"kind": "ExperimentMetric", "metric_type": "mean", "uuid": "populated-metric"}],
         )
         ExperimentMetricResult.objects.create(
             experiment=experiment,
             metric_uuid="populated-metric",
-            query_from=timezone.now() - timedelta(days=10),
+            query_from=started_at,
             query_to=timezone.now(),
             status=ExperimentMetricResult.Status.COMPLETED,
             result={
@@ -9066,7 +9094,12 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
                 event=event,
                 distinct_id="buyer",
                 timestamp=timezone.now() - timedelta(days=1),
-                properties={"$lib": "web", "$is_identified": False, "$device_id": "device-1"},
+                properties={
+                    "$lib": "web",
+                    "$is_identified": False,
+                    "$device_id": "device-1",
+                    "$pathname": "/",
+                },
             )
         _create_event(
             team=self.team,
@@ -9077,7 +9110,13 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
         )
         flush_persons_and_events()
 
-        response = self._post({"target_event": "$pageview", "metric_event": "purchase"})
+        response = self._post(
+            {
+                "target_event": "$pageview",
+                "target_properties": [{"key": "$pathname", "type": "event", "operator": "exact", "value": ["/"]}],
+                "metric_event": "purchase",
+            }
+        )
 
         assert response.status_code == status.HTTP_200_OK, response.content
         context = response.json()
@@ -9090,6 +9129,11 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
             "shared_metrics": "ok",
         }
         assert context["sdk_profile"]["data"]["libs"][0]["lib"] == "web"
+        # The echoed filters are parsed and dumped through pydantic, so the operator reaches JSON
+        # as its value rather than as an enum the renderer cannot write.
+        assert context["target_surface"]["data"]["target_properties"] == [
+            {"key": "$pathname", "operator": "exact", "type": "event", "value": ["/"]}
+        ]
         assert context["candidate_metric"]["data"]["funnel_baseline_stats"]["number_of_samples"] == 1
         assert context["candidate_metric"]["data"]["mean_count_baseline_stats"]["number_of_samples"] == 1
         assert context["previous_experiments"]["data"]["experiments"][0]["outcome"]["analyzed_exposures"] == 190

@@ -55,9 +55,30 @@ def _mean_metric(uuid: str, event: str = "purchase") -> dict[str, Any]:
     }
 
 
-def _stored_result(baseline_samples: int, variant_samples: list[int], significant: bool) -> dict[str, Any]:
+def _funnel_metric(uuid: str, event: str = "purchase") -> dict[str, Any]:
     return {
-        "baseline": {"key": "control", "number_of_samples": baseline_samples, "sum": 1, "sum_squares": 1},
+        "kind": "ExperimentMetric",
+        "metric_type": "funnel",
+        "uuid": uuid,
+        "series": [{"kind": "EventsNode", "event": event}],
+    }
+
+
+def _retention_metric(uuid: str, start_event: str = "signup", completion_event: str = "purchase") -> dict[str, Any]:
+    return {
+        "kind": "ExperimentMetric",
+        "metric_type": "retention",
+        "uuid": uuid,
+        "start_event": {"kind": "EventsNode", "event": start_event},
+        "completion_event": {"kind": "EventsNode", "event": completion_event},
+    }
+
+
+def _stored_result(
+    baseline_samples: int, variant_samples: list[int], significant: bool, *, baseline_sum: float = 1
+) -> dict[str, Any]:
+    return {
+        "baseline": {"key": "control", "number_of_samples": baseline_samples, "sum": baseline_sum, "sum_squares": 1},
         "variant_results": [
             {"key": f"test-{index}", "number_of_samples": samples, "significant": significant}
             for index, samples in enumerate(variant_samples)
@@ -72,6 +93,15 @@ class TestSetupContextInputs(SimpleTestCase):
             ("url_filter_without_pageview", {"target_event": "$screen", "target_url_contains": "pricing"}),
             ("metric_event_equals_target_event", {"target_event": "$pageview", "metric_event": "$pageview"}),
             ("limit_above_the_maximum", {"shared_metrics_limit": 26}),
+            ("target_properties_without_target_event", {"target_properties": ({"key": "a", "type": "event"},)}),
+            ("metric_properties_without_metric_event", {"metric_properties": ({"key": "a", "type": "event"},)}),
+            (
+                "more_property_filters_than_the_maximum",
+                {
+                    "target_event": "$pageview",
+                    "target_properties": tuple({"key": f"p-{index}", "type": "event"} for index in range(11)),
+                },
+            ),
         ]
     )
     def test_rejects_inputs_that_cannot_produce_an_answer(self, _name: str, kwargs: dict[str, Any]) -> None:
@@ -124,6 +154,7 @@ class TestResponseCoversEveryFact(SimpleTestCase):
         ("ExperimentSetupContext", "ExperimentSetupContextResponseSerializer"),
         ("TeamDefaults", "ExperimentSetupTeamDefaultsSerializer"),
         ("SdkLibProfile", "ExperimentSetupSdkLibSerializer"),
+        ("LibActivity", "ExperimentSetupLibActivitySerializer"),
         ("SdkProfile", "ExperimentSetupSdkProfileSerializer"),
         ("LibReach", "ExperimentSetupLibReachSerializer"),
         ("TargetSurface", "ExperimentSetupTargetSurfaceSerializer"),
@@ -138,7 +169,13 @@ class TestResponseCoversEveryFact(SimpleTestCase):
         ("SharedMetrics", "ExperimentSetupSharedMetricsSerializer"),
     ]
     # Inputs and internal helpers, which the response never carries.
-    UNRENDERED = {"SetupContextInputs", "SetupContextSection", "TimeWindow", "CustomExposure"}
+    UNRENDERED = {
+        "SetupContextInputs",
+        "SetupContextSection",
+        "TimeWindow",
+        "CustomExposure",
+        "OutcomeMetric",
+    }
 
     @parameterized.expand(PAIRS)
     def test_serializer_renders_exactly_the_dataclass_fields(self, dataclass_name: str, serializer_name: str) -> None:
@@ -262,6 +299,27 @@ class TestSdkProfile(ClickhouseTestMixin, APIBaseTest):
         assert ios.device_id_share == 0.0
         assert ios.locally_evaluated_share is None
 
+        assert profile.libs_on_any_event is None
+
+    def test_a_project_without_flag_calls_reports_the_libs_it_sends_from(self) -> None:
+        # A project creating its first experiment has sent no multivariate flag call, so the flag
+        # profile is empty and used to say nothing at all about the platform.
+        _create_event(
+            team=self.team,
+            event="$screen",
+            distinct_id="mobile-user",
+            timestamp=timezone.now() - timedelta(hours=2),
+            properties={"$lib": "posthog-ios"},
+        )
+
+        profile = get_sdk_profile(self.team)
+
+        assert profile.libs == []
+        assert profile.libs_on_any_event is not None
+        assert [(lib.lib, lib.category, lib.events, lib.distinct_ids) for lib in profile.libs_on_any_event] == [
+            ("posthog-ios", "mobile", 1, 1)
+        ]
+
     def test_more_libs_than_the_cap_are_truncated(self) -> None:
         for index in range(SDK_PROFILE_MAX_LIBS + 2):
             _create_event(
@@ -354,6 +412,58 @@ class TestTargetSurfaceAndCandidateMetric(ClickhouseTestMixin, APIBaseTest):
         assert surface.anonymous_share == 2 / 3
         assert surface.device_id_share == 2 / 3
 
+    def test_shares_come_from_the_rows_whichever_sdk_sent_them(self) -> None:
+        # Computing the shares over web rows only returned null for a mobile or server surface,
+        # even where those rows carry $is_identified and $device_id.
+        for distinct_id, identified in [("ios-anon", False), ("ios-user", True)]:
+            _create_person(team=self.team, distinct_ids=[distinct_id])
+            _create_event(
+                team=self.team,
+                event="$screen",
+                distinct_id=distinct_id,
+                timestamp=timezone.now() - timedelta(days=1),
+                properties={"$lib": "posthog-ios", "$is_identified": identified, "$device_id": f"d-{distinct_id}"},
+            )
+
+        surface = get_target_surface(self.team, SetupContextInputs(target_event="$screen"))
+
+        assert (surface.anonymous_share, surface.device_id_share) == (0.5, 1.0)
+        assert [(lib.lib, lib.anonymous_share, lib.device_id_share) for lib in surface.libs] == [
+            ("posthog-ios", 0.5, 1.0)
+        ]
+
+    def test_property_filters_narrow_the_target_and_the_metric(self) -> None:
+        # A substring on $current_url cannot isolate a page: every page URL contains the homepage
+        # URL. An exact $pathname can, and a metric can need a filter of its own too.
+        for distinct_id, pathname in [("home-buyer", "/"), ("home-browser", "/"), ("pricing-visitor", "/pricing")]:
+            _create_person(team=self.team, distinct_ids=[distinct_id])
+            self._event(distinct_id, "$pageview", 3, **{"$pathname": pathname})
+        for distinct_id, payment_method in [
+            ("home-buyer", "card"),
+            ("home-browser", "voucher"),
+            ("pricing-visitor", "card"),
+        ]:
+            self._event(distinct_id, "checkout started", 2, payment_method=payment_method)
+
+        homepage = SetupContextInputs(
+            target_event="$pageview",
+            target_properties=({"key": "$pathname", "type": "event", "operator": "exact", "value": ["/"]},),
+            metric_event="checkout started",
+            metric_properties=({"key": "payment_method", "type": "event", "operator": "exact", "value": ["card"]},),
+        )
+        surface = get_target_surface(self.team, homepage)
+        metric = get_candidate_metric(self.team, homepage)
+
+        assert surface.unique_persons == 2
+        assert surface.target_properties == [{"key": "$pathname", "type": "event", "operator": "exact", "value": ["/"]}]
+        # Both homepage visitors reach the target, and only a card checkout counts as a metric
+        # event, so the voucher checkout drops out and the pricing visitor never reaches the target.
+        assert (metric.persons_reached, metric.persons_converted) == (2, 1)
+        assert (metric.event_volume, metric.unique_persons) == (2, 2)
+        assert metric.metric_properties == [
+            {"key": "payment_method", "type": "event", "operator": "exact", "value": ["card"]}
+        ]
+
     def test_test_accounts_leave_the_counts_the_way_they_leave_a_new_experiment(self) -> None:
         # A new experiment gets filterTestAccounts from apply_exposure_criteria_defaults, not from
         # the project's test_account_filters_default_checked. Reading the team field instead would
@@ -389,6 +499,17 @@ class TestTargetSurfaceAndCandidateMetric(ClickhouseTestMixin, APIBaseTest):
         query.assert_not_called()
         assert cached == first
 
+        narrowed = get_target_surface(
+            self.team,
+            SetupContextInputs(
+                target_event="$pageview",
+                target_properties=(
+                    {"key": "$current_url", "type": "event", "operator": "icontains", "value": "about"},
+                ),
+            ),
+        )
+        assert (first.unique_persons, narrowed.unique_persons) == (4, 1)
+
     def test_candidate_metric_baseline_feeds_the_calculator(self) -> None:
         self._seed()
 
@@ -400,6 +521,7 @@ class TestTargetSurfaceAndCandidateMetric(ClickhouseTestMixin, APIBaseTest):
         assert metric.test_accounts_filtered is True
         assert (metric.persons_reached, metric.persons_converted) == (3, 1)
         assert metric.conversion_rate == 1 / 3
+        assert (metric.event_volume, metric.unique_persons) == (4, 3)
         assert metric.mean_count_baseline_stats is not None
         assert asdict(metric.mean_count_baseline_stats) == {"number_of_samples": 3, "sum": 3.0, "sum_squares": 5.0}
 
@@ -417,6 +539,19 @@ class TestTargetSurfaceAndCandidateMetric(ClickhouseTestMixin, APIBaseTest):
         assert (metric.event_volume, metric.unique_persons) == (4, 3)
         assert metric.persons_reached is None
         assert metric.funnel_baseline_stats is None
+
+    def test_a_metric_event_that_never_occurred_is_told_apart_from_no_conversion(self) -> None:
+        # A misspelled metric event used to return conversion_rate 0 with valid-looking baseline
+        # stats, and nothing in the answer said the event had never occurred.
+        self._seed()
+
+        misspelled = get_candidate_metric(
+            self.team,
+            SetupContextInputs(target_event="$pageview", target_url_contains="pricing", metric_event="purchace"),
+        )
+
+        assert (misspelled.event_volume, misspelled.unique_persons) == (0, 0)
+        assert misspelled.conversion_rate == 0.0
 
 
 class TestPostgresSections(APIBaseTest):
@@ -511,7 +646,7 @@ class TestPostgresSections(APIBaseTest):
             previous = get_previous_experiments(Experiment.objects.filter(team_id=self.team.pk), limit=10)
 
         by_name = {experiment.name: experiment for experiment in previous.experiments}
-        assert list(by_name) == ["archived", "three-way", "saved-primary"]
+        assert list(by_name) == ["three-way", "saved-primary", "archived"]
 
         assert by_name["archived"].state == "draft"
         assert by_name["archived"].outcome is None
@@ -522,15 +657,20 @@ class TestPostgresSections(APIBaseTest):
         assert (three.state, three.variant_count, three.split_even) == ("running", 3, True)
         assert (three.multiple_variant_handling, three.multiple_variant_handling_set) == ("first_seen", True)
         assert three.bucketing_identifier == "device_id"
-        assert three.primary_metric_types == ["mean"]
+        assert (three.primary_metric_types, three.primary_metric_events) == (["mean"], ["purchase"])
+        assert three.feature_flag_key == "flag-three-way"
         assert three.outcome is not None and three.outcome.analyzed_exposures == 0
 
         saved = by_name["saved-primary"]
         assert (saved.state, saved.split_even, saved.ensure_experience_continuity) == ("stopped", False, True)
         assert saved.custom_exposure_event == "checkout"
+        assert (saved.exposure_property_filters, saved.activation_event) == ([], None)
         assert (saved.primary_metric_count, saved.shared_metric_count) == (1, 1)
         assert saved.outcome is not None
         assert (saved.outcome.analyzed_exposures, saved.outcome.any_variant_significant) == (70, False)
+        assert (saved.outcome.metric_type, saved.outcome.metric_samples) == ("mean", 70)
+        assert saved.outcome.control_baseline_value == 1 / 40
+        assert saved.outcome.result_data_through == now - timedelta(days=5)
 
         assert asdict(previous.summary) == {
             "total": 3,
@@ -542,9 +682,88 @@ class TestPostgresSections(APIBaseTest):
             "using_device_id_bucketing": 1,
             "using_persistence": 1,
             "using_custom_exposure": 1,
+            "using_exposure_property_filters": 0,
+            "using_activation": 0,
             "using_uneven_split": 1,
+            "serving_single_variant": 0,
         }
         assert archived.id in {experiment.id for experiment in previous.experiments}
+
+    def test_a_shipped_flag_does_not_read_as_an_uneven_split(self) -> None:
+        # Shipping a variant rewrites the flag so that variant holds 100 and the rest hold 0, so
+        # reading the flag as it stands now reported every shipped experiment as an uneven split.
+        now = timezone.now()
+        self._experiment("shipped", variants=[0, 100], start_date=now - timedelta(days=20), end_date=now)
+
+        previous = get_previous_experiments(Experiment.objects.filter(team_id=self.team.pk), limit=10)
+
+        listed = previous.experiments[0]
+        assert (listed.split_even, listed.serving_single_variant) == (None, "variant-1")
+        assert (previous.summary.using_uneven_split, previous.summary.serving_single_variant) == (0, 1)
+
+    def test_a_default_exposure_narrowed_by_properties_is_reported(self) -> None:
+        # The default-exposure check ignores properties, but the exposure query applies them to the
+        # default event too, so a homepage experiment read as having no custom exposure at all.
+        pathname_filter = {"key": "$pathname", "type": "event", "operator": "exact", "value": ["/"]}
+        self._experiment(
+            "narrowed",
+            exposure_criteria={
+                "exposure_config": {"event": DEFAULT_EXPOSURE_EVENT, "properties": [pathname_filter]},
+                "activation_config": {"event": "signed up", "properties": []},
+            },
+        )
+
+        previous = get_previous_experiments(Experiment.objects.filter(team_id=self.team.pk), limit=10)
+
+        listed = previous.experiments[0]
+        assert listed.custom_exposure_event is None
+        assert listed.exposure_property_filters == [pathname_filter]
+        assert (listed.activation_event, listed.activation_action_id) == ("signed up", None)
+        assert (previous.summary.using_custom_exposure, previous.summary.using_exposure_property_filters) == (0, 1)
+        assert previous.summary.using_activation == 1
+
+    def test_the_outcome_comes_from_the_current_run_and_the_latest_data(self) -> None:
+        now = timezone.now()
+        start = now - timedelta(days=10)
+        experiment = self._experiment("relaunched", start_date=start, metrics=[_mean_metric("inline-primary")])
+        for query_from, query_to, completed_at, result in [
+            # Reset and relaunch keeps the earlier run's rows, which carry the earlier start date.
+            (
+                now - timedelta(days=60),
+                now - timedelta(days=31),
+                now - timedelta(days=31),
+                _stored_result(900, [900], True),
+            ),
+            # A backfilled older day, written after the newest day was written.
+            (start, now - timedelta(days=2), now, _stored_result(20, [20], False)),
+            (start, now - timedelta(days=1), now - timedelta(hours=2), _stored_result(30, [40], False)),
+        ]:
+            ExperimentMetricResult.objects.create(
+                experiment=experiment,
+                metric_uuid="inline-primary",
+                query_from=query_from,
+                query_to=query_to,
+                status=ExperimentMetricResult.Status.COMPLETED,
+                result=result,
+                completed_at=completed_at,
+            )
+
+        previous = get_previous_experiments(Experiment.objects.filter(team_id=self.team.pk), limit=10)
+
+        outcome = previous.experiments[0].outcome
+        assert outcome is not None
+        assert outcome.analyzed_exposures == 70
+        assert outcome.result_data_through == now - timedelta(days=1)
+
+    def test_a_draft_does_not_crowd_out_a_launched_experiment(self) -> None:
+        # The list was the most recently created experiments, so a project with fresh drafts
+        # returned no launched precedent at all.
+        self._experiment("fresh-draft", days_ago=0)
+        self._experiment("older-launch", start_date=timezone.now() - timedelta(days=30), days_ago=10)
+
+        previous = get_previous_experiments(Experiment.objects.filter(team_id=self.team.pk), limit=1)
+
+        assert [listed.name for listed in previous.experiments] == ["older-launch"]
 
     @parameterized.expand(
         [
@@ -667,7 +886,7 @@ class TestPostgresSections(APIBaseTest):
         for experiment in experiments:
             assert states[experiment.name] == Experiment.objects.get(pk=experiment.pk).status_label
 
-    def test_the_outcome_describes_the_metric_the_results_page_shows_first(self) -> None:
+    def test_the_outcome_describes_a_primary_metric_whose_samples_are_exposures(self) -> None:
         now = timezone.now()
         # Declared metric-z first, but ordered so the results page leads with metric-a.
         ordered = self._experiment(
@@ -690,11 +909,28 @@ class TestPostgresSections(APIBaseTest):
             metrics=[{"kind": "ExperimentTrendsQuery", "uuid": "legacy-first"}, _mean_metric("current")],
             days_ago=3,
         )
+        # A retention result counts the units that did the start event, not the exposures, so the
+        # funnel behind it is the metric this outcome can describe.
+        retention_first = self._experiment(
+            "retention-first",
+            start_date=now - timedelta(days=10),
+            metrics=[_retention_metric("retained"), _funnel_metric("converted")],
+            days_ago=4,
+        )
+        retention_only = self._experiment(
+            "retention-only",
+            start_date=now - timedelta(days=10),
+            metrics=[_retention_metric("retained-only")],
+            days_ago=5,
+        )
         for experiment, metric_uuid, result in [
             (ordered, "metric-a", _stored_result(10, [1], False)),
             (ordered, "metric-z", _stored_result(900, [99], True)),
             (other, "metric-z", _stored_result(3, [2], False)),
             (mixed, "current", _stored_result(40, [2], False)),
+            (retention_first, "retained", _stored_result(7, [6], False)),
+            (retention_first, "converted", _stored_result(400, [402], False, baseline_sum=24)),
+            (retention_only, "retained-only", _stored_result(9, [8], False)),
         ]:
             ExperimentMetricResult.objects.create(
                 experiment=experiment,
@@ -712,6 +948,17 @@ class TestPostgresSections(APIBaseTest):
         assert outcomes["ordered"] is not None and outcomes["ordered"].analyzed_exposures == 11
         assert outcomes["other"] is not None and outcomes["other"].analyzed_exposures == 5
         assert outcomes["mixed"] is not None and outcomes["mixed"].analyzed_exposures == 42
+
+        funnel = outcomes["retention-first"]
+        assert funnel is not None
+        assert (funnel.metric_type, funnel.analyzed_exposures) == ("funnel", 802)
+        assert funnel.control_baseline_value == 24 / 400
+
+        retained = outcomes["retention-only"]
+        assert retained is not None
+        assert (retained.metric_type, retained.metric_samples, retained.analyzed_exposures) == ("retention", 17, None)
+        assert retained.control_baseline_value is None
+        assert previous.summary.launched_with_unknown_analyzed_exposures == 1
 
     def test_shared_metrics_rank_by_live_reuse_and_match_action_events(self) -> None:
         live_a = self._experiment("live-a")
@@ -731,6 +978,9 @@ class TestPostgresSections(APIBaseTest):
                 "series": [{"kind": "ActionsNode", "id": action.id}],
             },
         )
+        self._saved_metric(
+            "Retention", _retention_metric("retention", start_event="purchase", completion_event="renewed")
+        )
         for experiment, saved_metric, metric_type in [
             (live_a, popular, "primary"),
             (live_b, popular, "secondary"),
@@ -749,19 +999,24 @@ class TestPostgresSections(APIBaseTest):
         assert [(m.name, m.used_as_primary, m.used_as_secondary) for m in ranked.metrics] == [
             ("Popular", 1, 1),
             ("Inflated by deleted", 1, 0),
+            ("Retention", 0, 0),
             ("Via action", 0, 0),
         ]
         assert ranked.metrics[0].events == ["signup"]
+        assert ranked.metrics[0].metric_event_roles is None
         assert ranked.metric_event_match_truncated is False
 
+        # A metric that only starts from the event is a different precedent from one that
+        # converts on it, so the role the event plays has to come back with the match.
         matched = self._shared_metrics(metric_event="purchase")
-        assert [(m.name, m.matches_metric_event) for m in matched.metrics] == [
-            ("Via action", True),
-            ("Popular", False),
-            ("Inflated by deleted", False),
+        assert [(m.name, m.matches_metric_event, m.metric_event_roles) for m in matched.metrics] == [
+            ("Retention", True, ["retention_start"]),
+            ("Via action", True, ["funnel_step", "funnel_final_step"]),
+            ("Popular", False, []),
+            ("Inflated by deleted", False, []),
         ]
-        assert matched.metrics[0].action_ids == [action.id]
-        assert via_action.id == matched.metrics[0].id
+        assert matched.metrics[1].action_ids == [action.id]
+        assert via_action.id == matched.metrics[1].id
 
     def test_reuse_by_an_experiment_the_caller_cannot_see_does_not_count(self) -> None:
         # The metric list respects access, so the counts beside it must too: otherwise they leak
