@@ -689,3 +689,34 @@ class TestLinearSourceNonRetryableErrors:
         non_retryable_errors = LinearSource().get_non_retryable_errors()
         # Transient/server errors must stay retryable so the pipeline backs off and retries.
         assert not any(key in observed_error for key in non_retryable_errors)
+
+    @parameterized.expand(
+        [
+            ("http_5xx", "Linear: server error 503"),
+            ("http_rate_limited", "Linear: rate limited (429)"),
+            ("graphql_rate_limited", "Linear: rate limited - You have exceeded the request limit"),
+            ("truncated_body", "Linear: incomplete JSON response (Expecting value: line 1 column 1 (char 0))"),
+            ("graphql_5xx", "Linear: internal server error - Internal server error"),
+            (
+                "network_blip",
+                "Linear: transient network error - HTTPSConnectionPool(host='api.linear.app', port=443): Read timed out. (read timeout=60)",
+            ),
+        ]
+    )
+    def test_exhausted_retries_are_classified_retryable(self, _name: str, observed_error: str) -> None:
+        # Every message `_execute_query` re-raises after its retry budget exhausts must match, or the
+        # import activity logs it with `aexception` and files an error tracking issue for a failure
+        # that Temporal recovers from on its own.
+        assert any(key in observed_error for key in LinearSource().get_retryable_errors())
+
+    @parameterized.expand(
+        [
+            ("graphql_error", "Linear GraphQL error: Something failed"),
+            ("unexpected_shape", "Unexpected Linear response format. Keys: ['extensions']"),
+            ("client_error", "404 Client Error: Not Found (Linear API: Entity not found)"),
+        ]
+    )
+    def test_real_failures_are_not_classified_retryable(self, _name: str, observed_error: str) -> None:
+        # A prefix so short it also swallows a genuine failure would downgrade that failure to a
+        # warning and hide it from error tracking.
+        assert not any(key in observed_error for key in LinearSource().get_retryable_errors())
