@@ -27,7 +27,7 @@ WHERE parseDateTimeBestEffort(d.created_at) >= toDateTime('<merge ts>', 'UTC')
   AND d.environment IN ('<production environments>')
 GROUP BY d.id, d.sha, d.environment
 HAVING first_success IS NOT NULL
-ORDER BY first_success ASC
+ORDER BY first_success ASC, d.id ASC
 LIMIT 20 OFFSET <page * 20>
 ```
 
@@ -46,7 +46,7 @@ The deployments endpoint's `sha` filter matches only a deployment recorded at ex
 Enumerate instead: `gh api 'repos/<owner>/<repo>/deployments?per_page=100&page=<n>'` (add `environment=<name>` once you know the production environment), paging until `created_at` falls before the merge.
 Keep persistent production environments, read each candidate's statuses from its `statuses_url` and keep any deployment with a `success` among them (its newest status is usually `inactive` once a later deployment succeeded, and that does not mean it never shipped), then apply the containment check; the onset is the `created_at` of the first `success` status on the earliest candidate that passes.
 
-Releases work the same way: `gh api 'repos/<owner>/<repo>/releases?per_page=100&page=<n>'`, which GitHub orders by **creation** date, not publication, so a draft cut before the merge and published after it sits behind older-published rows; page until a row's `created_at` falls before the merge (or the rows run out), then pick from everything collected the earliest release published after the merge whose tag contains it (`compare/<merge_sha>...<tag>`), skipping any release with `draft` or `prerelease` set, since a beta or release candidate never reached production users; when the repository ships production from a named channel, keep only that channel's releases.
+Releases work the same way: `gh api 'repos/<owner>/<repo>/releases?per_page=100&page=<n>'`, which GitHub orders by **creation** date, not publication, so a draft cut before the merge and published after it sits behind older-published rows; page until a row's `created_at` falls more than 30 days before the merge (or the rows run out), because one pre-merge creation on a page does not rule out an older draft published later, then pick from everything collected the earliest release published after the merge whose tag contains it (`compare/<merge_sha>...<tag>`), skipping any release with `draft` or `prerelease` set, since a beta or release candidate never reached production users; when the repository ships production from a named channel, keep only that channel's releases.
 A small first page can miss the qualifying release, so page before you select.
 
 ## Rung 3: deploy annotations
@@ -58,14 +58,14 @@ A project wired to a CI deploy marker gets one `creation_type: GIT` annotation p
 SELECT id, content, date_marker
 FROM system.annotations
 WHERE creation_type = 'GIT' AND deleted = 0
-  AND content ILIKE '%<production environment, escaped>%'
+  AND match(content, '(^|[^a-z0-9_-])<production environment, regex-escaped>([^a-z0-9_-]|$)')
   AND date_marker >= toDateTime('<merge ts>', 'UTC')
-ORDER BY date_marker ASC
+ORDER BY date_marker ASC, id ASC
 LIMIT 20 OFFSET <page * 20>
 ```
 
 Page it the same way until a marker's commit contains the merge or the markers run out.
-The environment name is data you discovered, so escape it before it enters the literal (double any `'`, and put a `\` before `%` and `_` so the `ILIKE` pattern matches them literally); a name with a quote or a wildcard in it must not be able to rewrite the predicate.
+The environment name is data you discovered, so escape it before it enters the literal (double any `'`, and regex-escape it so `.`, `+`, and the like match literally), and match it as a whole token, never as a substring: `production` must not match `nonproduction`, and `prod` must not match a preview label that contains it, or a preview deployment of the same SHA sets a false early onset.
 Fall back to `annotations-list` only when that table is unavailable, and page it by date with `offset` and **no** `search`: a valid marker reads `production a1b2c3d` and never contains the word deploy, so filter the returned rows by `creation_type`, environment, and commit instead.
 When the content names a commit, the onset is the first marker after the merge whose commit contains it (the same containment check).
 A marker whose content names no commit cannot prove containment, so it corroborates a soak-proxy onset (rung 4) but never replaces it, and the report says the onset is estimated.
@@ -79,6 +79,6 @@ Neither rule above applies here: there is no commit to contain and no environmen
 ## The onset
 
 The deploy time is your **onset**: every probe compares a post-onset window against a pre-merge window of the same length.
-The post-onset window closes at the next onset on the same rung (the next production deployment, release, or marker that passes the same containment check, or the next batch's proxy onset under rung 4), or at now when nothing has shipped since; movement that begins after that close belongs to the next batch, so record the close alongside the onset.
+The post-onset window closes at the next **different** production SHA on the same channel or environment, whether or not it contains the merge (a rollback to a pre-merge SHA reads `behind` and still closes the window, because the PR's code is no longer live), or at the next batch's proxy onset under rung 4, or at now when nothing has shipped since; movement that begins after that close belongs to the next batch, so record the close alongside the onset.
 That close bounds attribution only: a claim probe keeps reading until it has the denominator its row needs, as the body's onset paragraph says.
 Use `toDateTime('<ts>', 'UTC')` for timestamp literals, since bare strings parse in the project timezone and can shift the window by hours.

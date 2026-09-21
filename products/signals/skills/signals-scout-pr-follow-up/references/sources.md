@@ -29,7 +29,7 @@ SELECT number, toString(title) AS title,
        ifNull(JSONExtractString(user, 'login'), '') AS author,
        ifNull(JSONExtractString(user, 'type'), '') AS author_type,
        merged_at, html_url
-FROM <prefix>github_pull_requests
+FROM `<prefix>github_pull_requests`
 WHERE merged_at IS NOT NULL AND merged_at != ''
   AND parseDateTimeBestEffort(merged_at) >= now() - INTERVAL 14 DAY
 ORDER BY parseDateTimeBestEffort(merged_at) DESC, number DESC
@@ -37,6 +37,7 @@ LIMIT 500
 ```
 
 `title` and `body` are JSON columns (`toString(title)`, `toString(body)`), `user` is a JSON-encoded string that only `JSONExtractString(user, 'login')` and `JSONExtractString(user, 'type') = 'Bot'` can read (a dotted `user.login` fails on this table, exactly when the tool listing was truncated), timestamps are strings, and `merge_commit_sha` can be null, so the merge SHA for the containment check still comes from the detail fetch below.
+Quote the table name in backticks as shown: a flattened multi-repository name keeps the repository's hyphens, and a bare `owner_my-repo__pull_requests` parses as arithmetic.
 Page with `OFFSET` to the window boundary; the `number` tie-breaker keeps the order total, because two merges in the same second would otherwise swap across pages and one of them would never be listed.
 `pr-lifecycle` gives one PR's timeline.
 
@@ -50,7 +51,7 @@ A warehouse row carries the title and body but not the file paths, and often not
 
 ## Rung 3: connected GitHub integration
 
-`integrations-list` names the project's integrations; take the `id` of each one whose kind is `github` (the project profile shows only kinds, not ids) and pass it to `integrations-github-repos-retrieve`, which lists the repositories that GitHub App can see, 100 per page: follow `has_more` with successive `offset` values until it is false before you write the roster, or an installation with more repositories than one page silently loses the rest.
+`integrations-list` names the project's integrations; the sandbox's read-only `gh` token comes from one of them (the harness picks the first eligible GitHub integration), so take that integration's `id` only, not every `github` one, because a repository visible only through another installation would enter the roster and then fail every `gh` call with a 404; pass the id to `integrations-github-repos-retrieve`, which lists the repositories that GitHub App can see, 100 per page: follow `has_more` with successive `offset` values until it is false before you write the roster, or an installation with more repositories than one page silently loses the rest.
 
 Write the **whole** discovered list to `roster:pr_follow_up:repos` with a rotation pointer, and never into `config:pr_follow_up:repos`, which is the human-curated list that outranks discovery: a run that recorded only the slice it had budget for would silently drop the rest of the roster forever.
 A scratchpad entry holds at most 50,000 characters, so keep the roster compact (one `owner/repo` per line, nothing else) and, past roughly a thousand repositories, shard it: `roster:pr_follow_up:repos` keeps the discovery date, the shard count, and the rotation pointer, and `roster:pr_follow_up:repos:<k>` holds shard `k`, each written whole; an oversized single write fails and leaves the previous roster in place, which is the silent drop this rule exists to prevent.

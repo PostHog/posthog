@@ -47,11 +47,11 @@ Two cheap reads decide whether this run does work:
 
 - The state entries, each read with `scout-scratchpad-search` `key=<the key>` (an exact match that returns one entry or nothing): the repositories you watch, the deploy signal this project has, and the `cursor:`, `deferred:`, and `recheck:` entries per repository.
   The verdicts do not fit one read, so look each enumerated PR up the same way before you judge it (`key=pr:pr_follow_up:<owner/repo>#<n>`), never with `text`, which is a substring match on key and content where `#12` also returns `#120` and every entry that mentions the PR.
-- One merged-PR listing per watched repository (source ladder below), merged in the last 14 days, newest first.
+- One merged-PR listing per watched repository (source ladder below), merged since the later of 14 days ago and this scout's previous run (so a scout on a 30-day schedule lists the whole month, capped at 45 days), newest first.
 
 If no repository is reachable by any source, write `not-in-use:pr_follow_up:team{team_id}` ("checked at {timestamp}: no connected repository, no GitHub source, no PRs linked from the inbox") and close out empty.
 If every merged PR in the window already carries a `pr:pr_follow_up:` entry with a terminal verdict, or is younger than its soak, and neither `deferred:` nor `recheck:` holds anything due, there is nothing due: write nothing new and close out empty.
-Don't sweep cold history: a PR merged more than 14 days before you first saw it is backlog, not a follow-up.
+Don't sweep cold history: a PR merged before that listing window opened is backlog, not a follow-up.
 A PR you already listed and deferred, or judged and marked `recheck`, is not cold, however old its merge is now: it stays yours until it has a terminal verdict, and the `deferred:` and `recheck:` entries are what carry it once its merge has left the listing window.
 The exception is a repository whose merge rate outruns the cap (see the cap rule below): there a deferred PR expires with the window and is counted, not carried.
 
@@ -60,7 +60,7 @@ The exception is a repository whose merge rate outruns the cap (see the cap rule
 ### Get oriented
 
 - The state keys, each read with `key=` (`key=config:pr_follow_up:repos` and so on), never through the broad scan, which is newest-first and can push a stable human-authored entry off the page: `config:` (a human-curated repository list, which outranks discovery), `roster:` (the whole discovered repository list and its rotation pointer, sharded when large; see `references/sources.md`), `pattern:pr_follow_up:deploy-signal` (how this project tells you a commit is live), and `cursor:`, `deferred:`, and `recheck:` per repository.
-- `scout-scratchpad-search` (`text=pr_follow_up`, `limit=1000`): the `noise:` exclusions and `reviewer:` routes.
+- `scout-scratchpad-search` (`text=pr_follow_up`, `keys_only=true`, `limit=1000`): the `noise:` exclusions and `reviewer:` routes by key, then `key=` reads for the few you need; the substring matches every category and a mature project's bodies run to megabytes, so never pull them in the scan.
 - `scout-scratchpad-search` (`text=pr:pr_follow_up:<owner/repo>`, `keys_only=true`, `limit=1000`) per repository, then the `key=` lookup for each PR you are about to judge: a verdict the scan missed would be a PR judged twice, its report edited or filed twice.
 - `scout-runs-list` (`skill_name=signals-scout-pr-follow-up`, last 7d): what prior runs covered and deferred.
 - `scout-project-profile-get`: which products the project actually uses, so a claim probe lands on a surface that has data (a perf claim on a project with no APM spans and no web vitals is unverifiable, not failed).
@@ -97,7 +97,7 @@ That sweep takes one slot of the cap; a batch that has not reached its onset is 
 First the due rechecks: the `recheck:pr_follow_up:<owner/repo>` entry lists every PR judged non-terminal with the date its recheck is due (`#n@<due date>`), and a due one is hydrated by its number (`gh pr view <n>`, or the `pr:` entry's own record of its files and onset) whatever its merge date, because a PR marked `recheck` at day 12 is due after its merge has left the 14-day listing and would otherwise never be looked at again, its report left open with no one re-measuring it.
 Then the `deferred:pr_follow_up:<owner/repo>` entry, which lists every PR a past run listed but did not judge, oldest merge first; those go before new arrivals because a newest-first pick under sustained merge activity would keep them below the cap until they leave the window with no verdict.
 Rechecks take at most half the cap in one run, and a recheck that finds the same report still open and still failing backs off (recheck dates double: 3, 6, 12 days), so a handful of long-lived failures cannot fill every run and age new merges out unjudged; the rest of the due rechecks wait in `recheck:` for the next run.
-That holds while the repository merges fewer claim candidates **per run interval** than the cap: measure arrivals against this scout's own schedule (an hourly scout sees a twelfth of a daily count, a monthly one thirty days' worth), or read the growth of `deferred:` between runs, never a per-day count against a per-run cap.
+That holds while the repository merges fewer claim candidates **per run interval** than the cap: measure arrivals against this scout's own schedule (an hourly scout sees a twenty-fourth of a daily count, a monthly one thirty days' worth), or read the growth of `deferred:` between runs, never a per-day count against a per-run cap.
 When it merges more, oldest-first can never catch up and every slot goes to stale merges: rank the whole window by claim strength instead, take the cap from the top, and let a `deferred:` entry leave when its merge passes the 14-day window, counted in the close-out as unjudged.
 Record which posture the repository is on in `pattern:pr_follow_up:deploy-signal` next to its deploy rung.
 Within what remains, most valuable first: a PR whose title or body states a measurable claim (`fix`, `resolves #`, `should reduce`, `speeds up`, `stop`, `no longer`) before a feature PR, a feature PR that adds an event or flag before a refactor, a large production diff before a small one.
@@ -175,7 +175,7 @@ This is only the PR-follow-up judgment on top:
 - **Author** a fresh report via `scout-emit-report` for a **Not held**, **Impact missing**, or **Side effect** verdict.
   Lead with the PR (`owner/repo#n`, title, author, merge and deploy times, which deploy rung established the onset), then the claim in one line, then before-vs-after numbers per probed entity with the window lengths, then the recommendation (re-fix, roll back, follow up on the missing lift, or watch a named entity).
   Cite the PR URL and every entity id.
-  Cross-check `inbox-reports-list {"search": "<PR number or key terms>"}` first: a report already open on the same problem gets a `scout-edit-report` with the PR linkage appended, not a duplicate.
+  Cross-check `inbox-reports-list {"search": "<PR number or key terms>", "include_all_statuses": true, "ordering": "-updated_at"}` first, and read each hit's status: a report already open on the same problem gets a `scout-edit-report` with the PR linkage appended, not a duplicate, and a dismissed one means the team has already declined it, so record that in `noise:` instead of filing again.
   Set `repository` to the PR's own repository; a **Not held** or **Side effect** with an unambiguous same-entity regression is `immediately_actionable`, an **Impact missing** is usually `requires_human_input` (whether the lift was ever realistic is the author's call).
   Priority: **P2** when the regression is user-impacting at material volume, **P3** otherwise, and **P1** only when the attributed regression is what a specialist would file as P1 (an active error-rate regression hitting many requests, a capture outage, a broad web-vitals collapse) and is still ongoing, because you suppress the specialist's duplicate and the priority must not drop with the attribution.
   Route `suggested_reviewers` to the PR author first (they are on the roster far more often than a commit-history guess), cross-checked with `scout-members-list`; fall back to `reviewer:` memory and the `gh` ownership evidence the harness prompt describes.
@@ -185,7 +185,7 @@ This is only the PR-follow-up judgment on top:
   Record the pairing in `report:pr_follow_up:<owner/repo>#<n>` instead, so your own dedupe finds it next run.
   On your own still-open report, a re-check that finds the same PR still failing appends the fresh window with `append_evidence`.
   A new fix PR merging is a fresh follow-up cycle on the new PR, not an edit.
-- **Contradict** an open report that says this PR's fix failed or recurred when your probe says it held: append the onset, the deploy rung, and the post-onset counts with `append_evidence`, and record the pairing in `report:`.
+- **Contradict** an open report that says this PR's fix failed or recurred when your probe says it held: append the onset, the deploy rung, and the post-onset counts with `append_note`, never `append_evidence` (evidence binds signals and makes a disproven report rank higher), and record the pairing in `report:`.
   A recurrence report that counted pre-deploy events sends someone to re-fix a fixed bug, so this is the one held verdict that leaves memory.
 - **Remember** everything else: held, landing, weak, unverifiable.
 - **Skip** a PR already covered by a terminal `pr:` entry (held, held weak, a failed verdict whose report was dismissed, or one whose resolved report names a replacement PR that has passed the deploy ladder, never a resolved report alone) or a `noise:` entry, or one still inside its soak (a soaking PR stays in `deferred:` until it is due).
