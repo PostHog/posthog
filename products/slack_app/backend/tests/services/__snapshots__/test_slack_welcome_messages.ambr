@@ -1,0 +1,75 @@
+# serializer version: 1
+# name: test_welcome_copy[channel]
+  '''
+  Hey, I'm PostHog. Tag me with @PostHog to get started.
+  
+  ---
+  
+  :wave: Hey, I'm PostHog. Tag me with `@PostHog` and I'll dig into your product data, poke around your codebase, or open a pull request to fix something.
+  
+  *Try asking me*
+  • `@PostHog why did signups drop in the EU last week?`
+  • `@PostHog open a PR that adds a unit test for src/utils.py`
+  
+  *A few things worth knowing*
+  • Tag me again in the thread while I'm working and I'll pick up what you say.
+  • Want a different model? Say so: `@PostHog use fable for this one`, or `@PostHog run this on opus 5 at high effort`.
+  • Answering from the wrong project? Name the one you want: `@PostHog give me DAU for Staging please`. `@PostHog project` shows your default.
+  • You can DM me instead of tagging me here.
+  
+  *Tell me when I get it wrong*
+  Hit the thumbs under my replies. A thumbs down asks what went wrong, and that goes straight to the team building me. You can also react with :thumbsup: or :thumbsdown:.
+  
+  I also unfurl PostHog links shared in this channel. `/posthog` lists my commands, and your default model and thread follow-ups live in <slack://app?team=T_WELCOME&id=A_WELCOME&tab=home|my Home tab>.
+  
+  [Read the docs](https://posthog.com/docs/slack-app)
+  '''
+# ---
+# name: test_welcome_copy[install]
+  '''
+  Thanks for installing PostHog! Tag me with @PostHog, or message me here.
+  
+  ---
+  
+  :tada: Thanks for installing PostHog! I'm an AI agent. I dig into your product data, poke around your codebase, and open pull requests in your connected repos.
+  
+  *Start here*
+  • Invite me to a channel with `/invite @PostHog`, then tag me with whatever you need.
+  • Or just message me right here.
+  
+  *Set it up for the team*
+  • Name a project in your question and I'll answer from it: `@PostHog give me DAU for Staging please`.
+  • `/posthog project` lists the projects you can reach and their ids. Slack admins can set the default for everyone with `/posthog project workspace <id>`.
+  • `/posthog` lists every command, including the rules that decide which repo I open pull requests in.
+  • <slack://app?team=T_WELCOME&id=A_WELCOME&tab=home|My Home tab> has the default AI model, thread follow-ups and the tasks you've started. Connect your GitHub there so pull requests open under your own account.
+  
+  *Tell me when I get it wrong*
+  Hit the thumbs under my replies. A thumbs down asks what went wrong, and that goes straight to the team building me. You can also react with :thumbsup: or :thumbsdown:.
+  
+  [Read the docs](https://posthog.com/docs/slack-app)
+  '''
+# ---
+# name: test_welcome_copy[team_join]
+  '''
+  Hey, welcome! I'm PostHog. Message me to get started.
+  
+  ---
+  
+  :wave: Hey, welcome! I'm PostHog, an AI agent your team already uses here. Message me, or tag `@PostHog` in any channel, and I'll dig into your product data or open a pull request in a connected repo.
+  
+  *Try asking me*
+  • `why did signups drop in the EU last week?`
+  • `fix the flaky billing CI job`
+  
+  *A few things worth knowing*
+  • Keep replying in the thread while I'm working and I'll pick up what you say. In a channel, tag me in the reply.
+  • Want a different model? Say so: `use fable for this one`.
+  
+  *Tell me when I get it wrong*
+  Hit the thumbs under my replies. A thumbs down asks what went wrong, and that goes straight to the team building me. You can also react with :thumbsup: or :thumbsdown:.
+  
+  `/posthog` lists my commands. Your default model, thread follow-ups and linked accounts live in <slack://app?team=T_WELCOME&id=A_WELCOME&tab=home|my Home tab>.
+  
+  [Read the docs](https://posthog.com/docs/slack-app)
+  '''
+# ---

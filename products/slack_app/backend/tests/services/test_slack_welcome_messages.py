@@ -1,4 +1,7 @@
 import json
+from typing import Any
+
+import pytest
 
 from django.test import SimpleTestCase
 
@@ -22,6 +25,28 @@ BUILDERS = [
 def _integration(**config) -> Integration:
     # Unsaved: every builder reads `config` and `integration_id` only.
     return Integration(kind="slack", integration_id="T_WELCOME", config=config)
+
+
+def _rendered(blocks: list[dict[str, Any]]) -> str:
+    """The message as a reader sees it, so a copy edit diffs as prose rather than as JSON."""
+    lines = []
+    for block in blocks:
+        if block["type"] == "section":
+            lines.append(block["text"]["text"])
+        elif block["type"] == "context":
+            lines.append(block["elements"][0]["text"])
+        elif block["type"] == "actions":
+            lines.append(" ".join(f"[{e['text']['text']}]({e['url']})" for e in block["elements"]))
+    return "\n\n".join(lines)
+
+
+# Keyed by name rather than by builder so each snapshot is filed under a readable id.
+@pytest.mark.parametrize("name", [name for name, _ in BUILDERS])
+def test_welcome_copy(name, snapshot):
+    build = dict(BUILDERS)[name]
+    text, blocks = build(_integration(app_id="A_WELCOME"))
+
+    assert snapshot == f"{text}\n\n---\n\n{_rendered(blocks)}"
 
 
 class TestWelcomeMessages(SimpleTestCase):

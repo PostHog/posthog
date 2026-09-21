@@ -104,8 +104,8 @@ def build_channel_welcome(integration: Integration) -> tuple[str, list[dict[str,
         ),
         _feedback_block(),
         context_block(
-            "I also unfurl PostHog links shared in this channel. Your default model and thread "
-            f"follow-ups live in {_home_tab(integration)}."
+            "I also unfurl PostHog links shared in this channel. `/posthog` lists my commands, and your "
+            f"default model and thread follow-ups live in {_home_tab(integration)}."
         ),
         _docs_button_block(),
     ]
@@ -140,7 +140,10 @@ def build_team_join_welcome(integration: Integration) -> tuple[str, list[dict[st
             ),
         ),
         _feedback_block(),
-        context_block(f"Your default model, thread follow-ups and linked accounts live in {_home_tab(integration)}."),
+        context_block(
+            "`/posthog` lists my commands. Your default model, thread follow-ups and linked accounts "
+            f"live in {_home_tab(integration)}."
+        ),
         _docs_button_block(),
     ]
     return "Hey, welcome! I'm PostHog. Message me to get started.", blocks
@@ -168,8 +171,9 @@ def build_install_welcome(integration: Integration) -> tuple[str, list[dict[str,
             "Set it up for the team",
             (
                 "Name a project in your question and I'll answer from it: `@PostHog give me DAU for Staging please`.",
-                "`@PostHog project` lists the projects you can reach and their ids. Slack admins can set "
-                "the default for everyone with `@PostHog project workspace <id>`.",
+                "`/posthog project` lists the projects you can reach and their ids. Slack admins can set "
+                "the default for everyone with `/posthog project workspace <id>`.",
+                "`/posthog` lists every command, including the rules that decide which repo I open pull requests in.",
                 f"{_home_tab(integration, 'My Home tab')} has the default AI model, thread follow-ups and "
                 "the tasks you've started. Connect your GitHub there so pull requests open under your "
                 "own account.",
