@@ -6,6 +6,7 @@ name: Report backend telemetry from Depot
 # repository and workflow file, and remove their availability from ci-backend.yml.
 on:
     pull_request_target:
+        branches: [master]
         types: [opened, synchronize, reopened, ready_for_review]
     # A GitHub rerun does not emit another pull_request event. Its completed relay run triggers
     # this trusted base workflow; attempt 1 is ignored because pull_request_target already reports it.
