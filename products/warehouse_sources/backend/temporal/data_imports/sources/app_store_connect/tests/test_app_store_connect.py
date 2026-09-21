@@ -66,15 +66,16 @@ PRIVATE_KEY_PEM = _make_pem()
 class _FakeManager(ResumableSourceManager[AppStoreConnectResumeConfig]):
     """Minimal stand-in for ResumableSourceManager that records saved state in memory."""
 
-    def __init__(self, state: AppStoreConnectResumeConfig | None = None) -> None:
+    def __init__(self, state: AppStoreConnectResumeConfig | None = None, persist_on_save: bool = False) -> None:
         self._state = state
+        self._persist_on_save = persist_on_save
         self.saved: list[AppStoreConnectResumeConfig] = []
         self.cleared = 0
         self.namespaces: dict[str, _FakeManager] = {}
 
     def with_namespace(self, namespace: str) -> "_FakeManager":
         if namespace not in self.namespaces:
-            self.namespaces[namespace] = _FakeManager()
+            self.namespaces[namespace] = _FakeManager(persist_on_save=True)
         return self.namespaces[namespace]
 
     def can_resume(self) -> bool:
@@ -84,7 +85,8 @@ class _FakeManager(ResumableSourceManager[AppStoreConnectResumeConfig]):
         return self._state
 
     def save_state(self, data: AppStoreConnectResumeConfig) -> None:
-        self._state = data
+        if self._persist_on_save:
+            self._state = data
         self.saved.append(data)
 
     def clear_state(self) -> None:
