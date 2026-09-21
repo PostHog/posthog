@@ -368,6 +368,12 @@ def load_account_context(team: Team, organization_id: str | None) -> str:
         account = get_account(team.id, external_id=organization_id)
         if account is None:
             return ""
+        # The same question one object down. The check above asks whether the team withheld
+        # Customer analytics from anybody; this one asks whether it withheld this account.
+        if str(account.id) in object_ids_restricted_from_any_member(
+            team_id=team.id, resource="account", required_level="viewer"
+        ):
+            return ""
         values = list_active_custom_property_values(team.id, account.id)
         value_by_definition = {str(row.definition_id): row.value for row in values}
         pairs: list[tuple[str, object]] = []

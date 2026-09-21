@@ -509,6 +509,33 @@ class TestBuildTicketContext(BaseTest):
         assert "Account properties:" not in withheld
         assert "Enterprise" not in withheld
 
+    def test_account_properties_skip_an_account_a_member_may_not_open(self) -> None:
+        # A rule on one account is the object-level twin of the resource-level case above: the
+        # team kept this account from someone, so its properties stay out of a note they read.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        account = create_account(team_id=self.team.id, name="Acme", external_id="acct-1")
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan", target_type="account")
+        create_custom_property_value(team_id=self.team.id, account=account, definition=plan, value_str="Enterprise")
+        self.team.conversations_settings = {"ai_context_account_property_ids": [str(plan.id)]}
+        self.team.save(update_fields=["conversations_settings"])
+        ticket = self._create_ticket(organization_id="acct-1", identity_verified=True)
+
+        # Control: the resource is open to everyone, so the section renders.
+        assert "- Plan: Enterprise" in self._context(ticket)
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(account.id),
+            access_level="none",
+        )
+        restricted = self._context(ticket)
+        assert "Account properties:" not in restricted
+        assert "Enterprise" not in restricted
+
     def test_skips_account_section_when_account_missing_or_ca_errors(self) -> None:
         plan = create_custom_property_definition(team_id=self.team.id, name="Plan", target_type="account")
         self.team.conversations_settings = {"ai_context_account_property_ids": [str(plan.id)]}
