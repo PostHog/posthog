@@ -185,7 +185,7 @@ from posthog.query_scan.trigger import (
     maybe_trigger_query_scan,
 )
 from posthog.schema_helpers import to_dict
-from posthog.scopes import APIScopeObject
+from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
 from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.context import JsonValue, SloSpec, slo_operation, tag_current_slo
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
@@ -196,6 +196,7 @@ from products.access_control.backend.facade.user_access_control import (
     WAREHOUSE_ACCESS_SCOPES,
     UserAccessControl,
     UserAccessControlError,
+    default_access_level,
 )
 from products.web_analytics.backend.hogql_queries.first_pageview_flag import resolve_first_pageview_filters_modifier
 
@@ -3413,16 +3414,19 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
 
-        # Don't include restricted resources/objects in cache_payload if the ACCESS_CONTROL is unavailable
-        if isinstance(self.user, User) and not self.team.organization.is_feature_available(
-            AvailableFeature.ACCESS_CONTROL
-        ):
-            return payload
-
         # Partition only by the access-controlled tables this query reads that the user is restricted
         # from - so queries on events, persons and other non-access-controlled tables share one cache
         # entry (incl. userless cache warming).
         queried_resources = queried_access_controlled_resources(self.query, self.team)
+
+        if isinstance(self.user, User) and not self.team.organization.is_feature_available(
+            AvailableFeature.ACCESS_CONTROL
+        ):
+            # Default-denied resources still distinguish privileged users when configurable access control is unavailable.
+            resources = queried_resources if queried_resources is not None else set(API_SCOPE_OBJECTS)
+            queried_resources = {
+                resource for resource in resources if default_access_level(cast(APIScopeObject, resource)) == "none"
+            }
 
         # Reads no access-controlled table -> skip the access-control preload
         if queried_resources == set():

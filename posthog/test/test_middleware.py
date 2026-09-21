@@ -1079,6 +1079,11 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
                 {},
             ),
             (
+                "warehouse_saved_queries_check_incremental",
+                "warehouse_saved_queries/check_incremental/",
+                {"query": "select 1"},
+            ),
+            (
                 "exports",
                 "exports/",
                 {"export_format": "video/mp4", "export_context": {"session_recording_id": "test-session"}},
@@ -1110,13 +1115,17 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             ("logs_alerts", "logs/alerts/"),
             ("logs_views", "logs/views/"),
             ("logs_sampling_rules", "logs/sampling_rules/"),
+            (
+                "warehouse_saved_query_materialize",
+                "warehouse_saved_queries/00000000-0000-0000-0000-000000000000/materialize/",
+            ),
         ]
     )
-    def test_read_only_impersonation_blocks_logs_crud_siblings(self, _name, path_suffix):
+    def test_read_only_impersonation_blocks_mutating_siblings(self, _name, path_suffix):
         self.login_as_other_user_read_only()
 
-        # The logs query allowlist enumerates action names precisely because the same
-        # `logs/` prefix hosts these writing viewsets.
+        # Every allowlist entry names its action exactly, because each of these prefixes also
+        # hosts mutating actions. Widening one to its prefix would reach these.
         response = self.client.post(
             f"/api/projects/{self.team.id}/{path_suffix}",
             data={},
@@ -2173,6 +2182,12 @@ class TestCSPMiddleware(APIBaseTest):
         response = self.client.get("/")
         assert "frame-src 'self' https:" in response["Content-Security-Policy-Report-Only"]
 
+    def test_app_policy_lets_firefox_preload_the_app_bundle(self):
+        # Firefox judges <link rel="modulepreload"> by default-src, not script-src. A default-src of
+        # 'self' alone refuses every preload index.html emits for the boot chain.
+        response = self.client.get("/")
+        assert "default-src 'self' http://localhost:8234" in response["Content-Security-Policy-Report-Only"]
+
     def test_replay_player_frame_serves_the_mount_node_without_a_session(self):
         # Shared recordings render the player for logged-out viewers.
         self.client.logout()
@@ -2323,7 +2338,9 @@ class TestCSPMiddleware(APIBaseTest):
             assert "report-to posthog" in policy
             # Sampling the admin policy too would silently drop violations, so the branches diverge.
             assert "sample_rate" not in policy
-            assert "Reporting-Endpoints" in response
+            # Without it every admin report arrives under a freshly minted id, so one staff session
+            # counts as many users.
+            assert f"distinct_id={self.user.distinct_id}" in response["Reporting-Endpoints"]
         else:
             assert "report-uri" not in policy
             assert "report-to" not in policy

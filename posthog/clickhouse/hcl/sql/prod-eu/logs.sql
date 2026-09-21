@@ -545,6 +545,79 @@ CREATE TABLE posthog.metrics2_input (
   _topic String,
   _offset UInt64
 ) ENGINE = Null();
+CREATE TABLE posthog.metrics4_attributes (
+  team_id Int32,
+  metric_name LowCardinality(String),
+  time_bucket DateTime64(0),
+  original_expiry_time_bucket DateTime64(0),
+  service_name LowCardinality(String),
+  attribute_key LowCardinality(String),
+  attribute_value String,
+  attribute_type LowCardinality(String),
+  attribute_count SimpleAggregateFunction(sum, UInt64),
+  INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
+  INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_attributes', '{replica}-{shard}') ORDER BY (team_id, metric_name, attribute_type, time_bucket, attribute_key, attribute_value, service_name, original_expiry_time_bucket) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_time_bucket SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.metrics4_names (
+  team_id Int32,
+  metric_name LowCardinality(String),
+  time_bucket DateTime64(0),
+  original_expiry_time_bucket DateTime64(0),
+  original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6))
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_names', '{replica}-{shard}') ORDER BY (team_id, time_bucket, metric_name, original_expiry_time_bucket) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_timestamp SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.metrics4_samples (
+  team_id Int32,
+  metric_name LowCardinality(String),
+  time_bucket DateTime,
+  series_fingerprint UInt64 CODEC(Delta(8), Default),
+  original_expiry_date Date32,
+  resource_fingerprint SimpleAggregateFunction(any, UInt64),
+  service_name SimpleAggregateFunction(any, LowCardinality(String)),
+  metric_type SimpleAggregateFunction(any, LowCardinality(String)),
+  unit SimpleAggregateFunction(any, LowCardinality(String)),
+  aggregation_temporality SimpleAggregateFunction(any, LowCardinality(String)),
+  is_monotonic SimpleAggregateFunction(max, UInt8),
+  has_labels SimpleAggregateFunction(max, UInt8),
+  instrumentation_scope SimpleAggregateFunction(any, String),
+  histogram_bounds SimpleAggregateFunction(anyLast, Array(Float64)),
+  _topic SimpleAggregateFunction(any, LowCardinality(String)),
+  timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(DoubleDelta, Default),
+  observed_timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(DoubleDelta, Default),
+  value_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Float64)) CODEC(Gorilla(8), Default),
+  count_arr SimpleAggregateFunction(groupArrayArray(10000), Array(UInt64)) CODEC(T64, Default),
+  histogram_counts_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Array(UInt64))) CODEC(T64, Default),
+  trace_id_arr SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
+  span_id_arr SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
+  trace_flags_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Int32)),
+  INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
+  INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
+  INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_samples', '{replica}-{shard}') ORDER BY (team_id, metric_name, time_bucket, series_fingerprint) PARTITION BY original_expiry_date TTL original_expiry_date SETTINGS index_granularity = 128, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.metrics4_series (
+  team_id Int32,
+  metric_name LowCardinality(String),
+  series_fingerprint UInt64 CODEC(Delta(8), Default),
+  metric_type LowCardinality(String),
+  unit LowCardinality(String),
+  aggregation_temporality LowCardinality(String),
+  is_monotonic Bool DEFAULT false,
+  service_name LowCardinality(String),
+  instrumentation_scope String,
+  resource_attributes Map(LowCardinality(String), String),
+  resource_fingerprint UInt64 MATERIALIZED cityHash64(resource_attributes),
+  attributes Map(LowCardinality(String), String),
+  timestamp DateTime64(6),
+  time_bucket DateTime MATERIALIZED toStartOfHour(timestamp),
+  original_expiry_timestamp DateTime64(6),
+  INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
+  INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
+  INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_series', '{replica}-{shard}', timestamp) ORDER BY (team_id, metric_name, series_fingerprint, time_bucket) PARTITION BY toStartOfWeek(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics_distributed (
   team_id Int32,
   metric_name LowCardinality(String),
@@ -910,13 +983,13 @@ CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro2_mv TO posthog.metrics2_inpu
   cityHash64(mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))) AS resource_fingerprint,
   timestamp,
   observed_timestamp,
-  observed_timestamp
+  timestamp
   + toIntervalDay(
     assumeNotNull(
       if(
         (retention_days IS NOT NULL) AND (retention_days > 0),
         retention_days,
-        toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(90))
+        toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(30))
       )
     )
   ) AS original_expiry_timestamp,
