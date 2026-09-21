@@ -407,7 +407,10 @@ jobs:
                         printf 'version: 1\nowners: team-billing\n' > "$repo/billing/owners.yaml"
                         touch "$repo/billing/invoices.py"
                         "$scratch/venv/bin/owners" lint --repo-root "$repo"
-                        "$scratch/venv/bin/owners" who --repo-root "$repo" billing/invoices.py | grep -q 'team-billing'
+                        # Capture first. `grep -q` on a pipe exits at the first match, the CLI then
+                        # writes to a closed pipe and exits 1, and pipefail fails the step.
+                        resolved=$("$scratch/venv/bin/owners" who --repo-root "$repo" billing/invoices.py)
+                        grep -q 'team-billing' <<<"$resolved"
 
                   - name: Run query-performance-ai tests
                     shell: bash
