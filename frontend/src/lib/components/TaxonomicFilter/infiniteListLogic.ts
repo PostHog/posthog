@@ -521,6 +521,7 @@ export interface infiniteListLogicActions {
     updateRemoteItemSuccess: (
         remoteItems: {
             count: number
+            countIsCapped?: boolean | undefined
             expandedCount?: number | undefined
             first?: boolean | undefined
             loadDurationMs?: number | undefined
@@ -534,6 +535,7 @@ export interface infiniteListLogicActions {
     ) => {
         remoteItems: {
             count: number
+            countIsCapped?: boolean | undefined
             expandedCount?: number | undefined
             first?: boolean | undefined
             loadDurationMs?: number | undefined
