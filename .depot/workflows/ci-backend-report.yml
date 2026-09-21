@@ -7,6 +7,7 @@ name: Backend CI Depot migration reports
 
 on:
     pull_request_target:
+        branches: [master]
         types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
