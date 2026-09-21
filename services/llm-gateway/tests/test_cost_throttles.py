@@ -104,6 +104,29 @@ class TestProductCostLimitConfig:
         get_settings.cache_clear()
 
 
+class TestSandboxTaskCostLimitConfig:
+    def test_default_sandbox_task_cost_limits(self) -> None:
+        get_settings.cache_clear()
+        settings = get_settings()
+        code = settings.sandbox_task_cost_limits["posthog_code"]
+        assert code.limit_usd == 500.0
+        assert code.window_seconds == 604800
+        assert settings.sandbox_task_cost_limits["signals_interactive"].limit_usd == 50.0
+        assert settings.sandbox_task_cost_limits["slack_app"].limit_usd == 200.0
+        get_settings.cache_clear()
+
+    def test_legacy_twig_key_normalizes_to_posthog_code(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(
+            "LLM_GATEWAY_SANDBOX_TASK_COST_LIMITS",
+            '{"twig": {"limit_usd": 120, "window_seconds": 3600}}',
+        )
+        get_settings.cache_clear()
+        settings = get_settings()
+        assert "twig" not in settings.sandbox_task_cost_limits
+        assert settings.sandbox_task_cost_limits["posthog_code"].limit_usd == 120.0
+        get_settings.cache_clear()
+
+
 class TestUserCostLimitConfig:
     def test_default_user_cost_limits(self) -> None:
         get_settings.cache_clear()
@@ -1305,21 +1328,60 @@ class TestSandboxTaskCostThrottle:
     @pytest.mark.parametrize(
         ("product", "sandbox_task_id"),
         [
-            ("posthog_code", "task-1"),  # product without a configured per-run ceiling
-            ("signals", None),  # not a sandbox token, so there is no run to meter
+            ("background_agents", "task-1"),  # budget without a configured per-run ceiling
+            ("posthog_code", None),  # not a sandbox token, so there is no run to meter
         ],
     )
     async def test_is_inert_without_a_configured_ceiling_and_a_run_to_charge(
         self, product: str, sandbox_task_id: str | None
     ) -> None:
         throttle = SandboxTaskCostThrottle(redis=None)
-        context = make_context(
-            product=product,
-            user=make_signals_user(interactive=True),
-            sandbox_task_id=sandbox_task_id,
-        )
+        context = make_context(product=product, sandbox_task_id=sandbox_task_id)
+
+        # Past every configured ceiling: an unmetered request records nothing, so the
+        # throttle has nothing to deny on.
+        await throttle.record_cost(context, 10_000.0)
 
         assert (await throttle.allow_request(context)).allowed is True
+
+    @pytest.mark.asyncio
+    async def test_posthog_code_run_spends_up_to_its_ceiling_and_is_then_denied(self) -> None:
+        throttle = SandboxTaskCostThrottle(redis=None)
+        context = make_context(product="posthog_code", sandbox_task_id="task-1")
+        limit, window = throttle._get_limit_and_window(context)
+        assert (limit, window) == (500.0, 604800)
+
+        await throttle.record_cost(context, limit - 1.0)
+        assert (await throttle.allow_request(context)).allowed is True
+
+        await throttle.record_cost(context, 1.0)
+        result = await throttle.allow_request(context)
+
+        assert result.allowed is False
+        assert result.status_code == 429
+        assert result.scope == "sandbox_task_cost"
+        assert result.detail == "This agent run reached its spend limit"
+        assert result.limit_usd == limit
+        assert result.retry_after == window
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("legacy_slug", ["array", "twig"])
+    async def test_legacy_code_slugs_meter_against_the_same_run_ceiling(self, legacy_slug: str) -> None:
+        # Both aliases resolve to posthog_code, so a run cannot shed its ceiling by asking for
+        # an older path segment.
+        throttle = SandboxTaskCostThrottle(redis=None)
+        code = make_context(product="posthog_code", sandbox_task_id="task-1")
+        legacy = make_context(product=legacy_slug, sandbox_task_id="task-1")
+        limit, _ = throttle._get_limit_and_window(code)
+
+        await throttle.record_cost(code, limit)
+
+        assert (await throttle.allow_request(legacy)).allowed is False
+
+    def test_denial_detail_keeps_the_phrase_the_sandbox_agent_classifies_on(self) -> None:
+        detail = SandboxTaskCostThrottle(redis=None)._get_limit_exceeded_detail()
+
+        assert "This agent run reached its spend limit" in detail
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

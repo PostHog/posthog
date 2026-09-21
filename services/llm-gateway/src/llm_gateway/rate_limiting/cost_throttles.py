@@ -311,6 +311,9 @@ class SandboxTaskCostThrottle(CostThrottle):
     scope = "sandbox_task_cost"
 
     def _get_limit_exceeded_detail(self) -> str:
+        # The sandbox agent classifies a run as `task_spend_limit` by matching this phrase
+        # (products/desktop/packages/agent/src/adapters/error-classification.ts), so rewording
+        # it silently turns those runs back into generic agent errors.
         return "This agent run reached its spend limit"
 
     def _get_cache_key(self, context: ThrottleContext) -> str:
