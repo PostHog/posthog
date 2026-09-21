@@ -257,6 +257,7 @@ export interface insightSceneLogicMeta {
             } | null
         ) => ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => Record<string, any>) | undefined
         insightData: (arg: Record<string, any> | null | undefined) => Record<string, any> | null | undefined
+        insightLoading: (arg: boolean) => boolean
         insightSelector: (
             insightLogicRef: {
                 logic: BuiltLogic<insightLogicType>
