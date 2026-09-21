@@ -2594,6 +2594,9 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 status.HTTP_200_OK,
                 SignalReport.Status.RESOLVED,
             ),
+            # A run that died in processing still describes real work, so whoever fixed it records a
+            # resolve instead of a dismissal (which used to make the report a recurrence sink).
+            ("failed", SignalReport.Status.FAILED, None, status.HTTP_200_OK, SignalReport.Status.RESOLVED),
             (
                 "suppressed_from_ready",
                 SignalReport.Status.SUPPRESSED,
@@ -2617,14 +2620,14 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 status.HTTP_409_CONFLICT,
                 SignalReport.Status.SUPPRESSED,
             ),
-            # The model refuses failed -> resolved directly, so archiving must not launder a failed
-            # pipeline run into looking successfully resolved.
+            # A failed report resolves directly, so the archive grants it nothing new — and the
+            # archive is the only place a report dismissed as fixed can be reached from.
             (
                 "suppressed_from_failed",
                 SignalReport.Status.SUPPRESSED,
                 SignalReport.Status.FAILED,
-                status.HTTP_409_CONFLICT,
-                SignalReport.Status.SUPPRESSED,
+                status.HTTP_200_OK,
+                SignalReport.Status.RESOLVED,
             ),
             (
                 "suppressed_from_pending_input",
