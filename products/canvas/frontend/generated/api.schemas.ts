@@ -1434,8 +1434,8 @@ export interface CanvasStateEntryApi {
      * @maxLength 200
      */
     key: string
-    /** The stored JSON value. */
-    value: unknown
+    /** The stored JSON value. Omitted from a key inventory. */
+    value?: unknown
     /** When the entry was last written. */
     updated_at: string
 }
@@ -1446,6 +1446,13 @@ export interface CanvasStateEntryApi {
 export interface CanvasStateResponseApi {
     /** The canvas's shared entries plus the caller's own user-scoped entries. */
     entries: CanvasStateEntryApi[]
+    /**
+     * Next entry offset, or null when complete.
+     * @nullable
+     */
+    next_offset: number | null
+    /** True when no further entries remain for this selection. */
+    complete: boolean
 }
 
 /**
@@ -1464,6 +1471,31 @@ export interface CanvasStateSetApi {
     key: string
     /** JSON value to store (at most 64 KB serialized), or null to delete the key. */
     value: unknown
+}
+
+export interface CanvasStateValueResponseApi {
+    /** Scope of this value.
+     *
+     * * `user` - user
+     * * `shared` - shared */
+    scope: CanvasStateScopeEnumApi
+    /** Key of this value. */
+    key: string
+    /** A chunk of JSON text. Join all chunks in order, then parse the complete JSON. */
+    value_json: string
+    /** Content revision. Pass it on subsequent reads; a changed value returns 409. */
+    revision: string
+    /** Character offset of this chunk. */
+    offset: number
+    /** Character length of the complete JSON text. */
+    total_length: number
+    /**
+     * Next character offset, or null when complete.
+     * @nullable
+     */
+    next_offset: number | null
+    /** True when no further chunks remain. Earlier chunks are still needed when offset is nonzero. */
+    complete: boolean
 }
 
 /**
@@ -1709,7 +1741,37 @@ export type CanvasesSourceRetrieveParams = {
 
 export type CanvasesStateRetrieveParams = {
     /**
-     * Only return entries in this scope.
+     * Only read this exact key.
+     * @minLength 1
+     * @maxLength 200
+     */
+    key?: string
+    /**
+     * Only read entries whose key starts with this prefix.
+     * @maxLength 200
+     */
+    key_prefix?: string
+    /**
+     * True returns a key inventory without stored values.
+     */
+    keys_only?: boolean
+    /**
+     * Maximum entries per page. Omit for the full state. Prefer an inventory and state/value for large values.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Entry offset from next_offset. Keep filters unchanged between pages.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Only read this scope.
+     *
+     * * `user` - user
+     * * `shared` - shared
+     * @minLength 1
      */
     scope?: CanvasesStateRetrieveScope
 }
@@ -1717,8 +1779,50 @@ export type CanvasesStateRetrieveParams = {
 export type CanvasesStateRetrieveScope = (typeof CanvasesStateRetrieveScope)[keyof typeof CanvasesStateRetrieveScope]
 
 export const CanvasesStateRetrieveScope = {
-    Shared: 'shared',
     User: 'user',
+    Shared: 'shared',
+} as const
+
+export type CanvasesStateValueRetrieveParams = {
+    /**
+     * Exact key to read.
+     * @minLength 1
+     * @maxLength 200
+     */
+    key: string
+    /**
+     * Maximum JSON characters in this response.
+     * @minimum 1
+     * @maximum 12000
+     */
+    limit?: number
+    /**
+     * Character offset from next_offset.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Revision from the first chunk. Required when offset is greater than zero.
+     * @minLength 1
+     * @maxLength 64
+     */
+    revision?: string
+    /**
+     * Scope of the value to read.
+     *
+     * * `user` - user
+     * * `shared` - shared
+     * @minLength 1
+     */
+    scope: CanvasesStateValueRetrieveScope
+}
+
+export type CanvasesStateValueRetrieveScope =
+    (typeof CanvasesStateValueRetrieveScope)[keyof typeof CanvasesStateValueRetrieveScope]
+
+export const CanvasesStateValueRetrieveScope = {
+    User: 'user',
+    Shared: 'shared',
 } as const
 
 export type CanvasesVersionsRetrieveParams = {

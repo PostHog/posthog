@@ -8,6 +8,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework.response import Response
+from structlog.testing import capture_logs
 
 from posthog.models import Organization, Team
 
@@ -15,6 +16,8 @@ from products.managed_warehouse.backend.facade.cp_teams import clear_team_member
 from products.managed_warehouse.backend.models import DuckgresServer
 from products.managed_warehouse.backend.presentation import views as managed_warehouse
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
+
+PRINCIPAL = "api:someone@example.com"
 
 
 @pytest.fixture(autouse=True)
@@ -60,7 +63,7 @@ def test_reset_password_reports_local_persistence_failure(
     mock_request.return_value = Response({"password": "rotated"}, status=200)
     mock_update_password.side_effect = RuntimeError("database unavailable")
 
-    response = managed_warehouse.reset_password(uuid4())
+    response = managed_warehouse.reset_password(uuid4(), triggered_by=PRINCIPAL)
 
     assert response.status_code == 500
     assert response.data == {"error": "The password was rotated but could not be saved. Retry the password reset."}
@@ -84,7 +87,7 @@ def test_deprovision_schedules_cleanup_retry_when_inline_cleanup_fails(
     mock_soft_delete.side_effect = RuntimeError("database unavailable")
     organization_id = uuid4()
 
-    response = managed_warehouse.deprovision(organization_id)
+    response = managed_warehouse.deprovision(organization_id, triggered_by=PRINCIPAL)
 
     assert response.status_code == 202
     mock_soft_delete.assert_called_once_with(organization_id=organization_id, expected_generation=7)
@@ -107,7 +110,7 @@ def test_deprovision_reports_when_cleanup_and_its_retry_cannot_be_scheduled(
     mock_soft_delete.side_effect = RuntimeError("database unavailable")
     mock_schedule.side_effect = RuntimeError("broker unavailable")
 
-    response = managed_warehouse.deprovision(uuid4())
+    response = managed_warehouse.deprovision(uuid4(), triggered_by=PRINCIPAL)
 
     assert response.status_code == 500
     assert response.data == {
@@ -131,7 +134,7 @@ def test_deprovision_converges_locally_when_an_accepted_request_times_out(
         Response({"state": "deleting"}, status=200),
     ]
 
-    response = managed_warehouse.deprovision(organization_id)
+    response = managed_warehouse.deprovision(organization_id, triggered_by=PRINCIPAL)
 
     assert response.status_code == 202
     mock_deactivate.assert_called_once_with(organization_id, expected_generation=6)
@@ -151,7 +154,7 @@ def test_deprovision_converges_locally_when_the_control_plane_reports_the_wareho
     organization_id = uuid4()
     mock_request.return_value = Response({"error": "not found"}, status=404)
 
-    response = managed_warehouse.deprovision(organization_id)
+    response = managed_warehouse.deprovision(organization_id, triggered_by=PRINCIPAL)
 
     assert response.status_code == 202
     assert response.data == {"status": "deprovisioning started"}
@@ -175,7 +178,7 @@ def test_deprovision_does_not_clean_up_on_a_genuine_conflict(
         Response({"state": "ready"}, status=200),
     ]
 
-    response = managed_warehouse.deprovision(uuid4())
+    response = managed_warehouse.deprovision(uuid4(), triggered_by=PRINCIPAL)
 
     assert response.status_code == 409
     mock_deactivate.assert_not_called()
@@ -208,8 +211,8 @@ def test_deprovision_retry_after_local_cleanup_failure_converges_from_control_pl
             side_effect=RuntimeError("broker unavailable"),
         ),
     ):
-        first = managed_warehouse.deprovision(organization_id)
-        second = managed_warehouse.deprovision(organization_id)
+        first = managed_warehouse.deprovision(organization_id, triggered_by=PRINCIPAL)
+        second = managed_warehouse.deprovision(organization_id, triggered_by=PRINCIPAL)
 
     assert first.status_code == 500
     assert second.status_code == 202
@@ -231,7 +234,7 @@ def test_provision_persists_duckgres_server_on_success(mock_request: MagicMock) 
         status=202,
     )
 
-    resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, "events")
+    resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, "events", triggered_by=PRINCIPAL)
 
     assert resp.status_code == 202
     server = DuckgresServer.objects.get(organization_id=org.id)
@@ -263,7 +266,7 @@ def test_provision_enrolls_the_org_in_the_trino_cell(mock_request: MagicMock) ->
         status=202,
     )
 
-    managed_warehouse.provision(org.id, "my-warehouse", team.id, "events")
+    managed_warehouse.provision(org.id, "my-warehouse", team.id, "events", triggered_by=PRINCIPAL)
 
     # provision() also completes the first team's row, so it issues more than one
     # control-plane call — pick the provision one rather than the most recent.
@@ -301,7 +304,7 @@ def test_provision_captures_generation_before_request_and_skips_local_writes_if_
         patch.object(managed_warehouse, "_persist_duckgres_server") as persist,
         patch.object(managed_warehouse, "_register_provisioning_team") as register,
     ):
-        response = managed_warehouse.provision(org.id, "my-warehouse", team.id, "events")
+        response = managed_warehouse.provision(org.id, "my-warehouse", team.id, "events", triggered_by=PRINCIPAL)
 
     assert response.status_code == 202
     assert call_order == ["capture", "request", ("activate", 7)]
@@ -328,7 +331,7 @@ def test_provision_sends_team_id_and_schema_name_to_control_plane(
         status=202,
     )
 
-    managed_warehouse.provision(org.id, "my-warehouse", team.id, "prod_events")
+    managed_warehouse.provision(org.id, "my-warehouse", team.id, "prod_events", triggered_by=PRINCIPAL)
 
     json_body = mock_request.call_args_list[0].kwargs["json_body"]
     assert json_body["team_id"] == team.id
@@ -369,7 +372,7 @@ def test_provision_succeeds_even_when_the_team_row_completion_fails(mock_request
         Response({"error": "store unavailable"}, status=500),
     ]
 
-    resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, "prod_events")
+    resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, "prod_events", triggered_by=PRINCIPAL)
 
     assert resp.status_code == 202
 
@@ -393,7 +396,7 @@ def test_provision_schedules_generation_fenced_source_recovery_when_inline_ensur
     ]
     _onboarding_side_effects.ensure.side_effect = RuntimeError("database unavailable")
 
-    response = managed_warehouse.provision(org.id, "my-warehouse", team.id, "events")
+    response = managed_warehouse.provision(org.id, "my-warehouse", team.id, "events", triggered_by=PRINCIPAL)
 
     assert response.status_code == 202
     mock_schedule_ensure.assert_called_once_with(
@@ -432,7 +435,7 @@ def test_provision_persists_bucket_returned_by_control_plane(
     )
 
     with override_settings(CLOUD_DEPLOYMENT=deployment, DUCKGRES_PG_PORT=5432):
-        resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, "events")
+        resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, "events", triggered_by=PRINCIPAL)
 
     assert resp.status_code == 202
     server = DuckgresServer.objects.get(organization_id=org.id)
@@ -453,7 +456,7 @@ def test_provision_registers_calling_team_only(mock_request: MagicMock, _onboard
         status=202,
     )
 
-    managed_warehouse.provision(org.id, "my-warehouse", team.id, "prod_events")
+    managed_warehouse.provision(org.id, "my-warehouse", team.id, "prod_events", triggered_by=PRINCIPAL)
 
     # The control plane creates the provisioning team's row from the provision request itself;
     # locally only that team gets its query connection and earliest-date sync kicked off.
@@ -478,7 +481,7 @@ def test_provision_on_eu_deployment_persists_eu_host(mock_request: MagicMock) ->
         status=202,
     )
 
-    resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, "events")
+    resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, "events", triggered_by=PRINCIPAL)
 
     assert resp.status_code == 202
     server = DuckgresServer.objects.get(organization_id=org.id)
@@ -494,7 +497,7 @@ def test_provision_does_not_persist_on_failure(mock_request: MagicMock) -> None:
     team = Team.objects.create(organization=org)
     mock_request.return_value = Response({"error": "boom"}, status=500)
 
-    resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, "events")
+    resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, "events", triggered_by=PRINCIPAL)
 
     assert resp.status_code == 500
     assert not DuckgresServer.objects.filter(organization_id=org.id).exists()
@@ -668,7 +671,7 @@ def test_provision_rejects_invalid_schema_name(mock_request: MagicMock) -> None:
     team = Team.objects.create(organization=org)
 
     for bad_name in ("", "My Project", "my-project"):
-        resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, bad_name)
+        resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, bad_name, triggered_by=PRINCIPAL)
         assert resp.status_code == 400, bad_name
 
     # Rejected up front, before the duckgres provision call.
@@ -744,7 +747,7 @@ def test_onboard_team_creates_duckgres_row_with_legacy_names(
         Response({"team_id": team.id, "schema_name": "my_events"}, status=200),
     ]
 
-    resp = managed_warehouse.onboard_team(org.id, team.id, "my_events")
+    resp = managed_warehouse.onboard_team(org.id, team.id, "my_events", triggered_by=PRINCIPAL)
 
     assert resp.status_code == 200
     assert resp.data == {"onboarded": True, "schema_name": "my_events"}
@@ -789,7 +792,7 @@ def test_onboard_team_schedules_generation_fenced_source_recovery_when_inline_en
     ]
     _onboarding_side_effects.ensure.side_effect = RuntimeError("database unavailable")
 
-    response = managed_warehouse.onboard_team(org.id, team.id, "my_events")
+    response = managed_warehouse.onboard_team(org.id, team.id, "my_events", triggered_by=PRINCIPAL)
 
     assert response.status_code == 200
     mock_schedule_ensure.assert_called_once_with(
@@ -811,7 +814,7 @@ def test_onboard_team_surfaces_duckgres_schema_conflict(mock_request: MagicMock,
         Response({"error": "schema already in use"}, status=409),
     ]
 
-    resp = managed_warehouse.onboard_team(org.id, team.id, "taken")
+    resp = managed_warehouse.onboard_team(org.id, team.id, "taken", triggered_by=PRINCIPAL)
 
     assert resp.status_code == 409
     assert "taken" in resp.data["error"]
@@ -826,7 +829,7 @@ def test_onboard_team_rejects_invalid_name_before_control_plane(
     org, team, _ = _provisioned_org()
 
     for bad_name in ("", "My Project", "my-project"):
-        resp = managed_warehouse.onboard_team(org.id, team.id, bad_name)
+        resp = managed_warehouse.onboard_team(org.id, team.id, bad_name, triggered_by=PRINCIPAL)
         assert resp.status_code == 400, bad_name
 
     mock_request.assert_not_called()
@@ -839,7 +842,7 @@ def test_onboard_team_without_provisioned_server(mock_request: MagicMock, _mock_
     org = Organization.objects.create(name="Org")
     team = Team.objects.create(organization=org, name="Env")
 
-    resp = managed_warehouse.onboard_team(org.id, team.id, "events")
+    resp = managed_warehouse.onboard_team(org.id, team.id, "events", triggered_by=PRINCIPAL)
 
     assert resp.status_code == 400
     assert "provision" in resp.data["error"].lower()
@@ -851,7 +854,7 @@ def test_onboard_team_without_provisioned_server(mock_request: MagicMock, _mock_
 def test_onboard_team_gated_on_feature_flag(mock_enabled: MagicMock) -> None:
     org, team, _ = _provisioned_org()
 
-    resp = managed_warehouse.onboard_team(org.id, team.id, "events")
+    resp = managed_warehouse.onboard_team(org.id, team.id, "events", triggered_by=PRINCIPAL)
 
     assert resp.status_code == 403
 
@@ -868,7 +871,7 @@ def test_onboard_team_same_name_is_idempotent(
     org, team, _ = _provisioned_org()
     mock_request.return_value = Response({"teams": [{"team_id": team.id, "schema_name": "first"}]}, status=200)
 
-    resp = managed_warehouse.onboard_team(org.id, team.id, "first")
+    resp = managed_warehouse.onboard_team(org.id, team.id, "first", triggered_by=PRINCIPAL)
 
     assert resp.status_code == 200
     assert resp.data == {"onboarded": True, "schema_name": "first"}
@@ -891,7 +894,7 @@ def test_onboard_team_refuses_to_change_an_existing_schema(mock_request: MagicMo
         {"teams": [{"team_id": team.id, "schema_name": "first", "events_table_name": "events_first"}]}, status=200
     )
 
-    resp = managed_warehouse.onboard_team(org.id, team.id, "second")
+    resp = managed_warehouse.onboard_team(org.id, team.id, "second", triggered_by=PRINCIPAL)
 
     assert resp.status_code == 400
     assert "events_first" in resp.data["error"]
@@ -909,7 +912,7 @@ def test_onboard_team_refuses_to_rename_a_legacy_shared_team(mock_request: Magic
         status=200,
     )
 
-    resp = managed_warehouse.onboard_team(org.id, team.id, "new_name")
+    resp = managed_warehouse.onboard_team(org.id, team.id, "new_name", triggered_by=PRINCIPAL)
 
     assert resp.status_code == 400
     assert "shared tables" in resp.data["error"]
@@ -927,7 +930,7 @@ def test_onboard_team_fails_retryably_when_control_plane_unreachable(
     org, team, _ = _provisioned_org()
     mock_request.return_value = Response({"error": "unreachable"}, status=502)
 
-    resp = managed_warehouse.onboard_team(org.id, team.id, "my_events")
+    resp = managed_warehouse.onboard_team(org.id, team.id, "my_events", triggered_by=PRINCIPAL)
 
     assert resp.status_code == 502
     assert "try again" in resp.data["error"].lower()
@@ -947,9 +950,38 @@ def test_onboard_team_survives_direct_source_failure(
     ]
     _onboarding_side_effects.ensure.side_effect = Exception("boom")
 
-    resp = managed_warehouse.onboard_team(org.id, team.id, "my_events")
+    resp = managed_warehouse.onboard_team(org.id, team.id, "my_events", triggered_by=PRINCIPAL)
 
     assert resp.status_code == 200
+
+
+@pytest.mark.django_db
+@patch("products.managed_warehouse.backend.presentation.views.is_enabled", return_value=True)
+@patch("products.managed_warehouse.backend.presentation.views._request")
+def test_onboard_team_writes_an_attributed_audit_line(
+    mock_request: MagicMock, _mock_enabled: MagicMock, _onboarding_side_effects
+) -> None:
+    org, team, _ = _provisioned_org()
+    mock_request.side_effect = [
+        Response({"teams": []}, status=200),
+        Response({"team_id": team.id, "schema_name": "my_events"}, status=200),
+    ]
+
+    with capture_logs() as logs:
+        managed_warehouse.onboard_team(org.id, team.id, "my_events", triggered_by=PRINCIPAL)
+
+    assert [log for log in logs if log["event"] == "managed_warehouse_action"] == [
+        {
+            "event": "managed_warehouse_action",
+            "log_level": "info",
+            "action": "onboard_team",
+            "triggered_by": PRINCIPAL,
+            "organization_id": str(org.id),
+            "team_id": team.id,
+            "schema_name": "my_events",
+            "created": True,
+        }
+    ]
 
 
 @patch("products.managed_warehouse.backend.presentation.views.is_enabled", return_value=True)
@@ -961,7 +993,7 @@ def test_delete_org_issues_delete_to_org_root(mock_internal: MagicMock, _mock_en
     org_id = uuid4()
     mock_internal.request.return_value = MagicMock(status_code=200, **{"json.return_value": {"status": "deleted"}})
 
-    resp = managed_warehouse.delete_org(org_id)
+    resp = managed_warehouse.delete_org(org_id, triggered_by=PRINCIPAL)
 
     assert resp.status_code == 200
     method, url = mock_internal.request.call_args.args
@@ -1187,7 +1219,7 @@ def test_deprovision_for_org_deletion_deprovisions_the_orgs_warehouse(mock_depro
 
     managed_warehouse.deprovision_for_org_deletion(org.id)
 
-    mock_deprovision.assert_called_once_with(org.id, require_enabled=False)
+    mock_deprovision.assert_called_once_with(org.id, require_enabled=False, triggered_by="system:organization-deletion")
 
 
 @parameterized.expand(
@@ -1207,7 +1239,7 @@ def test_deprovision_for_org_deletion_treats_converged_states_as_done(
 
     managed_warehouse.deprovision_for_org_deletion(org.id)  # must not raise
 
-    mock_deprovision.assert_called_once_with(org.id, require_enabled=False)
+    mock_deprovision.assert_called_once_with(org.id, require_enabled=False, triggered_by="system:organization-deletion")
 
 
 @pytest.mark.django_db
@@ -1219,7 +1251,9 @@ def test_provision_rejected_for_org_pending_deletion(mock_request: MagicMock) ->
     org = Organization.objects.create(name="Org", is_pending_deletion=True)
     team = Team.objects.create(organization=org, name="Env")
 
-    resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, "myschema", require_enabled=False)
+    resp = managed_warehouse.provision(
+        org.id, "my-warehouse", team.id, "myschema", require_enabled=False, triggered_by=PRINCIPAL
+    )
 
     assert resp.status_code == 409
     assert "pending deletion" in resp.data["error"]
@@ -1232,7 +1266,7 @@ def test_onboard_team_rejected_for_org_pending_deletion(mock_create_team: MagicM
     org = Organization.objects.create(name="Org", is_pending_deletion=True)
     team = Team.objects.create(organization=org, name="Env")
 
-    resp = managed_warehouse.onboard_team(org.id, team.id, "myschema", require_enabled=False)
+    resp = managed_warehouse.onboard_team(org.id, team.id, "myschema", require_enabled=False, triggered_by=PRINCIPAL)
 
     assert resp.status_code == 409
     assert "pending deletion" in resp.data["error"]

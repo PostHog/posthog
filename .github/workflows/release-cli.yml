@@ -24,7 +24,7 @@ concurrency:
 jobs:
     check-changesets:
         name: Check for CLI changesets
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         outputs:
             has-changesets: ${{ steps.check.outputs.has-changesets }}
@@ -89,7 +89,7 @@ jobs:
         name: Generate CLI release preview
         needs: check-changesets
         if: needs.check-changesets.outputs.has-changesets == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         steps:
             - name: Write CLI diff summary
@@ -176,7 +176,7 @@ jobs:
     prepare-release:
         name: Prepare CLI release pull request
         needs: [check-changesets, cli-release-preview, notify-approval-needed]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 30
         if: always() && needs.check-changesets.outputs.has-changesets == 'true' && needs.cli-release-preview.result == 'success'
         environment: Release SDK
@@ -193,6 +193,8 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_POSTHOG_CLI_RELEASER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_POSTHOG_CLI_RELEASER_PRIVATE_KEY }}
+                  permission-contents: write
+                  permission-pull-requests: write
 
             - name: Checkout repository
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -435,6 +437,7 @@ jobs:
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_RELEASER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_RELEASER_PRIVATE_KEY }}
+                  permission-pull-requests: write
 
             - name: Approve and request Trunk merge
               if: steps.release-approval-token.outputs.token != ''
@@ -502,7 +505,7 @@ jobs:
         name: Identify merged CLI release
         needs: check-changesets
         if: needs.check-changesets.outputs.has-changesets == 'false'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
             contents: read
@@ -670,6 +673,7 @@ jobs:
                   path: plan-dist-manifest.json
 
     # Build and packages all the platform-specific things
+    # hogli-lint: allow-generated-runner-matrix -- dist builds this matrix; its runner labels are pinned under [dist.github-custom-runners] in dist-workspace.toml
     build-local-artifacts:
         name: build-local-artifacts (${{ join(matrix.targets, ', ') }})
         # Let the initial task tell us to not run (very blunt)
@@ -1073,7 +1077,7 @@ jobs:
     notify-released:
         name: Notify Slack - Release Published
         needs: [notify-approval-needed, release, host-release, publish-npm]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: always() && needs.host-release.result == 'success' && (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') && needs.notify-approval-needed.outputs.slack_ts != ''
         steps:
@@ -1099,7 +1103,7 @@ jobs:
             - build-global-artifacts
             - host-release
             - publish-npm
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: >-
             always() && (needs.plan-release.result == 'failure' || needs.build-local-artifacts.result == 'failure'

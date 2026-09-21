@@ -1,5 +1,6 @@
 ---
 name: signals-scout-data-warehouse
+scout-display-name: Data warehouse
 description: >
   Signals scout for warehouse imports. Watches external data sources, sync schemas, webhook push
   channels, and materialized views for failures, silent staleness, and row-volume cliffs, and

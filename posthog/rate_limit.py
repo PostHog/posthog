@@ -349,6 +349,13 @@ class IPThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ip}
 
 
+class SSOLoginThrottle(IPThrottle):
+    """Limit SSO login flow starts from one source IP."""
+
+    scope = "sso_login"
+    rate = "10/minute"
+
+
 class SignupIPThrottle(IPThrottle):
     """
     Rate limit signups by IP address to avoid a single IP address from creating too many accounts.
@@ -961,6 +968,40 @@ class AIObservabilitySummarizationDailyThrottle(PersonalApiKeyOrUserRateThrottle
     # Hard limit to prevent runaway costs
     scope = "llm_analytics_summarization_daily"
     rate = "500/day"
+
+
+class AIObservabilityBackfillEstimateThrottle(_UserBucketRateThrottle):
+    """`estimate` runs a synchronous ClickHouse count, so a caller could otherwise saturate the
+    query pool by resubmitting wide windows. Its own bucket keeps the call the UI makes on every
+    window change from using up the caller's budget for starting a backfill.
+
+    Per credential so one user changing the window cannot lock the tab for the rest of the team.
+    The aggregate is capped by the team-wide companion below."""
+
+    scope = "llma_eval_backfill_estimate"
+    rate = "20/minute"
+
+
+class AIObservabilityBackfillCreateThrottle(_UserBucketRateThrottle):
+    """`create` runs the same ClickHouse count as `estimate`, and also starts a workflow."""
+
+    scope = "llma_eval_backfill_create"
+    rate = "10/minute"
+
+
+# The buckets above ident a personal-API-key request by key hash, so every key a user mints gets a
+# full budget of the counts these two actions run, and each member of the team gets one as well.
+# The query pool they spend is shared PostHog infrastructure, so the total needs a bucket of its own,
+# the same pairing ReplayVisionSearch uses. An hour at ten times the per-minute burst leaves a team's
+# worth of concurrent editors untouched while capping a scripted loop across credentials.
+class AIObservabilityBackfillEstimateSustainedThrottle(_TeamBucketRateThrottle):
+    scope = "llma_eval_backfill_estimate_sustained"
+    rate = "200/hour"
+
+
+class AIObservabilityBackfillCreateSustainedThrottle(_TeamBucketRateThrottle):
+    scope = "llma_eval_backfill_create_sustained"
+    rate = "100/hour"
 
 
 class _CustomSourceAIBuilderThrottle(PersonalApiKeyOrUserRateThrottle):

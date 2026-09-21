@@ -1,15 +1,21 @@
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import { createElement } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { DataModelingNode, DataModelingNodeType, DataWarehouseSavedQuery } from '~/types'
 
+import { NodeDetailOverview } from './NodeDetailOverview'
 import { NodeDetailSceneTab, nodeDetailSceneLogic } from './nodeDetailSceneLogic'
+import { NodeDetailQuery } from './tabs/NodeDetailQuery'
 
 const NODE_ID = 'node-1'
 const SAVED_QUERY_ID = 'saved-query-1'
@@ -61,9 +67,32 @@ describe('nodeDetailSceneLogic', () => {
     })
 
     afterEach(() => {
+        cleanup()
         logic?.unmount()
         flagsLogic.unmount()
     })
+
+    it.each([undefined, {}])(
+        'uses node suspension only until saved-query suspension is available (%s)',
+        async (savedSuspension) => {
+            node = buildNode('matview', {
+                suspended: {
+                    clickhouse: { at: '2026-09-13T12:00:00Z', reason: 'Source unavailable', job_id: 'job-1' },
+                },
+            })
+            savedQuery = { ...savedQuery, is_materialized: true, status: 'Failed', suspended: savedSuspension }
+            await mountScene(urls.nodeDetail(NODE_ID))
+            const jobs = materializationJobsLogic({ viewId: SAVED_QUERY_ID })
+            jobs.mount()
+            try {
+                await expectLogic(jobs).toDispatchActions(['loadSavedQuerySuccess'])
+                render(createElement(NodeDetailOverview, { id: NODE_ID }))
+                expect(screen.queryByText('Suspended') !== null).toBe(savedSuspension === undefined)
+            } finally {
+                jobs.unmount()
+            }
+        }
+    )
 
     // A model with no tab in the URL has to land somewhere useful for its kind, and the URL has to
     // say where it landed — otherwise a refresh or a shared link reopens a different tab.
@@ -88,6 +117,31 @@ describe('nodeDetailSceneLogic', () => {
         await mountScene(urls.nodeDetail(NODE_ID))
 
         expect(logic.values.availableTabs).toEqual(['lineage'])
+    })
+
+    it('shows ten columns on each query page', async () => {
+        savedQuery = {
+            ...savedQuery,
+            columns: Array.from({ length: 11 }, (_, index) => ({
+                name: `column_${index + 1}`,
+                hogql_value: `column_${index + 1}`,
+                type: 'string',
+                schema_valid: true,
+            })),
+        }
+        await mountScene(urls.nodeDetail(NODE_ID, 'query'))
+
+        render(createElement(NodeDetailQuery, { id: NODE_ID }))
+
+        expect(screen.getByText('column_10')).toBeTruthy()
+        expect(screen.queryByText('column_11')).toBeNull()
+        expect(screen.getByText('1-10 of 11 columns')).toBeTruthy()
+
+        fireEvent.click(screen.getByLabelText('Next page'))
+
+        expect(screen.queryByText('column_10')).toBeNull()
+        expect(screen.getByText('column_11')).toBeTruthy()
+        expect(screen.getByText('11 of 11 columns')).toBeTruthy()
     })
 
     it('lists every tab a saved query supports when data quality checks are on', async () => {
@@ -164,6 +218,19 @@ describe('nodeDetailSceneLogic', () => {
 
         expect(logic.values.effectiveLastRunAt).toEqual('2026-08-24T15:36:00Z')
         expect(logic.values.effectiveLastRunStatus).toEqual('Completed')
+    })
+
+    // The delete runs from a shared component that also renders in the SQL editor, so the page the
+    // deleted view owns is the one that has to leave — and only for its own view.
+    it.each([
+        ['its own view', SAVED_QUERY_ID, '/project/997/models'],
+        ['another view', 'saved-query-2', `/project/997${urls.nodeDetail(NODE_ID, 'query')}`],
+    ])('leaves for Models when %s is deleted', async (_name, deletedId, expectedPath) => {
+        await mountScene(urls.nodeDetail(NODE_ID))
+
+        dataWarehouseViewsLogic.actions.deleteDataWarehouseSavedQuerySuccess([], deletedId)
+
+        expect(router.values.location.pathname).toEqual(expectedPath)
     })
 
     it('keeps a tab mounted once it has been visited', async () => {

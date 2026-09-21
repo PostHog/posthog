@@ -1,4 +1,4 @@
-export const RAW_SESSION_IDENTIFIERS_START_MS = Date.parse('2026-09-15T10:00:00Z')
+export const RAW_SESSION_IDENTIFIERS_START_MS = Date.parse('2026-09-15T12:00:00Z')
 
 export function sessionStartTimestampFromUuidV7(sessionId: string): number | null {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sessionId)) {
@@ -11,6 +11,27 @@ export function sessionStartTimestampFromUuidV7(sessionId: string): number | nul
 export function usesRawSessionIdentifiers(sessionId: string): boolean {
     const startedAt = sessionStartTimestampFromUuidV7(sessionId)
     return startedAt !== null && startedAt >= RAW_SESSION_IDENTIFIERS_START_MS && startedAt < Date.UTC(10000, 0, 1)
+}
+
+export const ML_SESSION_MAX_AGE_DAYS = 14
+export const ML_SESSION_MAX_FUTURE_DAYS = 1
+const DAY_MS = 24 * 60 * 60 * 1000
+
+export type MlSessionIdDropReason = 'session_id_not_uuid_v7' | 'session_id_too_old' | 'session_id_in_future'
+
+/** ML_SESSION_MAX_AGE_DAYS equals MONTH_DELETE_GRACE_DAYS in products/ai_training/backend/privacy/store.py, so a month opens for deletion only once no session that started in it can still arrive. */
+export function mlSessionIdDropReason(sessionId: string, nowMs: number): MlSessionIdDropReason | null {
+    const startedAt = sessionStartTimestampFromUuidV7(sessionId)
+    if (startedAt === null || startedAt >= Date.UTC(10000, 0, 1)) {
+        return 'session_id_not_uuid_v7'
+    }
+    if (startedAt < nowMs - ML_SESSION_MAX_AGE_DAYS * DAY_MS) {
+        return 'session_id_too_old'
+    }
+    if (startedAt > nowMs + ML_SESSION_MAX_FUTURE_DAYS * DAY_MS) {
+        return 'session_id_in_future'
+    }
+    return null
 }
 
 export function sessionStartMonth(sessionId: string): string {

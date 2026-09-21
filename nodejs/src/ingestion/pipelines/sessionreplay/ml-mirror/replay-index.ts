@@ -8,8 +8,8 @@ import {
 import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
 
 import { MlBlockMetadataRow } from './block-metadata-row'
+import { MlDataKey, MlEncryptedEnvelope, encryptEnvelope } from './keys/crypto'
 import { MlParquetSinkMetrics } from './metrics'
-import { MlDataKey, MlEncryptedEnvelope, encryptEnvelope } from './privacy/crypto'
 import { sessionStartTimestampFromUuidV7 } from './session-identifier-format'
 
 const DAY_MS = 86_400_000

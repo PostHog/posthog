@@ -22,7 +22,7 @@ from collections.abc import Collection
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.db.models import Prefetch, QuerySet
+from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
 
 # Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
 from products.warehouse_sources.backend.file_uploads import (
@@ -38,7 +38,10 @@ from products.warehouse_sources.backend.file_uploads import (
 from products.warehouse_sources.backend.models.column_statistics import (
     WarehouseColumnStatistics as _WarehouseColumnStatistics,
 )
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob as _ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_job import (
+    ExternalDataJob as _ExternalDataJob,
+    latest_completed_job_subquery,
+)
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema as _ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as _ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable as _DataWarehouseTable
@@ -68,6 +71,7 @@ __all__ = [
     # capability functions
     "get_source",
     "list_sources",
+    "list_source_health",
     "list_revenue_sources",
     "list_revenue_source_settings",
     "get_schema",
@@ -257,6 +261,31 @@ def list_sources(
     return [_to_source(s) for s in qs]
 
 
+def list_source_health(team_id: int) -> list[contracts.ExternalDataSourceHealth]:
+    """Live sources with the timestamp of their newest completed run and their newest schema error.
+
+    One correlated probe per source for each of the two lookups, so the cost tracks the number
+    of sources rather than the length of the team's job history.
+    """
+    # Newest schema-level error across the source's non-deleted schemas. Ordered by most
+    # recently updated so a consumer sees the freshest failure.
+    latest_error = Subquery(
+        _ExternalDataSchema.objects.filter(source_id=OuterRef("pk"), deleted=False, latest_error__isnull=False)
+        .order_by("-updated_at")
+        .values("latest_error")[:1]
+    )
+    rows = (
+        _ExternalDataSource.objects.filter(team_id=team_id, deleted=False)
+        .annotate(
+            last_run_at=latest_completed_job_subquery(team_id, "created_at"),
+            latest_error=latest_error,
+        )
+        .order_by("source_type", "id")
+        .values("source_type", "status", "prefix", "created_at", "last_run_at", "latest_error")
+    )
+    return [contracts.ExternalDataSourceHealth(**row) for row in rows]
+
+
 def _revenue_source_queryset(
     team_id: int,
     *,
@@ -347,13 +376,14 @@ def resolve_object_by_name(team_id: int, name: str) -> contracts.WarehouseObject
     """The warehouse table or saved query a query reaches under this name, else None.
 
     Resolves the dotted source forms (``stripe.charges``) the same way a query does, and skips
-    soft-deleted rows and orphans of a deleted source. None means the name reaches neither, so it
-    carries no object-level access control -- a PostHog table such as ``events``, or nothing at all.
+    soft-deleted rows, orphans of a deleted source, and direct-connection tables the default HogQL
+    scope hides. None means the name reaches neither, so it carries no object-level access control
+    -- a PostHog table such as ``events``, or nothing at all.
 
     For a caller recording what a query read: the identity survives the name being freed and taken
     by something else, which is what makes it usable as evidence later.
     """
-    resolved = _get_view_or_table_by_name(team_id, name)
+    resolved = _get_view_or_table_by_name(team_id, name, exclude_direct_access=True)
     if resolved is None:
         return None
     kind = (
@@ -368,6 +398,38 @@ def all_queryable_table_names(team_id: int) -> dict[UUID, str]:
     """The current name of every table in this team that is still queryable. One query."""
     rows = _DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id)
     return dict(rows.values_list("id", "name"))
+
+
+def all_queryable_table_keys(team_id: int) -> dict[UUID, contracts.TableNames]:
+    """Every queryable table of this team, by id, under both the names it answers to. One query.
+
+    A caller matching what a query read against what a person may reach has to know both spellings.
+    """
+    from posthog.hogql.database.database import (  # noqa: PLC0415 -- keeps HogQL off this module's import path
+        get_data_warehouse_table_name,
+    )
+
+    rows = (
+        _DataWarehouseTable.raw_objects.queryable()
+        .filter(team_id=team_id)
+        .select_related("external_data_source")
+        .only(
+            "id",
+            "name",
+            "external_data_source_id",
+            "external_data_source__id",
+            "external_data_source__access_method",
+            "external_data_source__source_type",
+            "external_data_source__prefix",
+        )
+    )
+    return {
+        table.id: contracts.TableNames(
+            row_name=table.name,
+            queryable_key=get_data_warehouse_table_name(table.external_data_source, table.name),
+        )
+        for table in rows
+    }
 
 
 def direct_access_table_ids(team_id: int) -> set[UUID]:

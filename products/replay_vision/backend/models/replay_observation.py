@@ -131,6 +131,8 @@ class ReplayObservation(UUIDModel):
         ]
         indexes = [
             models.Index(fields=["team", "created_at"], name="rlo_team_created_idx"),
+            # Serves the recording-delete cleanup, which looks rows up by session rather than scanner.
+            models.Index(fields=["team", "session_id"], name="rlo_team_session_idx"),
             models.Index(fields=["scanner", "status"], name="rlo_scanner_status_idx"),
             # Serves the alert-engine observation window: succeeded rows per scanner in a
             # completed_at range. Partial: terminal succeeded rows are the only ones scanned.

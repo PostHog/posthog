@@ -2,9 +2,11 @@ import json
 from collections.abc import Mapping
 from typing import Any, Literal
 
+import requests
 import structlog
 
 from posthog.cdp.internal_events import WORKFLOW_STEP_RESUME_EVENT, InternalEventEvent, produce_internal_event
+from posthog.plugins.plugin_server_api import WORKFLOWS_STEP_RESUME_JWT_PURPOSE, resume_workflow_step
 
 logger = structlog.get_logger(__name__)
 
@@ -50,6 +52,17 @@ def cap_value(value: Any, budget: int) -> Any:
     return value if value is not None and _json_size(value) <= budget else None
 
 
+def produce_step_resume_event(*, team_id: int, origin_key: str, status: str, result: Mapping[str, Any]) -> None:
+    produce_internal_event(
+        team_id=team_id,
+        event=InternalEventEvent(
+            event=WORKFLOW_STEP_RESUME_EVENT,
+            distinct_id=f"team_{team_id}",
+            properties={"origin_key": origin_key, "status": status, "result": result},
+        ),
+    )
+
+
 def emit_workflow_step_resume(
     *,
     team_id: int,
@@ -58,25 +71,22 @@ def emit_workflow_step_resume(
     result: Mapping[str, Any] | None = None,
     raise_on_error: bool = False,
 ) -> None:
-    """Produce the internal event that wakes the step which dispatched `origin_key`.
-
-    The wake is asynchronous. This call returns once the event is produced, not once the step
-    resumes: the engine's subscription matcher consumes the event and schedules the parked job.
-    Delivery activities can opt into retries with `raise_on_error`.
-    """
+    """Wake the step which dispatched `origin_key`: one POST to the engine's API with the key
+    provisioned, else the `$workflow_step_resume` internal event. A 409 is a duplicate of a wake
+    already taken, so it is final; `raise_on_error` lets a Temporal activity retry a lost wake."""
+    capped = cap_value(result or {}, RESULT_BYTE_CAP)
     try:
-        produce_internal_event(
-            team_id=team_id,
-            event=InternalEventEvent(
-                event=WORKFLOW_STEP_RESUME_EVENT,
-                distinct_id=f"team_{team_id}",
-                properties={
-                    "origin_key": origin_key,
-                    "status": status,
-                    "result": cap_value(result or {}, RESULT_BYTE_CAP),
-                },
-            ),
-        )
+        if WORKFLOWS_STEP_RESUME_JWT_PURPOSE.enabled():
+            try:
+                response = resume_workflow_step(team_id=team_id, origin_key=origin_key, status=status, result=capped)
+                if response.status_code == 409:
+                    logger.info("workflow_step_resume_not_parked", team_id=team_id, origin_key=origin_key)
+                    return
+                response.raise_for_status()
+                return
+            except requests.RequestException:
+                logger.exception("workflow_step_resume_post_failed", team_id=team_id, origin_key=origin_key)
+        produce_step_resume_event(team_id=team_id, origin_key=origin_key, status=status, result=capped)
     except Exception:
         logger.exception("workflow_step_resume_emit_failed", team_id=team_id, origin_key=origin_key, status=status)
         if raise_on_error:

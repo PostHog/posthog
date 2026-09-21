@@ -136,6 +136,7 @@ import {
     buildAggregateQuery,
     buildOpenEndedQuery,
     buildSurveyResponsesQuery,
+    buildSurveyResponsesExportQuery,
     buildSurveyResponseStatsQuery,
     buildSurveyRespondentQuery,
     buildSurveyOptionalBooleanPropertyFilter,
@@ -718,6 +719,7 @@ export interface surveyLogicValues {
     processedSurveyStats: SurveyStats | null
     projectTreeRef: ProjectTreeRef
     propertyFilters: AnyPropertyFilter[]
+    responsesExportQuery: DataTableNode | null
     resultsFiltersExpanded: boolean
     resultsRequeryInProgress: boolean
     reusableSurveyNotifications: HogFunctionType[]
@@ -1435,6 +1437,13 @@ export interface surveyLogicMeta {
         projectTreeRef: (arg: string) => ProjectTreeRef
         answerFilterHogQLExpression: (survey: NewSurvey | Survey, answerFilters: EventPropertyFilter[]) => string
         dataTableQuery: (
+            survey: NewSurvey | Survey,
+            propertyFilters: AnyPropertyFilter[],
+            answerFilters: EventPropertyFilter[],
+            timestampFilter: string,
+            archivedResponsesFilter: string
+        ) => DataTableNode | null
+        responsesExportQuery: (
             survey: NewSurvey | Survey,
             propertyFilters: AnyPropertyFilter[],
             answerFilters: EventPropertyFilter[],
@@ -3093,6 +3102,26 @@ export const surveyLogic = kea<surveyLogicType>([
                     showTimings: false,
                     contextKey: `survey:${survey.id}`,
                 }
+            },
+        ],
+        responsesExportQuery: [
+            (s) => [s.survey, s.propertyFilters, s.answerFilters, s.timestampFilter, s.archivedResponsesFilter],
+            (
+                survey: Survey,
+                propertyFilters: AnyPropertyFilter[],
+                answerFilters: EventPropertyFilter[],
+                timestampFilter: string,
+                archivedResponsesFilter: string
+            ): DataTableNode | null => {
+                if (survey.id === 'new') {
+                    return null
+                }
+                const query = buildSurveyResponsesExportQuery(survey, {
+                    answerFilters,
+                    timestampFilter,
+                    archivedResponsesFilter,
+                })
+                return { ...query, source: { ...query.source, filters: { properties: propertyFilters } } }
             },
         ],
         targetingFlagFilters: [

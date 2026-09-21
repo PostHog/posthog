@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json as json_module
+from dataclasses import replace
 
 import structlog
 from pydantic import BaseModel, Field, model_validator
@@ -13,6 +14,7 @@ from products.conversations.backend.temporal.ai_reply.constants import MAX_SAFET
 from products.conversations.backend.temporal.ai_reply.llms import (
     anthropic_text,
     create_message,
+    llm_attempts,
     strip_json_fence,
     tracing_kwargs,
 )
@@ -116,7 +118,7 @@ class SafetyFilterResult(BaseModel):
 async def support_safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
     """Screen ticket for prompt injection / data exfiltration before the draft loop."""
     async with Heartbeater():
-        return await _safety_filter(input)
+        return replace(await _safety_filter(input), llm_attempts=llm_attempts())
 
 
 async def _safety_filter(input: SafetyFilterInput) -> SafetyFilterOutput:

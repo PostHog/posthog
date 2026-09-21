@@ -26,6 +26,7 @@ import random
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -41,10 +42,9 @@ from temporalio import activity
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import AIGatewayConfig, resolve_ai_gateway_config
-from posthog.models import OAuthAccessToken, User
+from posthog.models import User
 from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.utils import asyncify
-from posthog.temporal.oauth import create_oauth_access_token_for_user
 
 from products.stamphog.backend.facade.enums import (
     TERMINAL_STATUSES,
@@ -133,8 +133,13 @@ STAMPHOG_AI_PRODUCT = "aio_stamphog"
 # The cap bounds what a leaked token can spend; the TTL must outlive the 30-minute review activity.
 _REVIEWER_TOKEN_CAP_USD = "5"
 _REVIEWER_TOKEN_TTL_SECONDS = 3600
-_MINT_ATTEMPTS = 2
+_MINT_ATTEMPTS = 4
 _MINT_TIMEOUT_SECONDS = 3
+# Waits of about 1s, 2s and 4s before the retries, plus jitter so a fleet of workers refused at
+# once does not come back in step. A Retry-After the gateway sends wins, clamped to the same
+# ceiling: the whole mint must stay short against the review activity's start-to-close timeout.
+_MINT_BACKOFF_SECONDS = 1.0
+_MINT_MAX_BACKOFF_SECONDS = 10.0
 
 AI_GATEWAY_TOKEN_MINTS = Counter(
     "stamphog_ai_gateway_token_mints_total",
@@ -169,26 +174,40 @@ def _connected_user(run: ReviewRun) -> User:
     return user
 
 
-def _mint_reviewer_oauth_token(run: ReviewRun, user: User) -> str:
-    """Short-lived OAuth token for the legacy gateway's stamphog route.
+def _retry_after_seconds(response: requests.Response) -> float | None:
+    """Seconds the gateway asked the caller to wait, from either Retry-After form; None if unusable."""
+    header = response.headers.get("Retry-After")
+    if not header:
+        return None
+    try:
+        return max(0.0, float(header.strip()))
+    except ValueError:
+        pass
+    try:
+        retry_at = parsedate_to_datetime(header)
+    except (TypeError, ValueError):
+        return None
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=UTC)
+    return max(0.0, (retry_at - datetime.now(UTC)).total_seconds())
 
-    Carries only ``llm_gateway:read`` plus the ``internal_run:read`` marker that route requires.
-    Never ``include_internal_scopes=True``: it drags ``task:write`` into a sandbox running an LLM
-    over untrusted PR content.
-    """
-    return create_oauth_access_token_for_user(
-        user, run.team_id, scopes=["llm_gateway:read", "internal_run:read"], include_internal_scopes=False
-    )
+
+def _mint_backoff_seconds(attempt: int, retry_after: float | None) -> float:
+    """What to wait before the next mint attempt: the gateway's own answer, else exponential backoff."""
+    if retry_after is not None:
+        return min(retry_after, _MINT_MAX_BACKOFF_SECONDS)
+    delay = min(_MINT_BACKOFF_SECONDS * 2**attempt, _MINT_MAX_BACKOFF_SECONDS)
+    return delay + random.uniform(0, delay / 4)
 
 
 def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: User) -> str:
     """Per-run ``phe_`` minted with the worker's ``phs_``, which never enters the sandbox.
 
-    Pinned to product and team and capped in spend and lifetime, so a leak buys little. Retries once
-    on 429, 5xx and network errors; any other refusal is final, and hosted runs have no shared-key
-    fallback. A token minted without a requested model pin is revoked and fails the run. Kept
-    separate from the tasks and wizard minters: each product owns its failure posture, and this cap
-    and TTL are documented invariants rather than ops knobs.
+    Pinned to product and team and capped in spend and lifetime, so a leak buys little. Retries with
+    growing backoff on 429, 5xx and network errors; any other refusal is final, and hosted runs have
+    no shared-key fallback. A token minted without a requested model pin is revoked and fails the
+    run. Kept separate from the tasks and wizard minters: each product owns its failure posture, and
+    this cap and TTL are documented invariants rather than ops knobs.
     """
     body: dict[str, object] = {
         "cap_usd": _REVIEWER_TOKEN_CAP_USD,
@@ -205,6 +224,7 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
     mint_url = f"{_gateway_root(gateway)}/v1/tokens"
     last_error = ""
     for attempt in range(_MINT_ATTEMPTS):
+        retry_after: float | None = None
         try:
             response = requests.post(
                 mint_url,
@@ -236,46 +256,42 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
                 break
             if response.status_code == 429 or response.status_code >= 500:
                 last_error = f"HTTP {response.status_code}"
+                retry_after = _retry_after_seconds(response)
             else:
                 last_error = f"HTTP {response.status_code}: {response.text[:200]}"
                 break
         if attempt < _MINT_ATTEMPTS - 1:
-            time.sleep(0.5 + random.uniform(0, 0.25))
+            time.sleep(_mint_backoff_seconds(attempt, retry_after))
     AI_GATEWAY_TOKEN_MINTS.labels(result="error").inc()
     raise RuntimeError(
         f"Could not mint the sandbox gateway token ({last_error}); hosted reviews require the LLM gateway"
     )
 
 
-def _release_reviewer_token(gateway: AIGatewayConfig | None, token: str) -> None:
+def _release_reviewer_token(gateway: AIGatewayConfig, token: str) -> None:
     """Best-effort revoke of a token the run no longer needs; the TTL outlives the review by design.
 
-    A failure only logs (the token then expires) and never changes the run's outcome. A legacy
-    OAuth token is a row this worker created, so it is deleted here.
+    A failure only logs (the token then expires) and never changes the run's outcome.
     """
     try:
-        if gateway is None:
-            deleted, _ = OAuthAccessToken.objects.filter(token=token).delete()
-            outcome = "ok" if deleted else "no such token"
+        response = requests.post(
+            f"{_gateway_root(gateway)}/v1/tokens/revoke",
+            json={"token": token},
+            headers={"Authorization": f"Bearer {gateway.api_key}"},
+            timeout=_MINT_TIMEOUT_SECONDS,
+        )
+        if not 200 <= response.status_code < 300:
+            outcome = f"HTTP {response.status_code}"
         else:
-            response = requests.post(
-                f"{_gateway_root(gateway)}/v1/tokens/revoke",
-                json={"token": token},
-                headers={"Authorization": f"Bearer {gateway.api_key}"},
-                timeout=_MINT_TIMEOUT_SECONDS,
-            )
-            if not 200 <= response.status_code < 300:
-                outcome = f"HTTP {response.status_code}"
-            else:
-                # The gateway answers 200 with revoked=false when no token matched.
-                outcome = "ok" if response.json().get("revoked", True) else "no such token"
+            # The gateway answers 200 with revoked=false when no token matched.
+            outcome = "ok" if response.json().get("revoked", True) else "no such token"
     except Exception as e:  # noqa: BLE001 — a revoke failure must never mask the review outcome
         outcome = type(e).__name__
     if outcome != "ok":
         activity.logger.warning(f"Could not revoke the reviewer token ({outcome}); it expires with its TTL")
 
 
-def _reviewer_environment(run: ReviewRun) -> tuple[dict[str, str], AIGatewayConfig | None]:
+def _reviewer_environment(run: ReviewRun) -> tuple[dict[str, str], AIGatewayConfig]:
     """Environment for the in-sandbox reviewer.
 
     The sandbox holds no GitHub token by design, and no long-lived LLM credential either: the only
@@ -284,11 +300,9 @@ def _reviewer_environment(run: ReviewRun) -> tuple[dict[str, str], AIGatewayConf
     own, and an org-wide Anthropic key must never ride into a sandbox that runs an LLM over untrusted
     PR content.
 
-    With ``AI_GATEWAY_URL`` and ``AI_GATEWAY_API_KEY`` both set, the token is a per-run ``phe_`` from
-    the Go ai-gateway; with the URL alone it must be the legacy ``/stamphog/v1`` route and the token
-    is the OAuth token that route allowlists. Any other pairing fails the run: the OAuth token is a
-    standard credential on the Go gateway and must never be sent there. Returns the env and the Go
-    config (None on the legacy path) so the caller can revoke the token.
+    ``AI_GATEWAY_URL`` and ``AI_GATEWAY_API_KEY`` name the Go ai-gateway and the worker's ``phs_``;
+    the token is a per-run ``phe_`` the caller revokes once the sandbox is gone. The sandbox sees
+    the same two names with the token in place of the key.
 
     POSTHOG_API_KEY/POSTHOG_HOST let the engine emit its stamphog_review_completed event and LLM
     traces from inside the sandbox. The capture key is a public project write token — the same class of
@@ -296,33 +310,20 @@ def _reviewer_environment(run: ReviewRun) -> tuple[dict[str, str], AIGatewayConf
     added to _llm_env_secrets so persisted output stays tidy. STAMPHOG_EXTRA_PROPERTIES stamps the
     hosted runtime/team/run context onto those events.
     """
-    # Skip the resolver without a key: it warns per call, and legacy regions run keyless for good.
-    gateway = resolve_ai_gateway_config() if settings.AI_GATEWAY_API_KEY else None
-    if gateway is not None:
-        if _is_legacy_stamphog_route(gateway.url):
-            raise RuntimeError(
-                "AI_GATEWAY_API_KEY is set but AI_GATEWAY_URL is the legacy stamphog route; "
-                "the ai-gateway key belongs with the ai-gateway URL"
-            )
-        gateway_url = gateway.url
-    else:
-        gateway_url = settings.AI_GATEWAY_URL or ""
-        if not gateway_url:
-            raise RuntimeError("AI_GATEWAY_URL is not configured; hosted reviews require the LLM gateway")
-        if not _is_legacy_stamphog_route(gateway_url):
-            raise RuntimeError(
-                "AI_GATEWAY_URL is not the legacy stamphog route and AI_GATEWAY_API_KEY is unset; "
-                "hosted reviews need both values for the ai-gateway"
-            )
-    user = _connected_user(run)
-    token = (
-        _mint_reviewer_scoped_token(gateway, run, user)
-        if gateway is not None
-        else _mint_reviewer_oauth_token(run, user)
-    )
+    gateway = resolve_ai_gateway_config()
+    if gateway is None:
+        raise RuntimeError(
+            "AI_GATEWAY_URL and AI_GATEWAY_API_KEY must both be set; hosted reviews require the ai-gateway"
+        )
+    if _is_legacy_stamphog_route(gateway.url):
+        raise RuntimeError(
+            "AI_GATEWAY_API_KEY is set but AI_GATEWAY_URL is the legacy stamphog route; "
+            "the ai-gateway key belongs with the ai-gateway URL"
+        )
+    token = _mint_reviewer_scoped_token(gateway, run, _connected_user(run))
     env = {
         "STAMPHOG_REPO_DIR": STAMPHOG_SANDBOX_REPO_DIR,
-        "AI_GATEWAY_URL": gateway_url,
+        "AI_GATEWAY_URL": gateway.url,
         "AI_GATEWAY_API_KEY": token,
     }
     for key in ("POSTHOG_API_KEY", "POSTHOG_HOST"):

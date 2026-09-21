@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldFileUploadConfig,
     SourceFieldFileUploadJsonFormatConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
     SourceFieldSwitchGroupConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_API_VERSION_V2,
     BIGQUERY_CREDENTIALS_REJECTED_ERROR,
@@ -206,6 +204,12 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             BIGQUERY_INVALID_IDENTIFIER_ERROR: BIGQUERY_INVALID_IDENTIFIER_ERROR,
             "Invalid dataset ID": BIGQUERY_INVALID_IDENTIFIER_ERROR,
             "Invalid project ID": BIGQUERY_INVALID_IDENTIFIER_ERROR,
+            # `bq.dataset(...)`-based REST calls (`list_tables`, used by temp-table cleanup and
+            # credential validation) reject a malformed project/dataset ID with this resource-name
+            # wording instead of "Invalid project ID"/"Invalid dataset ID", which only query jobs
+            # raise for the same misconfiguration. Matched on the stable wording, not the volatile
+            # offending id.
+            "Invalid resource name": BIGQUERY_INVALID_IDENTIFIER_ERROR,
             # Raised as a 400 BadRequest from job creation (POST .../jobs) when the location the
             # client runs in — the custom region from the source form, or the dataset's own location
             # auto-detected in `connect` — isn't a region BigQuery can run query jobs in, e.g.
@@ -388,7 +392,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BIG_QUERY,
+            name=ExternalDataSourceType.BIGQUERY,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["bq", "gbq", "sql", "gcp", "google cloud"],
             featured=True,

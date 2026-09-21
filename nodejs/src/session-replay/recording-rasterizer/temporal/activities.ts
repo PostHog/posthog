@@ -11,7 +11,7 @@ import { config } from '~/session-replay/recording-rasterizer/config'
 import { asRasterizationError } from '~/session-replay/recording-rasterizer/errors'
 import { createLogger } from '~/session-replay/recording-rasterizer/logger'
 import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metrics'
-import { computeVideoTimestamps } from '~/session-replay/recording-rasterizer/postprocess'
+import { videoTimestampsFromFrames } from '~/session-replay/recording-rasterizer/postprocess'
 import { uploadToS3 } from '~/session-replay/recording-rasterizer/storage'
 import {
     ActivityTimings,
@@ -133,7 +133,12 @@ async function rasterizeRecordingActivity(
         RasterizationMetrics.observeSetup('success', timings.setup_s)
         RasterizationMetrics.observeCapture('success', timings.capture_s)
 
-        const periods = computeVideoTimestamps(result.inactivity_periods)
+        const periods = videoTimestampsFromFrames(
+            result.inactivity_periods,
+            result.frame_session_ms,
+            result.output_fps,
+            result.pre_roll_frames
+        )
 
         progress.phase = 'upload'
         onProgress()

@@ -410,6 +410,8 @@ services:
             - '127.0.0.1:4445:3000'
         environment:
             TOKEN: dev
+            LOG_LEVEL: warn
+            DEBUG: '-*'
         profiles:
             - browserless
 
@@ -624,8 +626,8 @@ services:
         ports:
             - '19000:19000'
             - '19001:19001'
-        # Fresh named volume so the swap starts clean; data on the previous volume
-        # stays salvageable via `hogli deploy:upgrade-objectstorage`.
+        # Named volume from the SeaweedFS swap; the old MinIO volume is left in place
+        # because SeaweedFS cannot read its on-disk format.
         volumes:
             - objectstorage-data:/data
 

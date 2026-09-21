@@ -2,8 +2,6 @@ import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 import { CADENCE_LABELS, modeDisabledReason } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
 import { urls } from 'scenes/urls'
@@ -39,7 +37,6 @@ export function NodeDetailOverview({ id, metadata }: { id: string; metadata?: Re
         lastSuccessfulSyncAt,
     } = useValues(materializationLogic)
     const { refreshMaterialization } = useActions(materializationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const savedQuery = polledSavedQuery ?? sceneSavedQuery
 
     if (!node) {
@@ -65,8 +62,8 @@ export function NodeDetailOverview({ id, metadata }: { id: string; metadata?: Re
     }
     // Only ClickHouse serves queries, so a marker on a shadow engine means the comparison
     // run stopped, not that this model stopped refreshing.
-    const suspension = savedQuery?.suspended?.[SERVING_ENGINE]
-    const suspended = !!featureFlags[FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES] && !!suspension
+    const suspension = (savedQuery?.suspended ?? node.suspended)?.[SERVING_ENGINE]
+    const suspended = !!suspension
     const cadence = savedQuery?.sync_frequency
     const schedule = suspended
         ? 'Suspended after repeated failures'

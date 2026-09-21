@@ -62,6 +62,7 @@ export async function buildHogFunctionInvocations(
         filterGlobals: HogFunctionFilterGlobals
     ): Promise<boolean> => {
         const filterResults = await filterFunctionInstrumented({
+            caller: 'build_hog_function_invocations',
             fn: hogFunction,
             filters,
             filterGlobals,

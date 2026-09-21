@@ -214,7 +214,14 @@ describe('inboxReportDetailLogic', () => {
                     '/api/projects/:team_id/signals/reports/:id/pr_checks/': ({ request }) => {
                         requestedPrIds.push(new URL(request.url).searchParams.get('pull_request_id'))
                         prChecksRequests += 1
-                        return [502, { error: 'GitHub could not return the checks for this pull request.' }]
+                        return [
+                            403,
+                            {
+                                code: 'github_checks_permission_missing',
+                                error: "GitHub can't read pull request checks. A project admin must reconnect GitHub and grant the Checks permission.",
+                                remediation_url: '/project/2/settings/project-integrations',
+                            },
+                        ]
                     },
                     '/api/projects/:team_id/signals/reports/:id/pr_comments/': { comments: [] },
                 },
@@ -265,6 +272,16 @@ describe('inboxReportDetailLogic', () => {
             expect(prChecksRequests).toBe(3)
             expect(logic.values.prChecksBackedOff).toBe(true)
             expect(logic.values.prChecksError).toBeTruthy()
+        })
+
+        it('shows how to restore the GitHub permission', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.prChecksError).toEqual({
+                message:
+                    "GitHub can't read pull request checks. A project admin must reconnect GitHub and grant the Checks permission.",
+                remediationUrl: '/project/2/settings/project-integrations',
+            })
         })
     })
 

@@ -345,19 +345,4 @@ class TestExperimentRetentionMetricEventsPreaggregation(ExperimentQueryRunnerBas
 
         runner = self._build_runner(experiment, metric)
 
-        with patch.object(ExperimentQueryRunner, "_retention_metric_events_precomputation_enabled", return_value=True):
-            assert runner._metric_events_precompute_applicable() is applicable
-
-    def test_retention_metric_events_precompute_disabled_without_flag(self):
-        feature_flag = self.create_feature_flag(key="retention-metric-events-kill-switch")
-        experiment = self.create_experiment(
-            feature_flag=feature_flag,
-            start_date=datetime(2024, 1, 1),
-            end_date=datetime(2024, 1, 10),
-        )
-
-        runner = self._build_runner(experiment, _retention_metric())
-
-        # Fail-safe kill switch: with the flag absent/unevaluable, an otherwise
-        # eligible retention metric must stay on the direct-scan path.
-        assert runner._metric_events_precompute_applicable() is False
+        assert runner._metric_events_precompute_applicable() is applicable

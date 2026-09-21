@@ -404,7 +404,7 @@ class TestRunEvalReportAgentRouting(SimpleTestCase):
 
     @patch.object(graph, "build_langchain_callbacks", return_value=[])
     @patch.object(graph, "create_react_agent")
-    @patch.object(graph, "build_langchain_chat_client")
+    @patch.object(graph, "build_flex_first_chat_client")
     @patch.object(graph, "_compute_metrics")
     def test_routes_llm_through_gateway_helper(
         self, mock_metrics, mock_build_llm, mock_create_agent, _mock_build_callbacks
@@ -465,7 +465,7 @@ class TestRunEvalReportAgentDeadIdGuard(SimpleTestCase):
 
     @patch.object(graph, "build_langchain_callbacks", return_value=[])
     @patch.object(graph, "create_react_agent")
-    @patch.object(graph, "build_langchain_chat_client")
+    @patch.object(graph, "build_flex_first_chat_client")
     @patch.object(graph, "_compute_metrics")
     def test_uncited_opaque_id_from_the_result_allowlist_falls_back(
         self, mock_metrics, _mock_build_llm, mock_create_agent, _mock_build_callbacks
@@ -504,7 +504,7 @@ class TestRunEvalReportAgentDeadIdGuard(SimpleTestCase):
 
 
 class TestRunEvalReportAgentMetricsUnavailable(SimpleTestCase):
-    @patch.object(graph, "build_langchain_chat_client")
+    @patch.object(graph, "build_flex_first_chat_client")
     @patch.object(graph, "create_react_agent")
     @patch.object(graph, "_compute_metrics")
     def test_metrics_unavailable_skips_agent_and_returns_fallback(
@@ -547,7 +547,7 @@ class TestRunEvalReportAgentInstrumentation(SimpleTestCase):
     @patch.object(graph.logger, "info")
     @patch.object(graph, "build_langchain_callbacks")
     @patch.object(graph, "create_react_agent")
-    @patch.object(graph, "build_langchain_chat_client")
+    @patch.object(graph, "build_flex_first_chat_client")
     @patch.object(graph, "_compute_metrics")
     def test_uses_one_trace_and_session_for_the_report_run(
         self, mock_metrics, mock_build_llm, mock_create_agent, mock_build_callbacks, mock_logger_info
@@ -605,7 +605,7 @@ class TestRunEvalReportAgentInstrumentation(SimpleTestCase):
     @patch.object(graph.logger, "exception")
     @patch.object(graph, "build_langchain_callbacks", return_value=[])
     @patch.object(graph, "create_react_agent")
-    @patch.object(graph, "build_langchain_chat_client")
+    @patch.object(graph, "build_flex_first_chat_client")
     @patch.object(graph, "_compute_metrics")
     def test_error_log_includes_report_trace_and_session(
         self, mock_metrics, _mock_build_llm, mock_create_agent, _mock_build_callbacks, mock_logger_exception

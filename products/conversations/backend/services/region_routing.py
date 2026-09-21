@@ -1,13 +1,15 @@
-"""Regional routing helpers for conversations webhooks.
+"""Regional proxy for the conversations webhooks that still own their own endpoint.
 
-EU is the primary region (external callback URLs point here).
 If the primary region doesn't own the resource, it proxies the
 request to the secondary region (US).
+
+The endpoints on `posthog/ingress/` forward through that package instead. This proxy stays for
+the ones that have not moved: they take multipart bodies, which the raw-bytes replay there
+cannot reconstruct.
 """
 
 from urllib.parse import urlparse, urlunparse
 
-from django.conf import settings
 from django.http import HttpRequest
 from django.http.request import RawPostDataException
 
@@ -15,18 +17,9 @@ import requests
 import structlog
 from requests import RequestException
 
+from posthog.regions import SECONDARY_REGION_DOMAIN
+
 logger = structlog.get_logger(__name__)
-
-PRIMARY_REGION_DOMAIN = "eu.posthog.com"
-SECONDARY_REGION_DOMAIN = "us.posthog.com"
-
-if settings.DEBUG:
-    PRIMARY_REGION_DOMAIN = urlparse(settings.SITE_URL).netloc
-    SECONDARY_REGION_DOMAIN = "localhost:8000"
-
-
-def is_primary_region(request: HttpRequest) -> bool:
-    return request.get_host() == PRIMARY_REGION_DOMAIN
 
 
 def _build_proxy_kwargs(request: HttpRequest, headers: dict[str, str]) -> dict:

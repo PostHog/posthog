@@ -148,6 +148,7 @@ export interface verifiedDomainsLogicValues {
     identityProviderConfigsLoading: boolean
     isIdJagConfigSubmitting: boolean
     isIdJagConfigValid: boolean
+    isOIDCAvailable: boolean
     isSAMLAvailable: boolean
     isSCIMAvailable: boolean
     isSSOEnforcementAvailable: boolean
@@ -713,6 +714,9 @@ export interface verifiedDomainsLogicMeta {
         isSAMLAvailable: (
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
         ) => boolean
+        isOIDCAvailable: (
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+        ) => boolean
         isSCIMAvailable: (
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
         ) => boolean
@@ -1142,6 +1146,11 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             () => [userLogic.selectors.hasAvailableFeature],
             (hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean): boolean =>
                 hasAvailableFeature(AvailableFeature.SAML),
+        ],
+        isOIDCAvailable: [
+            () => [userLogic.selectors.hasAvailableFeature],
+            (hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean): boolean =>
+                hasAvailableFeature(AvailableFeature.OIDC),
         ],
         isSCIMAvailable: [
             () => [userLogic.selectors.hasAvailableFeature],

@@ -75,6 +75,12 @@ query_result.columns == ['event', 'timestamp']  # might be useful if you select 
 
 You can mix and match `parse_expr` and `ast` nodes as you please. The example above _still_ took a shortcut for the where clause because it was easier to write.
 
+## Snowflake date formatting
+
+For direct Snowflake queries, `formatDateTime` requires a literal format string and translates supported strftime specifiers into Snowflake format elements.
+The printer binds the translated format as a query parameter, preserving literal quotes and backslashes in the parameter value.
+Pass the printed SQL and `HogQLContext.values` together to the database driver.
+
 ## Database schema and features
 
 The HogQL database schema is in flux. You will soon be able to explore it in the [PostHog app itself](https://github.com/PostHog/posthog/pull/14591).

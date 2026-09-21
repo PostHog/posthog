@@ -1,4 +1,6 @@
+import hmac
 import json
+import hashlib
 from datetime import datetime, timedelta
 from typing import Any, cast
 
@@ -20,17 +22,26 @@ from django.urls import reverse
 import structlog
 from loginas import settings as la_settings
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 from social_core.backends.base import BaseAuth
 from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.middleware import CSPMiddleware, app_csp_header_name, per_request_logging_context_middleware
+from posthog.middleware import (
+    CSPMiddleware,
+    ManagedProxyClientIPMiddleware,
+    ManagedProxyClientIPOutcome,
+    app_csp_header_name,
+    per_request_logging_context_middleware,
+)
 from posthog.models.organization import Organization
+from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
+from posthog.utils import get_ip_address, get_trusted_client_ip
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
@@ -41,6 +52,42 @@ from products.product_analytics.backend.facade.models import Insight
 
 def _social_auth_backend() -> BaseAuth:
     return cast(BaseAuth, MagicMock())
+
+
+MANAGED_PROXY_KEY = "managed-proxy-test-key"
+MANAGED_PROXY_OLD_KEY = "managed-proxy-old-key"
+MANAGED_PROXY_NOW = 1_800_000_000
+MANAGED_PROXY_EDGE_IP = "198.51.100.10"
+MANAGED_PROXY_CLIENT_IP = "203.0.113.7"
+# GeoIP resolves these two, so the geo-block can tell them apart.
+MANAGED_PROXY_GERMAN_CLIENT_IP = "45.90.4.87"
+MANAGED_PROXY_NON_GERMAN_EDGE_IP = "28.160.62.192"
+# hex(HMAC-SHA256(MANAGED_PROXY_KEY, f"{MANAGED_PROXY_CLIENT_IP}:{MANAGED_PROXY_NOW}")), computed
+# independently of _managed_proxy_signature so that it pins the format the Worker also asserts.
+MANAGED_PROXY_KNOWN_ANSWER_SIGNATURE = "f825f520f1c3a2ef243b6a055a528b8ce94a3b4b9110bb6f3c2b568191e7b717"
+MANAGED_PROXY_KNOWN_ANSWER_HEADERS = {
+    "HTTP_X_POSTHOG_CLIENT_IP": MANAGED_PROXY_CLIENT_IP,
+    "HTTP_X_POSTHOG_CLIENT_IP_TIMESTAMP": str(MANAGED_PROXY_NOW),
+    "HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE": MANAGED_PROXY_KNOWN_ANSWER_SIGNATURE,
+}
+
+
+def _managed_proxy_signature(key: str, ip: str, timestamp: str) -> str:
+    return hmac.new(key.encode(), f"{ip}:{timestamp}".encode(), hashlib.sha256).hexdigest()
+
+
+def _managed_proxy_headers(
+    ip: str = MANAGED_PROXY_CLIENT_IP,
+    *,
+    key: str = MANAGED_PROXY_KEY,
+    signed_ip: str | None = None,
+    timestamp: int | str = MANAGED_PROXY_NOW,
+) -> dict[str, Any]:  # dict[str, str] does not unpack into the test client's typed keyword arguments
+    return {
+        "HTTP_X_POSTHOG_CLIENT_IP": ip,
+        "HTTP_X_POSTHOG_CLIENT_IP_TIMESTAMP": str(timestamp),
+        "HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE": _managed_proxy_signature(key, signed_ip or ip, str(timestamp)),
+    }
 
 
 class TestAccessMiddleware(APIBaseTest):
@@ -190,6 +237,147 @@ class TestAccessMiddleware(APIBaseTest):
             response = self.client.get("/", headers={"x-forwarded-for": "192.168.1.1"})
             self.assertNotIn(b"PostHog is not available", response.content)
 
+    @parameterized.expand([("signed", MANAGED_PROXY_KEY, True), ("unsigned", "some-other-key", False)])
+    def test_blocked_geoip_regions_sees_managed_proxy_client_ip(self, _name: str, key: str, blocked: bool) -> None:
+        with (
+            self.settings(
+                BLOCKED_GEOIP_REGIONS=["DE"],
+                USE_X_FORWARDED_HOST=True,
+                TRUST_ALL_PROXIES=True,
+                MANAGED_PROXY_SIGNING_KEYS=[MANAGED_PROXY_KEY],
+            ),
+            time_machine.travel(MANAGED_PROXY_NOW, tick=False),
+        ):
+            response = self.client.get(
+                "/",
+                HTTP_X_FORWARDED_FOR=MANAGED_PROXY_NON_GERMAN_EDGE_IP,
+                **_managed_proxy_headers(MANAGED_PROXY_GERMAN_CLIENT_IP, key=key),
+            )
+
+        assert (b"PostHog is not available" in response.content) is blocked
+
+
+@override_settings(
+    MANAGED_PROXY_SIGNING_KEYS=[MANAGED_PROXY_KEY, MANAGED_PROXY_OLD_KEY],
+    USE_X_FORWARDED_HOST=True,
+    TRUST_ALL_PROXIES=True,
+)
+class TestManagedProxyClientIPMiddleware(SimpleTestCase):
+    def _verification_counts(self) -> dict[str, float]:
+        return {
+            outcome.value: REGISTRY.get_sample_value(
+                "posthog_managed_proxy_client_ip_verifications_total", {"outcome": outcome.value}
+            )
+            or 0.0
+            for outcome in ManagedProxyClientIPOutcome
+        }
+
+    def _run_middleware(self, meta: dict[str, Any], expected_outcome: str | None) -> tuple[str, str | None]:
+        counts_before = self._verification_counts()
+        request = RequestFactory().get("/", REMOTE_ADDR="10.0.0.5", HTTP_X_FORWARDED_FOR=MANAGED_PROXY_EDGE_IP, **meta)
+        # An earlier middleware may read request.headers, which caches a snapshot of META.
+        assert request.headers.get("x-forwarded-for") == MANAGED_PROXY_EDGE_IP
+        seen: dict[str, Any] = {}
+
+        def get_response(request: HttpRequest) -> HttpResponse:
+            seen["ips"] = (get_ip_address(request), get_trusted_client_ip(request))
+            seen["leftover"] = [key for key in request.META if key.startswith("HTTP_X_POSTHOG_CLIENT_IP")] + [
+                name for name in request.headers if name.lower().startswith("x-posthog-client-ip")
+            ]
+            return HttpResponse()
+
+        with time_machine.travel(MANAGED_PROXY_NOW, tick=False):
+            ManagedProxyClientIPMiddleware(get_response)(request)
+
+        assert seen["leftover"] == []
+        expected_counts = dict(counts_before)
+        if expected_outcome:
+            expected_counts[expected_outcome] += 1
+        assert self._verification_counts() == expected_counts
+        return seen["ips"]
+
+    @parameterized.expand(
+        [
+            ("known_answer_vector", MANAGED_PROXY_KNOWN_ANSWER_HEADERS, MANAGED_PROXY_CLIENT_IP),
+            (
+                "uppercase_hex",
+                {
+                    **MANAGED_PROXY_KNOWN_ANSWER_HEADERS,
+                    "HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE": MANAGED_PROXY_KNOWN_ANSWER_SIGNATURE.upper(),
+                },
+                MANAGED_PROXY_CLIENT_IP,
+            ),
+            ("older_key", _managed_proxy_headers(key=MANAGED_PROXY_OLD_KEY), MANAGED_PROXY_CLIENT_IP),
+            ("ipv6", _managed_proxy_headers("2001:db8::1"), "2001:db8::1"),
+            ("oldest_timestamp", _managed_proxy_headers(timestamp=MANAGED_PROXY_NOW - 60), MANAGED_PROXY_CLIENT_IP),
+            ("newest_timestamp", _managed_proxy_headers(timestamp=MANAGED_PROXY_NOW + 5), MANAGED_PROXY_CLIENT_IP),
+        ]
+    )
+    def test_valid_signature_sets_client_ip(self, _name: str, meta: dict[str, Any], expected_ip: str) -> None:
+        assert self._run_middleware(meta, "valid") == (expected_ip, expected_ip)
+
+    @parameterized.expand(
+        [
+            ("no_headers", {}, None),
+            ("unknown_key", _managed_proxy_headers(key="some-other-key"), "bad_signature"),
+            ("signed_for_another_ip", _managed_proxy_headers(signed_ip="192.0.2.1"), "bad_signature"),
+            (
+                "expired_timestamp",
+                _managed_proxy_headers(timestamp=MANAGED_PROXY_NOW - 61),
+                "timestamp_out_of_window",
+            ),
+            (
+                "future_timestamp",
+                _managed_proxy_headers(timestamp=MANAGED_PROXY_NOW + 6),
+                "timestamp_out_of_window",
+            ),
+            ("non_numeric_timestamp", _managed_proxy_headers(timestamp="1800000000.0"), "invalid_input"),
+            ("oversized_timestamp", _managed_proxy_headers(timestamp="1" * 5000), "invalid_input"),
+            ("malformed_ip", _managed_proxy_headers("not-an-ip"), "invalid_input"),
+            (
+                "missing_timestamp",
+                {k: v for k, v in _managed_proxy_headers().items() if k != "HTTP_X_POSTHOG_CLIENT_IP_TIMESTAMP"},
+                "invalid_input",
+            ),
+            (
+                "empty_signature",
+                {**_managed_proxy_headers(), "HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE": ""},
+                "invalid_input",
+            ),
+            (
+                "non_ascii_signature",
+                {**_managed_proxy_headers(), "HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE": "é" * 64},
+                "bad_signature",
+            ),
+        ]
+    )
+    def test_unverified_request_keeps_edge_ip(
+        self, _name: str, meta: dict[str, Any], expected_outcome: str | None
+    ) -> None:
+        assert self._run_middleware(meta, expected_outcome) == (MANAGED_PROXY_EDGE_IP, MANAGED_PROXY_EDGE_IP)
+
+    @parameterized.expand(
+        [
+            ("no_keys", [], "not_configured"),
+            ("empty_key", [""], "not_configured"),
+            ("empty_key_in_list", [MANAGED_PROXY_KEY, ""], "bad_signature"),
+        ]
+    )
+    def test_signing_key_list_keeps_edge_ip(self, _name: str, keys: list[str], expected_outcome: str) -> None:
+        with self.settings(MANAGED_PROXY_SIGNING_KEYS=keys):
+            client_ips = self._run_middleware(_managed_proxy_headers(key="some-other-key"), expected_outcome)
+
+        assert client_ips == (MANAGED_PROXY_EDGE_IP, MANAGED_PROXY_EDGE_IP)
+
+    def test_runs_before_the_middleware_that_logs_the_forwarded_for_header(self) -> None:
+        # per_request_logging_context_middleware reads x-forwarded-for on the request path, so it
+        # only records the signed IP while it stays below this middleware. AllowIPMiddleware and axes
+        # read the client IP at or after the view, so their position does not constrain this one.
+        middleware = list(settings.MIDDLEWARE)
+        assert middleware.index("posthog.middleware.ManagedProxyClientIPMiddleware") < middleware.index(
+            "posthog.middleware.per_request_logging_context_middleware"
+        )
+
 
 class TestAutoProjectMiddleware(APIBaseTest):
     # How many queries are made in the base app
@@ -223,6 +411,9 @@ class TestAutoProjectMiddleware(APIBaseTest):
         # Reset back to initial team/org for each test
         self.user.current_team = self.team
         self.user.current_organization = self.organization
+
+    def app_context(self, response) -> dict:
+        return json.loads(response.context["posthog_app_context"])
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_switched_when_accessing_dashboard_of_another_accessible_team(self):
@@ -400,11 +591,13 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         assert project_1_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
+        assert self.app_context(project_1_request)["project_access_denied"] is None
 
         project_2_request = self.client.get(f"/project/{self.no_access_team.pk}/home")
         response_users_api = self.client.get(f"/api/users/@me/")
         assert project_2_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
+        assert self.app_context(project_2_request)["project_access_denied"] == str(self.no_access_team.pk)
 
     def test_project_unchanged_when_accessing_missing_project_by_id(self):
         project_1_request = self.client.get(f"/project/{self.team.pk}/home")
@@ -416,6 +609,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         assert project_2_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
+        assert self.app_context(project_2_request)["project_access_denied"] == "999999"
 
     def test_project_redirects_to_new_team_when_accessing_project_by_token(self):
         res = self.client.get(f"/project/{self.second_team.api_token}/home")
@@ -432,28 +626,24 @@ class TestAutoProjectMiddleware(APIBaseTest):
             == f"/project/{self.third_team.pk}/replay/018f5c3e-1a17-7f2b-ac83-32d06be3269b?t=2601"
         )
 
-    def test_project_redirects_to_current_team_when_accessing_missing_project_by_token(
-        self,
-    ):
-        res = self.client.get(f"/project/phc_123/home")
-        assert res.status_code == 302
-        assert res.headers["Location"] == f"/project/{self.team.pk}/home"
+    @parameterized.expand([("missing", None), ("inaccessible", "no_access_team")])
+    def test_project_access_denied_when_accessing_unreachable_project_by_token(self, _name, team_attribute):
+        token = getattr(self, team_attribute).api_token if team_attribute else "phc_123"
 
-    def test_project_redirects_to_current_team_when_accessing_inaccessible_project_by_token(
-        self,
-    ):
-        res = self.client.get(f"/project/{self.no_access_team.api_token}/home")
-        assert res.status_code == 302
-        assert res.headers["Location"] == f"/project/{self.team.pk}/home"
+        res = self.client.get(f"/project/{token}/home")
+        assert res.status_code == 200
+        response_users_api = self.client.get(f"/api/users/@me/")
+        assert response_users_api.json().get("team", {}).get("id") == self.team.id
+        assert self.app_context(res)["project_access_denied"] == token
 
     def test_project_redirects_including_query_params(self):
-        res = self.client.get(f"/project/phc_123?t=1")
+        res = self.client.get(f"/project/{self.second_team.api_token}?t=1")
         assert res.status_code == 302
-        assert res.headers["Location"] == f"/project/{self.team.pk}?t=1"
+        assert res.headers["Location"] == f"/project/{self.second_team.pk}?t=1"
 
-        res = self.client.get(f"/project/phc_123/home?t=1")
+        res = self.client.get(f"/project/{self.second_team.api_token}/home?t=1")
         assert res.status_code == 302
-        assert res.headers["Location"] == f"/project/{self.team.pk}/home?t=1"
+        assert res.headers["Location"] == f"/project/{self.second_team.pk}/home?t=1"
 
 
 @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
@@ -503,6 +693,17 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertEqual(ph_instance_cookie["secure"], True)
         self.assertEqual(ph_instance_cookie["max-age"], 31536000)
 
+        ph_authenticated_cookie = response.cookies["ph_authenticated_us"]
+        self.assertEqual(ph_authenticated_cookie.value, "1")
+        self.assertEqual(ph_authenticated_cookie["path"], "/")
+        self.assertEqual(ph_authenticated_cookie["samesite"], "Lax")
+        self.assertEqual(ph_authenticated_cookie["httponly"], True)
+        self.assertEqual(ph_authenticated_cookie["domain"], "posthog.com")
+        self.assertEqual(ph_authenticated_cookie["secure"], True)
+        self.assertNotIn("ph_authenticated_eu", response.cookies)
+        self.assertLessEqual(ph_authenticated_cookie["max-age"], settings.SESSION_COOKIE_AGE)
+        self.assertGreater(ph_authenticated_cookie["max-age"], settings.SESSION_COOKIE_AGE - 60)
+
         ph_last_login_method_cookie = response.cookies["ph_last_login_method"]
         self.assertEqual(ph_last_login_method_cookie.key, "ph_last_login_method")
         self.assertEqual(ph_last_login_method_cookie.value, "password")
@@ -542,6 +743,8 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertTrue(response.cookies["ph_current_project_name"]["expires"] == "Thu, 01 Jan 1970 00:00:00 GMT")
         # We don't want to remove the ph_current_instance cookie
         self.assertNotIn("ph_current_instance", response.cookies)
+        # ...but the region cookie has to go, or the OAuth picker redirects into a signed-out region
+        self.assertEqual(response.cookies["ph_authenticated_us"]["expires"], "Thu, 01 Jan 1970 00:00:00 GMT")
 
         # Request a page after logging out
         response = self.client.get("/")
@@ -1818,6 +2021,53 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         if expected_location:
             self.assertEqual(response.headers["Location"], expected_location)
 
+    @parameterized.expand(
+        [
+            ("deactivated_keeps_invites", "is_active", "/signup/{invite_id}", status.HTTP_200_OK),
+            ("deactivated_keeps_billing", "is_active", "/organization/billing", status.HTTP_200_OK),
+            ("deactivated_keeps_stripe_return", "is_active", "/billing/authorization_status", status.HTTP_200_OK),
+            ("pending_deletion_keeps_invites", "is_pending_deletion", "/signup/{invite_id}", status.HTTP_200_OK),
+            ("pending_deletion_drops_billing", "is_pending_deletion", "/organization/billing", status.HTTP_302_FOUND),
+            (
+                "pending_deletion_drops_stripe_return",
+                "is_pending_deletion",
+                "/billing/authorization_status",
+                status.HTTP_302_FOUND,
+            ),
+        ]
+    )
+    def test_blocked_organization_page_access(
+        self, _name: str, blocking_field: str, path_template: str, expected_status: int
+    ) -> None:
+        inviting_org = Organization.objects.create(name="Inviting Org")
+        invite = OrganizationInvite.objects.create(organization=inviting_org, target_email=self.user.email)
+
+        setattr(self.organization, blocking_field, blocking_field == "is_pending_deletion")
+        self.organization.save()
+
+        response = self.client.get(path_template.format(invite_id=invite.id))
+        self.assertEqual(response.status_code, expected_status)
+
+    def test_link_into_another_active_organization_loads(self):
+        active_org = Organization.objects.create(name="Active Org")
+        active_team = Team.objects.create(organization=active_org, name="Active Team")
+        self.user.organizations.add(active_org)
+
+        self.organization.is_active = False
+        self.organization.save()
+
+        response = self.client.get(f"/project/{active_team.pk}/dashboard")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_runs_after_the_middleware_that_switches_project(self):
+        # The block check reads `current_organization`, so it only sees the organization a
+        # `/project/<id>` URL names once AutoProjectMiddleware has switched the user into it.
+        middleware = list(settings.MIDDLEWARE)
+        self.assertLess(
+            middleware.index("posthog.middleware.AutoProjectMiddleware"),
+            middleware.index("posthog.middleware.ActiveOrganizationMiddleware"),
+        )
+
 
 class TestActivityLoggingMiddleware(APIBaseTest):
     def setUp(self):
@@ -1856,13 +2106,26 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         self.assertIsNone(self.captured["client"])
 
     def test_long_header_value_is_truncated(self):
-        from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_MAX_LENGTH
+        from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_HEADER_MAX_LENGTH
 
-        long_value = "x" * (ACTIVITY_LOG_CLIENT_MAX_LENGTH * 4)
+        long_value = "x" * (ACTIVITY_LOG_CLIENT_HEADER_MAX_LENGTH * 4)
         request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT=long_value)
         request.user = self.user
         self.middleware(request)
-        self.assertEqual(self.captured["client"], "x" * ACTIVITY_LOG_CLIENT_MAX_LENGTH)
+        self.assertEqual(self.captured["client"], "x" * ACTIVITY_LOG_CLIENT_HEADER_MAX_LENGTH)
+
+    @parameterized.expand(
+        [
+            ("lowercase prefix", "scout:signals-scout-errors"),
+            ("upper case prefix", "SCOUT:signals-scout-errors"),
+            ("padded prefix", "  scout:signals-scout-errors  "),
+        ]
+    )
+    def test_header_claiming_a_server_derived_prefix_is_dropped(self, _name: str, header_value: str):
+        request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT=header_value)
+        request.user = self.user
+        self.middleware(request)
+        self.assertIsNone(self.captured["client"])
 
     def test_captures_ip_address_from_remote_addr(self):
         request = self.factory.get("/", REMOTE_ADDR="203.0.113.42")
@@ -1915,8 +2178,7 @@ class TestCSPMiddleware(APIBaseTest):
         self.client.logout()
         response = self.client.get("/replay_player_frame/index.html")
         assert response.status_code == 200
-        # PlayerFrame.tsx looks the mount node up by this id. A rename here makes every player fall
-        # back to the app document.
+        # PlayerFrame.tsx looks the mount node up by this id. A rename here makes every player show its load error.
         assert 'id="player-frame-content"' in response.content.decode()
 
     def test_non_html_response_gets_strict_csp(self):
@@ -2011,6 +2273,33 @@ class TestCSPMiddleware(APIBaseTest):
         header = response["Reporting-Endpoints"]
         assert "us.i.posthog.com" not in header
         assert f"distinct_id={self.user.distinct_id}" in header
+
+    @parameterized.expand(
+        [
+            ("staff", True, "1", "0.1"),
+            ("not_staff", False, "0.1", "1"),
+        ]
+    )
+    @override_settings(CSP_REPORT_ENDPOINT="https://posthog.example.com/report/")
+    def test_staff_report_every_violation_while_everyone_else_is_sampled(
+        self, _name, is_staff, expected_rate, other_rate
+    ):
+        # Staff get the policy enforced ahead of everyone else, so a violation of theirs is
+        # something already broken for a colleague rather than one sample of a trend. At 0.1 nine
+        # in ten of those never arrive, which defeats the point of rolling out to staff first.
+        self.user.is_staff = is_staff
+        self.user.save()
+
+        response = self.client.get("/")
+
+        policy = response["Content-Security-Policy-Report-Only"]
+        assert f"report-uri https://posthog.example.com/report/?sample_rate={expected_rate}" in policy
+        assert f"sample_rate={other_rate}" not in policy
+        # The crash-reporting endpoint is built by a second call that takes the rate separately, so
+        # it can drift from the directive above.
+        header = response["Reporting-Endpoints"]
+        assert f"sample_rate={expected_rate}&distinct_id={self.user.distinct_id}" in header
+        assert f"sample_rate={other_rate}" not in header
 
     @parameterized.expand(
         [

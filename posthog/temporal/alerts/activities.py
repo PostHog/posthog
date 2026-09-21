@@ -1,5 +1,6 @@
-import json
+import asyncio
 import hashlib
+import json
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -18,6 +19,7 @@ from posthog.schema import AlertState
 from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.email import is_email_available
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
@@ -54,6 +56,7 @@ from posthog.temporal.alerts.types import (
     SkipReason,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.metrics import get_metric_meter
 
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
@@ -90,13 +93,21 @@ _LLM_EVALUATE_EXECUTOR = ThreadPoolExecutor(
 )
 
 
+@frozen
+class _RetrievedAlerts:
+    alerts: list[AlertInfo]
+    due_count: int
+    oldest_due_at: datetime | None
+    polled_at: datetime
+
+
 @temporalio.activity.defn
 async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | None = None) -> list[AlertInfo]:
     if inputs is None:
         inputs = ScheduleDueAlertChecksWorkflowInputs()
 
     @database_sync_to_async(thread_sensitive=False)
-    def get_alerts() -> list[AlertInfo]:
+    def get_alerts() -> _RetrievedAlerts:
         polled_at = datetime.now(UTC)
 
         calculation_interval_order = Case(
@@ -152,11 +163,37 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
         due_alert_metrics = due_alerts_query.aggregate(
             due_count=Count("id"), oldest_due_at=Min(Coalesce("next_check_at", "created_at"))
         )
-        record_due_insight_alert_metrics(due_alert_metrics["due_count"], due_alert_metrics["oldest_due_at"], polled_at)
-        return alerts
+        return _RetrievedAlerts(
+            alerts=alerts,
+            due_count=due_alert_metrics["due_count"],
+            oldest_due_at=due_alert_metrics["oldest_due_at"],
+            polled_at=polled_at,
+        )
 
-    async with Heartbeater():
-        return await get_alerts()
+    retrieved = await get_alerts()
+    try:
+        await asyncio.to_thread(
+            record_due_insight_alert_metrics,
+            retrieved.due_count,
+            retrieved.oldest_due_at,
+            retrieved.polled_at,
+        )
+    except Exception:
+        logger.exception("Failed to record due insight alert metrics")
+
+    try:
+        meter = get_metric_meter()
+        meter.create_counter(
+            "insight_alert_scheduler_capacity",
+            "Alert scheduling capacity made available across successful retrieval runs",
+        ).add(inputs.max_alerts_per_run)
+        meter.create_counter(
+            "insight_alert_scheduler_alerts_selected",
+            "Due alerts selected across successful alert scheduler retrieval runs",
+        ).add(len(retrieved.alerts))
+    except Exception:
+        logger.exception("Failed to record alert scheduler capacity metrics")
+    return retrieved.alerts
 
 
 def _has_active_destinations(alert: AlertConfiguration) -> bool:

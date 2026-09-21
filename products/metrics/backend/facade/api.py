@@ -10,6 +10,13 @@ import datetime as dt
 from collections.abc import Sequence
 from typing import Any
 
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.database.schema.metrics import HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
 from products.error_tracking.backend.facade.api import list_spike_events
@@ -61,21 +68,77 @@ def team_has_metrics(team: Team) -> bool:
     return _team_has_metrics(team)
 
 
+def _units_by_fingerprint(team: Team, metric_names: set[str]) -> dict[int, str]:
+    """One ClickHouse lookup of the ingested UCUM unit per physical series,
+    keyed by `series_fingerprint` and read from `metric_series` (the same table
+    the catalog reads). Per-fingerprint rather than per-name so a metric whose
+    series disagree on the unit never lends one series' unit to another.
+    Returns only series with a non-empty unit; a series with no unit is simply
+    absent, so callers use `.get(fingerprint)`. Kept separate from the
+    per-series data query so the unit costs one small grouped scan regardless
+    of how many series a query returns."""
+    if not metric_names:
+        return {}
+    names = sorted(metric_names)
+    query = parse_select(
+        """
+            SELECT series_fingerprint, any(unit) AS unit
+            FROM posthog.metric_series
+            WHERE metric_name IN {names}
+            GROUP BY series_fingerprint
+        """,
+        placeholders={"names": ast.Tuple(exprs=[ast.Constant(value=n) for n in names])},
+    )
+    response = execute_hogql_query(
+        query_type="MetricUnitsLookup",
+        query=query,
+        team=team,
+        workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+        # Same byte cap as the data queries: without it a high-cardinality name set
+        # would make this metadata scan the most expensive read of the request.
+        settings=HogQLGlobalSettings(
+            max_execution_time=30,
+            max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
+            read_overflow_mode="throw",
+        ),
+    )
+    return {int(row[0]): str(row[1]) for row in (response.results or []) if row[1]}
+
+
+def _unit_for_fingerprints(fingerprints: set[int], units_by_fingerprint: dict[int, str]) -> str | None:
+    """The unit of one output series, resolved from the physical series it
+    aggregated. The unit only applies when every contributing series carries
+    the same one — a disagreement, or a series with no unit at all, means the
+    merge has no correct single unit, so it carries none."""
+    units = {units_by_fingerprint.get(fp) for fp in fingerprints}
+    if len(units) != 1:
+        return None
+    (unit,) = units
+    return unit
+
+
 # Hard cap on series returned per clause; the largest series (by summed
 # absolute value) win so the most significant groups survive truncation.
 MAX_SERIES_PER_CLAUSE = 100
 
 
 def _assemble_series(
-    rows: list[dict[str, Any]], *, metric_name: str, clause_name: str, grid: list[str]
+    rows: list[dict[str, Any]],
+    *,
+    metric_name: str,
+    clause_name: str,
+    grid: list[str],
+    units_by_fingerprint: dict[int, str],
 ) -> list[MetricSeries]:
     """Split bucketed rows into one series per label-set, zero-filled onto
     the shared grid so every series (and later, every clause of a formula)
     has identical timestamps."""
     by_labels: dict[tuple[tuple[str, str], ...], dict[str, float | None]] = {}
+    fingerprints_by_labels: dict[tuple[tuple[str, str], ...], set[int]] = {}
     for row in rows:
         key = tuple(sorted(row["labels"].items()))
         by_labels.setdefault(key, {})[row["time"]] = row["value"]
+        fingerprints_by_labels.setdefault(key, set()).update(row["series_fingerprints"])
 
     # Rank and truncate on the sparse values BEFORE zero-filling, so a
     # high-cardinality group-by never materializes label_sets x grid points
@@ -90,6 +153,7 @@ def _assemble_series(
             points=tuple(MetricPoint(time=time, value=values.get(time, 0.0)) for time in grid),
             metric_name=metric_name,
             clause=clause_name,
+            unit=_unit_for_fingerprints(fingerprints_by_labels[key], units_by_fingerprint),
         )
         for key, values in ranked[:MAX_SERIES_PER_CLAUSE]
     ]
@@ -204,9 +268,21 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
         metric_name = None if formula_node_checked is not None else request.clauses[0].metric_name
         return [MetricSeries(labels={}, points=(), metric_name=metric_name, clause=empty_clause)]
 
+    # A formula combines clauses (possibly of different units), so its series
+    # carry no unit and the unit lookup is skipped entirely.
+    units_by_fingerprint = (
+        {}
+        if formula_node_checked is not None
+        else _units_by_fingerprint(team, {clause.metric_name for clause in request.clauses})
+    )
+
     series_by_clause = {
         clause.name: _assemble_series(
-            rows_by_clause[clause.name], metric_name=clause.metric_name, clause_name=clause.name, grid=grid
+            rows_by_clause[clause.name],
+            metric_name=clause.metric_name,
+            clause_name=clause.name,
+            grid=grid,
+            units_by_fingerprint=units_by_fingerprint,
         )
         for clause in request.clauses
     }
