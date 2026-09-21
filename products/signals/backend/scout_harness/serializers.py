@@ -316,15 +316,11 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
     description = serializers.CharField(
         help_text="The emitted finding prose — the signal's `description` as surfaced to the inbox.",
     )
-    weight = serializers.FloatField(
-        min_value=0.0,
-        max_value=1.0,
-        help_text="Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.",
-    )
     confidence = serializers.FloatField(
         min_value=0.0,
         max_value=1.0,
-        help_text="Agent's confidence the finding is real in [0, 1].",
+        allow_null=True,
+        help_text="Deprecated and no longer set on new findings. Null unless the run supplied one.",
     )
     severity = serializers.ChoiceField(
         choices=[(p.value, p.value) for p in Priority],
@@ -347,7 +343,6 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
             "run_id",
             "finding_id",
             "description",
-            "weight",
             "confidence",
             "severity",
             "tags",
@@ -1322,7 +1317,9 @@ class EmitFindingRequestSerializer(serializers.Serializer):
     confidence = serializers.FloatField(
         min_value=0.0,
         max_value=1.0,
-        help_text="Agent's confidence the finding is real in [0, 1]. Persisted in `extra`.",
+        required=False,
+        allow_null=True,
+        help_text="Deprecated and ignored. Nothing reads it; omit it. Still range-checked when supplied.",
     )
     evidence = serializers.ListField(
         child=EvidenceEntrySerializer(),

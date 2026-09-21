@@ -277,7 +277,9 @@ def build_evaluation_event_properties(
         properties["$ai_evaluation_skipped"] = True
         properties["$ai_evaluation_skip_reason"] = result.get("skip_reason")
 
-    if evaluation_type == "llm_judge" and not result.get("skipped"):
+    # Keyed on a model rather than on the skip flag: a skip that reached the provider was billed,
+    # and a skip that never called one carries no model, so it still gets no attribution.
+    if evaluation_type == "llm_judge" and result.get("model"):
         properties["$ai_model"] = result.get("model", DEFAULT_JUDGE_MODEL)
         properties["$ai_provider"] = result.get("provider", "openai")
         properties["$ai_input_tokens"] = result.get("input_tokens", 0)
