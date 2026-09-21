@@ -1,7 +1,8 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM, PathOwnership
+from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership
+
 from products.visual_review.backend.logic import owners, story_index
 from products.visual_review.backend.logic.run_queries import SnapshotKey
 

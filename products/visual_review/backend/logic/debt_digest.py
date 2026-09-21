@@ -53,6 +53,7 @@ from posthog.comment.formatting import escape_slack_mrkdwn
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user import User
+from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership, resolve_path_owners
 from posthog.team_notifications.slack import (
     MAX_BLOCKS,
     MAX_BUTTON_URL_CHARS,
@@ -74,9 +75,6 @@ from posthog.team_notifications.slack import (
     section_block,
 )
 from posthog.utils import human_list, pluralize
-
-from products.engineering_analytics.backend.facade.api import resolve_path_owners
-from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM, PathOwnership
 
 from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS, VARIANT_PILEUP_MIN
 from ..facade.enums import RunType

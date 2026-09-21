@@ -4,8 +4,7 @@ from collections.abc import Iterable, Mapping
 
 import structlog
 
-from products.engineering_analytics.backend.facade.api import resolve_path_owners
-from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM
+from posthog.ownership.paths import UNOWNED_TEAM, resolve_path_owners
 
 from ..facade.enums import RunType
 from ..models import Repo, Run

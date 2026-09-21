@@ -7,8 +7,8 @@ from social_django.models import UserSocialAuth
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership
 
-from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM, PathOwnership
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import (
     SignalReport,

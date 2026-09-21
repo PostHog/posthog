@@ -16,9 +16,8 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.models.github_integration_base import PullRequestRef
 from posthog.models.integration import GitHubIntegration
+from posthog.ownership.paths import UNOWNED_TEAM, resolve_path_owners
 
-from products.engineering_analytics.backend.facade.api import resolve_path_owners
-from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 
 logger = structlog.get_logger(__name__)
