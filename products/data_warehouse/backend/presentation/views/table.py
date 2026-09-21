@@ -132,6 +132,17 @@ def _delete_hosted_upload_file(table: DataWarehouseTable) -> None:
         capture_exception(e)
 
 
+def _discard_failed_upload(table: DataWarehouseTable) -> None:
+    """Reclaim a table and its hosted file after the upload that created them failed.
+
+    The legacy `file` action writes the object and persists the row before it reads the file even
+    once, so every failure after that point has both to undo. The file goes first, because
+    `_delete_hosted_upload_file` decides by looking for another live table on the same url_pattern.
+    """
+    _delete_hosted_upload_file(table)
+    table.delete()
+
+
 class CredentialSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
@@ -935,12 +946,11 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 if table._is_csv_format() and table.csv_allow_double_quotes is None:
                     allow_double_quotes = table.detect_csv_double_quotes_setting()
                     if allow_double_quotes is None:
-                        # The row is persisted before the file is ever read, so a request that
-                        # created it has to take it back out. Left behind, it is an incomplete
-                        # table that the next upload of the same name silently reuses. A table
-                        # that already existed belongs to the caller, so leave it alone.
+                        # Left behind, the row is an incomplete table that the next upload of the
+                        # same name silently reuses. A table that already existed belongs to the
+                        # caller, so leave it alone.
                         if created_table:
-                            table.delete()
+                            _discard_failed_upload(table)
                         return response.Response(
                             status=status.HTTP_400_BAD_REQUEST,
                             data={"message": _file_read_error_message(FORMAT_CSV)},
@@ -971,9 +981,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         except Exception as e:
             capture_exception(e)
             # Reading the file can fail outright rather than return an answer, in column detection
-            # and in quote detection alike. The row is already persisted by then, so a request that
-            # created it takes it back out instead of leaving a table that points at nothing
-            # readable. A table that already existed belongs to the caller, so leave it alone.
+            # and in quote detection alike. A table that already existed belongs to the caller, so
+            # leave it alone.
             if created_table and table is not None:
-                table.delete()
+                _discard_failed_upload(table)
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Failed to upload file"})

@@ -997,8 +997,11 @@ class TestTable(APIBaseTest):
         test_file = SimpleUploadedFile("test_file.csv", b'id,name\n1,"Test\n', content_type="text/csv")
         detect = Mock(side_effect=detect_outcome) if isinstance(detect_outcome, Exception) else Mock(return_value=None)
 
+        s3 = MagicMock()
+
         with (
             patch.object(DataWarehouseTable, "detect_csv_double_quotes_setting", detect),
+            patch("products.data_warehouse.backend.presentation.views.table.get_s3_client", return_value=s3),
             self.settings(
                 DATAWAREHOUSE_LOCAL_ACCESS_KEY="test_key",
                 DATAWAREHOUSE_LOCAL_ACCESS_SECRET="test_secret",
@@ -1015,6 +1018,7 @@ class TestTable(APIBaseTest):
         assert response.status_code == 400
         assert expected_message in response.json()["message"]
         assert not DataWarehouseTable.objects.filter(name="unreadable_csv").exists()
+        s3.rm.assert_called_once_with(f"test-warehouse-bucket/managed/team_{self.team.id}/test_file.csv")
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_file_upload_api_disabled(self, mock_feature_enabled):
