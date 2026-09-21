@@ -183,12 +183,13 @@ export function HogFlowTreeNode({
                                     return (
                                         <div
                                             key={branchKey}
-                                            className="relative min-w-0 ps-6"
+                                            className="relative min-w-0 ps-6 [--workflow-branch-line-color:var(--border-bold-3000)] has-[>[data-workflow-branch-highlight]>[data-workflow-branch-header]:is(:hover,:focus-within)]:[--workflow-branch-line-color:var(--workflow-branch-color)]"
+                                            style={{ '--workflow-branch-color': pathColor } as CSSProperties}
                                             data-workflow-branch-index={branchIndex ?? 'continue'}
                                         >
                                             <svg
                                                 aria-hidden="true"
-                                                className="pointer-events-none absolute start-2 -top-3 h-9 w-4 text-[var(--border-bold-3000)] rtl:-scale-x-100"
+                                                className="pointer-events-none absolute start-2 -top-3 h-9 w-4 text-[var(--workflow-branch-line-color)] rtl:-scale-x-100"
                                                 viewBox="0 0 16 36"
                                                 fill="none"
                                             >
@@ -201,14 +202,10 @@ export function HogFlowTreeNode({
                                             {index < visibleBranches.length - 1 && (
                                                 <span
                                                     aria-hidden="true"
-                                                    className="pointer-events-none absolute start-2 top-6 -bottom-3 border-s-2 border-[var(--border-bold-3000)]"
+                                                    className="pointer-events-none absolute start-2 top-6 -bottom-3 border-s-2 border-[var(--workflow-branch-line-color)]"
                                                 />
                                             )}
-                                            <div
-                                                className="min-w-0 rounded ring-inset ring-[var(--workflow-branch-color)] has-[>[data-workflow-branch-header]:is(:hover,:focus-within)]:bg-[color-mix(in_srgb,var(--workflow-branch-color)_8%,transparent)] has-[>[data-workflow-branch-header]:is(:hover,:focus-within)]:ring-1"
-                                                style={{ '--workflow-branch-color': pathColor } as CSSProperties}
-                                                data-workflow-branch-highlight
-                                            >
+                                            <div className="min-w-0" data-workflow-branch-highlight>
                                                 <div
                                                     data-workflow-branch-header
                                                     className={cn(
@@ -335,7 +332,7 @@ export function HogFlowTreeNode({
                                                         />
                                                     )}
                                                     {joinAction && (
-                                                        <div className="relative">
+                                                        <div className="relative py-1">
                                                             <LemonButton
                                                                 type="tertiary"
                                                                 size="xsmall"

@@ -20,12 +20,14 @@ The line ends at the last path header, before any shared continuation.
 Lines show the path hierarchy, not execution order between sibling paths.
 Steps and continuation links do not have colored branch marks.
 Step icons keep their existing colors.
-Hover a path header, or focus one of its controls with the keyboard, to highlight that path and its contents.
-The highlight stops before the shared next step.
-Nested headers highlight only their own path, not the parent path.
+Hover a path header, or focus one of its controls with the keyboard, to color its hierarchy lines.
+The path background does not change.
+The colored lines stop before the shared next step.
+Nested headers color only their own lines, not the parent or sibling lines.
 Hover and keyboard focus do not select a path or change its settings.
 Conditional paths show their order and rule in a compact header, without a surrounding path box.
 Expanded paths show their shared destination once, at the end of the path.
+Continuation links keep the same spacing with and without hover.
 Collapsed paths show their step count and destination below the header.
 Condition labels use `If #1`, `If #2`, and so on to distinguish condition order from step numbers.
 The first matching condition sets the path.
