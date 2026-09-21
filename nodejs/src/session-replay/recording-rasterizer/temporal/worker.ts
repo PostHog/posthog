@@ -22,6 +22,15 @@ initMetrics()
 
 const log = createLogger()
 
+// Closing a page to abort a capture rejects whatever CDP call puppeteer-capture has in
+// flight (TargetCloseError). That rejection belongs to no promise this code awaits, so
+// Node treats it as unhandled and terminates the process, which kills every in-flight
+// rasterization on the pod. The activity already fails with CAPTURE_ABORTED on its own;
+// the rejection carries nothing recoverable, so log it and keep the worker alive.
+process.on('unhandledRejection', (reason) => {
+    log.error({ err: reason }, 'unhandled promise rejection (kept alive)')
+})
+
 // Route Temporal SDK logs through our JSON logger so all output is structured.
 Runtime.install({
     logger: {
