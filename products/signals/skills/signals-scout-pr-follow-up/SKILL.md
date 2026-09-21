@@ -104,7 +104,7 @@ Within what remains, most valuable first: a PR whose title or body states a meas
 A deferred PR is never judged claim-only to beat a clock: it is not cold, it waits its turn, and it gets the full probe and side-effect sweep when it is taken, because a terminal verdict without the sweep is the miss this scout exists to catch.
 Every claim candidate you listed and did not judge goes into `deferred:` as a compact rewritten list (`#n@<merge date>`, one entry per repository), capped at about 200 PRs; when the list is full, stop advancing the `cursor:` so the rest are relisted next run instead of overflowing one entry.
 Permanent exclusions (bots, dependency bumps, `noise:` entries, docs-only PRs) never enter it: they would be filtered out again every run and fill the cap for nothing.
-The `cursor:` is the oldest merge you have not yet listed, so it only advances past PRs that are judged, in `deferred:`, in `recheck:`, named by a `noise:` entry, covered by a `batch:` entry, or excluded by a rule you re-apply from listing metadata alone (a bot author).
+The `cursor:` is the oldest merge you have not yet listed, so it only advances past PRs that are judged, in `deferred:`, in `recheck:`, named by a `noise:` entry, covered by a `batch:` entry, or excluded by a rule you re-apply from listing metadata alone (a bot author), except that a bot row whose batch has not been swept yet holds the cursor until its `batch:` entry exists, or a dependency-only batch listed before its onset would be skipped for good.
 Say how many you deferred and how many rechecks you took in the close-out.
 
 ### Has it deployed? (deploy ladder)
@@ -144,7 +144,7 @@ Attribute to the PR whose files match the evidence; when the deploy batch carrie
 A failed verdict is not terminal while its report is open: the `pr:` entry carries `recheck` with a date a few days out, and the recheck reads the report (`inbox-reports-retrieve`) before it re-probes.
 Every `recheck` you write also goes into the repository's `recheck:` entry (`#n@<due date>`), and leaves it when the verdict turns terminal; the `pr:` entry alone is not a queue, because nothing lists `pr:` entries by due date and a PR whose merge has left the window is never enumerated again.
 Still open and still failing appends the fresh window to your report; dismissed is the team's call, so the entry becomes terminal with the dismissal reason.
-Resolved is not terminal by itself: a report can be resolved by hand with no PR behind it, and a merged fix PR is not a deployed one, so the entry stays `recheck` until the report's `implementation_pr_merged` names a replacement PR that has passed the deploy ladder, at which point that PR starts its own follow-up cycle and the original becomes terminal; a resolved report with no such PR is re-measured like an open one.
+Resolved is not terminal by itself: a report can be resolved by hand with no PR behind it, and a merged fix PR is not a deployed one, so the entry stays `recheck` until the report's `pull_requests` (or `implementation_pr_url`) names a merged replacement PR whose merge SHA, fetched with `gh pr view`, has passed the deploy ladder (`implementation_pr_merged` is only a boolean and names nothing), at which point that PR starts its own follow-up cycle and the original becomes terminal; a resolved report with no such PR is re-measured like an open one.
 
 ### Save memory as you go
 
@@ -188,7 +188,7 @@ This is only the PR-follow-up judgment on top:
 - **Contradict** an open report that says this PR's fix failed or recurred when your probe says it held: append the onset, the deploy rung, and the post-onset counts with `append_evidence`, and record the pairing in `report:`.
   A recurrence report that counted pre-deploy events sends someone to re-fix a fixed bug, so this is the one held verdict that leaves memory.
 - **Remember** everything else: held, landing, weak, unverifiable.
-- **Skip** a PR already covered by a terminal `pr:` entry (held, held weak, or a failed verdict whose report has since resolved or been dismissed) or a `noise:` entry, or one still inside its soak (a soaking PR stays in `deferred:` until it is due).
+- **Skip** a PR already covered by a terminal `pr:` entry (held, held weak, a failed verdict whose report was dismissed, or one whose resolved report names a replacement PR that has passed the deploy ladder, never a resolved report alone) or a `noise:` entry, or one still inside its soak (a soaking PR stays in `deferred:` until it is due).
 
 Confirmations are deliberately memory-only: a "this PR worked" report per merge would swamp the inbox.
 A team that wants a positive digest can flip that in their own copy of this scout.
@@ -233,9 +233,9 @@ Direct calls (read-only):
 
 - `engineering-analytics-sources`, `pull-requests`, `pr-lifecycle`: the synced GitHub source, its merged PRs with CI rollups, and one PR's timeline.
 - `integrations-list`, then `integrations-github-repos-retrieve`: the repositories the connected GitHub App can see, when no source is synced.
-- `gh` (sandbox CLI, read-only token, always pass `--repo`): `gh pr list --state merged`, `gh pr view --json ...`, `gh issue view --json ...`, `gh pr diff`, `gh api repos/<owner>/<repo>/deployments`, `/releases`, `/compare/<a>...<b>`.
+- `gh` (sandbox CLI, read-only token, always pass `--repo`): `gh api 'repos/<owner>/<repo>/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=<n>'` for the listing (never `gh pr list`, which is creation-ordered), `gh pr view --json ...`, `gh issue view --json ...`, `gh pr diff`, `gh api repos/<owner>/<repo>/deployments`, `/releases`, `/compare/<a>...<b>`.
   Cap the calls per run; degrade to the other sources when it fails with auth errors.
-- `annotations-list` (`search=deploy`, page with `offset`): GIT deploy markers.
+- `annotations-list` (page by date with `offset`, no `search`; filter the rows by `creation_type`, environment, and commit): GIT deploy markers, when `system.annotations` is unavailable.
 - `execute-sql`: warehouse GitHub tables (`<prefix>github_pull_requests`, `<prefix>github_deployments`, `<prefix>github_deployment_statuses`), `events` for pre-vs-post probes, `$web_vitals`, `$feature_flag_called`, `$pageview`.
 - `read-data-schema`: confirm a new or fixed event and its properties exist.
 - Surface probes: `query-error-tracking-issues-list` / `query-error-tracking-issue`, `logs-count` / `query-logs`, `apm-spans-aggregate`, `feature-flag-get-all`, `alerts-list` / `alert-get`.

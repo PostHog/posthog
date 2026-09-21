@@ -20,7 +20,7 @@ List the PRs with `gh` exactly as rung 3 describes.
 ## Rung 2: GitHub warehouse source
 
 `engineering-analytics-sources` lists each configured `owner/repo` with its `source_id`, table prefix, and a `synced` flag.
-Only a `synced: true` entry has tables to read, and one repository can appear under several sources, so take the synced entry.
+`synced: true` means both the pull-request and workflow-run tables exist; this scout needs only the first, so a `synced: false` entry can still carry a readable `<prefix>github_pull_requests` table (a source that never synced workflow runs): prefer a synced entry when one repository appears under several sources, and otherwise confirm the pull-request table itself in `system.information_schema.tables` before you give the source up.
 `pull-requests` (`date_from=-14d`, pass `source_id` and `repo`) returns open PRs plus those merged in the window with their CI rollup, newest first, capped at 1,000 rows; open PRs count against the cap, so on a busy repository the page holds a few days of merges, not 14, and carries `truncated: true`.
 Treat that flag as the signal to list from the raw table instead:
 
@@ -32,12 +32,12 @@ SELECT number, toString(title) AS title,
 FROM <prefix>github_pull_requests
 WHERE merged_at IS NOT NULL AND merged_at != ''
   AND parseDateTimeBestEffort(merged_at) >= now() - INTERVAL 14 DAY
-ORDER BY merged_at DESC
+ORDER BY parseDateTimeBestEffort(merged_at) DESC, number DESC
 LIMIT 500
 ```
 
 `title` and `body` are JSON columns (`toString(title)`, `toString(body)`), `user` is a JSON-encoded string that only `JSONExtractString(user, 'login')` and `JSONExtractString(user, 'type') = 'Bot'` can read (a dotted `user.login` fails on this table, exactly when the tool listing was truncated), timestamps are strings, and `merge_commit_sha` can be null, so the merge SHA for the containment check still comes from the detail fetch below.
-Page with `OFFSET` to the window boundary.
+Page with `OFFSET` to the window boundary; the `number` tie-breaker keeps the order total, because two merges in the same second would otherwise swap across pages and one of them would never be listed.
 `pr-lifecycle` gives one PR's timeline.
 
 The prefix also names warehouse tables you can read with `execute-sql`: `<prefix>github_pull_requests`, and, when the project syncs the deployments endpoints, `<prefix>github_deployments` and `<prefix>github_deployment_statuses` (the best deploy signal you can get; see `deploy-ladder.md`).

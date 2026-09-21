@@ -35,7 +35,7 @@ LIMIT 20 OFFSET <page * 20>
 `minIf` has no NULL: a deployment with no success row gets the epoch, sorts first, and can pass containment as a 1970 onset, which is why the `OrNull` form and the `HAVING` are not optional.
 Run the containment check from the top of that list: the first deployment created after the merge is often cut from a commit before it and reads `behind`, and the onset belongs to the first one that reads `ahead`.
 The limit is a page, not a horizon: when no row on the page reads `ahead` or `identical`, take the next page with `OFFSET` until one does or the rows run out, because a release-branch or multi-region repository can ship twenty production deployments after the merge before one contains it.
-A repository that ships the same SHA to several persistent production environments (one per region) has one onset per environment; take the earliest for the side-effect sweep, and name the environment that serves the project's users when you cite a fix claim.
+A repository that ships the same SHA to several persistent production environments (one per region) has one onset per environment; take the earliest for the side-effect sweep, close its window only at the next **different** production SHA (a later region receiving the same SHA is still this batch rolling out, not the next one), and name the environment that serves the project's users when you cite a fix claim.
 `first_success` renders in the project timezone, so keep every comparison in UTC.
 The onset is the **first** `success` status's `created_at` on the earliest candidate whose `sha` contains the merge, never the deployment's own `created_at`: a queued or slow deployment is created minutes or hours before users receive it, and a window that starts at creation counts pre-release traffic as post-deploy.
 When no candidate contains the merge, this rung has no answer: move down the ladder.
@@ -58,13 +58,14 @@ A project wired to a CI deploy marker gets one `creation_type: GIT` annotation p
 SELECT id, content, date_marker
 FROM system.annotations
 WHERE creation_type = 'GIT' AND deleted = 0
-  AND content ILIKE '%<production environment>%'
+  AND content ILIKE '%<production environment, escaped>%'
   AND date_marker >= toDateTime('<merge ts>', 'UTC')
 ORDER BY date_marker ASC
 LIMIT 20 OFFSET <page * 20>
 ```
 
 Page it the same way until a marker's commit contains the merge or the markers run out.
+The environment name is data you discovered, so escape it before it enters the literal (double any `'`, and put a `\` before `%` and `_` so the `ILIKE` pattern matches them literally); a name with a quote or a wildcard in it must not be able to rewrite the predicate.
 Fall back to `annotations-list` only when that table is unavailable, and page it by date with `offset` and **no** `search`: a valid marker reads `production a1b2c3d` and never contains the word deploy, so filter the returned rows by `creation_type`, environment, and commit instead.
 When the content names a commit, the onset is the first marker after the merge whose commit contains it (the same containment check).
 A marker whose content names no commit cannot prove containment, so it corroborates a soak-proxy onset (rung 4) but never replaces it, and the report says the onset is estimated.
