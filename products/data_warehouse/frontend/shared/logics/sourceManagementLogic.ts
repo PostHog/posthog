@@ -145,7 +145,6 @@ export interface sourceManagementLogicActions {
             value: true
         }
     } // sourcesDataLogic
-    updateSource: (source: ExternalDataSource) => ExternalDataSource // sourcesDataLogic
     updateSourceRevenueAnalyticsConfig: (args_0: {
         config: Partial<ExternalDataSourceRevenueAnalyticsConfig>
         source: ExternalDataSource
@@ -247,13 +246,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
             joinsDataLogic,
             ['loadJoins', 'deleteJoin'],
             sourcesDataLogic,
-            [
-                'loadSources',
-                'loadSourcesSuccess',
-                'loadSourcesFailure',
-                'updateSource',
-                'updateSourceRevenueAnalyticsConfig',
-            ],
+            ['loadSources', 'loadSourcesSuccess', 'loadSourcesFailure', 'updateSourceRevenueAnalyticsConfig'],
         ],
     })),
     actions({
