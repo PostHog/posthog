@@ -4798,7 +4798,7 @@ export interface ExternalDataSourceCreateApi {
      * * `HeyReach` - HeyReach
      * * `MoEngage` - MoEngage
      * * `Monaco` - Monaco
-     * * `Oneleet` - Oneleet */
+     * * `Oneleet` - Oneleet
      * * `Expo` - Expo
      * * `PostNord` - PostNord
      * * `Commslayer` - Commslayer */
@@ -6647,7 +6647,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `HeyReach` - HeyReach
      * * `MoEngage` - MoEngage
      * * `Monaco` - Monaco
-     * * `Oneleet` - Oneleet */
+     * * `Oneleet` - Oneleet
      * * `Expo` - Expo
      * * `PostNord` - PostNord
      * * `Commslayer` - Commslayer */
@@ -8029,7 +8029,7 @@ export interface DatabaseSchemaRequestApi {
      * * `HeyReach` - HeyReach
      * * `MoEngage` - MoEngage
      * * `Monaco` - Monaco
-     * * `Oneleet` - Oneleet */
+     * * `Oneleet` - Oneleet
      * * `Expo` - Expo
      * * `PostNord` - PostNord
      * * `Commslayer` - Commslayer */
@@ -9386,7 +9386,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `HeyReach` - HeyReach
      * * `MoEngage` - MoEngage
      * * `Monaco` - Monaco
-     * * `Oneleet` - Oneleet */
+     * * `Oneleet` - Oneleet
      * * `Expo` - Expo
      * * `PostNord` - PostNord
      * * `Commslayer` - Commslayer */
@@ -10828,7 +10828,7 @@ export interface SourcePreviewRequestApi {
      * * `HeyReach` - HeyReach
      * * `MoEngage` - MoEngage
      * * `Monaco` - Monaco
-     * * `Oneleet` - Oneleet */
+     * * `Oneleet` - Oneleet
      * * `Expo` - Expo
      * * `PostNord` - PostNord
      * * `Commslayer` - Commslayer */
@@ -12220,7 +12220,7 @@ export interface SourceSetupApi {
      * * `HeyReach` - HeyReach
      * * `MoEngage` - MoEngage
      * * `Monaco` - Monaco
-     * * `Oneleet` - Oneleet */
+     * * `Oneleet` - Oneleet
      * * `Expo` - Expo
      * * `PostNord` - PostNord
      * * `Commslayer` - Commslayer */
@@ -13619,7 +13619,7 @@ export interface SourceCredentialCreateApi {
      * * `HeyReach` - HeyReach
      * * `MoEngage` - MoEngage
      * * `Monaco` - Monaco
-     * * `Oneleet` - Oneleet */
+     * * `Oneleet` - Oneleet
      * * `Expo` - Expo
      * * `PostNord` - PostNord
      * * `Commslayer` - Commslayer */
