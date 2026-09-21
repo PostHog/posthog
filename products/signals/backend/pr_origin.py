@@ -46,7 +46,9 @@ _SCOUT_NAME_RE = re.compile(r"^[a-z0-9-]{1,64}$")
 _COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 _PROBLEM_HEADING_RE = re.compile(r"^##[ \t]+Problem[ \t]*$", re.MULTILINE | re.IGNORECASE)
 _ORIGIN_HEADING_RE = re.compile(r"^##[ \t]+Origin[ \t]*$", re.MULTILINE | re.IGNORECASE)
-_HEADING_RE = re.compile(r"^##[ \t]", re.MULTILINE)
+_MARKED_BLOCK_RE = re.compile(rf"<!-- {ORIGIN_MARKER_PREFIX}:\S+ -->.*?<!-- /{ORIGIN_MARKER_PREFIX}:\S+ -->", re.DOTALL)
+# A section ends at the next level-two heading, a horizontal rule, or a PostHog Origin block.
+_SECTION_END_RE = re.compile(rf"^(##[ \t]|---[ \t]*$|<!-- {ORIGIN_MARKER_PREFIX}:)", re.MULTILINE)
 
 # Linear and GitHub signals come from `fetch_source_references_for_report`, which already
 # validates their public links.
@@ -252,6 +254,25 @@ class PullRequestOrigin:
         )
 
 
+def _section_end(body: str, position: int) -> int:
+    match = _SECTION_END_RE.search(body, position)
+    return match.start() if match else len(body)
+
+
+def _splice(body: str, start: int, end: int, section: str) -> str:
+    before, after = body[:start].rstrip(), body[end:].strip()
+    return "\n\n".join(part for part in (before, section, after) if part) + "\n"
+
+
+def _agent_origin_heading(body: str) -> re.Match[str] | None:
+    """The first Origin heading outside a PostHog block, which only an agent can have written."""
+    marked = [block.span() for block in _MARKED_BLOCK_RE.finditer(body)]
+    for heading in _ORIGIN_HEADING_RE.finditer(body):
+        if not any(start <= heading.start() < end for start, end in marked):
+            return heading
+    return None
+
+
 def place_origin_section(body: str, *, report_id: str, section: str) -> str:
     """Put the section below the Problem section, replacing an earlier copy for the same report.
 
@@ -265,21 +286,15 @@ def place_origin_section(body: str, *, report_id: str, section: str) -> str:
         return body[:start_index] + section + body[end_index + len(end) :]
 
     # An agent can write its own Origin section despite the prompt. Replace it rather than add a second one.
-    agent_origin = _ORIGIN_HEADING_RE.search(body)
+    agent_origin = _agent_origin_heading(body)
     if agent_origin is not None:
-        next_heading = _HEADING_RE.search(body, agent_origin.end())
-        rest = body[next_heading.start() :] if next_heading else ""
-        before = body[: agent_origin.start()].rstrip()
-        return f"{before}\n\n{section}\n\n{rest}" if rest else f"{before}\n\n{section}\n"
+        return _splice(body, agent_origin.start(), _section_end(body, agent_origin.end()), section)
 
     problem = _PROBLEM_HEADING_RE.search(body)
     if problem is None:
-        return f"{body.rstrip()}\n\n{section}\n"
-    next_heading = _HEADING_RE.search(body, problem.end())
-    if next_heading is None:
-        return f"{body.rstrip()}\n\n{section}\n"
-    before = body[: next_heading.start()].rstrip()
-    return f"{before}\n\n{section}\n\n{body[next_heading.start() :]}"
+        return _splice(body, len(body), len(body), section)
+    insert_at = _section_end(body, problem.end())
+    return _splice(body, insert_at, insert_at, section)
 
 
 def write_origin_section(*, team_id: int, report_id: str, task_id: str, pr_url: str) -> BodyEditOutcome:

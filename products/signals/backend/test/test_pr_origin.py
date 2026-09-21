@@ -17,6 +17,7 @@ from products.signals.backend.task_run_artefacts import record_implementation_ta
 from products.tasks.backend.models import Task
 
 SECTION = "<!-- posthog-self-driving-origin:r1 -->\n## Origin\n\n- new\n<!-- /posthog-self-driving-origin:r1 -->"
+OTHER_REPORT = "<!-- posthog-self-driving-origin:r0 -->\n## Origin\n\n- other\n<!-- /posthog-self-driving-origin:r0 -->"
 
 
 class TestPlaceOriginSection(SimpleTestCase):
@@ -37,6 +38,16 @@ class TestPlaceOriginSection(SimpleTestCase):
                 "replaces_agent_written_origin",
                 "## Problem\n\n- broken\n\n## Origin\n\nFrom an inbox report.\n\n## Changes\n",
                 f"## Problem\n\n- broken\n\n{SECTION}\n\n## Changes\n",
+            ),
+            (
+                "agent_written_origin_keeps_footer",
+                "## Problem\n\n- broken\n\n## Origin\n\nFrom a report.\n\n---\n*Created with X*\n",
+                f"## Problem\n\n- broken\n\n{SECTION}\n\n---\n*Created with X*\n",
+            ),
+            (
+                "second_report_keeps_the_first",
+                f"## Problem\n\n- broken\n\n{OTHER_REPORT}\n\n## Changes\n",
+                f"## Problem\n\n- broken\n\n{SECTION}\n\n{OTHER_REPORT}\n\n## Changes\n",
             ),
             (
                 "appended_without_problem",
