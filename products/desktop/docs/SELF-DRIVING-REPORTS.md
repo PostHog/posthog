@@ -43,6 +43,18 @@ Hover opens the user list without moving keyboard focus. Click the search field 
 The search starts empty and shows up to 20 options, including For you and Entire project.
 Search by name or email across all users. The search field stays visible above the results.
 
+## Mobile report tasks
+
+Discuss starts a discussion task and forwards the question to the report's scout.
+Create PR starts an implementation task. Both actions use the report's repository and team GitHub integration, resolved by the server.
+The mobile report composer does not require a personal GitHub connection or offer a repository picker.
+If cloud startup fails after task creation, retrying in the same composer or triage view starts the existing task instead of creating another task.
+Triage resets the swiped card if configuration is not ready or task startup fails.
+An ordinary new task still requires a repository from the user's GitHub integration.
+
+The report detail and triage views use the same implementation prompt. The agent fetches the report and checks for an existing PR before starting new work.
+Triage advances only after the cloud run starts. A failed submission keeps the report available and shows the error.
+
 ## Storybook previews
 
 The `Inbox/Reports` stories cover the sidebar, report list, report detail, and triage mode.
