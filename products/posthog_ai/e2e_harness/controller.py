@@ -16,7 +16,7 @@ from posthog.dataclasses import frozen
 
 from .attempt import Attempt
 from .faults import FaultName
-from .replay import ResponseStep, fixture_events, object_value, sse_frames
+from .replay import ResponseStep, fixture_events, is_probe, object_value, probe_message, sse_frames
 
 
 @frozen
@@ -251,6 +251,8 @@ class Controller:
         )
         if provider is None or attempt.replay is None:
             raise ValueError(f"Unexpected provider endpoint {path}")
+        if provider == "claude" and is_probe(body):
+            return _HttpReply(status=200, content_type="application/json", body=probe_message(body))
         return _HttpReply(status=200, content_type="text/event-stream", body=attempt.replay.respond(provider, body))
 
     def control(self, method: str, path: str, body: dict[str, JsonValue]) -> JsonValue:

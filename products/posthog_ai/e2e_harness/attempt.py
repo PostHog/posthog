@@ -69,7 +69,7 @@ class Attempt:
             User,
         )
         from posthog.models.utils import generate_random_oauth_access_token
-        from posthog.temporal.oauth import POSTHOG_AI_APP_CLIENT_ID_DEV
+        from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV
 
         from products.tasks.backend.models import UserTasksConfig
 
@@ -105,17 +105,22 @@ class Attempt:
                     "reasoning_effort": "medium",
                 },
             )
+            application_defaults = {
+                "client_type": OAuthApplication.CLIENT_PUBLIC,
+                "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                "algorithm": "RS256",
+                "redirect_uris": "https://example.com/callback",
+                "organization": self.organization,
+                "user": self.user,
+            }
             application, _ = OAuthApplication.objects.get_or_create(
                 client_id=POSTHOG_AI_APP_CLIENT_ID_DEV,
-                defaults={
-                    "name": "Synthetic AI E2E agent",
-                    "client_type": OAuthApplication.CLIENT_PUBLIC,
-                    "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                    "algorithm": "RS256",
-                    "redirect_uris": "https://example.com/callback",
-                    "organization": self.organization,
-                    "user": self.user,
-                },
+                defaults={"name": "Synthetic AI E2E agent", **application_defaults},
+            )
+            # The tasks usage gate mints its gateway token under the Array app, so the region needs that row too.
+            OAuthApplication.objects.get_or_create(
+                client_id=ARRAY_APP_CLIENT_ID_DEV,
+                defaults={"name": "Synthetic Array agent", **application_defaults},
             )
             self.connected_team = Team.objects.create(
                 id=secrets.randbelow(1_000_000_000) + 1_000_000_000,

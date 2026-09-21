@@ -66,6 +66,25 @@ def content_blocks(item: dict[str, JsonValue]) -> list[dict[str, JsonValue]]:
     return [block for block in content if isinstance(block, dict)] if isinstance(content, list) else []
 
 
+def is_probe(body: dict[str, JsonValue]) -> bool:
+    # Claude Code checks its credentials with a one-token, non-streaming turn before the real one.
+    return body.get("stream") is not True and body.get("max_tokens") == 1
+
+
+def probe_message(body: dict[str, JsonValue]) -> bytes:
+    message = {
+        "id": "msg_synthetic_probe",
+        "type": "message",
+        "role": "assistant",
+        "model": body.get("model"),
+        "content": [{"type": "text", "text": "Hi"}],
+        "stop_reason": "max_tokens",
+        "stop_sequence": None,
+        "usage": {"input_tokens": 1, "output_tokens": 1},
+    }
+    return json.dumps(message).encode()
+
+
 def validate_step(step: ResponseStep, provider: str, body: dict[str, JsonValue]) -> None:
     if provider != step.provider or body.get("model") != step.model or body.get("stream") is not True:
         raise ValueError(f"Expected streaming {step.provider}/{step.model}")
