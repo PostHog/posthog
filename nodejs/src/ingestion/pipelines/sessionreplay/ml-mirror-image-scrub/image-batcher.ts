@@ -148,6 +148,19 @@ interface WriteHandoff {
     offsets: TopicPartitionOffset[]
 }
 
+/**
+ * Waits for every write, then raises the first failure. A lane failure exits the process, and a
+ * sibling write still in flight at that point leaves a partial shard behind that nothing indexes.
+ */
+async function settleAll(writes: Promise<void>[]): Promise<void> {
+    const failed = (await Promise.allSettled(writes)).find(
+        (result): result is PromiseRejectedResult => result.status === 'rejected'
+    )
+    if (failed) {
+        throw failed.reason
+    }
+}
+
 export class ImageBatcher {
     /** Retired images of the running batch that no hand-off has taken yet. */
     private outgoing: ScrubbedRef[] = []
@@ -464,6 +477,7 @@ export class ImageBatcher {
             // Neither the offsets nor the shard belong to this pod any more. Writing it would only
             // duplicate what the partition's new owner is already producing, under a fresh key that
             // nothing later reconciles.
+            this.forgetUnwritten(this.outgoing)
             this.outgoing = []
             this.outgoingBytes = 0
             this.outgoingOffsets.clear()
@@ -510,6 +524,12 @@ export class ImageBatcher {
     private async writeOrPoison(handoff: WriteHandoff): Promise<void> {
         if (this.writeFailure !== undefined) {
             throw this.writeFailure
+        }
+        // Found by the hand-off ahead of this one, whose offsets could not be stored: the span belongs
+        // to another pod now, and writing it here would leave a second shard under a random key.
+        if (this.partitionsRevoked) {
+            this.forgetUnwritten(handoff.images)
+            return
         }
         const startedAt = performance.now()
         try {
@@ -593,6 +613,15 @@ export class ImageBatcher {
             planned.push(candidate)
         }
         return planned
+    }
+
+    /** A ref that was marked seen but never persisted would be deduped away unwritten if its partition came back here. */
+    private forgetUnwritten(images: ScrubbedRef[]): void {
+        for (const { ref, source } of images) {
+            if (source === 'bytes') {
+                this.seenRefs.delete(ref)
+            }
+        }
     }
 
     private stageOutgoing(ready: ScrubbedRef): void {
@@ -795,7 +824,7 @@ export class ImageBatcher {
             )
             // URL images first: their keys are deterministic, so a failure here leaves nothing behind,
             // while a shard is written under a fresh key that a replay would duplicate.
-            await Promise.all(
+            await settleAll(
                 urlItems.map((item) =>
                     this.writeLimiter(async () => {
                         const outcome = await this.store.writeUrlImage(
@@ -822,7 +851,7 @@ export class ImageBatcher {
                 group.push(item)
                 groups.set(groupId, group)
             }
-            await Promise.all(
+            await settleAll(
                 [...groups.values()].map((items) =>
                     this.writeLimiter(async () => {
                         const { bytes } = await this.store.writeShard(

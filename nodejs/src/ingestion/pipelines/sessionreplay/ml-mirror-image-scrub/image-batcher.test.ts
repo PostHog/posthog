@@ -1146,4 +1146,64 @@ describe('ImageBatcher', () => {
         expect(store.writes.flat()).toHaveLength(1)
         expect(offsets.received.flat().map((offset) => offset.offset)).toEqual([1])
     })
+
+    it('discards a hand-off queued behind one that found its partitions revoked', async () => {
+        // The new owner rescrubs that span, so writing it here leaves a second shard under a random
+        // key. The discarded refs are unmarked, or a replay on this pod would dedup them away unwritten.
+        const store = new FakeStore()
+        let releaseWrite = (): void => {}
+        const writeGate = new Promise<void>((resolve) => (releaseWrite = resolve))
+        const writeShard = store.writeShard.bind(store)
+        store.writeShard = async (images) => {
+            await writeGate
+            return writeShard(images)
+        }
+        const revoked = new FakeOffsets()
+        revoked.offsetsStore = () => {
+            throw Object.assign(new Error('Local: Erroneous state'), { code: -172 })
+        }
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, revoked, scrubClient, options)
+
+        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))])
+        await batcher.handleBatch([msg(0, 1, pt(1), Buffer.from('b'))])
+        releaseWrite()
+        await batcher.drain()
+        expect(store.writes.flat()).toHaveLength(1)
+
+        await handleAndWrite(batcher, [msg(0, 1, pt(1), Buffer.from('b'))])
+        expect(store.writes.flat()).toHaveLength(2)
+    })
+
+    it('lets sibling object writes settle before a hand-off reports the first failure', async () => {
+        // The lane's failure ends the process, and a write still in flight at that point leaves a
+        // partial shard behind that nothing indexes.
+        const store = new FakeStore()
+        let releaseWrite = (): void => {}
+        const writeGate = new Promise<void>((resolve) => (releaseWrite = resolve))
+        let settledWrites = 0
+        store.writeShard = async (images) => {
+            if (images[0].teamId === '42') {
+                throw new Error('s3 down')
+            }
+            await writeGate
+            settledWrites += 1
+            return { shard: 'shard', bytes: 0 }
+        }
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, new FakeOffsets(), scrubClient, options)
+        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a')), msg(0, 1, '42', Buffer.from('b'))])
+
+        let failed = false
+        const drain = batcher.drain().catch(() => {
+            failed = true
+        })
+        for (let tick = 0; tick < 20; tick++) {
+            await new Promise((resolve) => setImmediate(resolve))
+        }
+        expect(failed).toBe(false)
+
+        releaseWrite()
+        await drain
+        expect(failed).toBe(true)
+        expect(settledWrites).toBe(1)
+    })
 })
