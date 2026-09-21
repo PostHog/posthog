@@ -439,7 +439,7 @@ class TestSplitWindow:
     def test_covers_the_window_without_gaps(
         self, _name: str, start: str, end: str, parts: int, expected: list[tuple[str, str]]
     ) -> None:
-        assert _split_window(start, end, parts) == expected
+        assert [(window.start, window.end) for window in _split_window(start, end, parts)] == expected
 
     @parameterized.expand(
         [

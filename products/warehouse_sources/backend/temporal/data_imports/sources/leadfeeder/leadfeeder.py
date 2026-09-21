@@ -27,6 +27,8 @@ from typing import Any, Optional
 
 from requests.exceptions import HTTPError
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -65,6 +67,13 @@ DEFAULT_LOOKBACK_DAYS = 365  # First-sync window when the user leaves start_date
 # PAGE_SIZE rows a page that is 100 pages, so a window holding more rows than this can only be read
 # in full by asking for narrower date ranges.
 MAX_PAGES_PER_WINDOW = 10_000 // PAGE_SIZE
+
+
+@frozen
+class _DateWindow:
+    start: str
+    end: str
+
 
 # Name the accounts fan-out parent uses; the framework injects the parent id into child rows under
 # `_accounts_id` (see make_parent_key_name), which the child data_map renames to `account_id`.
@@ -287,7 +296,7 @@ def _unified_child_endpoint(config: LeadfeederEndpointConfig, account_id: str, s
     return child_endpoint
 
 
-def _split_window(start: str, end: str, parts: int) -> list[tuple[str, str]]:
+def _split_window(start: str, end: str, parts: int) -> list[_DateWindow]:
     """Cut a date window into at most `parts` day-aligned sub-windows, oldest first.
 
     Returns an empty list when there is nothing narrower left to ask the vendor for: a single-day
@@ -303,11 +312,11 @@ def _split_window(start: str, end: str, parts: int) -> list[tuple[str, str]]:
     if days < 2:
         return []
     window_days = ceil(days / max(2, min(parts, days)))
-    windows: list[tuple[str, str]] = []
+    windows: list[_DateWindow] = []
     cursor = first
     while cursor <= last:
         window_end = min(cursor + timedelta(days=window_days - 1), last)
-        windows.append((cursor.isoformat(), window_end.isoformat()))
+        windows.append(_DateWindow(start=cursor.isoformat(), end=window_end.isoformat()))
         cursor = window_end + timedelta(days=1)
     return windows
 
@@ -414,8 +423,8 @@ def _unified_leadfeeder_source(
         if page_count is not None and page_count > MAX_PAGES_PER_WINDOW:
             narrower = _split_window(window_start, window_end, ceil(page_count / MAX_PAGES_PER_WINDOW))
             if narrower:
-                for sub_start, sub_end in narrower:
-                    yield from _iter_account_window(account_id, sub_start, sub_end)
+                for window in narrower:
+                    yield from _iter_account_window(account_id, window.start, window.end)
                 return
 
         try:
@@ -441,8 +450,8 @@ def _unified_leadfeeder_source(
                     extra={"endpoint": endpoint, "day": window_start, "team_id": team_id},
                 )
                 return
-            for sub_start, sub_end in narrower:
-                yield from _iter_account_window(account_id, sub_start, sub_end)
+            for window in narrower:
+                yield from _iter_account_window(account_id, window.start, window.end)
 
     def _fanned() -> Iterator[list[dict[str, Any]]]:
         for account_id in _unified_account_ids(client, team_id, job_id):
