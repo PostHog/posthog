@@ -121,8 +121,8 @@ export const DefaultScopes: Story = {
     },
 }
 
-// An application that registered a logo_uri. The image is a third-party icon this repo already
-// serves, so the snapshot never reaches out to a host we do not control.
+// The logo is a third-party icon this repo already serves, so the snapshot never reaches out to a
+// host we do not control.
 export const WithApplicationLogo: Story = {
     decorators: [withOAuthApplication({ name: 'Zapier', logo_uri: '/static/services/zapier.png' })],
     render: () => {
