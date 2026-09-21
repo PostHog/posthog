@@ -44,8 +44,12 @@ export interface webAnalyticsLoadTimeLogicActions {
     collectionNodeLoadDataFailure: (id: string) => {
         id: string
     } // dataNodeCollectionLogic
-    collectionNodeLoadDataSuccess: (id: string) => {
+    collectionNodeLoadDataSuccess: (
+        id: string,
+        meta?: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').CollectionNodeLoadMeta | undefined
+    ) => {
         id: string
+        meta: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').CollectionNodeLoadMeta | undefined
     } // dataNodeCollectionLogic
     recordVisit: () => {
         value: true

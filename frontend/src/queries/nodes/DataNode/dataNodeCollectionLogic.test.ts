@@ -1,16 +1,38 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
-import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import {
+    DATA_COLLECTION_ABANDONED_EVENT,
+    DATA_COLLECTION_LOAD_STARTED_EVENT,
+    DATA_COLLECTION_SETTLED_EVENT,
+    dataNodeCollectionLogic,
+} from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { initKeaTests } from '~/test/init'
+
+jest.mock('posthog-js')
 
 describe('dataNodeCollectionLogic', () => {
     let logic: ReturnType<typeof dataNodeCollectionLogic.build>
 
     beforeEach(() => {
         initKeaTests()
+        ;(posthog.capture as jest.Mock).mockClear()
         logic = dataNodeCollectionLogic({ key: 'test-collection' })
         logic.mount()
     })
+
+    const capturedEvents = (event: string): Record<string, any>[] =>
+        (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name === event).map(([, properties]) => properties)
+
+    const mountTile = (id: string, sharedCollection = true): void => {
+        logic.actions.mountDataNode(id, {
+            id,
+            loadData: jest.fn(),
+            cancelQuery: jest.fn(),
+            kind: 'TrendsQuery',
+            sharedCollection,
+        })
+    }
 
     afterEach(() => {
         logic?.unmount()
@@ -77,6 +99,11 @@ describe('dataNodeCollectionLogic', () => {
 
         logic.actions.collectionNodeLoadDataSuccess('tile-a')
         await expectLogic(logic).toMatchValues({ areAnyLoading: false })
+
+        // A node starts loading before it registers, so registering must not mark it idle again
+        logic.actions.collectionNodeLoadData('tile-c')
+        mountTile('tile-c')
+        await expectLogic(logic).toMatchValues({ areAnyLoading: true })
     })
 
     it('cancelAllLoading only cancels nodes whose status is loading', () => {
@@ -91,5 +118,117 @@ describe('dataNodeCollectionLogic', () => {
 
         expect(cancelA).toHaveBeenCalledTimes(1)
         expect(cancelB).not.toHaveBeenCalled()
+    })
+
+    describe('load telemetry', () => {
+        it('opens one cycle and settles on the last tile, carrying the cycle totals', () => {
+            mountTile('tile-a')
+            mountTile('tile-b')
+
+            logic.actions.collectionNodeLoadData('tile-a')
+            logic.actions.collectionNodeLoadData('tile-b')
+
+            expect(capturedEvents(DATA_COLLECTION_LOAD_STARTED_EVENT)).toEqual([
+                expect.objectContaining({
+                    collection_key: 'test-collection',
+                    trigger: 'initial_load',
+                    mounted_tile_count: 2,
+                }),
+            ])
+
+            logic.actions.collectionNodeLoadDataSuccess('tile-a', { isCached: true })
+            expect(capturedEvents(DATA_COLLECTION_SETTLED_EVENT)).toHaveLength(0)
+
+            logic.actions.collectionNodeLoadDataFailure('tile-b')
+
+            expect(capturedEvents(DATA_COLLECTION_SETTLED_EVENT)).toEqual([
+                expect.objectContaining({
+                    collection_key: 'test-collection',
+                    trigger: 'initial_load',
+                    tile_count: 2,
+                    failed_tile_count: 1,
+                    cached_tile_count: 1,
+                    unmounted_tile_count: 0,
+                    last_tile_id: 'tile-b',
+                    last_tile_status: 'failure',
+                    duration_ms: expect.any(Number),
+                }),
+            ])
+        })
+
+        it('labels a reloadAll cycle refresh and the cycle after it update', () => {
+            logic.actions.mountDataNode('tile-a', {
+                id: 'tile-a',
+                loadData: jest.fn(() => logic.actions.collectionNodeLoadData('tile-a')),
+                cancelQuery: jest.fn(),
+                sharedCollection: true,
+            })
+
+            logic.actions.collectionNodeLoadData('tile-a')
+            logic.actions.collectionNodeLoadDataSuccess('tile-a')
+
+            logic.actions.reloadAll()
+            logic.actions.collectionNodeLoadDataSuccess('tile-a')
+
+            logic.actions.collectionNodeLoadData('tile-a')
+
+            expect(capturedEvents(DATA_COLLECTION_LOAD_STARTED_EVENT).map((p) => p.trigger)).toEqual([
+                'initial_load',
+                'refresh',
+                'update',
+            ])
+        })
+
+        it('stays silent for a collection no other node shares', () => {
+            mountTile('tile-a', false)
+
+            logic.actions.collectionNodeLoadData('tile-a')
+            logic.actions.collectionNodeLoadDataSuccess('tile-a')
+
+            expect(posthog.capture).not.toHaveBeenCalled()
+        })
+
+        it('reports abandoned, not settled, when every loading tile unmounts', () => {
+            mountTile('tile-a')
+            mountTile('tile-b')
+            logic.actions.collectionNodeLoadData('tile-a')
+            logic.actions.collectionNodeLoadData('tile-b')
+
+            logic.actions.unmountDataNode('tile-a')
+            expect(capturedEvents(DATA_COLLECTION_ABANDONED_EVENT)).toHaveLength(0)
+
+            logic.actions.unmountDataNode('tile-b')
+
+            expect(capturedEvents(DATA_COLLECTION_ABANDONED_EVENT)).toEqual([
+                expect.objectContaining({
+                    collection_key: 'test-collection',
+                    trigger: 'initial_load',
+                    tile_count: 2,
+                    tiles_still_loading: 2,
+                    duration_ms: expect.any(Number),
+                }),
+            ])
+            expect(capturedEvents(DATA_COLLECTION_SETTLED_EVENT)).toHaveLength(0)
+        })
+
+        it('settles when a tile unmounts mid-load and the rest have finished', () => {
+            mountTile('tile-a')
+            mountTile('tile-b')
+            logic.actions.collectionNodeLoadData('tile-a')
+            logic.actions.collectionNodeLoadData('tile-b')
+            logic.actions.collectionNodeLoadDataSuccess('tile-b')
+
+            logic.actions.unmountDataNode('tile-a')
+
+            expect(capturedEvents(DATA_COLLECTION_SETTLED_EVENT)).toEqual([
+                expect.objectContaining({
+                    tile_count: 2,
+                    unmounted_tile_count: 1,
+                    last_tile_id: 'tile-a',
+                    last_tile_status: 'unmounted',
+                }),
+            ])
+            expect(capturedEvents(DATA_COLLECTION_ABANDONED_EVENT)).toHaveLength(0)
+        })
     })
 })

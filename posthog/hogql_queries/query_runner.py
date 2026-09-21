@@ -2604,6 +2604,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         query_executed_props = {
             "insight_id": insight_id,
             "dashboard_id": dashboard_id,
+            # Joins this row to the browser-side wait the client measured for the same query.
+            "client_query_id": self.query_id,
             "execution_mode": execution_mode.value,
             "query_type": getattr(self.query, "kind", "Other"),
             "cache_key": cache_key,
@@ -2817,6 +2819,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_executed_props = {
                 "insight_id": insight_id,
                 "dashboard_id": dashboard_id,
+                # Joins this row to the browser-side wait the client measured for the same query.
+                "client_query_id": self.query_id,
                 "cache_hit": False,
                 "cache_age_override": getattr(self, "_cache_age_override", None),
                 "cache_key": cache_key,
