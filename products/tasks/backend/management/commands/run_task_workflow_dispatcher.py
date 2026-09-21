@@ -25,6 +25,7 @@ from posthog.models.user import User
 from posthog.temporal.common.client import async_connect
 from posthog.user_permissions import UserPermissions
 
+from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
 from products.tasks.backend.logic.services.workflow_dispatch import (
     WorkflowDispatchOptions,
     claim_dispatches,
@@ -211,6 +212,15 @@ class Command(BaseCommand):
                     )
                     WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="dead").inc()
                     return
+                if run.scheduled_at is not None and not is_restart:
+                    user = await User.objects.aget(id=options.user_id)
+                    limit_response = await sync_to_async(usage_limit_response)(user, run.team_id)
+                    if limit_response is not None:
+                        await sync_to_async(mark_dead)(
+                            dispatch.id, instance_id, str(limit_response.data["error"]), "usage_limit"
+                        )
+                        WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="dead").inc()
+                        return
                 await sync_to_async(_capture_run_feature_flags, thread_sensitive=False)(str(run.id))
                 if is_restart:
                     from products.tasks.backend.facade.streams import reset_task_run_stream  # noqa: PLC0415

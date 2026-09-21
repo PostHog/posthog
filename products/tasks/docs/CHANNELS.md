@@ -72,6 +72,8 @@ Use a future ISO 8601 timestamp within 90 days. Times without an offset use UTC.
 Omit the field or send null to start immediately. Scheduling is one-off, with no recurrence.
 The run stays `not_started` until the dispatcher queues it at or after the requested time.
 Run responses include `scheduled_at` in UTC. This time is not an exact execution guarantee.
+Before dispatch, scheduled runs recheck current project access and the cloud usage gate.
+The dispatcher fails the run if the usage gate blocks it.
 
 Omit model fields to use saved defaults. A resumed run inherits the previous run's model.
 For an explicit choice, call `tasks-models-retrieve`, then send `model` and an optional supported `reasoning_effort`.

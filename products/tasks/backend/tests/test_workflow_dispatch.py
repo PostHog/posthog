@@ -9,11 +9,12 @@ from django.db import transaction
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone as django_timezone
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.user import User
 
 from products.tasks.backend.facade.api import (
@@ -23,6 +24,7 @@ from products.tasks.backend.facade.api import (
     maintain_workflow_dispatch_outbox,
     resume_task_run_in_cloud,
 )
+from products.tasks.backend.logic.services.code_usage_gate import CodeUsageStatus
 from products.tasks.backend.logic.services.workflow_dispatch import (
     RestartSnapshot,
     WorkflowDispatchFlags,
@@ -144,6 +146,62 @@ class TestWorkflowDispatchPersistence(TestCase):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
         self.task_run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+
+    @parameterized.expand(
+        [
+            ("scheduled_over_limit", True, True, False),
+            ("scheduled_allowed", True, False, False),
+            ("scheduled_deactivated", True, False, True),
+            ("immediate_unchanged", False, True, False),
+        ]
+    )
+    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher._capture_run_feature_flags")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.organization_deactivated")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_dispatch_rechecks_scheduled_usage(
+        self,
+        name: str,
+        scheduled: bool,
+        limited: bool,
+        deactivated: bool,
+        get_usage: Mock,
+        organization_deactivated: Mock,
+        capture_flags: Mock,
+    ) -> None:
+        user = self.task_run.task.created_by
+        assert user is not None
+        OrganizationMembership.objects.create(organization=self.team.organization, user=user)
+        if scheduled:
+            self.task_run.scheduled_at = django_timezone.now() - timedelta(minutes=1)
+            self.task_run.save(update_fields=["scheduled_at"])
+        get_usage.return_value = CodeUsageStatus(limited, "burst" if limited else None, None, False)
+        organization_deactivated.return_value = deactivated
+        dispatch = create_dispatch(
+            self.task_run,
+            TaskWorkflowDispatch.Kind.CREATE,
+            build_create_payload(WorkflowDispatchOptions(user_id=user.id)),
+            self.task_run.workflow_id,
+        )
+        claimed = claim_dispatches("dispatcher-1", 1, timedelta(minutes=1))
+        self.assertEqual([row.id for row in claimed], [dispatch.id])
+        client = Mock(start_workflow=AsyncMock())
+
+        with self.captureOnCommitCallbacks(execute=True):
+            async_to_sync(Command()._process)(client, claimed[0], "dispatcher-1", asyncio.Semaphore(1))
+
+        dispatch.refresh_from_db()
+        self.task_run.refresh_from_db()
+        if scheduled and (limited or deactivated):
+            client.start_workflow.assert_not_called()
+            self.assertEqual(dispatch.status, TaskWorkflowDispatch.Status.DEAD)
+            self.assertEqual(self.task_run.status, TaskRun.Status.FAILED)
+            self.assertTrue(self.task_run.error_message)
+            self.assertEqual(self.task_run.error_message, dispatch.last_error)
+        else:
+            client.start_workflow.assert_awaited_once()
+            self.assertEqual(dispatch.status, TaskWorkflowDispatch.Status.ACCEPTED)
+        if not scheduled:
+            get_usage.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client._terminalize_unstarted_task_run")
     def test_malformed_restart_payload_is_terminalized_after_marking_dispatch_dead(self, terminalize: Mock) -> None:
