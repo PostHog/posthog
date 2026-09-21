@@ -11,12 +11,20 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import { ChannelFilterMenu } from "@posthog/ui/features/canvas/components/ChannelFilterMenu";
+import type { SpaceActivityType } from "@posthog/ui/features/canvas/components/channelFeedDisplay";
 import {
   type SpaceActivityView,
   useSpaceActivityViewStore,
 } from "@posthog/ui/features/canvas/stores/spaceActivityViewStore";
 
 const GROUPINGS = ["date", "repository"] as const;
+
+const TYPES: { value: SpaceActivityType; label: string }[] = [
+  { value: "task", label: "Tasks" },
+  { value: "canvas", label: "Canvases" },
+  { value: "report", label: "Reports" },
+  { value: "pr", label: "PRs" },
+];
 
 const VIEWS: {
   value: SpaceActivityView;
@@ -32,6 +40,8 @@ export function SpaceActivityControls({
 }: {
   sources: readonly string[];
 }) {
+  const types = useSpaceActivityViewStore((s) => s.types);
+  const setTypes = useSpaceActivityViewStore((s) => s.setTypes);
   const view = useSpaceActivityViewStore((s) => s.view);
   const setView = useSpaceActivityViewStore((s) => s.setView);
   const filters = useSpaceActivityViewStore((s) => s.filters);
@@ -43,6 +53,18 @@ export function SpaceActivityControls({
 
   return (
     <div className="flex items-center gap-1">
+      <ToggleGroup
+        multiple
+        value={types}
+        onValueChange={(next) => setTypes(next as SpaceActivityType[])}
+        aria-label="Types shown"
+      >
+        {TYPES.map(({ value, label }) => (
+          <ToggleGroupItem key={value} value={value} size="sm">
+            {label}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
       <ToggleGroup
         value={[view]}
         onValueChange={(next) => {
@@ -81,7 +103,6 @@ export function SpaceActivityControls({
         sources={sources}
         showCreatedBy
         showRunFilters
-        showKindFilter
         active={hasActiveChannelItemFilters(filters)}
       />
     </div>

@@ -28,8 +28,7 @@ import {
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { ThreadSidebar } from "@posthog/ui/features/canvas/components/ThreadSidebar";
 import { SpaceActivityControls } from "@posthog/ui/features/canvas/components/work/SpaceActivityControls";
-import { SpacePinnedSection } from "@posthog/ui/features/canvas/components/work/SpacePinnedSection";
-import { SpacePullRequestsColumn } from "@posthog/ui/features/canvas/components/work/SpacePullRequestsColumn";
+import { useSpacePullRequests } from "@posthog/ui/features/canvas/components/work/useSpacePullRequests";
 import { CONTEXT_MD_TASK_TITLE_PREFIX } from "@posthog/ui/features/canvas/contextPrompt";
 import {
   channelFeedQueryKey,
@@ -70,6 +69,8 @@ import {
   useRef,
   useState,
 } from "react";
+
+const NO_TASKS: Task[] = [];
 
 // A channel: a multiplayer feed. Each member message kicks off a task rendered
 // as a card everyone in the channel sees; the composer stays pinned at the top
@@ -158,16 +159,20 @@ export function WebsiteChannelHome({
     { enabled: isWork },
   );
 
+  const pullRequests = useSpacePullRequests(isWork ? tasks : NO_TASKS);
   const activityView = useSpaceActivityViewStore((s) => s.view);
+  const activityTypes = useSpaceActivityViewStore((s) => s.types);
   const activityFilters = useSpaceActivityViewStore((s) => s.filters);
   const activitySort = useSpaceActivityViewStore((s) => s.sort);
   const activityGrouping = useSpaceActivityViewStore((s) => s.grouping);
   const shownView = useDeferredValue(activityView);
+  const shownTypes = useDeferredValue(activityTypes);
   const shownFilters = useDeferredValue(activityFilters);
   const shownSort = useDeferredValue(activitySort);
   const shownGrouping = useDeferredValue(activityGrouping);
   const activityPending =
     shownView !== activityView ||
+    shownTypes !== activityTypes ||
     shownFilters !== activityFilters ||
     shownSort !== activitySort ||
     shownGrouping !== activityGrouping;
@@ -451,6 +456,8 @@ export function WebsiteChannelHome({
               : undefined
           }
           canvases={isWork ? spaceCanvases : undefined}
+          pullRequests={isWork ? pullRequests : undefined}
+          types={isWork ? shownTypes : undefined}
           spaceItems={isWork ? spaceItems : undefined}
           me={isWork ? me : undefined}
           controls={
@@ -466,14 +473,6 @@ export function WebsiteChannelHome({
           reports={isWork ? reports : undefined}
           onOpenReport={isWork ? handleOpenReport : undefined}
           showKindFilter={!isWork}
-          aside={
-            isWork && !showsThreadDock ? (
-              <>
-                <SpacePinnedSection channelId={channelId} tasks={tasks} />
-                <SpacePullRequestsColumn tasks={tasks} isLoading={isLoading} />
-              </>
-            ) : undefined
-          }
         />
       </div>
 

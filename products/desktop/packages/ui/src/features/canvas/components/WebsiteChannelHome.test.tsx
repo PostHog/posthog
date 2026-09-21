@@ -47,6 +47,10 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelFeedMessages", () => ({
   useChannelFeedMessages: () => ({ messages: [], isLoading: false }),
   channelCreationMessage: () => null,
 }));
+vi.mock(
+  "@posthog/ui/features/canvas/components/work/useSpacePullRequests",
+  () => ({ useSpacePullRequests: () => [] }),
+);
 vi.mock("@posthog/ui/features/canvas/hooks/useFolderInstructions", () => ({
   useFolderInstructions: () => ({ data: undefined, isLoading: false }),
 }));
