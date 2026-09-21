@@ -350,6 +350,26 @@ class TestPrepareAlert:
         assert check.error is not None
         assert result.reason in check.error["message"]
 
+    async def test_auto_disable_when_the_insight_query_can_no_longer_run(self, ateam) -> None:
+        # The check runs before every evaluation, so an insight that loses a step after the alert
+        # was created disables the alert instead of leaving it failing and silent.
+        a = await _create_alert(
+            ateam,
+            query={"kind": "FunnelsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            config={"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
+        )
+
+        env = ActivityEnvironment()
+        result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id)))
+
+        assert result.action == PrepareAction.AUTO_DISABLE
+        assert result.reason is not None
+        assert "Funnels require at least two steps." in result.reason
+
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=a.pk)
+        assert refreshed.enabled is False
+        assert refreshed.state == AlertState.ERRORED
+
     async def test_auto_disable_email_alert_when_email_is_unavailable(self, alert_with_user) -> None:
         with patch("posthog.temporal.alerts.activities.is_email_available", return_value=False):
             env = ActivityEnvironment()

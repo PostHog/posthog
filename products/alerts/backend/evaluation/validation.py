@@ -21,6 +21,9 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql_queries.validation.validate_query import first_query_rule_violation
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.tasks.alerts.utils import REAL_TIME_CADENCE_MINUTES, WRAPPER_NODE_KINDS, is_non_time_series_trend
 from posthog.utils import get_from_dict_or_attr
 
@@ -317,10 +320,15 @@ def validate_alert_config(
     calculation_interval: str | None = None,
     detector_config: dict | None = None,
     require_threshold_bounds: bool = True,
+    team: Team | None = None,
+    user: User | None = None,
 ) -> None:
     """Validate alert configuration dicts. Raises ValueError on failure.
 
     Common checks run here; per-config-type rules live in ``_ALERT_CONFIG_VALIDATORS``.
+
+    Pass ``team`` to also run the insight's own query validation rules. Building those rules needs
+    a team, so a caller that has none checks the alert configuration alone.
     """
     if not calculation_interval or not isinstance(calculation_interval, str):
         raise ValueError(f"Invalid calculation interval: {calculation_interval}")
@@ -350,6 +358,15 @@ def validate_alert_config(
     validator = _ALERT_CONFIG_VALIDATORS.get(config_type) if isinstance(config_type, str) else None
     if validator is None:
         raise ValueError(f"Unsupported alert config type: {config}")
+
+    # A rule the query runner enforces makes the alert unevaluable however it is configured, so it
+    # is reported before the config-shape rules below. Reading those rules rather than copying them
+    # keeps this in step with what the query will accept.
+    if team is not None:
+        violation = first_query_rule_violation(query, team=team, user=user)
+        if violation is not None:
+            raise ValueError(f"Alert's insight can't run: {violation.message}")
+
     validator(
         _AlertConfigValidationContext(
             config=config if isinstance(config, dict) else {},

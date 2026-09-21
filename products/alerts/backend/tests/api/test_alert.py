@@ -1060,6 +1060,28 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert expected_error_fragment in response.json()["detail"].lower()
 
+    def test_create_alert_rejects_an_insight_the_query_runner_cannot_run(self) -> None:
+        one_step_funnel = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={"query": {"kind": "FunnelsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}},
+        ).json()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": one_step_funnel["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "name": "alert name",
+                "calculation_interval": "daily",
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "Funnels require at least two steps." in response.json()["detail"]
+
     @parameterized.expand(
         [
             (

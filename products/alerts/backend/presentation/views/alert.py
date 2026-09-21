@@ -853,6 +853,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 config = {**config, "check_ongoing_interval": True}
                 attrs["config"] = config
 
+        request_user = self.context["request"].user
         try:
             validate_alert_config(
                 query,
@@ -862,6 +863,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 calculation_interval,
                 detector_config=detector_config,
                 require_threshold_bounds=require_threshold_bounds,
+                team=self.context["get_team"](),
+                user=request_user if isinstance(request_user, User) else None,
             )
         except ValueError as e:
             if str(e) == THRESHOLD_BOUNDS_REQUIRED_MESSAGE:
