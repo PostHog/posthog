@@ -9,8 +9,10 @@ from django.conf import settings
 from ..facade.contracts import SavedQuerySummary
 from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from ..models.edge import Edge
-from ..models.node import Node
+from ..models.node import Node, NodeType
 from .saved_query_freshness import saved_query_materialized_at
+
+POSTHOG_TABLE_ORIGIN = "posthog"
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
@@ -179,6 +181,28 @@ def get_node_ids_for_saved_queries(team_id: int, saved_query_ids: Iterable[UUID 
     nodes: dict[str, str] = {}
     for saved_query_id, node_id in rows:
         nodes.setdefault(str(saved_query_id), str(node_id))
+    return nodes
+
+
+def get_node_ids_for_posthog_tables(team_id: int, table_names: Iterable[str]) -> dict[str, str]:
+    """The DAG node each of these PostHog tables sits on, as one query. A table no view reads has none."""
+    names = list(table_names)
+    if not names:
+        return {}
+    rows = (
+        Node.objects.filter(
+            team_id=team_id,
+            type=NodeType.TABLE,
+            name__in=names,
+            saved_query__isnull=True,
+            properties__origin=POSTHOG_TABLE_ORIGIN,
+        )
+        .order_by("id")
+        .values_list("name", "id")
+    )
+    nodes: dict[str, str] = {}
+    for name, node_id in rows:
+        nodes.setdefault(name, str(node_id))
     return nodes
 
 
