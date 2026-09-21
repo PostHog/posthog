@@ -142,7 +142,7 @@ from products.dashboards.backend.run_insights_output import (
     render_unsupported_result,
     tile_budget,
     tile_fits_response_budget,
-    unrun_tile_result,
+    unrun_tile_results,
 )
 from products.dashboards.backend.widget_access import (
     check_widget_tile_product_access,
@@ -3333,15 +3333,17 @@ class DashboardsViewSet(
                 )
             ordered_tiles = [(order, tile) for order, tile in ordered_tiles if tile.id in wanted_tile_ids]
 
+        # Narrowing to runnable tiles here lets the budget path count what it leaves out.
+        insight_tiles = [
+            (order, tile, tile.insight) for order, tile in ordered_tiles if tile.insight and tile.insight.query
+        ]
+
         tile_results = []
         used_chars = 0
-        for order, tile in ordered_tiles:
-            if not tile.insight or not tile.insight.query:
-                continue
-
+        for index, (order, tile, insight) in enumerate(insight_tiles):
             if output_format == "optimized" and not tile_fits_response_budget(used_chars):
-                tile_results.append(unrun_tile_result(tile, tile.insight, order))
-                continue
+                tile_results.extend(unrun_tile_results(insight_tiles[index:]))
+                break
 
             tile_context = {**context, "dashboard_tile": tile, "order": order}
             tile_data = DashboardTileResultSerializer(tile, context=tile_context).data
@@ -3350,7 +3352,7 @@ class DashboardsViewSet(
                 insight_data = tile_data.get("insight") or {}
                 raw_result = insight_data.get("result")
                 if insight_data and raw_result is not None:
-                    formatted = self._format_insight_for_llm(tile.insight, insight_data)
+                    formatted = self._format_insight_for_llm(insight, insight_data)
                     if formatted is None:
                         # No formatter covers this query type, so the raw result still has to be bounded.
                         formatted = render_unsupported_result(raw_result)

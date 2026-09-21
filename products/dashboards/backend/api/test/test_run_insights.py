@@ -166,8 +166,9 @@ class TestDashboardRunInsights(APIBaseTest):
         if not isinstance(full, str):
             self.skipTest("LLM formatting is unavailable, so there is nothing to bound")
 
-        bounded = self._run(dashboard_id, refresh="blocking", max_result_chars="300")["results"][0]["insight"]["result"]
+        bounded = self._run(dashboard_id, refresh="blocking", max_result_chars="600")["results"][0]["insight"]["result"]
 
+        self.assertLessEqual(len(bounded), 600)
         self.assertLess(len(bounded), len(full))
         self.assertIn("tile_ids=", bounded)
         # A head-only cut would keep nothing from the recent end of a 90-day table.

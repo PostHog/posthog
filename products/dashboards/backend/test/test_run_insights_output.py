@@ -1,10 +1,16 @@
 from datetime import date
+from types import SimpleNamespace
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.dashboards.backend.constants import RUN_INSIGHTS_MAX_TOTAL_CHARS, RUN_INSIGHTS_MIN_TILE_CHARS
+from products.dashboards.backend.constants import (
+    RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS,
+    RUN_INSIGHTS_MAX_TOTAL_CHARS,
+    RUN_INSIGHTS_MAX_UNRUN_TILES,
+    RUN_INSIGHTS_MIN_TILE_CHARS,
+)
 from products.dashboards.backend.run_insights_output import (
     bound_formatted_result,
     parse_max_result_chars,
@@ -12,6 +18,7 @@ from products.dashboards.backend.run_insights_output import (
     render_unsupported_result,
     tile_budget,
     tile_fits_response_budget,
+    unrun_tile_results,
 )
 
 
@@ -36,11 +43,11 @@ class TestBoundFormattedResult(SimpleTestCase):
         self.assertEqual(bounded[1], table.splitlines()[1])
         self.assertEqual(bounded[-1], table.splitlines()[-1])
 
-    def test_holds_every_kept_row_within_the_budget(self) -> None:
-        bounded = bound_formatted_result(_table(60), tile_id=7, max_chars=300).splitlines()
+    @parameterized.expand([("small", 300), ("default", RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS)])
+    def test_holds_the_whole_result_marker_included_within_the_budget(self, _name: str, max_chars: int) -> None:
+        bounded = bound_formatted_result(_table(400), tile_id=7, max_chars=max_chars)
 
-        rows = [line for line in bounded if not line.startswith("[")]
-        self.assertLessEqual(sum(len(row) + 1 for row in rows), 300)
+        self.assertLessEqual(len(bounded), max_chars)
 
     def test_names_the_tile_and_how_many_rows_it_dropped(self) -> None:
         bounded = bound_formatted_result(_table(60), tile_id=7, max_chars=300).splitlines()
@@ -52,14 +59,20 @@ class TestBoundFormattedResult(SimpleTestCase):
     @parameterized.expand(
         [
             # One long row must still be cut, otherwise a wide table bypasses the budget entirely.
-            ("single_row_wider_than_the_budget", "x" * 500, 50),
-            ("header_wider_than_the_budget", _table(20), 6),
+            ("single_row_wider_than_the_budget", "x" * 500, 300),
+            ("header_wider_than_the_budget", _table(20), 130),
         ]
     )
     def test_cuts_text_it_cannot_hold_by_whole_rows(self, _name: str, formatted: str, max_chars: int) -> None:
         bounded = bound_formatted_result(formatted, tile_id=7, max_chars=max_chars)
 
-        self.assertEqual(bounded.splitlines()[0], formatted[:max_chars])
+        self.assertLessEqual(len(bounded), max_chars)
+        self.assertTrue(formatted.startswith(bounded.splitlines()[0]))
+        self.assertIn("tile_ids=7", bounded)
+
+    def test_keeps_the_marker_when_the_budget_cannot_hold_it(self) -> None:
+        bounded = bound_formatted_result(_table(20), tile_id=7, max_chars=10)
+
         self.assertIn("tile_ids=7", bounded)
 
 
@@ -101,3 +114,31 @@ class TestTileBudget(SimpleTestCase):
     )
     def test_a_tile_needs_the_floor_to_run(self, _name: str, used_chars: int, expected: bool) -> None:
         self.assertEqual(tile_fits_response_budget(used_chars), expected)
+
+
+class TestUnrunTileResults(SimpleTestCase):
+    @staticmethod
+    def _remaining(count: int) -> list:
+        return [
+            (
+                order,
+                SimpleNamespace(id=1000 + order),
+                SimpleNamespace(id=order, short_id="abcdefgh", name=f"Tile {order}", derived_name=None),
+            )
+            for order in range(count)
+        ]
+
+    def test_lists_every_tile_when_they_fit_the_cap(self) -> None:
+        results = unrun_tile_results(self._remaining(3))
+
+        self.assertEqual([result["order"] for result in results], [0, 1, 2])
+        self.assertNotIn("not listed", results[-1]["insight"]["result"])
+
+    def test_caps_the_list_and_says_what_it_left_off(self) -> None:
+        # Uncapped, hundreds of tiles cost more in markers than the budget they report.
+        remaining = self._remaining(RUN_INSIGHTS_MAX_UNRUN_TILES + 40)
+
+        results = unrun_tile_results(remaining)
+
+        self.assertEqual(len(results), RUN_INSIGHTS_MAX_UNRUN_TILES)
+        self.assertIn("40 further tiles are not listed", results[-1]["insight"]["result"])

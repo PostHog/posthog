@@ -63,3 +63,6 @@ RUN_INSIGHTS_MAX_TOTAL_CHARS = 30000
 
 # Below this, a tile can only carry a sliced header, so it is reported as not run instead.
 RUN_INSIGHTS_MIN_TILE_CHARS = 200
+
+# The marker list grows with the dashboard, so it gets a ceiling of its own.
+RUN_INSIGHTS_MAX_UNRUN_TILES = 25

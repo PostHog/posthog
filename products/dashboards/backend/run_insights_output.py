@@ -6,6 +6,7 @@ from rest_framework import exceptions
 from products.dashboards.backend.constants import (
     RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS,
     RUN_INSIGHTS_MAX_TOTAL_CHARS,
+    RUN_INSIGHTS_MAX_UNRUN_TILES,
     RUN_INSIGHTS_MIN_TILE_CHARS,
 )
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -25,6 +26,8 @@ BUDGET_NOTE = (
     "[Not run. The response reached its {budget} character budget. To read this tile, run "
     "dashboard-insights-run again with tile_ids={tile_id}.]"
 )
+
+UNLISTED_NOTE = " [{unlisted} further tiles are not listed. Read the dashboard for their IDs.]"
 
 
 def parse_tile_ids(raw: str | None) -> list[int]:
@@ -72,14 +75,23 @@ def bound_formatted_result(formatted: str, *, tile_id: int, max_chars: int) -> s
     A trends table runs oldest bucket first, so its recent data is at the bottom, while a funnel
     runs first step first and a paths table runs most-travelled first. Dropping the tail would
     hand an agent the opening of a date range and read as the whole of it.
+
+    The marker counts against `max_chars`, so the result never grows past it. A caller can ask
+    for a budget too small to hold the marker, and the marker still has to be there for the
+    caller to know data was dropped, so the floor on the result is the marker by itself.
     """
     if max_chars <= 0 or len(formatted) <= max_chars:
         return formatted
 
     lines = formatted.splitlines()
-    if len(lines) < 3 or len(lines[0]) + 1 > max_chars:
-        # No middle to drop, or the header alone is over budget, so cutting text holds the bound.
-        return formatted[:max_chars] + "\n" + CUT_NOTE.format(max_chars=max_chars, tile_id=tile_id)
+    # Both counts are at most the line count, so this reserves the widest the marker can render.
+    marker_room = len(ELISION_NOTE.format(omitted=len(lines), total=len(lines), tile_id=tile_id)) + 1
+    rows_budget = max_chars - marker_room
+
+    if len(lines) < 3 or len(lines[0]) + 1 > rows_budget:
+        # No middle to drop, or the header does not fit, so cutting the text is what holds the bound.
+        cut_note = CUT_NOTE.format(max_chars=max_chars, tile_id=tile_id)
+        return formatted[: max(max_chars - len(cut_note) - 1, 0)] + "\n" + cut_note
 
     # The first line is the column header in every formatter, so it is always kept.
     head = [lines[0]]
@@ -95,7 +107,7 @@ def bound_formatted_result(formatted: str, *, tile_id: int, max_chars: int) -> s
             if next_head > next_tail:
                 break
             line = lines[next_tail] if from_tail else lines[next_head]
-            if used + len(line) + 1 > max_chars:
+            if used + len(line) + 1 > rows_budget:
                 continue
             used += len(line) + 1
             if from_tail:
@@ -115,6 +127,21 @@ def bound_formatted_result(formatted: str, *, tile_id: int, max_chars: int) -> s
 def render_unsupported_result(result: Any) -> str:
     """Text for a result no LLM formatter covers, so `optimized` output stays bounded anyway."""
     return json.dumps(result, default=str)
+
+
+def unrun_tile_results(remaining: list[tuple[int, DashboardTile, Insight]]) -> list[dict[str, Any]]:
+    """Markers for the tiles the response budget left out.
+
+    The list is capped because it grows with the dashboard, and a few hundred markers would cost
+    more than the budget they report. The last marker says how many tiles it leaves off, so a
+    caller is never left thinking the dashboard ends there.
+    """
+    listed = remaining[:RUN_INSIGHTS_MAX_UNRUN_TILES]
+    results = [unrun_tile_result(tile, insight, order) for order, tile, insight in listed]
+    unlisted = len(remaining) - len(listed)
+    if unlisted and results:
+        results[-1]["insight"]["result"] += UNLISTED_NOTE.format(unlisted=unlisted)
+    return results
 
 
 def unrun_tile_result(tile: DashboardTile, insight: Insight, order: int) -> dict[str, Any]:
