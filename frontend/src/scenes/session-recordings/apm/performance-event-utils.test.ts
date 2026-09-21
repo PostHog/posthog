@@ -1,4 +1,9 @@
-import { getPerformanceEvents, itemSizeInfo } from 'scenes/session-recordings/apm/performance-event-utils'
+import {
+    getPerformanceEvents,
+    groupIntoPageViews,
+    itemSizeInfo,
+    pageTimingRange,
+} from 'scenes/session-recordings/apm/performance-event-utils'
 
 import { PerformanceEvent } from '~/types'
 
@@ -385,5 +390,39 @@ describe('performance-event-utils', () => {
             '018d5247-079c-7126-8e43-464605576a62': [snapshot],
         })
         expect(result.map((r) => r.name)).toEqual(['https://example.com/a.js'])
+    })
+    it('keeps requests captured before any navigation event as their own page', () => {
+        const events = [
+            { entry_type: 'resource', name: 'https://example.com/api/one' },
+            { entry_type: 'resource', name: 'https://example.com/api/two' },
+            { entry_type: 'navigation', name: 'https://example.com/second-page' },
+            { entry_type: 'resource', name: 'https://example.com/api/three' },
+        ] as PerformanceEvent[]
+
+        expect(groupIntoPageViews(events).map((page) => page.map((item) => item.name))).toEqual([
+            ['https://example.com/api/one', 'https://example.com/api/two'],
+            ['https://example.com/second-page', 'https://example.com/api/three'],
+        ])
+    })
+
+    it.each([
+        ['no events', [], null],
+        ['no timings', [{ entry_type: 'resource' }], null],
+        [
+            'the widest span, whatever the capture order',
+            [
+                { start_time: 500, response_end: 900 },
+                { start_time: 100, response_end: 2000 },
+                { start_time: 300, response_end: 400 },
+            ],
+            { rangeStart: 100, rangeEnd: 2000 },
+        ],
+        [
+            'load_event_end when a navigation event has one',
+            [{ start_time: 0, response_end: 1200, load_event_end: 2500 }],
+            { rangeStart: 0, rangeEnd: 2500 },
+        ],
+    ])('pageTimingRange: %s', (_name, page, expected) => {
+        expect(pageTimingRange(page as PerformanceEvent[])).toEqual(expected)
     })
 })
