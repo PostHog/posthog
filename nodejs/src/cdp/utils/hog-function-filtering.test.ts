@@ -249,9 +249,8 @@ describe('hog-function-filtering', () => {
             return sample?.value ?? 0
         }
 
-        // The label is the whole point of the counter: a destination that never compiled breaks
-        // every event and floods the dead-letter queue on its own, while a VM error breaks the
-        // events whose shape the filter cannot handle. Without the label both read as one number.
+        // Without the label, a destination that floods the queue on its own and a filter that
+        // trips on some events read as one number.
         it.each([
             ['not_compiled', { bytecode_error: 'Cohort membership cannot be evaluated' }],
             ['no_bytecode', {}],

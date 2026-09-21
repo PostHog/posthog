@@ -62,15 +62,9 @@ const hogFunctionFilterErrors = new Counter({
 })
 
 /**
- * Why a filter threw, in a fixed set.
- *
- * `not_compiled` is a whole destination that can never match: Django recorded a compile failure and
- * left no bytecode, so every event raises. `no_bytecode` is the same effect without a recorded
- * cause, which means something wrote filters without compiling them. The rest depend on the event,
- * so they hit a subset of traffic.
- *
- * The thrown message never becomes a label. It carries filter expressions, so its cardinality is
- * unbounded.
+ * `not_compiled` and `no_bytecode` break every event for a destination, the rest only the events
+ * whose shape the filter cannot handle. The thrown message never becomes a label, because it
+ * carries filter expressions and its cardinality is unbounded.
  */
 type FilterErrorReason = 'not_compiled' | 'no_bytecode' | 'prefilter' | 'vm_error' | 'unknown'
 

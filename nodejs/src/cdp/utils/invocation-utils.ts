@@ -18,11 +18,7 @@ import {
 import { HogFunctionType } from '../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from './hog-function-filtering'
 
-/**
- * The inputs step of the dead-letter pipeline, which until now only existed as an app metric in
- * ClickHouse. A record is parked per event, so read this next to cdp_hog_function_filter_error to
- * see which step fills the queue.
- */
+/** The inputs step of the dead-letter pipeline. Read next to cdp_hog_function_filter_error. */
 const hogFunctionInputsErrors = new Counter({
     name: 'cdp_hog_function_inputs_error',
     help: 'Building the inputs for an invocation threw, so no invocation was created',
