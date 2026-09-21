@@ -68,6 +68,7 @@ export const SUBJECT_TYPE_TAGS: Record<string, { label: string; type: LemonTagTy
     table: { label: 'Table', type: 'default' },
     view: { label: 'View', type: 'primary' },
     metric: { label: 'Metric', type: 'option' },
+    posthog_table: { label: 'PostHog', type: 'highlight' },
 }
 
 export const SEVERITY_TAG_TYPES: Record<string, LemonTagType> = {
@@ -96,6 +97,10 @@ export function failingForLabel(
 
 export function checkTypeLabel(checkType: string): string {
     return CHECK_TYPE_LABELS[checkType] ?? checkType
+}
+
+export function subjectTypeLabel(subjectType: string): string {
+    return SUBJECT_TYPE_TAGS[subjectType]?.label ?? subjectType
 }
 
 interface NamedCheck {
