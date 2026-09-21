@@ -258,9 +258,10 @@ export const DeepLinkWhileListLoads: Story = {
                 '/api/environments/:team_id/session_recordings': async ({ request }) => {
                     const url = new URL(request.url)
                     // The scene's own "does this project have recordings" probe reads one row, and
-                    // holding it back would hide the whole scene. Only the playlist's page is held.
+                    // holding it back would hide the whole scene. Only the playlist's page never
+                    // answers.
                     if (url.searchParams.get('limit') !== '1') {
-                        await delay(30000)
+                        await delay('infinite')
                     }
                     return [200, { has_next: false, results: recordings, version: '1' }]
                 },

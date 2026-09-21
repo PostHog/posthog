@@ -2049,13 +2049,9 @@ describe('sessionRecordingsPlaylistLogic', () => {
             // A stalled list load left the player area on the loading screen with no way out but a
             // page reload, because nothing timed the load out and nothing re-read on refocus.
             jest.useFakeTimers()
-            let resolveStalled: (value: unknown) => void = () => {}
-            const stalledList = new Promise((resolve) => {
-                resolveStalled = resolve
-            })
             const listSpy = jest
                 .spyOn(api.recordings, 'list')
-                .mockImplementationOnce(() => stalledList as ReturnType<typeof api.recordings.list>)
+                .mockImplementationOnce(() => new Promise(() => {}) as ReturnType<typeof api.recordings.list>)
                 .mockImplementation(
                     () =>
                         Promise.resolve({ results: [aRecording], has_next: false } as unknown) as ReturnType<
@@ -2072,14 +2068,13 @@ describe('sessionRecordingsPlaylistLogic', () => {
             await jest.advanceTimersByTimeAsync(LIST_LOAD_STALL_MS)
             expect(stalling.values.listLoadStalled).toBe(true)
 
-            stalling.actions.retryLoadSessionRecordings()
+            stalling.actions.loadAllRecordings()
             await jest.advanceTimersByTimeAsync(500)
 
             expect(listSpy).toHaveBeenCalledTimes(2)
             expect(stalling.values.listLoadStalled).toBe(false)
             expect(stalling.values.sessionRecordings).toEqual([aRecording])
 
-            resolveStalled({ results: [], has_next: false })
             stalling.unmount()
             jest.useRealTimers()
         })

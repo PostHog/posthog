@@ -2,13 +2,13 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useRef } from 'react'
 
 import * as directorPng from '@posthog/brand/hoggies/png/director'
-import { LemonButton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
@@ -178,7 +178,7 @@ function PlayerWrapper({
         sessionRecordingsResponseLoading,
         listLoadStalled,
     } = useValues(sessionRecordingsPlaylistLogic)
-    const { setFilters, resetFilters, setSelectedRecordingId, loadAllRecordings, retryLoadSessionRecordings } =
+    const { setFilters, resetFilters, setSelectedRecordingId, loadAllRecordings } =
         useActions(sessionRecordingsPlaylistLogic)
 
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
@@ -223,9 +223,7 @@ function PlayerWrapper({
                         pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecordingId)}
                         setPinned={
                             props.onPinnedChange && activeSessionRecording
-                                ? (pinned) => {
-                                      props.onPinnedChange?.(activeSessionRecording, pinned)
-                                  }
+                                ? (pinned) => props.onPinnedChange?.(activeSessionRecording, pinned)
                                 : undefined
                         }
                         playNextRecording={nextSessionRecording?.id ? onPlayNextRecording : undefined}
@@ -246,17 +244,17 @@ function PlayerWrapper({
                     </div>
 
                     {/* Centered hedgehog overlay */}
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                         <HedgehogDirector className="w-60 h-60" />
                         {listLoadStalled ? (
-                            <div className="mt-4 flex flex-col items-center gap-2">
+                            <div className="mt-4 flex flex-col items-center gap-2 pointer-events-auto">
                                 <span className="text-secondary">This is taking longer than usual.</span>
-                                <LemonButton type="secondary" size="small" onClick={retryLoadSessionRecordings}>
+                                <LemonButton type="secondary" size="small" onClick={loadAllRecordings}>
                                     Try again
                                 </LemonButton>
                             </div>
                         ) : (
-                            <div className="mt-4 flex items-center gap-2 pointer-events-none">
+                            <div className="mt-4 flex items-center gap-2">
                                 <Spinner textColored />
                                 <span className="text-secondary">Loading recordings...</span>
                             </div>
