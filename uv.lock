@@ -5406,17 +5406,17 @@ wheels = [
 
 [[package]]
 name = "pixelhog"
-version = "1.3.0"
+version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/2e/d9/27e623a5d417b2142f45c44f22a7cee254eaa326601a2298df084e309616/pixelhog-1.3.0.tar.gz", hash = "sha256:dda5a6b0ac57b21d5045ac79ce29a5e71905c89465f48674a8392629133c20ae", size = 46544, upload-time = "2026-09-08T06:42:47.176Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2a/50/b734dbdd51b18560d0907f480a42f47d15481469df63fec5b87ca723949a/pixelhog-1.3.1.tar.gz", hash = "sha256:4fc2bdc21a5b89e5cf102530c9ace07f27ad16a55d92778f459000c00a00f415", size = 48960, upload-time = "2026-09-16T09:46:09.326Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/00/87/8227f1aa5d4b25923410868ce3328fd69789e7a521fb0ac2398833d6a9f5/pixelhog-1.3.0-cp312-abi3-macosx_10_12_x86_64.whl", hash = "sha256:fb7bf5ec5dd836ee629a552c760edd077799cd5db5dcfc1b684915eaaa056ecd", size = 682556, upload-time = "2026-09-08T06:42:37.269Z" },
-    { url = "https://files.pythonhosted.org/packages/2e/6e/40e854d6fb86273077d047559e04befc6ca5d39fb67c65a8fd1755264618/pixelhog-1.3.0-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:92c2991132f1400b98d588c9c87db4b789af6e77e5ec4e79ea295cadc5baea96", size = 670510, upload-time = "2026-09-08T06:42:38.933Z" },
-    { url = "https://files.pythonhosted.org/packages/30/c1/5267264269c7bea81396cab580a971095a65a2900e3f865a77ef6f587a37/pixelhog-1.3.0-cp312-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:0b9c0a13ba74dd9c2bf997805b8b4f5363a388485e644314dc19ed867111d66d", size = 703665, upload-time = "2026-09-08T06:42:40.197Z" },
-    { url = "https://files.pythonhosted.org/packages/05/f8/8680f0abd297423b13b89facedb41cb47bef470657233af76919f3ff1820/pixelhog-1.3.0-cp312-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:295705dc7d229cb2e5e8357fa73a6b1274a2d7b79ea82932eb5b98d251b04491", size = 752576, upload-time = "2026-09-08T06:42:41.547Z" },
-    { url = "https://files.pythonhosted.org/packages/de/fe/5eb670983f8b2e7b81dc8163b54873ed4e46077bafc8ac653365a66725f6/pixelhog-1.3.0-cp312-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:2cb7dd216e3b6d859f199db1a4507eab45d94a8fc1c346998909a34511906f6b", size = 881421, upload-time = "2026-09-08T06:42:42.791Z" },
-    { url = "https://files.pythonhosted.org/packages/ce/48/63c1616c3c1648505499cbdfea1c93c5d14083b2a9653ff2b4377f9741c4/pixelhog-1.3.0-cp312-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:6b67fc52acce409c7600dd1958e796bef2efd37d8b044af40bb4127e18c60558", size = 946987, upload-time = "2026-09-08T06:42:44.508Z" },
-    { url = "https://files.pythonhosted.org/packages/04/d6/2665bc86c5850e2c8348f2566e7434e05d31149c2004849d0c5342f24815/pixelhog-1.3.0-cp312-abi3-win_amd64.whl", hash = "sha256:f76882d96890f6764f7f2d94e61403a595781be9839e41d009b03bacefe9764c", size = 637511, upload-time = "2026-09-08T06:42:45.951Z" },
+    { url = "https://files.pythonhosted.org/packages/46/6f/bd7937bc86fd3827c2ccf3728e1b9f48439409e27a173df783d399554e60/pixelhog-1.3.1-cp312-abi3-macosx_10_12_x86_64.whl", hash = "sha256:6ac936ca360730a4daf8793806fb4b3aedfe3ddec7928d854094bc14df89a663", size = 680700, upload-time = "2026-09-16T09:46:00.003Z" },
+    { url = "https://files.pythonhosted.org/packages/2f/40/98faf38d601092873e074fda9ca869ca1c454654d1f881f00a8855e34e11/pixelhog-1.3.1-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:b503f711d8d879991d2e171b1439c094052ad6fcb714b7b049eee7856527ef5b", size = 669139, upload-time = "2026-09-16T09:46:01.453Z" },
+    { url = "https://files.pythonhosted.org/packages/68/2c/63d168314b9e5f4c641e8329d5b6aafafc7bc3226952d21fa7d78b423981/pixelhog-1.3.1-cp312-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:091e3b64c8706ab4e062164639ca3ccaa2ab676474b6ef2d61c165cec1928815", size = 702887, upload-time = "2026-09-16T09:46:02.803Z" },
+    { url = "https://files.pythonhosted.org/packages/aa/9a/e28b70f8d6f92a3a25695727de8a988ba123bb5dcc4452f4416bc5bbbdb3/pixelhog-1.3.1-cp312-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:325b80dc6e7c9ec9e974e3be5823d8e85a48174201eb6bbe06c30649cf7de336", size = 748502, upload-time = "2026-09-16T09:46:04.321Z" },
+    { url = "https://files.pythonhosted.org/packages/97/91/6a9daf0f7f84da24c38143dc3e8dda04c16e8d53e32612ceff46be4c7353/pixelhog-1.3.1-cp312-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:58a6e030e02426f2ea619dcbd1e5bea105a13c6fbba1c5aec7f221d882f5f0e5", size = 880718, upload-time = "2026-09-16T09:46:05.548Z" },
+    { url = "https://files.pythonhosted.org/packages/08/ed/9b31f347f72eb27fd63fffc4fb0ca24192b21f2e1c312118b982a67f6c54/pixelhog-1.3.1-cp312-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:819c702512f33009e8badd403956803c4f1ea767155f8226c79e1414cc755251", size = 943246, upload-time = "2026-09-16T09:46:07.08Z" },
+    { url = "https://files.pythonhosted.org/packages/1e/97/cc1be926aa3220d679d8261ee645a1ffc42d7d88ce002ab2b68d5f71ad76/pixelhog-1.3.1-cp312-abi3-win_amd64.whl", hash = "sha256:7e33affaf4ec24058016d5022de738c14c1a702bdd31aaeb33f7f1bb93b67be9", size = 629297, upload-time = "2026-09-16T09:46:08.287Z" },
 ]
 
 [[package]]
@@ -5936,7 +5936,7 @@ requires-dist = [
     { name = "pandas", specifier = "~=2.2.2" },
     { name = "paramiko", specifier = "~=3.5.0" },
     { name = "pillow", specifier = "==12.3.0" },
-    { name = "pixelhog", specifier = "~=1.3.0" },
+    { name = "pixelhog", specifier = "~=1.3.1" },
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
     { name = "posthog-hogland", specifier = "==0.4.1" },

@@ -42,6 +42,7 @@ from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTab
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import can_use_lazy_precompute
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     _VOLUME_FLOOR_LOCAL_CACHE,
+    CHANNEL_MAX_WINDOW_DAYS,
     OOM_PIN_TTL_SECONDS,
     REVALIDATION_START_DELAY_SECONDS,
     REVALIDATION_TRIGGER,
@@ -59,6 +60,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     _oom_pin_key,
     _sticky_team_count_key,
     _team_shape_set_key,
+    channel_ttl_schedule,
     check_common_eligibility,
     compute_filters_eligibility_hash,
     compute_shape_cap_key,
@@ -114,6 +116,41 @@ class TestIsPrecomputeEnabledForTeam(BaseTest):
         # unreliable) silently warm the raw path instead of building buckets.
         assert is_precompute_enabled_for_team(self.team) is True
         flag.assert_not_called()
+
+
+class TestChannelModifiersShapeKey(BaseTest):
+    def _runner(self, modifiers=None):
+        from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="-7d"),
+            properties=[SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)],
+        )
+        query.modifiers = modifiers
+        return WebOverviewQueryRunner(team=self.team, query=query)
+
+    def test_semantic_overrides_key_apart_and_defaults_stay_stable(self) -> None:
+        from posthog.schema import HogQLQueryModifiers
+
+        from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import channel_rules_shape_key
+
+        # Default requests must share one namespace across constructions, while a
+        # request-controlled semantic override (the reviewers' bounce-threshold
+        # example) must mint its own — never write into the shared buckets.
+        default_key = channel_rules_shape_key(self._runner())
+        assert channel_rules_shape_key(self._runner()) == default_key
+        override_key = channel_rules_shape_key(self._runner(HogQLQueryModifiers(bounceRateDurationSeconds=42)))
+        assert override_key != default_key
+
+
+class TestChannelTtlSchedule(BaseTest):
+    def test_schedule_caps_job_width_and_holds_old_days(self) -> None:
+        # Without max_window_days, `split_ranges_by_ttl` merges a year-long span's
+        # 90-day-band tail into ONE insert; without the long default hold, annual
+        # shapes re-scan a year of events every three weeks.
+        schedule = channel_ttl_schedule(self.team)
+        assert schedule.max_window_days == CHANNEL_MAX_WINDOW_DAYS
+        assert schedule.default_ttl_seconds == 90 * 24 * 60 * 60
 
 
 class TestCheckCommonEligibility(BaseTest):
@@ -264,7 +301,7 @@ class TestOwningLazyPrecomputeFamily(BaseTest):
                 WebStatsTableQuery(
                     dateRange=DateRange(date_from="-7d"), properties=[], breakdownBy=WebStatsBreakdown.PAGE
                 ),
-                "simple",
+                "paths",
             ),
             (
                 "page with a conversion goal",
@@ -292,7 +329,7 @@ class TestOwningLazyPrecomputeFamily(BaseTest):
                 WebStatsTableQuery(
                     dateRange=DateRange(date_from="-7d"), properties=[], breakdownBy=WebStatsBreakdown.INITIAL_PAGE
                 ),
-                "simple",
+                "paths",
             ),
             (
                 "frustration metrics",
@@ -1126,6 +1163,31 @@ class TestStaleRevalidationEnqueue(BaseTest):
             handle_stale_served(runner=stats_runner, family="web_stats")
         assert delay.call_count == 2
 
+    def test_channel_rule_variants_get_distinct_debounce_keys(self):
+        # Channel-filtered shapes are distinct per custom-rules set (the rules join
+        # the job hash), so one rule set's stale serve must not debounce-suppress
+        # revalidating another's.
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="-7d"),
+            properties=[SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)],
+        )
+        rules = [
+            {
+                "channel_type": "Partners",
+                "combiner": "OR",
+                "id": "r1",
+                "items": [{"id": "c1", "key": "utm_source", "op": "exact", "value": ["partner"]}],
+            }
+        ]
+        default_runner = WebOverviewQueryRunner(team=self.team, query=query)
+        self.team.modifiers = {"customChannelTypeRules": rules}
+        self.team.save()
+        rules_runner = WebOverviewQueryRunner(team=self.team, query=query)
+        with self._delay_patch() as delay:
+            handle_stale_served(runner=default_runner, family="web_overview")
+            handle_stale_served(runner=rules_runner, family="web_overview")
+        assert delay.call_count == 2
+
     def test_per_team_budget_bounds_distinct_shape_enqueues(self):
         # Filters/dates are request-controlled, so distinct shapes are unbounded;
         # the per-team budget must cap total enqueues per window regardless.
@@ -1300,3 +1362,20 @@ class TestPrecomputeShapeCapWiring(BaseTest):
             _team_shape_set_key(self.team.pk),
             compute_shape_cap_key(self._runner().query, self.team.timezone),
         )
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM=1)
+    @mock.patch(f"{_COMMON}.enqueue_stale_revalidation")
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_changed_channel_rules_consume_a_distinct_shape(self, mock_ensure, _enqueue):
+        mock_ensure.return_value = LazyComputationResult(ready=False, job_ids=[], memory_exceeded=False)
+        with tags_context(trigger="webAnalyticsQueryWarming"):
+            for rules_key in ("first-rule-set", "first-rule-set", "second-rule-set"):
+                web_ensure_precomputed(
+                    team=self.team,
+                    runner=self._runner(),
+                    family="web_overview",
+                    ttl_seconds={"default": 3600},
+                    table=None,
+                    shape_key_extra=rules_key,
+                )
+        assert [call.kwargs["run_inserts"] for call in mock_ensure.call_args_list] == [True, True, False]

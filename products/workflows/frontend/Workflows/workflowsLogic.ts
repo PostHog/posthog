@@ -66,6 +66,7 @@ interface WorkflowsListParams {
     status?: HogFlow['status']
     created_by?: string
     type?: Exclude<WorkflowTypeFilter, 'all'>
+    exclude_kind?: string
     trigger?: string
     limit: number
     offset: number
@@ -319,9 +320,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
                     // Drop a response a newer filter change has already superseded, so a slow request
                     // returning after a faster later one can't leave the table showing the wrong filters.
                     breakpoint()
-                    // Broadcasts are managed on their own tab; hide them here. The count may still
-                    // include them since the API has no exclusion filter (fine for pagination).
-                    return { ...response, results: response.results.filter((w) => w.kind !== 'broadcast') }
+                    return response
                 },
                 toggleWorkflowStatus: async ({ workflow }) => {
                     await api.hogFlows.updateHogFlow(workflow.id, {
@@ -430,6 +429,9 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 status: filters.status !== 'all' ? filters.status : undefined,
                 created_by: filters.createdBy || undefined,
                 type: filters.type !== 'all' ? filters.type : undefined,
+                // Broadcasts have their own surface. Excluding them server-side keeps `count` and the
+                // page boundaries honest; dropping them from the page afterwards did not.
+                exclude_kind: 'broadcast',
                 // The API filters triggers by JSON containment, so the type goes over as a JSON object.
                 trigger: filters.triggerType !== 'all' ? JSON.stringify({ type: filters.triggerType }) : undefined,
                 limit: WORKFLOWS_PER_PAGE,

@@ -71,6 +71,9 @@ tools:
     engineering-analytics-current-branch-health:
         operation: engineering_analytics_current_branch_health
         enabled: false
+    engineering-analytics-delivery-comparison:
+        operation: engineering_analytics_delivery_comparison
+        enabled: false
     engineering-analytics-delivery-summary:
         operation: engineering_analytics_delivery_summary
         enabled: false

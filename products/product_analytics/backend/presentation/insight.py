@@ -43,7 +43,6 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.services.query import process_query_model
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import blocked_access_for_user, is_publicly_shared
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -174,10 +173,6 @@ from products.product_analytics.backend.facade.models import Insight, resolve_in
 from products.product_analytics.backend.presentation.insight_metadata import (
     InsightMetadataTimeoutError,
     generate_insight_metadata,
-)
-from products.product_analytics.backend.presentation.insight_suggestions import (
-    get_insight_analysis,
-    get_insight_suggestions,
 )
 from products.product_analytics.backend.presentation.insight_write_validation import validate_insight_write
 
@@ -351,7 +346,7 @@ def _record_deprecated_dashboards_field_used(context: dict, usage: str) -> None:
     ).inc()
 
 
-@extend_schema_serializer(exclude_fields=["filters", "saved"], deprecate_fields=["dashboards"])
+@extend_schema_serializer(exclude_fields=["saved"], deprecate_fields=["dashboards"])
 class InsightBasicSerializer(
     SearchMatchTypeSerializerMixin,
     TaggedItemSerializerMixin,
@@ -375,7 +370,6 @@ class InsightBasicSerializer(
             "short_id",
             "name",
             "derived_name",
-            "filters",
             "query",
             "dashboards",
             "dashboard_tiles",
@@ -425,14 +419,8 @@ class InsightBasicSerializer(
         else:
             representation.pop("dashboards", None)
 
-        if instance.query is not None:
-            representation["filters"] = {}
-            representation["query"] = instance.query
-        else:
-            representation["filters"] = instance.dashboard_filters()
-
         # upgrade the query to the latest version
-        representation["query"] = upgrade(representation["query"])
+        representation["query"] = upgrade(instance.query)
 
         return representation
 
@@ -601,7 +589,6 @@ class InsightSerializer(InsightBasicSerializer):
             "short_id",
             "name",
             "derived_name",
-            "filters",
             "query",
             "order",
             "deleted",
@@ -653,8 +640,6 @@ class InsightSerializer(InsightBasicSerializer):
             "timezone",
             "refreshing",
             "is_cached",
-            # A read still serves the stored filters of an insight written before queries.
-            "filters",
         )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -889,7 +874,8 @@ class InsightSerializer(InsightBasicSerializer):
         else:
             dashboard_ids = validated_data.pop("dashboards", None)
             if dashboard_ids is not None:
-                self._update_insight_dashboards(dashboard_ids, instance)
+                # The membership write runs before the query is saved, so gate on the incoming one.
+                self._update_insight_dashboards(dashboard_ids, instance, validated_data.get("query", instance.query))
 
         updated_insight = super().update(instance, validated_data)
         # Delete linked alerts only when the insight can no longer carry any alert. A switch between
@@ -962,7 +948,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         return []
 
-    def _update_insight_dashboards(self, dashboard_ids: list[int], instance: Insight) -> None:
+    def _update_insight_dashboards(self, dashboard_ids: list[int], instance: Insight, query: Any) -> None:
         # Counts the field being accepted as write input — before the no-op early return, so
         # integrations that round-trip an unchanged dashboards list still register as writers.
         _record_deprecated_dashboards_field_used(self.context, usage="write")
@@ -971,6 +957,7 @@ class InsightSerializer(InsightBasicSerializer):
             change = update_insight_dashboard_membership(
                 insight=instance,
                 dashboard_ids=dashboard_ids,
+                query=query,
                 user=self.context["request"].user,
                 user_permissions=self.user_permissions,
                 user_access_control=self.user_access_control,
@@ -1244,12 +1231,8 @@ class InsightSerializer(InsightBasicSerializer):
                     dashboard_variables_override or {},
                     instance.team,
                 )
-            representation["filters"] = {}
             representation["query"] = query
         else:
-            representation["filters"] = instance.dashboard_filters(
-                dashboard=dashboard, dashboard_filters_override=dashboard_filters_override
-            )
             representation["query"] = instance.get_effective_query(
                 dashboard=dashboard,
                 dashboard_filters_override=dashboard_filters_override,
@@ -1773,8 +1756,8 @@ class InsightViewSet(
     parser_classes = (QuerySchemaParser,)
 
     def get_throttles(self):
-        """Apply LLM-specific throttles to AI analysis endpoints."""
-        if self.action in ["analyze", "suggestions", "generate_metadata"]:
+        """Apply LLM-specific throttles to the AI metadata endpoint."""
+        if self.action == "generate_metadata":
             return [
                 AIObservabilitySummarizationBurstThrottle(),
                 AIObservabilitySummarizationSustainedThrottle(),
@@ -2237,94 +2220,6 @@ When set, the specified dashboard's filters and date range override will be appl
             )
 
         return response
-
-    @action(methods=["GET"], detail=True)
-    def analyze(self, request: Request, **kwargs) -> Response:
-        self._validate_ai_feature_access()
-
-        insight = self.get_object()
-
-        if not insight.query:
-            return Response({"result": ""})
-
-        try:
-            query = schema.InsightVizNode.model_validate(insight.query)
-        except Exception:
-            return Response({"result": ""})
-
-        result = None
-        try:
-            # We try to get cached result.
-            result_ctx = process_query_model(
-                self.team,
-                query,
-                execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
-                user=request.user if request.user.is_authenticated else None,
-                analytics_props=get_request_analytics_properties(request),
-            )
-            if isinstance(result_ctx, BaseModel):
-                result = result_ctx.model_dump()
-            else:
-                result = result_ctx
-
-            if result and result.get("results") is None and result.get("result") is None:
-                result = None
-        except Exception:
-            result = None
-
-        analysis = get_insight_analysis(
-            query,
-            self.team,
-            result,
-            insight_name=insight.name,
-            insight_description=insight.description,
-            insight_id=insight.id,
-        )
-
-        return Response({"result": analysis})
-
-    @action(methods=["GET", "POST"], detail=True)
-    def suggestions(self, request: Request, **kwargs) -> Response:
-        self._validate_ai_feature_access()
-
-        insight = self.get_object()
-
-        if not insight.query:
-            return Response([])
-
-        try:
-            query = schema.InsightVizNode.model_validate(insight.query)
-        except Exception:
-            return Response([])
-
-        result = None
-        try:
-            # We try to get cached result.
-            result_ctx = process_query_model(
-                self.team,
-                query,
-                execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
-                user=request.user if request.user.is_authenticated else None,
-                analytics_props=get_request_analytics_properties(request),
-            )
-            if isinstance(result_ctx, BaseModel):
-                result = result_ctx.model_dump()
-            else:
-                result = result_ctx
-
-            if result and result.get("results") is None and result.get("result") is None:
-                result = None
-        except Exception:
-            result = None
-
-        # Get context from POST body if provided
-        context = None
-        if request.method == "POST":
-            context = request.data.get("context")
-
-        suggestions = get_insight_suggestions(query, self.team, result, context)
-
-        return Response([s.model_dump() for s in suggestions])
 
     @action(methods=["POST"], detail=False, required_scopes=["insight:write"])
     def generate_metadata(self, request: Request, **kwargs) -> Response:

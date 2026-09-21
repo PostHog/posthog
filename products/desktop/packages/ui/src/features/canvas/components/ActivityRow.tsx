@@ -5,7 +5,10 @@ import {
   LinkIcon,
   QuestionIcon,
 } from "@phosphor-icons/react";
-import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
+import {
+  activityCanvasId,
+  type TaskActivityItem,
+} from "@posthog/core/canvas/taskActivity";
 import { Avatar, AvatarFallback, Badge, Button, cn } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { UserBasic } from "@posthog/shared/domain-types";
@@ -20,6 +23,7 @@ import {
   TaskRowDropdownMenu,
   type TaskRowMenuProps,
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
+import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { track } from "@posthog/ui/shell/analytics";
@@ -90,7 +94,16 @@ export function ActivityRow({
     item.isUnread && !awaitsReply
       ? "bg-primary text-primary-foreground"
       : undefined;
+  const canvasId = activityCanvasId(item);
   const canCopyLink = channelId !== null && !compact;
+  const copyLink = (): void => {
+    if (channelId === null) return;
+    if (canvasId) {
+      void copyCanvasLink(channelId, canvasId, "activity");
+    } else {
+      void copyChannelLink(channelId, "activity", item.taskId);
+    }
+  };
   const actionCount = 1 + (item.isUnread ? 1 : 0) + (canCopyLink ? 1 : 0);
   const openTask = (): void => {
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
@@ -195,9 +208,7 @@ export function ActivityRow({
             variant="default"
             size="icon-xs"
             aria-label="Copy thread link"
-            onClick={() =>
-              void copyChannelLink(channelId, "activity", item.taskId)
-            }
+            onClick={copyLink}
           >
             <LinkIcon size={14} />
           </Button>

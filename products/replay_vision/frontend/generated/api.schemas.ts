@@ -691,6 +691,23 @@ export interface ReplayVisionErrorApi {
     detail: string
 }
 
+/**
+ * An inbox report that this observation's emitted signals were grouped into.
+ */
+export interface ObservationSignalReportApi {
+    /** ID of the inbox report, for linking to its inbox page. */
+    id: string
+    /**
+     * Report title, null while the report is still too new to have been summarized.
+     * @nullable
+     */
+    title: string | null
+    /** The report's status in the inbox: potential, candidate, in_progress, pending_input, ready, resolved, failed, or suppressed. */
+    status: string
+    /** When the report was created. */
+    created_at: string
+}
+
 export interface ObservationSearchResultApi {
     /** The matching observation. */
     observation: ReplayObservationApi
@@ -2370,6 +2387,8 @@ export interface WatchFeedReasonApi {
      * @nullable
      */
     signals_count?: number | null
+    /** Issue type of each emitted signal (`bug`, `crash`, `design_flaw`, `ux_friction`), one entry per signal in the order raised, for `signal_emitted`. Absent on signals scanned before this shipped. */
+    problem_types?: string[]
     /**
      * The monitor's answer, for `unusual_verdict`.
      * @nullable
@@ -2769,6 +2788,61 @@ export type VisionScannersObservationsRetrieveParams = {
     min_score?: number
     /**
      * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     */
+    order_by?: string
+    /**
+     * Filter to observations whose person email contains this value (case-insensitive).
+     */
+    recording_subject?: string
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string
+    /**
+     * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
+     */
+    triggered_by?: string
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string
+}
+
+export type VisionScannersObservationsSignalReportsListParams = {
+    /**
+     * Only observations dispatched by this backfill.
+     */
+    backfill_id?: string
+    /**
+     * Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone.
+     */
+    date_from?: string
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone.
+     */
+    date_to?: string
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: boolean
+    /**
+     * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    max_score?: number
+    /**
+     * Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    min_score?: number
+    /**
+     * Sort observations by created_at, started_at, completed_at, status, recording_subject_email, result_score, result_verdict, result_confidence, or scanner_version. Prefix with `-` for descending. Keys that can be null (started_at, completed_at, recording_subject_email, result_*, scanner_version) sort nulls last regardless of direction.
      */
     order_by?: string
     /**

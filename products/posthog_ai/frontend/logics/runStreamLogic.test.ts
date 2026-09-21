@@ -158,6 +158,12 @@ class MockStreamConnection {
         await flushPromises()
     }
 
+    /** Emit a named `event: end` control frame (a rotation or a resync) without closing the body. */
+    async emitEndFrame(payload: Record<string, unknown>): Promise<void> {
+        this.deliver({ done: false, value: this.encodeFrame({ data: JSON.stringify(payload), event: 'end' }) })
+        await flushPromises()
+    }
+
     /** Emit the durable `event: stream-end` end-of-run sentinel, then close the body. */
     async emitStreamEnd(): Promise<void> {
         this.deliver({
@@ -2429,6 +2435,212 @@ describe('runStreamLogic', () => {
             // The reconnect resumes exactly after the last-seen frame — header set, no start=latest.
             expect(MockStream.latest().options.lastEventId).toEqual('1700-0')
             jest.useRealTimers()
+        })
+
+        it('rebuilds from history and replays the stream window when the server reports the cursor trimmed', async () => {
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+            await MockStream.latest().emitOpen()
+            expect(logsSpy).toHaveBeenCalledTimes(1)
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1700-0')
+            await MockStream.latest().emitEndFrame({ type: 'resync', reason: 'trimmed' })
+
+            jest.useFakeTimers()
+            await MockStream.latest().emitClose()
+            await flushPromises()
+            jest.advanceTimersByTime(2000)
+
+            // The reopen reads the whole surviving window (no cursor, no start=latest) so the seam dedupe
+            // can fill in the in-progress turn, and history is re-read once the connection is up.
+            expect(MockStream.latest().options.lastEventId).toBeUndefined()
+            expect(MockStream.latest().options.startLatest).toEqual(false)
+            expect(window.sessionStorage.getItem('posthog-ai:stream-resume:run-1')).toBeNull()
+            jest.useRealTimers()
+            await MockStream.latest().emitOpen()
+            expect(logsSpy).toHaveBeenCalledTimes(2)
+
+            // A drop before any replayed frame arrives must not fall back to start=latest.
+            jest.useFakeTimers()
+            await MockStream.latest().emitClose()
+            await flushPromises()
+            jest.advanceTimersByTime(2000)
+            expect(MockStream.latest().options.lastEventId).toBeUndefined()
+            expect(MockStream.latest().options.startLatest).toEqual(false)
+            jest.useRealTimers()
+            await MockStream.latest().emitOpen()
+            expect(logsSpy).toHaveBeenCalledTimes(3)
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1800-0')
+
+            // Once a replayed frame establishes a cursor, a drop resumes from it as usual.
+            jest.useFakeTimers()
+            await MockStream.latest().emitClose()
+            await flushPromises()
+            jest.advanceTimersByTime(2000)
+            expect(MockStream.latest().options.lastEventId).toEqual('1800-0')
+            jest.useRealTimers()
+        })
+
+        it('re-reads history after a resync on a run whose stream was opened directly', async () => {
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitOpen()
+            expect(logsSpy).not.toHaveBeenCalled()
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1700-0')
+            await MockStream.latest().emitEndFrame({ type: 'resync', reason: 'trimmed' })
+
+            jest.useFakeTimers()
+            await MockStream.latest().emitClose()
+            await flushPromises()
+            jest.advanceTimersByTime(2000)
+            expect(MockStream.latest().options.lastEventId).toBeUndefined()
+            expect(MockStream.latest().options.startLatest).toEqual(false)
+            jest.useRealTimers()
+            await MockStream.latest().emitOpen()
+            expect(logsSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('replays the surviving window when a send reopens the run while a resync is pending', async () => {
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitOpen()
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1700-0')
+            await MockStream.latest().emitEndFrame({ type: 'resync', reason: 'trimmed' })
+            await MockStream.latest().emitClose()
+            await flushPromises()
+
+            // A follow-up send reopens the same run and would otherwise skip to the tail.
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: true })
+            await flushPromises()
+
+            expect(MockStream.latest().options.lastEventId).toBeUndefined()
+            expect(MockStream.latest().options.startLatest).toEqual(false)
+            await MockStream.latest().emitOpen()
+            expect(logsSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('re-reads history when a directly opened run finishes during a resync', async () => {
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitOpen()
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1700-0')
+            await MockStream.latest().emitEndFrame({ type: 'resync', reason: 'trimmed' })
+            await MockStream.latest().emitClose()
+            await flushPromises()
+
+            expect(logsSpy).toHaveBeenCalledTimes(1)
+            expect(logic.values.currentRunStatus).toEqual('completed')
+        })
+
+        it('releases the live turn when the resync recovers its completion from history', async () => {
+            const turnComplete = notification('_posthog/turn_complete', { stopReason: 'end_turn' })
+            let resolveLogs: (entries: StoredLogEntry[]) => void = () => {}
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
+                new Promise<StoredLogEntry[]>((resolve) => (resolveLogs = resolve)) as any
+            )
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitOpen()
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1700-0')
+            await MockStream.latest().emitEndFrame({ type: 'resync', reason: 'trimmed' })
+
+            jest.useFakeTimers()
+            await MockStream.latest().emitClose()
+            await flushPromises()
+            jest.advanceTimersByTime(2000)
+            jest.useRealTimers()
+            await MockStream.latest().emitOpen()
+
+            // The turn ended during the outage: the replayed window carries the completion the client
+            // never saw live, and the history read that is still in flight carries it too.
+            await MockStream.latest().emitMessage(turnComplete, '1800-0')
+            expect(logic.values.turnComplete).toEqual(false)
+
+            resolveLogs([turnComplete])
+            await flushPromises()
+
+            expect(logic.values.turnComplete).toEqual(true)
+            await expectLogic(logic).toDispatchActions([logic.actionCreators.markTurnComplete(false)])
+        })
+
+        it('keeps the turn open when the replayed completion belongs to an older turn', async () => {
+            const turnComplete = notification('_posthog/turn_complete', { stopReason: 'end_turn' })
+            let resolveLogs: (entries: StoredLogEntry[]) => void = () => {}
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
+                new Promise<StoredLogEntry[]>((resolve) => (resolveLogs = resolve)) as any
+            )
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitOpen()
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1700-0')
+            await MockStream.latest().emitEndFrame({ type: 'resync', reason: 'trimmed' })
+
+            jest.useFakeTimers()
+            await MockStream.latest().emitClose()
+            await flushPromises()
+            jest.advanceTimersByTime(2000)
+            jest.useRealTimers()
+            await MockStream.latest().emitOpen()
+
+            await MockStream.latest().emitMessage(
+                sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'call-1', status: 'in_progress' }),
+                '1800-0'
+            )
+
+            resolveLogs([turnComplete])
+            await flushPromises()
+
+            expect(logic.values.turnComplete).toEqual(true)
+            await expectLogic(logic).toNotHaveDispatchedActions([logic.actionCreators.markTurnComplete(false)])
+        })
+
+        it('surfaces a failed history re-read when the run lookup fails on a terminal resync', async () => {
+            const getLogEntriesSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+            jest.spyOn(api.tasks.runs, 'get')
+                .mockResolvedValueOnce({ status: 'completed' } as any)
+                .mockRejectedValue({ status: 500 })
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitOpen()
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1700-0')
+            await MockStream.latest().emitEndFrame({ type: 'resync', reason: 'trimmed' })
+            await MockStream.latest().emitClose()
+            await flushPromises()
+
+            expect(getLogEntriesSpy).not.toHaveBeenCalled()
+            expect(logic.values.currentRunStatus).toEqual('completed')
+            expect(logic.values.runConnectionState?.kind).toEqual('connection_failed')
+        })
+
+        it('surfaces a failed history re-read once the resynced run is terminal', async () => {
+            const getLogEntriesSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockRejectedValue({ status: 500 })
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitOpen()
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1700-0')
+            await MockStream.latest().emitEndFrame({ type: 'resync', reason: 'trimmed' })
+
+            jest.useFakeTimers()
+            await MockStream.latest().emitClose()
+            // Advance past the inter-attempt backoff so every retry runs.
+            await jest.advanceTimersByTimeAsync(10_000)
+            await flushPromises()
+            jest.useRealTimers()
+
+            expect(getLogEntriesSpy).toHaveBeenCalledTimes(MAX_HISTORY_FETCH_ATTEMPTS)
+            expect(logic.values.currentRunStatus).toEqual('completed')
+            expect(logic.values.runConnectionState?.kind).toEqual('connection_failed')
         })
 
         it('preserves a known in-flight status when the reconnect reopens the stream', async () => {
@@ -4843,6 +5055,9 @@ describe('runStreamLogic', () => {
                     baseUrl: 'https://proxy.example/',
                     token: 'tok-1',
                 })
+                expect(tasksRunsStreamTokenRetrieve).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
+                    resync: true,
+                })
             })
 
             it('falls back to Django when the server resolves no base URL', async () => {
@@ -4869,7 +5084,7 @@ describe('runStreamLogic', () => {
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()
 
-            expect(tasksRunsStreamTokenRetrieve).toHaveBeenCalledWith('997', 'task-1', 'run-1')
+            expect(tasksRunsStreamTokenRetrieve).toHaveBeenCalledWith('997', 'task-1', 'run-1', { resync: true })
             expect(MockStream.latest().options.proxyTarget).toEqual({
                 baseUrl: 'https://proxy.example',
                 token: 'tok-1',

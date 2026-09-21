@@ -13,9 +13,7 @@ import {
   DEFAULT_GATEWAY_MODEL,
   DEFAULT_REASONING_EFFORT,
   type ExecutionMode,
-  isModalModelId,
   isSupportedReasoningEffort,
-  KIMI_MODEL_FLAG,
   readPrUrls,
   type SupportedReasoningEffort,
   serializeCloudPrompt,
@@ -25,7 +23,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { UserSwitch } from "phosphor-react-native";
-import { useFeatureFlag } from "posthog-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -194,18 +191,11 @@ export default function TaskDetailScreen() {
   const composerMode: ExecutionMode =
     (composerConfigMatchesAdapter ? composerConfig?.mode : undefined) ??
     getDefaultExecutionModeForAdapter(composerAdapter);
-  const kimiEnabled = !!useFeatureFlag(KIMI_MODEL_FLAG);
-  const persistedComposerModel =
+  // The composer independently re-resolves this against the live config once mounted.
+  const composerModel =
     (composerConfigMatchesAdapter ? composerConfig?.model : undefined) ??
     task?.latest_run?.model ??
     (composerAdapter === "codex" ? DEFAULT_CODEX_MODEL : DEFAULT_GATEWAY_MODEL);
-  // Fall a persisted Kimi selection back to the default when the flag is off so
-  // a hidden model never gets sent on the retry-after-terminal path. The
-  // composer independently re-resolves against the live config once mounted.
-  const composerModel =
-    !kimiEnabled && isModalModelId(persistedComposerModel)
-      ? DEFAULT_GATEWAY_MODEL
-      : persistedComposerModel;
   const requestedComposerReasoning = composerConfigMatchesAdapter
     ? composerConfig?.reasoning
     : undefined;
