@@ -363,6 +363,16 @@ describe('dataQualityOverviewLogic', () => {
         expect(logic.values.checksStatus).toEqual(expectedStatus)
     })
 
+    it('does not claim every check passed when the checks fill the page', async () => {
+        ;(dataQualityChecksList as jest.Mock).mockResolvedValue({
+            results: Array.from({ length: 500 }, (_, index) => buildCheck(`check-${index}`, 'orders', 'passed')),
+        })
+        ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue([])
+        await mountLogic()
+
+        expect(logic.values.checksStatus).toEqual('unknown')
+    })
+
     it('sends no ids when running everything', async () => {
         // An empty list is what the endpoint reads as "every enabled check", so it must not be
         // replaced by the currently filtered rows.

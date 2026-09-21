@@ -185,13 +185,19 @@ describe('modelsSceneLogic', () => {
         expect(logic.values.modelsResolved).toBe(false)
     })
 
-    it.each<[string, Record<string, any>[], boolean]>([
-        ['neither models nor views', [], true],
-        ['a view that is not a model yet', [{ id: 'query-1', name: 'a_view', columns: [] }], false],
-    ])('reports a project with %s as new: %s', async (_case, savedQueries, expected) => {
+    it.each<[string, DataModelingNode[], Record<string, any>[], boolean]>([
+        ['neither models nor views', [], [], true],
+        ['a view that is not a model yet', [], [{ id: 'query-1', name: 'a_view', columns: [] }], false],
+        [
+            'a warehouse source table and nothing else',
+            [buildNode('source-table', { type: 'table', saved_query_id: undefined })],
+            [],
+            true,
+        ],
+    ])('reports a project with %s as new: %s', async (_case, nodes, savedQueries, expected) => {
         useMocks({
             get: {
-                '/api/environments/:team_id/data_modeling_nodes/': { count: 0, results: [] },
+                '/api/environments/:team_id/data_modeling_nodes/': { count: nodes.length, results: nodes },
                 '/api/projects/:team_id/warehouse_saved_queries/': {
                     count: savedQueries.length,
                     results: savedQueries,
@@ -204,6 +210,19 @@ describe('modelsSceneLogic', () => {
 
         expect(logic.values.modelsResolved).toBe(true)
         expect(logic.values.noModelsYet).toBe(expected)
+    })
+
+    it('stops reporting the model list resolved once a reload fails', async () => {
+        await mount('/models')
+        await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess'])
+        await expectLogic(dataWarehouseViewsLogic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
+        expect(logic.values.modelsResolved).toBe(true)
+
+        useMocks({ get: { '/api/environments/:team_id/data_modeling_nodes/': () => [500, {}] } })
+        lineageDataLogic.actions.loadNodes()
+        await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesFailure'])
+
+        expect(logic.values.modelsResolved).toBe(false)
     })
 
     it('lists models behind schedule, minus the ones already listed as broken', async () => {

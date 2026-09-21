@@ -10,10 +10,11 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 const HedgehogFloat = pngHoggie(float)
 
-export type ModelsOverviewChecksStatus = 'disabled' | 'none' | 'all-passed' | 'some-not-passed'
+export type ModelsOverviewChecksStatus = 'disabled' | 'unknown' | 'none' | 'all-passed' | 'some-not-passed'
 
 const HEALTHY_DESCRIPTIONS: Record<ModelsOverviewChecksStatus, string> = {
     disabled: 'Your models are up to date.',
+    unknown: 'Your models are up to date.',
     none: 'Your models are up to date. Add data quality checks to test your data.',
     'all-passed': 'Your models are up to date and all data quality checks passed.',
     'some-not-passed': 'Your models are up to date. No checks are failing, but some have not passed yet.',
@@ -40,7 +41,6 @@ export function ModelsOverviewEmptyState({ variant, checksStatus }: ModelsOvervi
                 customHog={HedgehogFloat}
                 hogLayout="responsive"
                 useMainContentContainerQueries
-                hogClassName="w-32 sm:w-40 lg:w-40"
                 className="border border-solid bg-surface-primary my-0"
                 actionElementOverride={
                     <>

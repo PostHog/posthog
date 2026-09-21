@@ -57,6 +57,7 @@ export const lineageDataLogic = kea<lineageDataLogicType>([
             false,
             {
                 loadNodesSuccess: () => true,
+                loadNodesFailure: () => false,
             },
         ],
         nodesFailed: [

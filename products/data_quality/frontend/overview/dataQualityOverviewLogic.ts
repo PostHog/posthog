@@ -32,7 +32,7 @@ const CHECKS_LIMIT = 500
 
 export type OverviewStatusFilter = 'all' | 'failing' | 'never_run'
 
-export type OverviewChecksStatus = 'none' | 'all-passed' | 'some-not-passed'
+export type OverviewChecksStatus = 'unknown' | 'none' | 'all-passed' | 'some-not-passed'
 
 export interface OverviewFilters {
     search: string
@@ -488,7 +488,10 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                 if (checks.length === 0) {
                     return 'none'
                 }
-                return checks.every((check) => check.last_status === 'passed') ? 'all-passed' : 'some-not-passed'
+                if (!checks.every((check) => check.last_status === 'passed')) {
+                    return 'some-not-passed'
+                }
+                return checks.length < CHECKS_LIMIT ? 'all-passed' : 'unknown'
             },
         ],
         scheduleBySubjectKey: [

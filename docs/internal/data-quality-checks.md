@@ -66,7 +66,7 @@ Catalog access is a project permission resource. Notification visibility follows
 
 The models overview reports one status for the whole project. It shows the status panel only when the model list and the check list have both answered, and when no model and no check needs attention. A request that failed is reported as a failure, so an unanswered request never reads as an all-clear.
 
-The panel's text follows the check results. It claims that all data quality checks passed only when every check passed on its last run. A check that was skipped or has never run is not a passed check, so the panel then says that no checks are failing and some have not passed yet. A project with no checks is asked to add some. When the data quality tab is not available, the panel speaks about the models alone.
+The panel's text follows the check results. It claims that all data quality checks passed only when every check passed on its last run. A check that was skipped or has never run is not a passed check, so the panel then says that no checks are failing and some have not passed yet. The overview reads one page of checks, so a project that fills that page gets the same text as a project with the data quality tab off: a check on a later page could be failing. A project with no checks is asked to add some. When the data quality tab is not available, the panel speaks about the models alone.
 
 A project that has no models and no saved views gets the first-view text instead of a status claim.
 

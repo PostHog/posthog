@@ -7,7 +7,7 @@ import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { urls } from 'scenes/urls'
 
-import { DataModelingEdge, DataModelingNode } from '~/types'
+import { DataModelingEdge, DataModelingNode, DataModelingNodeType } from '~/types'
 
 import { BehindScheduleModel, modelsBehindSchedule } from 'products/data_modeling/frontend/freshness'
 import { NodeSuspensionApi } from 'products/data_modeling/frontend/generated/api.schemas'
@@ -16,6 +16,8 @@ import { buildAdjacencyMaps, traverseLineage } from 'products/data_modeling/fron
 import { servingSuspension } from 'products/data_modeling/frontend/suspension'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
+
+const MODEL_NODE_TYPES = new Set<DataModelingNodeType>(['view', 'matview', 'endpoint'])
 
 export type ModelsSceneTab = 'overview' | 'models' | 'lineage' | 'data-quality'
 
@@ -250,7 +252,7 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
         noModelsYet: [
             (s) => [s.nodes, s.dataWarehouseSavedQueries],
             (nodes: DataModelingNode[], savedQueries: DataWarehouseSavedQuerySummary[]): boolean =>
-                nodes.length === 0 && savedQueries.length === 0,
+                !nodes.some((node) => MODEL_NODE_TYPES.has(node.type)) && savedQueries.length === 0,
         ],
         dataQualityTabEnabled: [
             (s) => [s.featureFlags],

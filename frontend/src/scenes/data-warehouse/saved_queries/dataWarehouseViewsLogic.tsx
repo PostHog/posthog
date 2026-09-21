@@ -364,6 +364,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             false,
             {
                 loadDataWarehouseSavedQueriesSuccess: () => true,
+                loadDataWarehouseSavedQueriesFailure: () => false,
             },
         ],
         dataWarehouseSavedQueriesFailed: [
