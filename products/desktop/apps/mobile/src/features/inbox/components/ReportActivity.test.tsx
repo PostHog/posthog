@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("./ArtefactCommit", () => ({ ArtefactCommit: () => null }));
 vi.mock("./ArtefactTaskRun", () => ({ ArtefactTaskRun: () => null }));
+vi.mock("./ArtefactReportLink", () => ({ ArtefactReportLink: () => null }));
 
 import { ReportActivity } from "./ReportActivity";
 
@@ -51,6 +52,13 @@ function visibleText(renderer: ReturnType<typeof create>): string {
   return strings.join("");
 }
 
+const reportLink: AnySignalReportArtefact = {
+  id: "a2",
+  type: "report_link",
+  created_at: "2026-01-02T00:00:00Z",
+  content: { kind: "duplicate_of", report_id: "r2" },
+};
+
 describe("ReportActivity", () => {
   it("renders nothing when there are no artefacts and no confirmations", () => {
     expect(render({}).toJSON()).toBeNull();
@@ -62,6 +70,11 @@ describe("ReportActivity", () => {
     expect(output).toContain("(1)");
     expect(output).not.toContain("confirmation");
     expect(output).not.toContain("Corroborated");
+  });
+
+  it("names a report link row by its own label", () => {
+    const output = visibleText(render({ artefacts: [commit, reportLink] }));
+    expect(output).toContain("Report linked");
   });
 
   it.each([

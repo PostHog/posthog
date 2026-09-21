@@ -1,5 +1,6 @@
 import {
   attributionLabel,
+  reportLinkKindLabel,
   taskRunLabel,
 } from "@posthog/core/inbox/activityLog";
 import type { AnySignalReportArtefact } from "@posthog/shared/domain-types";
@@ -34,7 +35,7 @@ function taskRun(id: string, createdAt: string): AnySignalReportArtefact {
 }
 
 describe("selectActivityArtefacts", () => {
-  it("keeps only commit and task_run, sorted oldest-first", () => {
+  it("keeps commit, task_run and report_link, sorted oldest-first", () => {
     const artefacts: AnySignalReportArtefact[] = [
       taskRun("b", "2026-01-02T00:00:00Z"),
       {
@@ -43,12 +44,19 @@ describe("selectActivityArtefacts", () => {
         created_at: "2026-01-03T00:00:00Z",
         content: { note: "" },
       },
+      {
+        id: "c",
+        type: "report_link",
+        created_at: "2026-01-04T00:00:00Z",
+        content: { kind: "depends_on", report_id: "r2" },
+      },
       commit("a", "2026-01-01T00:00:00Z"),
     ];
 
     expect(selectActivityArtefacts(artefacts).map((a) => a.id)).toEqual([
       "a",
       "b",
+      "c",
     ]);
   });
 
@@ -93,6 +101,15 @@ describe("taskRunLabel", () => {
     ],
   ] as const)("%s", (_desc, product, type, expected) => {
     expect(taskRunLabel({ product, type })).toBe(expected);
+  });
+});
+
+describe("reportLinkKindLabel", () => {
+  it.each([
+    ["names a known kind", "follow_up_of", "Follow-up of"],
+    ["humanizes a kind this client does not know", "blocked_by", "Blocked by"],
+  ] as const)("%s", (_desc, kind, expected) => {
+    expect(reportLinkKindLabel(kind)).toBe(expected);
   });
 });
 
