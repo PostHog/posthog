@@ -119,6 +119,7 @@ export interface BuildAccountsTableQueryPlanInput {
     assignmentStatus: AssignmentStatus
     assignedToFilter: RoleFilterValue
     accountIdFilter: string | null
+    includeChurnedAndIgnored: boolean
     tileFilter: TileFilter | null
     accountFilters: AccountFilter[]
     relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>
@@ -387,8 +388,8 @@ export function buildAccountsTableQueryPlan(input: BuildAccountsTableQueryPlanIn
             kind: NodeKind.AccountsTableQuery,
             columns: columns.map(({ column }) => column),
             filters,
-            includeChurned: input.accountIdFilter !== null,
-            includeIgnored: input.accountIdFilter !== null,
+            includeChurned: input.accountIdFilter !== null || input.includeChurnedAndIgnored,
+            includeIgnored: input.accountIdFilter !== null || input.includeChurnedAndIgnored,
             sort,
             tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_list' },
         },

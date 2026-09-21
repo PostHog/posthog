@@ -22,6 +22,7 @@ const draft: AccountsViewState = {
         search: 'acme',
         assignmentStatus: 'all',
         assignedTo: [],
+        includeChurnedAndIgnored: false,
         tags: [],
         tileFilter: null,
         customProperties: [],
@@ -48,6 +49,16 @@ describe('accounts view drafts', () => {
         expect(readAccountsViewDraft(1, 'user-a')).toEqual(draft)
         expect(readAccountsViewDraft(1, 'user-b')?.filters.search).toBe('other user')
         expect(readAccountsViewDraft(2, 'user-a')?.filters.search).toBe('other project')
+    })
+
+    it('reads a draft written before the churned-and-ignored filter existed', () => {
+        const { includeChurnedAndIgnored: _omitted, ...legacyFilters } = draft.filters
+        sessionStorage.setItem(
+            accountsViewDraftStorageKey(1, 'user-a'),
+            JSON.stringify({ ...draft, filters: legacyFilters })
+        )
+
+        expect(readAccountsViewDraft(1, 'user-a')).toEqual(draft)
     })
 
     it('fails closed for malformed or unavailable session storage', () => {
@@ -113,6 +124,7 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
                 search: 'acme',
                 assignmentStatus: 'assigned',
                 assignedTo: [1, 2, 3],
+                includeChurnedAndIgnored: false,
                 tags: ['enterprise'],
                 tileFilter: {
                     tileId: 't1',
@@ -160,6 +172,7 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
                 search: '',
                 assignmentStatus: 'all',
                 assignedTo: [],
+                includeChurnedAndIgnored: false,
                 tags: [],
                 tileFilter: null,
                 customProperties: [],
@@ -180,6 +193,7 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
             search: '',
             assignmentStatus: 'assigned',
             assignedTo: [],
+            includeChurnedAndIgnored: false,
             tags: [],
             tileFilter: null,
             customProperties: [],
@@ -187,6 +201,29 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
         expect(state.tiles).toEqual(DEFAULT_TILES)
         expect(state.sortOrder).toBeNull()
         expect(state.columnDisplay).toEqual({})
+    })
+
+    it('stores the churned-and-ignored opt-in only when it is on', () => {
+        const base: AccountsViewState = {
+            columns: [...ACCOUNTS_DEFAULT_COLUMNS],
+            sortOrder: null,
+            filters: {
+                search: '',
+                assignmentStatus: 'all',
+                assignedTo: [],
+                includeChurnedAndIgnored: true,
+                tags: [],
+                tileFilter: null,
+                customProperties: [],
+            },
+            tiles: [...DEFAULT_TILES],
+            columnDisplay: {},
+        }
+        expect(serializeAccountsView(base).filters.includeChurnedAndIgnored).toBe(true)
+        expect(
+            serializeAccountsView({ ...base, filters: { ...base.filters, includeChurnedAndIgnored: false } }).filters
+                .includeChurnedAndIgnored
+        ).toBeUndefined()
     })
 
     it('reads a legacy unassigned-only row as the unassigned status', () => {
