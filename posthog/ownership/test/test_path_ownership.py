@@ -34,9 +34,6 @@ class _FakeRepoFiles:
     def read(self, path: str) -> str | None:
         return self.owners.get(path)
 
-    def exists_all(self, paths: list[str]) -> dict[str, bool]:
-        return {path: path in self.owners for path in paths}
-
     def read_all(self, paths: list[str]) -> None:
         pass
 

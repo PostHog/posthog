@@ -14,7 +14,7 @@ from typing import Any, Protocol, TypeVar
 from django.core.cache import cache
 
 import requests
-from owners_yaml import OwnershipSource
+from owners_yaml import BatchOwnershipSource
 from requests.adapters import HTTPAdapter
 
 from posthog.egress.github.transport import github_request
@@ -62,16 +62,8 @@ class NoRootOwnersFile(OwnershipUnavailable):
     """The repository answers with no root owners file, which is normal for most repositories."""
 
 
-class RepoFiles(OwnershipSource, Protocol):
-    """An ownership source that also answers which paths the repository holds, in batches."""
-
-    def exists_all(self, paths: list[str]) -> dict[str, bool]: ...
-
-    def read_all(self, paths: list[str]) -> None: ...
-
-
-def _ttl() -> int:
-    return _CACHE_TTL_SECONDS + random.randint(0, _CACHE_TTL_JITTER_SECONDS)
+class RepoFiles(BatchOwnershipSource, Protocol):
+    """A repository's ownership files: one file, or a whole batch's before the resolver reads any."""
 
 
 def _fetch_all(fetch: Callable[[_K], _T], keys: Iterable[_K], deadline: float) -> dict[_K, _T]:
@@ -94,20 +86,56 @@ def _fetch_all(fetch: Callable[[_K], _T], keys: Iterable[_K], deadline: float) -
         pool.shutdown(wait=False, cancel_futures=True)
 
 
-class GitHubRepoFiles:
-    """A public repository's files over HTTPS, cached in Redis. Build one per batch: it holds the
-    batch's memo and its HTTP connections."""
+def pooled_session(host: str) -> requests.Session:
+    """A session whose connection pool is as wide as the fetch pool.
+
+    requests pools ten connections by default and discards the overflow, so a smaller pool than the
+    worker count makes most of a batch pay a fresh TLS handshake.
+    """
+    session = requests.Session()
+    session.mount(host, HTTPAdapter(pool_connections=_FETCH_WORKERS, pool_maxsize=_FETCH_WORKERS))
+    return session
+
+
+class CachedRepoFiles:
+    """The shared skeleton of a repository's file readers: one memo per batch, one Redis round trip
+    per kind of read, and one time budget for the whole resolution.
+
+    Build one per batch. A subclass says where a file comes from, how its cache key is built, and
+    how long a cached value keeps.
+    """
 
     def __init__(self, repository: str) -> None:
         self.repository = repository
         # Raw cache values, so ``_ABSENT`` rather than None for a file the repository does not hold.
         # The resolver reads each file again after the batch fetched it, and Redis is a network hop too.
         self._bodies: dict[str, str] = {}
-        self._session = requests.Session()
-        # requests pools 10 connections by default and discards the overflow, so a smaller pool than
-        # the worker count makes most of the batch pay a fresh TLS handshake.
-        self._session.mount(_RAW_HOST, HTTPAdapter(pool_connections=_FETCH_WORKERS, pool_maxsize=_FETCH_WORKERS))
         self._deadline = monotonic() + _RESOLVE_BUDGET_SECONDS
+
+    def _cache_key(self, kind: str, path: str) -> str:
+        raise NotImplementedError
+
+    def _cache_ttl(self) -> int:
+        raise NotImplementedError
+
+    def _read_missing(self, paths: list[str]) -> dict[str, str]:
+        raise NotImplementedError
+
+    def _probe_missing(self, paths: list[str]) -> dict[str, bool]:
+        raise NotImplementedError
+
+    def _batch(self, kind: str, paths: Iterable[str], fetch: Callable[[list[str]], dict[str, _T]]) -> dict[str, _T]:
+        todo = list(dict.fromkeys(paths))
+        if not todo:
+            return {}
+        by_key = {self._cache_key(kind, path): path for path in todo}
+        known = {by_key[key]: value for key, value in cache.get_many(list(by_key)).items()}
+        missing = [path for path in todo if path not in known]
+        if missing:
+            fetched = fetch(missing)
+            cache.set_many({self._cache_key(kind, path): value for path, value in fetched.items()}, self._cache_ttl())
+            known.update(fetched)
+        return known
 
     def read(self, path: str) -> str | None:
         if path not in self._bodies:
@@ -115,27 +143,33 @@ class GitHubRepoFiles:
         return None if self._bodies[path] == _ABSENT else self._bodies[path]
 
     def read_all(self, paths: list[str]) -> None:
-        """Take every file the batch needs before it reads any, so one Redis round trip and one
-        concurrent fetch cover them all."""
-        self._bodies.update(self._batch("text", [p for p in paths if p not in self._bodies], self._get))
+        """Take every file the batch needs before it reads any, so one Redis round trip and one set
+        of fetches cover them all."""
+        self._bodies.update(self._batch("text", [p for p in paths if p not in self._bodies], self._read_missing))
 
     def exists_all(self, paths: list[str]) -> dict[str, bool]:
-        return self._batch("exists", paths, self._head)
+        return self._batch("exists", paths, self._probe_missing)
 
-    def _batch(self, kind: str, paths: Iterable[str], fetch: Callable[[str], _T]) -> dict[str, _T]:
-        todo = list(dict.fromkeys(paths))
-        if not todo:
-            return {}
-        by_key = {self._key(kind, path): path for path in todo}
-        known = {by_key[key]: value for key, value in cache.get_many(list(by_key)).items()}
-        fetched = _fetch_all(fetch, [path for path in todo if path not in known], self._deadline)
-        if fetched:
-            cache.set_many({self._key(kind, path): value for path, value in fetched.items()}, _ttl())
-            known.update(fetched)
-        return known
 
-    def _key(self, kind: str, path: str) -> str:
+class GitHubRepoFiles(CachedRepoFiles):
+    """A public repository's files over HTTPS, cached in Redis. Build one per batch: it holds the
+    batch's memo and its HTTP connections."""
+
+    def __init__(self, repository: str) -> None:
+        super().__init__(repository)
+        self._session = pooled_session(_RAW_HOST)
+
+    def _cache_key(self, kind: str, path: str) -> str:
         return f"{_CACHE_PREFIX}:{kind}:{self.repository}:{_REF}:{path}"
+
+    def _cache_ttl(self) -> int:
+        return _CACHE_TTL_SECONDS + random.randint(0, _CACHE_TTL_JITTER_SECONDS)
+
+    def _read_missing(self, paths: list[str]) -> dict[str, str]:
+        return _fetch_all(self._get, paths, self._deadline)
+
+    def _probe_missing(self, paths: list[str]) -> dict[str, bool]:
+        return _fetch_all(self._head, paths, self._deadline)
 
     def _get(self, path: str) -> str:
         """The file's text, or ``_ABSENT`` when the repository has no such file."""

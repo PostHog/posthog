@@ -141,7 +141,25 @@ class _RepoRouting:
     declared_channel: str | None
 
 
-def _read_repo_routing(repo_config: StamphogRepoConfig) -> _RepoRouting:
+def _fetcher_for_installation(installation_id: str) -> GitHubFilesFetcher:
+    """One fetcher per installation, not per repository.
+
+    It holds a token and a connection pool, and a team's repositories usually sit under one
+    installation, so building one per repository mints a token and a pool to read a single file.
+    """
+    try:
+        client = StamphogGitHubClient(installation_id)
+        return GitHubFilesFetcher.from_token(
+            client.installation_token(),
+            installation_id=installation_id,
+            # The daily run is background work, so it sheds before anything a person waits on.
+            priority=Priority.BATCH,
+        )
+    except Exception as e:
+        raise RoutingUnavailable(f"could not authenticate installation {installation_id}: {e}") from e
+
+
+def _read_repo_routing(repo_config: StamphogRepoConfig, fetcher: GitHubFilesFetcher) -> _RepoRouting:
     """One repo's routing config: its root registry, and the digest channel it declared.
 
     Both reads answer to one failure contract. A transient fetch failure for either file raises
@@ -150,16 +168,7 @@ def _read_repo_routing(repo_config: StamphogRepoConfig) -> _RepoRouting:
     owners.yaml inherits one, and a repo declaring no channel has no repo audience to route.
     """
     try:
-        client = StamphogGitHubClient(repo_config.installation_id)
-        files = AuthenticatedRepoFiles(
-            repo_config.repository,
-            GitHubFilesFetcher.from_token(
-                client.installation_token(),
-                installation_id=repo_config.installation_id,
-                # The daily run is background work, so it sheds before anything a person waits on.
-                priority=Priority.BATCH,
-            ),
-        )
+        files = AuthenticatedRepoFiles(repo_config.repository, fetcher)
         raw = files.read(_OWNERS_FILE_PATH)
         digest_config = load_repo_digest_config(repo_config) if repo_config.digest_enabled else None
     except Exception as e:
@@ -183,8 +192,13 @@ def build_routing_context(team_id: int) -> RoutingContext | None:
 
     registry_by_repo: dict[str, dict[str, TeamEntry]] = {}
     declared_repo_channel: dict[str, str] = {}
+    fetcher_by_installation: dict[str, GitHubFilesFetcher] = {}
     for repo_config in _candidate_repo_configs(team_id):
-        routing = _read_repo_routing(repo_config)
+        fetcher = fetcher_by_installation.get(repo_config.installation_id)
+        if fetcher is None:
+            fetcher = _fetcher_for_installation(repo_config.installation_id)
+            fetcher_by_installation[repo_config.installation_id] = fetcher
+        routing = _read_repo_routing(repo_config, fetcher)
         registry_by_repo[repo_config.repository] = routing.registry
         if routing.declared_channel is not None:
             declared_repo_channel[repo_config.repository] = routing.declared_channel

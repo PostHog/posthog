@@ -12,12 +12,12 @@ from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team import Team
 from posthog.ownership.github_files import AuthenticatedRepoFiles, GitHubFilesFetcher, fetcher_for_team
-from posthog.ownership.repo_files import RepoFiles
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.source_management import GithubSourceConfig
 
-from .sources import _configured_repositories, _github_sources
+from .ownership import ProbeableRepoFiles
+from .sources import _github_sources
 
 logger = structlog.get_logger(__name__)
 
@@ -35,10 +35,19 @@ def _source_config(source: ExternalDataSource) -> GithubSourceConfig | None:
         return None
 
 
-def _fetcher_for_source(source: ExternalDataSource, *, priority: Priority) -> GitHubFilesFetcher | None:
-    config = _source_config(source)
-    if config is None:
-        return None
+def _syncs_repository(config: GithubSourceConfig, wanted: str) -> bool:
+    """Whether the source is configured to sync this repository, which is already casefolded.
+
+    Same precedence as the sync side: the multi-repo list, falling back to the legacy single name
+    when it is unset or empty. GitHub full names are case-insensitive.
+    """
+    names = config.repositories or [config.repository]
+    return wanted in {str(name or "").strip().casefold() for name in names}
+
+
+def _fetcher_for_source(
+    source: ExternalDataSource, config: GithubSourceConfig, *, priority: Priority
+) -> GitHubFilesFetcher | None:
     auth = config.auth_method
     if auth.selection == "pat":
         if not auth.personal_access_token:
@@ -56,13 +65,16 @@ def _fetcher_for_source(source: ExternalDataSource, *, priority: Priority) -> Gi
     return GitHubFilesFetcher.from_integration(GitHubIntegration(integration), priority=priority)
 
 
-def repo_files(team: Team, repository: str, *, priority: Priority) -> RepoFiles:
+def repo_files(team: Team, repository: str, *, priority: Priority) -> ProbeableRepoFiles:
     """The reader for this repository's ownership files, authenticated where the team allows it."""
     wanted = repository.casefold()
     for source in _github_sources(team):
-        if wanted not in {name.casefold() for name in _configured_repositories(source)}:
+        # One parse per source: the repository list and the credential both come out of it, and a
+        # board resolves ownership on every request.
+        config = _source_config(source)
+        if config is None or not _syncs_repository(config, wanted):
             continue
-        fetcher = _fetcher_for_source(source, priority=priority)
+        fetcher = _fetcher_for_source(source, config, priority=priority)
         if fetcher is not None:
             return AuthenticatedRepoFiles(repository, fetcher)
     return fetcher_for_team(team.pk, repository, priority=priority)

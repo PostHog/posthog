@@ -10,31 +10,26 @@ expires. The raw host cannot name a commit, so it keeps its own cache and its ow
 window.
 """
 
-import hashlib
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Sequence
 from http import HTTPStatus
-from time import monotonic
 from typing import Any
 
 from django.core.cache import cache
 
-import requests
-from requests.adapters import HTTPAdapter
-
-from posthog.egress.github.transport import github_request
+from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
+from posthog.egress.observability.observability import scope_fingerprint
 from posthog.models.github_integration_base import GitHubIntegrationBase
-from posthog.models.integration import GitHubIntegration
+from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.integration.github import _is_safe_github_repo_path
 from posthog.ownership.repo_files import (
     _ABSENT,
-    _FETCH_WORKERS,
     _MAX_FILE_BYTES,
-    _RESOLVE_BUDGET_SECONDS,
+    CachedRepoFiles,
     GitHubRepoFiles,
     OwnershipUnavailable,
-    RepoFiles,
     _fetch_all,
+    pooled_session,
 )
 
 _API_HOST = "https://api.github.com"
@@ -59,6 +54,12 @@ _BLOB_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
 # Short, because this is the whole staleness window of an ownership change. Long enough that a burst
 # of page loads asks GitHub for the head once rather than once each.
 _HEAD_CACHE_TTL_SECONDS = 120
+# Which integration covers a repository costs one uncached GitHub probe per integration the team
+# has, and a page load asks for it on every request. Short for the same reason as the head lookup:
+# a repository added to an installation has to become readable without anyone clearing a cache.
+_INTEGRATION_CACHE_TTL_SECONDS = 120
+# No integration covers the repository. A row id is never 0, so the negative needs no second key.
+_NO_COVERING_INTEGRATION = 0
 
 _HEAD_QUERY = """
 query($owner: String!, $name: String!) {
@@ -79,9 +80,10 @@ def _token_audience(token: str) -> str:
 
     Two credentials must never share cached file content: a private repository one installation can
     read is not readable by the next caller that names the same repository. The token itself must
-    stay out of the key, so the key carries a digest of it.
+    stay out of the key, so the key carries the same digest the egress metrics use for an identity
+    that cannot appear in plain form.
     """
-    return f"token:{hashlib.sha256(token.encode()).hexdigest()[:16]}"
+    return f"token:{scope_fingerprint(token)}"
 
 
 def _files_query(count: int, selection: str) -> str:
@@ -146,10 +148,7 @@ class GitHubFilesFetcher:
         self._resolved_token: str | None = None
         self._installation_id = installation_id
         self._priority = priority
-        self._session = requests.Session()
-        # requests pools ten connections by default and discards the overflow, so a smaller pool than
-        # the worker count makes most of a batch pay a fresh TLS handshake.
-        self._session.mount(_API_HOST, HTTPAdapter(pool_connections=_FETCH_WORKERS, pool_maxsize=_FETCH_WORKERS))
+        self._session = pooled_session(_API_HOST)
 
     def head_commit_sha(self, repository: str) -> str:
         """The commit at the head of the repository's default branch."""
@@ -226,6 +225,9 @@ class GitHubFilesFetcher:
                 timeout=_TIMEOUT_SECONDS,
                 session=self._session,
             )
+            # A rate limit answers 403 or 429, which would otherwise read as a plain refusal. It is
+            # still fail-closed, but the failure says which of the two it was.
+            raise_if_github_rate_limited(response)
         except Exception as e:
             raise OwnershipUnavailable(f"could not read ownership files from {repository}: {e}") from e
         if response.status_code != HTTPStatus.OK:
@@ -237,7 +239,8 @@ class GitHubFilesFetcher:
         data = body.get("data") if isinstance(body, dict) else None
         field = data.get("repository") if isinstance(data, dict) else None
         if not isinstance(field, dict):
-            raise OwnershipUnavailable(f"{repository} is unreadable for {endpoint}: {body.get('errors')}")
+            errors = body.get("errors") if isinstance(body, dict) else None
+            raise OwnershipUnavailable(f"{repository} is unreadable for {endpoint}: {errors}")
         return field
 
     def _token_value(self) -> str:
@@ -248,55 +251,16 @@ class GitHubFilesFetcher:
         return self._resolved_token
 
 
-class AuthenticatedRepoFiles:
+class AuthenticatedRepoFiles(CachedRepoFiles):
     """A repository's ownership files read with a credential, cached per commit.
 
     Build one per batch: it holds the batch's memo, its head commit, and its time budget.
     """
 
     def __init__(self, repository: str, fetcher: GitHubFilesFetcher) -> None:
-        self.repository = repository
+        super().__init__(repository)
         self._fetcher = fetcher
-        # Raw cache values, so ``_ABSENT`` rather than None for a file the commit does not hold.
-        # The resolver reads each file again after the batch fetched it, and Redis is a network hop too.
-        self._bodies: dict[str, str] = {}
         self._sha: str | None = None
-        self._deadline = monotonic() + _RESOLVE_BUDGET_SECONDS
-
-    def read(self, path: str) -> str | None:
-        if path not in self._bodies:
-            self.read_all([path])
-        return None if self._bodies[path] == _ABSENT else self._bodies[path]
-
-    def read_all(self, paths: list[str]) -> None:
-        """Take every file the batch needs before it reads any, so one Redis round trip and one
-        set of GraphQL calls cover them all."""
-        todo = [path for path in paths if path not in self._bodies]
-        self._bodies.update(self._batch("text", todo, self._fetcher.read_files))
-
-    def exists_all(self, paths: list[str]) -> dict[str, bool]:
-        return self._batch("exists", paths, self._fetcher.files_exist)
-
-    def _batch(
-        self,
-        kind: str,
-        paths: Iterable[str],
-        fetch: "Callable[[str, str, Sequence[str], float], dict[str, Any]]",
-    ) -> dict[str, Any]:
-        todo = list(dict.fromkeys(paths))
-        if not todo:
-            return {}
-        sha = self._head_commit_sha()
-        by_key = {self._key(kind, sha, path): path for path in todo}
-        known = {by_key[key]: value for key, value in cache.get_many(list(by_key)).items()}
-        missing = [path for path in todo if path not in known]
-        if missing:
-            fetched = fetch(self.repository, sha, missing, self._deadline)
-            cache.set_many(
-                {self._key(kind, sha, path): value for path, value in fetched.items()}, _BLOB_CACHE_TTL_SECONDS
-            )
-            known.update(fetched)
-        return known
 
     def _head_commit_sha(self) -> str:
         if self._sha is None:
@@ -309,20 +273,54 @@ class AuthenticatedRepoFiles:
                 cache.set(key, self._sha, _HEAD_CACHE_TTL_SECONDS)
         return self._sha
 
-    def _key(self, kind: str, sha: str, path: str) -> str:
-        return f"{_CACHE_PREFIX}:{kind}:{self._fetcher.audience}:{self.repository}:{sha}:{path}"
+    def _cache_key(self, kind: str, path: str) -> str:
+        return f"{_CACHE_PREFIX}:{kind}:{self._fetcher.audience}:{self.repository}:{self._head_commit_sha()}:{path}"
+
+    def _cache_ttl(self) -> int:
+        return _BLOB_CACHE_TTL_SECONDS
+
+    def _read_missing(self, paths: list[str]) -> dict[str, str]:
+        return self._fetcher.read_files(self.repository, self._head_commit_sha(), paths, self._deadline)
+
+    def _probe_missing(self, paths: list[str]) -> dict[str, bool]:
+        return self._fetcher.files_exist(self.repository, self._head_commit_sha(), paths, self._deadline)
 
 
-def fetcher_for_team(team_id: int, repository: str, *, priority: Priority) -> RepoFiles:
+def _covering_integration(team_id: int, repository: str, *, priority: Priority) -> GitHubIntegration | None:
+    """The team's GitHub integration whose installation can read the repository.
+
+    The lookup itself probes GitHub once per integration the team has, uncached, and a page load
+    asks for it on every request. Only the decision is cached, never a token: the id of the
+    integration that answered, or the marker for "none of them did", so a team with no installation
+    does not re-probe either.
+    """
+    key = f"{_CACHE_PREFIX}:integration:{team_id}:{repository.casefold()}"
+    cached = cache.get(key)
+    if isinstance(cached, int):
+        if cached == _NO_COVERING_INTEGRATION:
+            return None
+        integration = Integration.objects.filter(team_id=team_id, id=cached, kind="github").first()
+        # A disconnected integration falls through to a fresh lookup rather than to no reader.
+        if integration is not None:
+            return GitHubIntegration(integration, source=_EGRESS_SOURCE, priority=priority)
+    covering = GitHubIntegration.first_for_team_repository(
+        team_id, repository, source=_EGRESS_SOURCE, priority=priority
+    )
+    decision = covering.integration.pk if covering is not None else _NO_COVERING_INTEGRATION
+    cache.set(key, decision, _INTEGRATION_CACHE_TTL_SECONDS)
+    return covering
+
+
+def fetcher_for_team(
+    team_id: int, repository: str, *, priority: Priority
+) -> "AuthenticatedRepoFiles | GitHubRepoFiles":
     """The best reader the team has for this repository.
 
     A team whose GitHub App installation covers the repository reads it authenticated, which also
     works for a private repository. Every other team falls back to the anonymous raw host, which
     answers for a public repository only.
     """
-    integration = GitHubIntegration.first_for_team_repository(
-        team_id, repository, source=_EGRESS_SOURCE, priority=priority
-    )
+    integration = _covering_integration(team_id, repository, priority=priority)
     if integration is None:
         return GitHubRepoFiles(repository)
     return AuthenticatedRepoFiles(repository, GitHubFilesFetcher.from_integration(integration, priority=priority))

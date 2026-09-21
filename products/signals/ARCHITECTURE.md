@@ -1322,7 +1322,7 @@ Without the flag the older rule stands: every suggested reviewer who opted in is
 > [!WARNING]
 > Keep the `signals-pr-dri-assignee` flag on the PostHog organization only until a team-level off switch exists in the inbox settings. Assigning people on a customer's GitHub is that team's decision, and today a team cannot turn the rule off: removing `owners.yaml` only changes who gets picked.
 
-The ownership lookup reads `owners.yaml` only, and only for a public repository, because the engineering analytics lookup reads files anonymously. A repository with only CODEOWNERS, or a private repository, falls back to the suggested reviewers. The planned `owners_yaml` resolver adapter covers both: CODEOWNERS as a second format behind the same resolver interface, and files read through the GitHub app.
+The ownership lookup reads the files through `posthog.ownership`, with the GitHub integration the team already connected, so a private repository resolves wherever that installation covers it. A repository no installation covers is still read anonymously, which answers for a public repository only. The lookup reads `owners.yaml` and nothing else, so a repository declaring ownership in CODEOWNERS alone falls back to the suggested reviewers. CODEOWNERS as a second format behind the same resolver interface is still open.
 
 **Fleet steering in the task description** (`load_report_steering` in `backend/report_steering.py`).
 

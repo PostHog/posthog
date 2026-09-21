@@ -3,6 +3,7 @@ from threading import Event
 from time import monotonic
 from typing import Any
 
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -11,6 +12,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.egress.limiter.policies import Priority
+from posthog.models.integration import GitHubIntegration, Integration
 from posthog.ownership.github_files import _CHUNK_FILES, AuthenticatedRepoFiles, GitHubFilesFetcher, fetcher_for_team
 from posthog.ownership.repo_files import GitHubRepoFiles, OwnershipUnavailable
 
@@ -89,6 +91,7 @@ class TestGitHubFilesFetcher(SimpleTestCase):
             ("graphql_errors", lambda: _Response(200, {"data": None, "errors": [{"message": "NOT_FOUND"}]})),
             ("no_repository", lambda: _Response(200, {"data": {"repository": None}})),
             ("unparseable", lambda: _Response(200, None)),
+            ("not_an_object", lambda: _Response(200, [{"message": "NOT_FOUND"}])),
         ]
     )
     def test_an_unreadable_answer_raises_rather_than_reading_as_absent(
@@ -146,16 +149,31 @@ class TestAuthenticatedRepoFiles(SimpleTestCase):
             assert github.file_calls == 2
 
 
-class TestFetcherForTeam(SimpleTestCase):
+class TestFetcherForTeam(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
     @parameterized.expand([("with_installation", True), ("without_installation", False)])
     def test_a_team_reads_authenticated_only_where_its_installation_covers_the_repository(
         self, _name: str, covered: bool
     ) -> None:
-        integration = object() if covered else None
+        # The lookup probes GitHub once per integration the team has, and a page load asks for the
+        # reader on every request, so the decision has to survive the next one.
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="42",
+            config={"account": {"name": "PostHog"}},
+            sensitive_config={"access_token": "t0ken"},
+        )
         with patch(
             "posthog.ownership.github_files.GitHubIntegration.first_for_team_repository",
-            return_value=integration,
-        ):
-            with patch.object(GitHubFilesFetcher, "from_integration", return_value=_fetcher()):
-                files = fetcher_for_team(1, _REPOSITORY, priority=Priority.NORMAL)
-        assert isinstance(files, AuthenticatedRepoFiles if covered else GitHubRepoFiles)
+            return_value=GitHubIntegration(integration) if covered else None,
+        ) as probe:
+            first = fetcher_for_team(self.team.pk, _REPOSITORY, priority=Priority.NORMAL)
+            second = fetcher_for_team(self.team.pk, _REPOSITORY, priority=Priority.NORMAL)
+        assert probe.call_count == 1
+        expected = AuthenticatedRepoFiles if covered else GitHubRepoFiles
+        assert isinstance(first, expected)
+        assert isinstance(second, expected)

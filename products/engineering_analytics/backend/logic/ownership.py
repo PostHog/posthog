@@ -5,6 +5,8 @@ the capture-time span stamp the flaky rollups keep (SPEC). The web container has
 files are fetched and cached.
 """
 
+from typing import Protocol
+
 import structlog
 from owners_yaml.matcher import normalize_path
 
@@ -18,6 +20,16 @@ logger = structlog.get_logger(__name__)
 # Keep in step with jest_root_for_suite in .github/scripts/report_test_timings.py, which stamps the
 # same repositioning onto the CI spans.
 _SUITE_ROOTS = ("nodejs/", "frontend/", "services/mcp/", "common/replay-shared/")
+
+
+class ProbeableRepoFiles(RepoFiles, Protocol):
+    """A reader that also answers which paths the repository holds, in batches.
+
+    Placing a test needs this and resolving a path does not: a quarantined test arrives named by its
+    suite, so the repository has to say which of its candidate paths exists.
+    """
+
+    def exists_all(self, paths: list[str]) -> dict[str, bool]: ...
 
 
 @frozen
@@ -74,7 +86,7 @@ def _candidate_paths(test: QuarantinedTestFile) -> list[str]:
     return [reported, *(f"{root}{reported}" for root in _SUITE_ROOTS)]
 
 
-def _place(repository: str, files: RepoFiles, tests: list[QuarantinedTestFile]) -> list[PlacedTest]:
+def _place(repository: str, files: ProbeableRepoFiles, tests: list[QuarantinedTestFile]) -> list[PlacedTest]:
     # Every repo this runs against declares one, so its absence proves the reader is blind
     # (a private or renamed repo answers 404 to everything), not that nobody owns anything.
     root = read_root(repository, files)
@@ -93,7 +105,7 @@ def _place(repository: str, files: RepoFiles, tests: list[QuarantinedTestFile]) 
 
 
 def resolve_test_ownership(
-    repository: str, tests: list[QuarantinedTestFile], files: RepoFiles | None = None
+    repository: str, tests: list[QuarantinedTestFile], files: ProbeableRepoFiles | None = None
 ) -> RepoOwnershipResult:
     """Place every test in the repository and name the team that owns it."""
     reader = files if files is not None else GitHubRepoFiles(repository)

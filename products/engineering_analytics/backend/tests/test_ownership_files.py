@@ -3,6 +3,8 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+
 from parameterized import parameterized
 
 from posthog.egress.limiter.policies import Priority
@@ -18,6 +20,12 @@ _REPOSITORY = "PostHog/posthog"
 
 
 class TestOwnershipFiles(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # The team's covering integration is cached per repository, so one test's fallback would
+        # otherwise answer the next one's lookup.
+        cache.clear()
+
     def _source(self, job_inputs: dict[str, Any]) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
             team=self.team,
