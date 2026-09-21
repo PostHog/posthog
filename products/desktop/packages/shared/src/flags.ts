@@ -86,26 +86,11 @@ export const REPORTS_INBOX_FLAG = featureFlagKeys.REPORTS_INBOX_FLAG;
  */
 export const TRIAGE_FOCUS_FLAG = featureFlagKeys.TRIAGE_FOCUS_FLAG;
 
-/**
- * Serves a session's Claude traffic from Bedrock instead of Anthropic. The
- * `test` variant sends `x-posthog-provider: bedrock`, which the gateway routes
- * to its Bedrock backend; `control` sends nothing and the gateway keeps its
- * `anthropic` default.
- *
- * The variants differ in resilience, not just in provider. `control` keeps the
- * gateway's Bedrock *failover* (`x-posthog-use-bedrock-fallback`), which retries
- * against Bedrock when Anthropic returns 5xx/429 or blocks on billing. `test`
- * cannot use it: the gateway dispatches on the provider header and returns
- * before reading the fallback one, and its direct-Bedrock path has no reverse
- * fallback to Anthropic. So a Bedrock outage fails a `test` session outright.
- */
-export const BEDROCK_LLM_GATEWAY_FLAG =
-  featureFlagKeys.BEDROCK_LLM_GATEWAY_FLAG;
-
-/** Variants of {@link BEDROCK_LLM_GATEWAY_FLAG}. */
-export const BEDROCK_GATEWAY_VARIANTS = ["test", "control"] as const;
-
-export type BedrockGatewayVariant = (typeof BEDROCK_GATEWAY_VARIANTS)[number];
+export {
+  BEDROCK_GATEWAY_VARIANTS,
+  BEDROCK_LLM_GATEWAY_FLAG,
+  type BedrockGatewayVariant,
+} from "./bedrock-gateway";
 /** Gates the organization context wiki: the Context explorer in the nav rails. */
 export const CONTEXT_LAYER_FLAG = featureFlagKeys.CONTEXT_LAYER_FLAG;
 /** Gates the "set up this space for" step in the create-space flow. */
