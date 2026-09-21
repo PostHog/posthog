@@ -5586,10 +5586,12 @@ export interface ExperimentApiEventSource {
     properties?: EventPropertyFilter[]
 }
 
-/** Sentinel start source for retention metrics in API payloads: retention starts
- *  from the experiment's own exposure event instead of a custom event. */
-export interface ExperimentApiExposureStart {
-    kind: 'ExperimentExposureNode'
+/** Slim start source for retention metrics in API payloads. kind stays required so a
+ *  payload without it fails validation instead of silently becoming an exposure start. */
+export interface ExperimentApiRetentionStart extends Omit<ExperimentApiEventSource, 'kind'> {
+    /** Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure
+     *  event; the other fields then stay unset. */
+    kind: 'EventsNode' | 'ActionsNode' | 'ExperimentExposureNode'
 }
 
 /** Experiment metric for API create/update. All metric-type-specific
@@ -5646,7 +5648,7 @@ export interface ExperimentApiMetric {
     denominator_outlier_handling?: ExperimentMetricOutlierHandling
     /** For retention metrics: start event. Pass {"kind": "ExperimentExposureNode"} to start retention
      *  from the experiment's exposure event; start_handling and conversion window are ignored then. */
-    start_event?: ExperimentApiEventSource | ExperimentApiExposureStart
+    start_event?: ExperimentApiRetentionStart
     /** For retention metrics: completion event. */
     completion_event?: ExperimentApiEventSource
     retention_window_start?: integer

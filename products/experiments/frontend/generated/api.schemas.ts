@@ -1420,10 +1420,32 @@ export const ExperimentMetricTypeApi = {
     Retention: 'retention',
 } as const
 
-export const ExperimentApiExposureStartApiValue = {
-    kind: 'ExperimentExposureNode',
+export type Kind2Api = (typeof Kind2Api)[keyof typeof Kind2Api]
+
+export const Kind2Api = {
+    EventsNode: 'EventsNode',
+    ActionsNode: 'ActionsNode',
+    ExperimentExposureNode: 'ExperimentExposureNode',
 } as const
-export type ExperimentApiExposureStartApi = typeof ExperimentApiExposureStartApiValue
+
+export interface ExperimentApiRetentionStartApi {
+    /** Event name, e.g. '$pageview'. Required for EventsNode. */
+    event?: string | null
+    /** Action ID. Required for ActionsNode. */
+    id?: number | null
+    /** Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset. */
+    kind: Kind2Api
+    /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
+    math?: ExperimentMetricMathTypeApi | null
+    /** Group type index to aggregate over. Required when math is 'unique_group'. */
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    /** HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum. */
+    math_hogql?: string | null
+    /** Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue'). */
+    math_property?: string | null
+    /** Event property filters to narrow which events are counted. */
+    properties?: EventPropertyFilterApi[] | null
+}
 
 export type StartHandlingApi = (typeof StartHandlingApi)[keyof typeof StartHandlingApi]
 
@@ -1467,7 +1489,7 @@ export interface ExperimentApiMetricApi {
     /** For mean metrics: event source. */
     source?: ExperimentApiEventSourceApi | null
     /** For retention metrics: start event. Pass {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event; start_handling and conversion window are ignored then. */
-    start_event?: ExperimentApiEventSourceApi | ExperimentApiExposureStartApi | null
+    start_event?: ExperimentApiRetentionStartApi | null
     start_handling?: StartHandlingApi | null
     /** For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types. */
     threshold?: number | null

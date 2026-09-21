@@ -891,7 +891,6 @@ export const experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemOperat
 export const experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsOneItemStartEventTwoKindDefault = `ExperimentExposureNode`
 export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
 
@@ -923,7 +922,6 @@ export const experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneI
 export const experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsSecondaryOneItemStartEventTwoKindDefault = `ExperimentExposureNode`
 export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
@@ -5457,7 +5455,11 @@ export const ExperimentsCreateBody = () => zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -5584,11 +5586,6 @@ export const ExperimentsCreateBody = () => zod
                                             ])
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.object({
-                                        kind: zod
-                                            .literal('ExperimentExposureNode')
-                                            .default(experimentsCreateBodyMetricsOneItemStartEventTwoKindDefault),
                                     }),
                                     zod.null(),
                                 ])
@@ -6500,7 +6497,11 @@ export const ExperimentsCreateBody = () => zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -6627,13 +6628,6 @@ export const ExperimentsCreateBody = () => zod
                                             ])
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.object({
-                                        kind: zod
-                                            .literal('ExperimentExposureNode')
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemStartEventTwoKindDefault
-                                            ),
                                     }),
                                     zod.null(),
                                 ])
@@ -6862,7 +6856,6 @@ export const experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneIte
 export const experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsOneItemStartEventTwoKindDefault = `ExperimentExposureNode`
 export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
 
@@ -6894,7 +6887,6 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropert
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventTwoKindDefault = `ExperimentExposureNode`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
@@ -11426,7 +11418,11 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -11553,13 +11549,6 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             ])
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.object({
-                                        kind: zod
-                                            .literal('ExperimentExposureNode')
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemStartEventTwoKindDefault
-                                            ),
                                     }),
                                     zod.null(),
                                 ])
@@ -12475,7 +12464,11 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -12602,13 +12595,6 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             ])
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.object({
-                                        kind: zod
-                                            .literal('ExperimentExposureNode')
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventTwoKindDefault
-                                            ),
                                     }),
                                     zod.null(),
                                 ])
@@ -12914,7 +12900,6 @@ export const experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneI
 export const experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsOneItemStartEventTwoKindDefault = `ExperimentExposureNode`
 export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
 
@@ -12946,7 +12931,6 @@ export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePrope
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventTwoKindDefault = `ExperimentExposureNode`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
@@ -17376,7 +17360,11 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -17503,13 +17491,6 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             ])
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.object({
-                                        kind: zod
-                                            .literal('ExperimentExposureNode')
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventTwoKindDefault
-                                            ),
                                     }),
                                     zod.null(),
                                 ])
@@ -18425,7 +18406,11 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -18552,13 +18537,6 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             ])
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.object({
-                                        kind: zod
-                                            .literal('ExperimentExposureNode')
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventTwoKindDefault
-                                            ),
                                     }),
                                     zod.null(),
                                 ])
