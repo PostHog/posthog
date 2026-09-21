@@ -82,8 +82,7 @@ The customer-facing GitHub App is shared across products, so its two endpoints a
 Every other endpoint is declared by the product that registered the App, in its own `routes.py`.
 The SES endpoint is the exception for now, because its view still lives in `backend/api/` rather than behind the ingress builders.
 
-The Vapi endpoint sits behind a per-IP throttle the product owns, from before ingress had a throttle lane.
-It moves onto `throttle_class` next.
+The Vapi endpoint is the only one that caps request volume: its provider sets `throttle_class` to a per-IP throttle, because the endpoint is public and Vapi's egress is shared across tenants.
 
 ## Non-goals
 
@@ -151,6 +150,9 @@ WEBHOOK_CONSUMERS = (
 The registry finds these through `posthog.products.load_product_modules("webhook_consumers")` on the **first delivery**, not at `django.setup()`.
 That is deliberate: eager loading would drag every product's webhook module onto the startup import path, which `posthog/test/repo_invariants/test_startup_import_budget.py` exists to keep clear.
 Keep the module itself cheap to import and defer the heavy work into the handler.
+
+The module may import its own product's `facade/` and nothing else of the product.
+An import-linter contract holds that for a sealed product, and `hogli product:lint` holds it by AST for every product that has a `webhook_consumers.py`, relative imports included.
 
 Registration is validated and fail-closed.
 A consumer that names a provider app nobody declares, reuses a name already taken for that provider, or registers for an event type the provider does not declare raises `RegistryError` at build, rather than sitting there looking registered and never running.
