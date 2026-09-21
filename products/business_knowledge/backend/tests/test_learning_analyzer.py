@@ -32,6 +32,7 @@ from products.business_knowledge.backend.temporal.learning.constants import (
 )
 from products.business_knowledge.backend.temporal.learning.schemas import (
     AnalyzeLearningEvidenceInput,
+    ContradictionVerdict,
     ExtractedKnowledge,
     PiiVerdict,
     PromotionDecision,
@@ -130,6 +131,29 @@ def _promotion(**overrides: object) -> PromotionDecision:
     return PromotionDecision.model_validate(payload)
 
 
+def _contradiction(**overrides: object) -> ContradictionVerdict:
+    payload: dict[str, object] = {
+        "is_contradiction": True,
+        "confidence": 0.91,
+    }
+    payload.update(overrides)
+    return ContradictionVerdict.model_validate(payload)
+
+
+def _existing_result(source: KnowledgeSource, content: str) -> logic.KnowledgeSearchResult:
+    return logic.KnowledgeSearchResult(
+        chunk_id=UUID("30000000-0000-4000-8000-000000000003"),
+        source_id=source.id,
+        source_name=source.name,
+        source_type=source.source_type,
+        document_id=UUID("50000000-0000-4000-8000-000000000005"),
+        document_title=source.name,
+        heading_path="",
+        ordinal=0,
+        content=content,
+    )
+
+
 def _embedding() -> EmbeddingResponse:
     return EmbeddingResponse(embedding=[0.1, 0.2], tokens_used=4, did_truncate=False)
 
@@ -183,7 +207,10 @@ def test_search_context_budget_includes_titles_and_headings() -> None:
 
     rendered = _render_search_context([result])
 
-    assert sum(len(value) for value in rendered[0].values()) == LEARNING_MAX_SEARCH_CONTEXT_CHARS
+    assert rendered[0]["index"] == 0
+    assert (
+        sum(len(value) for value in rendered[0].values() if isinstance(value, str)) == LEARNING_MAX_SEARCH_CONTEXT_CHARS
+    )
 
 
 @pytest.mark.asyncio
@@ -355,6 +382,7 @@ class TestLearningAnalyzer:
         run.refresh_from_db()
         assert result.rejection_code == "already_known"
         assert run.result == LearningRunResult.NO_KNOWLEDGE
+        assert invoke.call_args_list[2].kwargs["payload"]["retrieved_business_knowledge"][0]["index"] == 0
         assert invoke.call_args_list[2].kwargs["payload"]["retrieved_business_knowledge"][0]["content"] == known_content
         assert invoke.call_args_list[2].kwargs["payload"]["public_human_replies"] == [
             "Refunds are available within 30 days."
@@ -511,6 +539,77 @@ class TestLearningAnalyzer:
         assert run.result == LearningRunResult.NO_KNOWLEDGE
         assert run.status == "completed"
         publish.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "case,source_created_at,confirm_contradiction,expected_result,expected_code",
+        [
+            ("newer", datetime(2025, 6, 1, tzinfo=UTC), True, "superseded", "none"),
+            ("stale", datetime(2026, 6, 1, tzinfo=UTC), True, "no_knowledge", "stale_candidate"),
+            ("denied", datetime(2025, 6, 1, tzinfo=UTC), False, "no_knowledge", "already_known"),
+        ],
+    )
+    def test_confirmed_contradiction_keeps_the_newest_fact(
+        self,
+        team: Team,
+        case: str,
+        source_created_at: datetime,
+        confirm_contradiction: bool,
+        expected_result: str,
+        expected_code: str,
+    ) -> None:
+        run, input = _setup_sync(team)
+        provider = _Provider(EvidenceBundle(replies=("Refunds are now available within 7 days.",)))
+        old_content = "Refunds are available within 15 days."
+        old_source = logic.create_text_source(
+            team_id=team.id,
+            created_by_id=None,
+            name="Refund policy",
+            text=old_content,
+        )
+        old_source_id = old_source.id
+        KnowledgeSource.objects.unscoped().filter(id=old_source_id).update(created_at=source_created_at)
+        search_result = _existing_result(old_source, old_content)
+
+        with (
+            patch(f"{_MODULE}.get_learning_provider", return_value=provider),
+            patch(
+                f"{_MODULE}._invoke_structured_model",
+                side_effect=[
+                    _extraction(canonical_answer="Refunds are available within 7 days."),
+                    PiiVerdict(verdict="safe"),
+                    _promotion(contradicts_existing=True, conflicting_index=0),
+                    _contradiction(is_contradiction=confirm_contradiction),
+                ],
+            ) as invoke,
+            patch(f"{_MODULE}.generate_embedding", return_value=_embedding()),
+            patch(f"{_MODULE}.logic.search_knowledge", return_value=[search_result]),
+            patch(f"{_MODULE}._increment_counter") as increment,
+        ):
+            result = analyze_learning_evidence(input)
+
+        run.refresh_from_db()
+        old_source = KnowledgeSource.objects.unscoped().get(id=old_source_id)
+        assert result.result == expected_result
+        assert result.rejection_code == expected_code
+        assert invoke.call_args_list[3].kwargs["stage"] == "contradiction"
+        outcomes = [call.args[0] for call in increment.call_args_list]
+        if case == "newer":
+            document = KnowledgeDocument.objects.unscoped().get(id=result.knowledge_document_id)
+            published_source = KnowledgeSource.objects.unscoped().get(id=document.source_id)
+            assert run.result == LearningRunResult.SUPERSEDED
+            assert document.content == "Refunds are available within 7 days."
+            assert old_source.status == "error"
+            assert old_source.error_message == logic.SUPERSEDED_SOURCE_MESSAGE
+            assert old_source.id != published_source.id
+            assert KnowledgeDocument.objects.unscoped().get(source_id=old_source.id).content == old_content
+            assert "superseded" in outcomes
+        else:
+            assert run.result == LearningRunResult.NO_KNOWLEDGE
+            assert result.knowledge_document_id is None
+            assert old_source.status != "error"
+            assert old_source.error_message == ""
+            assert KnowledgeSource.objects.unscoped().filter(team_id=team.id, is_generated=True).count() == 0
+            assert ("rejected_stale_candidate" if case == "stale" else "rejected_already_known") in outcomes
 
     def test_missing_run_raises_bounded_error(self, team: Team) -> None:
         run, input = _setup_sync(team)

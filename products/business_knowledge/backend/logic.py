@@ -97,6 +97,7 @@ logger = structlog.get_logger(__name__)
 
 GENERATED_KNOWLEDGE_ORIGIN = "support_ticket"
 GENERATED_SOURCE_DISABLED_MESSAGE = "Generated source is disabled."
+SUPERSEDED_SOURCE_MESSAGE = "This source was replaced by a newer answer from a later support ticket."
 GENERATED_SOURCE_MULTIPLE_DOCUMENTS_MESSAGE = (
     "This learned source has more than one document, so it cannot be edited. "
     "Delete it, then let PostHog learn from the ticket again."
@@ -181,6 +182,12 @@ class _ValidatedGeneratedDocumentInput:
 class _LearnedSourceCreateStatus:
     status: SourceStatus
     error_message: str
+
+
+@frozen
+class KnowledgeSourceSupersession:
+    applied: bool
+    previous_ticket_number: int | None = None
 
 
 class EmptyContentError(Exception):
@@ -319,6 +326,14 @@ def _require_single_generated_document(*, team_id: int, source_id: UUID) -> Know
 
 def _is_generated_source_disabled(source: KnowledgeSource) -> bool:
     return source.is_generated and source.error_message == GENERATED_SOURCE_DISABLED_MESSAGE
+
+
+def _is_superseded_source(source: KnowledgeSource) -> bool:
+    return source.error_message == SUPERSEDED_SOURCE_MESSAGE
+
+
+def _is_source_kept_out_of_search(source: KnowledgeSource) -> bool:
+    return _is_generated_source_disabled(source) or _is_superseded_source(source)
 
 
 # Advisory-lock namespace so we don't collide with other lock users.
@@ -674,6 +689,46 @@ def set_generated_knowledge_source_ready(team_id: int, *, ready: bool) -> bool:
         return True
 
 
+@with_team_scope(canonical=True)
+def supersede_knowledge_source(
+    *,
+    team_id: int,
+    source_id: UUID,
+    superseded_by_ticket_id: UUID,
+    superseded_by_ticket_number: int,
+    superseded_by_source_id: UUID | None = None,
+) -> KnowledgeSourceSupersession:
+    """Soft-disable one source so search stops returning it. Content stays so the change can be reversed."""
+    if superseded_by_source_id is not None and superseded_by_source_id == source_id:
+        return KnowledgeSourceSupersession(applied=False)
+    try:
+        source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
+    except KnowledgeSource.DoesNotExist:
+        return KnowledgeSourceSupersession(applied=False)
+
+    document = KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).order_by("created_at").first()
+    raw_ticket_number = (document.metadata or {}).get("ticket_number") if document is not None else None
+    previous_ticket_number = raw_ticket_number if isinstance(raw_ticket_number, int) else None
+    if _is_superseded_source(source) and source.status == SourceStatus.ERROR:
+        return KnowledgeSourceSupersession(applied=True, previous_ticket_number=previous_ticket_number)
+
+    with transaction.atomic():
+        if document is not None:
+            provenance = {
+                **(document.metadata or {}),
+                "superseded_by_ticket_id": str(superseded_by_ticket_id),
+                "superseded_by_ticket_number": superseded_by_ticket_number,
+            }
+            if superseded_by_source_id is not None:
+                provenance["superseded_by_source_id"] = str(superseded_by_source_id)
+            document.metadata = provenance
+            document.save(update_fields=["metadata", "updated_at"])
+        source.status = SourceStatus.ERROR
+        source.error_message = SUPERSEDED_SOURCE_MESSAGE
+        source.save(update_fields=["status", "error_message", "updated_at"])
+    return KnowledgeSourceSupersession(applied=True, previous_ticket_number=previous_ticket_number)
+
+
 @transaction.atomic
 def create_generated_knowledge_document(
     document_input: CreateGeneratedKnowledgeDocument,
@@ -926,8 +981,8 @@ def update_text_source(
                 safety_verdict=SafetyVerdict.UNKNOWN,
             )
         _bulk_create_chunks(source=source, document=document, team_id=team_id, chunks=chunks)
-        # Editing must not put a disabled generated source back into search.
-        source.status = SourceStatus.ERROR if _is_generated_source_disabled(source) else SourceStatus.READY
+        # Editing must not put a disabled or superseded source back into search.
+        source.status = SourceStatus.ERROR if _is_source_kept_out_of_search(source) else SourceStatus.READY
         source.save(update_fields=["status", "updated_at"])
     elif name is not None or always_include is not None:
         update_fields = ["updated_at"]

@@ -5,6 +5,9 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.models.activity_logging.activity_log import ActivityLog, Trigger
+from posthog.models.activity_logging.model_activity import ActivityTriggerContext
+from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.business_knowledge.backend import logic
@@ -460,6 +463,107 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         document = KnowledgeDocument.objects.unscoped().get(id=result.id)
         assert source.name == title[: logic.MAX_GENERATED_SOURCE_NAME_LENGTH]
         assert document.title == title[: logic.MAX_GENERATED_SOURCE_NAME_LENGTH]
+
+    def test_supersede_knowledge_source_soft_disables_one_source_and_is_reversible(self) -> None:
+        result = logic.create_generated_knowledge_document(self._input())
+        document = KnowledgeDocument.objects.unscoped().get(id=result.id)
+        logic.set_document_safety(
+            team_id=self.team.id,
+            document_id=document.id,
+            verdict=SafetyVerdict.SAFE,
+            content_hash=document.content_hash,
+        )
+        assert logic.search_knowledge(self.team.id, "refunds")
+        other_team = Team.objects.create_with_data(
+            organization=self.organization,
+            initiating_user=self.user,
+            name="Other",
+        )
+        theirs = logic.create_generated_knowledge_document(self._input(team_id=other_team.id))
+        replacement_id = uuid.uuid4()
+        replacement_ticket_id = uuid.UUID("10000000-0000-0000-0000-000000000099")
+
+        with ActivityTriggerContext(
+            Trigger(job_type="business-knowledge-learn", job_id="run-1", payload={"ticket_number": 99})
+        ):
+            supersession = logic.supersede_knowledge_source(
+                team_id=self.team.id,
+                source_id=result.source_id,
+                superseded_by_ticket_id=replacement_ticket_id,
+                superseded_by_ticket_number=99,
+                superseded_by_source_id=replacement_id,
+            )
+
+        source = KnowledgeSource.objects.unscoped().get(id=result.source_id)
+        document.refresh_from_db()
+        theirs_source = KnowledgeSource.objects.unscoped().get(id=theirs.source_id)
+        activity = ActivityLog.objects.filter(
+            scope="KnowledgeSource", item_id=str(result.source_id), activity="updated"
+        ).latest("created_at")
+        assert supersession.applied is True
+        assert supersession.previous_ticket_number == 42
+        assert source.status == SourceStatus.ERROR
+        assert source.error_message == logic.SUPERSEDED_SOURCE_MESSAGE
+        assert document.content == "Refunds are available within 30 days."
+        assert document.metadata["superseded_by_ticket_id"] == str(replacement_ticket_id)
+        assert document.metadata["superseded_by_ticket_number"] == 99
+        assert document.metadata["superseded_by_source_id"] == str(replacement_id)
+        assert logic.search_knowledge(self.team.id, "refunds") == []
+        assert activity.detail["trigger"]["job_type"] == "business-knowledge-learn"
+        assert theirs_source.status == SourceStatus.READY
+        assert (
+            logic.supersede_knowledge_source(
+                team_id=self.team.id,
+                source_id=theirs.source_id,
+                superseded_by_ticket_id=replacement_ticket_id,
+                superseded_by_ticket_number=99,
+            ).applied
+            is False
+        )
+
+        logic.update_text_source(
+            source_id=result.source_id,
+            team_id=self.team.id,
+            name="Refund policy",
+            text="Refunds are available within 30 days. Updated.",
+        )
+        document.refresh_from_db()
+        logic.set_document_safety(
+            team_id=self.team.id,
+            document_id=document.id,
+            verdict=SafetyVerdict.SAFE,
+            content_hash=document.content_hash,
+        )
+        source.refresh_from_db()
+        assert source.status == SourceStatus.ERROR
+        assert source.error_message == logic.SUPERSEDED_SOURCE_MESSAGE
+        assert logic.search_knowledge(self.team.id, "refunds") == []
+
+        with team_scope(self.team.id, canonical=True):
+            source.status = SourceStatus.READY
+            source.error_message = ""
+            source.save(update_fields=["status", "error_message", "updated_at"])
+        assert logic.search_knowledge(self.team.id, "refunds")
+
+        repeat = logic.supersede_knowledge_source(
+            team_id=self.team.id,
+            source_id=result.source_id,
+            superseded_by_ticket_id=replacement_ticket_id,
+            superseded_by_ticket_number=99,
+            superseded_by_source_id=replacement_id,
+        )
+        source.refresh_from_db()
+        assert repeat.applied is True
+        assert source.status == SourceStatus.ERROR
+        assert source.error_message == logic.SUPERSEDED_SOURCE_MESSAGE
+        already = logic.supersede_knowledge_source(
+            team_id=self.team.id,
+            source_id=result.source_id,
+            superseded_by_ticket_id=replacement_ticket_id,
+            superseded_by_ticket_number=99,
+            superseded_by_source_id=replacement_id,
+        )
+        assert already.applied is True
 
     def test_learned_source_cap_blocks_new_identities_not_retries(self) -> None:
         first = logic.create_generated_knowledge_document(self._input())
