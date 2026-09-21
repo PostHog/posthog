@@ -49,6 +49,7 @@ import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
 import { NumericEvaluationConfig } from './components/NumericEvaluationConfig'
+import { formatNumericEvaluationScore } from './constants'
 import {
     EVALUATION_NUMERIC_GRADED_HOGQL,
     EVALUATION_NUMERIC_MEAN_HOGQL,
@@ -454,7 +455,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 {evaluation.output_type === 'numeric' && (
                                                     <div className="text-center">
                                                         <div className="font-semibold text-lg">
-                                                            {runsSummary.scoreMean ?? '–'}
+                                                            {runsSummary.scoreMean == null
+                                                                ? '–'
+                                                                : formatNumericEvaluationScore(runsSummary.scoreMean)}
                                                         </div>
                                                         <div className="text-muted">Mean score</div>
                                                     </div>

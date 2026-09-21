@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -85,6 +86,43 @@ describe('evaluationMetricsLogic', () => {
     afterEach(() => {
         metricsLogic.unmount()
         evaluationsLogic.unmount()
+    })
+
+    it('loads stats once after evaluations finish loading on mount', async () => {
+        metricsLogic.unmount()
+        queryMock.mockClear()
+        evaluationsLogic.actions.loadEvaluations()
+        metricsLogic.mount()
+        await expectLogic(metricsLogic).toDispatchActions(['loadStatsSuccess'])
+        expect(queryMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('keeps the latest stats when an older request finishes last', async () => {
+        queryMock.mockClear()
+        let resolveOld!: (response: { results: unknown[][] }) => void
+        queryMock.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    resolveOld = resolve
+                })
+        )
+        metricsLogic.actions.loadStats()
+        await waitFor(() => expect(queryMock).toHaveBeenCalledTimes(1))
+
+        queryMock.mockResolvedValueOnce({ results: [['new', 4, 0, 0, 4, 50, 2]] })
+        evaluationsLogic.actions.loadEvaluationsSuccess([
+            {
+                ...evaluation('new', null),
+                output_type: 'numeric',
+                output_config: { passing_rule: { operator: 'gte', threshold: 50 } },
+            },
+        ])
+        await waitFor(() => expect(metricsLogic.values.stats[0]?.evaluation_id).toBe('new'))
+        expect(queryMock.mock.calls[1][0].query).toContain('>= 50')
+
+        resolveOld({ results: [['old', 4, 0, 0, 4, 50, 0]] })
+        await expectLogic(metricsLogic).toFinishAllListeners()
+        expect(metricsLogic.values.stats[0].evaluation_id).toBe('new')
     })
 
     it.each(['gte', 'lte'] as const)('includes numeric %s outcomes in the overview pass rate', (operator) => {

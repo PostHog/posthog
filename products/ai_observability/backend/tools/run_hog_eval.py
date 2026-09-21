@@ -48,7 +48,8 @@ Saved evaluations can still use the generation-only compatibility globals `input
 or sessions.
 
 The code must return `true` or `false` for boolean output, or a finite number for numeric output.
-Set `output_type` and `output_config` to match the saved evaluation, including bounds and N/A settings.
+Set `output_type` and `output_config` to match the saved evaluation, including bounds and N/A settings. Numeric output disallows N/A by default;
+set output_config.allows_na=true to allow null. Boolean previews allow N/A by default.
 Use `print()` statements to output reasoning.
 """
 

@@ -59,6 +59,11 @@ class TestRunHogEvalTestTool(BaseTest):
         self.assertIn("Result: 0.0", result)
         result, _ = _run_tool(tool, source="return 11;", output_type="numeric", output_config={"min": 0, "max": 10})
         self.assertIn("Result: ERROR", result)
+        for allows_na, expected in [(False, "ERROR"), (True, "N/A")]:
+            result, _ = _run_tool(
+                tool, source="return null;", output_type="numeric", output_config={"allows_na": allows_na}
+            )
+            self.assertIn(f"Result: {expected}", result)
 
     def _make_tool(self):
         return RunHogEvalTestTool(team=self.team, user=self.user)

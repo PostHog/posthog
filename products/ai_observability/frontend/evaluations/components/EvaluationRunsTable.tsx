@@ -6,7 +6,7 @@ import { LemonBanner, LemonButton, LemonSegmentedButton, LemonTable, LemonTag, T
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
-import { EvaluationResultTag, getEvaluationResultSortValue } from '../../components/EvaluationResultTag'
+import { EvaluationResultTag, compareEvaluationResults } from '../../components/EvaluationResultTag'
 import { EvaluationRunTargetCell } from '../../components/EvaluationRunTargetCell'
 import { evaluationIsDetector } from '../constants'
 import { evaluationSupportsRunOutcomes } from '../evaluationCapabilities'
@@ -105,18 +105,7 @@ export function EvaluationRunsTable(): JSX.Element {
                     passingRule={evaluation?.output_config.passing_rule}
                 />
             ),
-            sorter: (a, b) => {
-                return (
-                    getEvaluationResultSortValue(b, {
-                        trueIsFailure,
-                        passingRule: evaluation?.output_config.passing_rule,
-                    }) -
-                    getEvaluationResultSortValue(a, {
-                        trueIsFailure,
-                        passingRule: evaluation?.output_config.passing_rule,
-                    })
-                )
-            },
+            sorter: (a, b) => compareEvaluationResults(b, a, { trueIsFailure }),
         },
         {
             title: 'Reasoning',

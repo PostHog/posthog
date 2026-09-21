@@ -1529,6 +1529,8 @@ return result`,
                 })
 
                 if (outputType === 'numeric') {
+                    logic.actions.patchOutputConfig({ passing_rule: { operator: 'gte', threshold: 5 } })
+                    expect(logic.values.hogTestResults).not.toBeNull()
                     logic.actions.patchOutputConfig({ max: 20 })
                 } else {
                     logic.actions.patchTargetConfig({ window_seconds: 240 })
@@ -1537,46 +1539,57 @@ return result`,
             }
         )
 
-        it('does not restore results from a request whose target changed in flight', async () => {
-            let resolveRequest: (value: TestHogResponseApi) => void = () => {}
-            const pendingResponse = new Promise<TestHogResponseApi>((resolve) => {
-                resolveRequest = resolve
-            })
-            useMocks({
-                post: {
-                    '/api/projects/:teamId/evaluations/test_hog/': () => pendingResponse,
-                },
-            })
-            logic = llmEvaluationLogic({ evaluationId: 'new' })
-            logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
-
-            logic.actions.setEvaluationType('hog')
-            logic.actions.testHogOnSample()
-            await expectLogic(logic).toMatchValues({ hogTestResultsLoading: true })
-
-            logic.actions.setEvaluationTarget('trace')
-            await expectLogic(logic).toMatchValues({ hogTestResults: null })
-            resolveRequest({
-                results: [
-                    {
-                        sample_id: 'generation-1',
-                        sample_type: 'generation',
-                        event_uuid: 'generation-1',
-                        trace_id: 'trace-1',
-                        input_preview: 'hello',
-                        output_preview: 'world',
-                        result: true,
-                        reasoning: '',
-                        error: null,
+        it.each(['target', 'passing_rule'])(
+            'handles a %s change while a preview is in flight',
+            async (changedField) => {
+                let resolveRequest: (value: TestHogResponseApi) => void = () => {}
+                const pendingResponse = new Promise<TestHogResponseApi>((resolve) => {
+                    resolveRequest = resolve
+                })
+                useMocks({
+                    post: {
+                        '/api/projects/:teamId/evaluations/test_hog/': () => pendingResponse,
                     },
-                ],
-            })
+                })
+                logic = llmEvaluationLogic({ evaluationId: 'new' })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
-            await expectLogic(logic)
-                .toDispatchActions(['testHogOnSampleSuccess'])
-                .toMatchValues({ hogTestResults: null })
-        })
+                logic.actions.setEvaluationType('hog')
+                logic.actions.setOutputType('numeric')
+                logic.actions.testHogOnSample()
+                await expectLogic(logic).toMatchValues({ hogTestResultsLoading: true })
+
+                if (changedField === 'target') {
+                    logic.actions.setEvaluationTarget('trace')
+                } else {
+                    logic.actions.patchOutputConfig({ passing_rule: { operator: 'gte', threshold: 5 } })
+                }
+                await expectLogic(logic).toMatchValues({ hogTestResults: null })
+                resolveRequest({
+                    results: [
+                        {
+                            sample_id: 'generation-1',
+                            sample_type: 'generation',
+                            event_uuid: 'generation-1',
+                            trace_id: 'trace-1',
+                            input_preview: 'hello',
+                            output_preview: 'world',
+                            result: null,
+                            score: 7,
+                            reasoning: '',
+                            error: null,
+                        },
+                    ],
+                })
+
+                await expectLogic(logic)
+                    .toDispatchActions(['testHogOnSampleSuccess'])
+                    .toMatchValues({
+                        hogTestResults: changedField === 'target' ? null : [expect.objectContaining({ score: 7 })],
+                    })
+            }
+        )
     })
 
     describe('saveEvaluation list refresh', () => {

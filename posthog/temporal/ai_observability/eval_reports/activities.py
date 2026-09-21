@@ -597,14 +597,16 @@ def _period_for_scheduled_report(report, now: dt.datetime) -> dt.timedelta:
 @temporalio.activity.defn
 async def prepare_report_context_activity(
     inputs: PrepareReportContextInput,
-) -> PrepareReportContextOutput:
+) -> PrepareReportContextOutput | None:
     """Load evaluation from Postgres and calculate time windows."""
 
     @database_sync_to_async(thread_sensitive=False)
-    def prepare() -> PrepareReportContextOutput:
+    def prepare() -> PrepareReportContextOutput | None:
         from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 
-        report = EvaluationReport.objects.reportable().select_related("evaluation").get(id=inputs.report_id)
+        report = EvaluationReport.objects.reportable().select_related("evaluation").filter(id=inputs.report_id).first()
+        if report is None:
+            return None
         evaluation = report.evaluation
         now = dt.datetime.now(tz=dt.UTC)
 

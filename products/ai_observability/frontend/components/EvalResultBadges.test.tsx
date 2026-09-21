@@ -9,7 +9,12 @@ import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { EvaluationConfig, EvaluationRun } from '../evaluations/types'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
 import { EvalResultBadges, getEvalBadgeProps, getEvalSummaries, scopeRunsToTarget } from './EvalResultBadges'
-import { getEvaluationResultDisplay, getEvaluationResultSortValue, isSentimentRun } from './EvaluationResultTag'
+import {
+    compareEvaluationResults,
+    getEvaluationResultDisplay,
+    getEvaluationResultSortValue,
+    isSentimentRun,
+} from './EvaluationResultTag'
 
 function makeRun(overrides: Partial<EvaluationRun> = {}): EvaluationRun {
     return {
@@ -27,6 +32,28 @@ function makeRun(overrides: Partial<EvaluationRun> = {}): EvaluationRun {
 }
 
 describe('EvalResultBadges', () => {
+    it('sorts numeric scores together without colliding with status ranks', () => {
+        const rows = [
+            makeRun({ id: 'negative', result_type: 'numeric', score: -10 }),
+            makeRun({ id: 'na', result_type: 'numeric', applicable: false }),
+            makeRun({ id: 'zero', result_type: 'numeric', score: 0 }),
+            makeRun({ id: 'skipped', skipped: true }),
+            makeRun({ id: 'positive', result_type: 'numeric', score: 2 }),
+            makeRun({ id: 'error', status: 'failed' }),
+            makeRun({ id: 'boolean', result: true }),
+        ]
+        expect(rows.sort((a, b) => compareEvaluationResults(b, a)).map((run) => run.id)).toEqual([
+            'positive',
+            'zero',
+            'negative',
+            'boolean',
+            'na',
+            'skipped',
+            'error',
+        ])
+        expect(getEvaluationResultDisplay(makeRun({ result_type: 'numeric', score: 1 / 3 })).label).toBe('0.333333')
+    })
+
     describe('getEvalSummaries', () => {
         it('returns empty array for empty input', () => {
             expect(getEvalSummaries([])).toEqual([])

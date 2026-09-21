@@ -61,6 +61,7 @@ import {
     PASS_RATE_WARNING_THRESHOLD,
 } from './components/EvaluationMetrics'
 import { OfflineEvaluationsTab } from './components/OfflineEvaluationsTab'
+import { formatNumericEvaluationScore } from './constants'
 import { evaluationTypeUsesProviderKey } from './evaluationCapabilities'
 import { EvaluationStats, evaluationMetricsLogic } from './evaluationMetricsLogic'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
@@ -373,7 +374,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                     return (
                         <div className="text-sm">
                             <div>{`${stats.runs_count} runs`}</div>
-                            <div>{`Mean score: ${stats.score_mean ?? '–'}`}</div>
+                            <div>{`Mean score: ${stats.score_mean == null ? '–' : formatNumericEvaluationScore(stats.score_mean)}`}</div>
                             {evaluation.output_config.passing_rule && (
                                 <div>{`Pass rate: ${stats.applicable_count ? `${stats.pass_rate.toFixed(1)}%` : '–'}`}</div>
                             )}

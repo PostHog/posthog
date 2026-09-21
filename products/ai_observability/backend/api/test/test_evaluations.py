@@ -162,6 +162,20 @@ class TestEvaluationConfigsApi(APIBaseTest):
         response = self.client.patch(url, {"output_type": "boolean"})
         self.assertEqual(response.status_code, 400)
 
+    @parameterized.expand([({"name": "Renamed"},), ({"enabled": False},), ({"deleted": True},)])
+    def test_edit_does_not_create_report_for_existing_evaluation(self, patch: dict) -> None:
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Existing evaluation",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true;"},
+            output_type="boolean",
+            enabled=True,
+        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/evaluations/{evaluation.id}/", patch)
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertFalse(EvaluationReport.objects.filter(evaluation=evaluation).exists())
+
     def _create_configured_llm_judge(self) -> tuple[Evaluation, LLMModelConfiguration]:
         model_configuration = LLMModelConfiguration.objects.create(
             team=self.team, provider="openai", model="gpt-5-mini"

@@ -14,7 +14,7 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     truncate_error_detail,
 )
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
-from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
+from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_evaluation_result
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.metrics import increment_user_errors
 
@@ -202,7 +202,7 @@ def execute_hog_eval_bytecode(
         try:
             score = NumericOutputConfig.model_validate(output_config or {}).validate_score(response.result)
         except ValueError as error:
-            return {"verdict": None, "reasoning": reasoning, "error": str(error)}
+            return {"verdict": None, "reasoning": reasoning, "error": str(error), "user_input_error": True}
         numeric_result: dict[str, Any] = {"score": score, "reasoning": reasoning, "error": None}
         if allows_na:
             numeric_result["applicable"] = True
@@ -261,22 +261,13 @@ def finalize_hog_eval_result(
                 error=result["error"],
             )
             detail = truncate_error_detail(result["error"])
-            skipped_result: EvaluationActivityResult = {
-                "result_type": "boolean",
-                "verdict": None if allows_na else False,
-                # Leads with the safe message: `detail` is a Python exception repr, which is not a
-                # Hog concept, and `reasoning` is the only text the run shows the user.
-                "reasoning": f"{input_error_spec.safe_message} ({detail})" if detail else input_error_spec.safe_message,
-                "allows_na": allows_na,
-                "skipped": True,
-                "skip_reason": input_error_spec.error_type,
-            }
-            if allows_na:
-                skipped_result["applicable"] = False
-            if evaluation.get("output_type") == "numeric":
-                skipped_result["result_type"] = "numeric"
-                skipped_result.pop("verdict", None)
-            return skipped_result
+            # Lead with the user-facing message; detail may contain a Python exception.
+            return build_skipped_evaluation_result(
+                output_type=evaluation.get("output_type", "boolean"),
+                allows_na=allows_na,
+                reasoning=f"{input_error_spec.safe_message} ({detail})" if detail else input_error_spec.safe_message,
+                skip_reason=input_error_spec.error_type,
+            )
 
         # The user's Hog source itself errored — an expected outcome of running customer-authored
         # code, recorded as a skipped evaluation rather than raised (which would flood error
@@ -284,22 +275,16 @@ def finalize_hog_eval_result(
         # eval instead of re-running it against every matching unit (mirrors the generation path).
         spec = require_user_error_spec("hog_error")
         error_detail = status_reason_detail_for_terminal_user_error(spec, result["error"]) or spec.safe_message
-        errored_result: EvaluationActivityResult = {
-            "result_type": "boolean",
-            "verdict": None if allows_na else False,
-            "reasoning": error_detail,
-            "allows_na": allows_na,
-            "skipped": True,
-            "skip_reason": "hog_error",
+        return {
+            **build_skipped_evaluation_result(
+                output_type=evaluation.get("output_type", "boolean"),
+                allows_na=allows_na,
+                reasoning=error_detail,
+                skip_reason="hog_error",
+            ),
             "terminal_user_error": True,
             "status_reason": spec.status_reason,
         }
-        if allows_na:
-            errored_result["applicable"] = False
-        if evaluation.get("output_type") == "numeric":
-            errored_result["result_type"] = "numeric"
-            errored_result.pop("verdict", None)
-        return errored_result
 
     activity_result: EvaluationActivityResult = {
         "result_type": "boolean",

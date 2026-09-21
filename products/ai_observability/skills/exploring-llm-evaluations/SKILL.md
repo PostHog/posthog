@@ -32,6 +32,12 @@ types:
 Results from all types land in ClickHouse as `$ai_evaluation` events. Boolean
 evaluations (`llm_judge` and `hog`) set `$ai_evaluation_result`; sentiment
 evaluations set `$ai_sentiment_*` properties instead.
+Both `hog` and `llm_judge` also support `output_type: "numeric"`.
+Numeric runs store their raw score in `$ai_score`, with optional `$ai_score_min` and `$ai_score_max`.
+They never set `$ai_evaluation_result`.
+Use `output_config.passing_rule` to interpret scores: `gte` means at least the threshold and `lte` means at most.
+Changing the rule reinterprets historical scores. Saved reports retain the rule and metrics used when generated.
+Without a passing rule, inspect score means and distributions; pass rates and reports are unavailable.
 
 This skill covers the full lifecycle: list/inspect/manage evaluation configs, run
 them on specific generations, query individual results, and configure evaluation
@@ -66,7 +72,7 @@ Every run of an evaluation emits an `$ai_evaluation` event. Key properties:
 | `$ai_evaluation_name`        | Human-readable name                                                              |
 | `$ai_target_event_id`        | UUID of the `$ai_generation` event being scored                                  |
 | `$ai_trace_id`               | Parent trace ID (for jumping to the trace UI)                                    |
-| `$ai_evaluation_result_type` | Result kind: `boolean` or `sentiment`                                            |
+| `$ai_evaluation_result_type` | Result kind: `boolean`, `numeric`, or `sentiment`                                |
 | `$ai_evaluation_result`      | Raw boolean result. Use the evaluation's output config to map it to pass or fail |
 | `$ai_evaluation_reasoning`   | Free-text explanation (set by the LLM judge or Hog code)                         |
 | `$ai_evaluation_applicable`  | `false` when the evaluator decided the generation is N/A                         |
@@ -200,8 +206,8 @@ posthog:llma-evaluation-test-hog
 }
 ```
 
-The handler returns the boolean result for each of the most recent N `$ai_generation`
-events. Iterate on the source until it behaves as expected, then promote it via
+The handler returns raw boolean or numeric results for the sampled units.
+For numeric previews, send `output_type: "numeric"` and the saved `output_config`, including `allows_na: true` if null is allowed. Iterate on the source until it behaves as expected, then promote it via
 `llma-evaluation-create`:
 
 ```json

@@ -22,7 +22,7 @@ from posthog.temporal.ai_observability.evaluation_event_io import (
     extract_event_tools,
     hydrate_event_reference,
 )
-from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
+from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_evaluation_result
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
 from posthog.temporal.ai_observability.metrics import (
     increment_errors,
@@ -230,23 +230,18 @@ def _build_errored_trace_result(allows_na: bool, *, output_type: str = "boolean"
     """
     reasoning = "Source trace errored before producing output; evaluation skipped."
     result: EvaluationActivityResult = {
-        "result_type": "boolean",
-        "verdict": None if allows_na else False,
-        "reasoning": reasoning,
+        **build_skipped_evaluation_result(
+            output_type=output_type,
+            allows_na=allows_na,
+            reasoning=reasoning,
+            skip_reason="trace_errored",
+        ),
         "input_tokens": 0,
         "output_tokens": 0,
         "total_tokens": 0,
         "is_byok": False,
         "key_id": None,
-        "allows_na": allows_na,
-        "skipped": True,
-        "skip_reason": "trace_errored",
     }
-    if allows_na:
-        result["applicable"] = False
-    if output_type == "numeric":
-        result["result_type"] = "numeric"
-        result.pop("verdict", None)
     return result
 
 
@@ -255,23 +250,18 @@ def _build_context_window_skip_result(
 ) -> EvaluationActivityResult:
     """Per-item skip, not a terminal user error that disables the eval."""
     result: EvaluationActivityResult = {
-        "result_type": "boolean",
-        "verdict": None if allows_na else False,
-        "reasoning": "Evaluation input exceeded the model's context window; evaluation skipped.",
+        **build_skipped_evaluation_result(
+            output_type=output_type,
+            allows_na=allows_na,
+            reasoning="Evaluation input exceeded the model's context window; evaluation skipped.",
+            skip_reason="context_window_exceeded",
+        ),
         "input_tokens": 0,
         "output_tokens": 0,
         "total_tokens": 0,
         "is_byok": is_byok,
         "key_id": key_id,
-        "allows_na": allows_na,
-        "skipped": True,
-        "skip_reason": "context_window_exceeded",
     }
-    if allows_na:
-        result["applicable"] = False
-    if output_type == "numeric":
-        result["result_type"] = "numeric"
-        result.pop("verdict", None)
     return result
 
 

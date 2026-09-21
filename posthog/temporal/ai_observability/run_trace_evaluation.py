@@ -53,7 +53,7 @@ from posthog.temporal.ai_observability.evaluation_payload import (
     payload_budget_bytes,
     should_skip_for_payload,
 )
-from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
+from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_evaluation_result
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EmitInternalTelemetryInputs,
     RunEvaluationInputs,
@@ -456,20 +456,12 @@ def _build_trace_skip_result(
 ) -> EvaluationActivityResult:
     """Mirror of `_build_errored_trace_result` for trace-level skips — no LLM call is made,
     so model/provider are omitted and downstream cost attribution stays clean."""
-    result: EvaluationActivityResult = {
-        "result_type": "boolean",
-        "verdict": None if allows_na else False,
-        "reasoning": _SKIP_REASONING.get(skip_reason, "Evaluation skipped."),
-        "allows_na": allows_na,
-        "skipped": True,
-        "skip_reason": skip_reason,
-    }
-    if allows_na:
-        result["applicable"] = False
-    if output_type == "numeric":
-        result["result_type"] = "numeric"
-        result.pop("verdict", None)
-    return result
+    return build_skipped_evaluation_result(
+        output_type=output_type,
+        allows_na=allows_na,
+        reasoning=_SKIP_REASONING.get(skip_reason, "Evaluation skipped."),
+        skip_reason=skip_reason,
+    )
 
 
 def build_trace_system_prompt(
@@ -781,14 +773,13 @@ class RunTraceEvaluationWorkflow(PostHogWorkflow):
         # bail out instead of running against config the user just turned off.
         if evaluation["deleted"] or not evaluation["enabled"]:
             disabled_result: WorkflowResult = {
-                "verdict": None,
                 "skipped": True,
                 "skip_reason": "evaluation_deleted" if evaluation["deleted"] else "evaluation_disabled",
                 "evaluation_id": inputs.evaluation_id,
                 "evaluation_type": evaluation_type,
             }
-            if evaluation.get("output_type") == "numeric":
-                disabled_result.pop("verdict", None)
+            if evaluation.get("output_type") != "numeric":
+                disabled_result["verdict"] = None
             return disabled_result
 
         execute_inputs = ExecuteTraceEvaluationInputs(

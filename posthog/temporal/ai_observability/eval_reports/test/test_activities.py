@@ -433,7 +433,8 @@ class TestPrepareReportContext(BaseTest):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_prepare_activity_reads_detector_polarity_from_evaluation(team, user) -> None:
+@pytest.mark.parametrize("remove_passing_rule", [False, True])
+async def test_prepare_activity_reads_current_reportability_and_polarity(team, user, remove_passing_rule) -> None:
     def _create_report() -> EvaluationReport:
         evaluation = Evaluation.objects.create(
             team=team,
@@ -457,9 +458,16 @@ async def test_prepare_activity_reads_detector_polarity_from_evaluation(team, us
 
     report = await sync_to_async(_create_report)()
 
+    if remove_passing_rule:
+        await sync_to_async(Evaluation.objects.filter(id=report.evaluation_id).update)(
+            output_type="numeric", output_config={"passing_rule": None}
+        )
     context = await prepare_report_context_activity(PrepareReportContextInput(report_id=str(report.id)))
-
-    assert context.true_is_failure is True
+    if remove_passing_rule:
+        assert context is None
+    else:
+        assert context is not None
+        assert context.true_is_failure is True
 
 
 class TestCountTriggeredReportChecks(BaseTest):
@@ -797,7 +805,7 @@ class TestPeriodForScheduledReport(BaseTest):
         self.assertEqual(period, dt.timedelta(hours=23))
 
 
-class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
+class TestNumericReportMetrics(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [("registered", True, True), ("unregistered_applicable", False, True), ("unregistered", False, False)]
     )
@@ -846,6 +854,8 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
             self.assertEqual(metrics.result_counts, expected)
             self.assertEqual(metrics.output_config, config)
 
+
+class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
     """Exercises the batched count check against real ClickHouse events — no query mocking —
     so it guards the properties Carlos cares about: each report's count is identical to the
     single-report query (right evaluation, right `since` window, right threshold)."""

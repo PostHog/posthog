@@ -63,7 +63,7 @@ def test_numeric_hog_preserves_scores_and_bounds(source: str, score: float) -> N
 
 
 @pytest.mark.parametrize("source", ["return true", "return '0.5'", "return -1", "return 2", "return null"])
-def test_invalid_numeric_hog_disables_without_emitting_score(source: str) -> None:
+def test_invalid_numeric_hog_skips_without_disabling(source: str) -> None:
     config = {"min": 0, "max": 1}
     raw = execute_hog_eval_bytecode(
         compile_ai_observability_hog(source, "destination"),
@@ -79,7 +79,9 @@ def test_invalid_numeric_hog_disables_without_emitting_score(source: str) -> Non
         unit_label=None,
     )
     assert result["result_type"] == "numeric"
-    assert result["terminal_user_error"] is True
+    assert not is_terminal_user_error_result(result)
+    assert result["skipped"] is True
+    assert result["skip_reason"] == "hog_input_error"
     assert "score" not in result
     assert "verdict" not in result
 

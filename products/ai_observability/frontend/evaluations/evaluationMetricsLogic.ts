@@ -21,7 +21,7 @@ import {
     evaluationPassedHogQLForMany,
     evaluationPassRateHogQL,
 } from './constants'
-import { llmEvaluationsLogic } from './llmEvaluationsLogic'
+import { llmEvaluationsLogic, waitForEvaluationsSettled } from './llmEvaluationsLogic'
 import { EvaluationConfig } from './types'
 
 const MIN_RUNS_FOR_FAILING_STATUS = 3
@@ -144,7 +144,7 @@ export interface evaluationMetricsLogicActions {
         dateFrom: string | null
         dateTo: string | null
     } // llmEvaluationsLogic
-    loadStats: () => any
+    loadStats: (_?: void) => void
     loadStatsFailure: (
         error: string,
         errorObject?: any
@@ -154,10 +154,10 @@ export interface evaluationMetricsLogicActions {
     }
     loadStatsSuccess: (
         stats: EvaluationStatsRow[],
-        payload?: any
+        payload?: void
     ) => {
         stats: EvaluationStatsRow[]
-        payload?: any
+        payload?: void
     }
     refreshMetrics: () => {
         value: true
@@ -219,7 +219,9 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
         stats: [
             [] as EvaluationStatsRow[],
             {
-                loadStats: async (): Promise<EvaluationStatsRow[]> => {
+                loadStats: async (_?: void, breakpoint?: () => void): Promise<EvaluationStatsRow[]> => {
+                    await waitForEvaluationsSettled()
+                    breakpoint?.()
                     const dateFrom = values.dateFilter.dateFrom || '-1d'
                     const dateTo = values.dateFilter.dateTo || null
 
@@ -259,6 +261,7 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
 
                     try {
                         const response = await api.query(query)
+                        breakpoint?.()
 
                         return (response.results || []).map((row: RawStatsRow) => {
                             const runs_count = row[1]
@@ -278,6 +281,7 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                             }
                         })
                     } catch (error) {
+                        breakpoint?.()
                         console.error('Failed to load stats:', error)
                         return []
                     }
@@ -348,7 +352,7 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                 const total_applicable = statsForMetrics.reduce((sum, stat) => sum + stat.applicable_count, 0)
                 const total_passes = statsForMetrics.reduce((sum, stat) => sum + stat.pass_count, 0)
                 // Overall pass rate excludes N/A results
-                // boffin: keep an unmeasured pass rate distinct from measured zero passes.
+                // Keep an unmeasured pass rate distinct from measured zero passes.
                 const overall_pass_rate =
                     total_applicable > 0 ? Math.round((total_passes / total_applicable) * 1000) / 10 : null
 
@@ -454,6 +458,8 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
     })),
 
     afterMount(({ actions }) => {
-        actions.loadStats()
+        if (llmEvaluationsLogic.values.evaluationsSettled) {
+            actions.loadStats()
+        }
     }),
 ])

@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { EvaluationRun } from '../evaluations/types'
 import type { generationEvaluationRunsLogicType } from '../generationEvaluationRunsLogic'
-import { EvaluationResultTag, getEvaluationResultSortValue } from './EvaluationResultTag'
+import { EvaluationResultTag, compareEvaluationResults } from './EvaluationResultTag'
 import { EvaluationRunTargetCell } from './EvaluationRunTargetCell'
 
 export function GenerationEvalRunsTable({
@@ -54,16 +54,13 @@ export function GenerationEvalRunsTable({
                     trueIsFailure={detectorEvaluationIds.includes(run.evaluation_id)}
                 />
             ),
-            sorter: (a, b) => {
-                return (
-                    getEvaluationResultSortValue(b, {
-                        trueIsFailure: detectorEvaluationIds.includes(b.evaluation_id),
-                    }) -
-                    getEvaluationResultSortValue(a, {
-                        trueIsFailure: detectorEvaluationIds.includes(a.evaluation_id),
-                    })
-                )
-            },
+            sorter: (a, b) =>
+                compareEvaluationResults(
+                    b,
+                    a,
+                    { trueIsFailure: detectorEvaluationIds.includes(b.evaluation_id) },
+                    { trueIsFailure: detectorEvaluationIds.includes(a.evaluation_id) }
+                ),
         },
         {
             title: 'Reasoning',

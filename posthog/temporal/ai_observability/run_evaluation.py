@@ -135,15 +135,14 @@ async def handle_llm_judge_activity_error(
 
     if error_type == "parse_error":
         skip_result: WorkflowResult = {
-            "verdict": None,
             "skipped": True,
             "skip_reason": error_type,
             "message": e.cause.message,
             "evaluation_id": evaluation["id"],
             "evaluation_type": evaluation_type,
         }
-        if evaluation.get("output_type") == "numeric":
-            skip_result.pop("verdict", None)
+        if evaluation.get("output_type") != "numeric":
+            skip_result["verdict"] = None
         return skip_result
 
     key_id = details.get("key_id")
@@ -237,15 +236,14 @@ async def handle_terminal_user_error_result(
             )
 
     workflow_result: WorkflowResult = {
-        "verdict": None,
         "skipped": True,
         "skip_reason": skip_reason,
         "message": result["reasoning"],
         "evaluation_id": evaluation["id"],
         "evaluation_type": evaluation_type,
     }
-    if evaluation.get("output_type") == "numeric":
-        workflow_result.pop("verdict", None)
+    if evaluation.get("output_type") != "numeric":
+        workflow_result["verdict"] = None
     return workflow_result
 
 

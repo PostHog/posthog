@@ -40,7 +40,7 @@ from posthog.temporal.ai_observability.evaluation_payload import (
     payload_budget_bytes,
     should_skip_for_payload,
 )
-from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
+from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_evaluation_result
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.run_trace_evaluation import TRACE_EVENTS_LOOKBACK
 from posthog.temporal.common.utils import close_db_connections
@@ -390,20 +390,12 @@ def build_session_skip_result(
 ) -> EvaluationActivityResult:
     """Session mirror of `_build_trace_skip_result` — no LLM call is made, so model/provider are
     omitted and downstream cost attribution stays clean."""
-    result: EvaluationActivityResult = {
-        "result_type": "boolean",
-        "verdict": None if allows_na else False,
-        "reasoning": _SESSION_SKIP_REASONING.get(skip_reason, "Evaluation skipped."),
-        "allows_na": allows_na,
-        "skipped": True,
-        "skip_reason": skip_reason,
-    }
-    if allows_na:
-        result["applicable"] = False
-    if output_type == "numeric":
-        result["result_type"] = "numeric"
-        result.pop("verdict", None)
-    return result
+    return build_skipped_evaluation_result(
+        output_type=output_type,
+        allows_na=allows_na,
+        reasoning=_SESSION_SKIP_REASONING.get(skip_reason, "Evaluation skipped."),
+        skip_reason=skip_reason,
+    )
 
 
 @frozen

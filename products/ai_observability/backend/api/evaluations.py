@@ -1167,6 +1167,9 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         )
 
     def perform_update(self, serializer):
+        previously_supported_reports = evaluation_supports_reports(
+            serializer.instance.output_type, serializer.instance.target, serializer.instance.output_config
+        )
         # Check if this is a deletion (soft delete)
         is_deletion = serializer.validated_data.get("deleted") is True and not serializer.instance.deleted
 
@@ -1221,7 +1224,12 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 
         with transaction.atomic():
             instance = serializer.save()
-            if evaluation_supports_reports(instance.output_type, instance.target, instance.output_config):
+            if (
+                not previously_supported_reports
+                and instance.enabled
+                and not instance.deleted
+                and evaluation_supports_reports(instance.output_type, instance.target, instance.output_config)
+            ):
                 EvaluationReport.objects.get_or_create(evaluation=instance, team_id=self.team_id)
 
         # Track appropriate event

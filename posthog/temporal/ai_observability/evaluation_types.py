@@ -56,3 +56,25 @@ class EvaluationActivityResult(TypedDict, total=False):
     sentiment_scores: NotRequired[dict[str, float]]
     sentiment_messages: NotRequired[dict[str, dict[str, Any]]]
     sentiment_message_count: NotRequired[int]
+
+
+def build_skipped_evaluation_result(
+    *,
+    output_type: str,
+    allows_na: bool,
+    reasoning: str,
+    skip_reason: str,
+    verdict: bool | None = False,
+) -> EvaluationActivityResult:
+    result: EvaluationActivityResult = {
+        "result_type": "numeric" if output_type == "numeric" else "boolean",
+        "reasoning": reasoning,
+        "allows_na": allows_na,
+        "skipped": True,
+        "skip_reason": skip_reason,
+    }
+    if output_type != "numeric":
+        result["verdict"] = None if allows_na else verdict
+    if allows_na:
+        result["applicable"] = False
+    return result

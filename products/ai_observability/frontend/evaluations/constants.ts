@@ -82,3 +82,7 @@ export function evaluationPassedHogQLForMany(detectorEvaluationIds: string[]): s
     const ids = detectorEvaluationIds.map((id) => escapeHogQLString(id)).join(', ')
     return `if(properties.$ai_evaluation_id IN (${ids}), ${EVALUATION_RESULT_FALSE_HOGQL}, ${EVALUATION_RESULT_TRUE_HOGQL})`
 }
+
+export function formatNumericEvaluationScore(score: number): string {
+    return Number(score.toPrecision(6)).toString()
+}

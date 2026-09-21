@@ -11,7 +11,7 @@ from typing import Literal
 
 from temporalio.exceptions import ApplicationError
 
-from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
+from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_evaluation_result
 
 from products.ai_observability.backend.models.evaluations import EvaluationStatusReason
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
@@ -179,17 +179,18 @@ def terminal_user_error_result(
     is_byok: bool = False,
 ) -> EvaluationActivityResult:
     result: EvaluationActivityResult = {
-        "result_type": "boolean",
-        "verdict": None,
-        "reasoning": spec.safe_message if not message else message,
+        **build_skipped_evaluation_result(
+            output_type=output_type,
+            allows_na=allows_na,
+            reasoning=spec.safe_message if not message else message,
+            skip_reason=spec.error_type,
+            verdict=None,
+        ),
         "input_tokens": 0,
         "output_tokens": 0,
         "total_tokens": 0,
         "is_byok": is_byok,
         "key_id": key_id,
-        "allows_na": allows_na,
-        "skipped": True,
-        "skip_reason": spec.error_type,
         "terminal_user_error": True,
         "status_reason": spec.status_reason,
     }
@@ -199,11 +200,6 @@ def terminal_user_error_result(
         result["model"] = model
     if spec.provider_key_state:
         result["provider_key_state"] = spec.provider_key_state
-    if allows_na:
-        result["applicable"] = False
-    if output_type == "numeric":
-        result["result_type"] = "numeric"
-        result.pop("verdict", None)
     return result
 
 

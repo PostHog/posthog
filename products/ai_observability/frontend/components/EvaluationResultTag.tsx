@@ -2,6 +2,7 @@ import { IconCheck, IconMinus, IconWarning, IconX } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 import type { LemonTagProps } from '@posthog/lemon-ui'
 
+import { formatNumericEvaluationScore } from '../evaluations/constants'
 import type { EvaluationOutputConfig, EvaluationRun } from '../evaluations/types'
 import { capitalize } from '../sentimentUtils'
 
@@ -73,8 +74,8 @@ export function getEvaluationResultDisplay(
         return {
             type: passed === null ? 'none' : passed ? 'success' : 'danger',
             icon: passed === null ? <IconMinus /> : passed ? <IconCheck /> : <IconX />,
-            label: String(run.score),
-            sortValue: run.score,
+            label: formatNumericEvaluationScore(run.score),
+            sortValue: 4,
         }
     }
     if (isSentimentRun(run)) {
@@ -107,6 +108,17 @@ export function getEvaluationResultSortValue(
     return getEvaluationResultDisplay(run, options).sortValue
 }
 
+export function compareEvaluationResults(
+    a: EvaluationResultLike,
+    b: EvaluationResultLike,
+    aOptions: EvaluationResultDisplayOptions = {},
+    bOptions: EvaluationResultDisplayOptions = aOptions
+): number {
+    const aRank = getEvaluationResultSortValue(a, aOptions)
+    const bRank = getEvaluationResultSortValue(b, bOptions)
+    return aRank === 4 && bRank === 4 ? a.score! - b.score! : aRank - bRank
+}
+
 export function EvaluationResultTag({
     run,
     trueIsFailure,
@@ -120,7 +132,7 @@ export function EvaluationResultTag({
 }): JSX.Element {
     const { type, icon, label } = getEvaluationResultDisplay(run, { trueIsFailure, passingRule })
     return (
-        <LemonTag type={type} icon={icon} size={size}>
+        <LemonTag type={type} icon={icon} size={size} title={run.score == null ? undefined : String(run.score)}>
             {label}
         </LemonTag>
     )

@@ -18,3 +18,13 @@ The initial query keeps its 30-second limit; split retries request at most 15 se
 Each attempt reserves room for a twofold overrun and reduces its limit when the remaining budget requires it.
 If the remaining budget cannot support another attempt, the activity fails and follows its retry policy.
 The execution budget limits query work; it does not discard older results or guarantee that every report can be checked within that budget.
+
+### Numeric evaluation eligibility
+
+Numeric evaluations need a passing rule to generate reports.
+Adding the first passing rule to an enabled evaluation creates its default report if none exists.
+Renaming, pausing, or deleting an evaluation does not create a report.
+If an evaluation loses report support before report generation starts, generation stops without an error or a delivery.
+
+Reports classify scores using the rule captured at the start of generation.
+Changing the passing rule updates live views of historical scores, while previously generated reports keep their saved metrics.

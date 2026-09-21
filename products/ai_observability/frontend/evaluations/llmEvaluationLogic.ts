@@ -230,11 +230,14 @@ function isTestableHogEvaluation(evaluation: EvaluationConfig | null): evaluatio
 }
 
 function buildHogTestRequest(evaluation: TestableHogEvaluation): TestHogRequestApi {
+    const outputConfig = { ...evaluation.output_config }
+    // Passing rules only grade the preview locally; they do not change its execution.
+    delete outputConfig.passing_rule
     const request: TestHogRequestApi = {
         source: evaluation.evaluation_config.source,
         sample_count: 5,
         output_type: evaluation.output_type,
-        output_config: evaluation.output_config,
+        output_config: outputConfig,
         allows_na: evaluation.output_config?.allows_na ?? false,
         conditions: evaluation.conditions
             .filter((condition) => condition.properties && condition.properties.length > 0)
@@ -835,7 +838,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
         hogTestResults: {
             setOutputType: () => null,
-            patchOutputConfig: () => null,
+            patchOutputConfig: (state, { patch }) =>
+                Object.keys(patch).every((key) => key === 'passing_rule') ? state : null,
             clearHogTestResults: () => null,
             setAllowsNA: () => null,
             setEvaluationTarget: () => null,
@@ -1233,7 +1237,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 })
             }
         },
-        patchOutputConfig: () => {
+        saveEvaluationSuccess: () => {
             actions.loadRunsStats()
         },
         setEvaluationType: () => {
