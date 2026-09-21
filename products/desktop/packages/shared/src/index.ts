@@ -398,7 +398,7 @@ export {
   readMcpToolName,
   readParentToolCallId,
 } from "./tool-meta";
-export { isTranscriptNeutralNotificationMethod } from "./transcript-neutral-notifications";
+export { TranscriptBoundaries } from "./transcript-neutral-messages";
 export { TypedEventEmitter } from "./typed-event-emitter";
 export {
   isSafeExternalUrl,

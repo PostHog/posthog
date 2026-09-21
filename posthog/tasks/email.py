@@ -798,10 +798,13 @@ def send_hog_function_filters_uncompilable(team_id: int, hog_function_ids: list[
     hog_functions = HogFunction.objects.prefetch_related("created_by").filter(
         team_id=team_id, id__in=hog_function_ids, deleted=False
     )
+    # A recompile that fails on save keeps the last working bytecode beside the error, so the
+    # error alone does not mean the destination stopped delivering. Only a destination left
+    # without bytecode is what this email is about.
     broken = [
         UncompilableDestination(hog_function=hog_function, bytecode_error=error)
         for hog_function in hog_functions
-        if (error := (hog_function.filters or {}).get("bytecode_error"))
+        if (filters := hog_function.filters or {}).get("bytecode") is None and (error := filters.get("bytecode_error"))
     ]
     if not broken:
         return

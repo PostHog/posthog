@@ -29,6 +29,9 @@ class ConvertKitEndpointConfig:
     # Static query params always sent to the endpoint (e.g. status=all to include every record).
     extra_params: dict[str, str] = field(default_factory=dict)
     page_size: int = DEFAULT_PAGE_SIZE
+    # Cleared for a path that returns one object instead of a page, so no paging params are
+    # sent to an endpoint that documents none.
+    paginated: bool = True
     # Set where the endpoint is only reachable per parent record, so rows are collected by
     # walking the parent listing first.
     fanout: Optional[DependentEndpointConfig] = None
@@ -94,6 +97,12 @@ CONVERTKIT_ENDPOINTS: dict[str, ConvertKitEndpointConfig] = {
         path="/v4/custom_fields",
         data_key="custom_fields",
     ),
+    "segments": ConvertKitEndpointConfig(
+        name="segments",
+        path="/v4/segments",
+        data_key="segments",
+        partition_key="created_at",
+    ),
     "purchases": ConvertKitEndpointConfig(
         name="purchases",
         path="/v4/purchases",
@@ -112,6 +121,48 @@ CONVERTKIT_ENDPOINTS: dict[str, ConvertKitEndpointConfig] = {
         data_key="broadcasts",
         # Opens and clicks keep accumulating after a broadcast is sent, so the sent_after
         # window would freeze the numbers of every broadcast already synced.
+    ),
+    "growth_stats": ConvertKitEndpointConfig(
+        name="growth_stats",
+        path="/v4/account/growth_stats",
+        # A single object, not a list: one row covering the window the request asked for.
+        data_key="stats",
+        # Kit defaults the window to the last 90 days ending today, and reports both bounds in
+        # the account's sending time zone rather than UTC.
+        primary_keys=["starting", "ending"],
+        paginated=False,
+    ),
+    "sequence_emails": ConvertKitEndpointConfig(
+        name="sequence_emails",
+        path="/v4/sequences/{sequence_id}/emails",
+        data_key="emails",
+        # Kit does not document whether an email id is unique account-wide or only within its
+        # sequence, so the parent id stays in the key.
+        primary_keys=["sequence_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="sequences",
+            resolve_param="sequence_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "sequence_id"},
+        ),
+    ),
+    "broadcast_clicks": ConvertKitEndpointConfig(
+        name="broadcast_clicks",
+        path="/v4/broadcasts/{broadcast_id}/clicks",
+        # The links sit under the broadcast the request named.
+        data_key="broadcast.clicks",
+        primary_keys=["broadcast_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="broadcasts",
+            resolve_param="broadcast_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "broadcast_id"},
+            # The parent listing includes drafts and scheduled broadcasts, which were never
+            # sent and have no click record to return.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
     ),
     "form_subscribers": ConvertKitEndpointConfig(
         name="form_subscribers",
