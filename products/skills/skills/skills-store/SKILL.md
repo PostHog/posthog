@@ -188,11 +188,11 @@ Non-targeted files carry forward unchanged. `file_edits` cannot add, remove, or 
 
 The file-path parameter has two names depending on where it sits in the request, so don't guess:
 
-- **`file_path`** — `skill-file-get` and `skill-file-delete` (the path is part of the URL).
+- **`file_path`** — `skill-file-get` and `skill-file-delete` (the path is part of the URL). Both also accept `path`, so a manifest entry copied straight across works.
 - **`path`** — `skill-file-create`, plus the `files=[{path, …}]` array and `file_edits=[{path, …}]` (body fields on a file object).
 - **`old_path` / `new_path`** — `skill-file-rename`.
 
-Passing `path` to file-get produces a `/files/undefined/` 404. When in doubt, check the tool's input schema.
+When in doubt, check the tool's input schema.
 
 ### Adding, removing, or renaming a file
 

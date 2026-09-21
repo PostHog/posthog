@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { createElement } from 'react'
@@ -15,6 +15,7 @@ import { DataModelingNode, DataModelingNodeType, DataWarehouseSavedQuery } from 
 
 import { NodeDetailOverview } from './NodeDetailOverview'
 import { NodeDetailSceneTab, nodeDetailSceneLogic } from './nodeDetailSceneLogic'
+import { NodeDetailQuery } from './tabs/NodeDetailQuery'
 
 const NODE_ID = 'node-1'
 const SAVED_QUERY_ID = 'saved-query-1'
@@ -29,7 +30,7 @@ function buildNode(type: DataModelingNodeType, overrides: Partial<DataModelingNo
         updated_at: '2024-01-01T00:00:00Z',
         upstream_count: 0,
         downstream_count: 0,
-        saved_query_id: type === 'table' ? undefined : SAVED_QUERY_ID,
+        saved_query_id: type === 'table' || type === 'metric' ? undefined : SAVED_QUERY_ID,
         ...overrides,
     }
 }
@@ -80,9 +81,6 @@ describe('nodeDetailSceneLogic', () => {
                 },
             })
             savedQuery = { ...savedQuery, is_materialized: true, status: 'Failed', suspended: savedSuspension }
-            flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES], {
-                [FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES]: true,
-            })
             await mountScene(urls.nodeDetail(NODE_ID))
             const jobs = materializationJobsLogic({ viewId: SAVED_QUERY_ID })
             jobs.mount()
@@ -113,12 +111,38 @@ describe('nodeDetailSceneLogic', () => {
         expect(logic.values.currentTab).toEqual(expectedTab)
     })
 
-    it('offers a table only its lineage, so the scene renders no tab bar', async () => {
-        node = buildNode('table')
+    it.each(['table', 'metric'] as const)('offers a %s only its lineage, and opens on it', async (type) => {
+        node = buildNode(type)
 
         await mountScene(urls.nodeDetail(NODE_ID))
 
         expect(logic.values.availableTabs).toEqual(['lineage'])
+        expect(logic.values.currentTab).toEqual('lineage')
+    })
+
+    it('shows ten columns on each query page', async () => {
+        savedQuery = {
+            ...savedQuery,
+            columns: Array.from({ length: 11 }, (_, index) => ({
+                name: `column_${index + 1}`,
+                hogql_value: `column_${index + 1}`,
+                type: 'string',
+                schema_valid: true,
+            })),
+        }
+        await mountScene(urls.nodeDetail(NODE_ID, 'query'))
+
+        render(createElement(NodeDetailQuery, { id: NODE_ID }))
+
+        expect(screen.getByText('column_10')).toBeTruthy()
+        expect(screen.queryByText('column_11')).toBeNull()
+        expect(screen.getByText('1-10 of 11 columns')).toBeTruthy()
+
+        fireEvent.click(screen.getByLabelText('Next page'))
+
+        expect(screen.queryByText('column_10')).toBeNull()
+        expect(screen.getByText('column_11')).toBeTruthy()
+        expect(screen.getByText('11 of 11 columns')).toBeTruthy()
     })
 
     it('lists every tab a saved query supports when data quality checks are on', async () => {

@@ -28,12 +28,12 @@ Targets PostHog MCP v2. Typed query tools accept the query body directly — pas
 | `posthog:query-lifecycle`        | Lifecycle (new/returning/resurrecting/dormant)   |
 | `posthog:query-paths`            | Paths (navigation flow)                          |
 | `posthog:query-trends-actors`    | Users behind a trend bucket (trends source only) |
-| `posthog:execute-sql`            | HogQL — when no typed tool fits                  |
+| `posthog:execute-sql`            | Existing SQL insights and custom analysis        |
 | `posthog:read-data-schema`       | Discover events, properties, sample values       |
 | `posthog:insight-get` / `-query` | Fetch a saved insight's metadata / data          |
 
 Plus the standard PostHog tools the playbooks reference by name (`feature-flag-get-all`,
-`experiment-get-all`, `annotations-list`, `query-error-tracking-issues-list`, `query-logs`,
+`experiment-list`, `annotations-list`, `query-error-tracking-issues-list`, `query-logs`,
 `query-session-recordings-list`, `cohorts-list/-create`, `annotation-create`,
 `insight-create`).
 
@@ -101,7 +101,7 @@ normal variance, report that and stop.
 In rough order of signal:
 
 - `posthog:feature-flag-get-all` → flags with `updated_at` near the anomaly start.
-- `posthog:experiment-get-all` → `start_date` / `end_date` near the start.
+- `posthog:experiment-list` → `start_date` / `end_date` near the start.
 - `posthog:annotations-list` → `date_marker` near the start.
 - `git log` for the window if the repo is reachable (highest signal when available).
 

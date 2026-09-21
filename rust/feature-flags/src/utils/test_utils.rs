@@ -176,8 +176,17 @@ pub async fn insert_flags_with_metadata_for_team_in_redis(
         "evaluation_metadata": evaluation_metadata
     })
     .to_string();
+    write_flags_wire_json_to_redis(client, team_id, json_string).await
+}
+
+/// Preserves raw numeric tokens that Value-based test setup would round away.
+pub async fn write_flags_wire_json_to_redis(
+    client: Arc<dyn RedisClientTrait + Send + Sync>,
+    team_id: i32,
+    wire_json: String,
+) -> Result<(), Error> {
     let pickled_bytes =
-        serde_pickle::to_vec(&json_string, Default::default()).expect("Failed to pickle flags");
+        serde_pickle::to_vec(&wire_json, Default::default()).expect("Failed to pickle flags");
 
     let cache_key = format!("posthog:1:cache/teams/{team_id}/feature_flags/flags.json");
     client.set_bytes(cache_key, pickled_bytes, None).await?;
@@ -699,10 +708,10 @@ pub async fn insert_flag_for_team_in_pg(
     let mut conn = client.get_connection().await?;
     let row: (i32,) = sqlx::query_as(
         r#"INSERT INTO posthog_featureflag
-        (team_id, name, key, filters, deleted, active, ensure_experience_continuity, evaluation_runtime, created_at) VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, '2024-06-17')
+        (team_id, name, key, filters, deleted, active, ensure_experience_continuity, evaluation_runtime, version, created_at) VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, '2024-06-17')
         RETURNING id"#
-    ).bind(team_id).bind(&payload_flag.name).bind(&payload_flag.key).bind(&payload_flag.filters).bind(payload_flag.deleted).bind(payload_flag.active).bind(payload_flag.ensure_experience_continuity).bind(&payload_flag.evaluation_runtime).fetch_one(&mut *conn).await?;
+    ).bind(team_id).bind(&payload_flag.name).bind(&payload_flag.key).bind(&payload_flag.filters).bind(payload_flag.deleted).bind(payload_flag.active).bind(payload_flag.ensure_experience_continuity).bind(&payload_flag.evaluation_runtime).bind(payload_flag.version).fetch_one(&mut *conn).await?;
 
     payload_flag.id = row.0;
 

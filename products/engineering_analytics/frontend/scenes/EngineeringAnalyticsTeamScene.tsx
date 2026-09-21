@@ -24,6 +24,7 @@ import { WindowComparisonCard } from '../components/WindowComparisonCard'
 import { compactHoursLabel } from '../lib/format'
 import { githubFileUrl } from '../lib/github'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
+import { TeamDeliveryPanel } from './TeamDeliveryPanel'
 import { TeamDetailLogicProps, TeamTestSignalRow, teamDetailLogic } from './teamDetailLogic'
 import {
     DEFAULT_TEAMS_WINDOW,
@@ -54,6 +55,8 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
         mergeTrendSeries,
         window,
         ownerTeam,
+        deliveryScope,
+        sourceId,
     } = useValues(teamDetailLogic)
     const { setWindow } = useActions(teamDetailLogic)
     const { activeSource } = useValues(engineeringAnalyticsLogic)
@@ -91,7 +94,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
             width: 140,
             align: 'right',
             tooltip:
-                'Runs where this test failed, errored, or a retry recovered it. Fixed window; the picker above does not move this list.',
+                'Runs where this test failed, errored, or a retry recovered it. Failures from a CI setup break are left out. Fixed window; the picker above does not move this list.',
             sorter: (a, b) => a.signalCount - b.signalCount,
             render: (_, row) => <CountCell value={row.signalCount} />,
         },
@@ -110,7 +113,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
 
     return (
         <SceneContent className="pb-16">
-            <SceneTitleSection name="Team CI health" resourceType={{ type: 'health' }} />
+            <SceneTitleSection name="Team" resourceType={{ type: 'health' }} />
             <EntityHeader
                 icon={<IconPeople />}
                 title={isUnowned ? 'Unowned surfaces' : ownerTeam}
@@ -131,6 +134,8 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                 ]}
                 showDate={false}
             />
+
+            {deliveryScope && <TeamDeliveryPanel scope={deliveryScope} sourceId={sourceId} />}
 
             <ScopePanel
                 busy={healthRowLoading || mergeTrendLoading}
@@ -155,7 +160,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                     />
                     <WindowComparisonCard
                         title="Flaky tests"
-                        tooltip="Owned tests one commit was seen both failing and passing in this window. Only tests with that recovery proof count as flaky."
+                        tooltip="Owned tests one commit was seen both failing and passing in this window. Only tests with that recovery proof count as flaky. A job attempt with 100+ failed or errored tests is a CI setup break, not test proof."
                         value={healthRow?.flakyTestCount}
                         previousValue={healthRow?.flakyTestCountPrior}
                         formatValue={humanFriendlyNumber}
@@ -165,7 +170,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                     />
                     <WindowComparisonCard
                         title="Failed runs"
-                        tooltip="CI runs where an owned test failed or errored. Absolute counts, not rates: passing runs are mostly not recorded."
+                        tooltip="CI runs where at least one test this team owns failed or errored. A run counts once, however many tests failed. CI setup breaks (many jobs or teams, or 100 or more failed or errored tests in one job) are left out. Absolute counts, not rates: passing runs are mostly not recorded."
                         value={healthRow?.failedRunCount}
                         previousValue={healthRow?.failedRunCountPrior}
                         formatValue={humanFriendlyNumber}

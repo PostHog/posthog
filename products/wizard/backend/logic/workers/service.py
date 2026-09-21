@@ -57,6 +57,7 @@ from products.wizard.backend.logic.workers.contracts import (
 from products.wizard.backend.logic.workers.local_package import build_local_wizard_source_archive
 from products.wizard.backend.logic.workers.wizard_error_output import stderr_to_wizard_error_code
 from products.wizard.backend.observability.service import wizard_observability
+from products.wizard.backend.observability.tracing import annotate_run_span, wizard_span
 
 from .repository_publisher import (
     RepositoryPublishingError,
@@ -132,12 +133,16 @@ class WizardWorkerTimeoutError(Exception):
     pass
 
 
+@wizard_span("wizard.worker.provision")
 def provision_wizard_worker(request: WizardWorkerProvisionRequest) -> WizardWorkerProvisioning:
+    annotate_run_span(request.team_id, request.run_id)
     user = User.objects.get(id=request.created_by_id)
-    wizard_token = create_wizard_oauth_access_token_for_user(user, request.team_id)
+    with wizard_span("wizard.worker.credentials"):
+        wizard_token = create_wizard_oauth_access_token_for_user(user, request.team_id)
 
     config = _build_sandbox_config(request, wizard_token)
-    sandbox = get_sandbox_class().create(config)
+    with wizard_span("wizard.sandbox.create"):
+        sandbox = get_sandbox_class().create(config)
     _start_cpu_billing_sampler(sandbox)
     provisioned_at = timezone.now()
 
@@ -153,6 +158,7 @@ def provision_wizard_worker(request: WizardWorkerProvisionRequest) -> WizardWork
     )
 
 
+@wizard_span("wizard.worker.start_cpu_sampler")
 def _start_cpu_billing_sampler(sandbox: SandboxBase) -> None:
     try:
         started = sandbox.start_cpu_billing_sampler()
@@ -166,63 +172,73 @@ def _start_cpu_billing_sampler(sandbox: SandboxBase) -> None:
         logger.warning("wizard_worker_cpu_billing_sampler_start_failed", extra={"sandbox_id": sandbox.id})
 
 
+@wizard_span("wizard.repository.prepare")
 def clone_repository(request: GitRepositoryCloneRequest) -> str:
     sandbox = get_sandbox_class().get_by_id(request.sandbox_id)
-    github_token = get_github_token(request.github_integration_id) or ""
-    clone_result = sandbox.clone_repository(request.repository, github_token=github_token, shallow=True)
+    with wizard_span("wizard.repository.credentials"):
+        github_token = get_github_token(request.github_integration_id) or ""
+    with wizard_span("wizard.repository.clone") as span:
+        clone_result = sandbox.clone_repository(request.repository, github_token=github_token, shallow=True)
+        span.set_attribute("process.exit.code", clone_result.exit_code)
 
-    _raise_for_failure(
-        "repository clone",
-        clone_result.exit_code,
-        stdout=clone_result.stdout,
-        stderr=clone_result.stderr,
-        sensitive_values=(github_token,),
-    )
+        _raise_for_failure(
+            "repository clone",
+            clone_result.exit_code,
+            stdout=clone_result.stdout,
+            stderr=clone_result.stderr,
+            sensitive_values=(github_token,),
+        )
 
     workspace_path = sandbox_repo_path(request.repository)
-    sanitize_result = sandbox.execute(
-        build_sanitize_repository_remote_command(workspace_path, request.repository),
-        timeout_seconds=60,
-    )
-    _raise_for_failure(
-        "repository credential cleanup",
-        sanitize_result.exit_code,
-        stdout=sanitize_result.stdout,
-        stderr=sanitize_result.stderr,
-        sensitive_values=(github_token,),
-    )
+    with wizard_span("wizard.repository.sanitize_remote"):
+        sanitize_result = sandbox.execute(
+            build_sanitize_repository_remote_command(workspace_path, request.repository),
+            timeout_seconds=60,
+        )
+        _raise_for_failure(
+            "repository credential cleanup",
+            sanitize_result.exit_code,
+            stdout=sanitize_result.stdout,
+            stderr=sanitize_result.stderr,
+            sensitive_values=(github_token,),
+        )
 
     return workspace_path
 
 
+@wizard_span("wizard.package.prepare")
 def prepare_local_wizard(sandbox_id: str, source_root: Path) -> None:
-    archive = build_local_wizard_source_archive(source_root)
+    with wizard_span("wizard.package.archive"):
+        archive = build_local_wizard_source_archive(source_root)
 
     try:
         sandbox = get_sandbox_class().get_by_id(sandbox_id)
 
-        upload_result = sandbox.write_file(LOCAL_WIZARD_ARCHIVE_PATH, archive)
-        _raise_for_failure(
-            "local Wizard source upload",
-            upload_result.exit_code,
-            stdout=upload_result.stdout,
-            stderr=upload_result.stderr,
-        )
+        with wizard_span("wizard.package.upload"):
+            upload_result = sandbox.write_file(LOCAL_WIZARD_ARCHIVE_PATH, archive)
+            _raise_for_failure(
+                "local Wizard source upload",
+                upload_result.exit_code,
+                stdout=upload_result.stdout,
+                stderr=upload_result.stderr,
+            )
 
-        build_result = sandbox.execute(
-            build_local_wizard_preparation_command(),
-            timeout_seconds=LOCAL_WIZARD_BUILD_TIMEOUT_SECONDS,
-        )
-        _raise_for_failure(
-            "local Wizard build",
-            build_result.exit_code,
-            stdout=build_result.stdout,
-            stderr=build_result.stderr,
-        )
+        with wizard_span("wizard.package.build"):
+            build_result = sandbox.execute(
+                build_local_wizard_preparation_command(),
+                timeout_seconds=LOCAL_WIZARD_BUILD_TIMEOUT_SECONDS,
+            )
+            _raise_for_failure(
+                "local Wizard build",
+                build_result.exit_code,
+                stdout=build_result.stdout,
+                stderr=build_result.stderr,
+            )
     except (SandboxExecutionError, SandboxNotFoundError, SandboxTimeoutError) as error:
         raise WizardWorkerExecutionError("local Wizard preparation", 1, str(error)) from error
 
 
+@wizard_span("wizard.cli.execute")
 def execute_wizard(request: WizardExecutionRequest) -> None:
     sandbox = get_sandbox_class().get_by_id(request.sandbox_id)
 
@@ -250,21 +266,25 @@ def execute_wizard(request: WizardExecutionRequest) -> None:
     )
 
 
+@wizard_span("wizard.repository.handoff")
 def create_git_repository_handoff(request: GitRepositoryHandoffRequest) -> WizardWorkerResult:
+    annotate_run_span(request.team_id, request.run_id)
     sandbox = get_sandbox_class().get_by_id(request.sandbox_id)
-    stage_publishable_changes(sandbox, request.workspace_path)
+    with wizard_span("wizard.repository.stage_changes"):
+        stage_publishable_changes(sandbox, request.workspace_path)
 
-    diff_result = sandbox.execute(
-        build_git_diff_command(request.workspace_path),
-        timeout_seconds=60,
-    )
+    with wizard_span("wizard.repository.capture_diff"):
+        diff_result = sandbox.execute(
+            build_git_diff_command(request.workspace_path),
+            timeout_seconds=60,
+        )
 
-    _raise_for_failure(
-        "diff capture",
-        diff_result.exit_code,
-        stdout=diff_result.stdout,
-        stderr=diff_result.stderr,
-    )
+        _raise_for_failure(
+            "diff capture",
+            diff_result.exit_code,
+            stdout=diff_result.stdout,
+            stderr=diff_result.stderr,
+        )
 
     diff = diff_result.stdout.encode("utf-8")
 
@@ -279,25 +299,27 @@ def create_git_repository_handoff(request: GitRepositoryHandoffRequest) -> Wizar
         handoff_body = PULL_REQUEST_BODY
 
     try:
-        create_signed_commit(
-            sandbox,
-            team_id=request.team_id,
-            integration_id=request.github_integration_id,
-            repository=request.repository,
-            branch=branch,
-            message=PULL_REQUEST_COMMIT_MESSAGE,
-            source="wizard",
-        )
+        with wizard_span("wizard.repository.commit"):
+            create_signed_commit(
+                sandbox,
+                team_id=request.team_id,
+                integration_id=request.github_integration_id,
+                repository=request.repository,
+                branch=branch,
+                message=PULL_REQUEST_COMMIT_MESSAGE,
+                source="wizard",
+            )
 
-        pull_request = create_pull_request(
-            team_id=request.team_id,
-            integration_id=request.github_integration_id,
-            repository=request.repository,
-            head_branch=branch,
-            title=PULL_REQUEST_TITLE,
-            body=handoff_body,
-            source="wizard",
-        )
+        with wizard_span("wizard.repository.create_pull_request"):
+            pull_request = create_pull_request(
+                team_id=request.team_id,
+                integration_id=request.github_integration_id,
+                repository=request.repository,
+                head_branch=branch,
+                title=PULL_REQUEST_TITLE,
+                body=handoff_body,
+                source="wizard",
+            )
 
     except RepositoryPublishingError as error:
         raise WizardWorkerExecutionError("publishing", 1, str(error)) from error
@@ -305,6 +327,7 @@ def create_git_repository_handoff(request: GitRepositoryHandoffRequest) -> Wizar
     return WizardWorkerResult(diff=diff, pull_request=pull_request)
 
 
+@wizard_span("wizard.sandbox.destroy")
 def destroy_worker(sandbox_id: str) -> None:
     try:
         sandbox = get_sandbox_class().get_by_id(sandbox_id)
@@ -313,6 +336,7 @@ def destroy_worker(sandbox_id: str) -> None:
     sandbox.destroy()
 
 
+@wizard_span("wizard.worker.measure_usage")
 def measure_worker_usage(sandbox_id: str) -> WizardWorkerUsageMeasurement | None:
     try:
         sandbox = get_sandbox_class().get_by_id(sandbox_id)
@@ -367,6 +391,7 @@ def _failure_detail(stdout: str, stderr: str, sensitive_values: tuple[str, ...])
     return output[-WIZARD_ERROR_DETAIL_LENGTH:] or None
 
 
+@wizard_span("wizard.repository.read_handoff")
 def _read_handoff_body(sandbox: SandboxBase, run_id: UUID) -> str | None:
     handoff_result = sandbox.execute(build_read_handoff_command(run_id), timeout_seconds=10)
     if handoff_result.exit_code != 0:

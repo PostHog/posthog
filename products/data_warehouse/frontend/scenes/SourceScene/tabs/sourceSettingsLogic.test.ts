@@ -1,6 +1,6 @@
-import type { SourceFieldConfig } from '~/queries/schema/schema-general'
 import type { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
+import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 import { clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
 
 import {

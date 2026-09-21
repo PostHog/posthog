@@ -23,6 +23,8 @@ from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from typing import Any, Optional
 
+from requests.exceptions import HTTPError
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -243,6 +245,24 @@ def _unified_accounts_endpoint() -> Endpoint:
     }
 
 
+def _is_offset_exceeded(error: HTTPError) -> bool:
+    """True when Leadfeeder rejects a page as beyond its max explorable search window.
+
+    The unified API's `meta.page_count` can report more pages than it will actually serve — an
+    account with enough web-visits/leads in the sync window pages past a fixed vendor-side depth
+    limit and gets a 416 `offset_exceeded` instead of an empty page. No page size or start_date
+    tweak avoids this for a busy account, so it isn't a transient failure to retry either.
+    """
+    response = error.response
+    if response is None or response.status_code != 416:
+        return False
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    return isinstance(body, dict) and body.get("code") == "offset_exceeded"
+
+
 def _unified_account_ids(client: ClientConfig, team_id: int, job_id: str) -> Iterator[str]:
     resource = _unified_single_resource(
         client,
@@ -321,9 +341,16 @@ def _unified_leadfeeder_source(
             else:
                 child_params["start_date"] = start
                 child_params["end_date"] = end
-            yield from _unified_single_resource(
-                client, endpoint, child_endpoint, team_id, job_id, partial(_flatten_item, account_id=account_id)
-            )
+            try:
+                yield from _unified_single_resource(
+                    client, endpoint, child_endpoint, team_id, job_id, partial(_flatten_item, account_id=account_id)
+                )
+            except HTTPError as e:
+                # The account has more rows in this window than the vendor's search depth allows
+                # to page through. Stop this account here rather than failing the whole sync — the
+                # rest of the accounts, and the rows already fetched, still land.
+                if not _is_offset_exceeded(e):
+                    raise
 
     # Partition only on a field confirmed present in the unified schema (visits' `started_at`). The
     # visitor-companies rows carry no confirmed top-level date, so leads sync unpartitioned here.

@@ -45,6 +45,19 @@ class TestClassifyPostgresCDCError:
                 CDCErrorCategory.CONNECTION_FAILED,
             ),
             (
+                # Observed on a managed provider (Neon-style): the account or project exceeded a
+                # usage quota, so the connection is blocked until the customer upgrades or the
+                # quota resets. Must classify as QUOTA_EXCEEDED, not the generic CONNECTION_FAILED,
+                # so it stops retrying instead of looping into the same wall.
+                "account_quota_exceeded_is_non_retryable",
+                psycopg.OperationalError(
+                    'connection failed: connection to server at "203.0.113.1", port 5432 failed: '
+                    "ERROR:  Your account or project has exceeded the quota. Upgrade your plan to "
+                    "increase limits."
+                ),
+                CDCErrorCategory.QUOTA_EXCEEDED,
+            ),
+            (
                 "network_unreachable_is_non_retryable_host",
                 psycopg.OperationalError(
                     'connection to server at "2001:db8::1", port 5432 failed: Network is unreachable'

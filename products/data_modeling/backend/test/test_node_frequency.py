@@ -27,6 +27,7 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import Data
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_modeling.backend.test.helpers import (
+    metric_node as _metric_node,
     saved_query_node as _saved_query_node,
     table_node as _table_node,
     warehouse_source_node as _warehouse_source_node,
@@ -186,10 +187,17 @@ class TestSeedTargets(BaseTest):
         seeds = seed_targets(dag)
         self.assertEqual(seeds, {} if expected is None else {str(node.id): expected})
 
-    def test_source_tables_are_never_seeded(self):
-        dag = DAG.objects.create(team=self.team, name="seed-demo-src", sync_frequency_interval=H1)
-        _table_node(self.team, dag, "events", {"origin": "posthog"})
+    @parameterized.expand(
+        [
+            ("source_table", lambda team, dag: _table_node(team, dag, "events", {"origin": "posthog"})),
+            ("metric", lambda team, dag: _metric_node(team, dag, "weekly_active_accounts")),
+        ]
+    )
+    def test_nodes_that_never_run_are_never_seeded(self, _name, make_node):
+        dag = DAG.objects.create(team=self.team, name=f"seed-demo-{_name}", sync_frequency_interval=H1)
+        make_node(self.team, dag)
         self.assertEqual(seed_targets(dag), {})
+        self.assertEqual(persist_seed_targets(dag), 0)
 
 
 @pytest.mark.django_db

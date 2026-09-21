@@ -348,6 +348,10 @@ class TestPushSubscriptionsAPI(BaseTest):
         data = response.json()
         assert data["stored"] is False
         assert data["push_enabled"] is False
+        # The 200 is what stops SDKs retrying on every app open, so the body has to carry the reason:
+        # it is the only thing that tells a developer their token went nowhere.
+        assert data["reason"] == "no_push_channel_for_app_id"
+        assert "nonexistent-project" in data["detail"]
         mock_capture.assert_not_called()
         assert counter._value.get() == before + 1
 

@@ -1,16 +1,16 @@
-"""DRF views for data quality checks, nested under the subjects they audit.
+"""DRF views for data quality checks.
 
-Checks hang off the existing warehouse surfaces -- ``warehouse_saved_queries/{id}/checks`` and
-``warehouse_tables/{id}/checks`` -- the same way run/materialize/resume do, gated by warehouse
-scopes rather than a scope of their own. Thin: validate via the serializer, call the facade,
-serialize the result. Nothing here runs a check -- every trigger hands off to Temporal and returns
-a suite-run handle to poll.
+Every check is authored, read, run and scheduled through ``data_quality_checks``, whatever kind of
+subject it audits. The subject is named in the body on create and read off the check row after
+that. Thin: validate via the serializer, call the facade, serialize the result. Nothing here runs a
+check -- every trigger hands off to Temporal and returns a suite-run handle to poll.
 """
 
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from functools import cached_property
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 from uuid import UUID
 
 from django.db.models import QuerySet
@@ -28,19 +28,17 @@ from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.permissions import APIScopePermission, TeamMemberAccessPermission, get_authenticator_scopes
 from posthog.rate_limit import HogQLQueryThrottle
 
-from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
-
 from ..facade import api
-from ..facade.enums import CheckRunStatus, SubjectStatus, SubjectType
+from ..facade.enums import CheckRunStatus, CheckType, SubjectStatus, SubjectType
 from ..facade.flags import is_data_quality_checks_enabled
 from ..facade.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from .serializers import (
     CheckTypeSerializer,
+    DataQualityCheckCreateSerializer,
     DataQualityCheckRunSerializer,
     DataQualityCheckScheduleSerializer,
     DataQualityCheckScheduleUpdateSerializer,
@@ -50,12 +48,16 @@ from .serializers import (
     DataQualityOutputSchemaSerializer,
     DataQualityOverviewCheckSerializer,
     DataQualityRunRequestSerializer,
+    DataQualitySubjectRefSerializer,
+    DataQualitySubjectScheduleSerializer,
+    DataQualitySubjectSerializer,
     DataQualitySuiteRunSerializer,
     SubjectHealthSerializer,
 )
 
 _RECENT_RUNS_LIMIT = 50
 _LAST_RUN_FIELDS = ("last_status", "last_run_at", "last_succeeded_at", "failing_since")
+_SUBJECT_TYPE_VALUES = frozenset(kind.value for kind in SubjectType)
 
 if TYPE_CHECKING:
     from rest_framework.permissions import _SupportsHasPermission
@@ -67,9 +69,6 @@ class _DataQualitySubjectPermission(BasePermission):
             return False
         if not view.user_access_control.check_access_level_for_object(view.team, "member"):
             return False
-        if isinstance(view, _SubjectScopedViewSet):
-            view._require_parent_subject_access()
-            return view.subject_type in view._authorized_subject_types(write=request.method not in SAFE_METHODS)
         return bool(view._authorized_subject_types(write=request.method not in SAFE_METHODS))
 
     def has_object_permission(self, request: Request, view: APIView, obj: object) -> bool:
@@ -82,11 +81,11 @@ class _DataQualitySubjectPermission(BasePermission):
 
 
 class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
-    """The gating every data quality surface shares, whether or not it is nested under a subject.
+    """The gating every data quality surface shares.
 
-    Entry points are gated on the product flag, and most additionally on query access: run results
-    are a count oracle over the underlying rows, so a member denied `query` must not reach them
-    through a check. Only the check-type *catalog* stays ungated by query: static schema metadata.
+    Entry points are gated on the product flag and on query access: run results are a count oracle
+    over the underlying rows, so a member denied `query` must not reach them through a check. Only
+    the check-type *catalog* stays ungated by any one subject: it is static schema metadata.
 
     Denial is name-based, reading the same set the information_schema loaders do, so REST and SQL
     can never disagree about which subjects a member may see.
@@ -162,7 +161,6 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
                 self.user_access_control,
                 get_authenticator_scopes(self.request.successful_authenticator),
                 write=write,
-                route_scope=self.scope_object,
             )
         return self._authorized_types[write]
 
@@ -187,20 +185,14 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
         """
         cached = getattr(self, "_denial_context_cache", None)
         if cached is None:
-            try:
-                cached = api.restrict_subject_types(
-                    api.caller_denial_context(
-                        self.team,
-                        cast(User, self.request.user),
-                        user_access_control=self.user_access_control,
-                    ),
-                    self._authorized_subject_types(),
-                )
-            except Exception as err:
-                # Building the snapshot walks every saved query; one malformed definition must not
-                # 500 the surface. Failing open would leak denied subjects, so fail closed.
-                capture_exception(err)
-                raise PermissionDenied("Could not verify your access to this table or view.")
+            cached = api.restrict_subject_types(
+                api.caller_denial_context(
+                    self.team,
+                    cast(User, self.request.user),
+                    user_access_control=self.user_access_control,
+                ),
+                self._authorized_subject_types(),
+            )
             self._denial_context_cache = cached
         return cached
 
@@ -261,103 +253,212 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
             return None
         return api.SubjectIdentity(subject_type=check.subject_type, subject_uuid=str(check.subject_uuid))
 
+    def _require_subject_access(self, identity: api.SubjectIdentity, *, write: bool) -> None:
+        """403 a subject this caller may not read, or may not change when the request changes it.
 
-class _SubjectScopedViewSet(_QualityGatedViewSet):
-    """Adds the parent-subject gate for viewsets nested under a catalog subject."""
-
-    subject_type: ClassVar[SubjectType]
-    subject_field: ClassVar[str]
-
-    @property
-    def subject_uuid(self) -> str:
-        return str(self.parents_query_dict[f"{self.subject_field}_id"])
-
-    def initial(self, request: Request, *args, **kwargs) -> None:
-        super().initial(request, *args, **kwargs)
-        self._require_parent_subject_access()
-        self._require_subject_id()
-
-    def _require_subject_id(self) -> None:
-        """404 a parent segment that is not a uuid, before it reaches a UUIDField filter.
-
-        The segment accepts any path token, and a metric's own routes address it by name, so a
-        caller can land a name here. A UUIDField raises Django's ValidationError rather than the
-        ValueError the router's parent filter catches, so the request would end as a 500 and a
-        captured exception.
-
-        After the access gate, not before it: a caller who can be object-denied is already answered
-        by that gate, which reads the same segment and denies anything it cannot parse. This one
-        covers the callers the gate returns early for.
-        """
-        try:
-            UUID(self.subject_uuid)
-        except ValueError:
-            raise NotFound(f"This route addresses a {self.subject_type} by its id, not its name.")
-
-    @cached_property
-    def _parent_identity(self) -> api.SubjectIdentity:
-        return api.SubjectIdentity(subject_type=self.subject_type, subject_uuid=self.subject_uuid)
-
-    def _require_parent_subject_access(self) -> None:
-        """403 a parent this caller may not read -- for every action, including list.
-
-        A member denied a view must not be able to enumerate its check configs or counts through
-        this surface. A parent that no longer resolves is out of reach on the same terms: deleting
-        it takes its denial with it, so nothing left can show the caller was allowed it. A caller who
-        cannot be object-denied keeps orphan access, since orphaned history stays reachable for them.
+        A subject that no longer resolves is out of reach on the same terms: deleting it takes its
+        denial with it, so nothing left can show the caller was allowed it. A caller who cannot be
+        object-denied keeps orphan access, since orphaned history stays reachable for them.
         """
         if not self._can_be_object_denied():
             return
-        if not self._denial_context().readable.contains(self.subject_type, self.subject_uuid):
+        if not self._denial_context().readable.contains(identity.subject_type, identity.subject_uuid):
             raise PermissionDenied("You don't have access to this table or view.")
-        if self.request.method not in SAFE_METHODS and not self._writable_subjects.contains(
-            self.subject_type, self.subject_uuid
-        ):
+        if write and not self._writable_subjects.contains(identity.subject_type, identity.subject_uuid):
             raise PermissionDenied("You need edit access to this subject to change or run its checks.")
+
+    def _require_subject_type_authorized(self, subject_type: str, *, write: bool) -> None:
+        """403 a kind of subject this caller's role or token scopes do not cover at all."""
+        if subject_type not in self._authorized_subject_types(write=write):
+            raise PermissionDenied("You don't have permission to work with checks on this kind of subject.")
+
+    def _require_subject(self, identity: api.SubjectIdentity, *, write: bool) -> None:
+        self._require_subject_type_authorized(identity.subject_type, write=write)
+        self._require_subject_access(identity, write=write)
+
+    def _named_subject(self, source: Mapping[str, Any]) -> api.SubjectIdentity:
+        """The subject this request names, as a 400 rather than a lookup when it names none."""
+        serializer = DataQualitySubjectRefSerializer(data={key: source.get(key) for key in _SUBJECT_KEYS})
+        serializer.is_valid(raise_exception=True)
+        return api.SubjectIdentity(
+            subject_type=str(serializer.validated_data["subject_type"]),
+            subject_uuid=str(serializer.validated_data["subject_uuid"]),
+        )
+
+    def _optional_subject(self, source: Mapping[str, Any]) -> api.SubjectIdentity | None:
+        if not any(source.get(key) for key in _SUBJECT_KEYS):
+            return None
+        return self._named_subject(source)
+
+    def _require_enabled_check_access(self, identity: api.SubjectIdentity) -> None:
+        """403 when any check the request is about to set running reads a subject out of reach."""
+        if not self._can_be_object_denied():
+            return
+        for check in api.checks_for_subject(self.team_id, identity.subject_type, identity.subject_uuid).filter(
+            enabled=True
+        ):
+            self._require_referenced_subject_access(check.check_type, check.config, subject=identity)
+
+
+class ScheduleUnavailableAPIError(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "schedule_unavailable"
+    default_detail = "Could not read or update the check schedule. Reload it and try again."
+
+
+class _ProjectQualityViewSet(_QualityGatedViewSet):
+    scope_object = "query"
+
+    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str]:
+        return ["query:read"]
+
+    def initial(self, request: Request, *args, **kwargs) -> None:
+        super().initial(request, *args, **kwargs)
+        if not self._authorized_subject_types(write=request.method not in SAFE_METHODS):
+            raise PermissionDenied("You need access to warehouse objects or the data catalog to work with checks.")
 
 
 _EDIT_DESCRIPTION = (
     "Edit this check in place, including what it asserts (check_type, column_name, config). The "
-    "table or view it audits is fixed, and the check keeps its id, run history, latest status, and "
-    "latest run time. A definition or name already held by another active check comes back as a "
-    "field error, with nothing written."
+    "subject it audits is fixed, and the check keeps its id, run history, latest status, and latest "
+    "run time. A definition or name already held by another active check comes back as a field "
+    "error, with nothing written."
 )
+
+_SUBJECT_TYPE_PARAMETER = OpenApiParameter(
+    "subject_type",
+    OpenApiTypes.STR,
+    OpenApiParameter.QUERY,
+    enum=[kind.value for kind in SubjectType],
+    description="Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.",
+)
+_SUBJECT_UUID_PARAMETER = OpenApiParameter(
+    "subject_uuid",
+    OpenApiTypes.UUID,
+    OpenApiParameter.QUERY,
+    description="Id of the table, view, metric, or PostHog table.",
+)
+_SUBJECT_PARAMETERS = [_SUBJECT_TYPE_PARAMETER, _SUBJECT_UUID_PARAMETER]
+# A listing filter can be left out; a lookup cannot answer without a subject at all, so the actions
+# that look one up declare both as required rather than letting a generated client omit them.
+_REQUIRED_SUBJECT_PARAMETERS = [
+    OpenApiParameter(
+        parameter.name,
+        parameter.type,
+        parameter.location,
+        required=True,
+        description=parameter.description,
+        enum=parameter.enum,
+    )
+    for parameter in _SUBJECT_PARAMETERS
+]
+_CHECK_TYPE_PARAMETER = OpenApiParameter(
+    "check_type",
+    OpenApiTypes.STR,
+    OpenApiParameter.QUERY,
+    enum=[kind.value for kind in CheckType],
+    description="Only the checks that make this assertion. See /check_types/.",
+)
+_SUBJECT_KEYS = ("subject_type", "subject_uuid")
 
 
 @extend_schema_view(
     update=extend_schema(description=_EDIT_DESCRIPTION),
     partial_update=extend_schema(description=_EDIT_DESCRIPTION),
+    list=extend_schema(
+        description="Every check in the project. Narrow it to one subject with subject_type and "
+        "subject_uuid, or to one assertion with check_type.",
+        parameters=[*_SUBJECT_PARAMETERS, _CHECK_TYPE_PARAMETER],
+    ),
 )
-class _BaseCheckViewSet(_SubjectScopedViewSet, viewsets.ModelViewSet):
-    """CRUD for one subject's checks, plus the actions that run them and report on them."""
+class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
+    """Every check in the project: authoring, running, results, health, and schedules."""
 
     DETAIL_VISIBILITY_ACTIONS = frozenset({"retrieve", "destroy"})
     QUERY_GATED_ACTIONS = frozenset(
-        {"list", "retrieve", "create", "update", "partial_update", "destroy", "run", "run_all", "runs", "health"}
+        {
+            "list",
+            "retrieve",
+            "create",
+            "update",
+            "partial_update",
+            "destroy",
+            "run",
+            "runs",
+            "health",
+            "output_schema",
+            "schedule",
+            "subjects",
+            "metric_subjects",
+        }
     )
+    SUBJECT_FILTERED_ACTIONS = frozenset({"list", "health", "schedules"})
     serializer_class = DataQualityCheckSerializer
     queryset = DataQualityCheck.objects.unscoped()
 
+    ACTION_SERIALIZERS: ClassVar[dict[str, type[BaseSerializer]]] = {
+        "list": DataQualityOverviewCheckSerializer,
+        "create": DataQualityCheckCreateSerializer,
+    }
+
+    def get_serializer_class(self) -> type[BaseSerializer]:
+        return self.ACTION_SERIALIZERS.get(self.action or "", DataQualityCheckSerializer)
+
+    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str]:
+        if getattr(view, "action", None) == "metric_subjects":
+            return ["data_catalog:read", "query:read"]
+        return super().dangerously_get_required_scopes(request, view)
+
+    def _authorized_query_subject(self) -> api.SubjectIdentity | None:
+        subject = self._optional_subject(self.request.query_params)
+        if subject is not None:
+            self._require_subject(subject, write=False)
+        return subject
+
+    def get_serializer_context(self) -> dict:
+        context = super().get_serializer_context()
+        subject = getattr(self, "_authorized_subject", None)
+        if subject is not None:
+            context |= {"subject_type": subject.subject_type, "subject_uuid": subject.subject_uuid}
+        return context
+
     def safely_get_queryset(self, queryset: QuerySet[DataQualityCheck]) -> QuerySet[DataQualityCheck]:
-        # The parent lookup filters by the subject FK; deleted checks stay hidden.
-        queryset = api.live_subject_checks(queryset.filter(team_id=self.team_id, deleted=False)).select_related(
-            "created_by", "owner"
+        # Orphans are excluded: their subject is gone, so there is no page to link to, nothing to
+        # run, and no rollup to sit under. The run history they left behind stays queryable.
+        # The rollup reads four columns of every enabled check in the project and serializes none of
+        # the people, so it does not pay for the author join the listing needs.
+        # A name is optional, so the id breaks the tie a blank one leaves -- newest first, and a
+        # total order, without which two pages of the same listing can repeat or drop a check.
+        queryset = (
+            api.live_subject_checks(queryset.filter(team_id=self.team_id, deleted=False))
+            .exclude(subject_status=SubjectStatus.ORPHANED)
+            .order_by("subject_name", "name", "-id")
         )
+        if self.action in self.SUBJECT_FILTERED_ACTIONS and (subject := self._authorized_query_subject()):
+            queryset = queryset.filter(**api.subject_filter(subject.subject_type, subject.subject_uuid))
         if check_type := self.request.query_params.get("check_type"):
             queryset = queryset.filter(check_type=check_type)
-        return queryset.order_by("-created_at")
+        return queryset.select_related("created_by", "owner") if self.action == "list" else queryset
 
     def filter_queryset(self, queryset: QuerySet[DataQualityCheck]) -> QuerySet[DataQualityCheck]:
-        # The parent gate cleared this subject, but a check under it can read a second one. Its
-        # config names that subject, and its status answers questions about the rows behind it.
+        # Hiding a denied subject's checks matters here: this one lists everything, so a leak is a
+        # directory of the tables a member cannot read. Denial is matched by name rather than
+        # equality, so the pass has to happen in Python; only a restricted member pays for it, since
+        # the denied set is empty for everyone else.
         queryset = super().filter_queryset(queryset)
-        # Listing only. The routes that address one check keep answering 403 with what is wrong,
-        # which tells the caller more than the 404 that hiding the row would give them.
-        if self.action != "list":
-            return queryset
-        if not self._can_be_object_denied():
+        if self.action not in self.SUBJECT_FILTERED_ACTIONS or not self._can_be_object_denied():
             return queryset
         return api.visible_check_queryset(self.team_id, queryset, self._denial_context())
+
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        checks = list(queryset) if page is None else page
+        # Resolved once for the page, so linking to a subject costs two queries rather than one per
+        # check. Anything the batch cannot resolve stays absent and renders as plain text.
+        context = {**self.get_serializer_context(), "subject_locations": api.subject_locations(self.team_id, checks)}
+        serializer = self.get_serializer(checks, many=True, context=context)
+        return self.get_paginated_response(serializer.data) if page is not None else Response(serializer.data)
 
     def safely_get_object(self, queryset: QuerySet[DataQualityCheck]) -> DataQualityCheck:
         lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
@@ -368,28 +469,25 @@ class _BaseCheckViewSet(_SubjectScopedViewSet, viewsets.ModelViewSet):
             and check.id in self._hidden_check_ids([check])
         ):
             raise PermissionDenied("You don't have access to a table or view this check reads.")
+        subject = self._check_identity(check)
+        if subject is not None:
+            self._require_subject(subject, write=self.request.method not in SAFE_METHODS)
         return check
 
-    def get_serializer_context(self) -> dict:
-        return {
-            **super().get_serializer_context(),
-            "subject_type": self.subject_type,
-            "subject_uuid": self.subject_uuid,
-        }
-
     @extend_schema(
-        description="Create a check on this table or view, or refine the one already carrying the same "
-        "fingerprint. Re-creating a semantically identical check returns 200 and the existing row, never a duplicate.",
+        description="Create a check on the table, view or metric named by subject_type and subject_uuid, "
+        "or refine the one already carrying the same fingerprint. Re-creating a semantically identical "
+        "check returns 200 and the existing row, never a duplicate.",
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
+        subject = self._named_subject(request.data)
+        self._require_subject(subject, write=True)
+        self._authorized_subject = subject
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        self._require_referenced_subject_access(
-            data["check_type"],
-            data.get("config") or {},
-            subject=self._parent_identity,
-        )
+        self._require_referenced_subject_access(data["check_type"], data.get("config") or {}, subject=subject)
 
         optional = {
             key: data[key]
@@ -409,8 +507,8 @@ class _BaseCheckViewSet(_SubjectScopedViewSet, viewsets.ModelViewSet):
         check, created = api.upsert_check(
             team=self.team,
             user=cast(User, request.user),
-            subject_type=self.subject_type,
-            subject_uuid=self.subject_uuid,
+            subject_type=subject.subject_type,
+            subject_uuid=subject.subject_uuid,
             check_type=data["check_type"],
             column_name=data.get("column_name", ""),
             config=data.get("config") or {},
@@ -464,49 +562,21 @@ class _BaseCheckViewSet(_SubjectScopedViewSet, viewsets.ModelViewSet):
     )
     @action(methods=["POST"], detail=True)
     def run(self, request: Request, **kwargs) -> Response:
-        # The parent gate cleared the declared subject; a check can still read a denied one
+        # The subject gate cleared the declared subject; a check can still read a denied one
         # (relationships target, custom_sql table), so gate on every subject it references too.
         check = self.get_object()
-        self._require_referenced_subject_access(
-            check.check_type,
-            check.config,
-            subject=self._parent_identity,
-        )
-        # The subject is stamped alongside check_ids so the handle stays reachable through this
-        # subject's nested suite-run routes, which filter on it. check_ids still decides what runs.
+        subject = self._check_identity(check)
+        self._require_referenced_subject_access(check.check_type, check.config, subject=subject)
+        # The subject is stamped alongside check_ids so the suite reads back as scoped to it.
+        # check_ids still decides what runs.
         suite_run = api.start_check_suite(
             team=self.team,
             user=cast(User, request.user),
-            subject_type=self.subject_type,
-            subject_uuids=[self.subject_uuid],
+            subject_type=subject.subject_type if subject else "",
+            subject_uuids=[subject.subject_uuid] if subject else [],
             check_ids=[str(check.id)],
         )
         return Response(DataQualitySuiteRunSerializer(suite_run).data)
-
-    @extend_schema(
-        description="Run every enabled check on this table or view. Returns the suite run to poll.",
-        request=None,
-        responses={200: DataQualitySuiteRunSerializer},
-    )
-    @action(methods=["POST"], detail=False, url_path="run_all")
-    def run_all(self, request: Request, **kwargs) -> Response:
-        # Each of the subject's checks may read a further subject the member is denied, so gate on
-        # those too before running the batch. Only a restricted member has anything to check.
-        self._require_enabled_check_access()
-        suite_run = api.start_check_suite(
-            team=self.team,
-            user=cast(User, request.user),
-            subject_type=self.subject_type,
-            subject_uuids=[self.subject_uuid],
-        )
-        return Response(DataQualitySuiteRunSerializer(suite_run).data)
-
-    def _require_enabled_check_access(self) -> None:
-        if not self._can_be_object_denied():
-            return
-        subject = self._parent_identity
-        for check in api.checks_for_subject(self.team_id, self.subject_type, self.subject_uuid).filter(enabled=True):
-            self._require_referenced_subject_access(check.check_type, check.config, subject=subject)
 
     @extend_schema(
         description="Recent run history for this check, newest first.",
@@ -517,11 +587,7 @@ class _BaseCheckViewSet(_SubjectScopedViewSet, viewsets.ModelViewSet):
         check = self.get_object()
         # The current definition gates the check itself; each run is then judged on the definition
         # it executed, so editing a check into a harmless one does not unlock what it used to read.
-        self._require_referenced_subject_access(
-            check.check_type,
-            check.config,
-            subject=self._parent_identity,
-        )
+        self._require_referenced_subject_access(check.check_type, check.config, subject=self._check_identity(check))
         runs = self._readable_runs(
             DataQualityCheckRun.objects.for_team(self.team_id).filter(quality_check=check)
         ).select_related("quality_check")
@@ -530,103 +596,151 @@ class _BaseCheckViewSet(_SubjectScopedViewSet, viewsets.ModelViewSet):
         )
 
     @extend_schema(
-        description="Health rollup for this table or view, from the denormalized status of its checks.",
-        responses={200: SubjectHealthSerializer},
+        description="Health rollup per subject, for every subject in the project that has checks. "
+        "Narrow it to one subject with subject_type and subject_uuid.",
+        parameters=_SUBJECT_PARAMETERS,
+        responses={200: SubjectHealthSerializer(many=True)},
     )
     @action(methods=["GET"], detail=False, pagination_class=None)
     def health(self, request: Request, **kwargs) -> Response:
-        # A rollup counts the checks it covers, so it has to cover the same ones the list serves.
-        # Rolled up from the rows that survive rather than through subject_health(), which would go
-        # back to the database and count the withheld ones straight back in.
-        checks = list(api.checks_for_subject(self.team_id, self.subject_type, self.subject_uuid).filter(enabled=True))
-        if self._can_be_object_denied():
-            withheld = self._hidden_check_ids(checks)
-            checks = [check for check in checks if check.id not in withheld]
-        return Response(
-            SubjectHealthSerializer(
-                {
-                    "subject_type": self.subject_type,
-                    "subject_uuid": self.subject_uuid,
-                    "health": api.roll_up_health(
-                        api.CheckStatusRow(severity=check.severity, last_status=check.last_status) for check in checks
-                    ),
-                    "checks_total": len(checks),
-                    "checks_failing": sum(1 for check in checks if check.last_status == CheckRunStatus.FAILED),
-                }
-            ).data
-        )
+        # Rolled up from the checks already loaded, using the same rule as the listing. Calling
+        # subject_health() per subject would be a query per table.
+        by_subject: dict[tuple[str, str], list[DataQualityCheck]] = defaultdict(list)
+        for check in self.filter_queryset(self.get_queryset()).filter(enabled=True):
+            if check.subject_uuid is None:
+                # An orphan has no subject left to roll up under.
+                continue
+            by_subject[(check.subject_type, str(check.subject_uuid))].append(check)
+
+        rollups = [
+            {
+                "subject_type": subject_type,
+                "subject_uuid": subject_uuid,
+                "health": api.roll_up_health(
+                    api.CheckStatusRow(severity=check.severity, last_status=check.last_status) for check in checks
+                ),
+                "checks_total": len(checks),
+                "checks_failing": sum(1 for check in checks if check.last_status == CheckRunStatus.FAILED),
+            }
+            for (subject_type, subject_uuid), checks in by_subject.items()
+        ]
+        return Response(SubjectHealthSerializer(rollups, many=True).data)
 
     @extend_schema(
-        description="The check types this project can author, with the JSON schema of each type's config.",
+        description="The check types this project can author, with the JSON schema of each type's config. "
+        "Pass subject_type to narrow it to the types that kind of subject supports.",
+        parameters=[_SUBJECT_TYPE_PARAMETER],
         responses={200: CheckTypeSerializer(many=True)},
     )
     @action(methods=["GET"], detail=False, url_path="check_types", pagination_class=None)
     def check_types(self, request: Request, **kwargs) -> Response:
-        return Response(CheckTypeSerializer(api.list_check_types(self.subject_type), many=True).data)
+        subject_type = request.query_params.get("subject_type") or None
+        if subject_type is not None and subject_type not in _SUBJECT_TYPE_VALUES:
+            raise ValidationError({"subject_type": f"Unknown subject type '{subject_type}'."})
+        return Response(CheckTypeSerializer(api.list_check_types(subject_type), many=True).data)
 
+    @extend_schema(
+        description="Everything in this project you can author a check on, with each subject's columns.",
+        request=None,
+        responses={200: DataQualitySubjectSerializer(many=True)},
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def subjects(self, request: Request, **kwargs) -> Response:
+        selectable = api.selectable_subjects(self.team_id, self._authorized_subject_types())
+        editable_kinds = self._authorized_subject_types(write=True)
+        if self._can_be_object_denied():
+            readable = self._denial_context().readable
+            writable = self._writable_subjects
+            selectable = [
+                replace(subject, editable=writable.contains(subject.subject_type, subject.id))
+                for subject in selectable
+                if readable.contains(subject.subject_type, subject.id)
+            ]
+        else:
+            selectable = [
+                replace(subject, editable=SubjectType(subject.subject_type) in editable_kinds) for subject in selectable
+            ]
+        return Response(DataQualitySubjectSerializer(selectable, many=True).data)
 
-class SavedQueryCheckViewSet(_BaseCheckViewSet, AccessControlViewSetMixin):
-    scope_object = "warehouse_view"
-    subject_type = SubjectType.VIEW
-    subject_field = "saved_query"
+    @extend_schema(request=None, responses={200: DataQualityMetricSubjectSerializer(many=True)})
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def metric_subjects(self, request: Request, **kwargs) -> Response:
+        if not self.user_access_control.check_access_level_for_resource("data_catalog", "viewer"):
+            raise PermissionDenied("You need data catalog access to create checks on metrics.")
+        metrics = api.testable_metric_subjects(self.team_id)
+        if self._can_be_object_denied():
+            readable_ids = self._denial_context().readable.metric_ids
+            metrics = [metric for metric in metrics if metric.id in readable_ids]
+        return Response(DataQualityMetricSubjectSerializer(metrics, many=True).data)
 
-
-class TableCheckViewSet(_BaseCheckViewSet, AccessControlViewSetMixin):
-    scope_object = "warehouse_table"
-    subject_type = SubjectType.TABLE
-    subject_field = "table"
-
-
-class ScheduleUnavailableAPIError(APIException):
-    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-    default_code = "schedule_unavailable"
-    default_detail = "Could not read or update the check schedule. Reload it and try again."
-
-
-class MetricCheckViewSet(_BaseCheckViewSet):
-    scope_object = "data_catalog"
-    subject_type = SubjectType.METRIC
-    subject_field = "metric"
-    QUERY_GATED_ACTIONS = _BaseCheckViewSet.QUERY_GATED_ACTIONS | {"output_schema", "schedule"}
-
-    @extend_schema(request=None, responses={200: DataQualityOutputSchemaSerializer})
-    @action(methods=["GET"], detail=False, pagination_class=None, throttle_classes=[HogQLQueryThrottle])
+    @extend_schema(
+        description="Columns the subject's query returns, for authoring a check against them. Metrics only.",
+        parameters=_SUBJECT_PARAMETERS,
+        request=None,
+        responses={200: DataQualityOutputSchemaSerializer},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="output_schema",
+        pagination_class=None,
+        throttle_classes=[HogQLQueryThrottle],
+    )
     def output_schema(self, request: Request, **kwargs) -> Response:
+        subject = self._named_subject(request.query_params)
+        self._require_subject(subject, write=False)
+        if subject.subject_type != SubjectType.METRIC:
+            raise ValidationError({"subject_type": "Only a metric has an output schema to read."})
         try:
-            columns = api.metric_output_schema(self.team, self.subject_uuid, cast(User, request.user))
+            columns = api.metric_output_schema(self.team, subject.subject_uuid, cast(User, request.user))
         except (api.CheckConfigError, api.SubjectUnresolvableError) as error:
             raise ValidationError({"metric": str(error)})
         return Response(DataQualityOutputSchemaSerializer({"columns": columns}).data)
 
-    @extend_schema(methods=["GET"], request=None, responses={200: DataQualityCheckScheduleSerializer})
+    @extend_schema(
+        methods=["GET"],
+        description="The schedule every enabled check on this subject runs on.",
+        parameters=_SUBJECT_PARAMETERS,
+        request=None,
+        responses={200: DataQualityCheckScheduleSerializer},
+    )
     @extend_schema(
         methods=["PATCH"],
+        description="Change how often this subject's checks run, or stop running them automatically. "
+        "Name the subject with subject_type and subject_uuid in the body.",
         request=DataQualityCheckScheduleUpdateSerializer,
         responses={200: DataQualityCheckScheduleSerializer},
     )
     @action(methods=["GET", "PATCH"], detail=False, pagination_class=None)
     def schedule(self, request: Request, **kwargs) -> Response:
-        if not self._subject_checks().exists():
-            raise NotFound("Add a check to create this metric's schedule.")
+        writing = request.method == "PATCH"
+        subject = self._named_subject(request.data if writing else request.query_params)
+        self._require_subject(subject, write=writing)
+        if not api.runs_on_a_schedule(SubjectType(subject.subject_type)):
+            raise ValidationError(
+                {"subject_type": f"A {subject.subject_type}'s checks run when its data changes, not on a schedule."}
+            )
+        if not self._scheduled_checks(subject).exists():
+            raise NotFound("Add a check to create this subject's schedule.")
         authorization_context = self._denial_context() if self._can_be_object_denied() else None
-        if request.method == "PATCH":
-            self._require_enabled_check_access()
-            serializer = DataQualityCheckScheduleUpdateSerializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-        schedule: api.MetricCheckSchedule | None
+        if writing:
+            self._require_enabled_check_access(subject)
+            update = DataQualityCheckScheduleUpdateSerializer(data=request.data)
+            update.is_valid(raise_exception=True)
+        schedule: api.CheckSchedule | None
         try:
-            if request.method == "PATCH":
+            if writing:
                 schedule = api.update_schedule(
                     self.team_id,
-                    self.subject_type,
-                    self.subject_uuid,
+                    SubjectType(subject.subject_type),
+                    subject.subject_uuid,
                     user=cast(User, request.user),
                     authorization_context=authorization_context,
-                    **serializer.validated_data,
+                    **update.schedule_changes,
                 )
             else:
                 schedule = api.get_schedule_with_history(
-                    self.team_id, self.subject_type, self.subject_uuid, authorization_context
+                    self.team_id, SubjectType(subject.subject_type), subject.subject_uuid, authorization_context
                 )
             if schedule is None:
                 raise api.ScheduleUnavailableError()
@@ -634,42 +748,81 @@ class MetricCheckViewSet(_BaseCheckViewSet):
             raise ScheduleUnavailableAPIError() from error
         return Response(DataQualityCheckScheduleSerializer(schedule).data)
 
-    def _subject_checks(self) -> QuerySet[DataQualityCheck]:
-        return DataQualityCheck.objects.for_team(self.team_id).filter(metric_id=self.subject_uuid)
+    @extend_schema(
+        description="The schedule of every subject in the project whose checks run on one, for the checks "
+        "the caller may read. One request for the overview instead of one per subject.",
+        request=None,
+        responses={200: DataQualitySubjectScheduleSerializer(many=True)},
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def schedules(self, request: Request, **kwargs) -> Response:
+        scheduled_kinds = [kind for kind in SubjectType if api.runs_on_a_schedule(kind)]
+        checks = self.filter_queryset(self.get_queryset()).filter(subject_type__in=scheduled_kinds)
+        subjects = sorted(
+            {(SubjectType(check.subject_type), check.subject_uuid) for check in checks if check.subject_uuid}
+        )
+        authorization_context = self._denial_context() if self._can_be_object_denied() else None
+        try:
+            schedules = api.list_schedules_with_history(self.team_id, subjects, authorization_context)
+        except api.ScheduleUnavailableError as error:
+            raise ScheduleUnavailableAPIError() from error
+        return Response(DataQualitySubjectScheduleSerializer(schedules, many=True).data)
+
+    def _scheduled_checks(self, subject: api.SubjectIdentity) -> QuerySet[DataQualityCheck]:
+        return api.checks_for_subject(self.team_id, subject.subject_type, subject.subject_uuid, include_deleted=True)
 
 
-class _BaseSuiteRunViewSet(
-    _SubjectScopedViewSet,
+@extend_schema_view(
+    list=extend_schema(
+        description="Every check-suite run in the project, newest first. Narrow it to one subject "
+        "with subject_type and subject_uuid.",
+        parameters=_SUBJECT_PARAMETERS,
+    ),
+)
+class DataQualityRunViewSet(
+    _ProjectQualityViewSet,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet,
 ):
-    """Read-only reports for this subject's check-suite executions."""
+    """Check-suite executions: start one over a selection, and read every run the project has had.
 
-    QUERY_GATED_ACTIONS = frozenset({"list", "retrieve", "check_runs"})
+    A suite run may sweep several subjects at once -- a manual project-wide run, a materialization,
+    a source sync -- so it is reported here rather than under any one of them.
+    """
+
+    QUERY_GATED_ACTIONS = frozenset({"list", "retrieve", "create", "check_runs"})
     serializer_class = DataQualitySuiteRunSerializer
     queryset = DataQualitySuiteRun.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[DataQualitySuiteRun]) -> QuerySet[DataQualitySuiteRun]:
-        # The parent lookup is rewritten onto subject_uuid, so this lists the parent's own
-        # single-subject suites. Multi-subject sweep suites stay reachable through
-        # information_schema, which is the cross-subject surface.
-        return queryset.filter(team_id=self.team_id).order_by("-created_at")
+        queryset = queryset.filter(team_id=self.team_id).order_by("-created_at")
+        if self.action != "list":
+            return queryset
+        subject = self._optional_subject(self.request.query_params)
+        if subject is None:
+            return queryset
+        self._require_subject(subject, write=False)
+        return queryset.filter(subject_type=subject.subject_type, subject_uuid=subject.subject_uuid)
 
     def filter_queryset(self, queryset: QuerySet[DataQualitySuiteRun]) -> QuerySet[DataQualitySuiteRun]:
-        """Withhold the suites whose executions read a subject the caller is denied.
+        """Withhold the suites that report on a subject the caller is denied.
 
-        The parent gate clears the declared subject, but a suite row carries passed/failed/errored/
-        skipped over every check it ran, while ``check_runs`` hands back only the readable ones.
-        Serving both names the withheld check's outcome by subtraction.
+        A suite row carries its subject and its passed/failed/errored/skipped counters, so serving
+        one is serving outcome counts over the rows behind it. Excluded in SQL rather than filtered
+        per page, so the paginated count cannot report the withheld suites either.
+
+        ``check_runs`` is left alone on purpose: it already drops the individual runs that read a
+        denied subject, and hiding the suite there would take the readable runs down with them.
         """
         queryset = super().filter_queryset(queryset)
-        # check_runs is left alone on purpose: it already drops the individual runs that read a
-        # denied subject, and hiding the suite there would take the readable runs down with them.
-        if self.action not in ("list", "retrieve"):
+        if self.action == "check_runs":
             return queryset
         if not self._can_be_object_denied():
             return queryset
+        # A suite with runs is withheld when any of them touched a subject out of reach, the same
+        # rule the check routes apply. A suite that swept nothing has no run to gate on, so its own
+        # subject gates it directly -- which is the only path that reaches an empty suite.
         context = self._denial_context()
         return queryset.exclude(api.unreadable_suites_q(context)).exclude(
             api.suites_backing_unreadable_runs_q(self.team_id, context)
@@ -692,187 +845,9 @@ class _BaseSuiteRunViewSet(
         )
         return Response(serializer.data)
 
-
-def _parent_id_parameter(name: str, description: str) -> Callable[[type], type]:
-    # The suite-run model carries the parent as subject_uuid, so drf-spectacular cannot derive the
-    # nested path parameter's type from a model field; annotate it on every action instead.
-    parameter = OpenApiParameter(name, OpenApiTypes.UUID, OpenApiParameter.PATH, description=description)
-    schema = extend_schema(parameters=[parameter])
-    return extend_schema_view(list=schema, retrieve=schema, check_runs=schema)
-
-
-@_parent_id_parameter("saved_query_id", "Id of the saved query whose suite runs these are.")
-class SavedQuerySuiteRunViewSet(_BaseSuiteRunViewSet, AccessControlViewSetMixin):
-    scope_object = "warehouse_view"
-    subject_type = SubjectType.VIEW
-    subject_field = "saved_query"
-    filter_rewrite_rules = {"saved_query_id": "subject_uuid"}
-
-
-@_parent_id_parameter("table_id", "Id of the warehouse table whose suite runs these are.")
-class TableSuiteRunViewSet(_BaseSuiteRunViewSet, AccessControlViewSetMixin):
-    scope_object = "warehouse_table"
-    subject_type = SubjectType.TABLE
-    subject_field = "table"
-    filter_rewrite_rules = {"table_id": "subject_uuid"}
-
-
-@_parent_id_parameter("metric_id", "Id of the metric whose suite runs these are.")
-class MetricSuiteRunViewSet(_BaseSuiteRunViewSet):
-    scope_object = "data_catalog"
-    subject_type = SubjectType.METRIC
-    subject_field = "metric"
-    filter_rewrite_rules = {"metric_id": "subject_uuid"}
-
-
-class _ProjectQualityViewSet(_QualityGatedViewSet):
-    scope_object = "query"
-
-    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str]:
-        return ["query:read"]
-
-    def initial(self, request: Request, *args, **kwargs) -> None:
-        super().initial(request, *args, **kwargs)
-        if not self._authorized_subject_types(write=request.method not in SAFE_METHODS):
-            raise PermissionDenied("You need access to warehouse objects or the data catalog to work with checks.")
-
-
-class DataQualityCheckOverviewViewSet(
-    _ProjectQualityViewSet,
-    mixins.ListModelMixin,
-    viewsets.GenericViewSet,
-):
-    """Every check in the project, and the health of every subject that has one.
-
-    The per-subject surfaces answer "what is wrong with this table". This answers "what is wrong
-    across the project", which they cannot: each is nested under one parent. Read-only -- authoring
-    still happens against the subject that owns the check.
-    """
-
-    QUERY_GATED_ACTIONS = frozenset({"list", "health", "metric_subjects"})
-    serializer_class = DataQualityOverviewCheckSerializer
-    queryset = DataQualityCheck.objects.unscoped()
-
-    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str]:
-        if getattr(view, "action", None) == "metric_subjects":
-            return ["data_catalog:read", "query:read"]
-        return super().dangerously_get_required_scopes(request, view)
-
-    @extend_schema(request=None, responses={200: DataQualityMetricSubjectSerializer(many=True)})
-    @action(methods=["GET"], detail=False, pagination_class=None)
-    def metric_subjects(self, request: Request, **kwargs) -> Response:
-        if not self.user_access_control.check_access_level_for_resource("data_catalog", "viewer"):
-            raise PermissionDenied("You need data catalog access to create checks on metrics.")
-        metrics = api.testable_metric_subjects(self.team_id)
-        if self._can_be_object_denied():
-            readable_ids = self._denial_context().readable.metric_ids
-            metrics = [metric for metric in metrics if metric.id in readable_ids]
-        return Response(DataQualityMetricSubjectSerializer(metrics, many=True).data)
-
-    def safely_get_queryset(self, queryset: QuerySet[DataQualityCheck]) -> QuerySet[DataQualityCheck]:
-        # Orphans are excluded: their subject is gone, so there is no page to link to, nothing to
-        # run, and no rollup to sit under. The run history they left behind stays queryable.
-        # The rollup reads four columns of every enabled check in the project and serializes none of
-        # the people, so it does not pay for the author join the listing needs.
-        queryset = (
-            api.live_subject_checks(queryset.filter(team_id=self.team_id, deleted=False))
-            .exclude(subject_status=SubjectStatus.ORPHANED)
-            .order_by("subject_name", "name")
-        )
-        return queryset.select_related("created_by", "owner") if self.action == "list" else queryset
-
-    def list(self, request: Request, *args, **kwargs) -> Response:
-        queryset = self.filter_queryset(self.get_queryset())
-        page = self.paginate_queryset(queryset)
-        checks = list(queryset) if page is None else page
-        # Resolved once for the page, so linking to a subject costs two queries rather than one per
-        # check. Anything the batch cannot resolve stays absent and renders as plain text.
-        context = {**self.get_serializer_context(), "subject_locations": api.subject_locations(self.team_id, checks)}
-        serializer = self.get_serializer(checks, many=True, context=context)
-        return self.get_paginated_response(serializer.data) if page is not None else Response(serializer.data)
-
-    def filter_queryset(self, queryset: QuerySet[DataQualityCheck]) -> QuerySet[DataQualityCheck]:
-        # Hiding a denied subject's checks matters more here than on the nested surfaces: this one
-        # lists everything, so a leak is a directory of the tables a member cannot read. Denial is
-        # matched by name rather than equality, so the pass has to happen in Python; only a
-        # restricted member pays for it, since the denied set is empty for everyone else.
-        queryset = super().filter_queryset(queryset)
-        if not self._can_be_object_denied():
-            return queryset
-        return api.visible_check_queryset(self.team_id, queryset, self._denial_context())
-
     @extend_schema(
-        description="Health rollup for every table and view in the project that has checks.",
-        responses={200: SubjectHealthSerializer(many=True)},
-    )
-    @action(methods=["GET"], detail=False, pagination_class=None)
-    def health(self, request: Request, **kwargs) -> Response:
-        # Rolled up from the checks already loaded, using the same rule as the per-subject endpoint.
-        # Calling subject_health() per subject would be a query per table.
-        by_subject: dict[tuple[str, str], list[DataQualityCheck]] = defaultdict(list)
-        for check in self.filter_queryset(self.get_queryset()).filter(enabled=True):
-            if check.subject_uuid is None:
-                # An orphan has no subject left to roll up under.
-                continue
-            by_subject[(check.subject_type, str(check.subject_uuid))].append(check)
-
-        rollups = [
-            {
-                "subject_type": subject_type,
-                "subject_uuid": subject_uuid,
-                "health": api.roll_up_health(
-                    api.CheckStatusRow(severity=check.severity, last_status=check.last_status) for check in checks
-                ),
-                "checks_total": len(checks),
-                "checks_failing": sum(1 for check in checks if check.last_status == CheckRunStatus.FAILED),
-            }
-            for (subject_type, subject_uuid), checks in by_subject.items()
-        ]
-        return Response(SubjectHealthSerializer(rollups, many=True).data)
-
-
-class DataQualityRunViewSet(
-    _ProjectQualityViewSet,
-    mixins.ListModelMixin,
-    mixins.RetrieveModelMixin,
-    viewsets.GenericViewSet,
-):
-    """Project-wide check runs: start one over a selection, and read every run the project has had.
-
-    The per-subject surfaces only serve runs scoped to their own subject, so this is where a sweep
-    across several subjects -- a manual project-wide run, a materialization, a source sync -- is
-    readable. Scoped to `warehouse_objects` because it spans tables and views at once.
-    """
-
-    QUERY_GATED_ACTIONS = frozenset({"list", "retrieve", "create"})
-    serializer_class = DataQualitySuiteRunSerializer
-    queryset = DataQualitySuiteRun.objects.unscoped()
-
-    def safely_get_queryset(self, queryset: QuerySet[DataQualitySuiteRun]) -> QuerySet[DataQualitySuiteRun]:
-        return queryset.filter(team_id=self.team_id).order_by("-created_at")
-
-    def filter_queryset(self, queryset: QuerySet[DataQualitySuiteRun]) -> QuerySet[DataQualitySuiteRun]:
-        """Withhold the suites that report on a subject the caller is denied.
-
-        A suite row carries its subject and its passed/failed/errored/skipped counters, so serving
-        one is serving outcome counts over the rows behind it. The nested suite lists are gated by
-        their parent; this one spans every subject and has no parent to gate on. Excluded in SQL
-        rather than filtered per page, so the paginated count cannot report the withheld suites
-        either.
-        """
-        queryset = super().filter_queryset(queryset)
-        if not self._can_be_object_denied():
-            return queryset
-        # A suite with runs is withheld when any of them touched a subject out of reach, the same
-        # rule the check routes apply. A suite that swept nothing has no run to gate on, so its own
-        # subject gates it directly -- which is the only path that reaches an empty suite.
-        context = self._denial_context()
-        return queryset.exclude(api.unreadable_suites_q(context)).exclude(
-            api.suites_backing_unreadable_runs_q(self.team_id, context)
-        )
-
-    @extend_schema(
-        description="Run the named checks now, or every enabled check in the project when none are named. "
+        description="Run checks now: the ones named by check_ids, every enabled check on the subject named by "
+        "subject_type and subject_uuid, or every enabled check in the project when neither is given. "
         "Returns the suite run to poll for the report.",
         request=DataQualityRunRequestSerializer,
         responses={200: DataQualitySuiteRunSerializer},
@@ -881,6 +856,9 @@ class DataQualityRunViewSet(
         serializer = DataQualityRunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         requested = [str(check_id) for check_id in serializer.validated_data.get("check_ids") or []]
+        subject = self._optional_subject(serializer.validated_data)
+        if subject is not None and not requested:
+            return Response(self._run_subject(subject, cast(User, request.user)))
 
         runnable = api.live_subject_checks(
             DataQualityCheck.objects.for_team(self.team_id).filter(deleted=False, enabled=True)
@@ -901,6 +879,22 @@ class DataQualityRunViewSet(
                 check_ids=[str(check.id) for check in checks],
             )
         return Response(DataQualitySuiteRunSerializer(suite_run).data)
+
+    def _run_subject(self, subject: api.SubjectIdentity, user: User) -> dict:
+        """Run every enabled check on one subject, stamping the suite with it so it reads back scoped.
+
+        Pointing at a subject is naming what to run, so a check on it the caller may not reach is a
+        403 rather than something quietly dropped.
+        """
+        self._require_subject(subject, write=True)
+        self._require_enabled_check_access(subject)
+        suite_run = api.start_check_suite(
+            team=self.team,
+            user=user,
+            subject_type=subject.subject_type,
+            subject_uuids=[subject.subject_uuid],
+        )
+        return DataQualitySuiteRunSerializer(suite_run).data
 
     def _authorized_checks(self, checks: list[DataQualityCheck], named: bool) -> list[DataQualityCheck]:
         """Drop, or reject, the checks this member may not run.

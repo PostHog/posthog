@@ -190,7 +190,7 @@ export type AccountsViewStateSource = 'defaults' | 'draft' | 'saved_view' | 'sha
 
 export interface ApplyAccountsViewStateOptions {
     source: AccountsViewStateSource
-    columns: 'restore' | 'defaults'
+    columns: 'restore' | 'defaults' | 'keep'
 }
 
 function viewStateWithMineOnly(
@@ -1262,7 +1262,7 @@ export const accountsLogic = kea<accountsLogicType>([
             try {
                 if (options.columns === 'restore') {
                     actions.restoreSelectColumns(viewState.columns)
-                } else {
+                } else if (options.columns === 'defaults') {
                     actions.resetColumns()
                 }
                 actions.setColumnDisplayConfig(viewState.columnDisplay)
@@ -1279,12 +1279,16 @@ export const accountsLogic = kea<accountsLogicType>([
             } finally {
                 cache.applyingViewState = false
             }
-            actions.persistViewState()
+            // A fallback snapshot would become a draft that blocks the pending saved view.
+            if (options.source !== 'defaults') {
+                actions.persistViewState()
+            }
         },
         persistViewState: ({ search }) => {
             const draftIdentity = getAccountsViewDraftIdentity(values.currentTeamId, values.user)
             if (
                 !values.viewStateHydrated ||
+                values.awaitingSavedView ||
                 cache.applyingViewState ||
                 !draftIdentity ||
                 !objectsEqual(cache.viewStateDraftIdentity, draftIdentity) ||
@@ -1297,6 +1301,11 @@ export const accountsLogic = kea<accountsLogicType>([
                 filters: { ...values.viewState.filters, search: search ?? values.searchInput },
             }
             writeAccountsViewDraft(draftIdentity.teamId, draftIdentity.userId, viewState)
+        },
+        setAwaitingSavedView: ({ awaiting }) => {
+            if (!awaiting) {
+                actions.syncViewStateToUrl()
+            }
         },
         setSearchQuery: () => persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
         setTagsFilter: () => persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
@@ -1619,7 +1628,7 @@ export const accountsLogic = kea<accountsLogicType>([
                         viewStateWithMineOnly(draft ?? values.viewState, mineOnly, values.currentUserId),
                         {
                             source: draft ? 'draft' : 'defaults',
-                            columns: 'restore',
+                            columns: draft ? 'restore' : 'keep',
                         }
                     )
                     restored = true
@@ -1646,9 +1655,8 @@ export const accountsLogic = kea<accountsLogicType>([
                     } else {
                         actions.applyViewState(viewStateWithMineOnly(values.viewState, true, values.currentUserId), {
                             source: 'defaults',
-                            columns: 'restore',
+                            columns: 'keep',
                         })
-                        restored = true
                     }
                 }
             }
@@ -1820,6 +1828,9 @@ export const accountsLogic = kea<accountsLogicType>([
     }),
     actionToUrl(({ values, cache }) => ({
         syncViewStateToUrl: () => {
+            if (!values.viewStateHydrated || values.awaitingSavedView) {
+                return undefined
+            }
             const pathname = accountsPathToWriteBackTo(values.accountIdFilter)
             if (!pathname) {
                 return undefined

@@ -24,9 +24,10 @@ describe("migrateOnboardingState", () => {
     },
   );
 
-  it("leaves a step of the current flow alone", () => {
-    expect(migrateOnboardingState(persisted("select-repo")).currentStep).toBe(
-      "select-repo",
-    );
+  it("completes onboarding for a persisted select-repo step", () => {
+    expect(migrateOnboardingState(persisted("select-repo"))).toMatchObject({
+      currentStep: "select-repo",
+      hasCompletedOnboarding: true,
+    });
   });
 });

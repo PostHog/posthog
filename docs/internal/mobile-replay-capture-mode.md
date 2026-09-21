@@ -70,9 +70,8 @@ Keep the `unknown` count visible to distinguish missing classifications from wir
 
 Existing installations need schema cleanup before deploying this change.
 Coordinate with the ClickHouse team to remove the old stored `snapshot_mode` column and align `snapshot_source` to `AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))` on the sharded, writable, and read tables.
-Migration `0322` checks these prerequisites on every target node before adding columns or replacing the materialized views.
-If a check fails, the migration stops without changing tables or views.
-Complete the coordinated cleanup, then retry the migration.
+Migration `0322` adds `snapshot_mode_v2` with `ADD COLUMN IF NOT EXISTS` and does not check these prerequisites.
+Run the coordinated cleanup separately; the migration does not block on it.
 Changes to historical migrations apply to fresh installations and do not repair tables on installations that already ran them.
 The replacement-column migration does not perform this cleanup or convert existing source aggregate states.
 

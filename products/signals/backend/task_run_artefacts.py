@@ -316,17 +316,21 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
 
 
 def record_implementation_task(
-    *, team_id: int, report_id: str, task_id: str, run_id: str | None = None, billing_exempt_reason: str | None = None
+    *,
+    team_id: int,
+    report_id: str,
+    task_id: str,
+    run_id: str | None = None,
+    billing_exempt_reason: str | None = None,
+    automation_branch: str | None = None,
 ) -> SignalReportArtefact:
     """Record a started implementation task as BOTH the legacy `SignalReportTask` gate row and the
     `task_run` work-log artefact.
 
-    `SignalReportTask` (an `implementation` row) is the auto-start idempotency gate — see
-    `auto_start.py` — because the artefact log is freeform and API-mutable and so can't be trusted
-    for a spend-controlling decision. We dual-write the artefact so that, once
-    `backfill_task_run_artefacts` has converted every legacy row, the gate can switch to the
-    artefact log and `SignalReportTask` can be dropped. Call inside the transaction that created
-    the task. Shared by auto-start and the manual start-task API.
+    Both records remain necessary while historical task associations are being backfilled.
+    Call inside the transaction that created the task. Shared by auto-start and the manual
+    start-task API; only auto-start supplies `automation_branch`, binding replacement eligibility
+    to that exact automatically started run.
 
     `billing_exempt_reason` lets a caller that knows its origin is PostHog-system declare the
     report never-billable in the same transaction that records the task — before the run can ship
@@ -343,13 +347,17 @@ def record_implementation_task(
         task_id=task_id,
         defaults={"relationship": TASK_RUN_TYPE_IMPLEMENTATION},
     )
-    artefact = append_task_run_artefact(
+    artefact = SignalReportArtefact.add_log(
         team_id=team_id,
         report_id=report_id,
-        product=SIGNALS_PRODUCT,
-        type=TASK_RUN_TYPE_IMPLEMENTATION,
-        task_id=task_id,
-        run_id=run_id,
+        content=TaskRunArtefact(
+            product=SIGNALS_PRODUCT,
+            type=TASK_RUN_TYPE_IMPLEMENTATION,
+            task_id=task_id,
+            run_id=run_id,
+            automation_branch=automation_branch,
+        ),
+        attribution=ArtefactAttribution.from_task(task_id),
     )
     try:
         claim_report_for_task(team_id=team_id, report_id=report_id, task_id=task_id)

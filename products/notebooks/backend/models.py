@@ -229,8 +229,8 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     # Who ran it. Kernels are per user, so this is the second half of a KernelRuntime's scope —
     # the callback needs it to file the frame snapshot without a user-blind lookup by id.
     # db_constraint=False: a real FK to the hot posthog_user table locks it on deploy.
-    # db_index=False: nothing queries runs by user — it is only ever read off a run we already
-    # hold. DO_NOTHING keeps that true: SET_NULL would have Django's collector issue an
+    # db_index=False: user-scoped lookups also filter by the indexed notebook and node.
+    # DO_NOTHING avoids having Django's collector issue an
     # `UPDATE … WHERE user_id = …` against this unindexed column on every user delete, on the
     # table that grows fastest. Nothing enforces referential integrity here anyway
     # (db_constraint=False), and a dangling id already reads back as None.
@@ -278,16 +278,37 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
 
 
 class GeneratedWidget(TeamScopedRootMixin, UUIDModel):
+    class PublicationStatus(models.TextChoices):
+        PRIVATE = "private", "private"
+        PUBLISHED = "published", "published"
+        DEPRECATED = "deprecated", "deprecated"
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     name = models.CharField(max_length=400)
+    description = models.TextField(blank=True, default="", db_default="")
+    tags: JSONField = JSONField(default=list, db_default=[])
+    publication_status = models.CharField(
+        choices=PublicationStatus,
+        default=PublicationStatus.PRIVATE,
+        db_default=PublicationStatus.PRIVATE,
+        max_length=16,
+    )
     canvas_id = models.UUIDField(unique=True)
     current_version = models.ForeignKey(
+        "notebooks.GeneratedWidgetVersion", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    pending_version = models.ForeignKey(
         "notebooks.GeneratedWidgetVersion", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
+    published_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_generated_widget"
@@ -321,6 +342,7 @@ class GeneratedWidgetVersion(TeamScopedRootMixin, UUIDModel):
     model = models.CharField(max_length=64, blank=True, default="")
     generator_version = models.CharField(max_length=32)
     input_contract: JSONField = JSONField(default=list)
+    demo_data: JSONField = JSONField(default=dict, db_default={})
     schema_hash = models.CharField(max_length=64)
     security_review_severity = models.CharField(
         choices=SecurityReviewSeverity,
@@ -366,6 +388,7 @@ class NotebookWidgetInstance(TeamScopedRootMixin, UUIDModel):
         blank=True,
         related_name="pinned_instances",
     )
+    input_bindings: JSONField = JSONField(default=dict, db_default={})
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )

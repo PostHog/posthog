@@ -2,6 +2,7 @@ import { CloudIcon, PlusIcon } from "@phosphor-icons/react";
 import { channelDisplayReference } from "@posthog/core/canvas/channelName";
 import { ChannelHeader } from "@posthog/ui/features/canvas/components/ChannelHeader";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { Button } from "@posthog/ui/primitives/Button";
 import {
@@ -77,7 +78,7 @@ export function WebsiteChannelLoops({ channelId }: { channelId: string }) {
 }
 
 function ChannelLoopsLoading({ headerContent }: { headerContent: ReactNode }) {
-  useSetHeaderContent(headerContent);
+  useSetHeaderContent(headerContent, !useWorkLayout());
   return (
     <div className="mx-auto w-full max-w-5xl px-8 py-8">
       <LoopsSkeleton />
@@ -100,11 +101,13 @@ function SpaceAttachedLoops({
       ? `You've reached the limit of ${limits.max} loops for this project. Delete one to add another.`
       : null;
 
+  const workLayout = useWorkLayout();
   useSetHeaderContent(
     useMemo(
       () => <ChannelHeader channelId={channelId} page="loops" />,
       [channelId],
     ),
+    !workLayout,
   );
 
   const attachedLoops = useMemo(

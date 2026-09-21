@@ -245,17 +245,7 @@ export function EditModeActions(): JSX.Element {
         <>
             <DashboardSubscribeButton />
             {layoutEditMode && <DashboardEditSaveCancelButtons />}
-            {canEditDashboard && !layoutEditMode && tiles.length > 0 && (
-                <Shortcut
-                    name="EnterEditMode"
-                    scope={Scene.Dashboard}
-                    keybind={[keyBinds.edit]}
-                    intent="Enter edit mode"
-                    interaction="click"
-                >
-                    <DashboardCustomizeButton />
-                </Shortcut>
-            )}
+            {canEditDashboard && !layoutEditMode && tiles.length > 0 && <DashboardCustomizeButton />}
             {layoutEditMode && tiles.length > 0 && (
                 <LemonMenu
                     items={[{ label: () => <DashboardCustomizeMenu /> }]}
@@ -326,17 +316,7 @@ export function ViewModeActions(): JSX.Element {
                     Share
                 </LemonButton>
             )}
-            {canEditDashboard && tiles.length > 0 && (
-                <Shortcut
-                    name="EnterEditMode"
-                    scope={Scene.Dashboard}
-                    keybind={[keyBinds.edit]}
-                    intent="Enter edit mode"
-                    interaction="click"
-                >
-                    <DashboardCustomizeButton />
-                </Shortcut>
-            )}
+            {canEditDashboard && tiles.length > 0 && <DashboardCustomizeButton />}
             <DashboardAddTileButton />
         </>
     )

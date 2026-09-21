@@ -2,17 +2,15 @@ from typing import Optional, cast
 
 from sshtunnel import BaseSSHTunnelForwarderError
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSSHTunnelConfig,
 )
-
-from posthog.exceptions_capture import capture_exception
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     HostNotAllowedError,
@@ -70,6 +68,13 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # A fresh connection from the next Temporal retry resolves it; keep it out of
             # error tracking so it doesn't surface as noise.
             "Unexpected EOF from the server",
+            # pymssql's own InterfaceError, raised when `Cursor.execute` calls `cancel()` to
+            # clear pending results and finds the connection already dead (`assert_connected`
+            # in pymssql's `_mssql.pyx`). It's the same underlying DBPROCESS-death class as the
+            # 20017 case above — the driver's own retry loop tried to reuse a connection that
+            # died between opening and the query running — just surfaced through a different
+            # internal code path. A fresh connection from the next Temporal retry resolves it.
+            "Not connected to any MS SQL server",
         }
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
@@ -189,7 +194,7 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MSSQL,
+            name=ExternalDataSourceType.MSSQL,
             category=DataWarehouseSourceCategory.DATABASES,
             # This connector is also how you connect Azure SQL Database, but nothing in the label
             # or name carries "Azure", so a search for it fuzzy-matched unrelated sources instead.

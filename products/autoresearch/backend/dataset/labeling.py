@@ -105,6 +105,12 @@ def _own_events_excluded_clause(alias: str = "") -> str:
     return f" AND {alias}event != '{PREDICTION_EVENT_NAME}'"
 
 
+# The most persons one training or scoring run materializes. HogQL otherwise caps a query at its
+# default of 100 rows; the materializers fail a result that fills this bound, and validation
+# refuses a larger population before a run is spent on it.
+MATERIALIZE_ROW_LIMIT = 50_000
+
+
 @dataclass(frozen=True, kw_only=True)
 class _CompiledPopulationFilters:
     # Row-level fragments for an events scan whose ``person`` resolves through the lazy join.

@@ -2,6 +2,7 @@ import time
 import inspect
 import threading
 from collections.abc import Callable, Coroutine
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from functools import wraps
 from typing import Any, ParamSpec, TypeVar, cast
@@ -14,6 +15,47 @@ from temporalio import activity, workflow
 
 P = ParamSpec("P")
 T = TypeVar("T")
+
+ASYNCIFY_SLOW_THRESHOLD_SECONDS = 1.0
+
+_asyncify_executor: ThreadPoolExecutor | None = None
+
+
+def configure_asyncify_executor(max_workers: int) -> ThreadPoolExecutor:
+    """Give `@asyncify` activities a thread pool sized to the worker's activity slots.
+
+    Without an explicit executor, ``sync_to_async(thread_sensitive=False)`` runs on the event
+    loop's default executor, which CPython caps at ``min(32, os.cpu_count() + 4)`` threads. That
+    cap is independent of, and usually below, the worker's ``max_concurrent_activities``, so
+    asyncified activities queue for a thread while their slots sit idle. One family of activities
+    blocking on a slow dependency then starves every other activity in the process.
+
+    Call this once at worker startup. Processes that never call it keep the previous behaviour.
+    """
+    global _asyncify_executor
+
+    # Non-daemon threads, so a replaced pool would keep the process alive with nothing to run.
+    if _asyncify_executor is not None:
+        _asyncify_executor.shutdown(wait=False)
+
+    _asyncify_executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="asyncify")
+    return _asyncify_executor
+
+
+def shutdown_asyncify_executor() -> None:
+    """Release the pool created by `configure_asyncify_executor`, and fall back to the loop default."""
+    global _asyncify_executor
+
+    if _asyncify_executor is None:
+        return
+
+    _asyncify_executor.shutdown(wait=False)
+    _asyncify_executor = None
+
+
+def get_asyncify_executor() -> ThreadPoolExecutor | None:
+    """Return the pool `@asyncify` submits to, or `None` to fall back to the loop's default."""
+    return _asyncify_executor
 
 
 def close_stale_db_connections() -> None:
@@ -87,19 +129,17 @@ def asyncify(fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
                 now = time.monotonic()
                 thread_wait = start_time - submit_time
                 execution_time = now - start_time
-                if activity.in_activity():
+                if activity.in_activity() and max(thread_wait, execution_time) >= ASYNCIFY_SLOW_THRESHOLD_SECONDS:
+                    # The structlog chain has no ExtraAdder, so stdlib `extra=` fields never reach the log.
                     activity.logger.warning(
-                        "asyncify_slow",
-                        extra={
-                            "function": fn.__name__,
-                            "thread_wait_seconds": round(thread_wait, 3),
-                            "execution_seconds": round(execution_time, 3),
-                            "thread_name": threading.current_thread().name,
-                            "activity_id": activity.info().activity_id,
-                        },
+                        f"asyncify_slow function={fn.__name__} "
+                        f"thread_wait_seconds={thread_wait:.3f} execution_seconds={execution_time:.3f} "
+                        f"thread_name={threading.current_thread().name}"
                     )
 
-        return await sync_to_async(thread_sensitive=False)(close_db_connections(instrumented))()
+        return await sync_to_async(thread_sensitive=False, executor=get_asyncify_executor())(
+            close_db_connections(instrumented)
+        )()
 
     return wrapper
 

@@ -4,7 +4,8 @@ TAM-scheduled rows always take precedence, in TAM-defined order. Otherwise we
 walk BLESSED_PRODUCT_ORDER and pick the first product the org is not excluded
 from — there is deliberately no preference between never-pushed products and
 retry-eligible ones; blessed position decides. When every blessed product is
-excluded we pick at random from FALLBACK_PRODUCT_ORDER.
+excluded we pick from FALLBACK_PRODUCT_ORDER, weighted by the roles the org's
+members signed up with (see role_affinity.py).
 
 Usage granularity is per project: ProductIntent rows are project-scoped
 (RootTeamMixin pins them to the project's root team), so an org only counts as
@@ -16,7 +17,6 @@ is hidden in the projects that already use it (see the API's team_id handling).
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
-from random import choice
 
 from django.db.models import Q
 
@@ -28,6 +28,7 @@ from posthog.schema_enums import ProductKey
 
 from products.growth.backend.models import ProductPushCampaign
 from products.growth.backend.product_push.cadence import is_retry_eligible
+from products.growth.backend.product_push.role_affinity import pick_by_role_affinity
 from products.growth.backend.product_push.surfaces import SURFACE_ADOPTION_CHECKS, OrganizationId
 
 # The order in which we push products to organizations that don't use them yet.
@@ -41,23 +42,30 @@ BLESSED_PRODUCT_ORDER: list[ProductKey] = [
     ProductKey.SESSION_REPLAY,
     ProductKey.POSTHOG_SLACK,
     ProductKey.ERROR_TRACKING,
-    ProductKey.FEATURE_FLAGS,
-    ProductKey.EXPERIMENTS,
 ]
 
-# Unordered pool for orgs that exhausted the blessed order; picked at random.
-# Only broadly-available products belong here — nothing feature-flag-gated or
-# unreleased in the catalog, since the promo card would link to a product most
-# users can't open. Gated products can still be pushed to a specific org via a
-# TAM-scheduled row once the flag is enabled for them.
+# Unordered pool for orgs that exhausted the blessed order, weighted by the roles
+# the org's members stated at signup (see role_affinity.py). A feature-flag-gated
+# product may sit here, because the card checks the flag and renders nothing
+# without it. A product with no ProductIntent registered anywhere in the app may
+# not: its campaign can never close as adopted.
 FALLBACK_PRODUCT_ORDER: list[ProductKey] = [
     ProductKey.CONVERSATIONS,
     ProductKey.DATA_WAREHOUSE,
+    ProductKey.ENDPOINTS,
+    ProductKey.EXPERIMENTS,
+    ProductKey.FEATURE_FLAGS,
     ProductKey.LLM_ANALYTICS,
     ProductKey.LLM_CLUSTERS,
     ProductKey.LLM_EVALUATIONS,
     ProductKey.LLM_PROMPTS,
     ProductKey.LOGS,
+    ProductKey.MARKETING_ANALYTICS,
+    ProductKey.MCP_ANALYTICS,
+    ProductKey.NOTEBOOKS,
+    ProductKey.REPLAY_VISION,
+    ProductKey.SURVEYS,
+    ProductKey.TOOLBAR,
     ProductKey.WORKFLOWS,
     ProductKey.POSTHOG_DESKTOP,
     ProductKey.POSTHOG_GITHUB,
@@ -78,11 +86,18 @@ PUSH_PRODUCT_PATHS: dict[ProductKey, str] = {
     ProductKey.CONVERSATIONS: "Support",
     # The 'Data warehouse' catalog item is unreleased; SQL editor is the shipped surface.
     ProductKey.DATA_WAREHOUSE: "SQL editor",
+    ProductKey.ENDPOINTS: "Endpoints",
     ProductKey.LLM_ANALYTICS: "LLM analytics",
     ProductKey.LLM_CLUSTERS: "Clusters",
     ProductKey.LLM_EVALUATIONS: "Evaluations",
     ProductKey.LLM_PROMPTS: "Prompts",
     ProductKey.LOGS: "Logs",
+    ProductKey.MARKETING_ANALYTICS: "Marketing analytics",
+    ProductKey.MCP_ANALYTICS: "MCP analytics",
+    ProductKey.NOTEBOOKS: "Notebooks",
+    ProductKey.REPLAY_VISION: "Replay vision",
+    ProductKey.SURVEYS: "Surveys",
+    ProductKey.TOOLBAR: "Toolbar",
     ProductKey.WORKFLOWS: "Workflows",
 }
 
@@ -199,6 +214,6 @@ def select_next_product(organization: Organization, now: datetime) -> Selection 
 
     fallback_candidates = [product_key for product_key in FALLBACK_PRODUCT_ORDER if product_key.value not in excluded]
     if fallback_candidates:
-        return Selection(product_key=choice(fallback_candidates).value)
+        return Selection(product_key=pick_by_role_affinity(organization, fallback_candidates).value)
 
     return None
