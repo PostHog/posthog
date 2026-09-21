@@ -67,7 +67,47 @@ def exclude_archived_unless_requested(queryset: QuerySet, *, requested: bool) ->
     return queryset
 
 
-def filter_stale_flags(queryset: QuerySet) -> QuerySet:
+# `jsonb_array_elements` and `jsonb_array_length` raise on a value that is not an array, and the
+# error aborts the whole statement instead of skipping the row. A detection batch covers 250 teams,
+# so one legacy flag storing `groups` as a scalar would take the query down for every team in it.
+# These read a non-array as an empty array. `CASE` is the only construct that guarantees the type
+# test runs before the array function; the planner is free to reorder the arms of `AND` and `OR`.
+# Both predicates below interpolate these, so they are f-strings and every literal `{}` in their
+# SQL is written `{{}}`.
+_GROUPS_ARRAY = (
+    "CASE WHEN jsonb_typeof(posthog_featureflag.filters->'groups') = 'array' "
+    "THEN posthog_featureflag.filters->'groups' ELSE '[]'::jsonb END"
+)
+_VARIANTS_ARRAY = (
+    "CASE WHEN jsonb_typeof(posthog_featureflag.filters->'multivariate'->'variants') = 'array' "
+    "THEN posthog_featureflag.filters->'multivariate'->'variants' ELSE '[]'::jsonb END"
+)
+# A release condition carries no targeting when `properties` is `[]`, absent, or JSON null, which
+# is how `is_group_fully_rolled_out` and `is_boolean_flag_fully_rolled_out` read it. Postgres `->`
+# returns SQL NULL for the absent key and the jsonb scalar `null` for the stored null, so each
+# needs its own test. The editor and the filters serializer write `[]`, so only unedited legacy
+# rows hold the other two.
+_ELEM_HAS_NO_TARGETING = (
+    "("
+    "(elem->'properties')::text = '[]'::text "
+    "OR elem->'properties' IS NULL "
+    "OR jsonb_typeof(elem->'properties') = 'null'"
+    ")"
+)
+# Every branch of `FeatureFlagStatusChecker.is_flag_fully_rolled_out` needs a release condition at
+# an explicit 100% with no targeting, so both predicates below test for one. Keep it in one place,
+# because a change to how the two read that shape has to reach the stale filter and the rollout
+# prefilter together or they classify the same flag differently.
+_HAS_UNTARGETED_FULL_ROLLOUT_GROUP = f"""
+    EXISTS (
+        SELECT 1 FROM jsonb_array_elements({_GROUPS_ARRAY}) AS elem
+        WHERE elem->>'rollout_percentage' = '100'
+        AND {_ELEM_HAS_NO_TARGETING}
+    )
+"""
+
+
+def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None = None) -> QuerySet:
     """
     Narrow a FeatureFlag queryset to the flags that count as stale.
 
@@ -75,17 +115,17 @@ def filter_stale_flags(queryset: QuerySet) -> QuerySet:
     question for one flag and also produces the human-readable reason. The two are meant to
     classify the same flags, so change them together.
 
-    They do not agree yet, on two shapes. First, the checker calls a flag with no release
-    conditions fully rolled out, so `filters` of `{"groups": []}` (the model default) is STALE
-    to the checker and not stale here; the config branch below matches an empty `filters` only
-    as `NULL` or `{}`. Second, the checker reads a group that omits the `properties` key, e.g.
-    `{"groups": [{"rollout_percentage": 100}]}`, as an empty targeting list and calls it STALE,
-    while the config branch requires a literal `[]` and Postgres `->` returns NULL for the
-    absent key, so no branch matches. The editor and the filters serializer now write
-    `properties: []`, so only unedited legacy rows hold the second shape.
+    They do not agree on one shape: the checker calls a flag with no release conditions fully
+    rolled out, so `filters` of `{"groups": []}` (the model default) is STALE to the checker and
+    not stale here, because the config branch below matches an empty `filters` only as `NULL` or
+    `{}`. Matching the model default would make every unconfigured flag in a project stale.
     `test_stale_filter_agrees_with_status_checker` covers the shapes where the two do agree.
 
     The caller supplies the scope, so pass a queryset already narrowed to the team.
+
+    Pass `stale_threshold` to hold one detection run to one cutoff, so the caller can compare
+    its other queries against the same instant. Without it the function reads the clock itself,
+    which is what the `active=STALE` filter wants.
 
     The config branch's raw SQL rides on `.extra(where=...)`, and that clause stays on that
     branch when the two querysets are OR-combined below. Applied to the combined query, it
@@ -105,7 +145,8 @@ def filter_stale_flags(queryset: QuerySet) -> QuerySet:
     # Get stale flags using the best available signal:
     # 1. If last_called_at exists: flag hasn't been called in 30+ days
     # 2. If last_called_at is NULL: flag is 100% rolled out and 30+ days old
-    stale_threshold = stale_flag_threshold()
+    if stale_threshold is None:
+        stale_threshold = stale_flag_threshold()
     usage_based_stale = Q(last_called_at__lt=stale_threshold, active=True)
     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
     config_based_queryset = queryset.filter(
@@ -114,47 +155,72 @@ def filter_stale_flags(queryset: QuerySet) -> QuerySet:
         created_at__lt=stale_threshold,
     ).extra(
         where=[
-            """
+            f"""
             (
                 (
-                    EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                        WHERE elem->>'rollout_percentage' = '100'
-                        AND (elem->'properties')::text = '[]'::text
-                    )
+                    {_HAS_UNTARGETED_FULL_ROLLOUT_GROUP}
                     AND (posthog_featureflag.filters->>'multivariate' IS NULL
-                        OR posthog_featureflag.filters->'multivariate' = '{}'::jsonb
-                        OR jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') = 0)
+                        OR posthog_featureflag.filters->'multivariate' = '{{}}'::jsonb
+                        OR jsonb_array_length({_VARIANTS_ARRAY}) = 0)
                 )
                 OR
                 (
                     EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'multivariate'->'variants') AS variant
+                        SELECT 1 FROM jsonb_array_elements({_VARIANTS_ARRAY}) AS variant
                         WHERE variant->>'rollout_percentage' = '100'
                     )
-                    AND EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                        WHERE elem->>'rollout_percentage' = '100'
-                        AND (elem->'properties')::text = '[]'::text
-                    )
+                    AND {_HAS_UNTARGETED_FULL_ROLLOUT_GROUP}
                 )
                 OR
                 (
                     EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
+                        SELECT 1 FROM jsonb_array_elements({_GROUPS_ARRAY}) AS elem
                         WHERE elem->>'rollout_percentage' = '100'
-                        AND (elem->'properties')::text = '[]'::text
+                        AND {_ELEM_HAS_NO_TARGETING}
                         AND elem->'variant' IS NOT NULL
                         AND elem->>'variant' IS NOT NULL
                     )
-                    AND (posthog_featureflag.filters->>'multivariate' IS NOT NULL AND jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') > 0)
+                    AND (posthog_featureflag.filters->>'multivariate' IS NOT NULL AND jsonb_array_length({_VARIANTS_ARRAY}) > 0)
                 )
-                OR (posthog_featureflag.filters IS NULL OR posthog_featureflag.filters = '{}'::jsonb)
+                OR (posthog_featureflag.filters IS NULL OR posthog_featureflag.filters = '{{}}'::jsonb)
             )
             """
         ]
     )
     return queryset.filter(usage_based_stale) | config_based_queryset
+
+
+def filter_effectively_full_rollout_flags(queryset: QuerySet) -> QuerySet:
+    """
+    Narrow a FeatureFlag queryset to the flags whose configuration can only serve one result.
+
+    Rollout completeness is not staleness. `filter_stale_flags` keeps that job and nothing
+    user-visible reads this.
+
+    The predicate reads configuration only. Which of these flags is a cleanup candidate is the
+    caller's policy, so flag age, call recency and `active` all stay with the caller.
+
+    This is a prefilter, not a verdict. The SQL matches a release condition at an explicit 100%
+    with no properties, which every branch of `FeatureFlagStatusChecker.is_flag_fully_rolled_out`
+    needs, boolean and multivariate alike. A multivariate flag also needs a winning variant or a
+    variant override on that condition, which this does not test, so the caller must confirm each
+    row with `is_flag_fully_rolled_out` before it treats the flag as fully rolled out.
+
+    A group that omits the `properties` key, or stores it as JSON null, counts as having no
+    targeting. See `_ELEM_HAS_NO_TARGETING`.
+
+    A legacy row storing `groups` as something other than an array reads as an empty array and
+    drops out, rather than aborting the batch. See `_GROUPS_ARRAY`.
+
+    Flags with no release conditions at all (`filters` NULL, `{}`, or `{"groups": []}`) stay out,
+    although the checker calls them fully rolled out. `{"groups": []}` is the model default, so
+    matching it would report every flag in a project that nobody has configured.
+
+    See `filter_stale_flags` for the `.extra(where=...)` composition trap, which applies here too.
+    `.filter()` chained onto the result ANDs cleanly and keeps the raw text at the top level.
+    """
+    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
+    return queryset.extra(where=[_HAS_UNTARGETED_FULL_ROLLOUT_GROUP])
 
 
 def filter_flags_by_active_param(queryset: QuerySet, value: str | bool) -> QuerySet:
@@ -371,7 +437,10 @@ class FeatureFlagStatusChecker:
 
     def is_group_fully_rolled_out(self, group: dict) -> bool:
         rollout_percentage = group.get("rollout_percentage")
-        properties = group.get("properties", [])
+        # A `properties` key stored as JSON null means no targeting, the same as an absent key.
+        # The matcher's field is `Option<Vec<PropertyFilter>>` and the filters serializer
+        # normalizes null to `[]`, so only legacy rows still hold the null.
+        properties = group.get("properties") or []
         return rollout_percentage == 100 and len(properties) == 0
 
     def is_boolean_flag_fully_rolled_out(self, flag: FeatureFlag) -> bool:
@@ -387,7 +456,7 @@ class FeatureFlagStatusChecker:
         # The fully rolled out release condition must have no properties set.
         for release_condition in release_conditions:
             rollout_percentage = release_condition.get("rollout_percentage")
-            properties = release_condition.get("properties", [])
+            properties = release_condition.get("properties") or []
             if rollout_percentage == 100 and len(properties) == 0:
                 logger.debug(f"Boolean flag {flag.id} has a release conditions rolled out to 100%")
                 return True

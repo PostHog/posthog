@@ -43118,6 +43118,89 @@ export namespace Schemas {
       readonly is_eligible_for_experiment: boolean;
     }
 
+    /**
+     * The body every DRF exception on these actions renders as.
+     *
+     * `ErrorResponseSerializer` declares a single `error` key, which no response on this viewset
+     * produces: the project exception handler renders this envelope instead. Declaring the wrong
+     * shape reaches the generated clients and the MCP tools, where an agent reads a key that is
+     * never there.
+     */
+    export interface FlagActionError {
+      /** Error class, for example `validation_error`. */
+      type: string;
+      /** Machine-readable reason, for example `invalid_input`. */
+      code: string;
+      /** Human-readable description of what was refused. */
+      detail: string;
+      /**
+         * Request field the error belongs to, or null when it belongs to no single field.
+         * @nullable
+         */
+      attr: string | null;
+    }
+
+    /**
+     * The 400 body a soft-deleted flag produces, which differs from every other error here.
+     *
+     * Built as a plain response rather than raised, so it carries neither the `type` nor the
+     * `attr` the exception handler's envelope has.
+     */
+    export interface FlagDeletedRejection {
+      /** Always `false`. */
+      success: boolean;
+      /** Human-readable reason, naming the restore the caller has to do before retrying. */
+      error: string;
+    }
+
+    /**
+     * The 400 body a change matching several approval policies produces.
+     *
+     * Raised through the approvals mixin rather than the exception handler, so it carries the
+     * policies that matched instead of the `type`/`attr` envelope.
+     */
+    export interface FlagPolicyConflict {
+      /** Always `policy_conflict`. */
+      code: string;
+      /** Human-readable reason the change could not be gated. */
+      error: string;
+      /** The approval policies that matched this change. */
+      conflicting_policies: unknown;
+      /** How to split the change so each policy applies on its own. */
+      guidance: string;
+    }
+
+    export type FeatureFlagActionBadRequest = FlagActionError | FlagDeletedRejection | FlagPolicyConflict;
+
+    /**
+     * The 409 body an approval policy produces, which differs from every other error here.
+     *
+     * Raised through the approvals mixin rather than the exception handler, so it carries the
+     * change request it opened instead of the `type`/`attr` envelope.
+     */
+    export interface FlagApprovalConflict {
+      /** `approval_required` when this call opened the change request, `change_request_pending` when one was already open for the same action. */
+      code: string;
+      /** Always `approval_required`. */
+      status: string;
+      /** Human-readable description of the policy that gated the change. */
+      detail: string;
+      /** Same text as `detail`. */
+      message: string;
+      /** Resource the change request targets, `feature_flag` here. */
+      resource_type: string;
+      /** Id of the flag the change request targets. */
+      resource_id: string;
+      /** Id of the change request that was opened. */
+      change_request_id: string;
+      /** The change request that was opened, serialized in full. */
+      change_request: unknown;
+      /** Who can approve the change request. */
+      required_approvers: unknown;
+    }
+
+    export type FeatureFlagActionConflict = FlagActionError | FlagApprovalConflict;
+
     export interface FeatureFlagConditionPropertyAnalysis {
       /** Property key */
       key: string;
@@ -43268,6 +43351,20 @@ export namespace Schemas {
       results: FeatureFlagRequestUsageItem[];
     }
 
+    export interface FeatureFlagRollOutToEveryoneRequest {
+      /**
+         * The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.
+         * @minimum 0
+         * @nullable
+         */
+      version: number | null;
+      /**
+         * The variant every user gets. Required for a multivariate flag and rejected for any other flag, because a release condition decides who the flag serves and not which variant they get.
+         * @nullable
+         */
+      variant_key?: string | null;
+    }
+
     export interface FeatureFlagRolloutSummary {
       /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters (or there are no release conditions); for multivariate flags it means a single variant is served to 100% via a fully rolled out release condition. This is the signal for 'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation. */
       effectively_full_rollout: boolean;
@@ -43280,6 +43377,26 @@ export namespace Schemas {
       max_rollout_percentage: number | null;
       /** True if the flag serves multiple variants (has a multivariate variant set). */
       is_multivariate: boolean;
+    }
+
+    export interface FeatureFlagSetReleaseConditionRolloutRequest {
+      /**
+         * Zero-based position of the release condition in `filters.groups`, counted from the read that produced `version`.
+         * @minimum 0
+         */
+      condition_index: number;
+      /**
+         * Percentage of the users matching that condition who are served the flag, 0 through 100. On a multivariate flag this is how many matching users get a variant at all, not how the variants are split between them. Fractional percentages such as 0.5 are accepted, the same as a write that sends `filters`.
+         * @minimum 0
+         * @maximum 100
+         */
+      rollout_percentage: number;
+      /**
+         * The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.
+         * @minimum 0
+         * @nullable
+         */
+      version: number | null;
     }
 
     export interface FeatureFlagStatusResponse {
@@ -44571,7 +44688,7 @@ export namespace Schemas {
     }
 
     export interface FlakyTestList {
-      /** Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs. */
+      /** Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs. A CI setup break (a run attempt whose tests errored in 3 or more jobs or for 3 or more owning teams, or a job attempt with 100 or more distinct failed or errored tests) excludes every trial of that attempt, not only its failures. */
       items: FlakyTestItem[];
       /** True when more tests qualified than the cap; `items` is the highest-ranked `limit` rows. */
       truncated: boolean;
@@ -93890,15 +94007,15 @@ export namespace Schemas {
       regression_test_count: number;
       /** Same count over the prior window. */
       regression_test_count_prior: number;
-      /** CI runs (not spans) where an owned test's recorded outcome was failed or error. An absolute count, not a rate: fast passing runs are not emitted. */
+      /** Distinct CI runs where at least one owned test failed or errored. A run with many failing owned tests counts once. An absolute count, not a rate: fast passing runs are not emitted. */
       failed_run_count: number;
       /** Same count over the prior window. */
       failed_run_count_prior: number;
-      /** Runs where one commit both failed and passed an owned test: a re-run attempt went green, or an in-job retry recovered it. */
+      /** Distinct CI runs where one commit both failed and passed at least one owned test: a re-run attempt went green, or an in-job retry recovered it. */
       same_commit_recovery_run_count: number;
       /** Same count over the prior window. */
       same_commit_recovery_run_count_prior: number;
-      /** Runs where an owned test recorded a tolerated failure while quarantined: masked in CI, still failing. */
+      /** Distinct CI runs where at least one owned test recorded a tolerated failure while quarantined. */
       quarantined_failed_run_count: number;
       /** Same count over the prior window. */
       quarantined_failed_run_count_prior: number;
@@ -93930,7 +94047,7 @@ export namespace Schemas {
     }
 
     export interface TeamCIHealthList {
-      /** Owning teams ranked by current flaky + failure signal, heaviest first, capped at `limit`. Teams are organizational owners of code surfaces; this never aggregates by author. */
+      /** Owning teams ranked by current flaky + failure signal, heaviest first, capped at `limit`. Teams are organizational owners of code surfaces; this never aggregates by author. A CI setup break (a run attempt whose tests errored in 3 or more jobs or for 3 or more owning teams, or a job attempt with 100 or more distinct failed or errored tests) excludes every trial of that attempt, not only its failures. */
       items: TeamCIHealthItem[];
       /** True when more teams had signal than the cap. */
       truncated: boolean;
