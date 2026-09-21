@@ -1,5 +1,6 @@
 import random
 from datetime import timedelta
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -163,6 +164,35 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         ids = [row["id"] for row in response.json()["results"]]
         self.assertIn(str(member_invite.id), ids)
         self.assertIn(str(admin_invite.id), ids)
+
+    def test_list_invites_pages_do_not_overlap_when_created_at_ties(self):
+        admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
+        self.client.force_login(admin_user)
+
+        # Insertion order is the opposite of the expected order, so only the id tie-breaker can produce it.
+        invite_ids = sorted(uuid4() for _ in range(3))
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False):
+            for index, invite_id in enumerate(invite_ids):
+                OrganizationInvite.objects.create(
+                    id=invite_id,
+                    organization=self.organization,
+                    target_email=f"invitee{index}@posthog.com",
+                    level=OrganizationMembership.Level.MEMBER,
+                )
+        expected_order = [str(invite_id) for invite_id in reversed(invite_ids)]
+
+        paged_ids = []
+        offset = 0
+        while True:
+            page = self.client.get(f"/api/organizations/{self.organization.id}/invites/?limit=1&offset={offset}")
+            self.assertEqual(page.status_code, status.HTTP_200_OK)
+            results = page.json()["results"]
+            if not results:
+                break
+            paged_ids += [row["id"] for row in results]
+            offset += 1
+
+        self.assertEqual(paged_ids, expected_order)
 
     # Creating invites
 

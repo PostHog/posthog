@@ -404,7 +404,7 @@ class OrganizationInviteViewSet(
     serializer_class = OrganizationInviteSerializer
     queryset = OrganizationInvite.objects.all()
     lookup_field = "id"
-    ordering = "-created_at"
+    ordering = ("-created_at", "-id")
 
     def dangerously_get_permissions(self):
         if self.action in ["create", "bulk", "delegate", "update", "partial_update"]:
@@ -439,7 +439,7 @@ class OrganizationInviteViewSet(
         raise NotImplementedError()
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.select_related("created_by").order_by(self.ordering)
+        queryset = queryset.select_related("created_by").order_by(*self.ordering)
 
         if self.action != "list":
             return queryset
