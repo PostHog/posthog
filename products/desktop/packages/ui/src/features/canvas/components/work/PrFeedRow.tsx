@@ -1,50 +1,24 @@
 import {
   getPrVisualConfig,
   parsePrNumber,
+  summarizePrChecks,
 } from "@posthog/core/git-interaction/prStatus";
-import { Badge, Card, CardContent, cn } from "@posthog/quill";
+import { taskStarter } from "@posthog/core/tasks/taskStatusPresentation";
+import { Badge, Card, CardContent } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
-import type { UserBasic } from "@posthog/shared/domain-types";
 import { ActivityPresenceAvatar } from "@posthog/ui/features/canvas/components/ChannelItemPresence";
 import type { SpacePullRequest } from "@posthog/ui/features/canvas/components/work/useSpacePullRequests";
 import { getPrVisualIcon } from "@posthog/ui/features/git-interaction/prIcon";
-import type { PrStateDetails } from "@posthog/ui/features/git-interaction/usePrDetails";
 import { usePrChecks } from "@posthog/ui/features/pr-review/usePrChecks";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 
-const CI_DOT_CLASS = {
-  pass: "bg-(--green-9)",
-  fail: "bg-(--red-9)",
-  pending: "bg-(--amber-9)",
-} as const;
-
-const CI_LABEL = {
-  pass: "CI passing",
-  fail: "CI failing",
-  pending: "CI running",
-} as const;
-
-function ciTone(
-  checks: { bucket: string }[] | null | undefined,
-): keyof typeof CI_DOT_CLASS | null {
-  if (!checks || checks.length === 0) return null;
-  if (checks.some((c) => c.bucket === "fail" || c.bucket === "cancel")) {
-    return "fail";
-  }
-  if (checks.some((c) => c.bucket === "pending")) return "pending";
-  return "pass";
-}
-
-function isLive(details: PrStateDetails | undefined): boolean {
-  return !!details && !details.merged && details.state !== "closed";
-}
-
-function CiDot({ tone }: { tone: keyof typeof CI_DOT_CLASS }) {
+function CiDot({ ci }: { ci: { label: string; color: string } }) {
   return (
     <span
       role="img"
-      aria-label={CI_LABEL[tone]}
-      className={cn("size-1.5 shrink-0 rounded-full", CI_DOT_CLASS[tone])}
+      aria-label={ci.label}
+      className="size-1.5 shrink-0 rounded-full"
+      style={{ backgroundColor: ci.color }}
     />
   );
 }
@@ -52,16 +26,14 @@ function CiDot({ tone }: { tone: keyof typeof CI_DOT_CLASS }) {
 export function PrFeedRow({
   pullRequest,
   listRow,
-  wide,
 }: {
   pullRequest: SpacePullRequest;
   listRow: boolean;
-  wide: boolean;
 }) {
   const { url, task, details, title } = pullRequest;
-  const live = isLive(details);
+  const live = !!details && !details.merged && details.state !== "closed";
   const checks = usePrChecks(live ? url : null);
-  const tone = ciTone(checks.data);
+  const ci = summarizePrChecks(checks.data);
   const config = getPrVisualConfig(
     details?.state ?? "open",
     details?.merged ?? false,
@@ -72,8 +44,7 @@ export function PrFeedRow({
   const settled = details !== undefined;
   const label = title ?? task.title;
   const number = prNumber ? `#${prNumber}` : "PR";
-  const starter: UserBasic | null =
-    task.origin_product === "user_created" ? (task.created_by ?? null) : null;
+  const starter = taskStarter(task);
   const open = () => openExternalUrl(url);
   const icon = (
     <Icon
@@ -90,10 +61,7 @@ export function PrFeedRow({
         size="sm"
         role="button"
         tabIndex={0}
-        className={cn(
-          "mx-auto my-1.5 w-full cursor-pointer rounded-xl bg-(--gray-2) py-0 transition-colors hover:border-(--gray-7) hover:bg-(--gray-3)",
-          wide ? "max-w-full" : "max-w-[660px]",
-        )}
+        className="my-1.5 w-full cursor-pointer rounded-xl bg-(--gray-2) py-0 transition-colors hover:border-(--gray-7) hover:bg-(--gray-3)"
         onClick={open}
         onKeyDown={(event) => {
           if (event.target !== event.currentTarget) return;
@@ -126,7 +94,7 @@ export function PrFeedRow({
             {task.title}
           </p>
           <div className="mt-3 flex items-center justify-end gap-2">
-            {tone && <CiDot tone={tone} />}
+            {ci && <CiDot ci={ci} />}
             {starter && (
               <ActivityPresenceAvatar
                 user={starter}
@@ -145,7 +113,7 @@ export function PrFeedRow({
       type="button"
       onClick={open}
       title={label}
-      className="group relative mx-auto flex h-8 w-full max-w-[900px] items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors hover:bg-fill-hover"
+      className="group relative flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors hover:bg-fill-hover"
     >
       <span className="flex size-3.5 shrink-0 items-center justify-center">
         {icon}
@@ -154,7 +122,7 @@ export function PrFeedRow({
         {number}
       </span>
       <span className="min-w-0 flex-1 truncate font-medium">{label}</span>
-      {tone && <CiDot tone={tone} />}
+      {ci && <CiDot ci={ci} />}
       <ActivityPresenceAvatar
         user={starter}
         label="on this pull request"

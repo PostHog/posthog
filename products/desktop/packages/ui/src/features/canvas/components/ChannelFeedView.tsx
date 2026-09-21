@@ -24,11 +24,14 @@ import {
   runStatusVariant,
 } from "@posthog/core/canvas/runStatus";
 import { buildThreadTimeline } from "@posthog/core/canvas/threadTimeline";
-import type { PrCheck } from "@posthog/core/git/router-schemas";
-import { parsePrNumber } from "@posthog/core/git-interaction/prStatus";
+import {
+  parsePrNumber,
+  summarizePrChecks,
+} from "@posthog/core/git-interaction/prStatus";
 import { xmlToPlainText } from "@posthog/core/message-editor/content";
 import type { TaskData } from "@posthog/core/sidebar/sidebarData.types";
 import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
+import { taskStarter } from "@posthog/core/tasks/taskStatusPresentation";
 import {
   AvatarGroup,
   Badge,
@@ -396,12 +399,6 @@ export function TaskCard({
   );
 }
 
-function channelTaskStarter(task: Task): UserBasic | null {
-  return task.origin_product === "user_created"
-    ? (task.created_by ?? null)
-    : null;
-}
-
 export function ExpandablePrompt({
   children,
   lines,
@@ -604,30 +601,6 @@ export function HoverPopover({
   );
 }
 
-// One line summarizing a PR's CI: failing beats running beats passing.
-function summarizePrChecks(
-  checks: PrCheck[] | null | undefined,
-): { label: string; color: string } | null {
-  if (!checks || checks.length === 0) return null;
-  let failed = 0;
-  let pending = 0;
-  let passed = 0;
-  for (const check of checks) {
-    if (check.bucket === "fail" || check.bucket === "cancel") failed++;
-    else if (check.bucket === "pending") pending++;
-    else if (check.bucket === "pass") passed++;
-  }
-  if (failed) {
-    return {
-      label: `CI failing · ${failed} ${failed === 1 ? "check" : "checks"}`,
-      color: "var(--red-11)",
-    };
-  }
-  if (pending) return { label: "CI running", color: "var(--amber-11)" };
-  if (passed) return { label: "CI passing", color: "var(--green-11)" };
-  return null;
-}
-
 function PrCiLine({ url }: { url: string }) {
   const checks = usePrChecks(url);
   const ci = summarizePrChecks(checks.data);
@@ -776,14 +749,12 @@ const FeedItem = memo(function FeedItem({
   task,
   inView,
   showRepo,
-  wide,
   onOpenTask,
   onOpenThread,
 }: {
   task: Task;
   inView: boolean;
   showRepo: boolean;
-  wide: boolean;
   onOpenTask: (task: Task) => void;
   onOpenThread: (task: Task, tab?: ThreadPanelTab) => void;
 }) {
@@ -803,7 +774,7 @@ const FeedItem = memo(function FeedItem({
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
   const isActive = taskData ? isTaskActivelyRunning(taskData) : false;
   const canStop = taskData?.taskRunEnvironment === "cloud" && isActive;
-  const starter = channelTaskStarter(task);
+  const starter = taskStarter(task);
   const prompt = useMemo(
     () =>
       stripContextBlocks(
@@ -980,10 +951,7 @@ const FeedItem = memo(function FeedItem({
         size="sm"
         role="button"
         tabIndex={0}
-        className={cn(
-          "mx-auto my-1.5 w-full cursor-pointer rounded-xl bg-(--gray-2) py-0 transition-colors hover:border-(--gray-7) hover:bg-(--gray-3)",
-          wide ? "max-w-full" : "max-w-[660px]",
-        )}
+        className="my-1.5 w-full cursor-pointer rounded-xl bg-(--gray-2) py-0 transition-colors hover:border-(--gray-7) hover:bg-(--gray-3)"
         onClick={(event) => {
           if (
             event.target instanceof Element &&
@@ -1228,13 +1196,11 @@ const FeedItem = memo(function FeedItem({
 function FeedRow({
   task,
   showRepo,
-  wide,
   onOpenTask,
   onOpenThread,
 }: {
   task: Task;
   showRepo: boolean;
-  wide: boolean;
   onOpenTask: (task: Task) => void;
   onOpenThread: (task: Task, tab?: ThreadPanelTab) => void;
 }) {
@@ -1248,7 +1214,6 @@ function FeedRow({
         task={task}
         inView={inView}
         showRepo={showRepo}
-        wide={wide}
         onOpenTask={onOpenTask}
         onOpenThread={onOpenThread}
       />
@@ -1260,12 +1225,10 @@ const CanvasFeedRow = memo(function CanvasFeedRow({
   canvas,
   channelId,
   listRow,
-  wide,
 }: {
   canvas: DashboardRecord;
   channelId: string;
   listRow: boolean;
-  wide: boolean;
 }) {
   const open = () => navigateToChannelDashboard(channelId, canvas.id);
   const author = canvasAuthor(canvas);
@@ -1275,10 +1238,7 @@ const CanvasFeedRow = memo(function CanvasFeedRow({
         size="sm"
         role="button"
         tabIndex={0}
-        className={cn(
-          "mx-auto my-1.5 w-full cursor-pointer rounded-xl bg-(--gray-2) py-0 transition-colors hover:border-(--gray-7) hover:bg-(--gray-3)",
-          wide ? "max-w-full" : "max-w-[660px]",
-        )}
+        className="my-1.5 w-full cursor-pointer rounded-xl bg-(--gray-2) py-0 transition-colors hover:border-(--gray-7) hover:bg-(--gray-3)"
         onClick={open}
         onKeyDown={(event) => {
           if (event.target !== event.currentTarget) return;
@@ -1323,7 +1283,7 @@ const CanvasFeedRow = memo(function CanvasFeedRow({
       type="button"
       onClick={open}
       title={canvas.name}
-      className="group relative mx-auto flex h-8 w-full max-w-[900px] items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors hover:bg-fill-hover"
+      className="group relative flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors hover:bg-fill-hover"
     >
       <span className="flex size-3.5 shrink-0 items-center justify-center">
         {iconForTemplate(canvas.templateId, {
@@ -1372,7 +1332,7 @@ const FeedLogRow = memo(function FeedLogRow({
   const { togglePin } = usePinnedTasks();
   const { archiveTask } = useArchiveTask();
   const commandCenterCells = useCommandCenterStore((state) => state.cells);
-  const starter = channelTaskStarter(task);
+  const starter = taskStarter(task);
   const markRead = useCallback(() => {
     markTasksRead([
       { task_id: task.id, seen_before: new Date().toISOString() },
@@ -1409,7 +1369,7 @@ const FeedLogRow = memo(function FeedLogRow({
         ref={ref}
         role="button"
         tabIndex={0}
-        className="group relative mx-auto flex h-8 w-full max-w-[900px] cursor-pointer items-center gap-2 rounded-md px-2 text-[13px] transition-colors hover:bg-fill-hover"
+        className="group relative flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-[13px] transition-colors hover:bg-fill-hover"
         onClick={(event) => {
           if (
             event.target instanceof Element &&
@@ -1464,21 +1424,9 @@ const FeedLogRow = memo(function FeedLogRow({
 // at the top of the feed the moment they submit. Deliberately dumb — no
 // per-task data hooks or polls (there's no task id to query yet); it's
 // replaced by a real FeedRow as soon as the task is created.
-function PendingFeedRow({
-  pending,
-  wide,
-}: {
-  pending: PendingKickoff;
-  wide: boolean;
-}) {
+function PendingFeedRow({ pending }: { pending: PendingKickoff }) {
   return (
-    <Card
-      size="sm"
-      className={cn(
-        "mx-auto my-1.5 w-full rounded-xl bg-(--gray-2) py-0",
-        wide ? "max-w-full" : "max-w-[660px]",
-      )}
-    >
+    <Card size="sm" className="my-1.5 w-full rounded-xl bg-(--gray-2) py-0">
       <CardContent className="flex flex-col px-4 pt-3.5 pb-3">
         <div className="flex items-start gap-3">
           <span className="min-w-0 flex-1 font-semibold text-sm leading-snug">
@@ -1501,20 +1449,9 @@ function PendingFeedRow({
 // render as that user (initials avatar + name — e.g. "Adam L · joined mobile");
 // the rest render as "PostHog / Agent" (context lifecycle updates). Same chrome
 // as a task row, minus the task card and reply footer.
-function SystemFeedRow({
-  message,
-  wide,
-}: {
-  message: ChannelFeedSystemMessage;
-  wide: boolean;
-}) {
+function SystemFeedRow({ message }: { message: ChannelFeedSystemMessage }) {
   return (
-    <div
-      className={cn(
-        "mx-auto flex w-full min-w-0 items-center gap-2 px-1 py-1.5 text-(--gray-9) text-xs",
-        wide ? "max-w-full" : "max-w-[660px]",
-      )}
-    >
+    <div className="flex w-full min-w-0 items-center gap-2 px-1 py-1.5 text-(--gray-9) text-xs">
       {message.author ? (
         <UserAvatar user={message.author} size="xs" />
       ) : (
@@ -1563,10 +1500,7 @@ export function feedDayLabel(iso: string, now: Date): string {
  */
 function FeedRowSkeleton({ wide }: { wide?: boolean }) {
   return (
-    <Card
-      size="sm"
-      className="mx-auto my-1.5 w-full max-w-[660px] rounded-xl py-0"
-    >
+    <Card size="sm" className="my-1.5 w-full rounded-xl py-0">
       <CardContent className="flex flex-col px-4 pt-3.5 pb-3">
         <div className="flex items-start gap-3">
           <Skeleton className={cn("h-4", wide ? "w-3/5" : "w-2/5")} />
@@ -1587,7 +1521,7 @@ function FeedRowSkeleton({ wide }: { wide?: boolean }) {
 
 function FeedLogRowSkeleton({ width }: { width: string }) {
   return (
-    <div className="flex h-8 w-full max-w-[900px] items-center gap-2 px-2">
+    <div className="flex h-8 w-full items-center gap-2 px-2">
       <Skeleton className="size-3.5 shrink-0 rounded-sm" />
       <Skeleton className={cn("h-3.5", width)} />
       <Skeleton className="ml-auto h-4 w-14 shrink-0 rounded-full" />
@@ -1606,7 +1540,7 @@ function FeedLogSkeleton() {
           key={group}
           className={cn("flex flex-col", group === 1 && "opacity-50")}
         >
-          <div className="w-full max-w-[900px] px-2 pt-3 pb-0.5">
+          <div className="w-full px-2 pt-3 pb-0.5">
             <Skeleton className="h-2.5 w-14" />
           </div>
           {widths.slice(group * 3, group * 3 + 3).map((width) => (
@@ -1627,7 +1561,7 @@ function FeedSkeleton({ compact }: { compact: boolean }) {
   if (compact) return <FeedLogSkeleton />;
   return (
     <div aria-hidden className="flex flex-col">
-      <div className="mx-auto flex w-full max-w-[660px] items-center gap-3 pt-5 pb-2">
+      <div className="flex w-full items-center gap-3 pt-5 pb-2">
         <span className="h-px flex-1 bg-(--gray-5)" />
         <Skeleton className="h-3 w-12" />
         <span className="h-px flex-1 bg-(--gray-5)" />
@@ -1649,26 +1583,19 @@ function FeedSkeleton({ compact }: { compact: boolean }) {
 function DaySeparator({
   label,
   compact = false,
-  wide = false,
 }: {
   label: string;
   compact?: boolean;
-  wide?: boolean;
 }) {
   if (compact) {
     return (
-      <div className="sticky top-0 z-10 mx-auto w-full max-w-[900px] bg-gray-1 px-2 pt-3 pb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wider">
+      <div className="sticky top-0 z-10 w-full bg-gray-1 px-2 pt-3 pb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wider">
         {label}
       </div>
     );
   }
   return (
-    <div
-      className={cn(
-        "mx-auto flex w-full items-center gap-3 pt-5 pb-2 font-semibold text-(--gray-9) text-[11px] uppercase tracking-wider",
-        wide ? "max-w-full" : "max-w-[660px]",
-      )}
-    >
+    <div className="flex w-full items-center gap-3 pt-5 pb-2 font-semibold text-(--gray-9) text-[11px] uppercase tracking-wider">
       <span className="h-px flex-1 bg-(--gray-5)" />
       {label}
       <span className="h-px flex-1 bg-(--gray-5)" />
@@ -1891,9 +1818,7 @@ export function ChannelFeedView({
   }, [latestPendingId]);
 
   const listRows = rowStyle ? rowStyle === "list" : compact;
-  const columnClass = compact
-    ? "mx-auto w-full max-w-[900px]"
-    : "mx-auto w-full max-w-[660px]";
+  const columnClass = "w-full";
   const composerBlock = composer && (
     <div
       className={cn(
@@ -1963,11 +1888,11 @@ export function ChannelFeedView({
   // say so, and point at the next action, instead of dead space.
   const kindEmptyNote =
     activeKindFilter === "sessions" ? (
-      <p className="mx-auto w-full max-w-[660px] py-6 text-center text-(--gray-10) text-[13px]">
+      <p className="w-full py-6 text-center text-(--gray-10) text-[13px]">
         No sessions yet. Start one from the composer above.
       </p>
     ) : activeKindFilter === "reports" ? (
-      <p className="mx-auto w-full max-w-[660px] py-6 text-center text-(--gray-10) text-[13px]">
+      <p className="w-full py-6 text-center text-(--gray-10) text-[13px]">
         No reports here yet. Open the filter to widen the list.
       </p>
     ) : null;
@@ -1983,14 +1908,13 @@ export function ChannelFeedView({
           <div
             className={cn(
               "min-w-0 flex-1",
+              "mx-auto w-full",
               compact
-                ? "mx-auto w-full max-w-[948px] px-6 pt-5 pb-10"
-                : "mx-auto px-4 pt-4 pb-10",
+                ? "max-w-[948px] px-6 pt-5 pb-10"
+                : "max-w-[692px] px-4 pt-4 pb-10",
             )}
           >
-            {intro && (
-              <div className="mx-auto w-full max-w-[660px]">{intro}</div>
-            )}
+            {intro && <div className="w-full">{intro}</div>}
             {composerBlock}
             <FeedSkeleton compact={listRows} />
           </div>
@@ -2000,7 +1924,7 @@ export function ChannelFeedView({
   }
 
   const noResults = (
-    <div className="flex w-full max-w-[900px] flex-col items-start gap-2 pt-6">
+    <div className="flex w-full flex-col items-start gap-2 pt-6">
       <p className="text-[13px] text-muted-foreground">
         Nothing here matches these filters.
       </p>
@@ -2018,9 +1942,10 @@ export function ChannelFeedView({
         <div
           className={cn(
             "w-full",
+            "mx-auto w-full",
             compact
-              ? "mx-auto w-full max-w-[948px] px-6 pt-5 pb-10"
-              : "mx-auto px-4 pt-4 pb-10",
+              ? "max-w-[948px] px-6 pt-5 pb-10"
+              : "max-w-[692px] px-4 pt-4 pb-10",
           )}
         >
           {composerBlock}
@@ -2046,16 +1971,11 @@ export function ChannelFeedView({
   if (pending.length > 0) {
     lastDayLabel = "Today";
     rows.push(
-      <DaySeparator
-        key="separator-pending"
-        label="Today"
-        compact={listRows}
-        wide={compact}
-      />,
+      <DaySeparator key="separator-pending" label="Today" compact={listRows} />,
     );
     for (let i = pending.length - 1; i >= 0; i--) {
       const p = pending[i];
-      rows.push(<PendingFeedRow key={p.id} pending={p} wide={compact} />);
+      rows.push(<PendingFeedRow key={p.id} pending={p} />);
     }
   }
   const activityIso = (entry: FeedEntry): string => {
@@ -2094,7 +2014,6 @@ export function ChannelFeedView({
           key={`separator-${section.key}`}
           label={section.label}
           compact={listRows}
-          wide={compact}
         />,
       );
     }
@@ -2112,7 +2031,6 @@ export function ChannelFeedView({
             <FeedRow
               key={entry.id}
               task={entry.task}
-              wide={compact}
               showRepo={
                 !!entry.task.repository &&
                 entry.task.repository !== dominantRepo
@@ -2127,28 +2045,21 @@ export function ChannelFeedView({
             canvas={entry.canvas}
             channelId={channelId}
             listRow={listRows}
-            wide={compact}
           />
         ) : entry.kind === "pr" ? (
           <PrFeedRow
             key={entry.id}
             pullRequest={entry.pullRequest}
             listRow={listRows}
-            wide={compact}
           />
         ) : entry.kind === "report" ? (
           <ReportFeedRow
             key={entry.id}
             report={entry.report}
             onOpenReport={onOpenReport ?? (() => {})}
-            wide={compact}
           />
         ) : (
-          <SystemFeedRow
-            key={entry.id}
-            message={entry.message}
-            wide={compact}
-          />
+          <SystemFeedRow key={entry.id} message={entry.message} />
         ),
       );
     }
@@ -2160,12 +2071,13 @@ export function ChannelFeedView({
         <div
           className={cn(
             "min-w-0 flex-1",
+            "mx-auto w-full",
             compact
-              ? "mx-auto w-full max-w-[948px] px-6 pt-5 pb-10"
-              : "mx-auto px-4 pt-4 pb-10",
+              ? "max-w-[948px] px-6 pt-5 pb-10"
+              : "max-w-[692px] px-4 pt-4 pb-10",
           )}
         >
-          {intro && <div className="mx-auto w-full max-w-[660px]">{intro}</div>}
+          {intro && <div className="w-full">{intro}</div>}
           {composerBlock}
           {controls}
           {kindFilterBlock}
