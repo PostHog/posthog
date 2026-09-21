@@ -6,7 +6,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconInfo, IconTerminal } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonMenu, LemonTag, Popover } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonMenu, LemonTabs, LemonTag, Popover } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -60,12 +60,13 @@ const examples = [
 ]
 
 export function TerminalScene(): JSX.Element {
-    const { status, error, saveError } = useValues(terminalLogic)
-    const { start, stop } = useActions(terminalLogic)
+    const { status, error, saveError, tab } = useValues(terminalLogic)
+    const { start, stop, setTab } = useActions(terminalLogic)
     const container = useRef<HTMLDivElement>(null)
     const terminal = useRef<Terminal | null>(null)
     const runtime = useRef<TerminalRuntime | null>(null)
     const fit = useRef<FitAddon | null>(null)
+    const screen = useRef<HTMLDivElement>(null)
     const [hasSelection, setHasSelection] = useState(false)
     const [pasting, setPasting] = useState(false)
     const [clipboardError, setClipboardError] = useState<string | null>(null)
@@ -153,11 +154,15 @@ export function TerminalScene(): JSX.Element {
 
     function startTerminal(): void {
         const view = terminal.current
-        if (!view) {
+        if (!view || !screen.current) {
             return
         }
         view.clear()
-        const session = new TerminalRuntime((bytes) => view.write(bytes))
+        const session = new TerminalRuntime(
+            (bytes) => view.write(bytes),
+            screen.current,
+            (active) => setTab(active ? 'display' : 'terminal')
+        )
         runtime.current = session
         fit.current?.fit()
         session.resize(view.cols, view.rows)
@@ -165,63 +170,99 @@ export function TerminalScene(): JSX.Element {
         view.focus()
     }
 
+    // The visible tab owns the keyboard, so switching tabs needs no extra click.
+    useEffect(() => {
+        if (tab === 'display') {
+            screen.current?.focus()
+        } else {
+            terminal.current?.focus()
+        }
+    }, [tab])
+
     const active = status !== 'idle' && status !== 'error'
-    const starting = status === 'loading' || status === 'booting'
+    const notReady = status !== 'ready' ? 'Start the terminal first' : undefined
 
     return (
         <SceneContent className="h-full min-h-0 flex-1 pb-4">
             <SceneTitleSection name="Terminal" resourceType={{ type: 'terminal', forceIcon: <IconTerminal /> }} />
             <div className="flex shrink-0 items-center gap-2 flex-wrap">
                 <LemonButton
-                    type="primary"
-                    onClick={startTerminal}
-                    loading={starting}
-                    disabledReason={active ? 'The terminal is already running' : undefined}
-                    data-attr="terminal-start"
+                    type={active ? 'secondary' : 'primary'}
+                    onClick={active ? stop : startTerminal}
+                    data-attr={active ? 'terminal-stop' : 'terminal-start'}
                 >
-                    Start Linux
+                    {active ? 'Stop' : 'Start Linux'}
                 </LemonButton>
-                <LemonButton
-                    onClick={stop}
-                    disabledReason={status === 'idle' ? 'Start the terminal first' : undefined}
-                    data-attr="terminal-stop"
+                {tab === 'terminal' ? (
+                    <>
+                        <LemonButton
+                            onClick={() =>
+                                void copyToClipboard(terminal.current?.getSelection() ?? '', 'terminal selection')
+                            }
+                            disabledReason={!hasSelection ? 'Select terminal text to copy' : undefined}
+                            data-attr="terminal-copy"
+                        >
+                            Copy selection
+                        </LemonButton>
+                        <LemonButton
+                            onClick={() => void pasteClipboard()}
+                            loading={pasting}
+                            disabledReason={notReady}
+                            data-attr="terminal-paste"
+                        >
+                            Paste
+                        </LemonButton>
+                        <LemonMenu
+                            items={examples.map(({ title, commands }) => ({
+                                title,
+                                items: commands.map((command) => ({
+                                    label: <code className="whitespace-normal break-words">{command}</code>,
+                                    onClick: () => insertCommand(command),
+                                })),
+                            }))}
+                        >
+                            <LemonButton
+                                type="secondary"
+                                aria-label="Examples"
+                                tooltip="Insert a command, then press Enter to run it."
+                                disabledReason={notReady}
+                            >
+                                Examples
+                            </LemonButton>
+                        </LemonMenu>
+                    </>
+                ) : (
+                    <>
+                        <LemonButton
+                            onClick={() => runtime.current?.fullscreen()}
+                            disabledReason={notReady}
+                            data-attr="terminal-display-fullscreen"
+                        >
+                            Full screen
+                        </LemonButton>
+                        <LemonButton
+                            onClick={() => runtime.current?.captureMouse()}
+                            disabledReason={notReady}
+                            tooltip="Send mouse movement to Linux. Press Esc to release the mouse."
+                            data-attr="terminal-display-mouse"
+                        >
+                            Capture mouse
+                        </LemonButton>
+                        <LemonButton
+                            onClick={() => runtime.current?.interrupt()}
+                            disabledReason={notReady}
+                            tooltip="Send Ctrl+C to the terminal to stop the running program."
+                            data-attr="terminal-display-interrupt"
+                        >
+                            Interrupt
+                        </LemonButton>
+                    </>
+                )}
+                <LemonTag
+                    role="status"
+                    className="ml-auto"
+                    type={status === 'ready' ? 'success' : status === 'error' ? 'danger' : 'default'}
                 >
-                    Stop
-                </LemonButton>
-                <LemonButton
-                    onClick={() => void copyToClipboard(terminal.current?.getSelection() ?? '', 'terminal selection')}
-                    disabledReason={!hasSelection ? 'Select terminal text to copy' : undefined}
-                    data-attr="terminal-copy"
-                >
-                    Copy selection
-                </LemonButton>
-                <LemonButton
-                    onClick={() => void pasteClipboard()}
-                    loading={pasting}
-                    disabledReason={status !== 'ready' ? 'Start the terminal first' : undefined}
-                    data-attr="terminal-paste"
-                >
-                    Paste
-                </LemonButton>
-                <LemonMenu
-                    items={examples.map(({ title, commands }) => ({
-                        title,
-                        items: commands.map((command) => ({
-                            label: <code className="whitespace-normal break-words">{command}</code>,
-                            onClick: () => insertCommand(command),
-                        })),
-                    }))}
-                >
-                    <LemonButton
-                        type="secondary"
-                        aria-label="Examples"
-                        tooltip="Insert a command, then press Enter to run it."
-                        disabledReason={status !== 'ready' ? 'Start the terminal first' : undefined}
-                    >
-                        Examples
-                    </LemonButton>
-                </LemonMenu>
-                <span role="status" className="text-secondary ml-auto text-sm">
                     {status === 'loading'
                         ? 'Loading project files…'
                         : status === 'booting'
@@ -231,7 +272,7 @@ export function TerminalScene(): JSX.Element {
                             : status === 'error'
                               ? 'Could not start'
                               : 'Stopped'}
-                </span>
+                </LemonTag>
                 <Popover
                     visible={infoOpen}
                     onClickOutside={() => setInfoOpen(false)}
@@ -255,6 +296,10 @@ export function TerminalScene(): JSX.Element {
                                 Selecting text copies it. Copy/paste with ⌘C/⌘V on macOS or Ctrl+Shift+C/V on Linux and
                                 Windows.
                             </p>
+                            <p className="mb-0">
+                                Graphical programs such as <code>doom</code> open in the Display tab. While that tab is
+                                open, your keyboard goes to Linux.
+                            </p>
                         </div>
                     }
                 >
@@ -270,15 +315,49 @@ export function TerminalScene(): JSX.Element {
             {error && <LemonBanner type="error">{error}</LemonBanner>}
             {saveError && <LemonBanner type="error">{saveError}</LemonBanner>}
             {clipboardError && <LemonBanner type="error">{clipboardError}</LemonBanner>}
-            <div
-                aria-label="Linux terminal"
-                data-attr="posthog-terminal"
-                translate="no"
-                className="min-h-0 min-w-0 flex-1 overflow-hidden rounded border p-3 bg-[var(--color-black)] text-[var(--color-white)]"
-            >
-                {/* xterm's fit addon counts padding on its parent as usable space. */}
-                <div ref={container} className="h-full min-w-0 bg-[var(--color-black)]" />
+            <LemonTabs
+                className="shrink-0"
+                activeKey={tab}
+                onChange={setTab}
+                tabs={[
+                    { key: 'terminal', label: 'Terminal' },
+                    { key: 'display', label: 'Display' },
+                ]}
+            />
+            {/* Both panes stay laid out: xterm's fit addon and v86's canvas break inside a display: none parent. */}
+            <div className="relative min-h-0 min-w-0 flex-1">
+                <div
+                    aria-label="Linux terminal"
+                    data-attr="posthog-terminal"
+                    translate="no"
+                    className={`absolute inset-0 overflow-hidden rounded border p-3 bg-[var(--color-black)] text-[var(--color-white)] ${
+                        tab === 'terminal' ? '' : 'invisible'
+                    }`}
+                >
+                    {/* xterm's fit addon counts padding on its parent as usable space. */}
+                    <div ref={container} className="h-full min-w-0 bg-[var(--color-black)]" />
+                </div>
+                <div
+                    ref={screen}
+                    tabIndex={0}
+                    aria-label="Linux display"
+                    data-attr="posthog-terminal-display"
+                    translate="no"
+                    onFocus={() => runtime.current?.setDisplayInput(true)}
+                    onBlur={() => runtime.current?.setDisplayInput(false)}
+                    className={`absolute inset-0 flex items-center justify-center overflow-hidden rounded border bg-[var(--color-black)] focus:outline-2 focus:outline-[var(--color-accent)] [&>canvas]:!h-full [&>canvas]:!w-full [&>canvas]:object-contain [&>canvas]:[image-rendering:pixelated] ${
+                        tab === 'display' ? '' : 'invisible'
+                    }`}
+                >
+                    <div className="hidden" />
+                    <canvas className="block" />
+                </div>
             </div>
+            {tab === 'display' && (
+                <span className="text-secondary shrink-0 text-xs">
+                    Your keyboard goes to Linux while the display is selected. Click outside it to release the keyboard.
+                </span>
+            )}
         </SceneContent>
     )
 }

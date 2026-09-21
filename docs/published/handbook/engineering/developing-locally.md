@@ -11,8 +11,13 @@ showTitle: true
 
 Open `/project/<project-id>/terminal` and select **Start Linux** to boot a Linux VM in your browser.
 The terminal uses xterm.js and v86, with a 9P filesystem that connects Linux file operations to the existing authenticated PostHog APIs.
-The first start downloads a checksum-verified Linux image from `i.copy.sh` and pinned firmware from the v86 GitHub repository.
+The first start downloads a checksum-verified Linux image that PostHog serves itself, and pinned firmware from the v86 GitHub repository.
 The image uses Linux 5.6.15, whose uncached 9P driver can read API files before their sizes are known.
+It adds the Bochs display driver, a framebuffer console, and keyboard and mouse input to the v86 Buildroot image, and keeps that image's userland.
+Graphical programs draw to `/dev/fb0` and appear in the **Display** tab. A program runs `display on` to select that tab and `display off` to return to the terminal.
+`doom` starts fbDOOM with the Freedoom game data as an example. Both download on first use.
+Run `frontend/bin/terminal-display/build.sh` (needs Docker) to rebuild the kernel and fbDOOM, then update their checksums in `terminalRuntime.ts`.
+`frontend/public/terminal/display-NOTICE.txt` lists the sources and licenses.
 PostHog serves the bundled jq 1.8.2 Linux i386 binary itself because GitHub release downloads do not support browser CORS.
 The binary in `frontend/public/terminal/` comes from [the official release](https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-linux-i386), with SHA-256 `ba996e8ce436973e2f39e2639405a37e8c81ba8c722b71c83996278ad0af16dd` and upstream license notices alongside it.
 The bundled tools archive adds nano 8.4, tree 2.2.1, ncdu 1.22, and Midnight Commander 4.8.33 from Alpine Linux's x86 packages, with isolated libraries.
