@@ -13,6 +13,7 @@ from posthog.models.person.bulk_delete import (
     PERSON_DELETION_PERSONS_COUNTER,
     PersonDeletionStep,
     process_queued_person_deletion,
+    republish_tombstones,
 )
 from posthog.models.user import User
 from posthog.scoping_audit import skip_team_scope_audit
@@ -178,3 +179,29 @@ def delete_persons_async(
             f"team {team_id}: {len(failed_uuids)} persons failed after {retries + 1} attempts ({summary})"
         ),
     )
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    max_retries=MAX_DELETION_RETRIES,
+)
+@skip_team_scope_audit
+def republish_person_tombstones(self: Task, team_id: int, person_uuids: list[str]) -> None:
+    """Republish the ClickHouse tombstones a synchronous delete left unpublished."""
+    unpublished = republish_tombstones(team_id, [uuid_lib.UUID(u) for u in person_uuids])
+    if not unpublished:
+        return
+    retries = self.request.retries
+    remaining = [str(u) for u in unpublished]
+    if retries >= MAX_DELETION_RETRIES:
+        logger.error(
+            "republish_person_tombstones gave up; persons stay visible in analytics",
+            team_id=team_id,
+            person_uuids=remaining,
+        )
+        return
+    raise self.retry(kwargs={"team_id": team_id, "person_uuids": remaining}, countdown=_retry_countdown(retries))

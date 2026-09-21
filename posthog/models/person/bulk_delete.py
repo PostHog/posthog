@@ -562,12 +562,9 @@ def _tombstone_persons_at_exact_versions(
 ) -> builtins.list[Person]:
     """Tombstone Postgres first, then publish ClickHouse tombstones at the versions it wrote.
 
-    Postgres goes first because only the replica knows the versions. Returns the persons whose
-    Postgres tombstone landed: that is the deletion, so they are counted and logged even when
-    the ClickHouse publish fails. That failure is recorded against its own step, and the
-    queued retry republishes the person from the versions the replica reports (see
-    ``_republish_tombstones``). One RPC covers a bounded number of distinct IDs, so the
-    response stays small however wide the persons are.
+    Postgres goes first because only the replica knows the versions. A person whose Postgres
+    tombstone landed is deleted, so it is counted and logged even when the ClickHouse publish
+    fails; that failure gets its own step and is republished later.
     """
     deleted: builtins.list[Person] = []
     person_by_uuid = {person.uuid: person for person in persons}
@@ -631,9 +628,9 @@ def _republish_tombstones(
 ) -> None:
     """Publish ClickHouse tombstones again for persons a previous attempt tombstoned in Postgres.
 
-    The replica reports the versions an already tombstoned person holds; a uuid it does not
-    know is skipped. Publishing the same versions twice is harmless: ClickHouse keeps one row.
-    The previous attempt already counted and logged these persons, so this returns nothing.
+    The replica reports the versions an already tombstoned person holds and skips a uuid it
+    does not know. Publishing the same versions twice is harmless, and the previous attempt
+    already counted and logged these persons.
     """
     if not person_uuids:
         return
@@ -655,6 +652,23 @@ def _republish_tombstones(
                 exc=exc,
                 person_uuids=[tombstone.uuid],
             )
+
+
+def unpublished_tombstone_uuids(failures: builtins.list[PersonDeletionFailure]) -> builtins.list[uuid_lib.UUID]:
+    return [
+        failure.person_uuid
+        for failure in failures
+        if failure.step is PersonDeletionStep.TOMBSTONE_CLICKHOUSE and failure.person_uuid is not None
+    ]
+
+
+def republish_tombstones(team_id: int, person_uuids: builtins.list[uuid_lib.UUID]) -> builtins.list[uuid_lib.UUID]:
+    """Publish ClickHouse tombstones again; returns the uuids still unpublished afterwards."""
+    failures: builtins.list[PersonDeletionFailure] = []
+    _republish_tombstones(team_id, person_uuids, failures)
+    if any(failure.step is PersonDeletionStep.DELETE_POSTGRES for failure in failures):
+        return list(person_uuids)
+    return unpublished_tombstone_uuids(failures)
 
 
 def queue_person_event_deletion(

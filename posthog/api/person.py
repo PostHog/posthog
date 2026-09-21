@@ -58,6 +58,7 @@ from posthog.models.person.bulk_delete import (
     queue_person_event_deletion,
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
+    unpublished_tombstone_uuids,
 )
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
@@ -74,7 +75,7 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateTh
 from posthog.renderers import SafeJSONRenderer
 from posthog.slo.context import JsonValue, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
-from posthog.tasks.delete_persons import queue_person_deletion
+from posthog.tasks.delete_persons import queue_person_deletion, republish_person_tombstones
 from posthog.tasks.split_person import split_person
 from posthog.utils import (
     format_query_params_absolute_url,
@@ -965,6 +966,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for failure in result.failures
                 if failure.person_uuid is not None
             ]
+            if settings.PERSON_DELETE_TOMBSTONE:
+                # These persons no longer resolve, so a repeat request cannot reach them.
+                unpublished = unpublished_tombstone_uuids(result.failures)
+                if unpublished:
+                    republish_person_tombstones.delay(team_id=self.team_id, person_uuids=[str(u) for u in unpublished])
 
         if delete_events:
             queue_person_event_deletion(self.team_id, persons, actor=cast(User, request.user))

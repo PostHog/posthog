@@ -705,9 +705,8 @@ class PersonTombstone:
 def tombstone_persons_in_postgres(team_id: int, person_uuids: list[UUID]) -> list[PersonTombstone]:
     """Tombstone Person rows via the personhog RPC and return the versions it wrote.
 
-    Processes in batches of 1000 (the RPC maximum). A person already tombstoned comes back
-    with the versions it holds, so a retry can publish the same ClickHouse tombstones again;
-    a person that no longer exists comes back with nothing.
+    Batches of 1000, the RPC maximum. An already tombstoned person comes back with the
+    versions it holds; one that no longer exists comes back with nothing.
     """
 
     def personhog_fn() -> list[PersonTombstone]:

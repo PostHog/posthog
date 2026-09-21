@@ -33,6 +33,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_ta
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Person, PropertyDefinition, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.person.bulk_delete import PersonDeletionFailure, PersonDeletionStep, PersonProfileDeletionResult
 from posthog.models.person.missing_person import uuidFromDistinctId
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
 from posthog.models.person.util import (
@@ -609,6 +610,33 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data = response.json()
             self.assertEqual(data["code"], "person_deletion_failed")
             self.assertIn("delete_postgres", data["detail"])
+
+    @parameterized.expand([("publish_failed", True, 1), ("published", False, 0)])
+    @override_settings(PERSON_DELETE_TOMBSTONE=True)
+    def test_delete_person_hands_unpublished_tombstones_to_celery(self, _name, publish_failed, delay_calls):
+        person = _create_person(team=self.team, distinct_ids=["person_1"], immediate=True)
+        failures = (
+            [
+                PersonDeletionFailure(
+                    step=PersonDeletionStep.TOMBSTONE_CLICKHOUSE, person_uuid=person.uuid, error="kafka"
+                )
+            ]
+            if publish_failed
+            else []
+        )
+        with (
+            mock.patch(
+                "posthog.api.person.delete_persons_profile",
+                return_value=PersonProfileDeletionResult(deleted_count=1, failures=failures),
+            ),
+            mock.patch("posthog.api.person.republish_person_tombstones") as task,
+        ):
+            response = self.client.delete(f"/api/person/{person.uuid}/")
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(task.delay.call_count, delay_calls)
+        if delay_calls:
+            task.delay.assert_called_once_with(team_id=self.team.pk, person_uuids=[str(person.uuid)])
 
     @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_delete_person_and_events(self):

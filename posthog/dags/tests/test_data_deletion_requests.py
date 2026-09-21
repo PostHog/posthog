@@ -8,6 +8,7 @@ import pytest
 from unittest.mock import patch
 
 from django.conf import settings as django_settings
+from django.test import override_settings
 from django.utils import timezone
 
 import dagster
@@ -2721,3 +2722,73 @@ def test_property_removal_where_omits_event_filter_when_delete_all_events():
     sql, params = _property_removal_where(_property_removal_ctx(events=[], delete_all_events=True))
     assert "event IN" not in sql
     assert "events" not in params
+
+
+def _profile_result_with_unpublished_tombstone(person_uuid: UUID) -> PersonProfileDeletionResult:
+    return PersonProfileDeletionResult(
+        deleted_count=1,
+        failures=[
+            PersonDeletionFailure(step=PersonDeletionStep.TOMBSTONE_CLICKHOUSE, person_uuid=person_uuid, error="kafka")
+        ],
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "tombstone_setting,republish_calls",
+    [(True, 1), (False, 0)],
+)
+def test_delete_person_profiles_op_republishes_unpublished_tombstones(tombstone_setting, republish_calls):
+    p_uuid = str(uuid4())
+    create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[p_uuid],
+        person_distinct_ids=[],
+        drop_profiles=True,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    with (
+        override_settings(PERSON_DELETE_TOMBSTONE=tombstone_setting),
+        patch("posthog.dags.data_deletion_requests.TOMBSTONE_REPUBLISH_BACKOFF_SECONDS", (0, 0)),
+        patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter,
+        patch("posthog.dags.data_deletion_requests.republish_tombstones", return_value=[]) as republish,
+    ):
+        deleter.return_value = _profile_result_with_unpublished_tombstone(UUID(p_uuid))
+        result = delete_person_profiles_op(build_op_context(), ctx)
+
+    assert result is ctx
+    assert republish.call_count == republish_calls
+    if republish_calls:
+        republish.assert_called_once_with(TEAM_ID, [UUID(p_uuid)])
+
+
+@pytest.mark.django_db
+def test_delete_person_profiles_op_fails_when_tombstones_stay_unpublished():
+    p_uuid = str(uuid4())
+    create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[p_uuid],
+        person_distinct_ids=[],
+        drop_profiles=True,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    op_context = build_op_context()
+    with (
+        override_settings(PERSON_DELETE_TOMBSTONE=True),
+        patch("posthog.dags.data_deletion_requests.TOMBSTONE_REPUBLISH_BACKOFF_SECONDS", (0, 0)),
+        patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter,
+        patch("posthog.dags.data_deletion_requests.republish_tombstones", return_value=[UUID(p_uuid)]) as republish,
+        patch.object(op_context.log, "error") as log_error,
+    ):
+        deleter.return_value = _profile_result_with_unpublished_tombstone(UUID(p_uuid))
+        with pytest.raises(dagster.Failure, match=p_uuid):
+            delete_person_profiles_op(op_context, ctx)
+
+    assert republish.call_count == 2
+    assert p_uuid in log_error.call_args.args[0]

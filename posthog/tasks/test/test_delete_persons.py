@@ -9,7 +9,12 @@ from parameterized import parameterized
 
 from posthog.models.person import Person
 from posthog.models.person.bulk_delete import PersonDeletionFailure, PersonDeletionStep, PersonProfileDeletionResult
-from posthog.tasks.delete_persons import PersonDeletionIncomplete, delete_persons_async, queue_person_deletion
+from posthog.tasks.delete_persons import (
+    PersonDeletionIncomplete,
+    delete_persons_async,
+    queue_person_deletion,
+    republish_person_tombstones,
+)
 
 
 def _person() -> Person:
@@ -150,3 +155,41 @@ class TestDeletePersonsAsync(SimpleTestCase):
         with patch.object(delete_persons_async, "retry") as retry:
             self._run(PersonProfileDeletionResult(deleted_count=2))
         retry.assert_not_called()
+
+
+class TestRepublishPersonTombstones(SimpleTestCase):
+    def _run(self, still_unpublished: list, retries: int = 0) -> tuple:
+        requested = [str(uuid4()), str(uuid4())]
+        with (
+            patch("posthog.tasks.delete_persons.republish_tombstones", return_value=still_unpublished) as republish,
+            patch.object(republish_person_tombstones, "retry", side_effect=Retry("retry")) as retry,
+        ):
+            republish_person_tombstones.push_request(retries=retries)
+            try:
+                republish_person_tombstones.run(team_id=1, person_uuids=requested)
+                raised = False
+            except Retry:
+                raised = True
+            finally:
+                republish_person_tombstones.pop_request()
+        return republish, retry, raised
+
+    def test_stops_when_everything_published(self) -> None:
+        republish, retry, raised = self._run([])
+        republish.assert_called_once()
+        retry.assert_not_called()
+        assert not raised
+
+    def test_retries_with_only_the_unpublished_uuids(self) -> None:
+        remaining = uuid4()
+        _, retry, raised = self._run([remaining])
+        assert raised
+        assert retry.call_args.kwargs["kwargs"] == {"team_id": 1, "person_uuids": [str(remaining)]}
+        assert retry.call_args.kwargs["countdown"] == 60
+
+    def test_gives_up_after_the_last_retry(self) -> None:
+        with patch("posthog.tasks.delete_persons.logger") as logger:
+            _, retry, raised = self._run([uuid4()], retries=3)
+        assert not raised
+        retry.assert_not_called()
+        logger.error.assert_called_once()

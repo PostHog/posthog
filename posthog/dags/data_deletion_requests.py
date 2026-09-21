@@ -69,7 +69,9 @@ from posthog.models.person.bulk_delete import (
     PersonDeletionStep,
     delete_persons_profile,
     queue_person_recording_deletion,
+    republish_tombstones,
     resolve_persons_for_deletion,
+    unpublished_tombstone_uuids,
 )
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -1521,6 +1523,9 @@ def delete_person_recordings_op(
     return person_removal
 
 
+TOMBSTONE_REPUBLISH_BACKOFF_SECONDS = (2, 4, 8, 16, 32)
+
+
 @dagster.op(tags=OWNER_TAG)
 def delete_person_profiles_op(
     context: dagster.OpExecutionContext,
@@ -1534,8 +1539,10 @@ def delete_person_profiles_op(
     `POST /api/projects/:id/persons/bulk_delete/` endpoint and avoids flipping the whole
     request to FAILED after upstream events/recordings ops have already done their work.
 
-    The one exception is the batch Postgres delete: when it fails, every tombstoned person is
-    still in Postgres, so the op raises and the request finalizes as FAILED for a retry.
+    Two failures raise so the request finalizes as FAILED: the batch Postgres delete, and, with
+    PERSON_DELETE_TOMBSTONE on, a ClickHouse publish that still fails after the republish
+    backoff. Those persons are already tombstoned in Postgres, so a follow-up request cannot
+    reach them.
     """
     if not person_removal.drop_profiles:
         context.log.info("drop_profiles=False, skipping profile deletion")
@@ -1556,10 +1563,7 @@ def delete_person_profiles_op(
         "errors": dagster.MetadataValue.int(len(result.errors)),
     }
     if result.errors:
-        context.log.warning(
-            f"Person profile deletion had {len(result.errors)} per-person failures; "
-            f"Postgres rows remain for failed UUIDs and can be retried via a follow-up request"
-        )
+        context.log.warning(f"Person profile deletion had {len(result.errors)} per-person failures")
         metadata["error_uuids"] = dagster.MetadataValue.text(", ".join(str(u) for u in result.errors))
     postgres_failures = [f for f in result.failures if f.step is PersonDeletionStep.DELETE_POSTGRES]
     if postgres_failures:
@@ -1567,6 +1571,27 @@ def delete_person_profiles_op(
             description=(
                 f"Deletion request {person_removal.request_id}: the Postgres delete failed for "
                 f"{len(postgres_failures)} persons ({postgres_failures[0].error})"
+            ),
+            metadata=metadata,
+        )
+
+    unpublished = unpublished_tombstone_uuids(result.failures) if django_settings.PERSON_DELETE_TOMBSTONE else []
+    for delay in TOMBSTONE_REPUBLISH_BACKOFF_SECONDS:
+        if not unpublished:
+            break
+        time.sleep(delay)
+        unpublished = republish_tombstones(person_removal.team_id, unpublished)
+    if unpublished:
+        uuids = ", ".join(str(u) for u in unpublished)
+        context.log.error(
+            f"{len(unpublished)} persons are deleted in Postgres but their ClickHouse tombstones could not be "
+            f"published; they stay visible in analytics until republished: {uuids}"
+        )
+        metadata["unpublished_clickhouse_uuids"] = dagster.MetadataValue.text(uuids)
+        raise dagster.Failure(
+            description=(
+                f"Deletion request {person_removal.request_id}: ClickHouse tombstones for "
+                f"{len(unpublished)} persons could not be published ({uuids})"
             ),
             metadata=metadata,
         )
