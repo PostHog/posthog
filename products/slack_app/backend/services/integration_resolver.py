@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -112,17 +113,11 @@ def resolve_from_candidates(
     ``slack_user_id=""``; the SlackSettings lookup is skipped and the result
     falls through to ``sole_candidate`` / ``needs_picker``.
     """
-    # ``user.teams`` keys its access-control filter off a single arbitrary
-    # ``Organization.first()`` row's feature flags, so a user whose AC-enabled
-    # org isn't the one picked sees private projects from that org. Per-team
-    # ``effective_membership_level`` is the right check — it consults each
-    # team's own organization's feature flags.
     if user is None:
         accessible_team_ids: set[int] | None = None
         accessible = candidates
     else:
-        permissions = UserPermissions(user=user)
-        accessible = [c for c in candidates if permissions.team(c.team).effective_membership_level is not None]
+        accessible = accessible_candidates(candidates, user=user)
         accessible_team_ids = {c.team_id for c in accessible}
     candidate_ids = {c.id for c in candidates}
     candidates_by_team_id = {c.team_id: c for c in candidates}
@@ -213,17 +208,32 @@ def load_integrations(
     )
 
 
-def accessible_projects(*, slack_team_id: str, user: User) -> list[Integration]:
-    """The workspace's installs whose project this user can open.
+def accessible_candidates(candidates: Iterable[Integration], *, user: User) -> list[Integration]:
+    """The candidates whose project this user is a member of.
 
-    Membership alone, with no scope or reachability check, so a caller that only needs
-    to know how many projects are in play pays one query rather than an ``auth.test``
-    per candidate. ``routable_projects`` asks the stricter question of where a run may
-    actually be sent.
+    Per-team ``effective_membership_level`` rather than ``user.teams``: the latter keys
+    its access-control filter off a single arbitrary ``Organization.first()`` row's
+    feature flags, so a user whose AC-enabled org isn't the one picked sees private
+    projects from that org.
     """
-    candidates = Integration.objects.filter(kind="slack", integration_id=slack_team_id).select_related("team")
     permissions = UserPermissions(user=user)
     return [c for c in candidates if permissions.team(c.team).effective_membership_level is not None]
+
+
+def multiple_accessible_projects(*, slack_team_id: str, user: User) -> bool:
+    """Whether this user can open more than one of the workspace's projects.
+
+    Membership alone, with no scope or reachability check: a caller asking only whether
+    there is anything to tell apart should not pay an ``auth.test`` per candidate.
+    ``routable_projects`` asks the stricter question of where a run may actually be sent.
+    """
+    installs = Integration.objects.filter(kind="slack", integration_id=slack_team_id)
+    # Accessible is a subset of installed, so one install settles it without the
+    # membership scan — on a count, which reads an index rather than hydrating and
+    # decrypting every row.
+    if installs.count() < 2:
+        return False
+    return len(accessible_candidates(installs.select_related("team"), user=user)) > 1
 
 
 def routable_projects(*, slack_team_id: str, slack_user_id: str, user: User) -> list[Integration]:
@@ -325,20 +335,12 @@ def resolve_user_for_workspace(
         )
         return UserAndIntegrationsResolution(failure_reason="user_not_found", slack_email=slack_email)
 
-    # Filter to integrations the user can access. A resolved target the user can't
-    # reach is dropped so the caller falls through to the picker / sole-candidate
-    # path rather than auto-redirecting to a default the thread didn't imply.
-    # Use per-team ``effective_membership_level`` rather than ``user.teams``: the
-    # latter gates its access-control filter on an arbitrary ``Organization.first()``
-    # row's feature flags, so a Slack user spanning multiple orgs can otherwise
-    # be treated as having access to a private project in a different org than
-    # the one that drove the AC check.
-    permissions = UserPermissions(user=posthog_user)
-    accessible_candidates = [
-        c for c in workspace_result.candidates if permissions.team(c.team).effective_membership_level is not None
-    ]
-    accessible_team_ids = {c.team_id for c in accessible_candidates}
-    if not accessible_candidates:
+    # A resolved target the user can't reach is dropped so the caller falls through to
+    # the picker / sole-candidate path rather than auto-redirecting to a default the
+    # thread didn't imply.
+    reachable_candidates = accessible_candidates(workspace_result.candidates, user=posthog_user)
+    accessible_team_ids = {c.team_id for c in reachable_candidates}
+    if not reachable_candidates:
         # Fetch slack_email lazily for the failure reply (cached after the
         # earlier resolve_posthog_user_from_event call, so this is free).
         slack_email = get_slack_email_for_user(probe, slack_user_id)
@@ -360,6 +362,6 @@ def resolve_user_for_workspace(
     return UserAndIntegrationsResolution(
         user=posthog_user,
         integration=target,
-        candidates=accessible_candidates,
+        candidates=reachable_candidates,
         source=workspace_result.source if target is not None else "needs_picker",
     )

@@ -95,7 +95,7 @@ class TestLoadRunFooter(SimpleTestCase):
         )
         mock_parse.return_value = SimpleNamespace(model="claude-opus-5", reasoning_effort="high")
 
-        footer = load_run_footer("run-1")
+        footer = load_run_footer("run-1", integration_id=None)
 
         assert f"/code/task/{task_id}" in (footer.desktop_url or "")
         assert f"/tasks/{task_id}" in (footer.task_url or "")
@@ -103,7 +103,7 @@ class TestLoadRunFooter(SimpleTestCase):
 
     @patch("products.tasks.backend.facade.api.get_task_run", side_effect=RuntimeError("db down"))
     def test_a_failure_to_describe_the_run_costs_the_footer_not_the_answer(self, _mock_get_run) -> None:
-        assert load_run_footer("run-1") == RunFooter()
+        assert load_run_footer("run-1", integration_id=None) == RunFooter()
 
 
 class TestViewerHasCodeAccess(SimpleTestCase):
@@ -152,41 +152,42 @@ class TestViewerHasCodeAccess(SimpleTestCase):
 
 class TestFooterProject:
     """The footer names the project a run answered from, and only where naming it tells
-    the reader something.
+    the opener something.
 
     Covers what the `SimpleTestCase` classes above cannot: those run without a database,
     so the lookup takes its failure path there and the segment is always absent.
     """
 
     @pytest.mark.parametrize(
-        "sibling_projects,expected",
+        "sibling_owner,expected",
         [
-            # Nothing to tell apart: the name would be identical on every reply in the
-            # workspace, so it costs a segment and carries no information.
-            (0, None),
-            (1, "Staging"),
+            # Nothing to tell apart: the name would be identical under every reply in
+            # the workspace, so it costs a segment and carries no information.
+            (None, None),
+            ("same_org", "Test Team"),
+            # Counting workspace installs rather than the opener's own access would name
+            # the project for someone who never had a second one to confuse it with.
+            ("other_org", None),
         ],
     )
-    def test_names_the_project_only_when_another_one_was_reachable(self, db, sibling_projects, expected):
+    def test_names_the_project_only_when_another_reachable_one_exists(
+        self, db, org_team_user, workspace_integration, sibling_owner, expected
+    ):
         from django.apps import apps
 
-        from posthog.models.organization import Organization, OrganizationMembership
+        from posthog.models.organization import Organization
         from posthog.models.team.team import Team
-        from posthog.models.user import User
 
-        organization = Organization.objects.create(name="Org")
-        routed_team = Team.objects.create(organization=organization, name="Staging")
-        user = User.objects.create(email="dev@example.com", distinct_id="u-1")
-        OrganizationMembership.objects.create(user=user, organization=organization)
-        integration = Integration.objects.create(
-            team=routed_team, kind="slack", integration_id="T_WS", sensitive_config={"access_token": "xoxb"}
-        )
-        for index in range(sibling_projects):
+        organization, routed_team, user = org_team_user
+        if sibling_owner is not None:
+            owner = (
+                organization if sibling_owner == "same_org" else Organization.objects.create(name="Someone else's org")
+            )
             Integration.objects.create(
-                team=Team.objects.create(organization=organization, name=f"Other {index}"),
+                team=Team.objects.create(organization=owner, name="Sibling"),
                 kind="slack",
-                integration_id="T_WS",
-                sensitive_config={"access_token": "xoxb"},
+                integration_id=workspace_integration.integration_id,
+                sensitive_config={"access_token": "xoxb-test"},
             )
 
         Task = apps.get_model("tasks", "Task")
@@ -194,38 +195,7 @@ class TestFooterProject:
         task = Task.objects.create(team=routed_team, title="t", created_by=user)
         run = TaskRun.objects.create(team=routed_team, task=task)
 
-        footer = load_run_footer(run.id, integration_id=integration.id)
+        footer = load_run_footer(run.id, integration_id=workspace_integration.id)
 
         # The project the run answered from, not the one the workspace defaults to.
         assert footer.project == expected
-
-    def test_a_project_the_reader_cannot_open_does_not_make_it_worth_naming(self, db):
-        # Counting workspace installs rather than the reader's own access would name the
-        # project for someone who never had a second one to be confused with.
-        from django.apps import apps
-
-        from posthog.models.organization import Organization, OrganizationMembership
-        from posthog.models.team.team import Team
-        from posthog.models.user import User
-
-        organization = Organization.objects.create(name="Org")
-        other_organization = Organization.objects.create(name="Someone else")
-        routed_team = Team.objects.create(organization=organization, name="Staging")
-        user = User.objects.create(email="dev@example.com", distinct_id="u-1")
-        OrganizationMembership.objects.create(user=user, organization=organization)
-        integration = Integration.objects.create(
-            team=routed_team, kind="slack", integration_id="T_WS", sensitive_config={"access_token": "xoxb"}
-        )
-        Integration.objects.create(
-            team=Team.objects.create(organization=other_organization, name="Theirs"),
-            kind="slack",
-            integration_id="T_WS",
-            sensitive_config={"access_token": "xoxb"},
-        )
-
-        Task = apps.get_model("tasks", "Task")
-        TaskRun = apps.get_model("tasks", "TaskRun")
-        task = Task.objects.create(team=routed_team, title="t", created_by=user)
-        run = TaskRun.objects.create(team=routed_team, task=task)
-
-        assert load_run_footer(run.id, integration_id=integration.id).project is None
