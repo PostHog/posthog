@@ -442,8 +442,7 @@ impl PersonLookup for PostgresStorage {
         }
 
         // Resolve UUIDs to integer IDs in one query, then chunk and delete
-        // by ID. This avoids scanning the UUID index per-chunk. Tombstoned
-        // rows go too, which is what a flag flip or a purge needs.
+        // by ID. This avoids scanning the UUID index per-chunk.
         let mut person_ids: Vec<i64> = sqlx::query_scalar!(
             r#"
             SELECT id::bigint as "id!" FROM posthog_person
@@ -517,10 +516,8 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        // Team teardown is the caller, so the rows always go: a tombstone here
-        // would keep the team's identifiers forever, because nothing sweeps a
-        // deleted team's ClickHouse tombstones into the cleanup queue. Rows
-        // tombstoned earlier are removed too.
+        // Team teardown always removes the rows, tombstoned ones included: nothing
+        // sweeps a deleted team's tombstones into the cleanup queue.
         let mut person_ids: Vec<i64> = sqlx::query_scalar!(
             r#"
             SELECT id::bigint as "id!" FROM posthog_person
@@ -1213,13 +1210,9 @@ impl PersonLookup for PostgresStorage {
     }
 }
 
-/// Delete a chunk of persons by integer ID in a single transaction:
-/// distinct_ids first (FK is NO ACTION), then persons (feature flag hash
-/// key overrides cascade at the DB level).
-/// Tombstone the requested persons in one transaction, so the versions the
-/// caller receives are exactly the ones committed, or none. Persons already
-/// tombstoned are reported with the versions they hold, so a retry after a
-/// lost response can publish the same ClickHouse tombstones again.
+/// Tombstone the requested persons in one transaction, so the caller gets
+/// exactly the versions committed, or none. Persons already tombstoned are
+/// reported with the versions they hold, so a retry can republish them.
 async fn tombstone_persons_by_uuids(
     storage: &PostgresStorage,
     team_id: i64,
@@ -1306,11 +1299,8 @@ async fn tombstone_persons_by_uuids(
 }
 
 /// Tombstone one chunk of persons inside the caller's transaction: their
-/// distinct-id rows and the person rows themselves get `is_deleted = true`
-/// with the version bumped by one, and person properties are scrubbed. The
-/// rows stay so the version counter survives; a later create on the same key
-/// revives the row above this version. Returns the versions written, one
-/// entry per person tombstoned.
+/// rows get `is_deleted = true` and version + 1, properties scrubbed. The rows
+/// stay so a later create on the same key revives above this version.
 async fn tombstone_persons_by_ids_in_tx(
     tx: &mut Transaction<'_, Postgres>,
     team_id: i64,
@@ -1387,8 +1377,7 @@ async fn tombstone_persons_by_ids_in_tx(
         .await?;
     }
 
-    // Nothing cascades these: the FK to posthog_person was dropped when the
-    // table was partitioned.
+    // The person row stays, so the FK cascade never fires; remove the overrides here.
     sqlx::query!(
         r#"
         DELETE FROM posthog_featureflaghashkeyoverride
