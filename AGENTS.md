@@ -87,7 +87,7 @@ See [Public open source repo guidance](#public-open-source-repo-guidance) for wh
 #### Before you push
 
 - **Never bypass the pre-push hooks** (`--no-verify`). They run `hogli ci:preflight --strict` and a merge-queue guard. When one blocks you, fix what it reports — `/running-ci-preflight` has the loop, `/merging-prs` explains the queue guard.
-- **Never force-push a branch that is in the merge queue** — it removes the PR from the queue. That includes restacking a stack whose base is queued.
+- **Never mutate a branch that is in the merge queue** — any new head commit removes the PR from the queue and invalidates its queue run. Do not commit, push, merge or rebase `master`, force-push, rewrite, or restack the branch. Wait until the PR merges or Trunk removes it from the queue before changing its head.
 - Draft PRs run a narrowed CI matrix. To force the full one, see "Forcing the full matrix on a draft" in `/authoring-ci-workflows`.
 
 #### Stacked PRs
