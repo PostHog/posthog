@@ -9,25 +9,18 @@ import json
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-import posthoganalytics
-
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 if TYPE_CHECKING:
     from posthog.schema import DateRange, IntervalType
 
     from posthog.models.team import Team
     from posthog.models.user import User
-
-# Gates these runners behind the same flag and RBAC resource the product's DRF endpoints
-# require, so the generic /query/ endpoint can't bypass either (see PostHogFeatureFlagPermission
-# and the "mcp_analytics" entry in ACCESS_CONTROL_RESOURCES).
-MCP_ANALYTICS_FEATURE_FLAG = "mcp-analytics"
 
 # The effective tool name for new-SDK events: the inner tool when the call went through the
 # single-exec wrapper, else the directly-registered tool name. Shared by every runner that
@@ -71,17 +64,9 @@ def display_person_properties(*, email: str, name: str) -> str:
 
 
 def validate_mcp_analytics_access(team: "Team", user: "User") -> bool:
-    org_id = str(team.organization_id)
-    enabled = posthoganalytics.feature_enabled(
-        MCP_ANALYTICS_FEATURE_FLAG,
-        str(user.distinct_id),
-        groups={"organization": org_id, "project": str(team.id)},
-        group_properties={"organization": {"id": org_id}, "project": {"id": str(team.id)}},
-        only_evaluate_locally=False,
-        send_feature_flag_events=False,
-    )
-    if not enabled:
-        raise UserAccessControlError("mcp_analytics", "viewer")
+    # Gates these runners behind the same RBAC resource the product's DRF endpoints require, so
+    # the generic /query/ endpoint can't bypass it (see the "mcp_analytics" entry in
+    # ACCESS_CONTROL_RESOURCES).
     return UserAccessControl(user=user, team=team).assert_access_level_for_resource("mcp_analytics", "viewer")
 
 

@@ -25,7 +25,6 @@ tools:
             discovery rates, description fit, overlaps). Returns immediately with status 'computing'; poll
             mcp-analytics-intent-clusters-retrieve for progress (status becomes 'idle' or 'error').
         requires_ai_consent: true
-        feature_flag: mcp-analytics
     mcp-analytics-intent-clusters-retrieve:
         operation: mcp_analytics_intent_clusters_retrieve
         enabled: true
@@ -44,7 +43,6 @@ tools:
             same intents. computed_with carries sample-coverage percentages; treat counts as sample statistics. Returns
             an empty idle snapshot when no clustering run has happened yet — trigger one with
             mcp-analytics-intent-clusters-recompute.
-        feature_flag: mcp-analytics
     mcp-analytics-sessions-activity-overview:
         operation: mcp_analytics_sessions_activity_overview
         enabled: false
@@ -63,7 +61,6 @@ tools:
             recorded intents. The first call summarises and persists the result; subsequent calls return the stored
             summary.
         requires_ai_consent: true
-        feature_flag: mcp-analytics
     mcp-analytics-sessions-intent-digest:
         operation: mcp_analytics_sessions_intent_digest
         enabled: false
@@ -91,7 +88,6 @@ tools:
             case-insensitive `search`, a `date_from`/`date_to` window (default last 7 days), and `limit`/`offset` paging
             — see each parameter for the specifics. To then summarise a single session's goal, follow up with
             mcp-analytics-sessions-generate-intent.
-        feature_flag: mcp-analytics
     mcp-analytics-sessions-tool-calls:
         operation: mcp_analytics_sessions_tool_calls
         enabled: true
@@ -110,7 +106,6 @@ tools:
             Each call has tool_name, intent, timestamp, duration_ms, and is_error / error_message. Pages with limit
             (defaults to 500 — the whole page, since sessions rarely have more — max 500) and offset; the response's
             has_next flag indicates whether more calls remain.
-        feature_flag: mcp-analytics
     mcp-feedback-list:
         operation: mcp_analytics_feedback_list
         enabled: false
@@ -139,7 +134,6 @@ tools:
             - missing_capability
             - blocked
             - attempted_tool
-        feature_flag: mcp-analytics
 wrappers:
     query-mcp-harness-breakdown:
         schema_ref: MCPHarnessBreakdownQuery
@@ -164,7 +158,6 @@ wrappers:
             - modifiers
             - version
             - tags
-        feature_flag: mcp-analytics
     query-mcp-tool-stats:
         schema_ref: MCPToolStatsQuery
         enabled: true
@@ -187,7 +180,6 @@ wrappers:
             - modifiers
             - version
             - tags
-        feature_flag: mcp-analytics
     query-mcp-tool-daily-stats:
         schema_ref: MCPToolDailyStatsQuery
         enabled: true
@@ -210,7 +202,6 @@ wrappers:
             - modifiers
             - version
             - tags
-        feature_flag: mcp-analytics
     query-mcp-tool-failures:
         schema_ref: MCPToolFailuresQuery
         enabled: true
@@ -236,7 +227,6 @@ wrappers:
             - modifiers
             - version
             - tags
-        feature_flag: mcp-analytics
     query-mcp-tool-failure-occurrences:
         schema_ref: MCPToolFailureOccurrencesQuery
         enabled: true
@@ -262,7 +252,6 @@ wrappers:
             - modifiers
             - version
             - tags
-        feature_flag: mcp-analytics
     query-mcp-tool-top-users:
         schema_ref: MCPToolTopUsersQuery
         enabled: true
@@ -284,7 +273,6 @@ wrappers:
             - modifiers
             - version
             - tags
-        feature_flag: mcp-analytics
     query-mcp-tool-neighbors:
         schema_ref: MCPToolNeighborsQuery
         enabled: true
@@ -307,7 +295,6 @@ wrappers:
             - modifiers
             - version
             - tags
-        feature_flag: mcp-analytics
     query-mcp-tool-sample-intents:
         schema_ref: MCPToolSampleIntentsQuery
         enabled: true
@@ -329,7 +316,6 @@ wrappers:
             - modifiers
             - version
             - tags
-        feature_flag: mcp-analytics
     query-mcp-tool-descriptions:
         schema_ref: MCPToolDescriptionsQuery
         enabled: true
@@ -351,7 +337,6 @@ wrappers:
             - modifiers
             - version
             - tags
-        feature_flag: mcp-analytics
     query-mcp-missing-capabilities:
         schema_ref: MCPMissingCapabilitiesQuery
         enabled: true
@@ -376,4 +361,3 @@ wrappers:
             - modifiers
             - version
             - tags
-        feature_flag: mcp-analytics
