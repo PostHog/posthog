@@ -11,6 +11,8 @@ from django.core.management.base import CommandError
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from posthoganalytics.client import Client
+from requests import Timeout
 
 from posthog.egress.firecrawl.client import FirecrawlScrape
 from posthog.models.organization import Organization, OrganizationMembership
@@ -43,16 +45,14 @@ class TestAiPilledScoreApplication(BaseTest):
         EnrichmentPromptConfig.objects.filter(name="ai_pilled").update(is_active=False)
         self.config = EnrichmentPromptConfig.objects.create(
             name="ai_pilled",
-            version="evidence-v1",
-            prompt_text="Check the supplied evidence for the company at {email}.",
+            version="label-v1",
+            prompt_text="Classify the company at {email}.",
             model="gpt-5-mini",
             input_fields=["description"],
             output_fields=[
                 {"key": "ai_pilled", "type": "boolean"},
-                {"key": "evidence_status", "type": "string"},
-                {"key": "evidence_type", "type": "string"},
+                {"key": "reasoning", "type": "string"},
                 {"key": "evidence_url", "type": "string"},
-                {"key": "evidence_quote", "type": "string"},
             ],
             is_active=True,
         )
@@ -73,21 +73,12 @@ class TestAiPilledScoreApplication(BaseTest):
             model=self.config.model,
             output={
                 "ai_pilled": True,
-                "evidence_status": "supported",
-                "evidence_type": "ai_product",
+                "reasoning": "The company sells an AI assistant for inventory teams.",
                 "evidence_url": self.url,
-                "evidence_quote": "Our team uses coding assistants.",
-                "meta": {
-                    "evidence_quote_verified": True,
-                    "tool_calls": [{"name": "fetch_page", "arguments": {"url": self.url}, "error": None}],
-                },
             },
             inputs={
                 "signup_domain": "sample.example.com",
                 "fields": {"description": self.fetch.payload["description"]},
-                "tool_calls": [
-                    {"name": "fetch_page", "arguments": {"url": self.url}, "result": {"url": self.url, "chars": 120}}
-                ],
             },
         )
 
@@ -139,6 +130,7 @@ class TestAiPilledScoreApplication(BaseTest):
         provider.enrich_by_domain = AsyncMock(
             return_value=ProviderLookup(fields=EnrichmentFields(headcount=8), raw_payload=payload)
         )
+        client = MagicMock()
 
         def bridge_inputs(**kwargs):
             if label_ready:
@@ -171,12 +163,52 @@ class TestAiPilledScoreApplication(BaseTest):
                     distinct_id=self.user.distinct_id,
                 ),
                 provider=provider,
-                pha_client=MagicMock(),
+                pha_client=client,
             )
 
         assert outcome.fit is not None and outcome.fit.score == (15 if label_ready else 0)
         record.refresh_from_db()
         assert ("icp_fit_ai_label_result_id" in record.data) is label_ready
+        client.flush.assert_not_called()
+
+    @parameterized.expand([("delivered", False), ("timed_out", True)])
+    def test_label_projection_uses_bounded_synchronous_requests(self, _name, timed_out):
+        clients = []
+        session = MagicMock()
+        session.post.return_value.status_code = 200
+        if timed_out:
+            session.post.side_effect = Timeout("synthetic delivery timeout")
+
+        def regional_client(**kwargs):
+            kwargs.setdefault("max_retries", 0)
+            client = Client("phc_synthetic", host="https://sdk.example.com", **kwargs)
+            clients.append(client)
+            return client
+
+        with (
+            patch("products.growth.backend.enrichment.gates.get_instance_region", return_value="US"),
+            patch("products.growth.backend.enrichment.gates.enrichment_enabled", return_value=True),
+            patch(
+                "products.growth.backend.enrichment.fit_recomputation.get_regional_ph_client",
+                side_effect=regional_client,
+            ),
+            patch(
+                "products.growth.backend.enrichment.fit_recomputation.read_organization_bridge_inputs",
+                return_value=OrganizationBridgeInputs(),
+            ),
+            patch("posthoganalytics.request._get_session", return_value=session),
+        ):
+            if timed_out:
+                with self.assertRaises(RuntimeError):
+                    apply_ai_pilled_label(self.label)
+            else:
+                assert apply_ai_pilled_label(self.label)
+
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert ("icp_fit_ai_label_projected_result_id" in record.data) is not timed_out
+        assert clients[0].sync_mode is True
+        assert session.post.call_count == (1 if timed_out else 2)
+        assert all(call.kwargs["timeout"] == 10 for call in session.post.call_args_list)
 
     @parameterized.expand([("matched", None), ("latest_not_found", {"companyFound": False}), ("latest_empty", {})])
     def test_batch_retries_score_projection_without_reclassifying(self, _name, missing_payload):
@@ -203,11 +235,12 @@ class TestAiPilledScoreApplication(BaseTest):
         fail_delivery = True
 
         def regional_client(**kwargs):
-            def flush(**_kwargs):
+            def deliver(*_args, **_kwargs):
                 if fail_delivery:
                     kwargs["on_error"](RuntimeError("synthetic transport failure"), [])
+                return "event"
 
-            client.flush.side_effect = flush
+            client.group_identify.side_effect = deliver
             return client
 
         with (
@@ -245,7 +278,7 @@ class TestAiPilledScoreApplication(BaseTest):
         assert client.group_identify.call_count == 2
 
     @parameterized.expand([("ai_pilled",), ("reviewed_ai",)])
-    def test_batch_classifies_and_applies_supported_result(self, label_name):
+    def test_batch_classifies_and_applies_positive_result(self, label_name):
         self.config.name = label_name
         self.config.save(update_fields=["name"])
         IcpScoringConfig.objects.filter(is_active=True).update(scoring_rules={"ai_labels": [label_name]})
@@ -281,14 +314,14 @@ class TestAiPilledScoreApplication(BaseTest):
             ),
             patch(
                 "products.growth.backend.enrichment.tools.scrape",
-                return_value=FirecrawlScrape(url=self.url, markdown=output["evidence_quote"], status_code=200),
+                return_value=FirecrawlScrape(url=self.url, markdown=output["reasoning"], status_code=200),
             ),
         ):
             call_command("enrichment_label_batch", label=label_name, workers=1)
 
         label = EnrichmentLabelResult.objects.get(organization=self.organization)
         record = OrganizationEnrichment.objects.get(organization=self.organization)
-        assert label.output["meta"]["evidence_quote_verified"] is True
+        assert label.output["reasoning"] == output["reasoning"]
         assert record.data["icp_fit_score"] == 15
         assert record.data["icp_fit_ai_label_projected_result_id"] == str(label.id)
         assert OrganizationEnrichmentFetch.objects.filter(organization=self.organization).count() == 1
@@ -302,9 +335,10 @@ class TestAiPilledScoreApplication(BaseTest):
             IcpScoringConfig.objects.filter(is_active=True).update(is_active=False)
             IcpScoringConfig.objects.create(version="test-lists-v2", tags=[], quality_investors=[], is_active=True)
             clear_lists_cache()
+            return "event"
 
         if during_delivery:
-            client.flush.side_effect = activate_new_configuration
+            client.set.side_effect = activate_new_configuration
         with (
             patch("products.growth.backend.enrichment.gates.get_instance_region", return_value="US"),
             patch("products.growth.backend.enrichment.gates.enrichment_enabled", return_value=True),
@@ -317,7 +351,7 @@ class TestAiPilledScoreApplication(BaseTest):
             assert apply_ai_pilled_label(self.label) is (not during_delivery)
             if not during_delivery:
                 activate_new_configuration()
-            client.flush.side_effect = None
+            client.set.side_effect = None
             assert apply_ai_pilled_label(self.label)
 
         record = OrganizationEnrichment.objects.get(organization=self.organization)
@@ -339,7 +373,7 @@ class TestAiPilledScoreApplication(BaseTest):
         assert record.data["icp_fit_score"] == expected_score
         assert ("ai_pilled_label" in record.data["icp_fit_flags"]) is (expected_score > 0)
 
-    def test_supported_second_label_prevents_alternating_score_repair(self):
+    def test_positive_second_label_prevents_alternating_score_repair(self):
         second_config = EnrichmentPromptConfig.objects.create(
             name="reviewed_ai",
             version=self.config.version,
@@ -359,7 +393,7 @@ class TestAiPilledScoreApplication(BaseTest):
             output=self.label.output,
             inputs=self.label.inputs,
         )
-        self.label.output = {"ai_pilled": False, "evidence_status": "insufficient"}
+        self.label.output = {"ai_pilled": False}
         self.label.save(update_fields=["output"])
         IcpScoringConfig.objects.filter(is_active=True).update(
             scoring_rules={"ai_labels": ["ai_pilled", "reviewed_ai"]}
@@ -457,29 +491,24 @@ class TestAiPilledScoreApplication(BaseTest):
         self.label.output["ai_pilled"] = False
         self.label.save(update_fields=["output"])
         clients = [MagicMock() for _ in range(3)]
-        queued: list[list[tuple[str, dict[str, Any]]]] = [[] for _ in clients]
         delivered: dict[str, dict[str, Any]] = {}
 
-        def queue_event(index: int, target: str, properties: dict[str, Any]) -> str:
-            queued[index].append((target, properties))
+        def deliver_event(target: str, properties: dict[str, Any]) -> str:
+            delivered[target] = properties
             return "event"
 
-        for index, client in enumerate(clients):
-            client.group_identify.side_effect = lambda *args, _index=index, **kwargs: queue_event(
-                _index, "group", kwargs["properties"]
-            )
-            client.set.side_effect = lambda *args, _index=index, **kwargs: queue_event(
-                _index, "person", kwargs["properties"]
-            )
-            client.flush.side_effect = lambda _index=index, **kwargs: delivered.update(queued[_index])
+        for client in clients:
+            client.group_identify.side_effect = lambda *args, **kwargs: deliver_event("group", kwargs["properties"])
+            client.set.side_effect = lambda *args, **kwargs: deliver_event("person", kwargs["properties"])
 
-        def deliver_stale(**kwargs):
+        def deliver_stale(*args, **kwargs):
             assert apply_ai_pilled_label(self.label)
-            delivered.update(queued[0])
+            deliver_event("group", kwargs["properties"])
             if fail_delivery:
                 raise RuntimeError("synthetic partial delivery")
+            return "event"
 
-        clients[0].flush.side_effect = deliver_stale
+        clients[0].group_identify.side_effect = deliver_stale
         with (
             patch("products.growth.backend.enrichment.gates.get_instance_region", return_value="US"),
             patch("products.growth.backend.enrichment.gates.enrichment_enabled", return_value=True),
@@ -505,18 +534,18 @@ class TestAiPilledScoreApplication(BaseTest):
         assert delivered["group"]["icp_fit_score"] == 15
         assert delivered["person"]["icp_fit_score"] == 15
 
-    @parameterized.expand([("ai_product",), ("developer_tools",)])
-    def test_supported_label_changes_only_ai_component(self, evidence_type):
-        self.label.output["evidence_type"] = evidence_type
-        self.label.save(update_fields=["output"])
-
+    def test_positive_label_changes_only_ai_component(self):
         record, client = self._backfill()
 
         assert record.data["icp_fit_score"] == 15
         assert record.data["icp_fit_components"]["ai_pilled"] == 15
         assert record.data["icp_fit_ai_label_result_id"] == str(self.label.id)
-        assert record.data["icp_fit_flags"]["ai_pilled_label"]["result_id"] == str(self.label.id)
-        assert record.data["icp_fit_flags"]["ai_pilled_label"]["evidence_type"] == evidence_type
+        assert record.data["icp_fit_flags"]["ai_pilled_label"] == {
+            "result_id": str(self.label.id),
+            "fetch_id": str(self.fetch.id),
+            "prompt_version": self.config.version,
+            "prompt_hash": self.config.content_hash,
+        }
         assert "icp_score" not in record.data
         assert client.group_identify.call_args.kwargs["properties"]["icp_fit_score"] == 15
         record.data["icp_fit_ai_label_projected_result_id"] = str(self.label.id)
@@ -526,21 +555,36 @@ class TestAiPilledScoreApplication(BaseTest):
 
     @parameterized.expand(
         [
+            ("alternate_domain", {"evidence_url": "https://another.example.com/company"}),
+            ("encoded_quote", {"evidence_quote": "Build &amp; review", "meta": {"evidence_quote_verified": False}}),
+            ("missing_citation", None),
+            ("research_metadata", {"evidence_status": "insufficient", "evidence_type": "none"}),
+        ]
+    )
+    def test_positive_label_scores_without_citation_checks(self, _name, details):
+        if details is None:
+            self.label.output = {"ai_pilled": True}
+        else:
+            self.label.output.update(details)
+        self.label.save(update_fields=["output"])
+
+        record, _ = self._backfill()
+
+        assert record.data["icp_fit_score"] == 15
+        assert record.data["icp_fit_flags"]["ai_pilled_label"]["result_id"] == str(self.label.id)
+        self.label.refresh_from_db()
+        if details is not None:
+            assert all(self.label.output[key] == value for key, value in details.items())
+
+    @parameterized.expand(
+        [
             ("inactive",),
             ("hash_changed",),
             ("new_fetch",),
             ("domain_changed",),
             ("no_consent",),
             ("negative",),
-            ("insufficient",),
-            ("unsupported_type",),
-            ("unfetched_url",),
-            ("failed_fetch",),
             ("skipped",),
-            ("old_control",),
-            ("quote_unverified",),
-            ("third_party",),
-            ("inexact_status",),
             ("version_changed",),
         ]
     )
@@ -563,27 +607,10 @@ class TestAiPilledScoreApplication(BaseTest):
             type(self.organization).objects.filter(pk=self.organization.pk).update(is_ai_data_processing_approved=False)
         elif invalidation == "negative":
             self.label.output["ai_pilled"] = False
-        elif invalidation == "insufficient":
-            self.label.output["evidence_status"] = "insufficient"
-        elif invalidation == "unsupported_type":
-            self.label.output["evidence_type"] = "none"
-        elif invalidation == "unfetched_url":
-            self.label.output["evidence_url"] = "https://sample.example.com/uncited"
-        elif invalidation == "failed_fetch":
-            self.label.inputs["tool_calls"][0]["result"] = {"error": "page was unreachable"}
         elif invalidation == "skipped":
-            self.label.output["meta"]["skipped"] = "missing input"
-        elif invalidation == "old_control":
-            self.label.output = {"ai_pilled": True, "confidence": 1}
-        elif invalidation == "quote_unverified":
-            self.label.output["meta"]["evidence_quote_verified"] = False
-        elif invalidation == "third_party":
-            self.label.output["evidence_url"] = "https://third-party.example.com/product"
-            self.label.inputs["tool_calls"][0]["result"]["url"] = self.label.output["evidence_url"]
-        elif invalidation == "inexact_status":
-            self.label.output["evidence_status"] = "exactly supported"
+            self.label.output["meta"] = {"skipped": "missing input"}
         elif invalidation == "version_changed":
-            self.config.version = "evidence-v2"
+            self.config.version = "label-v2"
             self.config.save(update_fields=["version"])
         self.label.save(update_fields=["prompt_hash", "inputs", "output"])
 

@@ -217,7 +217,7 @@ class EnrichmentPromptConfig(UUIDModel):
 class EnrichmentLabelResult(UUIDModel):
     """One classifier verdict for one org under one prompt version, computed from one archived fetch.
 
-    Configured labels with supported AI evidence contribute to the ICP fit score.
+    Positive results from configured AI labels contribute to the ICP fit score.
     Other labels remain available for inspection. Keying on the fetch means a re-enriched org
     naturally gets recomputed under the same version instead of being frozen — which matters
     most for `unknown` verdicts from empty payloads, which would otherwise be permanent.

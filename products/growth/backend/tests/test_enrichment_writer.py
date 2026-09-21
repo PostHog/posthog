@@ -13,7 +13,7 @@ from products.growth.backend.enrichment.context import (
     FIT_EVALUATION_KIND_SWEEP,
 )
 from products.growth.backend.enrichment.fields import EnrichmentFields
-from products.growth.backend.enrichment.fit_score import AiPilledEvidence, IcpFitResult
+from products.growth.backend.enrichment.fit_score import AiPilledLabel, IcpFitResult
 from products.growth.backend.enrichment.writer import (
     record_signup_work_email,
     write_harmonic_enrichment_status,
@@ -137,7 +137,7 @@ class TestEnrichmentWriter(BaseTest):
         assert "icp_fit_evaluation_kind" not in properties
 
     @parameterized.expand([("wizard", False, "both"), ("wizard_and_llm", True, "harmonic+wizard+llm")])
-    def test_fit_flags_record_ai_evidence_and_clear_retired_labels(
+    def test_fit_flags_record_ai_labels_and_clear_retired_labels(
         self, _name: str, has_label: bool, expected_source: str
     ) -> None:
         label = {
@@ -145,17 +145,13 @@ class TestEnrichmentWriter(BaseTest):
             "fetch_id": "example-fetch",
             "prompt_version": "example-prompt-v1",
             "prompt_hash": "example-prompt-hash",
-            "evidence_type": "ai_product",
-            "evidence_url": "https://example.com/product",
         }
-        evidence = (
-            AiPilledEvidence(
+        ai_label = (
+            AiPilledLabel(
                 result_id=label["result_id"],
                 fetch_id=label["fetch_id"],
                 prompt_version=label["prompt_version"],
                 prompt_hash=label["prompt_hash"],
-                evidence_type="ai_product",
-                evidence_url=label["evidence_url"],
             )
             if has_label
             else None
@@ -168,7 +164,7 @@ class TestEnrichmentWriter(BaseTest):
             fit=_fit(
                 wizard_ai_sdk=True,
                 ai_pilled_source=expected_source,
-                ai_pilled_evidence=evidence,
+                ai_pilled_label=ai_label,
                 ai_pilled_label_result_id="example-result",
             ),
             fit_evaluation_kind=FIT_EVALUATION_KIND_INITIAL,

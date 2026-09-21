@@ -140,9 +140,7 @@ def _fit_record_writes(
                 "nonprofit_flag": fit.nonprofit_flag,
                 "wizard_ai_sdk": fit.wizard_ai_sdk,
                 "ai_pilled_source": fit.ai_pilled_source,
-                "ai_pilled_label": dataclasses.asdict(fit.ai_pilled_evidence)
-                if fit.ai_pilled_evidence is not None
-                else None,
+                "ai_pilled_label": dataclasses.asdict(fit.ai_pilled_label) if fit.ai_pilled_label is not None else None,
             }.items()
             if value is not None
         }
@@ -281,8 +279,6 @@ def project_organization_enrichment(
             fit=fit,
             fit_mirror_distinct_id=fit_mirror_distinct_id,
         )
-        if fit is not None:
-            pha_client.flush(timeout_seconds=None)
     except Exception:
         if fit is not None:
             invalidate_fit_projection(organization_id)

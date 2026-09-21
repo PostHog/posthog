@@ -21,7 +21,6 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models.organization import Organization, OrganizationMembership
 
-from products.growth.backend.enrichment.evidence import evidence_quote_verified
 from products.growth.backend.enrichment.tools import TOOLS, TRANSIENT_TOOL_ERRORS, ToolOutcome, run_tool
 from products.growth.backend.models import EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
@@ -667,8 +666,6 @@ def classify_payload(
     output, meta = _call_and_parse(config, messages, client, signup_domain=signup_domain)
     tool_calls = meta.pop("tool_calls", None)
     _reject_unsupported_evidence_url(output, signup_domain, set(meta.get("tool_urls", ())), meta)
-    if "evidence_url" in output and "evidence_quote" in output:
-        meta["evidence_quote_verified"] = evidence_quote_verified(output, tool_calls or [])
     inputs_record: dict[str, Any] = {"signup_domain": signup_domain, "fields": inputs}
     output["inputs"] = inputs_record
     if tool_calls:

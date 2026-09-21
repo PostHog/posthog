@@ -67,7 +67,7 @@ User-facing features with their own backend (Django app) and frontend (React). E
 See [products/README.md](/products/README.md) for how to create products. For new isolated products, see [products/architecture.md](/products/architecture.md) for design principles (DTOs, facades, isolation rules).
 
 Growth's company enrichment and ICP fit scoring live in `products/growth/backend/enrichment/`.
-The backend validates company identity, AI consent and fetched evidence, then saves and publishes the score.
+The backend matches labels to the company and prompt version, checks AI consent, then saves and publishes the score.
 `EnrichmentPromptConfig` holds versioned labeler prompts; `IcpScoringConfig` holds immutable versions of the curated lists and scoring rules.
 Operators can clone a scoring configuration in Django admin, change points, thresholds or accepted AI labels, and save an inactive version.
 Preview that version against archived company data with `preview_icp_scoring_config` before using the separate activation action.

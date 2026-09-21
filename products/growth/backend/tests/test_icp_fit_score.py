@@ -8,7 +8,7 @@ from products.growth.backend.enrichment.fit_score import (
     STATUS_INSUFFICIENT_DATA,
     STATUS_NOT_FOUND,
     STATUS_SCORED,
-    AiPilledEvidence,
+    AiPilledLabel,
     is_quality_investor,
     score_company,
 )
@@ -22,13 +22,11 @@ LISTS = CuratedLists(
     quality_investors=frozenset({norm("Y Combinator"), norm("Sequoia Capital"), norm("GV")}),
 )
 
-AI_PILLED_EVIDENCE = AiPilledEvidence(
+AI_PILLED_LABEL = AiPilledLabel(
     result_id="example-result",
     fetch_id="example-fetch",
     prompt_version="example-prompt-v1",
     prompt_hash="example-prompt-hash",
-    evidence_type="developer_tools",
-    evidence_url="https://example.com/engineering",
 )
 
 
@@ -78,18 +76,18 @@ def test_version_is_stamped():
 # ---------- statuses ----------
 
 
-@parameterized.expand([(None,), (AI_PILLED_EVIDENCE,)])
-def test_student_role_disqualifies_before_the_payload_is_consulted(ai_pilled_evidence: AiPilledEvidence | None) -> None:
-    result = score_company(None, lists=LISTS, role="Student", ai_pilled_evidence=ai_pilled_evidence)
+@parameterized.expand([(None,), (AI_PILLED_LABEL,)])
+def test_student_role_disqualifies_before_the_payload_is_consulted(ai_pilled_label: AiPilledLabel | None) -> None:
+    result = score_company(None, lists=LISTS, role="Student", ai_pilled_label=ai_pilled_label)
     assert (result.status, result.score, result.dq_reason) == (STATUS_DISQUALIFIED, 0, "role=student")
-    assert result.ai_pilled_evidence is None
+    assert result.ai_pilled_label is None
 
 
-@parameterized.expand([(None,), (AI_PILLED_EVIDENCE,)])
-def test_school_company_type_disqualifies(ai_pilled_evidence: AiPilledEvidence | None) -> None:
-    result = score_company(_payload(company_type="SCHOOL"), lists=LISTS, ai_pilled_evidence=ai_pilled_evidence)
+@parameterized.expand([(None,), (AI_PILLED_LABEL,)])
+def test_school_company_type_disqualifies(ai_pilled_label: AiPilledLabel | None) -> None:
+    result = score_company(_payload(company_type="SCHOOL"), lists=LISTS, ai_pilled_label=ai_pilled_label)
     assert (result.status, result.score, result.dq_reason) == (STATUS_DISQUALIFIED, 0, "company_type=SCHOOL")
-    assert result.ai_pilled_evidence is None
+    assert result.ai_pilled_label is None
 
 
 def test_school_market_tags_do_not_disqualify_a_startup():
@@ -98,21 +96,21 @@ def test_school_market_tags_do_not_disqualify_a_startup():
     assert result.status == STATUS_SCORED
 
 
-@parameterized.expand([(None,), (AI_PILLED_EVIDENCE,)])
-def test_missing_payload_is_not_found(ai_pilled_evidence: AiPilledEvidence | None) -> None:
-    result = score_company(None, lists=LISTS, ai_pilled_evidence=ai_pilled_evidence)
+@parameterized.expand([(None,), (AI_PILLED_LABEL,)])
+def test_missing_payload_is_not_found(ai_pilled_label: AiPilledLabel | None) -> None:
+    result = score_company(None, lists=LISTS, ai_pilled_label=ai_pilled_label)
     assert result.status == STATUS_NOT_FOUND
     assert result.score is None
-    assert result.ai_pilled_evidence is None
+    assert result.ai_pilled_label is None
 
 
-@parameterized.expand([(None,), (AI_PILLED_EVIDENCE,)])
-def test_empty_shell_profile_is_insufficient_data_not_a_low_score(ai_pilled_evidence: AiPilledEvidence | None) -> None:
+@parameterized.expand([(None,), (AI_PILLED_LABEL,)])
+def test_empty_shell_profile_is_insufficient_data_not_a_low_score(ai_pilled_label: AiPilledLabel | None) -> None:
     payload = _payload(tags_v2=[])
-    result = score_company(payload, lists=LISTS, ai_pilled_evidence=ai_pilled_evidence)
+    result = score_company(payload, lists=LISTS, ai_pilled_label=ai_pilled_label)
     assert result.status == STATUS_INSUFFICIENT_DATA
     assert result.score is None
-    assert result.ai_pilled_evidence is None
+    assert result.ai_pilled_label is None
 
 
 @parameterized.expand(
@@ -295,14 +293,14 @@ def test_ai_pilled_source_records_which_evidence_was_present(
     payload = _payload(description="We sell shoes")
     if harmonic_ai:
         payload["tags_v2"] = [{"display_value": "Artificial Intelligence", "type": "MARKET"}]
-    evidence = AI_PILLED_EVIDENCE if llm_ai else None
+    label = AI_PILLED_LABEL if llm_ai else None
     result = score_company(
-        payload, lists=LISTS, domain="example.com", wizard_ai_sdk=wizard_ai_sdk, ai_pilled_evidence=evidence
+        payload, lists=LISTS, domain="example.com", wizard_ai_sdk=wizard_ai_sdk, ai_pilled_label=label
     )
 
     assert result.ai_pilled_source == expected_source
     assert result.wizard_ai_sdk is wizard_ai_sdk
-    assert result.ai_pilled_evidence == evidence
+    assert result.ai_pilled_label == label
     assert (result.components or {}).get("ai_pilled") == expected_score
     assert result.score == expected_score
 
@@ -425,7 +423,7 @@ def test_norm_folds_and_to_ampersand():
         ([], None, False),
     ]
 )
-def test_editable_ai_sources_control_points_and_provenance(sources, expected_source, keeps_evidence):
+def test_editable_ai_sources_control_points_and_provenance(sources, expected_source, keeps_label):
     from dataclasses import replace
 
     from products.growth.backend.enrichment.scoring_rules import parse_scoring_rules
@@ -435,12 +433,12 @@ def test_editable_ai_sources_control_points_and_provenance(sources, expected_sou
         _payload(description="AI platform"),
         lists=replace(LISTS, rules=rules),
         wizard_ai_sdk=True,
-        ai_pilled_evidence=AI_PILLED_EVIDENCE,
+        ai_pilled_label=AI_PILLED_LABEL,
     )
     assert result.components is not None
     assert result.components["ai_pilled"] == (12 if sources else 0)
     assert result.ai_pilled_source == expected_source
-    assert (result.ai_pilled_evidence is not None) == keeps_evidence
+    assert (result.ai_pilled_label is not None) == keeps_label
 
 
 def test_editable_policy_changes_horizons_thresholds_and_component_points():

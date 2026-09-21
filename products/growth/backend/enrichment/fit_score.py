@@ -3,7 +3,7 @@
 Definitional score, not an MRR predictor: default components are Traction (35), Capital (30),
 AIPilled (15), HeadcountGrowth (10), SoftwareRelevance (10), summing to 100. AIPilled
 awards its 15 points on a Harmonic AI signal, a detected wizard AI SDK stamp, or a
-validated AI label. Spec:
+positive AI label. Spec:
 https://posthog.com/handbook/growth/revops/icp-scoring. Weights and rules are owned by
 RevOps and validated against a 382-company exemplar/customer set plus a 9.7k-signup
 cohort. The scoring policy, curated tags, and investors live in versioned DB rows (see icp_lists.py).
@@ -26,7 +26,7 @@ investor scores capital 18 instead of falling out as insufficient_data.
 
 import re
 import dataclasses
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from posthog.dataclasses import frozen
 
@@ -63,13 +63,11 @@ QUALITY_INVESTOR_SUBSTRING_MIN_CHARS = 8
 
 
 @frozen
-class AiPilledEvidence:
+class AiPilledLabel:
     result_id: str
     fetch_id: str
     prompt_version: str
     prompt_hash: str
-    evidence_type: Literal["developer_tools", "ai_product"]
-    evidence_url: str
 
 
 @dataclasses.dataclass(frozen=True)
@@ -87,7 +85,7 @@ class IcpFitResult:
     nonprofit_flag: Optional[bool] = None
     wizard_ai_sdk: Optional[bool] = None
     ai_pilled_source: Optional[str] = None
-    ai_pilled_evidence: AiPilledEvidence | None = None
+    ai_pilled_label: AiPilledLabel | None = None
     ai_pilled_label_result_id: str | None = None
     version: str = SCORE_VERSION
     lists_version: Optional[str] = None
@@ -119,7 +117,7 @@ def score_company(
     role: Optional[str] = None,
     domain: Optional[str] = None,
     wizard_ai_sdk: bool = False,
-    ai_pilled_evidence: AiPilledEvidence | None = None,
+    ai_pilled_label: AiPilledLabel | None = None,
 ) -> IcpFitResult:
     """Score one company payload (REST shape — see module docstring) against the fit rules.
 
@@ -210,7 +208,7 @@ def score_company(
         for source, present in (
             ("harmonic", harmonic_ai),
             ("wizard", wizard_ai_sdk),
-            ("llm", ai_pilled_evidence is not None),
+            ("llm", ai_pilled_label is not None),
         )
         if present and source in rules.ai_sources
     ]
@@ -262,6 +260,6 @@ def score_company(
         nonprofit_flag=bool(tags & NONPROFIT_TAGS),
         wizard_ai_sdk=wizard_ai_sdk,
         ai_pilled_source=ai_pilled_source,
-        ai_pilled_evidence=ai_pilled_evidence if "llm" in ai_sources else None,
+        ai_pilled_label=ai_pilled_label if "llm" in ai_sources else None,
         lists_version=lists.version,
     )

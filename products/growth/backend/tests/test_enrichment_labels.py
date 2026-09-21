@@ -426,43 +426,6 @@ class TestClassifyPayloadToolEvidenceUrl(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("fetched_quote", "https://acme.example/", True, "Our team uses coding assistants.", True),
-            ("root_equivalence", "https://acme.example", True, "Our team uses coding assistants.", True),
-            ("snippet_only", "https://acme.example/", True, "Agents write every change.", False),
-            ("search_only", "https://acme.example/", False, "Our team uses coding assistants.", False),
-            ("another_page", "https://acme.example/engineering", True, "Our team uses coding assistants.", False),
-            ("empty_quote", "https://acme.example/", True, "", False),
-        ]
-    )
-    def test_verifies_quotes_only_against_the_fetched_page(self, _name, url, fetch_page, quote, verified):
-        config = self._config()
-        config.output_fields.append({"key": "evidence_quote", "type": "string"})
-        responses = [_FakeResponse(tool_calls=[_search_tool_call()])]
-        if fetch_page:
-            responses.append(_FakeResponse(tool_calls=[_fetch_tool_call(url="https://acme.example/")]))
-        responses.append(
-            _FakeResponse(content=json.dumps({"is_ai": True, "evidence_url": url, "evidence_quote": quote}))
-        )
-        client = _ScriptedClient(*responses)
-        found = FirecrawlSearch(
-            query="Acme AI",
-            results=(FirecrawlSearchResult(url="https://acme.example/", description="Agents write every change."),),
-        )
-        page = FirecrawlScrape(
-            url="https://acme.example/", markdown="Our team uses coding assistants.", status_code=200
-        )
-
-        with (
-            patch(f"{_TOOLS_MODULE}.search", return_value=found),
-            patch(f"{_TOOLS_MODULE}.scrape", return_value=page),
-        ):
-            result = classify_payload(config, {"name": "Acme"}, "acme.example", cast(OpenAI, client))
-
-        assert result["meta"]["evidence_quote_verified"] is verified
-        assert result["evidence_quote"] == quote
-
-    @parameterized.expand(
-        [
             (
                 "on_signup_domain",
                 "https://acme.example/pricing",

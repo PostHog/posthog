@@ -174,7 +174,7 @@ def apply_ai_pilled_label(result: EnrichmentLabelResult) -> bool:
     def on_delivery_error(error: Exception, _batch: Any) -> None:
         delivery_errors.append(error)
 
-    client = get_regional_ph_client(on_error=on_delivery_error)
+    client = get_regional_ph_client(sync_mode=True, timeout=10, max_retries=0, on_error=on_delivery_error)
     if client is None:
         raise RuntimeError("Cannot apply AI label without a regional analytics client")
     try:

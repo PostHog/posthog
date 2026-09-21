@@ -1,5 +1,7 @@
 from typing import Annotated, Any, Literal, Self
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 Points = Annotated[int, Field(strict=True, ge=0, le=100)]
@@ -180,8 +182,6 @@ def default_scoring_rules() -> dict[str, Any]:
 
 
 def validate_scoring_rules(value: Any) -> None:
-    from django.core.exceptions import ValidationError as DjangoValidationError
-
     try:
         parse_scoring_rules(value)
     except ValidationError as error:
