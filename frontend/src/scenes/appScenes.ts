@@ -33,6 +33,9 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.DebugQuery]: () => import('./debug/DebugScene'),
     [Scene.Error404]: () => ({ default: preloadedScenes[Scene.Error404].component }),
     [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].component }),
+    [Scene.ErrorProjectAccessDenied]: () => ({
+        default: preloadedScenes[Scene.ErrorProjectAccessDenied].component,
+    }),
     [Scene.ErrorProjectUnavailable]: () => ({ default: preloadedScenes[Scene.ErrorProjectUnavailable].component }),
     [Scene.EventDefinitionEdit]: () => import('./data-management/definition/DefinitionEdit'),
     [Scene.EventDefinition]: () => import('./data-management/definition/DefinitionView'),
@@ -119,6 +122,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.CodeCanvasLink]: () => import('./code-canvas/CodeCanvasLink'),
     [Scene.CodeChannelLink]: () => import('./code-canvas/CodeChannelLink'),
     [Scene.CodeTaskLink]: () => import('./code-canvas/CodeTaskLink'),
+    [Scene.CodeLoopLink]: () => import('./code-canvas/CodeLoopLink'),
     [Scene.VercelConnect]: () => import('./authentication/vercel/VercelConnect'),
     [Scene.VercelLinkError]: () => import('./authentication/vercel/VercelLinkError'),
     [Scene.AgenticAccountMismatch]: () => import('./authentication/account/AgenticAccountMismatch'),

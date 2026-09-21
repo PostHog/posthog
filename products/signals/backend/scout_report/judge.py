@@ -172,6 +172,29 @@ def _reviewer_reasons_signal(reviewer_reasons: Sequence[str]) -> SignalData | No
     )
 
 
+def _link_reasons_signal(link_reasons: Sequence[str]) -> SignalData | None:
+    """Wrap the scout-authored report-link `reason` strings as one `SignalData` for the judge.
+
+    A link reason is persisted in the report-link artefact and rendered in the report's work log,
+    which action-capable report agents read before acting, so it reaches the same run a reviewer
+    reason does. Returns None when no link carries a reason, so an edit without them produces a
+    judge prompt byte-identical to before."""
+    if not link_reasons:
+        return None
+    # Labeled for the same reason as `_reviewer_reasons_signal`: the rendering drops `source_id`,
+    # and the judge needs to know these explain a relationship between two reports.
+    return SignalData(
+        signal_id=str(uuid.uuid4()),
+        content="Report-link reasons (why the report is linked to another report):\n\n" + "\n\n".join(link_reasons),
+        source_product=SOURCE_PRODUCT,
+        source_type=SOURCE_TYPE,
+        source_id="report_link_reasons",
+        weight=0.0,
+        timestamp=timezone.now(),
+        extra={},
+    )
+
+
 def _to_signal_data(signals: list[ScoutReportSignal]) -> list[SignalData]:
     """Adapt the authored-report signals into the `SignalData` shape the safety judge renders."""
     return [
@@ -241,6 +264,7 @@ async def judge_edited_report_content(
     metrics: Sequence[ReportMetric] = (),
     suggested_prompts: Sequence[str] = (),
     reviewer_reasons: Sequence[str] = (),
+    link_reasons: Sequence[str] = (),
 ) -> SafetyJudgment:
     """Run the safety judge over the content an `edit_report` call supplies, before it is written.
 
@@ -249,9 +273,9 @@ async def judge_edited_report_content(
     unjudged door for the exact content the emit judge exists to stop. Suggested prompts carry
     furthest: a reader clicks one and its wording is handed to an agent run that is told to act on
     it. Judges only the pieces the edit supplies — an edit that only clears fields, or only names
-    reviewers without a `reason`, adds no new content and returns safe without an LLM call. Notes
-    and reviewer reasons are included because action-capable report agents read the full work log
-    before acting.
+    reviewers without a `reason`, adds no new content and returns safe without an LLM call. Notes,
+    reviewer reasons and report-link reasons are included because action-capable report agents read
+    the full work log before acting.
     """
     safety_input: list[SignalData] = []
     if title is not None or summary is not None:
@@ -273,6 +297,9 @@ async def judge_edited_report_content(
     reasons_signal = _reviewer_reasons_signal(reviewer_reasons)
     if reasons_signal is not None:
         safety_input.append(reasons_signal)
+    link_signal = _link_reasons_signal(link_reasons)
+    if link_signal is not None:
+        safety_input.append(link_signal)
     if not safety_input:
         return SafetyJudgment(choice=True, explanation=None)
     safety_response = await judge_report_safety(team_id=team_id, signals=safety_input)

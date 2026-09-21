@@ -187,10 +187,11 @@ async fn main() {
         .layer(RequestDecompressionLayer::new())
         .layer(axum::middleware::from_fn(translate_compression_query_param));
 
-    // Prometheus remote-write sends `Content-Encoding: snappy`, which
-    // RequestDecompressionLayer rejects with 415 before the handler runs. This
-    // route is deliberately kept off that layer (and the gzip query-param
-    // shim); the handler snappy-decodes the body itself.
+    // Prometheus remote-write sends `Content-Encoding: snappy` and vmagent
+    // sends `Content-Encoding: zstd`, which RequestDecompressionLayer rejects
+    // with 415 before the handler runs. This route is deliberately kept off
+    // that layer (and the gzip query-param shim); the handler decodes the body
+    // itself.
     let prometheus_router = Router::new()
         .route(
             "/i/v1/prometheus/write",

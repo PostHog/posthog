@@ -7,18 +7,18 @@ import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { BoldNumber } from 'scenes/insights/views/BoldNumber'
-import { BoxPlotChart } from 'scenes/insights/views/BoxPlot'
-import { TrendsCalendarHeatMap } from 'scenes/insights/views/CalendarHeatMap'
-import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
-import { MetricCard } from 'scenes/insights/views/Metric/Metric'
 
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, InsightType } from '~/types'
 
+import { BoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber'
+import { InsightsTable } from 'products/product_analytics/frontend/insights/shared/InsightsTable/InsightsTable'
 import { StickinessBarChart } from 'products/product_analytics/frontend/insights/stickiness/StickinessBarChart/StickinessBarChart'
 import { StickinessLineChart } from 'products/product_analytics/frontend/insights/stickiness/StickinessLineChart/StickinessLineChart'
+import { BoxPlotChart } from 'products/product_analytics/frontend/insights/trends/BoxPlot'
+import { TrendsCalendarHeatMap } from 'products/product_analytics/frontend/insights/trends/CalendarHeatMap'
+import { MetricCard } from 'products/product_analytics/frontend/insights/trends/Metric/Metric'
 import { TrendsBarChart } from 'products/product_analytics/frontend/insights/trends/TrendsBarChart/TrendsBarChart'
 import { TrendsLifecycleChart } from 'products/product_analytics/frontend/insights/trends/TrendsLifecycleChart/TrendsLifecycleChart'
 import { TrendsLineChart } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/TrendsLineChart'
@@ -27,8 +27,12 @@ import { TrendsSlopeChart } from 'products/product_analytics/frontend/insights/t
 
 import { trendsDataLogic } from './trendsDataLogic'
 // Maps carry ~1 MB of d3-geo + topojson data only the map display needs; kept lazy.
-const WorldMap = lazyWithRetry(() => import('scenes/insights/views/WorldMap').then((m) => ({ default: m.WorldMap })))
-const RegionMap = lazyWithRetry(() => import('scenes/insights/views/RegionMap').then((m) => ({ default: m.RegionMap })))
+const WorldMap = lazyWithRetry(() =>
+    import('products/product_analytics/frontend/insights/trends/WorldMap').then((m) => ({ default: m.WorldMap }))
+)
+const RegionMap = lazyWithRetry(() =>
+    import('products/product_analytics/frontend/insights/trends/RegionMap').then((m) => ({ default: m.RegionMap }))
+)
 
 interface Props {
     view: InsightType

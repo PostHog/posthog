@@ -1,7 +1,9 @@
 import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -11,10 +13,12 @@ import { initKeaTests } from '~/test/init'
 
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
-import { accountsColumnConfigLogic } from './accountsColumnConfigLogic'
-import { accountsLogic } from './accountsLogic'
+import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
+import { ACCOUNTS_DEFAULT_COLUMNS, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
+import { accountsLogic, SEARCH_DEBOUNCE_MS } from './accountsLogic'
 import { accountsOverviewTilesLogic } from './accountsOverviewTilesLogic'
 import { accountsViewsLogic } from './accountsViewsLogic'
+import { readAccountsViewDraft, type AccountsViewState, writeAccountsViewDraft } from './accountsViewState'
 import { DEFAULT_TILES } from './constants'
 
 const CURRENT_USER_ID = MOCK_DEFAULT_USER.id
@@ -55,11 +59,15 @@ describe('accountsViewsLogic', () => {
             current_user: MOCK_DEFAULT_USER,
         } as any
         initKeaTests()
+        router.actions.push(urls.customerAnalyticsAccounts())
+        sessionStorage.clear()
         userLogic.mount()
     })
 
     afterEach(() => {
         localStorage.clear()
+        sessionStorage.clear()
+        jest.useRealTimers()
     })
 
     it('lists views on mount', async () => {
@@ -72,24 +80,111 @@ describe('accountsViewsLogic', () => {
             })
     })
 
-    it('holds the first accounts fetch until the persisted view is applied', async () => {
+    it('holds the first accounts fetch until a delayed draft decision permits the persisted view', async () => {
         useMocks({ get: { '/api/projects/:team_id/column_configurations/': { count: 1, results: [buildView()] } } })
         localStorage.setItem(
             `customerAnalytics.accounts.accountsViewsLogic.${MOCK_DEFAULT_TEAM.id}.currentViewId`,
             JSON.stringify('view-1')
         )
-        mountAll()
+        accountsColumnConfigLogic().mount()
+        accountsOverviewTilesLogic().mount()
+        accountsLogic().mount()
+        accountsLogic.actions.setViewStateHydrated(false)
+        logic = accountsViewsLogic()
+        logic.mount()
 
         expect(accountsLogic.values.awaitingSavedView).toBe(true)
         expect(accountsLogic.values.accountsQuerySource).toBeNull()
         expect(accountsLogic.values.metricsQuery).toBeNull()
 
-        await expectLogic(logic).toDispatchActions(['loadViewsSuccess', 'applyView']).toFinishAllListeners()
+        await expectLogic(logic).toDispatchActions(['loadViewsSuccess', 'restoreSavedView']).toFinishAllListeners()
+
+        expect(accountsLogic.values.awaitingSavedView).toBe(true)
+        expect(accountsLogic.values.searchQuery).toBe('')
+
+        await expectLogic(logic, () => accountsLogic.actions.setViewStateHydrated(true))
+            .toDispatchActions(['restoreSavedView', 'applyView'])
+            .toFinishAllListeners()
 
         expect(accountsLogic.values.awaitingSavedView).toBe(false)
         expect(accountsColumnConfigLogic.values.selectColumns).toEqual(['name', 'csm'])
         expect(accountsLogic.values.searchQuery).toEqual('acme')
     })
+
+    it.each([
+        [false, 'views', true],
+        [true, 'views', true],
+        [false, 'relationships', true],
+        [true, 'relationships', true],
+        [true, 'views', false],
+        [true, 'relationships', false],
+    ] as const)(
+        'restores a fresh tab with mineOnly=%s, %s loading first, and savedView=%s',
+        async (mineOnly, firstResponse, savedView) => {
+            customerAnalyticsSceneLogic.mount()
+            customerAnalyticsSceneLogic.actions.setMineOnly(mineOnly)
+            let releaseViews!: () => void
+            let releaseRelationships!: () => void
+            const viewsReady = new Promise<void>((resolve) => {
+                releaseViews = resolve
+            })
+            const relationshipsReady = new Promise<void>((resolve) => {
+                releaseRelationships = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/column_configurations/': async () => {
+                        await viewsReady
+                        return { count: 1, results: [buildView()] }
+                    },
+                    '/api/projects/:team_id/account_relationship_definitions/': async () => {
+                        await relationshipsReady
+                        return {
+                            count: 1,
+                            results: [
+                                {
+                                    id: '11111111-2222-3333-4444-555555555555',
+                                    name: 'CSM',
+                                    description: null,
+                                    is_single_holder: true,
+                                },
+                            ],
+                        }
+                    },
+                },
+            })
+            if (savedView) {
+                localStorage.setItem(
+                    `customerAnalytics.accounts.accountsViewsLogic.${MOCK_DEFAULT_TEAM.id}.currentViewId`,
+                    JSON.stringify('view-1')
+                )
+            }
+            mountAll()
+
+            if (firstResponse === 'views') {
+                releaseViews()
+                await expectLogic(logic).toDispatchActions(['loadViewsSuccess'])
+                releaseRelationships()
+            } else {
+                releaseRelationships()
+                await expectLogic(accountsColumnConfigLogic).toDispatchActions(['loadRelationshipDefinitionsSuccess'])
+                releaseViews()
+            }
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(accountsColumnConfigLogic.values.selectColumns).toEqual(
+                savedView ? ['name', 'csm'] : [...ACCOUNTS_DEFAULT_COLUMNS, 'csm']
+            )
+            expect(accountsLogic.values.searchQuery).toBe(savedView ? 'acme' : '')
+            expect(accountsLogic.values.assignedToFilter).toEqual(savedView ? [1] : [CURRENT_USER_ID])
+            expect(accountsLogic.values.awaitingSavedView).toBe(false)
+            expect(logic.values.currentViewId).toBe(savedView ? 'view-1' : null)
+            expect(logic.values.isDirty).toBe(false)
+            if (!savedView) {
+                expect(readAccountsViewDraft(MOCK_DEFAULT_TEAM.id, MOCK_DEFAULT_USER.uuid)).toBeNull()
+            }
+        }
+    )
 
     it('opens the gate when loading views fails, so the list still fetches', async () => {
         useMocks({ get: { '/api/projects/:team_id/column_configurations/': () => [500, {}] } })
@@ -197,14 +292,14 @@ describe('accountsViewsLogic', () => {
         await expectLogic(logic).toMatchValues({ columnWidths: { name: 320 } })
     })
 
-    it('isDirty flips when live state diverges from the applied view and clears on re-apply', async () => {
+    it('keeps dirty edits over automatic saved-view restore, then replaces them when the user selects the view', async () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/column_configurations/': { count: 1, results: [buildView()] },
             },
         })
         mountAll()
-        // Wait for loadViewsSuccess so the view is in views, then select it
+        // Wait for loadViewsSuccess so the view is in views, then select it.
         await expectLogic(logic).toDispatchActions(['loadViewsSuccess'])
         logic.actions.applyView(buildView())
         await expectLogic(logic).toMatchValues({ isDirty: false })
@@ -212,8 +307,70 @@ describe('accountsViewsLogic', () => {
         accountsLogic.actions.setSearchQuery('changed')
         await expectLogic(logic).toMatchValues({ isDirty: true })
 
-        logic.actions.applyView(buildView())
-        await expectLogic(logic).toMatchValues({ isDirty: false })
+        logic.unmount()
+        accountsLogic.findMounted()?.unmount()
+        accountsOverviewTilesLogic.findMounted()?.unmount()
+        accountsColumnConfigLogic.findMounted()?.unmount()
+        router.actions.push(urls.customerAnalyticsAccounts())
+        mountAll()
+        await expectLogic(logic).toDispatchActions(['loadViewsSuccess'])
+
+        expect(accountsLogic.values.searchQuery).toBe('changed')
+        expect(logic.values.isDirty).toBe(true)
+
+        jest.useFakeTimers()
+        accountsLogic.actions.setSearchInput('stale search')
+        logic.actions.selectView('view-1')
+        await jest.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(accountsLogic.values.searchQuery).toBe('acme')
+        expect(logic.values.isDirty).toBe(false)
+
+        logic.unmount()
+        accountsLogic.findMounted()?.unmount()
+        accountsOverviewTilesLogic.findMounted()?.unmount()
+        accountsColumnConfigLogic.findMounted()?.unmount()
+        router.actions.push(urls.customerAnalyticsAccounts())
+        mountAll()
+        await expectLogic(logic).toDispatchActions(['loadViewsSuccess'])
+
+        expect(accountsLogic.values.searchQuery).toBe('acme')
+        expect(logic.values.isDirty).toBe(false)
+    })
+
+    it('keeps a cleared all-default draft instead of auto-applying the selected saved view', async () => {
+        const clearedDraft: AccountsViewState = {
+            columns: [...ACCOUNTS_DEFAULT_COLUMNS],
+            sortOrder: null,
+            filters: {
+                search: '',
+                assignmentStatus: 'all',
+                assignedTo: [],
+                tags: [],
+                tileFilter: null,
+                customProperties: [],
+            },
+            tiles: [...DEFAULT_TILES],
+            columnDisplay: {},
+        }
+        writeAccountsViewDraft(MOCK_DEFAULT_TEAM.id, MOCK_DEFAULT_USER.uuid, clearedDraft)
+        localStorage.setItem(
+            `customerAnalytics.accounts.accountsViewsLogic.${MOCK_DEFAULT_TEAM.id}.currentViewId`,
+            JSON.stringify('view-1')
+        )
+        useMocks({
+            get: {
+                '/api/projects/:team_id/column_configurations/': { count: 1, results: [buildView()] },
+            },
+        })
+        mountAll()
+        await expectLogic(logic).toDispatchActions(['loadViewsSuccess'])
+
+        expect(accountsLogic.values.searchQuery).toBe('')
+        expect(accountsLogic.values.assignmentStatus).toBe('all')
+        expect(logic.values.currentViewId).toBe('view-1')
+        expect(logic.values.isDirty).toBe(true)
     })
 
     it('deleteView clears currentViewId when the active view is removed', async () => {

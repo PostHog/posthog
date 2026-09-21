@@ -43,6 +43,19 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
+    @parameterized.expand([("user", False), ("system", True)])
+    def test_unsupported_stored_config_cannot_be_updated(self, _name: str, system: bool) -> None:
+        filters = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
+        flag = self._create_flag(filters=filters)
+        original_version = flag.version
+        with self.assertRaises(ValidationError) as exc:
+            update_flag(flag, {"active": False}, team=self.team, user=None if system else self.user)
+        assert exc.exception.get_codes() == {"filters": ["unsupported_config_version"]}
+        flag.refresh_from_db()
+        assert flag.active is True
+        assert flag.filters == filters
+        assert flag.version == original_version
+
     def _create_flag(self, *, active: bool = True, filters: dict | None = None) -> FeatureFlag:
         return FeatureFlag.objects.create(
             team=self.team,

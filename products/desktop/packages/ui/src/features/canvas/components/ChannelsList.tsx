@@ -57,6 +57,7 @@ import {
   ChannelItemHoverCard,
   SpaceHoverCard,
 } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
+import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import type { ChannelActionItem } from "@posthog/ui/features/canvas/components/channelActions";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { PresenceAvatars } from "@posthog/ui/features/canvas/components/PresenceAvatars";
@@ -1720,6 +1721,50 @@ const CHANNELS_SECTION_ID = "channels:all";
 /** A heading's identity in the flat list, kept clear of any channel's id. */
 const sectionValue = (sectionId: string) => `section:${sectionId}`;
 
+// Starts a new space. On the Spaces heading it is the same hover-revealed
+// plus a space row shows; inline (the no-match state) it is a labelled button.
+function NewSpaceButton({
+  appearance = "heading",
+}: {
+  appearance?: "heading" | "inline";
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      {appearance === "inline" ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="self-start"
+          onClick={() => setOpen(true)}
+        >
+          <PlusIcon size={12} weight="bold" />
+          New space
+        </Button>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="outline"
+                size="icon-xs"
+                aria-label="New space"
+                className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover/group-row:opacity-100"
+                onClick={() => setOpen(true)}
+              >
+                <PlusIcon size={12} weight="bold" />
+              </Button>
+            }
+          />
+          <TooltipContent side="top">New space</TooltipContent>
+        </Tooltip>
+      )}
+      <CreateChannelModal open={open} onOpenChange={setOpen} />
+    </>
+  );
+}
+
 // A collapsible sidebar group ("Starred" / "Channels"). Base UI directly rather
 // than quill's Collapsible: quill styles its trigger as a button (which fought
 // the label styling) and animates the panel height (which janked on a list this
@@ -1735,11 +1780,15 @@ function ChannelGroup({
   flat,
   keepMounted = true,
   asOption = false,
+  trailing,
   children,
 }: {
   sectionId: string;
   label: string;
   className?: string;
+  /** A control on the heading's right. Beside the trigger, not in it: the
+   *  heading is a button, and a button can't hold another. */
+  trailing?: ReactNode;
   /** Layout-only: removes the legacy tree indent; rows apply their own inset. */
   flat?: boolean;
   /**
@@ -1771,41 +1820,48 @@ function ChannelGroup({
       }}
       className={cn(className, "mb-2")}
     >
-      {/* MenuLabel carries the sidebar's label styling; `render` keeps it a
+      <div className="group/group-row relative">
+        {/* MenuLabel carries the sidebar's label styling; `render` keeps it a
           real button so the whole row is clickable. Wrapped in an option when
           the keyboard walks the list, so the heading is a stop on the way down
           rather than a gap the highlight jumps over. */}
-      <Collapsible.Trigger
-        className={cn(
-          "group/group-trigger flex w-full items-center gap-2 py-1",
-          // quill wraps an option's children in its own flex row, so the caret's
-          // `ml-auto` has nothing to push against until that row is full width.
-          // The highlight is the rows' own hover fill rather than quill's focus
-          // ring, for the reason SpaceRowSurface gives.
-          asOption &&
-            "rounded-sm ring-offset-0 data-highlighted:bg-fill-hover data-highlighted:ring-0 [&>span]:w-full [&>span]:items-center",
-        )}
-        render={
-          asOption ? (
-            <AutocompleteItem
-              value={sectionValue(sectionId)}
-              render={<MenuLabel render={<button type="button" />} />}
-            />
-          ) : (
-            <MenuLabel render={<button type="button" />} />
-          )
-        }
-      >
-        {label}
-        {/* On the right, because the heading's name is the left edge every row
+        <Collapsible.Trigger
+          className={cn(
+            "group/group-trigger flex w-full items-center gap-2 py-1",
+            // quill wraps an option's children in its own flex row, so the caret's
+            // `ml-auto` has nothing to push against until that row is full width.
+            // The highlight is the rows' own hover fill rather than quill's focus
+            // ring, for the reason SpaceRowSurface gives.
+            asOption &&
+              "rounded-sm ring-offset-0 data-highlighted:bg-fill-hover data-highlighted:ring-0 [&>span]:w-full [&>span]:items-center",
+          )}
+          render={
+            asOption ? (
+              <AutocompleteItem
+                value={sectionValue(sectionId)}
+                render={<MenuLabel render={<button type="button" />} />}
+              />
+            ) : (
+              <MenuLabel render={<button type="button" />} />
+            )
+          }
+        >
+          {label}
+          {/* On the right, because the heading's name is the left edge every row
             beneath it lines up to. Always drawn: which way the section is, is
             the one thing this row has to say. */}
-        {isOpen ? (
-          <CaretDownIcon size={12} className="shrink-0" />
-        ) : (
-          <CaretRightIcon size={12} className="shrink-0" />
+          {isOpen ? (
+            <CaretDownIcon size={12} className="shrink-0" />
+          ) : (
+            <CaretRightIcon size={12} className="shrink-0" />
+          )}
+        </Collapsible.Trigger>
+        {trailing && (
+          <div className="-translate-y-1/2 absolute top-1/2 right-1">
+            {trailing}
+          </div>
         )}
-      </Collapsible.Trigger>
+      </div>
       {/* Stay mounted while collapsed. Every row builds a context menu, a
           dropdown, a tooltip and two dialogs up front, so unmounting on close
           makes each expand rebuild the lot (~940ms for 46 channels, vs ~80ms
@@ -1820,8 +1876,8 @@ function ChannelGroup({
 // The channel list is the list pane of the sidebar slider. The personal channel
 // is pinned at the top; starred channels surface in their own section
 // so the ones you use most stay in reach; the rest sit under a "Channels"
-// label. Creating anything goes through the floating ChannelsFab, mounted by
-// the sidebar outside this scroll region.
+// label. Creating a task goes through the create button in the nav rail (off
+// the layout, the floating ChannelsFab the sidebar mounts outside this list).
 export function ChannelsList() {
   const { channels: allChannels, isLoading } = useChannels();
   // ChannelHotkeys owns the keys these slots describe; sharing the derivation
@@ -2076,10 +2132,13 @@ export function ChannelsList() {
         />
       ))}
       {noMatches && (
-        <Empty className="px-2 py-1 text-subtle-foreground text-xs">
+        <Empty className="items-start gap-2 px-2 py-1 text-subtle-foreground text-xs">
           <EmptyHeader className="text-left">
             No {channelsLayout ? "spaces" : "channels"} match “{query.trim()}”.
           </EmptyHeader>
+          {/* Filtering hides the Spaces heading and its "+", so the space you
+              searched for and didn't find can still be made from here. */}
+          <NewSpaceButton appearance="inline" />
         </Empty>
       )}
     </>
@@ -2121,6 +2180,8 @@ export function ChannelsList() {
         flat={channelsLayout}
         keepMounted={!channelsLayout}
         asOption={channelsLayout}
+        // Off the layout the floating create button already offers a channel.
+        trailing={channelsLayout ? <NewSpaceButton /> : undefined}
       >
         {!isLoading && channels.length === 0 && (
           <Empty className="px-2 py-1 text-subtle-foreground text-xs">
@@ -2156,7 +2217,9 @@ export function ChannelsList() {
   // own padding has to win: `!` is what outranks an unlayered rule.
   const listClass = cn(
     "sidebar-autocomplete-tree flex flex-col gap-px",
-    "!max-h-none !px-2 !pt-2 !pb-16 scroll-py-8",
+    // The layout keeps the create button in the rail, so nothing floats over
+    // the list's end and it needs no clearance there.
+    "!max-h-none !px-2 !pt-2 !pb-2 scroll-py-8",
     scrollClass,
   );
 

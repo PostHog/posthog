@@ -12,8 +12,10 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 import { WebhookInfo } from '~/types'
+
+import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { sourceFieldToElement } from '../../../shared/components/forms/SourceForm'
 import {
@@ -203,7 +205,7 @@ function WebhookConfigurationSection({
     sourceConfig,
     formLogicProps,
 }: {
-    sourceConfig: SourceConfig
+    sourceConfig: SourceConfigResponseApi
     formLogicProps: { id: string }
 }): JSX.Element {
     const { webhookFieldInputs, isWebhookFieldInputsSubmitting } = useValues(webhookTabLogic(formLogicProps))

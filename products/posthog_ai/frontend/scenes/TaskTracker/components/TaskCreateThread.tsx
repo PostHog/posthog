@@ -22,7 +22,6 @@ export function TaskCreateThread({ streamKey, isMobile }: TaskCreateThreadProps)
         <TaskRunSceneShell
             task={null}
             selectedRun={null}
-            sceneMenuBarEnabled={false}
             onArchive={() => {}}
             taskError={null}
             onRetry={() => {}}

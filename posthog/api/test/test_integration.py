@@ -683,6 +683,38 @@ class TestDatabricksIntegration:
         assert not Integration.objects.filter(team=self.team, kind="databricks").exists()
 
 
+class TestGoogleCloudServiceAccountIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def test_rejects_key_file_token_uri_that_is_not_google(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "google-cloud-service-account",
+                "config": {
+                    "service_account_email": "svc@proj.iam.gserviceaccount.com",
+                    "project_id": "proj",
+                    "private_key": "key",
+                    "private_key_id": "key-id",
+                    "token_uri": "https://relay.example.com/token",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not Google's OAuth token endpoint" in response.json()["detail"]
+        assert not Integration.objects.filter(team=self.team, kind="google-cloud-service-account").exists()
+
+
 class TestAWSIntegration:
     @pytest.fixture(
         params=[
@@ -2576,6 +2608,22 @@ class TestIntegrationAPIKeyAccess:
         results = response.json()["results"]
         assert len(results) == 1
         assert results[0]["kind"] == "twilio"
+
+    def test_paginated_list_covers_every_integration_once(self, client: HttpClient):
+        client.force_login(self.user)
+        now = timezone.now()
+        # Write the rows in the reverse of the order the endpoint must return, so a page that trusts
+        # the physical row order fails this.
+        Integration.objects.filter(pk=self.github_integration.pk).update(created_at=now)
+        Integration.objects.filter(pk=self.twilio_integration.pk).update(created_at=now - timedelta(minutes=1))
+
+        paged_ids = []
+        for offset in [0, 1]:
+            response = client.get(f"/api/environments/{self.team.pk}/integrations/?limit=1&offset={offset}")
+            assert response.status_code == status.HTTP_200_OK
+            paged_ids += [result["id"] for result in response.json()["results"]]
+
+        assert paged_ids == [self.twilio_integration.id, self.github_integration.id]
 
 
 class TestGithubAccountTypeHelper:
@@ -5855,6 +5903,64 @@ class TestAnthropicIntegration:
         assert body["has_more"] is False
 
 
+class TestAliasedOauthCallbackKind:
+    @pytest.fixture(autouse=True)
+    def setup_environment(self, db, settings):
+        settings.SALESFORCE_CONSUMER_KEY = "salesforce-client-id"
+        settings.SALESFORCE_CONSUMER_SECRET = "salesforce-client-secret"
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+        self.instance_url = "https://acme.my.salesforce.com"
+        self.salesforce = Integration.objects.create(
+            team=self.team,
+            kind="salesforce",
+            integration_id=self.instance_url,
+            config={"instance_url": self.instance_url},
+            sensitive_config={"access_token": "CRM_TOKEN", "refresh_token": "CRM_REFRESH"},
+        )
+
+    @pytest.mark.parametrize(
+        "state_kind,expected_kind,expected_salesforce_token",
+        [
+            # pardot borrows the Salesforce app, so its state may rename the callback.
+            ("pardot", "pardot", "CRM_TOKEN"),
+            # hubspot borrows nothing, so the path wins and this stays a Salesforce reconnect.
+            ("hubspot", "salesforce", "NEW_TOKEN"),
+        ],
+    )
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_state_kind_is_promoted_only_when_the_alias_table_allows_it(
+        self, mock_post, state_kind, expected_kind, expected_salesforce_token, client: HttpClient
+    ):
+        # A client built before the Pardot callback moved posts "salesforce" while it carries a
+        # Pardot grant. Both kinds key on the same instance URL, so that grant would land on the
+        # team's Salesforce row.
+        mock_post.return_value = MagicMock(status_code=200)
+        mock_post.return_value.json.return_value = {
+            "access_token": "NEW_TOKEN",
+            "refresh_token": "NEW_REFRESH",
+            "instance_url": self.instance_url,
+        }
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {
+                "kind": "salesforce",
+                "config": {"state": f"token=csrf-tok&kind={state_kind}", "code": "oauth-code"},
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["kind"] == expected_kind
+        self.salesforce.refresh_from_db()
+        assert self.salesforce.sensitive_config["access_token"] == expected_salesforce_token
+
+
 class TestSlackPostHogCodeKindDeprecated:
     @pytest.fixture(autouse=True)
     def setup_environment(self, db):
@@ -6465,6 +6571,35 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
         mock_report.assert_not_called()
 
 
+class TestApplePushIntegrationAPI(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("numeric_team_id", "team_id_apple", 12345),
+            ("object_signing_key", "signing_key", {"pem": "-----BEGIN PRIVATE KEY-----"}),
+        ]
+    )
+    def test_rejects_a_config_field_that_is_not_a_string(self, _name, field, value):
+        # `config` is a JSON field, so nothing types what a client posts into it. A wrong type has
+        # to read as a validation error, not as a server error.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "apns",
+                "config": {
+                    "signing_key": "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----",
+                    "key_id": "KEY1",
+                    "team_id_apple": "TEAM123",
+                    "bundle_id": "com.example.app",
+                    field: value,
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert not Integration.objects.filter(team=self.team, kind="apns").exists()
+
+
 class TestPushIdentityVerificationAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -6488,7 +6623,11 @@ class TestPushIdentityVerificationAPI(APIBaseTest):
             {
                 "kind": "firebase",
                 "config": {
-                    "key_info": {"type": "service_account", "project_id": "my-firebase-project"},
+                    "key_info": {
+                        "type": "service_account",
+                        "project_id": "my-firebase-project",
+                        "token_uri": "https://oauth2.googleapis.com/token",
+                    },
                     "push_identity_verification": "required",
                 },
             },
@@ -6660,7 +6799,7 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
                     "project_id": "hijacked-project",
                     "private_key": "new",
                     "private_key_id": "new",
-                    "token_uri": "new",
+                    "token_uri": "https://oauth2.googleapis.com/token",
                 },
             },
             format="json",

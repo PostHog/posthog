@@ -4,11 +4,11 @@ import { loaders } from 'kea-loaders'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
-import { DataModelingEdge, DataModelingNode, DataWarehouseSavedQuery, DataWarehouseSavedQueryRunHistory } from '~/types'
+import { DataModelingEdge, DataModelingNode, DataWarehouseSavedQueryRunHistory } from '~/types'
 
 import { lineageDataLogic } from 'products/data_modeling/frontend/lineage/lineageDataLogic'
 import {
@@ -31,7 +31,7 @@ export const PAGE_SIZE = 10
 export type ViewTypeFilter = 'all' | 'materialized' | 'view'
 
 export interface viewsTabLogicValues {
-    dataWarehouseSavedQueries: DataWarehouseSavedQuery[] // dataWarehouseViewsLogic
+    dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[] // dataWarehouseViewsLogic
     dataWarehouseSavedQueriesLoading: boolean // dataWarehouseViewsLogic
     database: Required<DatabaseSchemaQueryResponse> | null // databaseTableListLogic
     viewsMapById: Record<string, DatabaseSchemaEndpointTable | DatabaseSchemaManagedViewTable | DatabaseSchemaViewTable> // databaseTableListLogic
@@ -42,9 +42,9 @@ export interface viewsTabLogicValues {
     edgesLoading: boolean // modelsLineageLogic
     accessControlModalOpen: boolean
     currentPage: number
-    editingAccessControlView: DataWarehouseSavedQuery | null
-    enrichedViews: DataWarehouseSavedQuery[]
-    filteredViews: DataWarehouseSavedQuery[]
+    editingAccessControlView: DataWarehouseSavedQuerySummary | null
+    enrichedViews: DataWarehouseSavedQuerySummary[]
+    filteredViews: DataWarehouseSavedQuerySummary[]
     lineageNames: Set<string> | null
     parsedSearch: ParsedLineageSearch
     runHistoryMap: Record<string, DataWarehouseSavedQueryRunHistory[]>
@@ -52,7 +52,7 @@ export interface viewsTabLogicValues {
     searchTerm: string
     typeFilter: ViewTypeFilter
     viewsLoading: boolean
-    visibleViews: DataWarehouseSavedQuery[]
+    visibleViews: DataWarehouseSavedQuerySummary[]
 }
 
 export interface viewsTabLogicActions {
@@ -64,7 +64,10 @@ export interface viewsTabLogicActions {
         fullRefresh: boolean | undefined
         viewId: string
     } // dataWarehouseViewsLogic
-    loadDataWarehouseSavedQueriesSuccess: (dataWarehouseSavedQueries: DataWarehouseSavedQuery[], payload?: any) => any // dataWarehouseViewsLogic
+    loadDataWarehouseSavedQueriesSuccess: (
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
+        payload?: any
+    ) => any // dataWarehouseViewsLogic
     loadDatabase: (
         args_0?:
             | {
@@ -106,8 +109,8 @@ export interface viewsTabLogicActions {
     loadVisibleData: () => {
         value: true
     }
-    openAccessControlModal: (view: DataWarehouseSavedQuery) => {
-        view: DataWarehouseSavedQuery
+    openAccessControlModal: (view: DataWarehouseSavedQuerySummary) => {
+        view: DataWarehouseSavedQuerySummary
     }
     runMaterialization: (viewId: string) => {
         viewId: string
@@ -127,15 +130,18 @@ export interface viewsTabLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         viewsLoading: (dataWarehouseSavedQueriesLoading: boolean) => boolean
         enrichedViews: (
-            dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+            dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
             runHistoryMap: Record<string, DataWarehouseSavedQueryRunHistory[]>
-        ) => DataWarehouseSavedQuery[]
+        ) => DataWarehouseSavedQuerySummary[]
         filteredViews: (
-            enrichedViews: DataWarehouseSavedQuery[],
+            enrichedViews: DataWarehouseSavedQuerySummary[],
             searchTerm: string,
             typeFilter: ViewTypeFilter
-        ) => DataWarehouseSavedQuery[]
-        visibleViews: (filteredViews: DataWarehouseSavedQuery[], currentPage: number) => DataWarehouseSavedQuery[]
+        ) => DataWarehouseSavedQuerySummary[]
+        visibleViews: (
+            filteredViews: DataWarehouseSavedQuerySummary[],
+            currentPage: number
+        ) => DataWarehouseSavedQuerySummary[]
     }
 }
 
@@ -174,7 +180,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         runMaterialization: (viewId: string) => ({ viewId }),
         loadRunHistory: (viewIds: string[]) => ({ viewIds }),
         loadVisibleData: true,
-        openAccessControlModal: (view: DataWarehouseSavedQuery) => ({ view }),
+        openAccessControlModal: (view: DataWarehouseSavedQuerySummary) => ({ view }),
         closeAccessControlModal: true,
     }),
     reducers({
@@ -206,7 +212,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
             },
         ],
         editingAccessControlView: [
-            null as DataWarehouseSavedQuery | null,
+            null as DataWarehouseSavedQuerySummary | null,
             {
                 openAccessControlModal: (_, { view }) => view,
                 closeAccessControlModal: () => null,
@@ -249,9 +255,9 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         enrichedViews: [
             (s) => [s.dataWarehouseSavedQueries, s.runHistoryMap],
             (
-                queries: DataWarehouseSavedQuery[],
+                queries: DataWarehouseSavedQuerySummary[],
                 runHistoryMap: Record<string, DataWarehouseSavedQueryRunHistory[]>
-            ): DataWarehouseSavedQuery[] =>
+            ): DataWarehouseSavedQuerySummary[] =>
                 queries.map((query) => ({
                     ...query,
                     run_history: query.is_materialized ? runHistoryMap[query.id] : undefined,
@@ -280,11 +286,11 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         filteredViews: [
             (s) => [s.enrichedViews, s.parsedSearch, s.lineageNames, s.typeFilter],
             (
-                views: DataWarehouseSavedQuery[],
+                views: DataWarehouseSavedQuerySummary[],
                 parsedSearch: ParsedLineageSearch,
                 lineageNames: Set<string> | null,
                 typeFilter: ViewTypeFilter
-            ): DataWarehouseSavedQuery[] => {
+            ): DataWarehouseSavedQuerySummary[] => {
                 const term = parsedSearch.term.toLowerCase()
                 return views.filter((view) => {
                     if (typeFilter === 'materialized' && !view.is_materialized) {
@@ -302,7 +308,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         ],
         visibleViews: [
             (s) => [s.filteredViews, s.currentPage],
-            (views: DataWarehouseSavedQuery[], currentPage: number): DataWarehouseSavedQuery[] => {
+            (views: DataWarehouseSavedQuerySummary[], currentPage: number): DataWarehouseSavedQuerySummary[] => {
                 const startIndex = (currentPage - 1) * PAGE_SIZE
                 return views.slice(startIndex, startIndex + PAGE_SIZE)
             },
@@ -318,7 +324,6 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
                     status: 'danger',
                     onClick: () => {
                         actions.deleteDataWarehouseSavedQuery(viewId)
-                        lemonToast.success('View deleted successfully')
                     },
                 },
                 secondaryButton: {

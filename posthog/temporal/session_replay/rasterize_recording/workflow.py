@@ -204,7 +204,7 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
             # Reading a Django setting inside a workflow body is normally banned (it is not part of
             # recorded history); it is tolerated here because Temporal does not replay-check the
             # task-queue attribute, and a mid-flight change only redirects retries.
-            task_queue=settings.RASTERIZATION_TASK_QUEUE,
+            task_queue=inputs.task_queue or settings.RASTERIZATION_TASK_QUEUE,
             start_to_close_timeout=RASTERIZE_RENDER_TIMEOUT,
             heartbeat_timeout=dt.timedelta(seconds=30),
             retry_policy=common.RetryPolicy(maximum_attempts=RASTERIZE_RENDER_MAX_ATTEMPTS),

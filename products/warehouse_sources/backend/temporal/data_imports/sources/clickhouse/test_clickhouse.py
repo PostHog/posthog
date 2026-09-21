@@ -723,9 +723,6 @@ class TestClickHouseSourceRetryableErrors:
             "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 503",
             "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 504",
             "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 429",
-            "Tunnel connection failed: 502 Bad gateway",
-            "Tunnel connection failed: 503 Service Unavailable",
-            "Tunnel connection failed: 504 Gateway Timeout",
             "EOF occurred in violation of protocol",
             "Connection reset by peer",
             # The source dropped the connection mid-stream while reading Arrow batches
@@ -733,6 +730,9 @@ class TestClickHouseSourceRetryableErrors:
             "('Connection broken: IncompleteRead(0 bytes read)', IncompleteRead(0 bytes read))",
             "('Connection broken: IncompleteRead(12345 bytes read, 67 more expected)', "
             "IncompleteRead(12345 bytes read, 67 more expected))",
+            # pyarrow's own IPC reader detects the same kind of mid-stream connection drop,
+            # one layer above urllib3, and raises OSError instead. Byte counts vary.
+            "Expected to be able to read 5226856 bytes for message body, got 5056408",
             # The server accepted the connection but never answered within our timeout —
             # typically ClickHouse Cloud still cold-resuming past our allowance.
             "Error HTTPSConnectionPool(host='play.clickhouse.com', port=8443): Read timed out. "
@@ -742,11 +742,6 @@ class TestClickHouseSourceRetryableErrors:
             "HTTPDriver for https://play.clickhouse.com:8443 received ClickHouse error code 202\n "
             "Code: 202. DB::Exception: Too many simultaneous queries for all users. Current: 500, "
             "maximum: 500. (TOO_MANY_SIMULTANEOUS_QUERIES) (version 24.8.1.1 (official build))",
-            # The exact wrapped message that reached error tracking: our own egress proxy was
-            # unreachable past all of `_get_client`'s in-process connect retries.
-            "Error HTTPSConnectionPool(host='play.clickhouse.com', port=8443): Max retries exceeded "
-            "with url: /? (Caused by ProxyError('Cannot connect to proxy.', TimeoutError('timed out'))) "
-            "executing HTTP request attempt 1 (https://play.clickhouse.com:8443)",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):
@@ -761,17 +756,6 @@ class TestClickHouseSourceRetryableErrors:
         # also be misclassified as a benign retryable error, or `_handle_import_error` would log
         # it at `warning` and mask the real cause.
         error_msg = "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 404"
-        retryable = source.get_retryable_errors()
-        assert not any(pattern in error_msg for pattern in retryable)
-
-    def test_proxy_auth_failure_is_not_classified_as_retryable(self, source):
-        # A 407 wraps the same "Cannot connect to proxy." prefix as the TCP-connect timeout above,
-        # but it's a deterministic proxy-auth misconfiguration, not a transient blip.
-        error_msg = (
-            "Error HTTPSConnectionPool(host='play.clickhouse.com', port=8443): Max retries exceeded "
-            "with url: /? (Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection "
-            "failed: 407 Proxy Authentication Required')))"
-        )
         retryable = source.get_retryable_errors()
         assert not any(pattern in error_msg for pattern in retryable)
 
@@ -1424,6 +1408,10 @@ class TestGetPartitionSettings:
             "HTTPDriver for https://example.invalid:443 returned response code 502",
             "HTTPDriver for https://example.invalid:443 returned response code 503",
             "HTTPDriver for https://example.invalid:443 returned response code 504",
+            "Error ('Cannot connect to proxy.', TimeoutError('timed out')) executing HTTP request attempt 1 "
+            "(https://example.invalid:443)",
+            "Error Tunnel connection failed: 429 Too Many Requests executing HTTP request attempt 1 "
+            "(https://example.invalid:443)",
         ],
     )
     def test_transient_http_response_not_captured(self, error_msg):

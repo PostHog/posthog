@@ -34,6 +34,7 @@ import {
     weeklyCronToDayTime,
 } from '../../../utils/scoutRunsWindow'
 import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
+import { ScoutRepositoriesPicker } from './ScoutRepositoriesPicker'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
 import { ScoutTagsEditor } from './ScoutTagsEditor'
 import { ScoutWriteAccessSection } from './ScoutWriteAccessSection'
@@ -46,7 +47,14 @@ interface ScoutConfigControlsProps {
 
 // The models the picker offers, a deliberate subset of the Tasks catalog the backend
 // validates pins against — growing this list is a frontend-only change.
-const SCOUT_MODEL_IDS = ['claude-sonnet-5', 'claude-opus-5', 'gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol']
+const SCOUT_MODEL_IDS = [
+    'claude-sonnet-5',
+    'claude-opus-5',
+    'gpt-5.6-luna',
+    'gpt-5.6-terra',
+    'gpt-5.6-sol',
+    'gpt-6-astra',
+]
 
 // Labels come from the generated catalog, so every surface names a model the same way.
 const SCOUT_MODEL_OPTIONS: { value: string | null; label: string }[] = [
@@ -314,6 +322,13 @@ export function ScoutConfigForm({
                 onChange={(serverIds) => onUpdate(config.id, { mcp_gateway_server_ids: serverIds })}
                 // Editable while the scout is disabled, like network access: the selection must be
                 // settable BEFORE the enable or the first run races out with the wrong toolset.
+                disabledReason={updating ? 'Saving scout settings' : undefined}
+            />
+            <ScoutRepositoriesPicker
+                compact
+                selectedRepositories={[...(config.repositories ?? [])]}
+                onChange={(repositories) => onUpdate(config.id, { repositories })}
+                // Editable while the scout is disabled, for the same reason as the MCP selection.
                 disabledReason={updating ? 'Saving scout settings' : undefined}
             />
             <ScoutWriteAccessSection config={config} onUpdate={onUpdate} updating={updating} />

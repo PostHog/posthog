@@ -48,6 +48,7 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                     .min(config.bulk_max_pg_connections),
                 max_connections: config.bulk_max_pg_connections,
                 acquire_timeout: config.bulk_acquire_timeout(),
+                test_before_acquire: true,
                 statement_timeout_ms: config.bulk_statement_timeout(),
                 pool_name: Some("bulk_primary".to_string()),
                 ..primary_pool_config.clone()
@@ -98,6 +99,10 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 "BULK_CHUNK_SIZE must be at least 1"
             );
             assert!(
+                config.tombstoned_delete_max_rows >= 1,
+                "TOMBSTONED_DELETE_MAX_ROWS must be at least 1"
+            );
+            assert!(
                 config.bulk_max_concurrent_chunks >= 1,
                 "BULK_MAX_CONCURRENT_CHUNKS must be at least 1"
             );
@@ -115,6 +120,7 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 bulk_replica_pool,
                 config.bulk_chunk_size,
                 config.bulk_max_concurrent_chunks,
+                config.tombstoned_delete_max_rows,
             ))
         }
         other => {

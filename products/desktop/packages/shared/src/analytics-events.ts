@@ -74,6 +74,7 @@ export type CommandMenuAction =
   | "open-loops"
   | "open-usage"
   | "open-cost-management"
+  | "send-feedback"
   | "search-files"
   | "open-file"
   | "reload-window"
@@ -90,6 +91,7 @@ export interface TaskListViewProperties {
 }
 
 export interface TaskCreateProperties {
+  task_id: string;
   auto_run: boolean;
   created_from: TaskCreatedFrom;
   repository_provider?: RepositoryProvider;
@@ -345,6 +347,16 @@ export interface TaskListGroupingChangedProperties {
   surface: TaskListSurface;
 }
 
+export interface BrowserTabTiledProperties {
+  edge: "left" | "right" | "top" | "bottom";
+  source: "strip" | "tile" | "sidebar";
+  tile_count: number;
+}
+
+export interface BrowserTabTileCountProperties {
+  tile_count: number;
+}
+
 export interface TaskListAppearanceChangedProperties {
   secondary_fields: ("repository" | "branch" | "creator" | "activity")[];
   secondary_field_count: number;
@@ -374,6 +386,35 @@ export interface SettingChangedProperties {
   setting_name: string;
   new_value: string | boolean | number;
   old_value?: string | boolean | number;
+}
+
+type SettingsBackupScope = "all" | "sounds";
+
+export interface SettingsBackupExportProperties {
+  scope: SettingsBackupScope;
+  sound_count: number;
+}
+
+export interface SettingsBackupExportFailedProperties
+  extends SettingsBackupExportProperties {
+  error: string;
+}
+
+export interface SettingsBackupImportedProperties {
+  scope: SettingsBackupScope;
+  setting_count: number;
+  sound_count: number;
+  added_sound_count: number;
+  warning_count: number;
+  backup_app_version: string;
+  version_matches: boolean;
+}
+
+export interface SettingsBackupImportFailedProperties {
+  scope: SettingsBackupScope;
+  /** "open" = reading and validating the file; "apply" = writing the settings. */
+  stage: "open" | "apply";
+  error: string;
 }
 
 export interface CloudCredentialRelayProperties {
@@ -572,10 +613,9 @@ export type OnboardingStepId =
   | "project-select"
   | "consent"
   | "connect-github"
-  | "install-cli"
-  | "select-repo";
+  | "install-cli";
 
-type OnboardingSkipReason = "no_repo_selected" | "dev_skip";
+type OnboardingSkipReason = "dev_skip";
 
 export interface OnboardingStepViewedProperties {
   step_id: OnboardingStepId;
@@ -609,11 +649,6 @@ export interface OnboardingProjectSelectedProperties {
   had_multiple_projects: boolean;
 }
 
-export interface OnboardingFolderSelectedProperties {
-  has_git_remote: boolean;
-  repository_provider: RepositoryProvider;
-}
-
 export interface OnboardingCliCheckCompletedProperties {
   git_installed: boolean;
   gh_installed: boolean;
@@ -628,7 +663,6 @@ export interface OnboardingCliRunCompletedProperties {
 export interface OnboardingCompletedProperties {
   duration_seconds: number;
   github_connected: boolean;
-  repo_skipped: boolean;
 }
 
 export type OnboardingGithubConnectFlow =
@@ -1621,6 +1655,10 @@ export const ANALYTICS_EVENTS = {
   SIDEBAR_NAV_ITEM_CLICKED: "Sidebar nav item clicked",
   TASK_LIST_GROUPING_CHANGED: "Task list grouping changed",
   TASK_LIST_APPEARANCE_CHANGED: "Task list appearance changed",
+  BROWSER_TAB_TILED: "Browser tab tiled",
+  BROWSER_TAB_UNTILED: "Browser tab untiled",
+  BROWSER_TAB_TILE_FOCUSED: "Browser tab tile focused",
+  BROWSER_TAB_SPLIT_RENAMED: "Browser tab split renamed",
 
   // Permission events
   PERMISSION_RESPONDED: "Permission responded",
@@ -1636,6 +1674,10 @@ export const ANALYTICS_EVENTS = {
   // Settings events
   SETTING_CHANGED: "Setting changed",
   CUSTOM_SOUND_ADDED: "Custom sound added",
+  SETTINGS_BACKUP_EXPORTED: "Settings backup exported",
+  SETTINGS_BACKUP_EXPORT_FAILED: "Settings backup export failed",
+  SETTINGS_BACKUP_IMPORTED: "Settings backup imported",
+  SETTINGS_BACKUP_IMPORT_FAILED: "Settings backup import failed",
   CUSTOM_SOUND_RECORDING_SILENT: "Custom sound recording silent",
   CODEX_SUBSCRIPTION_CONNECTED: "Codex subscription connected",
   CODEX_SUBSCRIPTION_SIGNED_OUT: "Codex subscription signed out",
@@ -1663,7 +1705,6 @@ export const ANALYTICS_EVENTS = {
   ONBOARDING_STEP_SKIPPED: "Onboarding step skipped",
   ONBOARDING_SIGN_IN_INITIATED: "Onboarding sign in initiated",
   ONBOARDING_PROJECT_SELECTED: "Onboarding project selected",
-  ONBOARDING_FOLDER_SELECTED: "Onboarding folder selected",
   ONBOARDING_GITHUB_CONNECT_STARTED: "Onboarding github connect started",
   ONBOARDING_GITHUB_CONNECT_FAILED: "Onboarding github connect failed",
   ONBOARDING_GITHUB_CONNECT_PENDING_ADMIN:
@@ -1835,6 +1876,10 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED]: SidebarNavItemClickedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED]: TaskListGroupingChangedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_APPEARANCE_CHANGED]: TaskListAppearanceChangedProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_TILED]: BrowserTabTiledProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_UNTILED]: BrowserTabTileCountProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_TILE_FOCUSED]: BrowserTabTileCountProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_SPLIT_RENAMED]: BrowserTabTileCountProperties;
 
   // Permission events
   [ANALYTICS_EVENTS.PERMISSION_RESPONDED]: PermissionRespondedProperties;
@@ -1853,6 +1898,10 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_REMOVED]: never;
   [ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY]: CloudCredentialRelayProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_ADDED]: CustomSoundAddedProperties;
+  [ANALYTICS_EVENTS.SETTINGS_BACKUP_EXPORTED]: SettingsBackupExportProperties;
+  [ANALYTICS_EVENTS.SETTINGS_BACKUP_EXPORT_FAILED]: SettingsBackupExportFailedProperties;
+  [ANALYTICS_EVENTS.SETTINGS_BACKUP_IMPORTED]: SettingsBackupImportedProperties;
+  [ANALYTICS_EVENTS.SETTINGS_BACKUP_IMPORT_FAILED]: SettingsBackupImportFailedProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_RECORDING_SILENT]: never;
   [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_CONNECTED]: never;
   [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_SIGNED_OUT]: never;
@@ -1877,7 +1926,6 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.ONBOARDING_STEP_SKIPPED]: OnboardingStepSkippedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_SIGN_IN_INITIATED]: OnboardingSignInInitiatedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_PROJECT_SELECTED]: OnboardingProjectSelectedProperties;
-  [ANALYTICS_EVENTS.ONBOARDING_FOLDER_SELECTED]: OnboardingFolderSelectedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_STARTED]: OnboardingGithubConnectStartedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_FAILED]: OnboardingGithubConnectFailedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_PENDING_ADMIN]: OnboardingGithubConnectPendingAdminProperties;

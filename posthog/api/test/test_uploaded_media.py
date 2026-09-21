@@ -289,6 +289,45 @@ class TestMediaAPI(APIBaseTest):
                 "Object storage must be available to allow media uploads.",
             )
 
+    @patch("posthog.models.uploaded_media.object_storage.delete")
+    @patch("posthog.models.uploaded_media.object_storage.write", side_effect=ObjectStorageError("write failed"))
+    def test_save_content_removes_media_after_a_failed_write(self, _write_object, delete_object) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            media = UploadedMedia.save_content(
+                team=self.team,
+                created_by=self.user,
+                file_name="example.png",
+                content_type="image/png",
+                content=b"image bytes",
+            )
+
+        assert media is None
+        assert not UploadedMedia.objects.exists()
+        delete_object.assert_called_once()
+
+    @patch(
+        "posthog.models.uploaded_media.object_storage.delete",
+        side_effect=ObjectStorageError("delete failed"),
+    )
+    @patch("posthog.models.uploaded_media.object_storage.write", side_effect=ObjectStorageError("write failed"))
+    def test_save_content_keeps_cleanup_metadata_when_object_deletion_fails(
+        self, _write_object, _delete_object
+    ) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            media = UploadedMedia.save_content(
+                team=self.team,
+                created_by=self.user,
+                file_name="example.png",
+                content_type="image/png",
+                content=b"image bytes",
+            )
+            pending_media = UploadedMedia.objects.get()
+            expected_location = UploadedMedia.build_media_location(self.team.id, pending_media.id)
+
+        assert media is None
+        assert pending_media.pending is True
+        assert pending_media.media_location == expected_location
+
 
 class TestMediaLibraryAPI(APIBaseTest):
     """The media library surface: purpose-scoped listing and the presigned upload flow."""

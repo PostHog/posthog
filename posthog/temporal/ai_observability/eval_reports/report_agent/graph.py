@@ -36,7 +36,7 @@ from posthog.temporal.ai_observability.eval_reports.targets import (
     get_target_descriptor,
 )
 from posthog.temporal.ai_observability.eval_reports.types import RunEvalReportAgentInput
-from posthog.temporal.ai_observability.llm_endpoint import build_langchain_callbacks, build_langchain_chat_client
+from posthog.temporal.ai_observability.llm_endpoint import build_flex_first_chat_client, build_langchain_callbacks
 
 logger = structlog.get_logger(__name__)
 
@@ -273,7 +273,7 @@ def run_eval_report_agent(
         "evaluation_id": inputs.evaluation_id,
         **({"report_id": inputs.report_id} if inputs.report_id else {}),
     }
-    llm = build_langchain_chat_client(
+    llm = build_flex_first_chat_client(
         EVAL_REPORT_AGENT_MODEL,
         EVAL_REPORT_AGENT_TIMEOUT,
         ai_product="aio_eval_reports",

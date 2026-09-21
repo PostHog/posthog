@@ -13,6 +13,7 @@ from products.tasks.backend.exceptions import SandboxExecutionError
 from products.tasks.backend.logic.services.modal_sandbox import (
     DEFAULT_MODAL_APP_NAME,
     LOCAL_MODAL_AGENT_SHADOW_DIR,
+    LOCAL_MODAL_HOGLI_SHIM_SCRIPT,
     LOCAL_MODAL_NOTEBOOK_KERNEL_DIR,
     LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE,
     NOTEBOOK_MODAL_APP_NAME,
@@ -22,6 +23,7 @@ from products.tasks.backend.logic.services.modal_sandbox import (
     _prepare_local_modal_build_context,
 )
 from products.tasks.backend.logic.services.sandbox import (
+    FULL_HISTORY_ORIGIN_PRODUCTS,
     SELF_DRIVING_ORIGIN_PRODUCTS,
     ExecutionResult,
     SandboxConfig,
@@ -29,6 +31,7 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxTemplate,
     SandboxWorkload,
     get_sandbox_class_for_backend,
+    needs_full_history,
     workload_for_origin_product,
 )
 from products.tasks.backend.models import Task
@@ -355,10 +358,32 @@ class TestSelfDrivingWorkloadMapping:
         assert SELF_DRIVING_ORIGIN_PRODUCTS <= {choice.value for choice in Task.OriginProduct}
 
 
+class TestFullHistoryOriginProducts:
+    @pytest.mark.parametrize(
+        "origin_product, expected",
+        [
+            (Task.OriginProduct.SIGNAL_REPORT, True),
+            (Task.OriginProduct.SIGNALS_SCOUT, True),
+            (Task.OriginProduct.REVIEW_HOG, False),
+            (Task.OriginProduct.ERROR_TRACKING, False),
+            (Task.OriginProduct.USER_CREATED, False),
+            (None, False),
+        ],
+    )
+    def test_needs_full_history(self, origin_product, expected):
+        value = origin_product.value if origin_product is not None else None
+
+        assert needs_full_history(value) is expected
+
+    def test_every_full_history_origin_is_a_real_origin_product(self):
+        assert FULL_HISTORY_ORIGIN_PRODUCTS <= {choice.value for choice in Task.OriginProduct}
+
+
 class TestLocalModalBuildContext:
-    def test_base_context_carries_the_agent_shadow_sources(self):
-        # The base Dockerfile's first stage COPYs and builds the agent-shadow observer, so the
-        # trimmed DEBUG context must carry its sources or every local sandbox fails at image build.
+    def test_base_context_carries_the_sources_its_dockerfile_copies(self):
+        # The base Dockerfile's first stage COPYs and builds the agent-shadow observer, and it
+        # COPYs the hogli shim onto PATH, so the trimmed DEBUG context must carry both or every
+        # local sandbox fails at image build.
         _prepare_local_modal_build_context.cache_clear()
         with (
             patch("products.tasks.backend.logic.services.modal_sandbox.LocalSkillsCache"),
@@ -369,6 +394,7 @@ class TestLocalModalBuildContext:
             root = Path(context_dir)
             assert (root / LOCAL_MODAL_AGENT_SHADOW_DIR / "go.mod").is_file()
             assert (root / LOCAL_MODAL_AGENT_SHADOW_DIR / "main.go").is_file()
+            assert (root / LOCAL_MODAL_HOGLI_SHIM_SCRIPT).is_file()
         finally:
             shutil.rmtree(context_dir, ignore_errors=True)
             _prepare_local_modal_build_context.cache_clear()

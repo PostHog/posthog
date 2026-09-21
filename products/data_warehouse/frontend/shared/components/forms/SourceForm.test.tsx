@@ -3,15 +3,15 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 
 import {
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldSelectConfig,
-    SourceFieldSwitchGroupConfig,
-} from '~/queries/schema/schema-general'
+    SourceConfigResponseApi,
+    SourceFieldInputConfigApi,
+    SourceFieldSelectConfigApi,
+    SourceFieldSwitchGroupConfigApi,
+} from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { sourceFieldToElement } from './SourceForm'
 
-const SELECT_FIELD: SourceFieldSelectConfig = {
+const SELECT_FIELD: SourceFieldSelectConfigApi = {
     type: 'select',
     name: 'response_types',
     label: 'Responses to sync',
@@ -24,9 +24,9 @@ const SELECT_FIELD: SourceFieldSelectConfig = {
     caption: 'Changing this triggers a full refresh of the responses table.',
 }
 
-const SOURCE_CONFIG = { name: 'Typeform', fields: [] } as unknown as SourceConfig
+const SOURCE_CONFIG = { name: 'Typeform', fields: [] } as unknown as SourceConfigResponseApi
 
-const SWITCH_GROUP_FIELD: SourceFieldSwitchGroupConfig = {
+const SWITCH_GROUP_FIELD: SourceFieldSwitchGroupConfigApi = {
     type: 'switch-group',
     name: 'custom_properties',
     label: 'Customize synced properties',
@@ -56,7 +56,7 @@ const switchGroupState = (storedGroupValue: any, formValue?: any): { checked: bo
     return { checked: toggle.props.checked, childrenVisible: !!children.find((child: any) => child?.props?.name) }
 }
 
-const CONNECTION_STRING_FIELD: SourceFieldInputConfig = {
+const CONNECTION_STRING_FIELD: SourceFieldInputConfigApi = {
     type: 'text',
     name: 'connection_string',
     label: 'Connection string (optional)',
@@ -65,7 +65,7 @@ const CONNECTION_STRING_FIELD: SourceFieldInputConfig = {
     secret: true,
 }
 
-const POSTGRES_CONFIG = { name: 'Postgres', fields: [] } as unknown as SourceConfig
+const POSTGRES_CONFIG = { name: 'Postgres', fields: [] } as unknown as SourceConfigResponseApi
 
 // Renders the connection string field at a given value and reports whether it tells the user the
 // string didn't parse.

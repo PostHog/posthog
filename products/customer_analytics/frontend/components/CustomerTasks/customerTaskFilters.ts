@@ -1,6 +1,7 @@
 import type { Sorting } from '@posthog/lemon-ui'
 
 import { dayjs, dayjsLocalToTimezone, dayjsNowInTimezone } from 'lib/dayjs'
+import { isUUIDLike } from 'lib/utils/guards'
 
 import type {
     CustomerTaskApi,
@@ -14,6 +15,8 @@ export type CustomerTaskStatusFilter = 'open' | 'completed' | 'canceled' | 'all'
 export type CustomerTaskAssigneeFilter = 'any' | 'me' | 'unassigned' | number
 export type CustomerTaskDueFilter = 'any' | 'overdue' | 'today' | 'upcoming' | 'no_due_date'
 export type CustomerTaskAccountFilter = { id: string; name: string }
+
+const MAX_CUSTOMER_TASK_ASSIGNEE_ID = 2_147_483_647
 const CUSTOMER_TASK_ORDERINGS = [
     'name',
     '-name',
@@ -198,6 +201,95 @@ export function customerTasksQuery(
         delete query.has_due_at
     }
     return query
+}
+
+export const CUSTOMER_TASK_FILTER_URL_KEYS = ['search', 'status', 'assignee', 'archive', 'due', 'account'] as const
+
+export const CUSTOMER_TASK_URL_KEYS = [...CUSTOMER_TASK_FILTER_URL_KEYS, 'sort', 'page'] as const
+
+// Event names are consumed by product analytics, so changing one splits its historical data.
+export const CustomerTaskEvents = {
+    InboxViewed: 'customer analytics tasks inbox viewed',
+} as const
+
+export type CustomerTaskUrlState = {
+    filters: CustomerTaskFilters
+    ordering: CustomerTaskOrdering
+    page: number
+}
+
+// The inbox keeps `overdue` and `today` symbolic in the link so customerTaskDueBounds resolves them
+// against the project timezone when the page opens, not when the link was written.
+export function customerTaskSearchParams(state: CustomerTaskUrlState): Record<string, string> {
+    const defaults = defaultCustomerTaskFilters('inbox')
+    const params: Record<string, string> = {}
+    if (state.filters.search) {
+        params.search = state.filters.search
+    }
+    if (state.filters.status !== defaults.status) {
+        params.status = state.filters.status
+    }
+    if (state.filters.assignee !== defaults.assignee) {
+        params.assignee = String(state.filters.assignee)
+    }
+    if (state.filters.archiveState !== defaults.archiveState) {
+        params.archive = state.filters.archiveState
+    }
+    if (state.filters.due !== defaults.due) {
+        params.due = state.filters.due
+    }
+    if (state.filters.account) {
+        params.account = state.filters.account.id
+    }
+    if (state.ordering !== DEFAULT_CUSTOMER_TASK_ORDERING) {
+        params.sort = state.ordering
+    }
+    if (state.page > 1) {
+        params.page = String(state.page)
+    }
+    return params
+}
+
+function parseAssignee(value: unknown): CustomerTaskAssigneeFilter | null {
+    if (value === 'any' || value === 'me' || value === 'unassigned') {
+        return value
+    }
+    const memberId = Number(value)
+    return Number.isInteger(memberId) && memberId > 0 && memberId <= MAX_CUSTOMER_TASK_ASSIGNEE_ID ? memberId : null
+}
+
+function parseOneOf<T extends string>(value: unknown, allowed: readonly T[]): T | null {
+    return allowed.some((candidate) => candidate === value) ? (value as T) : null
+}
+
+function parseOption<T extends string>(value: unknown, options: readonly { value: T }[]): T | null {
+    return parseOneOf(
+        value,
+        options.map((option) => option.value)
+    )
+}
+
+// A link only carries the account id, so the name stays empty until the logic resolves it.
+export function parseCustomerTaskSearchParams(searchParams: Record<string, any>): CustomerTaskUrlState {
+    const defaults = defaultCustomerTaskFilters('inbox')
+    const page = Number(searchParams.page)
+    return {
+        filters: {
+            // The router parses a purely numeric query param into a number, so `?search=123` arrives
+            // as 123. A string check would drop it and the link would show an unfiltered list.
+            search: searchParams.search != null ? String(searchParams.search) : '',
+            status: parseOption(searchParams.status, CUSTOMER_TASK_STATUS_OPTIONS) ?? defaults.status,
+            assignee: parseAssignee(searchParams.assignee) ?? defaults.assignee,
+            archiveState: parseOption(searchParams.archive, CUSTOMER_TASK_ARCHIVE_OPTIONS) ?? defaults.archiveState,
+            account:
+                typeof searchParams.account === 'string' && isUUIDLike(searchParams.account)
+                    ? { id: searchParams.account, name: '' }
+                    : null,
+            due: parseOption(searchParams.due, CUSTOMER_TASK_DUE_OPTIONS) ?? defaults.due,
+        },
+        ordering: parseOneOf(searchParams.sort, CUSTOMER_TASK_ORDERINGS) ?? DEFAULT_CUSTOMER_TASK_ORDERING,
+        page: Number.isInteger(page) && page > 0 ? page : 1,
+    }
 }
 
 export function customerTasksPersistencePrefix(teamId: number, userId: number): string {

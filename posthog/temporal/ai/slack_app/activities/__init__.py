@@ -5,6 +5,8 @@ from posthog.temporal.ai.slack_app.activities.classifiers import (
     classify_posthog_code_task_needs_repo_activity,
     classify_slack_app_model_override,
     classify_slack_app_model_override_activity,
+    classify_slack_app_project_route,
+    classify_slack_app_project_route_activity,
     classify_task_needs_repo,
     classify_untagged_followup_activity,
 )
@@ -52,6 +54,8 @@ __all__ = [
     "classify_posthog_code_task_needs_repo_activity",
     "classify_slack_app_model_override",
     "classify_slack_app_model_override_activity",
+    "classify_slack_app_project_route",
+    "classify_slack_app_project_route_activity",
     "classify_task_needs_repo",
     "classify_untagged_followup_activity",
     "collect_posthog_code_thread_messages_activity",

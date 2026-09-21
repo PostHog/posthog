@@ -1,6 +1,5 @@
 import { S3Client } from '@aws-sdk/client-s3'
 
-import { initializePrometheusLabels } from '~/common/api/router'
 import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB } from '~/common/config/kafka-topics'
 import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
@@ -9,15 +8,14 @@ import { KafkaDeadLetterSink } from '~/ingestion/pipelines/sessionreplay/ml-mirr
 import { ImageBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-batcher'
 import { ImageShardStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-shard-store'
 import { ScrubClient } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/scrub-client'
+import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
 import { INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 
-import { CleanupResources, NodeServer, ServerLifecycle } from './base-server'
-import {
-    IngestionSessionReplayMlMirrorServerConfig,
-    buildMlMirrorServerConfig,
-} from './ingestion-session-replay-ml-mirror-server'
+import { CleanupResources } from './base-server'
+import { IngestionSessionReplayMlMirrorServerConfig } from './ingestion-session-replay-ml-mirror-server'
+import { MlMirrorConsumerServer } from './ml-mirror-consumer-server'
 
 // A scrub + S3-write batch blocks the poll loop (which only heartbeats once per batch) for up to minutes, so
 // we refresh the heartbeat this often during it. Must stay under CONSUMER_MAX_HEARTBEAT_INTERVAL_MS (30s).
@@ -48,30 +46,21 @@ export function buildImageScrubConsumerConfig(config: IngestionSessionReplayMlMi
     }
 }
 
-export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
-    readonly lifecycle: ServerLifecycle
-    private config: IngestionSessionReplayMlMirrorServerConfig
+export class IngestionSessionReplayMlImageScrubServer extends MlMirrorConsumerServer {
+    private keyManager?: MlKeyManager
     private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
 
-    constructor(config: Partial<IngestionSessionReplayMlMirrorServerConfig> = {}) {
-        this.config = buildMlMirrorServerConfig(config)
-        this.lifecycle = new ServerLifecycle(this.config)
-    }
-
-    async start(): Promise<void> {
-        return this.lifecycle.start(
-            () => this.startServices(),
-            () => this.getCleanupResources()
-        )
-    }
-
-    async stop(error?: Error): Promise<void> {
-        return this.lifecycle.stop(() => this.getCleanupResources(), error)
-    }
-
-    private async startServices(): Promise<void> {
-        initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
-
+    protected async startServices(): Promise<void> {
+        if (
+            this.config.AI_RESEARCH_REPLAY_KEY_TABLE &&
+            !this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC.trim()
+        ) {
+            throw new Error('ML key manager-enabled image scrubber requires SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC')
+        }
+        if (this.config.AI_RESEARCH_REPLAY_KEY_TABLE) {
+            this.keyManager = new MlKeyManager(this.config)
+            await this.keyManager.start()
+        }
         const s3Client = requireS3Client(buildSessionRecordingS3Client(this.config))
         const store = new ImageShardStore(
             s3Client,
@@ -103,7 +92,7 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
             deadLetters !== null
         )
 
-        const maximumRecordBytes = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES + 64 * 1024
+        const maximumRecordBytes = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES * 2 + 64 * 1024
         const consumer = new KafkaConsumer(buildImageScrubConsumerConfig(this.config), {
             'fetch.message.max.bytes': maximumRecordBytes,
             'max.partition.fetch.bytes': maximumRecordBytes,
@@ -120,7 +109,8 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
                 dedupMaxRefs: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_DEDUP_MAX_REFS,
             },
             Date.now(),
-            deadLetters
+            deadLetters,
+            this.keyManager
         )
         await scrubClient.waitUntilReachable()
         await consumer.connect((messages) => {
@@ -144,10 +134,13 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
         })
     }
 
-    private getCleanupResources(): CleanupResources {
+    protected getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
-            additionalCleanup: () => this.producerRegistry?.disconnectAll(),
+            additionalCleanup: async () => {
+                this.keyManager?.stop()
+                await this.producerRegistry?.disconnectAll()
+            },
             redisPools: [],
         }
     }

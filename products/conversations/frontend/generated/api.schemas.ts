@@ -7,6 +7,32 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface AIReplyPlaybookApi {
+    /** Repo default instructions, plus the PostHog overlay when docs_source is posthog. */
+    readonly inherited_instructions: string
+    /**
+     * Team addendum on top of the inherited playbook. Null means the team inherits the default instructions.
+     * @nullable
+     */
+    readonly custom_instructions: string | null
+    /** True when a non-empty custom addendum is saved for this team. */
+    readonly is_customized: boolean
+    /** Version of the generic default playbook layer currently in the repo. */
+    readonly default_version: number
+    /**
+     * Version of the PostHog overlay when docs_source is posthog; null otherwise.
+     * @nullable
+     */
+    readonly posthog_overlay_version: number | null
+    /**
+     * Documentation source for this team. 'posthog' enables PostHog docs-search and the PostHog overlay.
+     * @nullable
+     */
+    readonly docs_source: string | null
+    /** Maximum character length for ai_reply_custom_instructions. */
+    readonly max_chars: number
+}
+
 /**
  * * `widget` - Widget
  * * `email` - Email
@@ -508,7 +534,7 @@ export interface BulkUpdateTagsUUIDRequestApi {
      * * `set` - set */
     action: BulkUpdateTagsActionEnumApi
     /**
-     * Tag names to add, remove, or set.
+     * Tag names to add, remove, or set (up to 100 per request, 255 characters each).
      * @maxItems 100
      * @items.maxLength 255
      */
@@ -525,7 +551,7 @@ export interface BulkUpdateTagsUUIDItemApi {
 export interface BulkUpdateTagsUUIDErrorApi {
     /** UUID of the object that was skipped. */
     id: string
-    /** Why the object was skipped, e.g. 'Not found'. */
+    /** Why the object was skipped, e.g. 'Not found or no edit access'. */
     reason: string
 }
 
@@ -609,22 +635,30 @@ export const TicketSlaFilterEnumApi = {
 
 /**
  * * `persisted` - persisted
+ * * `suggested` - suggested
+ * * `escalated_with_findings` - escalated_with_findings
  * * `escalated_with_best` - escalated_with_best
  * * `escalated_no_reply` - escalated_no_reply
  * * `skipped_unactionable` - skipped_unactionable
  * * `blocked_unsafe` - blocked_unsafe
  * * `blocked_unsafe_reply` - blocked_unsafe_reply
+ * * `clarified` - clarified
+ * * `suggested_clarification` - suggested_clarification
  * * `in_progress` - in_progress
  */
 export type AiTriageResultEnumApi = (typeof AiTriageResultEnumApi)[keyof typeof AiTriageResultEnumApi]
 
 export const AiTriageResultEnumApi = {
     Persisted: 'persisted',
+    Suggested: 'suggested',
+    EscalatedWithFindings: 'escalated_with_findings',
     EscalatedWithBest: 'escalated_with_best',
     EscalatedNoReply: 'escalated_no_reply',
     SkippedUnactionable: 'skipped_unactionable',
     BlockedUnsafe: 'blocked_unsafe',
     BlockedUnsafeReply: 'blocked_unsafe_reply',
+    Clarified: 'clarified',
+    SuggestedClarification: 'suggested_clarification',
     InProgress: 'in_progress',
 } as const
 
@@ -693,7 +727,7 @@ export interface TicketViewFiltersApi {
      * * `on-track` - on-track
      * * `all` - all */
     sla?: TicketSlaFilterEnumApi
-    /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. */
+    /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress. */
     aiTriageResult?: AiTriageResultEnumApi[]
     /** Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace 'all' with an empty list to apply no assignee filter. */
     assignee?: TicketViewFiltersApiAssigneeItem[]
@@ -916,7 +950,7 @@ export interface ZendeskImportErrorApi {
 
 export type ConversationsTicketsListParams = {
     /**
-     * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `in_progress`.
+     * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `suggested`, `escalated_with_findings`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `clarified`, `suggested_clarification`, `in_progress`.
      */
     ai_triage_result?: string
     /**

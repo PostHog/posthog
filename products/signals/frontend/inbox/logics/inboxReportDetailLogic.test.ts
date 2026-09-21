@@ -214,7 +214,14 @@ describe('inboxReportDetailLogic', () => {
                     '/api/projects/:team_id/signals/reports/:id/pr_checks/': ({ request }) => {
                         requestedPrIds.push(new URL(request.url).searchParams.get('pull_request_id'))
                         prChecksRequests += 1
-                        return [502, { error: 'GitHub could not return the checks for this pull request.' }]
+                        return [
+                            403,
+                            {
+                                code: 'github_checks_permission_missing',
+                                error: "GitHub can't read pull request checks. A project admin must reconnect GitHub and grant the Checks permission.",
+                                remediation_url: '/project/2/settings/project-integrations',
+                            },
+                        ]
                     },
                     '/api/projects/:team_id/signals/reports/:id/pr_comments/': { comments: [] },
                 },
@@ -265,6 +272,16 @@ describe('inboxReportDetailLogic', () => {
             expect(prChecksRequests).toBe(3)
             expect(logic.values.prChecksBackedOff).toBe(true)
             expect(logic.values.prChecksError).toBeTruthy()
+        })
+
+        it('shows how to restore the GitHub permission', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.prChecksError).toEqual({
+                message:
+                    "GitHub can't read pull request checks. A project admin must reconnect GitHub and grant the Checks permission.",
+                remediationUrl: '/project/2/settings/project-integrations',
+            })
         })
     })
 
@@ -395,38 +412,72 @@ describe('inboxReportDetailLogic', () => {
             logic.unmount()
         })
 
-        // `ready` is not one of the active statuses, so the report's own status never starts the poll.
-        // An implementation run under it still settles, and a failed or cancelled one hands the Create PR
-        // slot back, so the run has to hold the poll open by itself or the action stays disabled until the
-        // pane is reopened. A completed run must not hold it open: it keeps the slot for good, and polling
-        // past it would never observe a change.
         it.each([
-            { label: 'no linked tasks', tasks: [], polls: false },
-            { label: 'an implementation with no run yet', tasks: [linkedTask('implementation', null)], polls: true },
+            { label: 'no linked tasks', tasks: [], polls: false, openTaskIndex: null },
+            {
+                label: 'an implementation with no run yet',
+                tasks: [linkedTask('implementation', null)],
+                polls: true,
+                openTaskIndex: null,
+            },
             {
                 label: 'an implementation in progress',
                 tasks: [linkedTask('implementation', TaskRunStatus.IN_PROGRESS)],
                 polls: true,
+                openTaskIndex: 0,
             },
             {
                 label: 'a completed implementation',
                 tasks: [linkedTask('implementation', TaskRunStatus.COMPLETED)],
                 polls: false,
+                openTaskIndex: null,
+            },
+            {
+                label: 'a completed implementation with a PR',
+                tasks: [
+                    linkedTask('implementation', TaskRunStatus.COMPLETED, 'https://github.com/example/repo/pull/1'),
+                ],
+                polls: false,
+                openTaskIndex: 0,
             },
             {
                 label: 'a failed implementation',
                 tasks: [linkedTask('implementation', TaskRunStatus.FAILED)],
                 polls: false,
+                openTaskIndex: null,
             },
             {
                 label: 'a research task in progress',
                 tasks: [linkedTask('research', TaskRunStatus.IN_PROGRESS)],
-                polls: false,
+                polls: true,
+                openTaskIndex: null,
             },
-        ])('a ready report with $label polls: $polls', ({ tasks, polls }) => {
+            {
+                label: 'a discussion in progress',
+                tasks: [linkedTask('other', TaskRunStatus.IN_PROGRESS)],
+                polls: true,
+                openTaskIndex: null,
+            },
+            {
+                label: 'a completed discussion',
+                tasks: [linkedTask('other', TaskRunStatus.COMPLETED)],
+                polls: false,
+                openTaskIndex: null,
+            },
+            {
+                label: 'a discussion and an implementation in progress',
+                tasks: [
+                    linkedTask('other', TaskRunStatus.IN_PROGRESS),
+                    linkedTask('implementation', TaskRunStatus.IN_PROGRESS),
+                ],
+                polls: true,
+                openTaskIndex: 1,
+            },
+        ])('a ready report with $label polls: $polls', ({ tasks, polls, openTaskIndex }) => {
             logic.actions.loadReportTasksSuccess(tasks)
 
             expect(logic.values.shouldPollReportTasks).toBe(polls)
+            expect(logic.values.reportTaskToOpen).toEqual(openTaskIndex === null ? null : tasks[openTaskIndex])
         })
 
         it('refreshes the artefact log once a PR task starts', async () => {

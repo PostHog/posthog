@@ -517,7 +517,7 @@ class TestDockerSandboxUnit:
                 assert shlex.quote(mode) in command
                 assert "--createPr true" in command
 
-    def test_start_agent_server_preserves_pi_protocol_without_branch_retry(self) -> None:
+    def test_start_agent_server_preserves_pi_protocol_on_branch_retry(self) -> None:
         sandbox = DockerSandbox.__new__(DockerSandbox)
         sandbox._container_id = "abc123"
         sandbox.id = "abc123"
@@ -526,14 +526,13 @@ class TestDockerSandboxUnit:
 
         with (
             patch.object(sandbox, "is_running", return_value=True),
-            patch.object(sandbox, "write_file"),
+            patch.object(
+                sandbox, "write_file", return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+            ),
             patch.object(sandbox, "agent_server_supports_auto_publish", return_value=True),
             patch.object(sandbox, "agent_server_supports_pi_runtime", return_value=True),
             patch.object(sandbox, "execute") as mock_execute,
-            patch.object(sandbox, "_launch_and_check", side_effect=[False, True]),
-            patch.object(
-                sandbox, "_build_agent_server_command", wraps=sandbox._build_agent_server_command
-            ) as mock_build,
+            patch.object(sandbox, "_launch_and_check", side_effect=[False, True]) as launch,
         ):
             mock_execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
             sandbox.start_agent_server(
@@ -544,8 +543,13 @@ class TestDockerSandboxUnit:
                 agent_runtime="pi",
             )
 
-        assert mock_build.call_count == 2
-        assert mock_build.call_args_list[1].kwargs["agent_runtime"] == "pi"
+        assert launch.call_count == 2
+        first_command = launch.call_args_list[0].args[0]
+        retry_command = launch.call_args_list[1].args[0]
+        assert "--baseBranch main" in first_command
+        assert "--baseBranch" not in retry_command
+        assert "POSTHOG_AGENT_RUNTIME=pi" in first_command
+        assert "POSTHOG_AGENT_RUNTIME=pi" in retry_command
 
     def test_start_agent_server_rejects_an_image_without_pi_support(self) -> None:
         sandbox = DockerSandbox.__new__(DockerSandbox)
@@ -556,7 +560,9 @@ class TestDockerSandboxUnit:
 
         with (
             patch.object(sandbox, "is_running", return_value=True),
-            patch.object(sandbox, "write_file"),
+            patch.object(
+                sandbox, "write_file", return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+            ),
             patch.object(
                 sandbox, "execute", return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
             ),
