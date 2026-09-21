@@ -730,3 +730,137 @@ class TestChartWindows:
         assert [snap["params"]["from"] for snap in snaps[:2]] == [resumed_from, resumed_from]
         assert snaps[0]["url"].endswith("/coins/bitcoin/ohlc/range")
         assert snaps[1]["url"].endswith("/coins/ethereum/ohlc/range")
+
+
+class TestExchangeRates:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_flattens_the_rates_object_into_a_row_per_currency(self, MockSession) -> None:
+        session = MockSession.return_value
+        # The body is keyed by currency code rather than being a row list, so without the flattening
+        # the whole object would land as one unusable row.
+        _wire(
+            session,
+            [
+                _response(
+                    {
+                        "rates": {
+                            "btc": {"name": "Bitcoin", "unit": "BTC", "value": 1.0, "type": "crypto"},
+                            "usd": {"name": "US Dollar", "unit": "$", "value": 80443.4, "type": "fiat"},
+                        }
+                    }
+                )
+            ],
+        )
+
+        rows = _rows(_source(PLAN_DEMO, "key", "exchange_rates", _manager()))
+
+        assert rows == [
+            {"id": "btc", "name": "Bitcoin", "unit": "BTC", "value": 1.0, "type": "crypto"},
+            {"id": "usd", "name": "US Dollar", "unit": "$", "value": 80443.4, "type": "fiat"},
+        ]
+        assert session.send.call_count == 1
+
+
+class TestGlobalMarketCapChart:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_zips_the_two_series_into_one_row_per_timestamp(self, MockSession) -> None:
+        session = MockSession.return_value
+        first, second = 1764547200000, 1764633600000
+        _wire(
+            session,
+            [
+                _response(
+                    {
+                        "market_cap_chart": {
+                            "market_cap": [[first, 2.6e12], [second, 2.7e12]],
+                            "volume": [[first, 7.2e10], [second, 7.3e10]],
+                        }
+                    }
+                )
+            ],
+        )
+
+        rows = _rows(_source(PLAN_PRO, "key", "global_market_cap_chart", _manager()))
+
+        assert rows == [
+            {"timestamp": datetime.fromtimestamp(first / 1000, tz=UTC), "market_cap": 2.6e12, "volume": 7.2e10},
+            {"timestamp": datetime.fromtimestamp(second / 1000, tz=UTC), "market_cap": 2.7e12, "volume": 7.3e10},
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_asks_for_the_whole_history(self, MockSession) -> None:
+        session = MockSession.return_value
+        snaps = _wire(session, [_response({"market_cap_chart": {"market_cap": [], "volume": []}})])
+
+        _rows(
+            _source(
+                PLAN_PRO,
+                "key",
+                "global_market_cap_chart",
+                _manager(),
+                should_use_incremental_field=False,
+                db_incremental_field_last_value=datetime.now(UTC),
+            )
+        )
+        # A full refresh must ignore the stored watermark, or it would resync a narrow window and
+        # leave the rest of the table behind.
+        assert snaps[0]["params"]["days"] == "max"
+
+    @parameterized.expand(
+        [
+            # The endpoint takes a relative window from a fixed enum, so a gap picks the smallest
+            # option that still covers it. A gap of one day still asks for 7: `days=1` is served
+            # hourly and would not line up with the daily rows already synced.
+            ("one day behind", 1, "7"),
+            ("a week behind", 7, "14"),
+            ("a month behind", 40, "90"),
+            ("beyond the largest window", 400, "max"),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_narrows_the_window_to_the_watermark(
+        self, _name: str, days_behind: int, expected_days: str, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        snaps = _wire(session, [_response({"market_cap_chart": {"market_cap": [], "volume": []}})])
+
+        _rows(
+            _source(
+                PLAN_PRO,
+                "key",
+                "global_market_cap_chart",
+                _manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime.combine(
+                    _today() - timedelta(days=days_behind), time(9, 30), tzinfo=UTC
+                ),
+            )
+        )
+        assert snaps[0]["params"]["days"] == expected_days
+
+
+class TestReshapedEndpointsFailLoud:
+    @parameterized.expand(
+        [
+            ("exchange rates, no envelope", "exchange_rates", {"unexpected": "object"}, "data_selector"),
+            ("exchange rates, wrong inner type", "exchange_rates", {"rates": []}, "exchange rates object"),
+            ("global chart, no envelope", "global_market_cap_chart", {"unexpected": "object"}, "data_selector"),
+            (
+                "global chart, wrong inner type",
+                "global_market_cap_chart",
+                {"market_cap_chart": []},
+                "global market cap chart object",
+            ),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unexpected_shape_fails_loud(
+        self, _name: str, endpoint: str, body: Any, expected_message: str, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        # These bodies are reshaped rather than yielded as rows, so a changed shape must fail rather
+        # than silently syncing zero rows or one garbage row.
+        _wire(session, [_response(body)])
+
+        with pytest.raises(ValueError, match=expected_message):
+            _rows(_source(PLAN_PRO, "key", endpoint, _manager()))

@@ -9,6 +9,7 @@
  */
 import { handleAuthorize } from '@/handlers/authorize'
 import { handleCallback } from '@/handlers/callback'
+import { FONT_PATHS, handleFont } from '@/handlers/fonts'
 import { handleClientManifest, handleMetadata, handleOpenIdConfiguration } from '@/handlers/metadata'
 import { handleIntrospect, handleJwks, handleRevoke, handleUserInfo } from '@/handlers/passthrough'
 import { handleRegister } from '@/handlers/register'
@@ -96,6 +97,10 @@ const routes: Route[] = [
     {
         paths: ['/oauth/userinfo'],
         handler: handleUserInfo,
+    },
+    {
+        paths: FONT_PATHS,
+        handler: handleFont,
     },
 ]
 

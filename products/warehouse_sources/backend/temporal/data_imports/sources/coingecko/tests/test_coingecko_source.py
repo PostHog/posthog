@@ -6,6 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.
     MAX_COINS,
     MERGE_ONLY_ENDPOINTS,
     PER_COIN_ENDPOINTS,
+    PRO_ONLY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.source import CoinGeckoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coingecko import (
@@ -49,9 +50,18 @@ class TestCoinGeckoSource:
         # holding the last synced day, so append would duplicate every day in that overlap.
         assert {name for name, schema in schemas.items() if schema.supports_incremental} == set(MERGE_ONLY_ENDPOINTS)
         assert all(not schema.supports_append for schema in schemas.values())
-        # The per-coin endpoints can't sync until coin IDs are configured, so one-shot setup must
-        # not enable them.
-        assert {name for name, schema in schemas.items() if not schema.should_sync_default} == set(PER_COIN_ENDPOINTS)
+        # On a Demo key the per-coin endpoints can't sync until coin IDs are configured and the
+        # Pro-only ones can't sync at all, so one-shot setup must not enable either.
+        assert {name for name, schema in schemas.items() if not schema.should_sync_default} == set(
+            PER_COIN_ENDPOINTS
+        ) | set(PRO_ONLY_ENDPOINTS)
+
+    def test_pro_plan_enables_the_pro_only_endpoints(self) -> None:
+        config = CoinGeckoSourceConfig(api_key="CG-test", plan="pro")
+
+        schemas = {schema.name: schema for schema in self.source.get_schemas(config, self.team_id)}
+
+        assert all(schemas[name].should_sync_default for name in PRO_ONLY_ENDPOINTS)
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
@@ -84,6 +94,23 @@ class TestCoinGeckoSource:
 
         assert is_valid is False
         assert error_message == "Add at least one coin ID to sync this table."
+
+    @pytest.mark.parametrize("schema_name", PRO_ONLY_ENDPOINTS)
+    def test_pro_only_schema_is_refused_on_a_demo_key(self, schema_name: str) -> None:
+        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id, schema_name)
+
+        assert is_valid is False
+        assert error_message == "This table needs a CoinGecko Pro key on the Analyst plan or above."
+
+    @pytest.mark.parametrize("schema_name", PRO_ONLY_ENDPOINTS)
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.source.validate_coingecko_credentials"
+    )
+    def test_pro_only_schema_connects_on_a_pro_key(self, mock_validate: mock.MagicMock, schema_name: str) -> None:
+        mock_validate.return_value = True
+        config = CoinGeckoSourceConfig(api_key="CG-test", plan="pro")
+
+        assert self.source.validate_credentials(config, self.team_id, schema_name) == (True, None)
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.source.validate_coingecko_credentials"
