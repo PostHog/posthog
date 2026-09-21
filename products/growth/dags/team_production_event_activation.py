@@ -66,8 +66,7 @@ def get_teams_without_production_event_op(context: dagster.OpExecutionContext):
             Q(ingested_production_event_last_checked_at__isnull=True)
             | Q(ingested_production_event_last_checked_at__lt=recheck_cutoff)
         )
-        # Excluding through the organization join makes Postgres read every organization row.
-        # A subquery hits the partial index on for_internal_metrics instead.
+        # Subquery on the for_internal_metrics partial index, so Postgres does not read every organization row.
         .exclude(Q(is_demo=True) | Q(id=0))
         .exclude(organization_id__in=Organization.objects.filter(for_internal_metrics=True).values("id"))
         .values_list("id", flat=True)

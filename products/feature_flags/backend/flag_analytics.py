@@ -175,8 +175,7 @@ def _extract_sdk_breakdown_from_redis(
 
 
 def capture_usage_for_all_teams(ph_client: "Posthog") -> None:
-    # Excluding through the organization join makes Postgres read every organization row.
-    # A subquery hits the partial index on for_internal_metrics instead.
+    # Subquery on the for_internal_metrics partial index, so Postgres does not read every organization row.
     teams = Team.objects.exclude(is_demo=True).exclude(
         organization_id__in=Organization.objects.filter(for_internal_metrics=True).values("id")
     )
