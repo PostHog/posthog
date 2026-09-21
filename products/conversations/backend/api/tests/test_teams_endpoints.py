@@ -1,4 +1,6 @@
 import json
+import time
+from types import SimpleNamespace
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -6,30 +8,44 @@ from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.db import OperationalError
 
+import jwt
+from cryptography.hazmat.primitives.asymmetric import rsa
+from parameterized import parameterized
 from rest_framework.test import APIClient
 
+from posthog.ingress.dispatch.loading import reset_consumer_registry
 from posthog.models.organization import OrganizationMembership
 
 from products.conversations.backend.models import TeamConversationsTeamsConfig
+from products.conversations.backend.support_teams import JWKS_CACHE_KEY
+
+TEAMS_EVENTS_MODULE = "products.conversations.backend.services.teams_events"
+SUPPORT_TEAMS_MODULE = "products.conversations.backend.support_teams"
+TEAMS_APP_ID = "00000000-0000-0000-0000-000000000009"
+BOT_FROM_ID = f"28:{TEAMS_APP_ID}"
+JWKS_URI = "https://login.botframework.com/v1/.well-known/keys"
+SERVICE_URL = "https://smba.trafficmanager.net/teams/"
 
 
 def _make_activity(
     *,
     activity_type: str = "message",
-    channel_id: str = "19:ch@thread.tacv2",
+    teams_channel_id: str = "19:ch@thread.tacv2",
     tenant_id: str = "tenant-abc",
     text: str = "I have an issue",
 ) -> dict[str, Any]:
     return {
         "type": activity_type,
         "id": "act-123",
+        "channelId": "msteams",
         "text": text,
-        "serviceUrl": "https://smba.trafficmanager.net/teams/",
+        "serviceUrl": SERVICE_URL,
         "from": {"id": "29:user", "aadObjectId": "aad-user-1", "role": "user"},
         "conversation": {"id": "19:conv@thread.tacv2"},
         "channelData": {
-            "channel": {"id": channel_id},
+            "channel": {"id": teams_channel_id},
             "tenant": {"id": tenant_id},
         },
     }
@@ -37,6 +53,14 @@ def _make_activity(
 
 class TestTeamsEventHandler(BaseTest):
     client: APIClient
+    private_key: rsa.RSAPrivateKey
+    public_key: rsa.RSAPublicKey
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        cls.public_key = cls.private_key.public_key()
 
     def setUp(self):
         super().setUp()
@@ -52,109 +76,141 @@ class TestTeamsEventHandler(BaseTest):
         )
         self.client = APIClient()
         cache.clear()
+        reset_consumer_registry()
+        self.addCleanup(reset_consumer_registry)
 
-    def _post(self, payload: dict[str, Any], **kwargs):
+        for patcher in (
+            patch(
+                f"{SUPPORT_TEAMS_MODULE}.get_teams_instance_settings",
+                return_value={"SUPPORT_TEAMS_APP_ID": TEAMS_APP_ID},
+            ),
+            patch(
+                "jwt.PyJWKClient.get_signing_key_from_jwt",
+                return_value=SimpleNamespace(key=self.public_key, _jwk_data={"endorsements": ["msteams"]}),
+            ),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        # Primed, so the getter serves the signing-key URI without fetching Microsoft's
+        # discovery document.
+        cache.set(JWKS_CACHE_KEY, JWKS_URI, 3600)
+
+    def _token(self, **claims: Any) -> str:
+        payload: dict[str, Any] = {
+            "iss": "https://api.botframework.com",
+            "aud": TEAMS_APP_ID,
+            "serviceurl": SERVICE_URL,
+            "tid": "tenant-abc",
+            "exp": int(time.time()) + 300,
+            **claims,
+        }
+        return jwt.encode(payload, self.private_key, algorithm="RS256")
+
+    def _post_raw(self, body: bytes, token: str | None = None):
+        headers = {} if token is None else {"authorization": f"Bearer {token}"}
         return self.client.post(
             "/api/conversations/v1/teams/events",
-            data=json.dumps(payload),
+            data=body,
             content_type="application/json",
-            **kwargs,
+            headers=headers,
         )
 
-    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
-    def test_invalid_jwt_returns_403(self, mock_validate: MagicMock):
-        mock_validate.side_effect = ValueError("JWT validation failed")
+    def _post(self, payload: dict[str, Any], token: str | None = None):
+        return self._post_raw(json.dumps(payload).encode("utf-8"), token=token or self._token())
 
-        response = self._post(_make_activity())
+    def test_a_request_without_a_bot_framework_token_returns_403(self):
+        response = self._post_raw(json.dumps(_make_activity()).encode("utf-8"))
 
         assert response.status_code == 403
 
-    @patch("products.conversations.backend.api.teams_events.process_teams_event")
-    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
-    def test_message_activity_returns_202(self, mock_validate, mock_process):
-        mock_validate.return_value = {}
+    def test_a_token_signed_for_another_bot_returns_403(self):
+        response = self._post(_make_activity(), token=self._token(aud="another-app-id"))
 
-        response = self._post(_make_activity())
+        assert response.status_code == 403
+
+    @parameterized.expand(
+        [
+            # A conversationUpdate that adds somebody other than the bot.
+            ("conversation_update", "conversationUpdate"),
+            # Bot Framework sends activity types this bot does not act on, and they are receipted.
+            ("installation_update", "installationUpdate"),
+        ]
+    )
+    @patch(f"{TEAMS_EVENTS_MODULE}.send_teams_help")
+    def test_an_activity_this_bot_does_not_act_on_is_receipted(
+        self, _name: str, activity_type: str, mock_help: MagicMock
+    ):
+        response = self._post(_make_activity(activity_type=activity_type))
 
         assert response.status_code == 202
+        mock_help.delay.assert_not_called()
 
-    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
-    def test_non_message_activity_returns_200(self, mock_validate):
-        mock_validate.return_value = {}
-
-        response = self._post(_make_activity(activity_type="conversationUpdate"))
-
-        assert response.status_code == 200
-
-    @patch("products.conversations.backend.api.teams_events.send_teams_help")
-    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
-    def test_conversation_update_with_bot_added_enqueues_welcome(self, mock_validate, mock_help):
+    @patch(f"{TEAMS_EVENTS_MODULE}.send_teams_help")
+    def test_conversation_update_with_bot_added_enqueues_welcome(self, mock_help: MagicMock):
         """Cert 11.4.4.3: bot must send a proactive welcome on install."""
-        mock_validate.return_value = {}
         activity = _make_activity(activity_type="conversationUpdate")
-        bot_id = "28:bot-app-id"
-        activity["recipient"] = {"id": bot_id, "name": "SupportHog"}
-        activity["membersAdded"] = [{"id": bot_id}]
+        activity["recipient"] = {"id": BOT_FROM_ID, "name": "SupportHog"}
+        activity["membersAdded"] = [{"id": BOT_FROM_ID}]
 
         response = self._post(activity)
 
-        assert response.status_code == 200
+        assert response.status_code == 202
         mock_help.delay.assert_called_once()
         call_kwargs = mock_help.delay.call_args.kwargs
         assert call_kwargs["activity"]["type"] == "conversationUpdate"
         assert call_kwargs["reply"] is False
 
-    @patch("products.conversations.backend.api.teams_events.send_teams_help")
-    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
-    def test_conversation_update_with_other_member_does_not_welcome(self, mock_validate, mock_help):
+    @patch(f"{TEAMS_EVENTS_MODULE}.send_teams_help")
+    def test_conversation_update_with_other_member_does_not_welcome(self, mock_help: MagicMock):
         """A non-bot member joining must not trigger the welcome card."""
-        mock_validate.return_value = {}
         activity = _make_activity(activity_type="conversationUpdate")
-        activity["recipient"] = {"id": "28:bot-app-id", "name": "SupportHog"}
+        activity["recipient"] = {"id": BOT_FROM_ID, "name": "SupportHog"}
         activity["membersAdded"] = [{"id": "29:some-other-user"}]
 
         response = self._post(activity)
 
-        assert response.status_code == 200
+        assert response.status_code == 202
         mock_help.delay.assert_not_called()
 
-    @patch("products.conversations.backend.api.teams_events.process_teams_event")
-    @patch("products.conversations.backend.api.teams_events.send_teams_help")
-    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
-    def test_generic_command_replies_with_help_card_without_oauth(self, mock_validate, mock_help, mock_process):
+    @patch(f"{TEAMS_EVENTS_MODULE}.process_teams_event")
+    @patch(f"{TEAMS_EVENTS_MODULE}.send_teams_help")
+    def test_generic_command_replies_with_help_card_without_oauth(self, mock_help: MagicMock, mock_process: MagicMock):
         """Cert 11.4.4.3: bot must respond to "Hi" / "Hello" / "Help" even
         before OAuth — AppSource validators run against an unconnected tenant."""
-        mock_validate.return_value = {}
-        # tenant we have no PostHog config for — simulates the validator's tenant.
+        # A tenant we have no PostHog config for, which is the validator's tenant.
         activity = _make_activity(text="Hi", tenant_id="unknown-tenant")
 
-        response = self._post(activity)
+        response = self._post(activity, token=self._token(tid="unknown-tenant"))
 
         assert response.status_code == 202
         mock_help.delay.assert_called_once()
-        call_kwargs = mock_help.delay.call_args.kwargs
-        assert call_kwargs["reply"] is True
+        assert mock_help.delay.call_args.kwargs["reply"] is True
         # Crucially, do NOT also try to create a ticket.
         mock_process.delay.assert_not_called()
 
-    @patch("products.conversations.backend.api.teams_events.process_teams_event")
-    @patch("products.conversations.backend.api.teams_events.send_teams_help")
-    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
-    def test_non_command_message_does_not_hit_help_path(self, mock_validate, mock_help, mock_process):
-        mock_validate.return_value = {}
-
+    @patch(f"{TEAMS_EVENTS_MODULE}.process_teams_event")
+    @patch(f"{TEAMS_EVENTS_MODULE}.send_teams_help")
+    def test_non_command_message_does_not_hit_help_path(self, mock_help: MagicMock, mock_process: MagicMock):
         self._post(_make_activity(text="I have an issue"))
 
         mock_help.delay.assert_not_called()
         mock_process.delay.assert_called_once()
 
-    @patch("products.conversations.backend.api.teams_events.send_teams_help")
-    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
-    def test_command_message_deduplicated_on_retry(self, mock_validate, mock_help):
-        """Bot Framework retries on 5xx for ~10 mins with the same activity.id —
-        we must not post the help card twice."""
-        mock_validate.return_value = {}
-        activity = _make_activity(text="Hi")
+    @parameterized.expand(
+        [
+            ("command_message", "message", "Hi"),
+            ("bot_added", "conversationUpdate", ""),
+        ]
+    )
+    @patch(f"{TEAMS_EVENTS_MODULE}.send_teams_help")
+    def test_a_help_card_is_posted_once_across_bot_framework_retries(
+        self, _name: str, activity_type: str, text: str, mock_help: MagicMock
+    ):
+        """Bot Framework retries on 5xx for ~10 mins with the same activity.id."""
+        activity = _make_activity(activity_type=activity_type, text=text)
+        if activity_type == "conversationUpdate":
+            activity["recipient"] = {"id": BOT_FROM_ID, "name": "SupportHog"}
+            activity["membersAdded"] = [{"id": BOT_FROM_ID}]
 
         first = self._post(activity)
         second = self._post(activity)
@@ -163,74 +219,115 @@ class TestTeamsEventHandler(BaseTest):
         assert second.status_code == 202
         mock_help.delay.assert_called_once()
 
-    @patch("products.conversations.backend.api.teams_events.send_teams_help")
-    @patch("products.conversations.backend.api.teams_events.get_bot_from_id", return_value="28:bot-app-id")
-    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
-    def test_command_message_from_bot_self_id_suppressed(self, mock_validate, _mock_bot_id, mock_help):
+    @patch(f"{TEAMS_EVENTS_MODULE}.send_teams_help")
+    def test_command_message_from_bot_self_id_suppressed(self, mock_help: MagicMock):
         """Defense-in-depth: a spoofed activity claiming from.id == bot must
         not loop us into replying. (Bot Framework doesn't echo, but a valid
         JWT replay shouldn't bypass that.)"""
-        mock_validate.return_value = {}
         activity = _make_activity(text="Hi")
-        activity["from"] = {"id": "28:bot-app-id", "aadObjectId": "aad-bot", "role": "bot"}
+        activity["from"] = {"id": BOT_FROM_ID, "aadObjectId": "aad-bot", "role": "bot"}
 
         response = self._post(activity)
 
-        assert response.status_code == 200
+        assert response.status_code == 202
         mock_help.delay.assert_not_called()
 
-    @patch("products.conversations.backend.api.teams_events.send_teams_help")
-    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
-    def test_welcome_deduplicated_on_retry(self, mock_validate, mock_help):
-        """Same idempotency guarantee for the bot-added conversationUpdate."""
-        mock_validate.return_value = {}
-        activity = _make_activity(activity_type="conversationUpdate")
-        bot_id = "28:bot-app-id"
-        activity["recipient"] = {"id": bot_id, "name": "SupportHog"}
-        activity["membersAdded"] = [{"id": bot_id}]
+    @patch(f"{TEAMS_EVENTS_MODULE}.process_teams_event")
+    def test_a_body_the_token_does_not_back_is_refused(self, mock_process: MagicMock):
+        # The gate itself is covered in posthog/ingress/test/test_teams.py. This is the wiring:
+        # the endpoint's own provider runs it, so a replayed token cannot redirect the activity.
+        activity = {**_make_activity(), "serviceUrl": "https://attacker.example.com/"}
 
-        self._post(activity)
-        self._post(activity)
+        response = self._post(activity)
 
-        mock_help.delay.assert_called_once()
+        assert response.status_code == 400
+        mock_process.delay.assert_not_called()
 
-    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
-    def test_get_method_returns_405(self, mock_validate):
+    @patch(f"{TEAMS_EVENTS_MODULE}.process_teams_event")
+    def test_a_signed_service_url_outside_microsoft_is_not_acted_on(self, mock_process: MagicMock):
+        # The claim backs the body here, so ingress accepts the activity. The bot's own bearer
+        # token goes to this URL, so the consumer still holds it to Microsoft's endpoints.
+        service_url = "https://attacker.example.com/"
+        activity = {**_make_activity(), "serviceUrl": service_url}
+
+        response = self._post(activity, token=self._token(serviceurl=service_url))
+
+        assert response.status_code == 202
+        mock_process.delay.assert_not_called()
+
+    def test_get_method_returns_405(self):
         response = self.client.get("/api/conversations/v1/teams/events")
+
         assert response.status_code == 405
 
-    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
-    def test_invalid_json_returns_400(self, mock_validate):
-        mock_validate.return_value = {}
-
-        response = self.client.post(
-            "/api/conversations/v1/teams/events",
-            data="{bad",
-            content_type="application/json",
-        )
+    def test_invalid_json_returns_400(self):
+        response = self._post_raw(b"{bad", token=self._token())
 
         assert response.status_code == 400
 
-    @patch("products.conversations.backend.api.teams_events.process_teams_event")
-    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
-    def test_message_dispatches_celery_task(self, mock_validate, mock_process):
-        mock_validate.return_value = {}
+    @patch(f"{TEAMS_EVENTS_MODULE}.process_teams_event")
+    def test_message_dispatches_celery_task(self, mock_process: MagicMock):
+        response = self._post(_make_activity(tenant_id="tenant-abc"))
 
-        self._post(_make_activity(tenant_id="tenant-abc"))
-
+        assert response.status_code == 202
         mock_process.delay.assert_called_once()
         call_kwargs = mock_process.delay.call_args.kwargs
         assert call_kwargs["tenant_id"] == "tenant-abc"
         assert call_kwargs["activity"]["type"] == "message"
+        assert call_kwargs["activity_id"] == "act-123"
 
-    @patch("products.conversations.backend.api.teams_events.process_teams_event")
-    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
-    def test_unknown_tenant_proxies_or_warns(self, mock_validate, mock_process):
-        mock_validate.return_value = {}
+    @patch(f"{TEAMS_EVENTS_MODULE}.process_teams_event")
+    def test_a_tenant_this_region_does_not_hold_runs_nothing_here(self, mock_process: MagicMock):
+        response = self._post(_make_activity(tenant_id="unknown-tenant"), token=self._token(tid="unknown-tenant"))
 
-        self._post(_make_activity(tenant_id="unknown-tenant"))
-
+        assert response.status_code == 202
         mock_process.delay.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("the owning region accepts it", 202, 202),
+            # Bot Framework redelivers on a 5xx, so a forward that never landed keeps no receipt.
+            ("the owning region is unreachable", 500, 503),
+        ]
+    )
+    @patch(f"{TEAMS_EVENTS_MODULE}.process_teams_event")
+    def test_a_tenant_another_region_owns_is_forwarded_from_the_primary(
+        self, _name: str, secondary_status: int, expected_status: int, mock_process: MagicMock
+    ):
+        with (
+            patch("posthog.regions.PRIMARY_REGION_DOMAIN", "testserver"),
+            patch("posthog.ingress.dispatch.forward.requests.request") as mock_forward,
+        ):
+            mock_forward.return_value = MagicMock(ok=200 <= secondary_status < 300, status_code=secondary_status)
+            response = self._post(_make_activity(tenant_id="unknown-tenant"), token=self._token(tid="unknown-tenant"))
+
+        assert response.status_code == expected_status
+        mock_forward.assert_called_once()
+        mock_process.delay.assert_not_called()
+
+    @patch(f"{TEAMS_EVENTS_MODULE}.process_teams_event")
+    def test_a_tenant_lookup_that_does_not_answer_is_redelivered_rather_than_forwarded(self, mock_process: MagicMock):
+        with (
+            patch("posthog.regions.PRIMARY_REGION_DOMAIN", "testserver"),
+            patch("posthog.ingress.dispatch.forward.requests.request") as mock_forward,
+            patch("posthog.ingress.dispatch.dispatcher.capture_exception"),
+            patch(
+                f"{TEAMS_EVENTS_MODULE}._tenant_is_connected_here",
+                side_effect=OperationalError("canceling statement due to statement timeout"),
+            ),
+        ):
+            response = self._post(_make_activity(tenant_id="tenant-abc"))
+
+        assert response.status_code == 503
+        mock_forward.assert_not_called()
+        mock_process.delay.assert_not_called()
+
+        # Nothing claimed a dedup mark on the refused delivery, so Bot Framework's retry of the
+        # same activity id runs the lookup again instead of being swallowed as a duplicate.
+        retry = self._post(_make_activity(tenant_id="tenant-abc"))
+
+        assert retry.status_code == 202
+        mock_process.delay.assert_called_once()
 
 
 class TestTeamsChannelsEndpoints(APIBaseTest):
