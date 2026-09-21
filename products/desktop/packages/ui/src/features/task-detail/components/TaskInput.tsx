@@ -212,6 +212,7 @@ interface TaskInputProps {
    * picker can hold shut mid-submit, like every other chip in the row.
    */
   spaceSelector?: (props: { disabled: boolean }) => ReactNode;
+  heading?: ReactNode;
 }
 
 export function TaskInput({
@@ -243,6 +244,7 @@ export function TaskInput({
   onSuggestionSelect,
   onContextChipClick,
   spaceSelector,
+  heading,
 }: TaskInputProps = {}) {
   const cloudRegion = useAuthStateValue((s) => s.cloudRegion);
   const trpc = useHostTRPC();
@@ -1428,15 +1430,24 @@ export function TaskInput({
                 // Note: this is NOT tied to `editorIsEmpty` — the input keeps its
                 // position as the user types so the box doesn't jump down when the
                 // suggestions fade out (and back in when the prompt is cleared).
-                top: suggestions && suggestions.length > 0 ? "38%" : "50%",
+                top: heading
+                  ? "34%"
+                  : suggestions && suggestions.length > 0
+                    ? "38%"
+                    : "50%",
                 transform: "translate(-50%, -50%)",
               }}
               className="absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2"
             >
+              {heading}
               <Flex
                 gap="2"
                 align="center"
-                className="absolute bottom-full left-0 mb-2 min-w-0 gap-1"
+                className={
+                  heading
+                    ? "min-w-0 gap-1"
+                    : "absolute bottom-full left-0 mb-2 min-w-0 gap-1"
+                }
               >
                 {spaceSelector?.({ disabled: isCreatingTask })}
                 {/* One group, so changing the location does not unmount the
