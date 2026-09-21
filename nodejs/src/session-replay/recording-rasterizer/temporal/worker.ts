@@ -14,6 +14,7 @@ import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metr
 import { initMetrics, shutdownMetrics } from '~/session-replay/recording-rasterizer/otel-metrics'
 
 import { createActivities } from './activities'
+import { installUnhandledRejectionGuard } from './install-unhandled-rejection-guard'
 
 prometheus.collectDefaultMetrics()
 RasterizationMetrics.initialize()
@@ -22,14 +23,7 @@ initMetrics()
 
 const log = createLogger()
 
-// Closing a page to abort a capture rejects whatever CDP call puppeteer-capture has in
-// flight (TargetCloseError). That rejection belongs to no promise this code awaits, so
-// Node treats it as unhandled and terminates the process, which kills every in-flight
-// rasterization on the pod. The activity already fails with CAPTURE_ABORTED on its own;
-// the rejection carries nothing recoverable, so log it and keep the worker alive.
-process.on('unhandledRejection', (reason) => {
-    log.error({ err: reason }, 'unhandled promise rejection (kept alive)')
-})
+installUnhandledRejectionGuard(log)
 
 // Route Temporal SDK logs through our JSON logger so all output is structured.
 Runtime.install({
