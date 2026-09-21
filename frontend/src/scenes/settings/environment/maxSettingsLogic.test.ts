@@ -56,6 +56,23 @@ describe('maxSettingsLogic', () => {
         }
     )
 
+    it('surfaces a load error when the load responds 200 with no body', async () => {
+        silenceKeaLoadersErrors()
+        useMocks({
+            get: {
+                '/api/environments/:team_id/core_memory/': () => [200],
+            },
+        })
+        logic = maxSettingsLogic()
+        logic.mount()
+
+        // An empty body must reach the retry banner, not print a raw TypeError from `results`.
+        await expectLogic(logic)
+            .toDispatchActions(['loadCoreMemoryFailure'])
+            .toMatchValues({ coreMemory: null, isLoading: false })
+        expect(logic.values.coreMemoryLoadError).toBe('The server sent an empty response.')
+    })
+
     it('flags text over the character limit as over the limit', async () => {
         useMocks({
             get: {
