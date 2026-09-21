@@ -66,7 +66,7 @@ MCP analytics detection currently accepts any `$mcp_tool_call` in the project, i
 The hosted MCP server and PostHog CLI skip `$mcp_tool_call` during staff impersonation.
 Both pass the request's impersonation status to the shared SDK client, whose `before_send` hook drops these events.
 This excludes both successful and failed impersonated calls from tool-call usage counts.
-The CLI also skips tool-call events if it cannot fetch the user to check impersonation.
+If the CLI cannot fetch the user, it assumes no impersonation and captures events with its fallback distinct ID.
 CLI feedback events remain enabled during impersonation and user lookup failures.
 It does not remove historical events or disable server operational metrics.
 The API must report OAuth impersonation through `/api/users/@me/` before the MCP capture change is deployed.

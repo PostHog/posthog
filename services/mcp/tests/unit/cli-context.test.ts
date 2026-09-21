@@ -38,13 +38,25 @@ describe('CLI context', () => {
     })
 
     it.each(['phx_secret-token', undefined])(
-        'skips tool-call capture when identity resolution fails with API key %s',
+        'captures tool calls when identity resolution fails with API key %s',
         async (apiKey) => {
             const context = await buildCliContext({ apiKey, host: 'https://us.posthog.com', version: 2 })
 
             await expect(context.trackEvent(AnalyticsEvent.MCP_TOOL_CALL)).resolves.toBeUndefined()
 
-            expect(mocks.capture).not.toHaveBeenCalled()
+            const expectedId = apiKey
+                ? `posthog-cli:${createHash('sha256').update(apiKey).digest('hex').slice(0, 16)}`
+                : 'posthog-cli:anonymous'
+            expect(mocks.capture).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    distinctId: expectedId,
+                    event: AnalyticsEvent.MCP_TOOL_CALL,
+                    properties: expect.objectContaining({ is_impersonated: false }),
+                })
+            )
+            if (apiKey) {
+                expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(apiKey)
+            }
         }
     )
 
