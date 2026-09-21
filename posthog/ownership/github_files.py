@@ -11,10 +11,13 @@ window.
 """
 
 from collections.abc import Callable, Sequence
+from functools import partial
 from http import HTTPStatus
 from typing import Any
 
 from django.core.cache import cache
+
+import requests
 
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
@@ -101,6 +104,16 @@ def _entry(field: dict[str, Any], index: int) -> dict[str, Any] | None:
     return entry if isinstance(entry, dict) else None
 
 
+def _refreshed_installation_token(integration: GitHubIntegrationBase) -> str:
+    """A newly minted installation token.
+
+    ``get_access_token`` returns the stored token until it is close to expiry, so it can hand back
+    the very token a 401 has just refused. Only ``refresh_access_token`` mints a new one.
+    """
+    integration.refresh_access_token()
+    return integration.get_access_token()
+
+
 class GitHubFilesFetcher:
     """Reads a repository's files from the GitHub GraphQL API with one credential.
 
@@ -114,6 +127,7 @@ class GitHubFilesFetcher:
         installation_id = integration.github_installation_id
         return cls(
             token=integration.get_access_token,
+            refresh=partial(_refreshed_installation_token, integration),
             installation_id=installation_id,
             audience=(
                 f"installation:{installation_id}"
@@ -124,12 +138,23 @@ class GitHubFilesFetcher:
         )
 
     @classmethod
-    def from_token(cls, token: str, *, installation_id: str | None = None, priority: Priority) -> "GitHubFilesFetcher":
+    def from_token(
+        cls,
+        token: str,
+        *,
+        installation_id: str | None = None,
+        refresh: Callable[[], str] | None = None,
+        priority: Priority,
+    ) -> "GitHubFilesFetcher":
         """Read with a token the caller already holds: a personal access token, or an installation
         token minted by a product's own GitHub App. Pass ``installation_id`` when the token belongs
-        to an installation, so the calls are gated on that installation's shared budget."""
+        to an installation, so the calls are gated on that installation's shared budget.
+
+        ``refresh`` mints a replacement after a 401, for a caller that can mint one. A personal
+        access token cannot be re-minted, so it leaves ``refresh`` unset and fails closed instead."""
         return cls(
             token=lambda: token,
+            refresh=refresh,
             installation_id=installation_id,
             audience=f"installation:{installation_id}" if installation_id else _token_audience(token),
             priority=priority,
@@ -142,9 +167,11 @@ class GitHubFilesFetcher:
         installation_id: str | None,
         audience: str,
         priority: Priority,
+        refresh: Callable[[], str] | None = None,
     ) -> None:
         self.audience = audience
         self._token = token
+        self._refresh = refresh
         self._resolved_token: str | None = None
         self._installation_id = installation_id
         self._priority = priority
@@ -212,6 +239,33 @@ class GitHubFilesFetcher:
             # steer the query at a repository the caller did not name.
             raise OwnershipUnavailable(f"unsafe repository path: {repository!r}")
         owner, name = repository.split("/", 1)
+        payload = {"query": query, "variables": {"owner": owner, "name": name, **variables}}
+        response = self._post(repository, payload, endpoint=endpoint)
+        if response.status_code == HTTPStatus.UNAUTHORIZED and self._refresh is not None:
+            # The token was revoked or rotated under the batch, and it stays memoized, so every
+            # later read would fail with it too. A 401 means nothing ran, so the retry is safe.
+            self._refresh_token(repository)
+            response = self._post(repository, payload, endpoint=endpoint)
+        if response.status_code != HTTPStatus.OK:
+            raise OwnershipUnavailable(f"{repository} answered {response.status_code} for {endpoint}")
+        try:
+            body = response.json()
+        except ValueError as e:
+            raise OwnershipUnavailable(f"{repository} answered with no JSON for {endpoint}") from e
+        errors = body.get("errors") if isinstance(body, dict) else None
+        if errors:
+            # GitHub reports a path the commit does not hold as a null alias and no error at all, so
+            # an error means the alias failed rather than being absent. A partial answer also carries
+            # the repository object, and reading its null aliases as absent files would cache that
+            # absence for days and move ownership to an ancestor.
+            raise OwnershipUnavailable(f"{repository} answered with errors for {endpoint}: {errors}")
+        data = body.get("data") if isinstance(body, dict) else None
+        field = data.get("repository") if isinstance(data, dict) else None
+        if not isinstance(field, dict):
+            raise OwnershipUnavailable(f"{repository} is unreadable for {endpoint}")
+        return field
+
+    def _post(self, repository: str, payload: dict[str, Any], *, endpoint: str) -> requests.Response:
         try:
             response = github_request(
                 "POST",
@@ -221,7 +275,7 @@ class GitHubFilesFetcher:
                 installation_id=self._installation_id,
                 priority=self._priority,
                 endpoint=endpoint,
-                json={"query": query, "variables": {"owner": owner, "name": name, **variables}},
+                json=payload,
                 timeout=_TIMEOUT_SECONDS,
                 session=self._session,
             )
@@ -230,18 +284,15 @@ class GitHubFilesFetcher:
             raise_if_github_rate_limited(response)
         except Exception as e:
             raise OwnershipUnavailable(f"could not read ownership files from {repository}: {e}") from e
-        if response.status_code != HTTPStatus.OK:
-            raise OwnershipUnavailable(f"{repository} answered {response.status_code} for {endpoint}")
+        return response
+
+    def _refresh_token(self, repository: str) -> None:
+        if self._refresh is None:
+            return
         try:
-            body = response.json()
-        except ValueError as e:
-            raise OwnershipUnavailable(f"{repository} answered with no JSON for {endpoint}") from e
-        data = body.get("data") if isinstance(body, dict) else None
-        field = data.get("repository") if isinstance(data, dict) else None
-        if not isinstance(field, dict):
-            errors = body.get("errors") if isinstance(body, dict) else None
-            raise OwnershipUnavailable(f"{repository} is unreadable for {endpoint}: {errors}")
-        return field
+            self._resolved_token = self._refresh()
+        except Exception as e:
+            raise OwnershipUnavailable(f"could not refresh the credential for {repository}: {e}") from e
 
     def _token_value(self) -> str:
         # Once per batch: an integration mints or refreshes its token here, and a batch is far

@@ -235,7 +235,8 @@ So when a consumer like stamphog becomes a hosted app that other repos enable wi
 A hosted reviewer resolves the default branch's head commit, reads the ownership files at that commit, and resolves in-process; `posthog/ownership/` is that reader.
 It asks GitHub's GraphQL API for about a hundred aliased blobs per request, because GitHub charges one rate-limit point per request whatever the number of files in it, and it caches each blob under its commit SHA, where the content never changes.
 The recursive git tree endpoint was the first design and is not used: it truncates on a repository this size, so the answer would be silently partial.
-Repos without `owners.yaml` fall back to a `CODEOWNERS` loader behind the same resolver interface — the glob semantics here are CODEOWNERS semantics already — and a repo with neither is simply unowned.
+The resolver reads `owners.yaml` files and nothing else.
+A repository whose root file is absent resolves to unresolved rather than to a second source: `CODEOWNERS` is never an input, so a repository with no ownership files is simply unowned.
 
 Two properties carry over intact.
 Ownership is always read from the default branch, never the PR head, so a PR cannot rewrite ownership to approve itself.

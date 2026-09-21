@@ -152,6 +152,7 @@ def _fetcher_for_installation(installation_id: str) -> GitHubFilesFetcher:
         return GitHubFilesFetcher.from_token(
             client.installation_token(),
             installation_id=installation_id,
+            refresh=client.refresh_installation_token,
             # The daily run is background work, so it sheds before anything a person waits on.
             priority=Priority.BATCH,
         )

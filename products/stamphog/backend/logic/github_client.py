@@ -417,6 +417,10 @@ class StamphogGitHubClient:
         """
         return self._get_installation_token()
 
+    def refresh_installation_token(self) -> str:
+        """A freshly minted installation token, for a shared reader that met a 401 with the last one."""
+        return self._get_installation_token(force_refresh=True)
+
     # --- Core request helper ---
 
     def _request(

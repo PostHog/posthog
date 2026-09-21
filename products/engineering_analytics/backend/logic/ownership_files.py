@@ -2,8 +2,11 @@
 
 Engineering analytics reports on a repository the team already connected as a warehouse source, so
 that source holds a credential for it. Using it is what lets a private repository resolve at all.
-A repository no source lists falls back to the team's GitHub integration, and then to the anonymous
-public reader.
+The credential comes from the one source the read is already scoped to, never from a walk over the
+team's other sources: a source the caller may not access can list the same repository, and reading
+with its credential would hand the caller data the per-source warehouse RBAC denies them. A read
+that has no selected source, or whose source holds no usable credential, falls back to the team's
+GitHub integration, and then to the anonymous public reader.
 """
 
 import structlog
@@ -15,9 +18,9 @@ from posthog.ownership.github_files import AuthenticatedRepoFiles, GitHubFilesFe
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.source_management import GithubSourceConfig
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 from .ownership import ProbeableRepoFiles
-from .sources import _github_sources
 
 logger = structlog.get_logger(__name__)
 
@@ -33,16 +36,6 @@ def _source_config(source: ExternalDataSource) -> GithubSourceConfig | None:
     except Exception:
         logger.warning("engineering_analytics.ownership_source_config_unreadable", source_id=str(source.pk))
         return None
-
-
-def _syncs_repository(config: GithubSourceConfig, wanted: str) -> bool:
-    """Whether the source is configured to sync this repository, which is already casefolded.
-
-    Same precedence as the sync side: the multi-repo list, falling back to the legacy single name
-    when it is unset or empty. GitHub full names are case-insensitive.
-    """
-    names = config.repositories or [config.repository]
-    return wanted in {str(name or "").strip().casefold() for name in names}
 
 
 def _fetcher_for_source(
@@ -65,16 +58,32 @@ def _fetcher_for_source(
     return GitHubFilesFetcher.from_integration(GitHubIntegration(integration), priority=priority)
 
 
-def repo_files(team: Team, repository: str, *, priority: Priority) -> ProbeableRepoFiles:
-    """The reader for this repository's ownership files, authenticated where the team allows it."""
-    wanted = repository.casefold()
-    for source in _github_sources(team):
-        # One parse per source: the repository list and the credential both come out of it, and a
-        # board resolves ownership on every request.
+def _selected_source(team: Team, source_id: str) -> ExternalDataSource | None:
+    """The source the read is scoped to, or None when it is gone.
+
+    ``source_id`` comes from a resolve the caller was authorized for, so it needs no second access
+    check. The team and type filters keep a stale or crafted id from reaching another team's source.
+    """
+    return (
+        ExternalDataSource.objects.filter(team_id=team.pk, id=source_id, source_type=ExternalDataSourceType.GITHUB)
+        .exclude(deleted=True)
+        .first()
+    )
+
+
+def repo_files(team: Team, repository: str, *, source_id: str, priority: Priority) -> ProbeableRepoFiles:
+    """The reader for this repository's ownership files, authenticated where the team allows it.
+
+    ``source_id`` is the source the caller resolved this repository from (see
+    ``CuratedGitHubSource.source_id``), and the only source a credential may come from here. Pass an
+    empty string for a read that has no selected source; it falls back like a source with no
+    credential does.
+    """
+    source = _selected_source(team, source_id) if source_id else None
+    if source is not None:
         config = _source_config(source)
-        if config is None or not _syncs_repository(config, wanted):
-            continue
-        fetcher = _fetcher_for_source(source, config, priority=priority)
-        if fetcher is not None:
-            return AuthenticatedRepoFiles(repository, fetcher)
+        if config is not None:
+            fetcher = _fetcher_for_source(source, config, priority=priority)
+            if fetcher is not None:
+                return AuthenticatedRepoFiles(repository, fetcher)
     return fetcher_for_team(team.pk, repository, priority=priority)

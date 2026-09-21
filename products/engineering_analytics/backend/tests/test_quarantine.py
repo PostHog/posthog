@@ -781,6 +781,7 @@ class _StubCurated:
     def __init__(self, rows: list[tuple[Any, ...]]) -> None:
         self.repository = "PostHog/posthog"
         self.team = None
+        self.source_id = ""
         self._rows = rows
         self.sql = ""
 

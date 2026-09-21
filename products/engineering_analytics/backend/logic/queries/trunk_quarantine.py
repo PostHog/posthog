@@ -97,7 +97,7 @@ def query_trunk_quarantine_debt(
         curated.repository,
         [row[2] for row in parsed],
         # A person is waiting on the board, so the reads run on the interactive lane.
-        files=repo_files(curated.team, curated.repository, priority=Priority.NORMAL),
+        files=repo_files(curated.team, curated.repository, source_id=curated.source_id, priority=Priority.NORMAL),
     )
     tests: list[TrunkQuarantinedTest] = []
     for (runner, nodeid, _file, status, quarantine_setting, test_case_id, quarantined_at), owned in zip(

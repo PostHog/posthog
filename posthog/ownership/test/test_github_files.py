@@ -4,7 +4,7 @@ from time import monotonic
 from typing import Any
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase
@@ -61,6 +61,21 @@ class _FakeGitHub:
         return _Response(200, {"data": {"repository": field}})
 
 
+class _ScriptedGitHub:
+    """Answers a files query with the scripted status codes in order, recording each token used."""
+
+    def __init__(self, statuses: list[int]) -> None:
+        self._statuses = statuses
+        self.tokens: list[str] = []
+
+    def __call__(self, _method: str, _url: str, **kwargs: Any) -> _Response:
+        self.tokens.append(kwargs["headers"]["Authorization"])
+        status = self._statuses[len(self.tokens) - 1]
+        if status != 200:
+            return _Response(status, {"message": "Bad credentials"})
+        return _Response(200, {"data": {"repository": {"f0": {"text": _ROOT_OWNERS}}}})
+
+
 def _fetcher() -> GitHubFilesFetcher:
     return GitHubFilesFetcher.from_token("t0ken", installation_id="42", priority=Priority.BATCH)
 
@@ -90,6 +105,11 @@ class TestGitHubFilesFetcher(SimpleTestCase):
             ("server_error", lambda: _Response(502, None)),
             ("graphql_errors", lambda: _Response(200, {"data": None, "errors": [{"message": "NOT_FOUND"}]})),
             ("no_repository", lambda: _Response(200, {"data": {"repository": None}})),
+            # A partial answer: the repository object is there, and only the failed aliases are null.
+            (
+                "partial_errors",
+                lambda: _Response(200, {"data": {"repository": {"f0": None}}, "errors": [{"message": "TIMEOUT"}]}),
+            ),
             ("unparseable", lambda: _Response(200, None)),
             ("not_an_object", lambda: _Response(200, [{"message": "NOT_FOUND"}])),
         ]
@@ -102,6 +122,54 @@ class TestGitHubFilesFetcher(SimpleTestCase):
         with patch("posthog.ownership.github_files.github_request", side_effect=lambda *a, **kw: answer()):
             with self.assertRaises(OwnershipUnavailable):
                 _fetcher().read_files(_REPOSITORY, _SHA, ["owners.yaml"], monotonic() + 30)
+
+    @parameterized.expand(
+        [
+            # A credential that can be minted again retries once, so a token revoked or rotated under
+            # the batch recovers instead of failing every read that follows it.
+            ("mintable_recovers", True, [401, 200], 2, 1, False),
+            ("mintable_gives_up_on_the_second_401", True, [401, 401], 2, 1, True),
+            # A personal access token cannot be minted again, so a retry would only spend one more call.
+            ("static_fails_closed", False, [401], 1, 0, True),
+        ]
+    )
+    def test_a_401_asks_for_a_fresh_credential_once(
+        self, _name: str, mintable: bool, statuses: list[int], calls: int, refreshes: int, fails: bool
+    ) -> None:
+        refreshed: list[str] = []
+
+        def refresh() -> str:
+            refreshed.append("fresh")
+            return "fresh"
+
+        github = _ScriptedGitHub(statuses)
+        fetcher = GitHubFilesFetcher.from_token(
+            "t0ken", installation_id="42", refresh=refresh if mintable else None, priority=Priority.BATCH
+        )
+        with patch("posthog.ownership.github_files.github_request", side_effect=github):
+            if fails:
+                with self.assertRaises(OwnershipUnavailable):
+                    fetcher.read_files(_REPOSITORY, _SHA, ["owners.yaml"], monotonic() + 30)
+            else:
+                read = fetcher.read_files(_REPOSITORY, _SHA, ["owners.yaml"], monotonic() + 30)
+                assert read == {"owners.yaml": _ROOT_OWNERS}
+        assert len(github.tokens) == calls
+        assert len(refreshed) == refreshes
+        if mintable:
+            assert github.tokens[-1] == "Bearer fresh"
+
+    def test_an_installation_mints_the_replacement_token(self) -> None:
+        # get_access_token keeps the stored token until it nears expiry, so it can hand back the very
+        # token the 401 refused. Only a refresh mints a new one.
+        integration = MagicMock(github_installation_id="42")
+        integration.get_access_token.side_effect = ["stale", "fresh"]
+        github = _ScriptedGitHub([401, 200])
+        with patch("posthog.ownership.github_files.github_request", side_effect=github):
+            GitHubFilesFetcher.from_integration(integration, priority=Priority.BATCH).read_files(
+                _REPOSITORY, _SHA, ["owners.yaml"], monotonic() + 30
+            )
+        integration.refresh_access_token.assert_called_once()
+        assert github.tokens == ["Bearer stale", "Bearer fresh"]
 
     def test_a_slow_repository_gives_up_instead_of_holding_the_worker(self) -> None:
         # A cold board asks for hundreds of files. Without a budget for the whole batch, a stalled
@@ -131,6 +199,23 @@ class TestAuthenticatedRepoFiles(SimpleTestCase):
             assert self._files().read("owners.yaml") == _ROOT_OWNERS
             assert self._files().read("owners.yaml") == _ROOT_OWNERS
         assert github.head_calls == 1
+
+    def test_a_partially_failed_answer_caches_no_absence(self) -> None:
+        # An errored alias comes back null, exactly like a file the commit does not hold. Caching
+        # that as an absence would hold for days and move every path under it to an ancestor.
+        working = _FakeGitHub({"owners.yaml": _ROOT_OWNERS})
+
+        def partial(method: str, url: str, **kwargs: Any) -> _Response:
+            response = working(method, url, **kwargs)
+            if "defaultBranchRef" in kwargs["json"]["query"]:
+                return response
+            return _Response(200, {"data": {"repository": {"f0": None}}, "errors": [{"message": "TIMEOUT"}]})
+
+        with patch("posthog.ownership.github_files.github_request", side_effect=partial):
+            with self.assertRaises(OwnershipUnavailable):
+                self._files().read("owners.yaml")
+        with patch("posthog.ownership.github_files.github_request", side_effect=working):
+            assert self._files().read("owners.yaml") == _ROOT_OWNERS
 
     @parameterized.expand([("present", _ROOT_OWNERS), ("absent", None)])
     def test_a_commit_is_read_once_and_a_new_commit_is_read_again(self, _name: str, body: str | None) -> None:
