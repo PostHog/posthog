@@ -31,6 +31,11 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     # unexpectedly" marker above, just detected client-side instead of reported by the server.
     # Reaches us standalone too, not only wrapped in the cached-login message above.
     "server conn crashed",
+    # psycopg's message when it finds the connection already dead while it sends or reads a
+    # statement, typically on a pooled worker thread that kept a connection idle past the server's
+    # timeout. Same self-healing dead-socket condition as the markers above, and it arrives with
+    # no SQLSTATE, so only the message identifies it.
+    "the connection is lost",
     # The pooler (pgbouncer/pgcat) itself draining for a restart or deploy, refusing new
     # connections while it does. Same self-healing shape as "the database system is shutting
     # down" above, just raised by the pooler in front of Postgres rather than Postgres itself.
