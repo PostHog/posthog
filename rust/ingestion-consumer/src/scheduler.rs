@@ -128,8 +128,8 @@ pub enum SettlementOutcome {
     },
 }
 
-/// The retry deadline that fired. Each scheduler paces retries its own way
-/// and answers only its own arm; the other arm is a no-op.
+/// The deadline that fired. Each scheduler paces its own way and answers
+/// only its own arms; the other arms are a no-op.
 pub enum Deadline<'a> {
     /// The flush deadline for one batch's deferred work — the pin-stash
     /// pacing, fired oldest batch first.
@@ -137,6 +137,10 @@ pub enum Deadline<'a> {
     /// The parked-retry deadline: retry every parked key — the key-table
     /// pacing.
     ParkedRetry,
+    /// The pack deadline: place the batches that found no worker, and
+    /// release the open batch if its latency budget expired — the key-table
+    /// packer's pacing.
+    Pack,
 }
 
 /// Groups deferred by one seam call, by reason. The caller emits the debug

@@ -13,6 +13,7 @@ pub mod kafka_stats;
 pub mod key_table;
 pub mod ledger_rejection;
 pub mod order_sentinel;
+pub mod packer;
 pub mod readiness;
 pub mod routing;
 pub mod scheduler;

@@ -11,6 +11,7 @@ use crate::debug_recorder::{
 };
 use crate::key_table::KeyTableScheduler;
 use crate::order_sentinel::KeyOrderSentinel;
+use crate::packer::PackTargets;
 use crate::routing::{Router, RoutingStrategy, WorkerLoad};
 use crate::scheduler::{
     Deadline, Dispatch, KeyRun, PinStashScheduler, Scheduler, SchedulerEffects, SchedulerKind,
@@ -170,6 +171,23 @@ pub struct Submission<T> {
     pub retained: bool,
 }
 
+/// The key table's pending work. Held messages are not queued and not on
+/// the wire: the packer holds them, or their batch found no worker.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct KeyWork {
+    pub queued_messages: usize,
+    pub held_messages: usize,
+    /// Keys with a request on the wire.
+    pub in_flight_keys: usize,
+}
+
+impl KeyWork {
+    /// Messages waiting for a send: queued in the table or held.
+    pub fn pending_messages(&self) -> usize {
+        self.queued_messages + self.held_messages
+    }
+}
+
 /// The selected scheduler. An enum rather than a trait object, so the
 /// pin-stash-only methods below stay off the [`Scheduler`] trait and the
 /// cleanup change deletes one arm.
@@ -236,6 +254,21 @@ impl SchedulerImpl {
         }
     }
 
+    // Key-table-only: the packer. The pin-stash scheduler never packs.
+
+    fn set_pack_targets(&mut self, targets: PackTargets) {
+        if let SchedulerImpl::KeyTable(scheduler) = self {
+            scheduler.set_pack_targets(targets);
+        }
+    }
+
+    fn pack_targets(&self) -> PackTargets {
+        match self {
+            SchedulerImpl::PinStash(_) => PackTargets::default(),
+            SchedulerImpl::KeyTable(scheduler) => scheduler.pack_targets(),
+        }
+    }
+
     #[cfg(test)]
     fn pins(&self) -> &HashMap<String, crate::scheduler::Pin> {
         match self {
@@ -249,6 +282,14 @@ impl SchedulerImpl {
         match self {
             SchedulerImpl::PinStash(scheduler) => &mut scheduler.pins,
             SchedulerImpl::KeyTable(_) => panic!("pins are pin-stash state"),
+        }
+    }
+
+    #[cfg(test)]
+    fn set_now(&mut self, now: std::time::Instant) {
+        match self {
+            SchedulerImpl::PinStash(_) => panic!("the clock is key-table state"),
+            SchedulerImpl::KeyTable(scheduler) => scheduler.set_now(now),
         }
     }
 }
@@ -414,6 +455,28 @@ impl Dispatcher {
     /// Inject the debug UI recorder. Call before the dispatcher is shared.
     pub fn set_debug_recorder(&mut self, recorder: Arc<DebugRecorder>) {
         self.debug_recorder = Some(recorder);
+    }
+
+    /// Set the key-table packer's targets. Call before the dispatcher is
+    /// shared. Ignored under the pin-stash scheduler, which never packs.
+    pub fn set_pack_targets(&mut self, targets: PackTargets) {
+        self.inner
+            .get_mut()
+            .unwrap()
+            .scheduler
+            .set_pack_targets(targets);
+    }
+
+    /// The packer's targets; zero under the pin-stash scheduler.
+    pub fn pack_targets(&self) -> PackTargets {
+        self.inner.lock().unwrap().scheduler.pack_targets()
+    }
+
+    /// Pin the key-table scheduler's clock, so pack deadlines expire on the
+    /// test's schedule instead of the wall clock's.
+    #[cfg(test)]
+    fn set_now(&self, now: std::time::Instant) {
+        self.inner.lock().unwrap().scheduler.set_now(now);
     }
 
     /// Point-in-time load/pin/stash snapshot for the debug UI.
@@ -683,11 +746,14 @@ impl Dispatcher {
     }
 
     /// Messages the scheduler holds for later, whichever scheduler runs:
-    /// the pin-stash's stash, or the key table's queues.
+    /// the pin-stash's stash, or the key table's queues plus what the
+    /// packer holds.
     pub fn held_messages(&self) -> usize {
         match &self.inner.lock().unwrap().scheduler {
             SchedulerImpl::PinStash(scheduler) => scheduler.stashed_messages(),
-            SchedulerImpl::KeyTable(scheduler) => scheduler.table().queued_messages(),
+            SchedulerImpl::KeyTable(scheduler) => {
+                scheduler.table().queued_messages() + scheduler.held_messages()
+            }
         }
     }
 
@@ -782,6 +848,47 @@ impl Dispatcher {
             .collect()
     }
 
+    /// Fire the pack deadline and hand each placed batch to `send` under
+    /// the lock, like `parked_retry_and_send`. The key table's pump calls
+    /// this on its interval.
+    pub fn pack_deadline_and_send<T>(&self, send: impl FnMut(SubBatch) -> T) -> Vec<T> {
+        let mut inner = self.inner.lock().unwrap();
+        let snapshot = self.worker_snapshot(&inner.in_flight);
+        let SchedulerEffects { dispatches, .. } =
+            inner.scheduler.on_deadline(&snapshot, Deadline::Pack);
+        self.send_assigned(&mut inner, dispatches, send)
+    }
+
+    fn send_assigned<T>(
+        &self,
+        inner: &mut DispatcherInner,
+        dispatches: Vec<Dispatch>,
+        send: impl FnMut(SubBatch) -> T,
+    ) -> Vec<T> {
+        if dispatches.is_empty() {
+            return Vec::new();
+        }
+        let assignments = self.note_and_assemble(dispatches);
+        for (worker, message_count) in assignments.routed_counts() {
+            *inner.in_flight.entry(worker.clone()).or_insert(0) += message_count;
+            counter!(
+                "ingestion_consumer_dispatcher_sub_batches_assigned_total",
+                "worker" => worker.clone(),
+            )
+            .increment(1);
+            counter!(
+                "ingestion_consumer_dispatcher_messages_routed_total",
+                "worker" => worker.clone(),
+            )
+            .increment(message_count as u64);
+        }
+        assignments
+            .into_sub_batches()
+            .into_iter()
+            .map(send)
+            .collect()
+    }
+
     /// The scheduler selected at construction.
     pub fn scheduler_kind(&self) -> SchedulerKind {
         self.scheduler_kind
@@ -798,15 +905,19 @@ impl Dispatcher {
         }
     }
 
-    /// The key table's `(queued messages, outstanding keys)`, for the pump's
-    /// stall watchdog; `None` under the pin-stash scheduler.
-    pub fn key_work(&self) -> Option<(usize, usize)> {
+    /// The key table's pending work, for the pump's stall watchdog; `None`
+    /// under the pin-stash scheduler.
+    pub fn key_work(&self) -> Option<KeyWork> {
         match &self.inner.lock().unwrap().scheduler {
             SchedulerImpl::PinStash(_) => None,
-            SchedulerImpl::KeyTable(scheduler) => Some((
-                scheduler.table().queued_messages(),
-                scheduler.table().outstanding_keys(),
-            )),
+            SchedulerImpl::KeyTable(scheduler) => Some(KeyWork {
+                queued_messages: scheduler.table().queued_messages(),
+                held_messages: scheduler.held_messages(),
+                in_flight_keys: scheduler
+                    .table()
+                    .outstanding_keys()
+                    .saturating_sub(scheduler.unplaced_keys()),
+            }),
         }
     }
 
@@ -938,29 +1049,7 @@ impl Dispatcher {
             .increment(evicted_keys.len() as u64);
         }
 
-        let sent: Vec<T> = if dispatches.is_empty() {
-            Vec::new()
-        } else {
-            let assignments = self.note_and_assemble(dispatches);
-            for (worker, message_count) in assignments.routed_counts() {
-                *inner.in_flight.entry(worker.clone()).or_insert(0) += message_count;
-                counter!(
-                    "ingestion_consumer_dispatcher_sub_batches_assigned_total",
-                    "worker" => worker.clone(),
-                )
-                .increment(1);
-                counter!(
-                    "ingestion_consumer_dispatcher_messages_routed_total",
-                    "worker" => worker.clone(),
-                )
-                .increment(message_count as u64);
-            }
-            assignments
-                .into_sub_batches()
-                .into_iter()
-                .map(send)
-                .collect()
-        };
+        let sent = self.send_assigned(&mut inner, dispatches, send);
         drop(inner);
 
         if deferred.send_failed > 0 {
@@ -1080,6 +1169,7 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::order_sentinel::SendKind;
+    use crate::packer::PackTargets;
     use crate::scheduler::Pin;
     use std::sync::Arc;
     use std::time::Duration;
@@ -1836,7 +1926,7 @@ mod tests {
     }
 
     #[test]
-    fn test_key_table_parked_key_retries_when_a_worker_returns() {
+    fn test_key_table_unplaced_batch_is_placed_when_a_worker_returns() {
         let registry = healthy_registry(0);
         let dispatcher = Dispatcher::with_scheduler(
             Arc::clone(&registry),
@@ -1848,22 +1938,80 @@ mod tests {
         assert!(sub_batches.is_empty(), "nothing routable yet");
         assert_eq!(
             dispatcher.key_work(),
-            Some((1, 0)),
-            "the key table keeps the parked message"
+            Some(KeyWork {
+                queued_messages: 0,
+                held_messages: 1,
+                in_flight_keys: 0,
+            }),
+            "the released batch waits unplaced; its key is not in flight"
         );
+        assert_eq!(dispatcher.total_in_flight(), 0);
 
-        // Still nothing healthy: the key stays parked for the next tick.
-        assert!(dispatcher.parked_retry_and_send(|sub| sub).is_empty());
+        // Still nothing healthy: the batch waits for the next tick.
+        assert!(dispatcher.pack_deadline_and_send(|sub| sub).is_empty());
 
         registry.add_worker(wid(0));
-        let retried = dispatcher.parked_retry_and_send(|sub| sub);
-        assert_eq!(retried.len(), 1);
-        assert_eq!(retried[0].worker, wid(0));
-        assert_eq!(retried[0].messages.len(), 1);
+        let placed = dispatcher.pack_deadline_and_send(|sub| sub);
+        assert_eq!(placed.len(), 1);
+        assert_eq!(placed[0].worker, wid(0));
+        assert_eq!(placed[0].messages.len(), 1);
+        assert_eq!(in_flight_of(&dispatcher, &wid(0)), 1);
         assert_eq!(
             dispatcher.key_work(),
-            Some((0, 1)),
+            Some(KeyWork {
+                queued_messages: 0,
+                held_messages: 0,
+                in_flight_keys: 1,
+            }),
             "outstanding until settled"
+        );
+    }
+
+    #[test]
+    fn test_key_table_pack_deadline_sends_the_held_batch() {
+        let registry = healthy_registry(1);
+        let mut dispatcher = Dispatcher::with_scheduler(
+            Arc::clone(&registry),
+            RoutingStrategy::BinPack,
+            SchedulerKind::KeyTable,
+        );
+        let budget = Duration::from_millis(50);
+        dispatcher.set_pack_targets(PackTargets {
+            events: 100,
+            bytes: 0,
+            latency_budget: budget,
+        });
+        let t0 = std::time::Instant::now();
+        dispatcher.set_now(t0);
+
+        let sub_batches = dispatcher.assign("b1", make_msgs(&["t:a", "t:b"]));
+        assert!(sub_batches.is_empty(), "held for more messages");
+        assert_eq!(
+            dispatcher.key_work(),
+            Some(KeyWork {
+                queued_messages: 0,
+                held_messages: 2,
+                in_flight_keys: 0,
+            }),
+            "held work is pending, not in flight"
+        );
+        assert_eq!(dispatcher.total_in_flight(), 0);
+
+        dispatcher.set_now(t0 + budget);
+        let sent = dispatcher.pack_deadline_and_send(|sub| sub);
+
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].messages.len(), 2);
+        assert_eq!(sent[0].routing_keys.len(), 2);
+        assert_eq!(sent[0].assignment_epoch, Some(0));
+        assert_eq!(in_flight_of(&dispatcher, &wid(0)), 2);
+        assert_eq!(
+            dispatcher.key_work(),
+            Some(KeyWork {
+                queued_messages: 0,
+                held_messages: 0,
+                in_flight_keys: 2,
+            })
         );
     }
 
