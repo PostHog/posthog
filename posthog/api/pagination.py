@@ -3,6 +3,8 @@ from typing import Any, Optional
 from django.db.models import QuerySet
 
 from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.response import Response
+from rest_framework.utils.urls import replace_query_param
 
 
 def stable_queryset_ordering(queryset: QuerySet) -> QuerySet:
@@ -33,6 +35,7 @@ class PrecountedLimitOffsetPagination(LimitOffsetPagination):
     """
 
     count: Optional[int] = None
+    page_size_returned: int = 0
 
     def set_count(self, count: int) -> None:
         self.count = count
@@ -48,6 +51,44 @@ class PrecountedLimitOffsetPagination(LimitOffsetPagination):
         self.offset = self.get_offset(request)
         self.request = request
         if self.count == 0 or self.offset > self.count:
+            self.page_size_returned = 0
             return []
 
-        return list(queryset)
+        page = list(queryset)
+        self.page_size_returned = len(page)
+        return page
+
+
+class CappedCountLimitOffsetPagination(PrecountedLimitOffsetPagination):
+    """Pages a view whose count stops at a cap, so `count` is a lower bound rather than a total.
+
+    Kept separate from `PrecountedLimitOffsetPagination` so only the views that cap carry
+    `count_is_capped` in their response schema.
+    """
+
+    count_is_capped: bool = False
+
+    def set_count(self, count: int, is_capped: bool = False) -> None:
+        super().set_count(count)
+        self.count_is_capped = is_capped
+
+    def get_next_link(self) -> Optional[str]:
+        # The base class drops `next` once `offset + limit >= count`, which a capped count reaches early.
+        if self.count_is_capped and self.limit and self.page_size_returned >= self.limit:
+            url = self.request.build_absolute_uri()
+            url = replace_query_param(url, self.limit_query_param, self.limit)
+            return replace_query_param(url, self.offset_query_param, self.offset + self.limit)
+        return super().get_next_link()
+
+    def get_paginated_response(self, data: Any) -> Response:
+        response = super().get_paginated_response(data)
+        response.data["count_is_capped"] = self.count_is_capped
+        return response
+
+    def get_paginated_response_schema(self, schema: dict) -> dict:
+        paginated = super().get_paginated_response_schema(schema)
+        paginated["properties"]["count_is_capped"] = {
+            "type": "boolean",
+            "description": "True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it.",
+        }
+        return paginated
