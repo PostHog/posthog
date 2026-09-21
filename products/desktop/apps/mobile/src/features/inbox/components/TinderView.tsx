@@ -177,6 +177,7 @@ export function TinderView({ reports, isLoading }: TinderViewProps) {
   );
   const [creating, setCreating] = useState(false);
   const creatingRef = useRef(false);
+  const reportTaskIdsRef = useRef(new Map<string, string>());
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{
     taskId: string | null;
@@ -216,7 +217,7 @@ export function TinderView({ reports, isLoading }: TinderViewProps) {
 
   const handleAccept = useCallback(
     async (report: SignalReport) => {
-      if (creatingRef.current || !isConfigReady) return;
+      if (creatingRef.current || !isConfigReady) return false;
       creatingRef.current = true;
       setCreating(true);
       setError(null);
@@ -231,14 +232,19 @@ export function TinderView({ reports, isLoading }: TinderViewProps) {
 
         const prompt = buildCreatePrReportPrompt({ reportId: report.id });
         const client = getPostHogApiClient();
-        const task = await client.createSignalReportTask({
-          description: prompt,
-          title: prompt.slice(0, 255),
-          reportId: report.id,
-          relationship: "implementation",
-        });
+        let taskId = reportTaskIdsRef.current.get(report.id);
+        if (!taskId) {
+          const task = await client.createSignalReportTask({
+            description: prompt,
+            title: prompt.slice(0, 255),
+            reportId: report.id,
+            relationship: "implementation",
+          });
+          taskId = task.id;
+          reportTaskIdsRef.current.set(report.id, taskId);
+        }
 
-        await client.runTaskInCloud(task.id, undefined, {
+        await client.runTaskInCloud(taskId, undefined, {
           pendingUserMessage: prompt,
           adapter: "claude",
           model,
@@ -250,13 +256,15 @@ export function TinderView({ reports, isLoading }: TinderViewProps) {
 
         acceptReport(report.id);
         trackReportAction(report, "create_pr", acceptedRank, acceptedListSize);
-        showToastDone(task.id, report.title ?? "Untitled report");
+        showToastDone(taskId, report.title ?? "Untitled report");
+        return true;
       } catch (e) {
         const message =
           e instanceof Error ? e.message : "Failed to create task";
         log.error("Accept failed", message);
         setError(message);
         setToast(null);
+        return false;
       } finally {
         creatingRef.current = false;
         setCreating(false);

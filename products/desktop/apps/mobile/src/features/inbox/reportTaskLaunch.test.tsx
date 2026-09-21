@@ -1,7 +1,7 @@
 import { DEFAULT_GATEWAY_MODEL } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/domain-types";
 import { createElement } from "react";
-import { Alert, Pressable } from "react-native";
+import { Alert, Animated, Pressable } from "react-native";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ReportDetailScreen from "@/app/inbox/[...id]";
@@ -36,6 +36,32 @@ vi.mock("react-native", () => {
     Modal: host("Modal"),
     Platform: { OS: "ios" },
     Alert: { alert: vi.fn() },
+    Animated: {
+      View: "AnimatedView",
+      Value: class {
+        value = 0;
+        setValue(value: number) {
+          this.value = value;
+        }
+        interpolate() {
+          return 0;
+        }
+      },
+      timing: (
+        value: { setValue: (value: number) => void },
+        config: { toValue: number },
+      ) => ({
+        start: (callback: () => Promise<void>) => {
+          value.setValue(config.toValue);
+          return callback();
+        },
+      }),
+    },
+    PanResponder: {
+      create: (handlers: Record<string, unknown>) => ({
+        panHandlers: handlers,
+      }),
+    },
   };
 });
 vi.mock("@components/text", () => ({ Text: "Text" }));
@@ -88,9 +114,6 @@ vi.mock("@/lib/analytics", () => ({
   computeReportAgeHours: () => 1,
 }));
 vi.mock("./api", () => ({ getReportRepository: async () => null }));
-vi.mock("./components/SwipeableReportCard", () => ({
-  SwipeableReportCard: () => null,
-}));
 vi.mock("./components/ConventionalCommitTag", () => ({
   ConventionalCommitTag: () => null,
 }));
@@ -146,15 +169,18 @@ vi.mock("@/features/tasks/composer/attachments/buildCloudPrompt", () => ({
   buildCloudPromptBlocks: vi.fn(),
 }));
 
-const report = {
+const report: SignalReport = {
   id: "report-1",
   title: "Fix sample failure",
   summary: "Check the evidence.",
   status: "ready",
   priority: "P2",
+  total_weight: 1,
+  signal_count: 1,
+  artefact_count: 0,
   created_at: "2026-09-01T00:00:00Z",
   updated_at: "2026-09-01T00:00:00Z",
-} as SignalReport;
+};
 
 let renderer: ReactTestRenderer;
 async function renderComposer(): Promise<void> {
@@ -174,8 +200,26 @@ async function renderTriage(): Promise<void> {
     renderer = create(createElement(TinderView, { reports: [report] }));
   });
 }
-function acceptCard(): Promise<void> {
+function acceptCard(): Promise<boolean> {
   return renderer.root.findByType(SwipeableReportCard).props.onAccept(report);
+}
+
+async function swipeRight(): Promise<void> {
+  const card = renderer.root
+    .findAllByType(Animated.View)
+    .find((node) => node.props.onPanResponderRelease);
+  if (!card) throw new Error("Swipe card not found");
+  const gesture = { dx: 150, dy: 0 };
+  card.props.onPanResponderGrant();
+  card.props.onPanResponderMove({}, gesture);
+  await card.props.onPanResponderRelease({}, gesture);
+}
+
+function cardOffset(): number {
+  return renderer.root
+    .findAllByType(Animated.View)
+    .find((node) => node.props.onPanResponderRelease)?.props.style.transform[0]
+    .translateX.value;
 }
 
 describe("Mobile report task launches", () => {
@@ -294,18 +338,32 @@ describe("Mobile report task launches", () => {
     expect(mocks.runTask).toHaveBeenCalledOnce();
   });
 
-  it("shows startup errors without navigating to a running task", async () => {
-    mocks.runTask.mockRejectedValueOnce(new Error("Cloud start failed"));
-    await renderComposer();
-    await act(async () => {
-      await submitButton().props.onPress();
-    });
-    expect(Alert.alert).toHaveBeenCalledWith(
-      "Could not start task",
-      "Cloud start failed",
-    );
-    expect(mocks.replace).not.toHaveBeenCalled();
-  });
+  it.each(["implementation", "discussion"])(
+    "retries the existing %s task after a startup error",
+    async (relationship) => {
+      mocks.params.signalReportRelationship = relationship;
+      mocks.runTask.mockRejectedValueOnce(new Error("Cloud start failed"));
+      await renderComposer();
+      await act(async () => {
+        await submitButton().props.onPress();
+      });
+      expect(Alert.alert).toHaveBeenCalledWith(
+        "Could not start task",
+        "Cloud start failed",
+      );
+      expect(mocks.replace).not.toHaveBeenCalled();
+      await act(async () => {
+        await submitButton().props.onPress();
+      });
+      expect(mocks.createReportTask).toHaveBeenCalledOnce();
+      expect(mocks.runTask).toHaveBeenCalledTimes(2);
+      expect(mocks.runTask.mock.calls.map(([taskId]) => taskId)).toEqual([
+        "task-1",
+        "task-1",
+      ]);
+      expect(mocks.replace).toHaveBeenCalledWith("/task/task-1");
+    },
+  );
 
   it("starts one triage implementation and accepts it only after startup", async () => {
     let finish!: () => void;
@@ -315,7 +373,7 @@ describe("Mobile report task launches", () => {
       }),
     );
     await renderTriage();
-    let pending!: Promise<void>;
+    let pending!: Promise<boolean>;
     await act(async () => {
       pending = acceptCard();
     });
@@ -338,23 +396,37 @@ describe("Mobile report task launches", () => {
     ]);
   });
 
-  it("keeps a report in triage when cloud startup fails", async () => {
+  it("resets a failed swipe and retries the existing triage task", async () => {
     mocks.runTask.mockRejectedValueOnce(new Error("Cloud start failed"));
     await renderTriage();
     await act(async () => {
-      await acceptCard();
+      await swipeRight();
     });
     expect(useDismissedReportsStore.getState().acceptedIds).toEqual([]);
     expect(JSON.stringify(renderer.toJSON())).toContain("Cloud start failed");
+    expect(cardOffset()).toBe(0);
+    await act(async () => {
+      await swipeRight();
+    });
+    expect(mocks.createReportTask).toHaveBeenCalledOnce();
+    expect(mocks.runTask).toHaveBeenCalledTimes(2);
+    expect(mocks.runTask.mock.calls.map(([taskId]) => taskId)).toEqual([
+      "task-1",
+      "task-1",
+    ]);
+    expect(useDismissedReportsStore.getState().acceptedIds).toEqual([
+      report.id,
+    ]);
   });
 
   it("does not launch a swipe before cloud configuration is ready", async () => {
     mocks.configReady = false;
     await renderTriage();
     await act(async () => {
-      await acceptCard();
+      await swipeRight();
     });
     expect(mocks.createReportTask).not.toHaveBeenCalled();
+    expect(cardOffset()).toBe(0);
   });
 });
 

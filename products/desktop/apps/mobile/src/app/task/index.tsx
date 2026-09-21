@@ -216,6 +216,11 @@ export default function NewTaskScreen() {
   }, [adapter, hasLiveConfig, model, modelConfigOption, reasoning]);
   const [creating, setCreating] = useState(false);
   const creatingRef = useRef(false);
+  const reportTaskRef = useRef<{
+    reportId: string;
+    relationship: string;
+    id: string;
+  } | null>(null);
   const [repoSheetOpen, setRepoSheetOpen] = useState(false);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [attachmentSheetOpen, setAttachmentSheetOpen] = useState(false);
@@ -336,16 +341,21 @@ export default function NewTaskScreen() {
         description: descriptionText,
         title: descriptionText.slice(0, 100),
       };
+      const relationship =
+        signalReportRelationship === "discussion"
+          ? "discussion"
+          : "implementation";
+      const existingReportTask = reportTaskRef.current;
       const task = signalReport
-        ? await client.createSignalReportTask({
-            ...taskOptions,
-            reportId: signalReport,
-            relationship:
-              signalReportRelationship === "discussion"
-                ? "discussion"
-                : "implementation",
-            question: signalReportDiscussionQuestion,
-          })
+        ? existingReportTask?.reportId === signalReport &&
+          existingReportTask.relationship === relationship
+          ? existingReportTask
+          : await client.createSignalReportTask({
+              ...taskOptions,
+              reportId: signalReport,
+              relationship,
+              question: signalReportDiscussionQuestion,
+            })
         : await client.createTask({
             ...taskOptions,
             repository: selection.repository ?? undefined,
@@ -353,6 +363,14 @@ export default function NewTaskScreen() {
               selection.integrationId,
             ),
           });
+
+      if (signalReport) {
+        reportTaskRef.current = {
+          reportId: signalReport,
+          relationship,
+          id: task.id,
+        };
+      }
 
       pendingTaskPromptStoreApi.move(pendingKey, task.id);
       currentPendingKey = task.id;

@@ -47,6 +47,8 @@ Search by name or email across all users. The search field stays visible above t
 Discuss starts a discussion task and forwards the question to the report's scout.
 Create PR starts an implementation task. Both actions use the report's repository and team GitHub integration, resolved by the server.
 The mobile report composer does not require a personal GitHub connection or offer a repository picker.
+If cloud startup fails after task creation, retrying in the same composer or triage view starts the existing task instead of creating another task.
+Triage resets the swiped card if configuration is not ready or task startup fails.
 An ordinary new task still requires a repository from the user's GitHub integration.
 
 The report detail and triage views use the same implementation prompt. The agent fetches the report and checks for an existing PR before starting new work.
