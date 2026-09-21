@@ -4,6 +4,7 @@ import temporalio.workflow as wf
 from temporalio import common
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.workflow import ParentClosePolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
@@ -64,7 +65,7 @@ class ReplayVisionMediaBackfillWorkflow(PostHogWorkflow):
                 # The id the live path uses, so a scan already rendering this wins and the sweep skips it.
                 id=build_media_workflow_id(candidate.observation_id),
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,
-                parent_close_policy=common.ParentClosePolicy.ABANDON,
+                parent_close_policy=ParentClosePolicy.ABANDON,
                 # Without these a backfilled render is not findable by team in the Temporal UI.
                 search_attributes=TypedSearchAttributes(
                     search_attributes=[
