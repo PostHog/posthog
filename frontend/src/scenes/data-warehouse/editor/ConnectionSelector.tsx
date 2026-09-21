@@ -12,8 +12,9 @@ import {
     ADD_DIRECT_CONNECTION_PREFIX,
     CONFIGURE_SOURCES,
     type ConnectionSelectOption,
+    LOADING_CONNECTIONS,
     POSTHOG_WAREHOUSE,
-    addHiddenSelectedConnectionOption,
+    addSelectedConnectionOption,
     connectionSelectorLogic,
     getConnectionSelectorValue,
 } from './connectionSelectorLogic'
@@ -30,7 +31,7 @@ interface ConnectionSelectorProps {
 export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Element | null {
     const logic = sqlEditorLogic({ tabId })
     const { sourceQuery, selectedConnectionId } = useValues(logic)
-    const { connectionOptions, connectionOptionsLoading, connectionSelectOptions } =
+    const { connectionOptions, connectionOptionsLoading, connectionSelectOptions, unavailableConnectionIds } =
         useValues(connectionSelectorLogic())
     const { maybeLoadConnectionOptions } = useActions(connectionSelectorLogic())
     const { setSourceQuery, syncUrlWithQuery } = useActions(logic)
@@ -39,11 +40,12 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
         maybeLoadConnectionOptions()
     })
     const connectionSelectorValue = getConnectionSelectorValue(connectionOptionsLoading, selectedConnectionId)
-    const displayedConnectionSelectOptions = addHiddenSelectedConnectionOption(
+    const displayedConnectionSelectOptions = addSelectedConnectionOption(
         connectionSelectOptions,
         connectionOptions,
         connectionOptionsLoading,
-        selectedConnectionId
+        selectedConnectionId,
+        unavailableConnectionIds
     )
     // Strip the legacy top-level connectionId so source.connectionId stays canonical.
     const { connectionId: _legacyConnectionId, ...sourceQueryWithoutLegacyConnectionId } =
@@ -62,6 +64,10 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
             truncateText={{ maxWidthClass: 'max-w-full' }}
             value={connectionSelectorValue}
             onChange={(nextValue) => {
+                if (nextValue === LOADING_CONNECTIONS) {
+                    return
+                }
+
                 if (!nextValue || nextValue === POSTHOG_WAREHOUSE) {
                     setSourceQuery({
                         ...sourceQueryWithoutLegacyConnectionId,
@@ -117,6 +123,7 @@ function toLemonSelectOption(option: ConnectionSelectOption): LemonSelectOption<
         label: option.label,
         icon,
         hidden: option.hidden,
+        disabledReason: option.disabledReason,
         sideAction: option.managementUrl
             ? {
                   onClick: () => newInternalTab(option.managementUrl),

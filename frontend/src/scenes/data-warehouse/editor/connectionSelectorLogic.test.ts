@@ -8,7 +8,7 @@ import { externalDataSourcesConnectionsList } from 'products/warehouse_sources/f
 import type { ExternalDataSourceConnectionOptionApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import {
-    addHiddenSelectedConnectionOption,
+    addSelectedConnectionOption,
     connectionSelectorLogic,
     getConnectionSelectorValue,
     LOADING_CONNECTIONS,
@@ -183,7 +183,7 @@ describe('connectionSelectorLogic', () => {
         ]
         const connectionOptions = [{ id: visibleId }] as ExternalDataSourceConnectionOptionApi[]
 
-        const displayedOptions = addHiddenSelectedConnectionOption(optionGroups, connectionOptions, false, selectedId)
+        const displayedOptions = addSelectedConnectionOption(optionGroups, connectionOptions, false, selectedId)
 
         expect(getConnectionSelectorValue(false, selectedId)).toEqual(selectedId)
         expect(displayedOptions[0].options).toContainEqual({
@@ -191,5 +191,40 @@ describe('connectionSelectorLogic', () => {
             label: 'Selected connection (hidden)',
             hidden: true,
         })
+    })
+
+    it('marks a connection the backend rejected as unavailable instead of hiding it', () => {
+        const optionGroups = [{ options: [{ value: POSTHOG_WAREHOUSE, label: 'PostHog (ClickHouse)' }] }]
+
+        const displayedOptions = addSelectedConnectionOption(optionGroups, [], false, 'dead-connection', [
+            'dead-connection',
+        ])
+
+        expect(displayedOptions[0].options).toContainEqual(
+            expect.objectContaining({ value: 'dead-connection', label: 'Connection no longer available' })
+        )
+        expect(displayedOptions[0].options).not.toContainEqual(expect.objectContaining({ hidden: true }))
+    })
+
+    it('forgets an unavailable connection once the options carry it again', async () => {
+        logic = connectionSelectorLogic()
+        logic.mount()
+        logic.actions.markConnectionUnavailable('conn-123')
+        logic.actions.markConnectionUnavailable('conn-gone')
+        logic.actions.maybeLoadConnectionOptions()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.unavailableConnectionIds).toEqual(['conn-gone'])
+    })
+
+    it('never offers the loading placeholder as a selectable connection', () => {
+        logic = connectionSelectorLogic()
+        logic.mount()
+        logic.actions.maybeLoadConnectionOptions()
+
+        const loadingOption = logic.values.connectionSelectOptions[0].options[1]
+        expect(loadingOption.value).toEqual(LOADING_CONNECTIONS)
+        expect(loadingOption.disabledReason).toBeTruthy()
     })
 })
