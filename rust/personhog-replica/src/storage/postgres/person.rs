@@ -872,14 +872,14 @@ impl PersonLookup for PostgresStorage {
         // service-layer cap bounds the number of rows locked.
         let mut tx = self.bulk_primary_pool.begin().await?;
 
-        // No FOR UPDATE on the source person: deletes lock PDI rows before person
-        // rows, so locking the person first here would invert that order and risk
-        // deadlock. The PDI locks below are what guard the reassignment.
+        // Lock the source person before its distinct ids, the order ingestion,
+        // deletes and the tombstone paths take.
         let person_version: i64 = sqlx::query_scalar!(
             r#"
             SELECT COALESCE(version, 0)::bigint as "version!"
             FROM posthog_person
             WHERE team_id = $1 AND id = $2
+            FOR UPDATE
             "#,
             team_id as i32,
             person_id

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT COALESCE(version, 0)::bigint as \"version!\"\n            FROM posthog_person\n            WHERE team_id = $1 AND id = $2\n            ",
+  "query": "\n            SELECT COALESCE(version, 0)::bigint as \"version!\"\n            FROM posthog_person\n            WHERE team_id = $1 AND id = $2\n            FOR UPDATE\n            ",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       null
     ]
   },
-  "hash": "4f3a1236ae0dbcc9c845e44acbcf4891a6f535045c304035eee5675e706efaa7"
+  "hash": "81fa0b982bd5c94edbbc7de957de252496f6d9f60ff1ab2c6b2476f3dd548936"
 }
