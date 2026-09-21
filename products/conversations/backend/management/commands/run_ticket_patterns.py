@@ -14,6 +14,7 @@ from posthog.models import Team
 
 from products.conversations.backend.temporal.ticket_patterns.coordinator import _read_settings
 from products.conversations.backend.temporal.ticket_patterns.detect import _detect
+from products.conversations.backend.temporal.ticket_patterns.eligibility import is_team_eligible
 from products.conversations.backend.temporal.ticket_patterns.schemas import EligibleTeam
 
 
@@ -32,10 +33,18 @@ class Command(BaseCommand):
         team = Team.objects.filter(id=options["team_id"]).select_related("organization").first()
         if team is None:
             raise CommandError(f"Team {options['team_id']} not found")
-        if not team.organization.is_ai_data_processing_approved:
-            raise CommandError("The organization has not approved AI data processing")
+        # Same gates as is_team_eligible, in the same order, so a failed one is named instead of
+        # printing an empty scan that reads like a team with no recent tickets.
+        if not team.conversations_enabled:
+            raise CommandError("Support is off for this team")
         if not (team.conversations_settings or {}).get("ticket_patterns_enabled"):
             raise CommandError("Ticket spike detection is off for this team")
+        if not team.organization.is_ai_data_processing_approved:
+            raise CommandError("The organization has not approved AI data processing")
+        # The backstop, so a gate added to is_team_eligible later still stops the run here rather
+        # than turning into an empty scan.
+        if not is_team_eligible(team, check_flag=False):
+            raise CommandError("This team is not eligible for ticket spike detection")
 
         eligible = EligibleTeam(team_id=team.id, settings=_read_settings(team.conversations_settings or {}))
         result = asyncio.run(_detect(eligible, report=not options["dry_run"], check_flag=False))

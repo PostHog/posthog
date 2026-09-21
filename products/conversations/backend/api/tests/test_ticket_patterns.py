@@ -2,6 +2,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from posthog.models import Team
 
@@ -9,7 +10,6 @@ from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Status
 from products.conversations.backend.temporal.ticket_patterns.recent import record_spike
 
-DETECTED_AT = "2026-09-17T12:00:00Z"
 TOPIC = "checkout failing"
 ELIGIBILITY_MODULE = "products.conversations.backend.api.ticket_patterns"
 
@@ -37,6 +37,9 @@ class TestTicketPatternsAPI(APIBaseTest):
         )
 
     def _record(self, tickets: list[Ticket], team: Team | None = None) -> str:
+        # Relative, not a literal: the endpoint only serves spikes from the last day, so a fixed
+        # timestamp would stop meaning "recent" as soon as real time moved past it.
+        detected_at = timezone.now().isoformat()
         record_spike(
             (team or self.team).id,
             {
@@ -45,10 +48,10 @@ class TestTicketPatternsAPI(APIBaseTest):
                 "ticket_ids": [str(t.id) for t in tickets],
                 "ticket_count": len(tickets),
                 "requester_count": len(tickets),
-                "detected_at": DETECTED_AT,
+                "detected_at": detected_at,
             },
         )
-        return f"{TOPIC}:{DETECTED_AT}"
+        return f"{TOPIC}:{detected_at}"
 
     def _list(self) -> list[dict]:
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/ticket_patterns/")

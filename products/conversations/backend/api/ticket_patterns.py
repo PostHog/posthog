@@ -1,4 +1,4 @@
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -37,6 +37,10 @@ class TicketPatternDismissSerializer(serializers.Serializer):
     key = serializers.CharField(
         help_text="Identity of the spike to dismiss, as `topic:detected_at` from the list response."
     )
+
+
+class TicketPatternDismissErrorSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why the spike could not be dismissed.")
 
 
 class TicketPatternViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
@@ -118,12 +122,14 @@ class TicketPatternViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             return Response([])
         return Response(TicketPatternSerializer(self._visible_spikes(), many=True).data)
 
-    @action(detail=False, methods=["POST"])
+    # @validated_request must sit OUTSIDE @action: DRF's @action resets func.kwargs, wiping any
+    # schema annotation applied earlier, so the generated client would describe the wrong response.
     @validated_request(
         TicketPatternDismissSerializer,
-        responses={204: None},
+        responses={204: None, 404: OpenApiResponse(response=TicketPatternDismissErrorSerializer)},
         description="Dismiss one spike for everyone in the project, so the inbox banner stops showing it.",
     )
+    @action(detail=False, methods=["POST"])
     def dismiss(self, request: ValidatedRequest, **kwargs) -> Response:
         key = request.validated_data["key"]
         # Dismissing is project-wide, so it is gated on the same visibility as reading: a user who

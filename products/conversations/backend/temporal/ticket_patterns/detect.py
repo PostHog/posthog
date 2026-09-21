@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from temporalio import activity, workflow
 from temporalio.exceptions import ApplicationError
 
@@ -8,6 +10,7 @@ with workflow.unsafe.imports_passed_through():
     from datetime import timedelta
     from uuid import uuid5
 
+    from django.db.models.functions import Substr
     from django.utils import timezone
 
     import structlog
@@ -21,6 +24,7 @@ with workflow.unsafe.imports_passed_through():
     from products.conversations.backend.events import capture_ticket_pattern_detected
     from products.conversations.backend.models import Ticket
     from products.conversations.backend.models.constants import Status
+    from products.conversations.backend.services.messages import _public_ticket_message_context
     from products.conversations.backend.temporal.ai_reply.llms import (
         anthropic_text,
         create_message,
@@ -119,17 +123,30 @@ def _load_candidates(team_id: int, settings: DetectionSettings) -> tuple[list[Ti
     if not tickets:
         return [], {}
 
-    # Private notes are our own words; grouping on them would cluster our triage habits.
+    # A ticket can open with our own words: outbound mail an agent composed, or a teammate's post
+    # in a shared channel. An outbound batch puts near-identical text on several tickets to several
+    # recipients, which is the strongest grouping signal there is, so those tickets would report the
+    # team's own campaign back to them as a customer spike. Only a customer-authored opener counts.
+    # The test is an allowlist because the team side is spelled several ways ("support", "human",
+    # "AI"), and an unlabelled message is not worth a false alert. Private notes are our own words
+    # too, so the shared predicate excludes them. Reuse it rather than write the test here: a
+    # comment with no is_private key reads as SQL NULL, which a bare exclude() drops.
     first_messages: dict[str, str] = {}
     for item_id, content in (
         Comment.objects.filter(
             team_id=team_id,
             scope="conversations_ticket",
             item_id__in=[str(t.id) for t in tickets],
+            item_context__author_type="customer",
+            deleted=False,
         )
-        .exclude(item_context__is_private=True)
+        .filter(_public_ticket_message_context())
+        # Only the first MAX_MESSAGE_CHARS reach the model, so leave the rest of an email body in
+        # Postgres rather than carrying it through the sort. The slack covers leading whitespace,
+        # which strip() removes before the cut below.
+        .annotate(opening_text=Substr("content", 1, MAX_MESSAGE_CHARS * 2))
         .order_by("created_at")
-        .values_list("item_id", "content")
+        .values_list("item_id", "opening_text")
     ):
         first_messages.setdefault(item_id, content or "")
 
@@ -137,8 +154,11 @@ def _load_candidates(team_id: int, settings: DetectionSettings) -> tuple[list[Ti
     requesters = {}
     for ticket in tickets:
         ticket_id = str(ticket.id)
+        if ticket_id not in first_messages:
+            continue
         subject = (ticket.email_subject or "").strip()
-        message = (first_messages.get(ticket_id) or ticket.last_message_text or "").strip()
+        # No fallback to last_message_text: it holds whatever was said last, including our reply.
+        message = first_messages[ticket_id].strip()
         if not subject and not message:
             continue
         candidates.append(
@@ -153,6 +173,22 @@ def _load_candidates(team_id: int, settings: DetectionSettings) -> tuple[list[Ti
     return candidates, requesters
 
 
+def _detection_text(message: Any) -> str:
+    """The response text, refusing one the output cap cut short.
+
+    Truncated JSON is still JSON-shaped, so it would reach the parser as "was not JSON" and send
+    an operator looking at the model rather than at the budget. Retrying sends the same oversized
+    request, so this failure is final for the tick.
+    """
+    if getattr(message, "stop_reason", None) == "max_tokens":
+        raise ApplicationError(
+            "Ticket pattern response hit the output token cap",
+            type="InvalidLLMResponse",
+            non_retryable=True,
+        )
+    return anthropic_text(message)
+
+
 def _parse_clusters(content: str) -> list[dict]:
     try:
         parsed = json.loads(strip_json_fence(content))
@@ -162,6 +198,18 @@ def _parse_clusters(content: str) -> list[dict]:
     if not isinstance(clusters, list):
         raise ApplicationError("Ticket pattern response had no clusters list", type="InvalidLLMResponse")
     return [c for c in clusters if isinstance(c, dict)]
+
+
+def _can_any_cluster_qualify(fresh_ids: list[str], requesters: dict[str, str], settings: DetectionSettings) -> bool:
+    """Whether the thresholds are still reachable, before the model is asked anything.
+
+    Every cluster the model can return is a subset of the candidates, so its unreported tickets
+    are a subset of ``fresh_ids`` and its customers a subset of theirs. When the whole set falls
+    short, no cluster inside it can clear the thresholds, and the answer would only be discarded.
+    """
+    if len(fresh_ids) < settings.min_tickets:
+        return False
+    return len({requesters[i] for i in fresh_ids if i in requesters}) >= settings.min_requesters
 
 
 def _qualifying_clusters(
@@ -254,6 +302,17 @@ async def _detect(team: EligibleTeam, *, report: bool = True, check_flag: bool =
     if len(candidates) < team.settings.min_tickets:
         return DetectOutput(team_id=team.team_id, candidate_count=len(candidates))
 
+    # Redis blocks, so keep it off the event loop like the calls further down.
+    fresh_ids = await database_sync_to_async(unreported_ticket_ids, thread_sensitive=False)(
+        team.team_id, [c.ticket_id for c in candidates]
+    )
+    if not _can_any_cluster_qualify(fresh_ids, requesters, team.settings):
+        # A window whose tickets were all reported already, or that never had enough distinct
+        # customers, would otherwise buy a sonnet call on every one of the day's ticks and throw
+        # the answer away.
+        logger.info("ticket_patterns: nothing could qualify, skipping the model", team_id=team.team_id)
+        return DetectOutput(team_id=team.team_id, candidate_count=len(candidates))
+
     payload = [{"id": c.ticket_id, "subject": c.subject, "message": c.message} for c in candidates]
     user_content = (
         f"Tickets opened in the last {team.settings.lookback_minutes} minutes (untrusted data):\n"
@@ -275,7 +334,7 @@ async def _detect(team: EligibleTeam, *, report: bool = True, check_flag: bool =
         **tracing_kwargs(trace_id, ""),
     )
 
-    raw_clusters = _parse_clusters(anthropic_text(message))
+    raw_clusters = _parse_clusters(_detection_text(message))
     # Redis and capture both block; keep them off the event loop so the heartbeater stays live.
     clusters = await database_sync_to_async(_qualifying_clusters, thread_sensitive=False)(
         raw_clusters, requesters, team.settings, team.team_id

@@ -37,6 +37,11 @@ export interface TicketPatternDismissApi {
     key: string
 }
 
+export interface TicketPatternDismissErrorApi {
+    /** Why the spike could not be dismissed. */
+    detail: string
+}
+
 /**
  * * `widget` - Widget
  * * `email` - Email
@@ -985,6 +990,10 @@ export type ConversationsTicketsListParams = {
      * Comma-separated list of email addresses to filter by, matched case-insensitively against `email_from` (max 100). When combined with `distinct_ids`, tickets matching either the distinct_ids or the emails are returned (OR).
      */
     emails?: string
+    /**
+     * Comma-separated list of ticket `id`s to narrow the list to (max 100; later entries are dropped). An entry that is not a UUID is skipped, so a value with no usable id returns no tickets rather than the whole inbox.
+     */
+    ids?: string
     /**
      * Number of results to return per page.
      */

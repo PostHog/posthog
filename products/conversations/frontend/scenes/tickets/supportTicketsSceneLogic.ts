@@ -223,7 +223,6 @@ export interface supportTicketsSceneLogicValues {
     slaFilter: TicketSlaState | 'all'
     sorting: Sorting | null
     spikeTicketIds: string[]
-    spikeTopic: string | null
     statusFilter: TicketStatus[]
     tagsExcludeFilter: string[]
     tagsFilter: string[]
@@ -319,12 +318,8 @@ export interface supportTicketsSceneLogicActions {
     setSorting: (sorting: Sorting | null) => {
         sorting: Sorting | null
     }
-    setSpikeFilter: (
-        ticketIds: string[],
-        topic: string | null
-    ) => {
+    setSpikeFilter: (ticketIds: string[]) => {
         ticketIds: string[]
-        topic: string | null
     }
     setStatusFilter: (statuses: TicketStatus[]) => {
         statuses: TicketStatus[]
@@ -402,7 +397,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
     key((props: SupportTicketsSceneLogicProps) => props?.key || 'SupportTicketsScene'),
     actions({
         // Narrow the list to an explicit set of tickets, e.g. the ones behind a detected spike.
-        setSpikeFilter: (ticketIds: string[], topic: string | null) => ({ ticketIds, topic }),
+        setSpikeFilter: (ticketIds: string[]) => ({ ticketIds }),
         clearSpikeFilter: true,
         setStatusFilter: (statuses: TicketStatus[]) => ({ statuses }),
         setChannelFilter: (channel: TicketChannel | 'all') => ({ channel }),
@@ -441,13 +436,6 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             {
                 setSpikeFilter: (_, { ticketIds }) => ticketIds,
                 clearSpikeFilter: () => [],
-            },
-        ],
-        spikeTopic: [
-            null as string | null,
-            {
-                setSpikeFilter: (_, { topic }) => topic,
-                clearSpikeFilter: () => null,
             },
         ],
         tickets: [
@@ -1004,6 +992,18 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             applyUrlFilters: buildUrl,
             setActiveView: buildUrl,
             clearActiveView: buildUrl,
+            // A cleared spike must leave the URL too. buildUrl copies unknown params forward,
+            // so a leftover `ids` would survive the next filter change and urlToAction would
+            // put the spike filter straight back.
+            clearSpikeFilter: () => {
+                if (props.distinctIds?.length || router.values.searchParams.ids === undefined) {
+                    return
+                }
+                const searchParams = { ...router.values.searchParams }
+                delete searchParams.ids
+                cache.selfNavigating = true
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+            },
         }
     }),
     urlToAction(({ actions, values, props, cache }) => ({
@@ -1014,7 +1014,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             const urlIds = typeof searchParams.ids === 'string' ? searchParams.ids.split(',').filter(Boolean) : []
             if (!objectsEqual(urlIds, values.spikeTicketIds)) {
                 if (urlIds.length) {
-                    actions.setSpikeFilter(urlIds, (searchParams.spike as string) ?? null)
+                    actions.setSpikeFilter(urlIds)
                 } else {
                     actions.clearSpikeFilter()
                 }

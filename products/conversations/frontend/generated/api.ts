@@ -76,22 +76,14 @@ export const getConversationsTicketPatternsDismissCreateUrl = (projectId: string
 }
 
 /**
- * Spikes reported for this project in the last day.
- *
- * Reads a short-lived cache written when detection reports, not a table. The durable record is
- * the `$conversation_ticket_pattern_detected` event, so an empty list means "nothing recent or
- * nothing cached", never "this never happened".
- *
- * A spike is made of ticket text, so it is scoped as ticket data: the response carries only the
- * tickets the requesting user could open directly, and a user who can open none of a spike's
- * tickets never learns it exists.
+ * Dismiss one spike for everyone in the project, so the inbox banner stops showing it.
  */
 export const conversationsTicketPatternsDismissCreate = async (
     projectId: string,
     ticketPatternDismissApi: TicketPatternDismissApi,
     options?: RequestInit
-): Promise<TicketPatternDismissApi> => {
-    return apiMutator<TicketPatternDismissApi>(getConversationsTicketPatternsDismissCreateUrl(projectId), {
+): Promise<void> => {
+    return apiMutator<void>(getConversationsTicketPatternsDismissCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

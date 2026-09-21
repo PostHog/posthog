@@ -23,6 +23,7 @@ with workflow.unsafe.imports_passed_through():
         DEFAULT_LOOKBACK_MINUTES,
         DEFAULT_MIN_REQUESTERS,
         DEFAULT_MIN_TICKETS,
+        DETECTION_BATCH_BUDGET_SECONDS,
         LOOKBACK_MINUTES_RANGE,
         MAX_CONCURRENT_DETECTIONS,
         MAX_TEAMS_PER_RUN,
@@ -84,8 +85,15 @@ def _collect_eligible_teams() -> list[EligibleTeam]:
     if not total:
         return []
 
-    # Starvation starts as soon as there are more opt-ins than one tick reports on, so the window
-    # moves from that point, not from the larger hydration budget.
+    # Start each tick where the cap would otherwise keep cutting, so team 51 is not starved
+    # forever. Starvation starts as soon as there are more opt-ins than one tick reports on, so
+    # the window moves from that point rather than from the larger hydration budget. This reaches
+    # every team within ceil(total / MAX_TEAMS_PER_RUN) ticks only while the schedule fires every
+    # tick, because the offset counts wall-clock ticks rather than runs that happened. Fires
+    # dropped on a fixed period can pin the offset and starve the rest: 100 teams with every
+    # second fire dropped holds it at 0 forever. The schedule's execution timeout is what stops a
+    # run outliving its interval and dropping the next fire. Holding the guarantee through a
+    # dropped fire instead would need a stored cursor, which this design does without.
     if total > MAX_TEAMS_PER_RUN:
         tick = int(timezone.now().timestamp() // (COORDINATOR_INTERVAL_MINUTES * 60))
         offset = (tick * MAX_TEAMS_PER_RUN) % total
@@ -162,7 +170,10 @@ class TicketPatternsCoordinatorWorkflow:
                     workflow.execute_activity(
                         ticket_patterns_detect_activity,
                         team,
-                        start_to_close_timeout=timedelta(minutes=10),
+                        start_to_close_timeout=timedelta(seconds=DETECTION_BATCH_BUDGET_SECONDS),
+                        # Retries included, so a team that keeps failing cannot spend the budget
+                        # the batches after it need.
+                        schedule_to_close_timeout=timedelta(seconds=DETECTION_BATCH_BUDGET_SECONDS),
                         retry_policy=RetryPolicy(maximum_attempts=3),
                     )
                     for team in batch

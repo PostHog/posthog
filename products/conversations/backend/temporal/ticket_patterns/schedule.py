@@ -30,8 +30,8 @@ async def create_ticket_patterns_coordinator_schedule(client: Client) -> None:
     """Create or update the schedule that drives ticket pattern detection.
 
     Runs on the VIDEO_EXPORT_TASK_QUEUE like the other conversations coordinators.
-    ScheduleOverlapPolicy.SKIP guards against a tick that outlives its interval; the next tick
-    reads the same window anyway, so a skipped one loses nothing.
+    ScheduleOverlapPolicy.SKIP guards against a tick that outlives its interval, and the
+    execution timeout keeps that from happening in the first place.
     """
     schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -39,6 +39,12 @@ async def create_ticket_patterns_coordinator_schedule(client: Client) -> None:
             asdict(PatternsCoordinatorInput()),
             id=TICKET_PATTERNS_COORDINATOR_SCHEDULE_ID,
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            # Under one interval, so SKIP has nothing to skip. Unbounded, a single team whose
+            # detect activity sits out its retries holds the tick open for the rest, and a team
+            # on the 30 minute lookback floor cannot absorb that wait. Cutting a run short costs
+            # only the teams still in flight: each team's event is captured inside its own
+            # activity, and the next tick reads the same window.
+            execution_timeout=timedelta(minutes=COORDINATOR_INTERVAL_MINUTES - 1),
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=COORDINATOR_INTERVAL_MINUTES))]),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),

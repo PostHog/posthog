@@ -9,9 +9,11 @@ import { urls } from 'scenes/urls'
 import type { TicketPatternApi } from '../../generated/api.schemas'
 import { spikeKey, ticketSpikeBannerLogic } from './ticketSpikeBannerLogic'
 
-// The list narrows to exactly these tickets, and carries the topic so it can name what it shows.
+// The list narrows to exactly these tickets. The topic stays out of the URL for the same reason
+// the search box does: a model wrote it from customer messages, and query strings reach browser
+// history, copied links and request logs.
 function spikeTicketsUrl(spike: TicketPatternApi): string {
-    return combineUrl(urls.supportTickets(), { ids: spike.ticket_ids.join(','), spike: spike.topic }).url
+    return combineUrl(urls.supportTickets(), { ids: spike.ticket_ids.join(',') }).url
 }
 
 function SpikeBanner({ spike }: { spike: TicketPatternApi }): JSX.Element {
@@ -33,10 +35,12 @@ function SpikeBanner({ spike }: { spike: TicketPatternApi }): JSX.Element {
 }
 
 export function TicketSpikeBanner(): JSX.Element | null {
-    const { visibleSpikes, dismissedSpikes, expanded } = useValues(ticketSpikeBannerLogic)
+    const { bannerEnabled, visibleSpikes, dismissedSpikes, expanded } = useValues(ticketSpikeBannerLogic)
     const { setExpanded } = useActions(ticketSpikeBannerLogic)
 
-    if (!visibleSpikes.length && !dismissedSpikes.length) {
+    // Checked here as well as in the loader, so a gate closing mid-session hides spikes that
+    // are already in memory instead of waiting for the next reload.
+    if (!bannerEnabled || (!visibleSpikes.length && !dismissedSpikes.length)) {
         return null
     }
 
