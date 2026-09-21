@@ -243,9 +243,16 @@ describe('hog-function-filtering', () => {
     })
 
     describe('Filter error reasons', () => {
+        // All three labels, because the fn decides `type` and the call site decides `caller`. A
+        // count found by reason alone would still pass if either of those went wrong.
         const errorCount = async (reason: string): Promise<number> => {
             const metric = await register.getSingleMetric('cdp_hog_function_filter_error')?.get()
-            const sample = metric?.values.find((value) => value.labels.reason === reason)
+            const sample = metric?.values.find(
+                ({ labels }) =>
+                    labels.reason === reason &&
+                    labels.type === 'destination' &&
+                    labels.caller === 'build_hog_function_invocations'
+            )
             return sample?.value ?? 0
         }
 
@@ -261,7 +268,12 @@ describe('hog-function-filtering', () => {
 
             const result = await filterFunctionInstrumented({
                 caller: 'build_hog_function_invocations',
-                fn: { id: 'test-function', team_id: 1, name: 'Test Function' } as unknown as HogFunctionType,
+                fn: {
+                    id: 'test-function',
+                    team_id: 1,
+                    name: 'Test Function',
+                    type: 'destination',
+                } as unknown as HogFunctionType,
                 filters: filters as HogFunctionType['filters'],
                 filterGlobals: { event: '$pageview' } as HogFunctionFilterGlobals,
             })
