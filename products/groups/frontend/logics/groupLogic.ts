@@ -270,6 +270,9 @@ export const groupLogic = kea<groupLogicType>([
             null as Group | null,
             {
                 loadGroup: async () => {
+                    // The generated parameter is named projectId because OpenAPI renders the
+                    // path segment as {project_id}, but the groups routes register on team_id, so
+                    // this takes a team id. A project id resolves the wrong environment.
                     const group = await groupsFindRetrieve(String(values.currentTeamId), {
                         group_type_index: props.groupTypeIndex,
                         group_key: props.groupKey,

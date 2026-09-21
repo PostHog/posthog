@@ -492,6 +492,8 @@ export const personsLogic = kea<personsLogicType>([
                         if (!values.person?.id) {
                             return null
                         }
+                        // projectId takes a team id here: the persons routes register on
+                        // team_id even though OpenAPI renders the segment as {project_id}.
                         const response = await personsCohortsRetrieve(String(ApiConfig.getCurrentTeamId()), {
                             person_id: String(values.person.id),
                         })
