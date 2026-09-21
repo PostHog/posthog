@@ -232,9 +232,11 @@ def _find_valid_candidate(
 
     `header` is the first candidate's cookie header the server accepts, or
     `None` if none did. `rejected_headers`, when passed, skips re-checking a
-    header already known invalid without stopping the scan — an expired
-    session in an earlier profile must not block a valid one in a later
-    profile, on this call or a repeated one.
+    header the server already outright rejected, without stopping the scan —
+    an expired session in an earlier profile must not block a valid one in a
+    later profile, on this call or a repeated one. A header the server hasn't
+    confirmed or rejected (a network blip, a 5xx from the load balancer) is
+    never added to `rejected_headers`, so it gets retried on the next call.
     """
     any_candidate = False
     for candidate in _iter_cookie_candidates(domain, browser, seen_warnings):
@@ -242,9 +244,10 @@ def _find_valid_candidate(
         header = _format_cookie_header(candidate)
         if rejected_headers is not None and header in rejected_headers:
             continue
-        if _check_cookie(domain, header):
+        result = _probe_cookie(domain, header)
+        if result is True:
             return header, any_candidate
-        if rejected_headers is not None:
+        if result is False and rejected_headers is not None:
             rejected_headers.add(header)
     return None, any_candidate
 
@@ -278,8 +281,15 @@ def _read_cookie_file(region: str) -> str | None:
     return path.read_text().strip()
 
 
-def _check_cookie(domain: str, cookie_header: str, timeout: float = 5.0) -> bool:
-    """Hit /api/user/current to confirm the cookie is still valid."""
+def _probe_cookie(domain: str, cookie_header: str, timeout: float = 5.0) -> bool | None:
+    """Hit /api/user/current and classify the response into three states.
+
+    `True`: the session is valid. `False`: the server rejected it outright (a
+    redirect back to SSO, 401, 403) — this cookie will not become valid
+    later. `None`: a transport failure or a transient status (5xx, 429,
+    anything else unexpected) — inconclusive, so a caller should retry
+    rather than treat the cookie as dead.
+    """
     import requests
 
     try:
@@ -290,8 +300,18 @@ def _check_cookie(domain: str, cookie_header: str, timeout: float = 5.0) -> bool
             allow_redirects=False,
         )
     except requests.RequestException:
+        return None
+
+    if response.status_code == 200:
+        return True
+    if response.status_code in (401, 403) or 300 <= response.status_code < 400:
         return False
-    return response.status_code == 200
+    return None
+
+
+def _check_cookie(domain: str, cookie_header: str, timeout: float = 5.0) -> bool:
+    """Confirm the cookie is currently valid. `None` (inconclusive) reads as not valid."""
+    return _probe_cookie(domain, cookie_header, timeout) is True
 
 
 def _is_directory_blocked(root: Path) -> bool:

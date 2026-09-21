@@ -167,7 +167,7 @@ def test_iter_cookie_candidates_never_merges_partial_profiles(monkeypatch: pytes
     ]
 
 
-def test_find_valid_candidate_ignores_partial_profiles_and_never_calls_check_cookie(
+def test_find_valid_candidate_ignores_partial_profiles_and_never_probes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     jars_by_file = {
@@ -188,13 +188,13 @@ def test_find_valid_candidate_ignores_partial_profiles_and_never_calls_check_coo
         "_enumerate_cookie_files",
         lambda browser: [("chrome", Path("/a/Cookies")), ("chrome", Path("/b/Cookies"))],
     )
-    check_calls: list[str] = []
-    monkeypatch.setattr(metabase, "_check_cookie", lambda domain, header: check_calls.append(header) or True)
+    probe_calls: list[str] = []
+    monkeypatch.setattr(metabase, "_probe_cookie", lambda domain, header: probe_calls.append(header) or True)
 
     header, any_candidate = metabase._find_valid_candidate("metabase.prod-us.posthog.dev", "chrome")
     assert header is None
     assert any_candidate is False
-    assert check_calls == []
+    assert probe_calls == []
 
 
 def test_find_valid_candidate_stops_after_first_valid_candidate(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -222,7 +222,7 @@ def test_find_valid_candidate_stops_after_first_valid_candidate(monkeypatch: pyt
         "_enumerate_cookie_files",
         lambda browser: [("chrome", Path("/first/Cookies")), ("chrome", Path("/second/Cookies"))],
     )
-    monkeypatch.setattr(metabase, "_check_cookie", lambda domain, header: True)
+    monkeypatch.setattr(metabase, "_probe_cookie", lambda domain, header: True)
 
     header, any_candidate = metabase._find_valid_candidate("metabase.prod-us.posthog.dev", "chrome")
     expected = metabase._format_cookie_header(
@@ -231,6 +231,68 @@ def test_find_valid_candidate_stops_after_first_valid_candidate(monkeypatch: pyt
     assert header == expected
     assert any_candidate is True
     assert calls == ["/first/Cookies"]
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected"),
+    [
+        pytest.param(200, True, id="200-accepted"),
+        pytest.param(302, False, id="302-sso-redirect"),
+        pytest.param(303, False, id="303-sso-redirect"),
+        pytest.param(401, False, id="401-unauthorized"),
+        pytest.param(403, False, id="403-forbidden"),
+        pytest.param(429, None, id="429-rate-limited"),
+        pytest.param(502, None, id="502-bad-gateway"),
+        pytest.param(503, None, id="503-unavailable"),
+    ],
+)
+def test_probe_cookie_classifies_the_response(
+    monkeypatch: pytest.MonkeyPatch, status_code: int, expected: bool | None
+) -> None:
+    import requests
+
+    monkeypatch.setattr(requests, "get", lambda *a, **k: SimpleNamespace(status_code=status_code))
+    assert metabase._probe_cookie("metabase.example", "cookie=1") is expected
+
+
+def test_probe_cookie_returns_none_on_request_exception(monkeypatch: pytest.MonkeyPatch) -> None:
+    import requests
+
+    def raise_request_exception(*args: object, **kwargs: object) -> None:
+        raise requests.RequestException("boom")
+
+    monkeypatch.setattr(requests, "get", raise_request_exception)
+    assert metabase._probe_cookie("metabase.example", "cookie=1") is None
+
+
+def test_check_cookie_treats_inconclusive_the_same_as_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    # _check_cookie keeps its boolean contract for metabase:cookie --check,
+    # which has no retry loop to give a transient failure a second chance.
+    monkeypatch.setattr(metabase, "_probe_cookie", lambda domain, header, timeout=5.0: None)
+    assert metabase._check_cookie("metabase.example", "cookie=1") is False
+
+
+@pytest.mark.parametrize(
+    ("probe_result", "remembered"),
+    [
+        pytest.param(False, True, id="rejected-is-remembered"),
+        pytest.param(None, False, id="inconclusive-is-not-remembered"),
+    ],
+)
+def test_find_valid_candidate_only_remembers_an_outright_rejection(
+    monkeypatch: pytest.MonkeyPatch, probe_result: bool | None, remembered: bool
+) -> None:
+    candidate = {"metabase.SESSION": "s", "metabase.DEVICE": "d", "ph_int_auth-0": "a0", "ph_int_auth-1": "a1"}
+    header = metabase._format_cookie_header(candidate)
+    monkeypatch.setattr(
+        metabase, "_iter_cookie_candidates", lambda domain, browser, seen_warnings=None: iter([candidate])
+    )
+    monkeypatch.setattr(metabase, "_probe_cookie", lambda domain, h: probe_result)
+
+    rejected_headers: set[str] = set()
+    result_header, _ = metabase._find_valid_candidate("metabase.example", None, rejected_headers=rejected_headers)
+    assert result_header is None
+    assert (header in rejected_headers) is remembered
 
 
 def test_enumerate_cookie_files_globs_chromium_profiles(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -701,13 +763,15 @@ def test_wait_for_valid_cookie_skips_expired_first_candidate_and_reaches_the_nex
         if poll_count["n"] >= 2:
             yield valid
 
-    def fake_check_cookie(domain: str, header: str) -> bool:
+    def fake_probe_cookie(domain: str, header: str) -> bool:
+        # The expired header gets an outright rejection (a real backend would
+        # answer 401/302 for it), not a transient failure.
         check_calls[header] = check_calls.get(header, 0) + 1
         return header == valid_header
 
     monkeypatch.setattr(metabase, "_detect_blocked_browsers", lambda browser: [])
     monkeypatch.setattr(metabase, "_iter_cookie_candidates", fake_iter_candidates)
-    monkeypatch.setattr(metabase, "_check_cookie", fake_check_cookie)
+    monkeypatch.setattr(metabase, "_probe_cookie", fake_probe_cookie)
     monkeypatch.setattr(metabase.time, "sleep", lambda _: None)
 
     header = metabase._wait_for_valid_cookie("metabase.example", None, timeout=10.0, interval=0.0)
@@ -716,6 +780,33 @@ def test_wait_for_valid_cookie_skips_expired_first_candidate_and_reaches_the_nex
     # The expired header is checked once (poll 1), never rechecked on poll 2 once rejected.
     assert check_calls[expired_header] == 1
     assert check_calls[valid_header] == 1
+
+
+def test_wait_for_valid_cookie_retries_a_transient_probe_failure_and_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = {"metabase.SESSION": "s", "metabase.DEVICE": "d", "ph_int_auth-0": "a0", "ph_int_auth-1": "a1"}
+    header = metabase._format_cookie_header(candidate)
+    monkeypatch.setattr(metabase, "_detect_blocked_browsers", lambda browser: [])
+    monkeypatch.setattr(
+        metabase, "_iter_cookie_candidates", lambda domain, browser, seen_warnings=None: iter([candidate])
+    )
+    # Poll 1: a network blip or a 5xx from the load balancer (None, inconclusive).
+    # Poll 2: the same header, now accepted.
+    probe_results = iter([None, True])
+    probe_calls: list[str] = []
+
+    def fake_probe(domain: str, h: str, timeout: float = 5.0) -> bool | None:
+        probe_calls.append(h)
+        return next(probe_results)
+
+    monkeypatch.setattr(metabase, "_probe_cookie", fake_probe)
+    monkeypatch.setattr(metabase.time, "sleep", lambda _: None)
+
+    result = metabase._wait_for_valid_cookie("metabase.example", None, timeout=10.0, interval=0.0)
+
+    assert result == header
+    assert probe_calls == [header, header]
 
 
 def test_require_cookie_header_errors_when_missing(cache_dir: Path) -> None:
