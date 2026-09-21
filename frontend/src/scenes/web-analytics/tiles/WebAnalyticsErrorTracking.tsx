@@ -31,15 +31,14 @@ export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const record = props.record as ErrorTrackingIssue
 
     return (
-        <div className="flex items-start gap-x-1.5 group">
-            <LemonTableLink
-                target="_blank"
-                title={record.name || 'Unknown Type'}
-                description={<div className="line-clamp-1">{record.description}</div>}
-                className="flex"
-                to={urls.errorTrackingIssue(record.id)}
-            />
-        </div>
+        // The link fills the cell, so a click anywhere on the row reaches the issue, not only on the title text.
+        <LemonTableLink
+            target="_blank"
+            title={record.name || 'Unknown Type'}
+            description={<div className="line-clamp-1">{record.description}</div>}
+            className="block"
+            to={urls.errorTrackingIssue(record.id)}
+        />
     )
 }
 
