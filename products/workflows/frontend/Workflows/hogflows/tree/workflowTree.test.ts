@@ -245,6 +245,9 @@ describe('buildWorkflowTree', () => {
 
     it.each([
         ['2d', 'No match within 2d'],
+        ['31d', 'No match within 30d'],
+        ['25h', 'No match within 24h'],
+        ['90m', 'No match within 60m'],
         ['m', 'No match'],
         ['', 'No match'],
         [undefined, 'No match'],

@@ -25,19 +25,35 @@ export interface WorkflowTreeBranch {
 // A wait can run without a timeout, and the duration field keeps a unit-only value such as "m"
 // while its number input is empty. Neither names a window, so accept only the complete duration
 // that the step schema accepts.
-const COMPLETE_DURATION_PATTERN = /^\d*\.?\d+[dhms]$/
+const COMPLETE_DURATION_PATTERN = /^(\d*\.?\d+)([dhms])$/
+
+// The executor holds a wait to the ceiling of its unit, and the API stores a larger amount
+// unchanged. Use the same ceilings here so the label names the window the wait really honors.
+const MAX_WAIT_AMOUNT_FOR_UNIT: Record<string, number> = {
+    d: 30,
+    h: 24,
+    m: 60,
+    s: 60,
+}
 
 export function isBranchingAction(action: Pick<HogFlowAction, 'type'>): boolean {
     return BRANCHING_ACTION_TYPES.includes(action.type as (typeof BRANCHING_ACTION_TYPES)[number])
 }
 
+function getWaitTimeoutLabel(maxWaitDuration: string | undefined): string | null {
+    const parts = COMPLETE_DURATION_PATTERN.exec(maxWaitDuration ?? '')
+    if (!parts) {
+        return null
+    }
+    const [, amount, unit] = parts
+    return `${Math.min(parseFloat(amount), MAX_WAIT_AMOUNT_FOR_UNIT[unit])}${unit}`
+}
+
 export function getWorkflowBranchLabel(action: HogFlowAction | undefined, edge: HogFlowEdge): string {
     if (action?.type === 'wait_until_condition') {
         if (edge.type === 'continue') {
-            const maxWaitDuration = action.config.max_wait_duration
-            return COMPLETE_DURATION_PATTERN.test(maxWaitDuration ?? '')
-                ? `No match within ${maxWaitDuration}`
-                : 'No match'
+            const timeout = getWaitTimeoutLabel(action.config.max_wait_duration)
+            return timeout ? `No match within ${timeout}` : 'No match'
         }
         const { condition, events } = action.config
         if (condition?.name) {
