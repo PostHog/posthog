@@ -1,13 +1,38 @@
+import logging
 from collections.abc import Mapping
+from typing import Literal
 
 from django.conf import settings
 
+from prometheus_client import Counter
+
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
+from posthog.otel_metrics import OtelInstrumentFactory
 
 from products.review_hog.backend.models import ReviewUserSettings
 
 AUTOMATIC_REVIEW_REPOSITORY = "PostHog/posthog"
+
+logger = logging.getLogger(__name__)
+_otel = OtelInstrumentFactory("review_hog")
+
+AuthoredPRReviewOutcome = Literal["no_team", "installation_mismatch", "author_unmapped", "not_opted_in", "started"]
+
+# A rejected dispatch returns normally, so Celery records the task as successful and no workflow
+# starts to report the skip. Without this counter a misconfigured deploy or a drifted installation
+# id stops every automatic review with no signal: "started" falling to zero next to a rise in
+# another outcome names the cause.
+AUTHORED_PR_REVIEW_TOTAL = Counter(
+    "posthog_review_hog_authored_pr_review_total",
+    "Automatic review dispatch decisions for authored PRs, keyed by outcome",
+    labelnames=["outcome"],
+)
+
+
+def _observe_dispatch(outcome: AuthoredPRReviewOutcome) -> None:
+    AUTHORED_PR_REVIEW_TOTAL.labels(outcome=outcome).inc()
+    _otel.record_counter_twin(AUTHORED_PR_REVIEW_TOTAL, 1, {"outcome": outcome})
 
 
 def _mapping(value: object) -> Mapping[str, object]:
@@ -87,12 +112,33 @@ class AuthoredPRReview:
         )
 
         if not settings.REVIEWHOG_TEAM_IDS:
+            logger.warning("No ReviewHog team is configured; skipping automatic review of PR #%s", self.pr_number)
+            _observe_dispatch("no_team")
             return
         team_id = settings.REVIEWHOG_TEAM_IDS[0]
         if not Integration.objects.filter(team_id=team_id, kind="github", integration_id=self.installation_id).exists():
+            logger.warning(
+                "Team %s has no GitHub integration for installation %s; skipping automatic review of PR #%s",
+                team_id,
+                self.installation_id,
+                self.pr_number,
+            )
+            _observe_dispatch("installation_mismatch")
             return
         author = resolve_org_github_login_to_users(team_id, [self.author_login]).get(self.author_login)
-        if author is None or not authored_reviews_enabled(team_id=team_id, user_id=author.id):
+        if author is None:
+            logger.info(
+                "PR author '%s' is not a PostHog org user on team %s; skipping automatic review of PR #%s",
+                self.author_login,
+                team_id,
+                self.pr_number,
+            )
+            _observe_dispatch("author_unmapped")
+            return
+        # The high-volume branch: most authors on the repository have not opted in. The counter
+        # carries the signal, so this one stays out of the logs.
+        if not authored_reviews_enabled(team_id=team_id, user_id=author.id):
+            _observe_dispatch("not_opted_in")
             return
         start_review_pr_workflow(
             pr_url=f"https://github.com/{AUTOMATIC_REVIEW_REPOSITORY}/pull/{self.pr_number}",
@@ -105,6 +151,8 @@ class AuthoredPRReview:
             trigger_source=TRIGGER_AUTOMATIC,
             requested_head_sha=self.head_sha,
         )
+        # After the start, so a retried task cannot count a dispatch it never made.
+        _observe_dispatch("started")
 
 
 def enqueue_authored_pr_review(payload: Mapping[str, object]) -> None:

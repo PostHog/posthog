@@ -10,6 +10,7 @@ from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from social_django.models import UserSocialAuth
 
 from posthog.ingress.dispatch.dedup import INGRESS_DEDUP_CACHE_ALIAS
@@ -32,6 +33,11 @@ _QUEUE = "products.review_hog.backend.tasks.process_authored_pr_event.delay"
 _START = "products.review_hog.backend.temporal.client.start_review_pr_workflow"
 _SECRET = "test-review-hog-webhook-secret"
 _HEAD_SHA = "a" * 40
+_DISPATCH_METRIC = "posthog_review_hog_authored_pr_review_total"
+
+
+def _dispatch_count(outcome: str) -> float:
+    return REGISTRY.get_sample_value(_DISPATCH_METRIC, {"outcome": outcome}) or 0.0
 
 
 def _payload(*, action: str = "opened", draft: bool = False) -> dict[str, object]:
@@ -178,6 +184,8 @@ class TestAuthoredPRReviewTask(BaseTest):
 
     @patch(_START)
     def test_opted_in_author_schedules_flash_on_the_configured_team(self, start: MagicMock) -> None:
+        started_before = _dispatch_count("started")
+
         process_authored_pr_event.run(**self._queued_event())
 
         start.assert_called_once_with(
@@ -191,10 +199,21 @@ class TestAuthoredPRReviewTask(BaseTest):
             trigger_source="automatic",
             requested_head_sha=_HEAD_SHA,
         )
+        assert _dispatch_count("started") - started_before == 1.0
 
-    @parameterized.expand([("disabled",), ("unset",), ("inactive",), ("left_org",), ("unmapped",)])
+    @parameterized.expand(
+        [
+            ("disabled", "not_opted_in"),
+            ("unset", "not_opted_in"),
+            ("inactive", "not_opted_in"),
+            ("left_org", "author_unmapped"),
+            ("unmapped", "author_unmapped"),
+        ]
+    )
     @patch(_START)
-    def test_queued_events_recheck_author_consent_and_membership(self, change: str, start: MagicMock) -> None:
+    def test_queued_events_recheck_author_consent_and_membership(
+        self, change: str, expected_outcome: str, start: MagicMock
+    ) -> None:
         queued = self._queued_event()
         if change == "disabled":
             self.preferences.review_authored_prs = False
@@ -208,14 +227,25 @@ class TestAuthoredPRReviewTask(BaseTest):
             OrganizationMembership.objects.filter(organization=self.organization, user=self.user).delete()
         else:
             self.github_identity.delete()
+        outcome_before = _dispatch_count(expected_outcome)
 
         process_authored_pr_event.run(**queued)
 
         start.assert_not_called()
+        assert _dispatch_count(expected_outcome) - outcome_before == 1.0
 
-    @parameterized.expand([("missing_installation",), ("other_team",), ("other_configured_team",), ("no_team",)])
+    @parameterized.expand(
+        [
+            ("missing_installation", "installation_mismatch"),
+            ("other_team", "installation_mismatch"),
+            ("other_configured_team", "installation_mismatch"),
+            ("no_team", "no_team"),
+        ]
+    )
     @patch(_START)
-    def test_delivery_must_match_the_configured_teams_installation(self, change: str, start: MagicMock) -> None:
+    def test_delivery_must_match_the_configured_teams_installation(
+        self, change: str, expected_outcome: str, start: MagicMock
+    ) -> None:
         queued = self._queued_event()
         if change == "missing_installation":
             self.integration.delete()
@@ -228,7 +258,9 @@ class TestAuthoredPRReviewTask(BaseTest):
                 self.integration.save(update_fields=["team"])
             else:
                 self.enterContext(override_settings(REVIEWHOG_TEAM_IDS=[other_team.id, self.team.id]))
+        outcome_before = _dispatch_count(expected_outcome)
 
         process_authored_pr_event.run(**queued)
 
         start.assert_not_called()
+        assert _dispatch_count(expected_outcome) - outcome_before == 1.0
