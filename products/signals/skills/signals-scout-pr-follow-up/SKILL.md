@@ -2,18 +2,13 @@
 name: signals-scout-pr-follow-up
 scout-display-name: PR follow-up
 description: >
-  Follow-up Signals scout for recently merged pull requests. Works out whether each one has
-  deployed, then checks the project's telemetry for whether it did what it claimed, had the
-  impact it expected, or caused a side effect that needs a look.
+  Follow-up Signals scout for recently merged pull requests.
+  Works out whether each one has deployed, then checks the project's telemetry for whether it did what it claimed, had the impact it expected, or caused a side effect that needs a look.
 compatibility: >
-  PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
-  (scratchpad) + signal_scout_report:write (report channel), plus the read-only `gh` CLI the
-  harness provides for the project's connected repositories, the engineering-analytics tools
-  (engineering-analytics-sources, pull-requests, pr-lifecycle) where the project syncs a GitHub
-  source, annotations-list, inbox-reports-list / inbox-reports-retrieve /
-  scout-report-check-list, execute-sql, and whatever surface tools the touched product needs
-  for probes (query-error-tracking-issues-list, logs-count, query-logs, apm-spans-aggregate,
-  feature-flag-get-all, alerts-list).
+  PostHog Signals agent (Claude sandbox).
+  Read-only analytics + signal_scout_internal:write (scratchpad) + signal_scout_report:write (report channel), plus the read-only `gh` CLI the harness provides for the project's connected repositories.
+  Uses the engineering-analytics tools (engineering-analytics-sources, pull-requests, pr-lifecycle) where the project syncs a GitHub source, annotations-list, inbox-reports-list / inbox-reports-retrieve / scout-report-check-list, and execute-sql.
+  Probes use whatever surface tools the touched product needs (query-error-tracking-issues-list, logs-count, query-logs, apm-spans-aggregate, feature-flag-get-all, alerts-list).
 allowed_tools:
   - emit_report
   - edit_report
@@ -71,16 +66,21 @@ A PR you already listed and deferred is not cold, however old its merge is now: 
 Never hardcode a repository. Read them from the project, in this order, and stop at the first source that yields a list; combine sources only when each covers a repository the others miss.
 
 1. **Pinned checkout.** When the harness prompt lists repositories in its working-tree section, the trees are already cloned, which is where you read diffs, blame, and the touched paths.
-   Still list the PRs with `gh pr list --repo <owner>/<repo> --state merged --limit 50 --json number,title,author,mergedAt,mergeCommit,url,labels,isDraft,additions,deletions,changedFiles,closingIssuesReferences`: a `git log --merges` over the tree misses every squash- and rebase-merged PR, so it is never the listing.
-   `gh pr view <n> --repo <owner>/<repo> --json number,title,body,author,mergedAt,mergeCommit,labels,files,closingIssuesReferences,url` fills in one PR.
+   Still list the PRs with `gh pr list --repo <owner>/<repo> --state merged --limit 100 --json number,title,author,mergedAt,mergeCommit,url,labels,isDraft,additions,deletions,changedFiles,closingIssuesReferences`, paged as rung 3 describes: a `git log --merges` over the tree misses every squash- and rebase-merged PR, so it is never the listing.
 2. **GitHub warehouse source.** `engineering-analytics-sources` lists each synced `owner/repo`; then `pull-requests` (`date_from=-14d`, pass `source_id` and `repo`) returns merged PRs with their CI rollup, and `pr-lifecycle` one PR's timeline.
    The source's table prefix also names warehouse tables you can read with `execute-sql`: `<prefix>github_pull_requests`, and, when the project syncs the deployments endpoints, `<prefix>github_deployments` + `<prefix>github_deployment_statuses` (the best deploy signal you can get; see below).
    Timestamps in those tables land as strings, so wrap them in `parseDateTimeBestEffort`.
-3. **Connected GitHub integration.** `integrations-github-repos-retrieve` lists the repositories the project's GitHub App can see; for each, `gh pr list --repo <owner>/<repo> --state merged --limit 50 --json number,title,author,mergedAt,mergeCommit,url,labels,isDraft,additions,deletions,changedFiles,closingIssuesReferences` is the listing (bounded: the sandbox token is read-only and rate-limited, so cap the repos you enumerate per run and record the ones you chose in `config:`).
+3. **Connected GitHub integration.** `integrations-github-repos-retrieve` lists the repositories the project's GitHub App can see; for each, `gh pr list --repo <owner>/<repo> --state merged --limit 100 --json number,title,author,mergedAt,mergeCommit,url,labels,isDraft,additions,deletions,changedFiles,closingIssuesReferences` is the listing.
+   The listing is bounded, so page it to the window: when the oldest `mergedAt` on the page is still inside 14 days, continue with `gh api 'repos/<owner>/<repo>/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=<n>'` (keep rows with a `merged_at`) until a page crosses the boundary or comes back empty.
+   A run that stops before the boundary has not listed the repository: record where it stopped in `cursor:` and say so in the close-out, never close out as if the window were covered.
+   The sandbox token is read-only and rate-limited, so cap the repositories you enumerate per run and record the ones you chose in `config:`.
 4. **PRs the inbox already knows.** `inbox-reports-list {"status": "resolved", "ordering": "-updated_at", "limit": 20}`: each resolved report carries its linked pull requests with their state and URL, which names a repository even on a project with no source or integration.
+   Page with `offset` while the oldest `updated_at` on the page is still inside 14 days.
    Those PRs are in scope for side effects; the report's own claim is the inbox-validation scout's (see Seams).
 
-Filter the list before you spend anything on it: drop bots (`dependabot`, `renovate`, `github-actions`, anything `pull-requests` marks `is_bot`), drop PRs that only touch docs, tests, CI, lockfiles, or formatting (read `files` or the changed paths), and drop anything a `noise:pr_follow_up:` entry names.
+No listing carries what the filters and the claim table need: a `gh pr list` row has no body and only a count of changed files, and a warehouse row may lack the file paths.
+Before filtering, fetch each candidate with `gh pr view <n> --repo <owner>/<repo> --json number,title,body,author,mergedAt,mergeCommit,labels,files,closingIssuesReferences,url` (or read the same fields from the pinned tree and the warehouse row where they exist), and keep the body and the file paths for the claim and side-effect steps.
+Then filter the list before you spend anything on it: drop bots (`dependabot`, `renovate`, `github-actions`, anything `pull-requests` marks `is_bot`), drop PRs that only touch docs, tests, CI, lockfiles, or formatting (from the fetched file paths), drop anything a `noise:pr_follow_up:` entry names, and drop a PR whose `pr:` entry says `recheck` with a date that has not passed yet (it is neither due nor deferred, so it takes no slot).
 Keep dependency bumps only as members of a deploy batch (a new error after a deploy can be theirs), never as a PR with a claim of its own.
 
 **Cap ~8 PRs per run**, and take the carried backlog before anything new: the `deferred:pr_follow_up:<owner/repo>` entry lists every PR a past run listed but did not judge, oldest merge first, and those go first because a newest-first pick under sustained merge activity would keep them below the cap until they leave the window with no verdict.
@@ -94,11 +94,13 @@ Say how many you deferred in the close-out.
 Establish that the merge commit is live before you measure anything.
 Strongest first; record which rung this project supports in `pattern:pr_follow_up:deploy-signal` so later runs go straight to it.
 
-1. **GitHub deployments in the warehouse.** `execute-sql` over `<prefix>github_deployments` joined to `<prefix>github_deployment_statuses`: the first deployment with a `success` status whose `sha` is at or after the merge commit, in a persistent production-named environment (ignore per-PR preview environments).
-   Confirm containment rather than ordering when you can: `gh api repos/<owner>/<repo>/compare/<merge_sha>...<deploy_sha> --jq .status` reads `ahead` or `identical` when the deploy includes the merge.
+1. **GitHub deployments in the warehouse.** `execute-sql` over `<prefix>github_deployments` joined to `<prefix>github_deployment_statuses`: the candidates are deployments with a `success` status created after the merge, in a persistent production-named environment (ignore per-PR preview environments).
+   Ordering is not proof, because a later deployment can come from another branch or a hotfix: take the earliest candidate whose `sha` contains the merge, which `gh api repos/<owner>/<repo>/compare/<merge_sha>...<deploy_sha> --jq .status` confirms by reading `ahead` or `identical`.
+   When no candidate contains the merge, this rung has no answer: move down the ladder.
 2. **`gh` deployments and releases.** `gh api 'repos/<owner>/<repo>/deployments?sha=<merge_sha>&per_page=5'` then its `statuses_url`, or `gh api repos/<owner>/<repo>/releases?per_page=10` for a release tag that contains the merge commit (same `compare` check).
 3. **Deploy annotations.** `annotations-list` with `search=deploy`: a project wired to a CI deploy marker gets one `creation_type: GIT` annotation per release, usually `hidden_in_user_interface: true`, with `date_marker` the deploy time and content naming a commit and environment.
-   Page with `offset` until `date_marker` passes the merge time; the first marker at or after the merge whose commit contains it (or, when the content has no SHA, the first marker after the merge) is the deploy time.
+   Page with `offset` until `date_marker` passes the merge time.
+   When the content names a commit, the onset is the first marker after the merge whose commit contains it (the same `compare` check); a marker whose content names no commit cannot prove containment, so it corroborates a soak-proxy onset (rung 4) but never replaces it, and the report says the onset is estimated.
 4. **Soak proxy.** Nothing above exists: use merge time + 24h for server-side code, + 72h or more for web client bundles and mobile apps (judge from the paths: a mobile repository, an SDK, a frontend bundle).
    Say "assumed live after a 24h soak, this project has no deploy signal" in anything you file, and never call a claim failed inside the soak.
 
@@ -181,7 +183,8 @@ This is only the PR-follow-up judgment on top:
   Priority: **P2** when the regression is user-impacting at material volume, **P3** otherwise.
   Route `suggested_reviewers` to the PR author first (they are on the roster far more often than a commit-history guess), cross-checked with `scout-members-list`; fall back to `reviewer:` memory and the `gh` ownership evidence the harness prompt describes.
   After authoring, write `report:pr_follow_up:<owner/repo>#<n>`.
-- **Edit** only when a report _you_ authored is still open and a re-check finds the same PR still failing: `append_evidence` with the fresh window.
+- **Edit** an open report on the same problem whoever authored it, appending the PR linkage as evidence; a rewritten title or summary is only for a report you authored.
+  On your own still-open report, a re-check that finds the same PR still failing appends the fresh window with `append_evidence`.
   A new fix PR merging is a fresh follow-up cycle on the new PR, not an edit.
 - **Remember** everything else: held, landing, weak, unverifiable.
 - **Skip** a PR already covered by a terminal `pr:` or `noise:` entry, or one still inside its soak (a soaking PR stays in `deferred:` until it is due).
