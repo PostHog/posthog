@@ -120,7 +120,7 @@ class TestHubApi(BaseTest):
         assert body["emails"] == ["bypass@example.com"]
         assert body["global"]["reason"] == "email outage"
         assert body["global"]["actor"] == "ops@posthog.com"
-        assert body["global"]["expires_at"].endswith("+00:00")
+        assert body["global"]["expires_at"].endswith("Z")
 
     def test_mfa_export_without_a_global_switch(self) -> None:
         assert self.post("mfa-bypass-export", {}, "mfa_bypass:export").json() == {"emails": [], "global": None}

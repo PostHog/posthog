@@ -22,16 +22,27 @@ from rest_framework.views import APIView
 
 from posthog.auth import ScopedServiceJWTAuthentication
 
+from ..facade.hub import (
+    INTERNAL_PURPOSE,
+    count_accounts,
+    count_org_members,
+    mfa_bypasses,
+    posthog_account_exists,
+    record_call,
+    resolve,
+    token_allows,
+)
 from ..facade.temporal import start_sync_now
-from ..logic.accounts import count_active_accounts, count_active_org_members, has_posthog_account, resolve_subject
-from ..logic.hub_auth import INTERNAL_PURPOSE, claims_allow
-from ..logic.mfa_export import export_mfa_bypasses
-from ..metrics import HUB_API_AUTH_COUNTER
 from .serializers import (
     CountAccountsRequestSerializer,
+    CountResponseSerializer,
+    MfaExportResponseSerializer,
     OrgMemberCountRequestSerializer,
+    OrgMemberCountResponseSerializer,
     PosthogMembershipRequestSerializer,
+    PosthogMembershipResponseSerializer,
     ResolveRequestSerializer,
+    ResolveResponseSerializer,
 )
 
 logger = structlog.get_logger(__name__)
@@ -58,7 +69,7 @@ class HubOperationPermission(BasePermission):
     message = "This token is not valid for this operation."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        return claims_allow(cast(dict[str, Any], request.auth or {}), cast(_HubView, view).op)
+        return token_allows(cast(dict[str, Any], request.auth or {}), cast(_HubView, view).op)
 
 
 class _HubView(APIView):
@@ -70,7 +81,7 @@ class _HubView(APIView):
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
-        HUB_API_AUTH_COUNTER.labels(op=self.op).inc()
+        record_call(self.op)
 
 
 class ResolveView(_HubView):
@@ -80,19 +91,18 @@ class ResolveView(_HubView):
     def post(self, request: Request) -> Response:
         serializer = ResolveRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        resolved = resolve_subject(serializer.validated_data["query"])
+        resolved = resolve(serializer.validated_data["query"])
         user = resolved.user
         organization = None
         if resolved.kind == "organization" and resolved.organization_ids:
             organization = {"id": resolved.organization_ids[0], "exists": True}
-        return Response(
-            {
-                "kind": resolved.kind,
-                "user": {"uuid": user.uuid, "email": user.email, "is_active": user.is_active} if user else None,
-                "organization_ids": list(resolved.organization_ids),
-                "organization": organization,
-            }
-        )
+        payload = {
+            "kind": resolved.kind,
+            "user": {"uuid": user.uuid, "email": user.email, "is_active": user.is_active} if user else None,
+            "organization_ids": list(resolved.organization_ids),
+            "organization": organization,
+        }
+        return Response(ResolveResponseSerializer(payload).data)
 
 
 class CountAccountsView(_HubView):
@@ -102,10 +112,8 @@ class CountAccountsView(_HubView):
     def post(self, request: Request) -> Response:
         serializer = CountAccountsRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        counted = count_active_accounts(
-            serializer.validated_data["target_type"], serializer.validated_data["target_value"]
-        )
-        return Response({"count": counted.count, "capped": counted.capped})
+        counted = count_accounts(serializer.validated_data["target_type"], serializer.validated_data["target_value"])
+        return Response(CountResponseSerializer(counted).data)
 
 
 class OrgMemberCountView(_HubView):
@@ -115,8 +123,9 @@ class OrgMemberCountView(_HubView):
     def post(self, request: Request) -> Response:
         serializer = OrgMemberCountRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        exists, members = count_active_org_members(str(serializer.validated_data["organization_id"]))
-        return Response({"exists": exists, "active_members": members.count, "capped": members.capped})
+        exists, members = count_org_members(str(serializer.validated_data["organization_id"]))
+        payload = {"exists": exists, "active_members": members.count, "capped": members.capped}
+        return Response(OrgMemberCountResponseSerializer(payload).data)
 
 
 class PosthogMembershipView(_HubView):
@@ -128,10 +137,10 @@ class PosthogMembershipView(_HubView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         if "user_uuid" in data:
-            found = has_posthog_account(user_uuid=str(data["user_uuid"]))
+            found = posthog_account_exists(user_uuid=str(data["user_uuid"]))
         else:
-            found = has_posthog_account(organization_id=str(data["organization_id"]))
-        return Response({"has_posthog_account": found})
+            found = posthog_account_exists(organization_id=str(data["organization_id"]))
+        return Response(PosthogMembershipResponseSerializer({"has_posthog_account": found}).data)
 
 
 class SyncNowView(_HubView):
@@ -144,8 +153,8 @@ class SyncNowView(_HubView):
             start_sync_now()
         except Exception:
             logger.exception("security_hub_sync_now_failed")
-            return Response({}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-        return Response({}, status=status.HTTP_202_ACCEPTED)
+            return Response(status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response(status=status.HTTP_202_ACCEPTED)
 
 
 class MfaBypassExportView(_HubView):
@@ -153,16 +162,8 @@ class MfaBypassExportView(_HubView):
 
     @extend_schema(exclude=True)
     def post(self, request: Request) -> Response:
-        exported = export_mfa_bypasses()
-        bypass = exported.global_bypass
-        return Response(
-            {
-                "emails": list(exported.emails),
-                "global": {"reason": bypass.reason, "actor": bypass.actor, "expires_at": bypass.expires_at.isoformat()}
-                if bypass
-                else None,
-            }
-        )
+        exported = mfa_bypasses()
+        return Response(MfaExportResponseSerializer(exported).data)
 
 
 urlpatterns = [
