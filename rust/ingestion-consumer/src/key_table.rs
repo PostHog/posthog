@@ -779,8 +779,22 @@ impl Scheduler for KeyTableScheduler {
         }
     }
 
-    fn on_partitions_revoked(&mut self, partitions: &[(String, i32)]) -> SchedulerEffects {
+    /// Flush the packer before the purge, so the messages it held leave
+    /// under their own epoch before the new assignment replays their
+    /// partitions; a held key was not outstanding, so the purge would
+    /// otherwise have dropped queued messages behind messages still to be
+    /// sent.
+    fn on_partitions_revoked(
+        &mut self,
+        snapshot: &WorkerSnapshot,
+        partitions: &[(String, i32)],
+    ) -> SchedulerEffects {
         let mut effects = SchedulerEffects::default();
+        if let Some(batch) = self.packer.flush(self.now()) {
+            let mut load = working_load(snapshot);
+            self.place(batch, &snapshot.candidates, &mut load, &mut effects);
+        }
+        debug_assert!(self.packer.is_empty(), "a revoke leaves the packer empty");
         let (purged, evicted) = self.table.purge_partitions(partitions);
         if purged > 0 {
             counter!("ingestion_consumer_key_table_purged_messages_total").increment(purged as u64);
@@ -1325,11 +1339,11 @@ mod tests {
         let _ = sched.on_groups(&snapshot(&[], &[]), "b3", 0, vec![run("t:b", &[1])]);
 
         // An unrelated partition purges nothing.
-        let effects = sched.on_partitions_revoked(&[("test".to_string(), 7)]);
+        let effects = sched.on_partitions_revoked(&snapshot(&[A], &[]), &[("test".to_string(), 7)]);
         assert!(effects.evicted_keys.is_empty());
         assert_eq!(sched.table().queued_messages(), 1);
 
-        let effects = sched.on_partitions_revoked(&[("test".to_string(), 0)]);
+        let effects = sched.on_partitions_revoked(&snapshot(&[A], &[]), &[("test".to_string(), 0)]);
 
         assert_eq!(sched.table().queued_messages(), 0);
         assert_eq!(sched.table().queued_bytes(), 0);
@@ -1363,7 +1377,7 @@ mod tests {
         assert_eq!(sent.dispatches.len(), 1);
 
         // No queued messages exist to identify the outstanding run during purge.
-        let _ = sched.on_partitions_revoked(&[("test".to_string(), 0)]);
+        let _ = sched.on_partitions_revoked(&live, &[("test".to_string(), 0)]);
         let settled = sched.on_settled(&live, failed(A, vec![run("t:a", &[1])]));
         assert!(settled.dispatches.is_empty());
 
@@ -1393,8 +1407,8 @@ mod tests {
         let sent = sched.on_groups(&live, "b1", 5, vec![mixed_run()]);
         assert_eq!(sent.dispatches.len(), 1);
 
-        let _ = sched.on_partitions_revoked(&[("test".to_string(), 0)]);
-        let _ = sched.on_partitions_revoked(&[("test".to_string(), 2)]);
+        let _ = sched.on_partitions_revoked(&live, &[("test".to_string(), 0)]);
+        let _ = sched.on_partitions_revoked(&live, &[("test".to_string(), 2)]);
         let _ = sched.on_settled(&live, failed(A, vec![mixed_run()]));
 
         let retry = sched.on_deadline(&live, Deadline::ParkedRetry);
@@ -1416,7 +1430,7 @@ mod tests {
         let live = snapshot(&[A], &[]);
         let sent = sched.on_groups(&live, "b1", 5, vec![run("t:a", &[1])]);
         assert_eq!(sent.dispatches.len(), 1);
-        let _ = sched.on_partitions_revoked(&[("test".to_string(), 0)]);
+        let _ = sched.on_partitions_revoked(&live, &[("test".to_string(), 0)]);
 
         // The same offset is polled again before the old send settles.
         let queued = sched.on_groups(&live, "b2", 6, vec![run("t:a", &[1, 2])]);
@@ -1827,6 +1841,30 @@ mod tests {
 
         assert!(effects.dispatches.is_empty());
         assert!(effects.evicted_keys.is_empty());
+    }
+
+    #[test]
+    fn test_a_revoke_flushes_the_packer_before_the_purge() {
+        let mut sched = packing_scheduler(100, 0);
+        let live = snapshot(&[A], &[]);
+        let _ = sched.on_groups(&live, "b1", 5, vec![run("t:a", &[1]), run("t:b", &[2])]);
+        assert_eq!(sched.held_messages(), 2);
+        assert_eq!(sched.table().queued_messages(), 0);
+
+        let effects = sched.on_partitions_revoked(&live, &[("test".to_string(), 0)]);
+
+        assert_eq!(effects.dispatches.len(), 1);
+        assert_eq!(keys_of(&effects.dispatches[0]), vec!["t:a", "t:b"]);
+        assert_eq!(effects.dispatches[0].assignment_epoch, Some(5));
+        assert!(sched.packer.is_empty());
+        assert_eq!(sched.held_messages(), 0);
+        assert_eq!(sched.table().outstanding_keys(), 2, "on the wire now");
+
+        // A failure after the revoke does not resurrect the flushed messages.
+        let _ = sched.on_settled(&live, failed(A, vec![run("t:a", &[1]), run("t:b", &[2])]));
+        let retry = sched.on_deadline(&live, Deadline::ParkedRetry);
+        assert!(retry.dispatches.is_empty());
+        assert_eq!(sched.table().key_count(), 0);
     }
 
     #[test]

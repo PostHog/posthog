@@ -334,10 +334,18 @@ impl Scheduler for SchedulerImpl {
         }
     }
 
-    fn on_partitions_revoked(&mut self, partitions: &[(String, i32)]) -> SchedulerEffects {
+    fn on_partitions_revoked(
+        &mut self,
+        snapshot: &WorkerSnapshot,
+        partitions: &[(String, i32)],
+    ) -> SchedulerEffects {
         match self {
-            SchedulerImpl::PinStash(scheduler) => scheduler.on_partitions_revoked(partitions),
-            SchedulerImpl::KeyTable(scheduler) => scheduler.on_partitions_revoked(partitions),
+            SchedulerImpl::PinStash(scheduler) => {
+                scheduler.on_partitions_revoked(snapshot, partitions)
+            }
+            SchedulerImpl::KeyTable(scheduler) => {
+                scheduler.on_partitions_revoked(snapshot, partitions)
+            }
         }
     }
 }
@@ -895,14 +903,25 @@ impl Dispatcher {
     }
 
     /// Drop the scheduler's queued messages for revoked partitions, as
-    /// `(topic, partition)`. Called from the consumer's rebalance callback.
-    pub fn purge_revoked(&self, partitions: &[(String, i32)]) {
+    /// `(topic, partition)`, and hand every batch the packer flushed to
+    /// `send` under the lock. Called from the consumer's rebalance callback;
+    /// the caller must await every returned send and settle it exactly once.
+    pub fn purge_revoked_and_send<T>(
+        &self,
+        partitions: &[(String, i32)],
+        send: impl FnMut(SubBatch) -> T,
+    ) -> Vec<T> {
         let mut inner = self.inner.lock().unwrap();
-        let effects = inner.scheduler.on_partitions_revoked(partitions);
-        debug_assert!(effects.dispatches.is_empty(), "a purge never dispatches");
-        for key in &effects.evicted_keys {
+        let snapshot = self.worker_snapshot(&inner.in_flight);
+        let SchedulerEffects {
+            dispatches,
+            evicted_keys,
+            ..
+        } = inner.scheduler.on_partitions_revoked(&snapshot, partitions);
+        for key in &evicted_keys {
             self.key_sentinel.evict(key);
         }
+        self.send_assigned(&mut inner, dispatches, send)
     }
 
     /// The key table's pending work, for the pump's stall watchdog; `None`

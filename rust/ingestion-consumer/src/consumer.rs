@@ -339,13 +339,20 @@ impl IngestionConsumer {
         let revoke_ledger = Arc::clone(&topic_offset_ledger);
         let revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>> =
             Arc::new(Mutex::new(Vec::new()));
-        let purge_dispatcher = Arc::clone(&dispatcher);
         let hook_revoked = (dispatcher.scheduler_kind() == SchedulerKind::KeyTable)
             .then(|| Arc::clone(&revoked_partitions));
+        let (batcher, outputs) = Batcher::new(
+            dispatcher,
+            Arc::clone(&transport),
+            handle.clone(),
+            options.deferred_flush_timeout,
+            options.parked_retry_interval,
+        );
+        let revoker = batcher.revoker();
         consumer
             .context()
             .set_revoke_hook(Box::new(move |partitions| {
-                purge_dispatcher.purge_revoked(partitions);
+                revoker.purge_revoked(partitions);
                 if let Some(list) = &hook_revoked {
                     list.lock()
                         .unwrap()
@@ -360,13 +367,6 @@ impl IngestionConsumer {
                 }
             }));
         let consumer = Arc::new(consumer);
-        let (batcher, outputs) = Batcher::new(
-            dispatcher,
-            Arc::clone(&transport),
-            handle.clone(),
-            options.deferred_flush_timeout,
-            options.parked_retry_interval,
-        );
         Self {
             commit_sentinel,
             debug_recorder: options.debug_recorder,
@@ -427,11 +427,11 @@ impl IngestionConsumer {
         let revoke_ledger = Arc::clone(&topic_offset_ledger);
         let revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>> =
             Arc::new(Mutex::new(Vec::new()));
-        let purge_dispatcher = batcher.dispatcher();
-        let hook_revoked = (purge_dispatcher.scheduler_kind() == SchedulerKind::KeyTable)
+        let hook_revoked = (batcher.dispatcher().scheduler_kind() == SchedulerKind::KeyTable)
             .then(|| Arc::clone(&revoked_partitions));
+        let revoker = batcher.revoker();
         context.set_revoke_hook(Box::new(move |partitions| {
-            purge_dispatcher.purge_revoked(partitions);
+            revoker.purge_revoked(partitions);
             if let Some(list) = &hook_revoked {
                 list.lock()
                     .unwrap()

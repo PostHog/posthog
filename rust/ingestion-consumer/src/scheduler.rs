@@ -240,8 +240,14 @@ pub trait Scheduler {
     ) -> SchedulerEffects;
 
     /// Partitions were revoked, as `(topic, partition)`. Queued messages for
-    /// them must drop: the new partition owner replays them.
-    fn on_partitions_revoked(&mut self, _partitions: &[(String, i32)]) -> SchedulerEffects {
+    /// them must drop: the new partition owner replays them. Runs already
+    /// taken from their queues go out first, so the caller sends the
+    /// dispatches like any other seam call's.
+    fn on_partitions_revoked(
+        &mut self,
+        _snapshot: &WorkerSnapshot,
+        _partitions: &[(String, i32)],
+    ) -> SchedulerEffects {
         SchedulerEffects::default()
     }
 }

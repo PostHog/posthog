@@ -195,9 +195,16 @@ impl Batcher {
         self.inner.dispatcher.key_order_sentinel()
     }
 
-    /// The dispatcher, for the consumer's revocation hook.
     pub fn dispatcher(&self) -> Arc<Dispatcher> {
         Arc::clone(&self.inner.dispatcher)
+    }
+
+    /// The batcher's half of the consumer's revocation hook.
+    pub fn revoker(&self) -> Revoker {
+        Revoker {
+            inner: Arc::clone(&self.inner),
+            runtime: tokio::runtime::Handle::current(),
+        }
     }
 
     /// Submit one poll's demuxed groups. Call on the consumer loop, in poll
@@ -251,6 +258,37 @@ impl Drop for Batcher {
     fn drop(&mut self) {
         if let Some(pump) = self.parked_retry_pump.take() {
             pump.abort();
+        }
+    }
+}
+
+/// Purges revoked partitions from the scheduler and sends what the packer
+/// flushed. Runs on the rebalance callback's thread, which is not a runtime
+/// task, so the awaiters spawn through a runtime handle.
+#[derive(Clone)]
+pub struct Revoker {
+    inner: Arc<BatcherInner>,
+    runtime: tokio::runtime::Handle,
+}
+
+impl Revoker {
+    pub fn purge_revoked(&self, partitions: &[(String, i32)]) {
+        let flush_id = make_batch_id();
+        let pending = self
+            .inner
+            .dispatcher
+            .purge_revoked_and_send(partitions, |sub_batch| {
+                begin_send(&self.inner.transport, &flush_id, sub_batch, false)
+            });
+        let epoch = self.inner.assignment_epoch.current();
+        for sub_batch in pending {
+            drop(self.runtime.spawn(await_settled(
+                Arc::clone(&self.inner),
+                flush_id.clone(),
+                sub_batch,
+                false,
+                epoch,
+            )));
         }
     }
 }
