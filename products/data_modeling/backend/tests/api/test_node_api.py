@@ -13,6 +13,7 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.models import Team
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.logic.node_frequency import set_declared_target
 from products.data_modeling.backend.logic.node_materialization import start_node_materialization
 from products.data_modeling.backend.logic.node_suspension import (
@@ -22,6 +23,7 @@ from products.data_modeling.backend.logic.node_suspension import (
 )
 from products.data_modeling.backend.models import DAG, DataModelingJob, DataModelingJobEngine, Edge, Node, NodeType
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
 
@@ -942,6 +944,137 @@ class TestMetricNodeVisibility(WarehouseAccessControlTestMixin):
         node_ids = {node["id"] for node in payload["nodes"]}
         self.assertEqual(str(self.metric_node.id) in node_ids, expected_visible)
         self.assertEqual(len(payload["edges"]) == 1, expected_visible)
+
+
+@pytest.mark.ee
+class TestNodeObjectLevelVisibility(WarehouseAccessControlTestMixin):
+    # Resource access to the umbrella, then a "none" rule on one table and one view: the reader
+    # clears the resource gate on every node action and must still not learn those two exist.
+    resource = "warehouse_objects"
+
+    def setUp(self):
+        super().setUp()
+        self.dag = DAG.objects.create(team=self.team, name=f"posthog_{self.team.id}")
+        self.denied_table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="payroll",
+            format="Parquet",
+            url_pattern="https://bucket.s3/payroll/*",
+            columns={"amount": {"clickhouse": "Nullable(Int64)"}},
+        )
+        self.table_node = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            name="payroll",
+            type=NodeType.TABLE,
+            properties={"origin": "warehouse", "warehouse_table_id": str(self.denied_table.id)},
+        )
+        self.denied_view = self._view_node("salaries")
+        self.allowed_view = self._view_node("accounts")
+        self.metric_node = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            name="median_salary",
+            type=NodeType.METRIC,
+            metric_id=uuid4(),
+        )
+        self.table_edge = Edge.objects.create(
+            team=self.team, dag=self.dag, source=self.table_node, target=self.denied_view
+        )
+        self.metric_edge = Edge.objects.create(
+            team=self.team, dag=self.dag, source=self.denied_view, target=self.metric_node
+        )
+        self.downstream_edge = Edge.objects.create(
+            team=self.team, dag=self.dag, source=self.denied_view, target=self.allowed_view
+        )
+
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._create_access_control(
+            self.viewer_user,
+            resource="warehouse_view",
+            resource_id=str(self.denied_view.saved_query_id),
+            access_level="none",
+        )
+        self._create_access_control(
+            self.viewer_user, resource="warehouse_table", resource_id=str(self.denied_table.id), access_level="none"
+        )
+        self.client.force_login(self.viewer_user)
+
+    def _view_node(self, name: str) -> Node:
+        return Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            saved_query=DataWarehouseSavedQuery.objects.create(
+                name=name, team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+            ),
+            type=NodeType.VIEW,
+        )
+
+    def _list_nodes(self) -> set[str]:
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return {node["id"] for node in response.json()["results"]}
+
+    def test_node_list_omits_denied_objects_and_their_metrics(self):
+        node_ids = self._list_nodes()
+
+        self.assertNotIn(str(self.denied_view.id), node_ids)
+        self.assertNotIn(str(self.table_node.id), node_ids)
+        self.assertNotIn(str(self.metric_node.id), node_ids)
+        self.assertIn(str(self.allowed_view.id), node_ids)
+
+    def test_node_list_is_whole_when_the_denial_is_lifted(self):
+        AccessControl.objects.filter(team=self.team).exclude(access_level="viewer").delete()
+
+        node_ids = self._list_nodes()
+
+        self.assertEqual(
+            node_ids,
+            {
+                str(self.table_node.id),
+                str(self.denied_view.id),
+                str(self.allowed_view.id),
+                str(self.metric_node.id),
+            },
+        )
+
+    @parameterized.expand([("denied_view",), ("table_node",), ("metric_node",)])
+    def test_retrieving_a_denied_node_is_a_404(self, attribute):
+        node = getattr(self, attribute)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{node.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_lineage_omits_denied_nodes_and_every_edge_touching_one(self):
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?node_id={self.allowed_view.id}"
+        )
+
+        payload = response.json()
+        self.assertEqual({node["id"] for node in payload["nodes"]}, {str(self.allowed_view.id)})
+        self.assertEqual(payload["edges"], [])
+
+    def test_lineage_for_a_denied_node_is_a_404(self):
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?node_id={self.denied_view.id}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_edge_list_omits_every_edge_touching_a_denied_node(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
+
+        self.assertEqual(response.json()["results"], [])
+
+    def test_counts_never_report_a_node_the_reader_cannot_see(self):
+        upstream = self._view_node("headcount")
+        Edge.objects.create(team=self.team, dag=self.dag, source=upstream, target=self.allowed_view)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
+
+        node = next(n for n in response.json()["results"] if n["id"] == str(self.allowed_view.id))
+        self.assertEqual(node["upstream_count"], 1)
 
 
 @pytest.mark.ee

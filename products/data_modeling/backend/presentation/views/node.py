@@ -44,7 +44,7 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
-from products.data_modeling.backend.presentation.views.metric_visibility import MetricNodeVisibilityMixin
+from products.data_modeling.backend.presentation.views.node_visibility import NodeVisibilityMixin
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
 
@@ -156,16 +156,16 @@ class NodeSerializer(serializers.ModelSerializer):
         counts = self.context.get("node_counts")
         if counts and str(node.id) in counts:
             return counts[str(node.id)][0]
-        return len(_get_upstream_nodes(node, hidden_types=self._hidden_types()))
+        return len(_get_upstream_nodes(node, hidden_node_ids=self._hidden_node_ids()))
 
     def get_downstream_count(self, node: Node) -> int:
         counts = self.context.get("node_counts")
         if counts and str(node.id) in counts:
             return counts[str(node.id)][1]
-        return len(_get_downstream_nodes(node, hidden_types=self._hidden_types()))
+        return len(_get_downstream_nodes(node, hidden_node_ids=self._hidden_node_ids()))
 
-    def _hidden_types(self) -> frozenset[str]:
-        return self.context.get("hidden_node_types") or frozenset()
+    def _hidden_node_ids(self) -> frozenset[str]:
+        return self.context.get("hidden_node_ids") or frozenset()
 
     def get_last_run_at(self, node: Node) -> str | None:
         run_at = getattr(node, "_latest_job_run_at", None)
@@ -243,7 +243,7 @@ _READ_DENIED = "Reading data models requires data warehouse read access."
 
 
 def _get_upstream_nodes(
-    node: Node, include_tables: bool = False, hidden_types: frozenset[str] = frozenset()
+    node: Node, include_tables: bool = False, hidden_node_ids: frozenset[str] = frozenset()
 ) -> set[str]:
     """Get all upstream (ancestor) node IDs recursively, optionally excluding TABLE nodes."""
     nodes: set[str] = set()
@@ -256,14 +256,14 @@ def _get_upstream_nodes(
         )
         if not include_tables:
             qs = qs.exclude(source__type=NodeType.TABLE)
-        if hidden_types:
-            qs = qs.exclude(source__type__in=hidden_types)
+        if hidden_node_ids:
+            qs = qs.exclude(source_id__in=hidden_node_ids)
         current = list(qs.values_list("source_id", flat=True))
         nodes.update(str(i) for i in current)
     return nodes
 
 
-def _get_downstream_nodes(node: Node, hidden_types: frozenset[str] = frozenset()) -> set[str]:
+def _get_downstream_nodes(node: Node, hidden_node_ids: frozenset[str] = frozenset()) -> set[str]:
     """Get all downstream (descendant) node IDs recursively, excluding TABLE nodes."""
     nodes: set[str] = set()
     current = [node.id]
@@ -273,8 +273,8 @@ def _get_downstream_nodes(node: Node, hidden_types: frozenset[str] = frozenset()
             dag=node.dag,
             source_id__in=current,
         )
-        if hidden_types:
-            qs = qs.exclude(target__type__in=hidden_types)
+        if hidden_node_ids:
+            qs = qs.exclude(target_id__in=hidden_node_ids)
         current = list(qs.values_list("target_id", flat=True))
         nodes.update(str(i) for i in current)
     return nodes
@@ -308,7 +308,7 @@ class LineageResponseSerializer(serializers.Serializer):
     edges = EdgeSerializer(many=True, help_text="Every edge between two of those nodes.")
 
 
-class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class NodeViewSet(NodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = Node.objects.select_related("saved_query", "dag").all()
     serializer_class = NodeSerializer
@@ -318,7 +318,7 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
     ordering = "name"
 
     def get_serializer_context(self) -> dict[str, Any]:
-        return {**super().get_serializer_context(), "hidden_node_types": self._hidden_node_types()}
+        return {**super().get_serializer_context(), "hidden_node_ids": self._hidden_node_ids}
 
     def perform_destroy(self, instance: Node) -> None:
         if instance.dag.is_managed:
@@ -329,7 +329,10 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
 
     def _require_warehouse_access(self, *, level: AccessControlLevel, message: str) -> None:
         """`scope_object = "INTERNAL"` makes AccessControlPermission skip this viewset entirely, so
-        warehouse RBAC has to be re-applied by hand (warehouse_view inherits warehouse_objects)."""
+        warehouse RBAC has to be re-applied by hand (warehouse_view inherits warehouse_objects).
+
+        This is the resource half only. Object grants decide which nodes a reader who clears it
+        gets, and NodeVisibilityMixin applies those."""
         if not self.user_access_control.check_access_level_for_resource("warehouse_view", required_level=level):
             raise PermissionDenied(message)
 
@@ -347,7 +350,7 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
         nodes = page if page is not None else queryset
 
         dag_id = self._get_dag_id_param()
-        graph = Graph(team_id=self.team_id, dag_id=dag_id, hidden_types=self._hidden_node_types())
+        graph = Graph(team_id=self.team_id, dag_id=dag_id, hidden_node_ids=self._hidden_node_ids)
         node_ids = [str(n.id) for n in nodes]
         counts = graph.batch_counts(node_ids)
 
@@ -500,9 +503,9 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
         if node is None:
             return response.Response({"error": "Node not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        hidden_types = self._hidden_node_types()
-        upstream_ids = _get_upstream_nodes(node, include_tables=True, hidden_types=hidden_types)
-        downstream_ids = _get_downstream_nodes(node, hidden_types=hidden_types)
+        hidden = self._hidden_node_ids
+        upstream_ids = _get_upstream_nodes(node, include_tables=True, hidden_node_ids=hidden)
+        downstream_ids = _get_downstream_nodes(node, hidden_node_ids=hidden)
         all_ids = upstream_ids | downstream_ids | {str(node.id)}
 
         nodes = self._exclude_hidden_nodes(

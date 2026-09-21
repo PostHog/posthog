@@ -167,6 +167,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import feature_enabled_or_false
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode, SessionTableVersion
@@ -2907,6 +2908,101 @@ def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name:
         return f"{source_type}.{prefix}.{table_name_stripped}".lower()
 
     return f"{source_type}.{table_name_stripped}".lower()
+
+
+@frozen
+class DeniedWarehouseObjects:
+    """The warehouse objects one reader holds no viewer grant on.
+
+    `Database` records the same denials in `_denied_tables` while it builds a schema, which is far
+    more work than a metadata reader needs: a lineage graph or a node list wants one boolean per
+    object, not a resolved column set. `names` carries both the bare and the qualified form of each
+    denied table, the two forms `_denied_tables` holds, because a caller may have written either.
+    """
+
+    table_ids: frozenset[str]
+    saved_query_ids: frozenset[str]
+    names: frozenset[str]
+
+    def __bool__(self) -> bool:
+        return bool(self.table_ids or self.saved_query_ids or self.names)
+
+
+NOTHING_DENIED = DeniedWarehouseObjects(table_ids=frozenset(), saved_query_ids=frozenset(), names=frozenset())
+
+# The resources an object grant on a warehouse table or view can come from. `warehouse_table` falls
+# back to `external_data_source`, so a rule on a source denies the tables under it.
+_WAREHOUSE_OBJECT_RESOURCES: tuple[APIScopeObject, ...] = (
+    "warehouse_view",
+    "warehouse_table",
+    "external_data_source",
+)
+
+
+def _team_has_warehouse_object_grants(user_access_control: UserAccessControl) -> bool:
+    """Whether any object-level rule could change this reader's answer for a table or a view.
+
+    Without one, every object resolves to the reader's resource level, so the resource checks the
+    caller already makes settle it and no object has to be loaded at all.
+    """
+    if any(
+        resource in user_access_control.blocked_resource_ids_by_scope
+        or resource in user_access_control.allowlisted_resource_ids_by_scope
+        for resource in _WAREHOUSE_OBJECT_RESOURCES
+    ):
+        return True
+    # Resource-level "none" turns listing into an allowlist, so the objects still have to be walked
+    # even when no denial is recorded for them.
+    return not user_access_control.has_resource_access("warehouse_view") or not user_access_control.has_resource_access(
+        "warehouse_table"
+    )
+
+
+def denied_warehouse_objects(team_id: int, user_access_control: UserAccessControl) -> DeniedWarehouseObjects:
+    """Resolve the object grants `_is_warehouse_table_denied` and `_is_warehouse_view_denied` apply,
+    without building a database.
+
+    The decision per object is the same call those two make, so the query path and the metadata
+    paths cannot drift onto different rules. Only the ids and names access resolution needs are
+    read, and nothing is read at all for a team that holds no object-level warehouse rules.
+    """
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
+    from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
+
+    if user_access_control.is_organization_admin or not user_access_control.access_controls_supported:
+        return NOTHING_DENIED
+    if not _team_has_warehouse_object_grants(user_access_control):
+        return NOTHING_DENIED
+
+    table_ids: set[str] = set()
+    saved_query_ids: set[str] = set()
+    names: set[str] = set()
+
+    tables = (
+        DataWarehouseTable.objects.filter(team_id=team_id)
+        .exclude(deleted=True)
+        .select_related("external_data_source")
+        .only("id", "name", "created_by", "external_data_source")
+    )
+    for table in tables:
+        if user_access_control.check_access_level_for_object(table, required_level="viewer"):
+            continue
+        table_ids.add(str(table.id))
+        names.add(table.name)
+        names.add(get_data_warehouse_table_name(table.external_data_source, table.name))
+
+    saved_queries = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True).only("id", "name", "created_by")
+    )
+    for saved_query in saved_queries:
+        if user_access_control.check_access_level_for_object(saved_query, required_level="viewer"):
+            continue
+        saved_query_ids.add(str(saved_query.id))
+        names.add(saved_query.name)
+
+    return DeniedWarehouseObjects(
+        table_ids=frozenset(table_ids), saved_query_ids=frozenset(saved_query_ids), names=frozenset(names)
+    )
 
 
 def _use_person_properties_from_events(database: Database) -> None:
