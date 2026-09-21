@@ -2739,7 +2739,7 @@ export interface LogsSourceSetupApi {
     /** Recommended Firehose content encoding. */
     content_encoding: string
     /**
-     * CloudFormation quick-create link with the endpoint, key and stack name filled in, or null when no template is published.
+     * CloudFormation quick-create link with the endpoint, key and stack name filled in, and the log group left as a placeholder for the customer to replace. Null when no template is published.
      * @nullable
      */
     quick_create_url: string | null

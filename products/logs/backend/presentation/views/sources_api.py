@@ -116,9 +116,14 @@ class LogsSourceSetupSerializer(serializers.Serializer):
     buffering_interval_seconds = serializers.IntegerField(help_text="Recommended Firehose buffer interval.")
     retry_duration_seconds = serializers.IntegerField(help_text="Recommended Firehose retry duration.")
     content_encoding = serializers.CharField(help_text="Recommended Firehose content encoding.")
-    quick_create_url = serializers.URLField(
+    # A template rather than a URL: the log group is left as a placeholder the customer replaces,
+    # so `URLField` would advertise a `uri` that does not resolve as given.
+    quick_create_url = serializers.CharField(
         allow_null=True,
-        help_text="CloudFormation quick-create link with the endpoint, key and stack name filled in, or null when no template is published.",
+        help_text=(
+            "CloudFormation quick-create link with the endpoint, key and stack name filled in, and the log group "
+            "left as a placeholder for the customer to replace. Null when no template is published."
+        ),
     )
 
 

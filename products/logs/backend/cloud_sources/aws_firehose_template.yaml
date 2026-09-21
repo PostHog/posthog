@@ -7,7 +7,9 @@ Description: >-
 Parameters:
     PostHogEndpointUrl:
         Type: String
-        Description: HTTP endpoint URL shown in PostHog under Settings > Logs > Cloud provider sources.
+        Description: >-
+            Endpoint URL shown in PostHog under Settings > Logs > Cloud provider sources. Amazon Data Firehose
+            delivers only to HTTPS endpoints, so a self-hosted PostHog must be reachable from AWS over HTTPS.
         AllowedPattern: '^https://.+'
     PostHogAccessKey:
         Type: String
@@ -16,6 +18,13 @@ Parameters:
     LogGroupName:
         Type: String
         Description: CloudWatch log group to stream, for example /aws/lambda/checkout-api.
+    FilterPattern:
+        Type: String
+        Default: ''
+        Description: >-
+            CloudWatch subscription filter pattern. Empty forwards every log line in the group, which is what
+            most groups want. Set a pattern such as ERROR to forward only matching lines and lower the volume
+            you are billed for in Firehose.
     BufferSizeMB:
         Type: Number
         Default: 1
@@ -139,7 +148,7 @@ Resources:
         Type: AWS::Logs::SubscriptionFilter
         Properties:
             LogGroupName: !Ref LogGroupName
-            FilterPattern: ''
+            FilterPattern: !Ref FilterPattern
             DestinationArn: !GetAtt DeliveryStream.Arn
             RoleArn: !GetAtt LogsToFirehoseRole.Arn
 

@@ -1,6 +1,6 @@
 import re
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 TEMPLATE_PATH = Path(__file__).with_name("aws_firehose_template.yaml")
 
@@ -17,6 +17,16 @@ FIREHOSE_RETRY_DURATION_SECONDS = 300
 
 STACK_NAME_MAX_LENGTH = 128
 STACK_NAME_ID_LENGTH = 8
+
+# Only the customer knows which log group to stream, so the link carries a placeholder for it.
+# Leaving the link deliberately incomplete also stops it being opened without being read, which
+# matters while no template has been deployed from this stack yet.
+LOG_GROUP_PLACEHOLDER = "{your-log-group-name}"
+
+
+def _quote_keeping_placeholders(value: str, safe: str, encoding: str, errors: str) -> str:
+    """Percent-encode a query value but leave `{}` alone, so the placeholder stays readable."""
+    return quote(str(value), safe="{}")
 
 
 def stack_name_for(source_name: str, source_id: str) -> str:
@@ -43,8 +53,9 @@ def console_host(region: str) -> str | None:
 def quick_create_url(
     *, region: str, template_url: str, endpoint_url: str, access_key: str, source_name: str, source_id: str
 ) -> str | None:
-    """CloudFormation quick-create link: opens the customer's console with the template and its
-    parameters filled in. Nothing is created until they click Create stack there."""
+    """CloudFormation quick-create link, shown as a value to read and edit rather than a button.
+    The log group is a placeholder, so the customer fills it in before the link resolves to a
+    stack. Nothing is created until they click Create stack in their own console."""
     host = console_host(region)
     if host is None:
         return None
@@ -54,9 +65,11 @@ def quick_create_url(
             "stackName": stack_name_for(source_name, source_id),
             "param_PostHogEndpointUrl": endpoint_url,
             "param_PostHogAccessKey": access_key,
+            "param_LogGroupName": LOG_GROUP_PLACEHOLDER,
             "param_BufferSizeMB": FIREHOSE_BUFFER_SIZE_MB,
             "param_BufferIntervalSeconds": FIREHOSE_BUFFER_INTERVAL_SECONDS,
             "param_RetryDurationSeconds": FIREHOSE_RETRY_DURATION_SECONDS,
-        }
+        },
+        quote_via=_quote_keeping_placeholders,
     )
     return f"https://{host}/cloudformation/home?region={region}#/stacks/quickcreate?{params}"

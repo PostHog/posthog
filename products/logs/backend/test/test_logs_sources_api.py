@@ -15,6 +15,7 @@ from posthog.models.team import Team
 
 from products.logs.backend.cloud_sources.aws_firehose import (
     FIREHOSE_ENDPOINT_PATH,
+    LOG_GROUP_PLACEHOLDER,
     TEMPLATE_PATH,
     quick_create_url,
     stack_name_for,
@@ -208,6 +209,10 @@ class TestAwsFirehoseTemplate(SimpleTestCase):
         filled = {key.removeprefix("param_") for key in query if key.startswith("param_")}
         assert filled <= set(template["Parameters"])
         assert template["Parameters"]["PostHogAccessKey"]["NoEcho"] is True
+        # The link stays deliberately incomplete, so it reads as a helper rather than a one-click
+        # provisioning action. The placeholder must also survive encoding to stay readable.
+        assert query["param_LogGroupName"] == [LOG_GROUP_PLACEHOLDER]
+        assert LOG_GROUP_PLACEHOLDER in link
 
     @parameterized.expand(
         [
