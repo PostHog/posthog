@@ -1759,7 +1759,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 {"detail": "AI draft outcome is already recorded.", "error_type": "human_outcome_already_set"},
                 status=drf_status.HTTP_409_CONFLICT,
             )
-        return Response({"outcome": outcome}, status=drf_status.HTTP_202_ACCEPTED)
+        return Response(serializer.data, status=drf_status.HTTP_202_ACCEPTED)
 
     @extend_schema(
         request=ComposeTicketSerializer,
