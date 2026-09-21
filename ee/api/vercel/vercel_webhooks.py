@@ -1,10 +1,8 @@
 import hmac
 import hashlib
-from typing import Any
 
 from django.conf import settings
 
-import requests as outbound_requests
 import structlog
 from rest_framework import status
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -12,51 +10,10 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.organization_integration import OrganizationIntegration
 
-from ee.billing.billing_manager import BillingManager, BillingServiceOpenInvoicesError
-from ee.models import License
-from ee.vercel.integration import VercelIntegration
+from ee.api.vercel.webhook_events import VercelEventOutcome, VercelEventProcessingError, handle_vercel_event
 
 logger = structlog.get_logger(__name__)
-
-BILLING_EVENT_PREFIX = "marketplace.invoice."
-DEAUTHORIZATION_EVENT = "integration-configuration.removed"
-
-CROSS_REGION_PROXY_TIMEOUT = 10
-DEFAULT_US_DOMAIN = "us.posthog.com"
-DEFAULT_EU_DOMAIN = "eu.posthog.com"
-
-
-def _is_us_region() -> bool:
-    us_domain = getattr(settings, "REGION_US_DOMAIN", DEFAULT_US_DOMAIN)
-    return settings.SITE_URL == f"https://{us_domain}"
-
-
-def _proxy_deauthorization_to_eu(raw_body: bytes, signature: str | None) -> int | None:
-    """Forward a deauthorization webhook to EU. Returns the EU status code, or None on failure."""
-    eu_domain = getattr(settings, "REGION_EU_DOMAIN", DEFAULT_EU_DOMAIN)
-    target_url = f"https://{eu_domain}/webhooks/vercel"
-
-    headers: dict[str, str] = {"Content-Type": "application/json"}
-    if signature:
-        headers["x-vercel-signature"] = signature
-
-    try:
-        response = outbound_requests.post(
-            url=target_url,
-            data=raw_body,
-            headers=headers,
-            timeout=CROSS_REGION_PROXY_TIMEOUT,
-        )
-        logger.info(
-            "vercel_webhook_proxied_to_eu",
-            status_code=response.status_code,
-        )
-        return response.status_code
-    except outbound_requests.RequestException as e:
-        logger.warning("vercel_webhook_proxy_to_eu_failed", error=str(e))
-        return None
 
 
 def _is_valid_signature(payload: bytes, signature: str | None) -> bool:
@@ -73,41 +30,13 @@ def _is_valid_signature(payload: bytes, signature: str | None) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
-def _extract_config_id(payload: dict[str, Any]) -> str | None:
-    # Billing events use "installationId". Deauthorization events use "configuration.id".
-    return payload.get("installationId") or payload.get("configuration", {}).get("id")
-
-
-def _is_billing_event(event_type: str | None) -> bool:
-    return bool(event_type and event_type.startswith(BILLING_EVENT_PREFIX))
-
-
-def _is_deauthorization_event(event_type: str | None) -> bool:
-    return event_type == DEAUTHORIZATION_EVENT
-
-
-def _get_integration(config_id: str) -> OrganizationIntegration | None:
-    try:
-        return OrganizationIntegration.objects.select_related("organization").get(
-            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
-            integration_id=config_id,
-        )
-    except OrganizationIntegration.DoesNotExist:
-        return None
-
-
-def _forward_to_billing_service(event_type: str, payload: dict[str, Any], integration: OrganizationIntegration) -> None:
-    license = License.objects.first()
-    if not license:
-        raise ValueError("No license configured")
-
-    billing_manager = BillingManager(license=license)
-    billing_manager.handle_billing_provider_webhook(
-        event_type=event_type,
-        event_data=payload,
-        organization=integration.organization,
-        billing_provider="vercel",
-    )
+# The outcomes the handling reports, and what each one answers Vercel.
+_OUTCOME_RESPONSES = {
+    VercelEventOutcome.ACCEPTED: ({"status": "ok"}, status.HTTP_200_OK),
+    VercelEventOutcome.IGNORED: ({"status": "ignored"}, status.HTTP_200_OK),
+    VercelEventOutcome.MISSING_CONFIG_ID: ({"error": "Missing configurationId"}, status.HTTP_400_BAD_REQUEST),
+    VercelEventOutcome.UNKNOWN_CONFIG: ({"error": "Unknown configuration"}, status.HTTP_404_NOT_FOUND),
+}
 
 
 @api_view(["POST"])
@@ -123,83 +52,15 @@ def vercel_webhook(request: Request) -> Response:
         logger.warning("vercel_webhook_invalid_signature")
         return Response({"error": "Invalid signature"}, status=status.HTTP_401_UNAUTHORIZED)
 
-    event_type = request.data.get("type")
-    payload = request.data.get("payload", {})
-    config_id = _extract_config_id(payload)
-
-    logger.info("vercel_webhook_received", event_type=event_type, config_id=config_id)
-
-    if _is_deauthorization_event(event_type):
-        if not config_id:
-            logger.error("vercel_webhook_deauthorize_missing_config_id")
-            return Response({"error": "Missing configurationId"}, status=status.HTTP_400_BAD_REQUEST)
-
-        integration = _get_integration(config_id)
-        if integration:
-            is_connectable = integration.config.get("type") == "connectable"
-            logger.info(
-                "vercel_webhook_deauthorize",
-                config_id=config_id,
-                org_id=str(integration.organization_id),
-                is_connectable=is_connectable,
-            )
-            if is_connectable:
-                integration.delete()
-            else:
-                try:
-                    VercelIntegration.delete_installation(config_id)
-                except BillingServiceOpenInvoicesError as e:
-                    # Vercel ignores non-200 from webhooks and shows "Integration Deleted" regardless.
-                    # The marketplace DELETE API endpoint handles the actual blocking with 409.
-                    # Log the warning but return 200 to avoid misleading error tracking noise.
-                    logger.warning(
-                        "vercel_webhook_deauthorize_blocked_by_open_invoices",
-                        config_id=config_id,
-                        reason=e.message,
-                    )
-                except Exception as e:
-                    logger.exception("vercel_webhook_deauthorize_delete_failed", config_id=config_id)
-                    capture_exception(e, {"config_id": config_id})
-                    return Response({"error": "Processing failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        elif _is_us_region():
-            logger.info("vercel_webhook_deauthorize_proxying_to_eu", config_id=config_id)
-            eu_status = _proxy_deauthorization_to_eu(request.body, signature)
-            if eu_status is None or eu_status >= 300:
-                logger.warning(
-                    "vercel_webhook_deauthorize_eu_proxy_non_ok",
-                    config_id=config_id,
-                    eu_status=eu_status,
-                )
-        else:
-            logger.warning("vercel_webhook_deauthorize_unknown_config", config_id=config_id)
-
-        return Response({"status": "ok"}, status=status.HTTP_200_OK)
-
-    if not _is_billing_event(event_type):
-        logger.info("vercel_webhook_non_billing_event", event_type=event_type)
-        return Response({"status": "ignored"}, status=status.HTTP_200_OK)
-
-    if not config_id:
-        logger.error("vercel_webhook_missing_config_id", event_type=event_type)
-        return Response({"error": "Missing configurationId"}, status=status.HTTP_400_BAD_REQUEST)
-
-    assert event_type is not None  # Guaranteed by _is_billing_event check above
-
-    integration = _get_integration(config_id)
-    if not integration:
-        logger.error("vercel_webhook_unknown_config", config_id=config_id)
-        capture_exception(
-            OrganizationIntegration.DoesNotExist(),
-            {"config_id": config_id, "event_type": event_type},
-        )
-        return Response({"error": "Unknown configuration"}, status=status.HTTP_404_NOT_FOUND)
-
     try:
-        _forward_to_billing_service(event_type, payload, integration)
-    except Exception as e:
-        logger.exception("vercel_webhook_billing_error", event_type=event_type)
-        capture_exception(e, {"config_id": config_id, "event_type": event_type})
+        outcome = handle_vercel_event(
+            event_type=request.data.get("type"),
+            payload=request.data.get("payload", {}),
+            raw_body=request.body,
+            signature=signature,
+        )
+    except VercelEventProcessingError:
         return Response({"error": "Processing failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    logger.info("vercel_webhook_processed", event_type=event_type, org_id=str(integration.organization_id))
-    return Response({"status": "ok"}, status=status.HTTP_200_OK)
+    body, response_status = _OUTCOME_RESPONSES[outcome]
+    return Response(body, status=response_status)
