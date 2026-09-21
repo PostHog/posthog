@@ -586,30 +586,32 @@ class TestAutoProjectMiddleware(APIBaseTest):
         assert project_2_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.second_team.id
 
-    def test_project_unchanged_when_accessing_inaccessible_project_by_id(self):
+    @parameterized.expand([("inaccessible", "no_access_team"), ("missing", None)])
+    def test_project_redirects_to_served_project_when_accessing_unreachable_project_by_id(self, _name, team_attribute):
         project_1_request = self.client.get(f"/project/{self.team.pk}/home")
         response_users_api = self.client.get(f"/api/users/@me/")
         assert project_1_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
         assert self.app_context(project_1_request)["project_access_denied"] is None
 
-        project_2_request = self.client.get(f"/project/{self.no_access_team.pk}/home")
+        refused_project = getattr(self, team_attribute).pk if team_attribute else 999999
+        project_2_request = self.client.get(f"/project/{refused_project}/home")
         response_users_api = self.client.get(f"/api/users/@me/")
-        assert project_2_request.status_code == 200
-        assert response_users_api.json().get("team", {}).get("id") == self.team.id
-        assert self.app_context(project_2_request)["project_access_denied"] == str(self.no_access_team.pk)
-
-    def test_project_unchanged_when_accessing_missing_project_by_id(self):
-        project_1_request = self.client.get(f"/project/{self.team.pk}/home")
-        response_users_api = self.client.get(f"/api/users/@me/")
-        assert project_1_request.status_code == 200
+        assert project_2_request.status_code == 302
+        assert (
+            project_2_request.headers["Location"] == f"/project/{self.team.pk}/?project_access_denied={refused_project}"
+        )
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
 
-        project_2_request = self.client.get(f"/project/999999/home")
-        response_users_api = self.client.get(f"/api/users/@me/")
-        assert project_2_request.status_code == 200
-        assert response_users_api.json().get("team", {}).get("id") == self.team.id
-        assert self.app_context(project_2_request)["project_access_denied"] == "999999"
+    def test_project_access_denied_page_stays_in_place_for_staff(self):
+        self.user.is_staff = True
+        self.user.save()
+
+        res = self.client.get(f"/project/{self.no_access_team.pk}/home")
+
+        assert res.status_code == 200
+        assert self.app_context(res)["project_access_denied"] == str(self.no_access_team.pk)
+        assert self.app_context(res)["suggested_users_with_access"] is not None
 
     def test_project_redirects_to_new_team_when_accessing_project_by_token(self):
         res = self.client.get(f"/project/{self.second_team.api_token}/home")
@@ -627,14 +629,16 @@ class TestAutoProjectMiddleware(APIBaseTest):
         )
 
     @parameterized.expand([("missing", None), ("inaccessible", "no_access_team")])
-    def test_project_access_denied_when_accessing_unreachable_project_by_token(self, _name, team_attribute):
+    def test_project_redirects_to_served_project_when_accessing_unreachable_project_by_token(
+        self, _name, team_attribute
+    ):
         token = getattr(self, team_attribute).api_token if team_attribute else "phc_123"
 
         res = self.client.get(f"/project/{token}/home")
-        assert res.status_code == 200
+        assert res.status_code == 302
+        assert res.headers["Location"] == f"/project/{self.team.pk}/?project_access_denied={token}"
         response_users_api = self.client.get(f"/api/users/@me/")
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
-        assert self.app_context(res)["project_access_denied"] == token
 
     def test_project_redirects_including_query_params(self):
         res = self.client.get(f"/project/{self.second_team.api_token}?t=1")

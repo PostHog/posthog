@@ -1,4 +1,4 @@
-import { MOCK_USER_UUID } from 'lib/api.mock'
+import { MOCK_TEAM_ID, MOCK_USER_UUID } from 'lib/api.mock'
 
 import { kea, path } from 'kea'
 import { router } from 'kea-router'
@@ -247,6 +247,34 @@ describe('sceneLogic', () => {
             }
         }
     )
+
+    it('renders the project access denied scene while the query names the refused project', async () => {
+        // The address the middleware redirects a refused link to, which the app resolves to the homepage.
+        router.actions.push(`/project/${MOCK_TEAM_ID}/`, { project_access_denied: '12345' })
+        await expectLogic(logic).delay(1)
+        expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+
+        // Every link in the app points at the project we serve, so one click loads a real scene.
+        router.actions.push(urls.settings('user'))
+        await expectLogic(logic).delay(1)
+        expect(logic.values.activeSceneId).toEqual(Scene.Settings)
+    })
+
+    it('loads the address when a client-side navigation crosses into another project', async () => {
+        const priorLocation = window.location
+        Object.defineProperty(window, 'location', {
+            writable: true,
+            value: { ...priorLocation, href: '/' },
+        })
+        try {
+            router.actions.push('/project/98765/settings/user')
+            await expectLogic(logic).delay(1)
+
+            expect(window.location.href).toEqual('/project/98765/settings/user')
+        } finally {
+            Object.defineProperty(window, 'location', { writable: true, value: priorLocation })
+        }
+    })
 
     describe('/home honors the configured homepage', () => {
         const dashboardHomepage = {

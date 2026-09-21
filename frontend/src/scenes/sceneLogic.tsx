@@ -22,9 +22,10 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { getAppContext } from 'lib/utils/getAppContext'
+import { getAppContext, getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import {
+    PROJECT_ACCESS_DENIED_PARAM,
     addProjectIdIfMissing,
     getProjectIdentifierInPath,
     removeProjectIdIfPresent,
@@ -179,6 +180,20 @@ const scrollMainContentToTop = (): void => {
     window.requestAnimationFrame(() => {
         element.scrollTo({ top: 0 })
     })
+}
+
+/** Whether a path names a different project than the one the app context was rendered for. */
+function crossesIntoAnotherProject(pathname: string): boolean {
+    const projectInPath = getProjectIdentifierInPath(pathname)
+    if (projectInPath === null) {
+        return false
+    }
+    // The server already refused this address, and answers it with the page that says so.
+    if (getAppContext()?.project_access_denied === projectInPath) {
+        return false
+    }
+    const currentTeamId = getCurrentTeamIdOrNone()
+    return currentTeamId !== null && projectInPath !== String(currentTeamId)
 }
 
 /**
@@ -535,19 +550,31 @@ export const sceneLogic = kea<sceneLogicType>([
             { resultEqualityCheck: equal },
         ],
         activeSceneId: [
-            (s) => [s.sceneId, teamLogic.selectors.isCurrentTeamUnavailable, router.selectors.location],
-            (sceneId: string | null, isCurrentTeamUnavailable: boolean, location: { pathname: string }) => {
+            (s) => [
+                s.sceneId,
+                teamLogic.selectors.isCurrentTeamUnavailable,
+                router.selectors.location,
+                router.selectors.searchParams,
+            ],
+            (
+                sceneId: string | null,
+                isCurrentTeamUnavailable: boolean,
+                location: { pathname: string },
+                searchParams: Params
+            ) => {
                 const appContext = getAppContext()
                 const effectiveResourceAccessControl = appContext?.effective_resource_access_control
 
-                // The server refused the project this address names and served the user's own one,
-                // so the page cannot load. Once the address bar names a project we do serve, the
-                // scene loads as usual.
+                // The server refused the project a link named. It either sent the browser here, to
+                // the project we do serve, and named the refused one in the query, or it served the
+                // refused address in place, which it still does for staff. Either way the page
+                // cannot load, and any later navigation drops the query and loads the scene.
                 if (
-                    appContext?.project_access_denied &&
                     sceneId &&
                     sceneConfigurations[sceneId]?.projectBased &&
-                    getProjectIdentifierInPath(location.pathname) === appContext.project_access_denied
+                    (searchParams[PROJECT_ACCESS_DENIED_PARAM] ||
+                        (appContext?.project_access_denied &&
+                            getProjectIdentifierInPath(location.pathname) === appContext.project_access_denied))
                 ) {
                     return Scene.ErrorProjectAccessDenied
                 }
@@ -738,8 +765,17 @@ export const sceneLogic = kea<sceneLogicType>([
                 console.error('Failed to persist homepage', error)
             })
         },
-        locationChanged: ({ pathname, search, hash }) => {
+        locationChanged: ({ pathname, search, hash, initial }) => {
             pathname = addProjectIdIfMissing(pathname)
+
+            if (!initial && crossesIntoAnotherProject(pathname)) {
+                // The app context, and every link the app builds from it, names the project the
+                // server rendered. A client-side move into another project leaves those pointing at
+                // the project the person came from, so load the address instead of routing to it.
+                // The server switches the team for it, or refuses and says so.
+                window.location.href = pathname + (search || '') + (hash || '')
+                return
+            }
 
             // Remove trailing slash from the address bar. Route matching itself is handled
             // upstream via `pathFromWindowToRoutes` in initKea.ts so the scene loads even
