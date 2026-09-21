@@ -34,9 +34,8 @@ export async function checkHogFlowQuotaLimits(
     }
 
     // Check which quotas the team is limited on
-    const [isEmailQuotaLimited, isPushQuotaLimited, isDestinationQuotaLimited] = await Promise.all([
+    const [isEmailQuotaLimited, isDestinationQuotaLimited] = await Promise.all([
         quotaLimiting.isTeamQuotaLimited(teamId, 'workflow_emails'),
-        quotaLimiting.isTeamQuotaLimited(teamId, 'workflow_push'),
         quotaLimiting.isTeamQuotaLimited(teamId, 'workflow_destinations_dispatched'),
     ])
 
@@ -45,11 +44,11 @@ export async function checkHogFlowQuotaLimits(
         return { isLimited: true }
     }
 
-    if (isPushQuotaLimited && billableActionTypes.includes('function_push')) {
-        return { isLimited: true }
-    }
-
-    if (isDestinationQuotaLimited && billableActionTypes.includes('function')) {
+    // Push sends bill as destinations for now, so they fall under the destination quota
+    if (
+        isDestinationQuotaLimited &&
+        (billableActionTypes.includes('function') || billableActionTypes.includes('function_push'))
+    ) {
         return { isLimited: true }
     }
 

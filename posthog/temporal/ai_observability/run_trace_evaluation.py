@@ -69,7 +69,7 @@ from posthog.temporal.ai_observability.run_evaluation import (
     handle_llm_judge_activity_error,
     handle_terminal_user_error_result,
 )
-from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
+from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
@@ -473,27 +473,29 @@ def build_trace_system_prompt(prompt: str, allows_na: bool) -> str:
 def format_trace_for_judge(trace: LLMTrace) -> str:
     """Serialize a trace into the canonical text representation for the LLM judge.
 
-    Preserve message content when the full transcript fits so the judge does not lose evidence
-    unnecessarily. Oversized transcripts use the shared formatter's truncation and sampling
-    to bound judge cost and context.
+    Preserve complete generation outputs before truncating them so the judge does not grade
+    formatting artifacts as model mistakes. Truncate input history first; use message
+    truncation and sampling only if the outputs still cannot fit the transcript budget.
     """
     trace_dict, hierarchy = llm_trace_to_formatter_format(trace)
     options: FormatterOptions = {
         "include_markers": False,
         "collapsed": False,
-        "truncated": False,
+        "preserve_generation_output": True,
         "include_line_numbers": True,
         "max_length": None,
         "max_render_length": JUDGE_TRACE_MAX_CHARS,
     }
-    try:
-        text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
-        return text
-    except RenderBudgetExceeded:
-        pass
+    for truncated in (False, True):
+        options["truncated"] = truncated
+        try:
+            text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
+            return text
+        except RenderBudgetExceeded:
+            pass
 
     del options["max_render_length"]
-    options["truncated"] = True
+    options["preserve_generation_output"] = False
     options["max_length"] = JUDGE_TRACE_MAX_CHARS
     text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
     return text
@@ -551,7 +553,9 @@ def build_trace_hog_globals(trace: LLMTrace, trace_id: str, *, bytecode: list[An
 
 @temporalio.activity.defn
 @close_db_connections
-@posthoganalytics.scoped()
+# capture_exceptions=False: the worker interceptor reports judge failures, and its capture carries
+# the team and evaluation ids. A capture inside the activity wins the SDK's dedupe and loses them.
+@posthoganalytics.scoped(capture_exceptions=False)
 def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> EvaluationActivityResult:
     """Fetch the whole trace and run the LLM judge over its transcript.
 
@@ -696,7 +700,7 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
         else:
             timestamp = datetime.now(UTC)
 
-        capture_internal_for_team(
+        capture_ai_internal_for_team(
             team_id=inputs.team_id,
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",

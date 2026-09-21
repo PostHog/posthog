@@ -144,8 +144,8 @@ pub struct ConsistencyArgs {
 #[derive(Args, Clone)]
 pub struct GateArgs {
     /// Extra KEY=VALUE environment for spawned leaders — the lever for
-    /// benchmarking leader features (e.g. KAFKA_TRANSACTIONAL_FENCING)
-    /// without a harness change per flag. Repeatable.
+    /// benchmarking leader knobs (e.g. FENCING_LANES) without a harness
+    /// change per knob. Repeatable.
     #[arg(long = "leader-env", value_parser = parse_env_pair)]
     pub leader_env: Vec<(String, String)>,
 

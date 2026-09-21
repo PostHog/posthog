@@ -54,6 +54,11 @@ export const readAbsoluteFileInput = z.object({
   filePath: z.string(),
 });
 
+export const readWorkspaceFileInput = z.object({
+  workspaceRoot: z.string(),
+  filePath: z.string(),
+});
+
 export const writeRepoFileInput = z.object({
   repoPath: z.string(),
   filePath: z.string(),

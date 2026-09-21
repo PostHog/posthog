@@ -150,6 +150,7 @@ import type {
     TasksRunsListParams,
     TasksRunsSessionLogsRetrieveParams,
     TasksRunsStreamRetrieveParams,
+    TasksRunsStreamTokenRetrieveParams,
     TasksSearchRetrieveParams,
     TasksSlackThreadContextRetrieveParams,
     TasksSummariesCreateParams,
@@ -2390,21 +2391,39 @@ export const tasksRunsStreamRetrieve = async (
     })
 }
 
-export const getTasksRunsStreamTokenRetrieveUrl = (projectId: string, taskId: string, id: string) => {
-    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/stream_token/`
+export const getTasksRunsStreamTokenRetrieveUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    params?: TasksRunsStreamTokenRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/stream_token/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/stream_token/`
 }
 
 /**
- * Generate a run-scoped JWT that authorizes reading this task run's live event stream via the agent-proxy.
+ * Generate a run-scoped JWT that authorizes reading this task run's live event stream via the agent-proxy. A run that keeps only a short live tail in Redis is routed to the proxy only when the client sets resync=true, meaning it rebuilds from the durable run log when the proxy reports a trimmed cursor.
  * @summary Get task run stream read token
  */
 export const tasksRunsStreamTokenRetrieve = async (
     projectId: string,
     taskId: string,
     id: string,
+    params?: TasksRunsStreamTokenRetrieveParams,
     options?: RequestInit
 ): Promise<StreamReadTokenResponseApi> => {
-    return apiMutator<StreamReadTokenResponseApi>(getTasksRunsStreamTokenRetrieveUrl(projectId, taskId, id), {
+    return apiMutator<StreamReadTokenResponseApi>(getTasksRunsStreamTokenRetrieveUrl(projectId, taskId, id, params), {
         ...options,
         method: 'GET',
     })

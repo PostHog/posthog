@@ -39,6 +39,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import sync_connect
 
+from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.tools.github_meta import PRParser
 from products.review_hog.backend.temporal.types import (
     TRIGGER_MANUAL,
@@ -93,6 +94,7 @@ def _build_inputs(
     head_branch: str | None,
     resolve_comments: bool | None = None,
     signal_priority: ReportPriority | None = None,
+    review_mode: str = REVIEW_MODE_FULL,
 ) -> tuple[ReviewPRWorkflowInputs, str]:
     """Validate the review target, the team, and build the workflow inputs + deterministic id.
 
@@ -129,6 +131,7 @@ def _build_inputs(
         signal_priority=signal_priority.value if signal_priority is not None else None,
         head_branch=head_branch,
         resolve_comments=resolve_comments,
+        review_mode=review_mode,
     )
     return inputs, workflow_id
 
@@ -145,6 +148,7 @@ def execute_review_pr_workflow(
     repository: str | None = None,
     head_branch: str | None = None,
     resolve_comments: bool | None = None,
+    review_mode: str = REVIEW_MODE_FULL,
 ) -> str:
     """Start `ReviewPRWorkflow`, block until it completes, and return the `ReviewReport` id.
 
@@ -164,6 +168,7 @@ def execute_review_pr_workflow(
         repository=repository,
         head_branch=head_branch,
         resolve_comments=resolve_comments,
+        review_mode=review_mode,
     )
 
     # `sync_connect` is @async_to_sync, so call it from sync code (outside any running loop); the
@@ -198,6 +203,7 @@ def start_review_pr_workflow(
     repository: str | None = None,
     head_branch: str | None = None,
     resolve_comments: bool | None = None,
+    review_mode: str = REVIEW_MODE_FULL,
 ) -> str:
     """Start `ReviewPRWorkflow` without blocking and return the workflow id.
 
@@ -223,10 +229,14 @@ def start_review_pr_workflow(
         repository=repository,
         head_branch=head_branch,
         resolve_comments=resolve_comments,
+        review_mode=review_mode,
     )
 
     client = sync_connect()
-    logger.info(f"Starting ReviewPRWorkflow {workflow_id} on {settings.VIDEO_EXPORT_TASK_QUEUE} (publish={publish})")
+    logger.info(
+        f"Starting ReviewPRWorkflow {workflow_id} on {settings.VIDEO_EXPORT_TASK_QUEUE} "
+        f"(publish={publish}, review_mode={review_mode})"
+    )
     # async_to_sync erases start_workflow's overloads, so mypy binds the wrong one.
     start_workflow = cast(Callable[..., Any], async_to_sync(client.start_workflow))
     start_workflow(

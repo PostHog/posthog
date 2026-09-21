@@ -1,5 +1,6 @@
 import datetime as dt
 import dataclasses
+from collections.abc import Callable
 from typing import Any, cast
 
 import pytest
@@ -55,18 +56,29 @@ class _Side(BaseModel):
 
 
 class _FakeContent:
-    def __init__(self, function_call: Any = None) -> None:
-        part = type("Part", (), {"function_call": function_call})()
-        self.parts = [part]
+    def __init__(self, function_calls: list[Any]) -> None:
+        self.parts = [type("Part", (), {"function_call": fc})() for fc in function_calls] or [
+            type("Part", (), {"function_call": None})()
+        ]
 
 
 class _Resp:
-    """Minimal genai response: `.text`, `.candidates[0].content.parts`, and an optional finish reason."""
+    """Minimal genai response: `.text`, `.candidates[0].content.parts`, and an optional finish reason.
+
+    `function_calls` takes a list because a turn can ask for several lookups at once, which is the
+    behaviour the per-round histogram exists to measure.
+    """
 
     def __init__(
-        self, text: str = "", function_call: Any = None, finish_reason: Any = None, empty_content: bool = False
+        self,
+        text: str = "",
+        function_call: Any = None,
+        function_calls: list[Any] | None = None,
+        finish_reason: Any = None,
+        empty_content: bool = False,
     ) -> None:
-        content = None if empty_content else _FakeContent(function_call)
+        calls = function_calls if function_calls is not None else ([function_call] if function_call else [])
+        content = None if empty_content else _FakeContent(calls)
         self.candidates = [type("Cand", (), {"content": content, "finish_reason": finish_reason})()]
         self.text = text
 
@@ -98,6 +110,7 @@ async def _run(
     dispatch: Any = lambda c: {},
     cache_name=None,
     model: str = "models/gemini-3-flash-preview",
+    on_round: Callable[[int], None] | None = None,
 ):
     return await _run_steps(
         client=client,
@@ -111,6 +124,7 @@ async def _run(
         team_id=1,
         metric_labels=_LABELS,
         trace_id="trace-1",
+        on_round=on_round,
     )
 
 
@@ -201,6 +215,52 @@ async def test_step_runs_a_tool_call_then_answers() -> None:
     out = await _run(client, steps, dispatch=dispatch)
     assert out["core"].verdict == "yes"
     assert [fc.args for fc in dispatched] == [{"rec_t": 5}]
+
+
+@pytest.mark.asyncio
+async def test_each_tool_turn_reports_how_many_lookups_it_asked_for() -> None:
+    # The round hook is the only measure of batching that survives privacy mode. A signature that accepts
+    # it without forwarding it leaves the metric permanently empty and raises nothing.
+    rounds: list[int] = []
+    steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
+    responses = [
+        _Resp(
+            function_calls=[
+                _fc("get_events_around", {"vid_t": 5}),
+                _fc("get_network_around", {"vid_t": 5}),
+                _fc("get_events_around", {"vid_t": 40}),
+            ]
+        ),
+        _Resp(function_call=_fc("get_events_around", {"vid_t": 90})),
+        _Resp(text='{"verdict":"yes"}'),
+    ]
+    client = _FakeClient(responses)
+    out = await _run(client, steps, dispatch=lambda fc: {"events": []}, on_round=rounds.append)
+    assert out["core"].verdict == "yes"
+    # A turn asking for three lookups must report 3, not 1: telling those apart is the whole point.
+    assert rounds == [3, 1]
+
+
+@pytest.mark.asyncio
+async def test_the_turn_that_spends_the_last_budget_is_still_counted() -> None:
+    # The forced final turn answers that turn's pending lookups, so the round happened. Counting only
+    # the turns inside the loop under-reports exactly the budget-exhausted runs, where batching matters.
+    rounds: list[int] = []
+    budget = 3
+    steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
+    responses = [_Resp(function_call=_fc("get_events_around", {"vid_t": 5})) for _ in range(budget + 1)]
+    responses.append(_Resp(text='{"verdict":"yes"}'))
+    client = _FakeClient(responses)
+    out = await _run(
+        client,
+        steps,
+        dispatch=lambda fc: {"events": []},
+        model="models/gemini-3.8-flash",
+        on_round=rounds.append,
+    )
+    assert out["core"].verdict == "yes"
+    # budget turns inside the loop, plus the turn whose calls the forced answer dispatches.
+    assert len(rounds) == budget + 1
 
 
 @pytest.mark.asyncio

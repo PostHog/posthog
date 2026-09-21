@@ -502,6 +502,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
                             const commonTileProps = {
                                 dashboardId: dashboard?.id,
+                                canEditDashboard,
                                 showResizeHandles,
                                 canEnterEditModeFromEdge,
                                 onEnterEditModeFromEdge,

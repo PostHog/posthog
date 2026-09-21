@@ -111,7 +111,7 @@ class TestRefreshSandboxMcp:
     ):
         _arm_success(mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh)
 
-        task_run = _make_task_run_mock(state={"mcp_builtin_agent_key": "scout"})
+        task_run = _make_task_run_mock(state={"mcp_builtin_agent_key": "scout", "mcp_exclude_tools": ["docs-search"]})
         task_run.task.internal = True
         task_run.task.origin_product = "support_reply"
         task_run.task.mcp_builtin_agent_key = "support"
@@ -128,6 +128,7 @@ class TestRefreshSandboxMcp:
             slack_reply_context=False,
             task_id="task-1",
             origin_product="support_reply",
+            exclude_tools=["docs-search"],
         )
         mock_user_configs.assert_called_once_with(
             token="fresh-token",
@@ -259,6 +260,7 @@ class TestRefreshSandboxMcp:
             slack_reply_context=False,
             task_id="task-1",
             origin_product="user_created",
+            exclude_tools=[],
         )
 
     def test_transition_refresh_failure_reports_unsafe(
