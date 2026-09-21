@@ -778,6 +778,7 @@ export type InboxReportActionType =
   | "reingest"
   | "implement"
   | "create_pr"
+  | "refund"
   | "open_pr"
   | "open_task"
   | "copy_link"
@@ -937,6 +938,9 @@ export interface InboxReportActionProperties {
   list_size: number;
   triage_id?: string;
   dismissal_reason?: string;
+  dismissal_note?: string;
+  refund_reason?: string;
+  refund_note?: string;
   signal_id?: string;
   signal_source_product?: string;
   signal_source_type?: string;
@@ -984,7 +988,7 @@ export interface InboxReportFeedbackProperties {
 }
 
 /**
- * Optional note metadata, offered only once a rating is already recorded. It
+ * Optional note, offered only once a rating is already recorded. It
  * rides on its own event rather than re-firing {@link InboxReportFeedbackProperties}
  * so sentiment stays exactly one event per rating; join back to the rating on
  * `report_id`. Carries `sentiment` too so a note can be read without that join.
@@ -997,7 +1001,7 @@ export interface InboxReportFeedbackNoteProperties {
   sentiment: InboxReportFeedbackSentiment;
   has_pr: boolean;
   surface: InboxReportActionSurface;
-  note_length: number;
+  note: string;
 }
 
 // Scout events
