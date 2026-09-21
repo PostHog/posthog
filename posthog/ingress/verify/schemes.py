@@ -23,8 +23,8 @@ logger = structlog.get_logger(__name__)
 
 SignedInput = Literal["body", "v0_timestamp_body"]
 SignatureEncoding = Literal["hex", "base64"]
-# SHA-1 is here because Vercel signs with it, not because it is a choice worth making for a new
-# provider. Everything else on this list uses the default.
+# SHA-1 is on this list because one provider signs with it, not because it is a choice worth
+# making for a new one. Reach for `HmacSha256` unless the provider leaves no option.
 HmacDigest = Literal["sha256", "sha1"]
 
 
@@ -45,8 +45,10 @@ class Verification:
     A scheme that checks a signed token learns more than "this is really them": the claims it
     validated name the sender and the audience. `facts` carries those to `deliveries`, so an
     incarnation can cross-check the body against what was actually signed, rather than trusting
-    a field of the body that says the same thing. An HMAC over raw bytes proves nothing beyond
-    the signature and leaves `facts` empty.
+    a field of the body that says the same thing. A fact is not always a claim: `BearerJwt` also
+    puts the key that signed the token there, because a JWKS can say what one key is allowed to
+    sign and the token cannot. An HMAC over raw bytes proves nothing beyond the signature and
+    leaves `facts` empty.
     """
 
     outcome: VerificationOutcome
@@ -78,6 +80,17 @@ def hmac_signature(
     return prefix + encoded
 
 
+def hmac_sha256_signature(
+    secret: str,
+    signed: bytes,
+    *,
+    encoding: SignatureEncoding = "hex",
+    prefix: str = "",
+) -> str:
+    """The SHA-256 form, which is what every caller of this module signs with."""
+    return hmac_signature(secret, signed, digest="sha256", encoding=encoding, prefix=prefix)
+
+
 def signatures_match(expected: str, provided: str) -> bool:
     # Compared as bytes, because compare_digest raises TypeError on a str that holds a
     # non-ASCII code point, and a header arrives here decoded as latin-1. An unauthenticated
@@ -103,7 +116,8 @@ class HmacSignature:
 
     GitHub sends ``sha256=<hex>``; Slack and Customer.io sign ``v0:{timestamp}:{body}``
     and pair the signature with a timestamp header they expect to be checked for replay.
-    Vercel is the one provider that signs with SHA-1, which `digest` carries.
+    `digest` is the hash under the key, and only a provider that leaves no choice sets it
+    to anything but the default.
     """
 
     secret_getter: Callable[[], str | None]
@@ -174,6 +188,18 @@ class HmacSignature:
         # No facts: an HMAC over the raw body proves the sender holds the secret and says
         # nothing else about the delivery.
         return Verification(outcome=self._outcome(body=body, headers=headers))
+
+
+@frozen
+class HmacSha256(HmacSignature):
+    """The SHA-256 form, and the name every provider but one reaches for.
+
+    It exists so that "which digest" is a question only the provider that has to answer it
+    ever sees. The digest is fixed here rather than defaulted, so a name that promises
+    SHA-256 cannot be handed another one; `HmacSignature` is where a digest is chosen.
+    """
+
+    digest: HmacDigest = field(default="sha256", init=False)
 
 
 @frozen
