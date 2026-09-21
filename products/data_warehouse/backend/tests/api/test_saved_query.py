@@ -568,6 +568,7 @@ class TestSavedQuery(APIBaseTest):
             "Can't delete accounts_view yet. These read from it: weekly_active_accounts (metric). "
             "Update or delete them first."
         )
+        assert body["code"] == "has_dependents"
         assert body["extra"] == {"node_id": str(view_node.id)}
         view.refresh_from_db()
         assert view.deleted is not True

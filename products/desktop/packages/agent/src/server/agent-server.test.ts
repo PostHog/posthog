@@ -1331,6 +1331,13 @@ describe("AgentServer HTTP Mode", () => {
       expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
     });
 
+    function usageUpdateWithBudget(budget: Record<string, unknown>) {
+      return {
+        method: POSTHOG_NOTIFICATIONS.USAGE_UPDATE,
+        params: { sessionId: "s", usage: {}, budget },
+      };
+    }
+
     function createUsageTestServer() {
       const testServer = new AgentServer({
         port,
@@ -1346,6 +1353,7 @@ describe("AgentServer HTTP Mode", () => {
         session: { payload: JwtPayload } | null;
         posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
         recordTurnUsage(usage: unknown): void;
+        handleAcpTransportMessage(message: unknown): void;
       };
       testServer.posthogAPI = { updateTaskRun: vi.fn(async () => ({})) };
       testServer.session = {
@@ -1423,14 +1431,26 @@ describe("AgentServer HTTP Mode", () => {
       expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
     });
 
-    it("resets run usage on session cleanup so a later run starts from zero", async () => {
+    it("resets run usage and the budget snapshot on session cleanup so a later run starts from zero", async () => {
       const testServer = createUsageTestServer();
       const turnUsage = {
         inputTokens: 100,
         outputTokens: 50,
         totalTokens: 150,
       };
+      testServer.handleAcpTransportMessage(
+        usageUpdateWithBudget({ stage: "critical", steers: [] }),
+      );
       testServer.recordTurnUsage(turnUsage);
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenLastCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({
+          state: expect.objectContaining({
+            budget_guard: { stage: "critical", steers: [] },
+          }),
+        }),
+      );
 
       const cleanupServer = stubSessionCleanup(testServer);
       await cleanupServer.cleanupSession();
@@ -1463,6 +1483,32 @@ describe("AgentServer HTTP Mode", () => {
             },
           },
         },
+      );
+    });
+
+    it("retries a budget snapshot whose write failed, and skips one that landed", async () => {
+      const testServer = createUsageTestServer();
+      testServer.posthogAPI.updateTaskRun
+        .mockRejectedValueOnce(new Error("503"))
+        .mockResolvedValue({});
+      const budget = { stage: "warn", steers: [{ stage: "warn" }] };
+
+      const settled = () => new Promise((resolve) => setImmediate(resolve));
+
+      testServer.handleAcpTransportMessage(usageUpdateWithBudget(budget));
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(1);
+      await settled();
+      testServer.handleAcpTransportMessage(usageUpdateWithBudget(budget));
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(2);
+      await settled();
+      testServer.handleAcpTransportMessage(usageUpdateWithBudget(budget));
+      testServer.handleAcpTransportMessage(usageUpdateWithBudget(budget));
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(2);
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenLastCalledWith(
+        "task-1",
+        "run-1",
+        { state: { budget_guard: budget } },
+        expect.any(AbortSignal),
       );
     });
 
@@ -2544,27 +2590,32 @@ describe("AgentServer HTTP Mode", () => {
       };
     }
 
-    it("enqueues and buffers events raised before a session is assigned", () => {
-      // Regression: an MCP relay request can fire the instant the client
-      // subprocess starts, ahead of session assignment. broadcastEvent must
-      // not silently drop it.
-      const testServer = exposeBroadcastEvent(createServer());
-      testServer.eventStreamSender = {
-        enqueue: vi.fn(),
-        stop: vi.fn(async () => {}),
-      };
-      testServer.session = null;
+    it.each([null, { sseController: null }])(
+      "enqueues events without retaining an SSE replay buffer for session %j",
+      (session) => {
+        // Regression: an MCP relay request can fire the instant the client
+        // subprocess starts, ahead of session assignment. broadcastEvent must
+        // not silently drop it.
+        const testServer = exposeBroadcastEvent(createServer());
+        testServer.eventStreamSender = {
+          enqueue: vi.fn(),
+          stop: vi.fn(async () => {}),
+        };
+        testServer.session = session;
 
-      const event = {
-        type: "mcp_request",
-        requestId: "req-1",
-        server: "slack",
-      };
-      testServer.broadcastEvent(event);
+        const event = {
+          type: "mcp_request",
+          requestId: "req-1",
+          server: "slack",
+        };
+        testServer.broadcastEvent(event);
 
-      expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(event);
-      expect(testServer.pendingEvents).toEqual([event]);
-    });
+        expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(
+          event,
+        );
+        expect(testServer.pendingEvents).toEqual([]);
+      },
+    );
 
     it("buffers events with no event stream sender configured and no session", () => {
       const testServer = exposeBroadcastEvent(createServer());
@@ -2578,6 +2629,27 @@ describe("AgentServer HTTP Mode", () => {
       expect(() => testServer.broadcastEvent(event)).not.toThrow();
 
       expect(testServer.pendingEvents).toEqual([event]);
+    });
+
+    it("delivers events to an attached SSE controller with event ingest enabled", () => {
+      const testServer = exposeBroadcastEvent(createServer());
+      testServer.eventStreamSender = {
+        enqueue: vi.fn(),
+        stop: vi.fn(async () => {}),
+      };
+      const controller = { send: vi.fn(), close: vi.fn() };
+      testServer.session = { sseController: controller };
+      const event = {
+        type: "mcp_request",
+        requestId: "req-1",
+        server: "slack",
+      };
+
+      testServer.broadcastEvent(event);
+
+      expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(event);
+      expect(controller.send).toHaveBeenCalledWith(event);
+      expect(testServer.pendingEvents).toEqual([]);
     });
 
     it("redacts authorization headers before an event leaves the sandbox", () => {
@@ -2610,7 +2682,7 @@ describe("AgentServer HTTP Mode", () => {
       const serialized = JSON.stringify(broadcast);
       expect(serialized).not.toContain("mcp-secret");
       expect(serialized).toContain("x-posthog-mcp-consumer");
-      expect(testServer.pendingEvents).toEqual([broadcast]);
+      expect(testServer.pendingEvents).toEqual([]);
     });
   });
 

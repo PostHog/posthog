@@ -221,9 +221,9 @@ export function TabbedManageSubscriptions({
                     data-attr="manage-subscriptions-tabs"
                     rightSlotClassName="bg-transparent"
                     rightSlot={
-                        activeTab === 'resource' ? (
+                        activeTab === 'resource' && subscriptions.length > 0 ? (
                             <LemonButton type="primary" onClick={() => onSelect('new')} data-attr="add-subscription">
-                                Add subscription
+                                Create subscription
                             </LemonButton>
                         ) : undefined
                     }

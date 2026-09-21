@@ -22,6 +22,7 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
     const evaluationId = eventProperties.$ai_evaluation_id
     const resultRun = {
         status: 'completed' as const,
+        skipped: eventProperties.$ai_evaluation_skipped === true || eventProperties.$ai_evaluation_skipped === 'true',
         ...normalizeEvaluationResultProperties({
             rawResult: eventProperties.$ai_evaluation_result,
             rawApplicable: eventProperties.$ai_evaluation_applicable,
