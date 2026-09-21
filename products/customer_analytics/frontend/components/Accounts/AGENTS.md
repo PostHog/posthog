@@ -131,17 +131,23 @@ A custom-property column is editable unless its definition is canonical or has a
 ### Sorting (hybrid client / server)
 
 Clicking a column header toggles `accountsLogic.sortOrder` (asc → desc → off, `toggleSort`).
-How that sort is applied depends on whether the whole matching set is already loaded, tracked by the `canSortClientSide` selector (`!listHasMoreData && !listPaginated`):
+`listDataCompleteness` models each filter set as `unknown`, `complete`, or `paginated`:
 
-- **Fully loaded (the common case — one page, no "Load more"):** `canSortClientSide` is true.
-  The list query carries **no** `sort`, so toggling a header does not change the query and never refetches.
-  Instead the loaded rows are reordered in the browser: the `accountsLogic.sortedRowsTransformer` selector (wrapping `sortAccountRows` from `accountsSort.ts`) is passed by `AccountsTable` into the DataTable's `dataTableRowsTransformer` context seam — sorting is instant.
+- **Unknown:** the query carries the requested typed `sort`.
+  The first response must establish whether the result is complete, so treating this state as client-sortable would fetch an unsorted first page and then refetch a paginated result.
+- **Complete (one page, no "Load more"):** `canSortClientSide` is true.
+  The query keeps the sort that produced the completed response, which prevents response metadata from changing the query identity and starting another fetch.
+  Later header toggles do not change that query.
+  Instead the loaded rows are reordered in the browser by `accountsLogic.sortedRowsTransformer`, which wraps `sortAccountRows` from `accountsSort.ts` and is passed through the DataTable's `dataTableRowsTransformer` context seam.
   `sortAccountRows` reads each keyed row through `accountsTableCell` (the name sorts by `.name`, relationship/tag arrays join to a string, numbers sort numerically), is stable, and always sinks empty cells to the bottom in both directions.
-- **Paginated (more rows than one page):** `canSortClientSide` is false, so the query carries a typed `sort` and Postgres sorts the **entire** set before returning the globally correct page; the transformer is inactive. Toggling a header refetches, as before.
+- **Paginated (more rows than one page):** `canSortClientSide` is false, so the live sort stays in the query and Postgres sorts the entire set before returning each page.
+  Reaching the final page does not change this state or reset the accumulated rows to page one.
 
-`listPaginated` is what makes this safe: it is set when the user pages past the first page (`loadNextData`, connected from the list `dataNodeLogic`) and reset on every fresh load (`loadData`).
-Without it, paging to the end of a large list would flip `listHasMoreData` to false mid-session, drop the `orderBy`, and reset the query back to page one — discarding the accumulated rows.
-Resetting on fresh load lets a filtered-down set (now ≤ one page) return to instant client-side sort.
+The completeness state is keyed by the filters that define the matching account set.
+A filter change returns the new set to `unknown`; its first response can then move it to `complete` or `paginated`.
+Request IDs prevent a stale response from changing the state of a newer filter set.
+Explicit refreshes use the known mode for the request and let the fresh response update completeness in either direction.
+Restored URL and saved-view sorts use the same initial server-sort path.
 
 Sort safety: removing the sorted column drops the sort (`clearSortIfColumnRemoved`); otherwise a server-side sort would reference a missing SELECT alias.
 
