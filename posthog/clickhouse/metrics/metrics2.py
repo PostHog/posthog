@@ -256,8 +256,9 @@ def KAFKA_METRICS_AVRO2_MV_SELECT() -> str:
     sorted_resource_attributes = "mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))"
     sorted_attributes = "mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes))"
     labelled = "toBool(ifNull(has_labels, 1))"
-    # Retention counts from the sample's own timestamp, so late samples expire with their series.
-    # Capture already replaces a timestamp far from the ingest time, so no clock guard is needed here.
+    # Use the sample timestamp so a late sample expires with its series.
+    # Capture replaces a timestamp when it differs from the ingest time by more than 24 hours.
+    # Thus, this view does not need another clock check.
     return f"""SELECT
     uuid,
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
