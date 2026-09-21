@@ -322,6 +322,15 @@ describe('supportsPercentStackView', () => {
             expected: false,
         },
         {
+            // `formulaNodes: []` is a reachable shape, and an empty list collapses nothing, so the
+            // series count still decides.
+            name: 'bar chart with two series and an empty formula list',
+            query: trends(ChartDisplayType.ActionsBar, 2, {
+                trendsFilter: { display: ChartDisplayType.ActionsBar, formulaNodes: [] },
+            }),
+            expected: true,
+        },
+        {
             name: 'pie chart with one series',
             query: trends(ChartDisplayType.ActionsPie, 1),
             expected: false,
