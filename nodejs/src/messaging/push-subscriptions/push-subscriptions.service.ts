@@ -63,29 +63,17 @@ const VERIFICATION_MODE_PRECEDENCE: Record<string, number> = { disabled: 0, opti
 
 type PushIntegration = { config: Record<string, any> }
 
-/** A token this worker resolved to no team recently. Holds a fingerprint, never the raw token.
- *
- * Bounded and in-process rather than in Redis: the token is request-controlled and the endpoint is
- * public, so a shared key per submitted value would let anyone grow the cache and evict real entries.
- * The TTL is short because a token can become valid, for example when a project is recreated.
- */
+/** In-process rather than Redis: the token is request-controlled and the endpoint is public, so a
+ * shared key per submitted value would let anyone evict real entries. */
 const INVALID_TOKEN_CACHE_TTL_MS = 60_000
 const INVALID_TOKEN_CACHE_SIZE = 2048
 
-/** The app_ids a team has a push channel for. Most registrations name an app_id no team configured,
- * and that path otherwise runs a JSONB filter per request. Keyed on the team alone: the value is a
- * small bounded list, whereas keying on the request's app_id would let one public project token mint
- * unbounded entries.
- *
- * Staleness costs at most one window — a team that configures push keeps discarding for up to a
- * minute — and the device re-posts on its next launch anyway.
- */
+/** Keyed on the team alone: keying on the request's app_id would let one public project token mint
+ * unbounded entries. */
 const CONFIGURED_APP_IDS_CACHE_TTL_MS = 60_000
 const CONFIGURED_APP_IDS_CACHE_SIZE = 10_000
 
 const PUSH_INTEGRATION_KINDS = ['firebase', 'apns']
-
-export type PushRequest = RawRequest
 
 export class PushSubscriptionsService {
     private invalidTokens: LRUCache<string, true>
@@ -110,7 +98,7 @@ export class PushSubscriptionsService {
         return createHmac('sha256', this.secretKey).update(apiKey).digest('hex').slice(0, 16)
     }
 
-    public async handle(request: PushRequest): Promise<PushHandlerResult> {
+    public async handle(request: RawRequest): Promise<PushHandlerResult> {
         if (request.method !== 'POST' && request.method !== 'DELETE') {
             return reject('method_not_allowed', 405, 'validation_error', 'Only POST and DELETE requests are supported.')
         }
@@ -165,8 +153,7 @@ export class PushSubscriptionsService {
             (field) => !data[field] || typeof data[field] !== 'string'
         )
         if (missingFields.length > 0) {
-            // absent vs empty vs invalid separates an SDK that never sends the field from a client
-            // bridge passing an empty or mistyped value: they need different fixes.
+            // absent vs empty vs invalid separates contract drift from a client passing a bad value.
             const detail = missingFields
                 .map((field) => {
                     const state = !hasOwn(data, field) ? 'absent' : data[field] === '' ? 'empty' : 'invalid'
@@ -188,9 +175,8 @@ export class PushSubscriptionsService {
 
         const integrations = await this.findIntegrations(team.id, appId)
 
-        // A missing integration is an account state, not a request error: SDKs auto-register on every
-        // app open, so a 4xx here turns the whole fleet into an error firehose. DELETE falls through,
-        // because logout must clear a subscription stored while an integration existed.
+        // SDKs auto-register on every app open, so a 4xx here turns the whole fleet into an error
+        // firehose. DELETE falls through: logout must clear a subscription stored earlier.
         if (integrations.length === 0 && request.method === 'POST') {
             return {
                 status: 200,
@@ -198,9 +184,8 @@ export class PushSubscriptionsService {
                     distinct_id: distinctId,
                     stored: false,
                     push_enabled: false,
-                    // The status code cannot say this: a 4xx would make every SDK retry on every app
-                    // open. Without a reason in the body, a developer whose token goes nowhere sees a
-                    // success and has no way to tell it from a working registration.
+                    // Without this a developer whose token goes nowhere cannot tell the difference
+                    // from a working registration.
                     reason: 'no_push_channel_for_app_id',
                     detail:
                         `This project has no push channel for app_id '${appId}'. The device token was ` +
@@ -249,17 +234,15 @@ export class PushSubscriptionsService {
         }
 
         const propertyKey = `$device_push_subscription_${appId}`
-        // $unset of an absent property is a no-op, so DELETE is idempotent. device_token is required
-        // for a symmetric contract but is not matched against the stored value.
+        // $unset of an absent property is a no-op, so DELETE is idempotent.
         const properties =
             request.method === 'POST'
                 ? { $set: { [propertyKey]: this.encryptedFields.encrypt(deviceToken) } }
                 : { $unset: [propertyKey] }
 
         try {
-            // A non-2xx has to surface. An SDK told the registration was stored records it as
-            // delivered and stops re-sending it, so a capture that did not happen leaves the device
-            // unregistered with nothing reporting it.
+            // An SDK told the registration was stored stops re-sending it, so a capture that did
+            // not happen has to surface here.
             await this.capture.capture({
                 token: team.api_token,
                 event: '$set',
@@ -285,9 +268,8 @@ export class PushSubscriptionsService {
     }
 
     private async findIntegrations(teamId: number, appId: string): Promise<PushIntegration[]> {
-        // Skip the JSONB lookup when the team has no channel for this app_id, which is the endpoint's
-        // normal case. A failed lookup returns null, meaning "don't know", so the caller falls through
-        // to the real query rather than discarding a registration the team is entitled to.
+        // null means "don't know", so a failed lookup falls through to the real query rather than
+        // discarding a registration the team is entitled to.
         const configured = await this.configuredAppIds(teamId)
         if (configured !== null && !configured.includes(appId)) {
             return []
@@ -317,13 +299,9 @@ export class PushSubscriptionsService {
         }
     }
 
-    // Resolved from the app_id alone, not the device platform: an app_id is either a Firebase
-    // project_id or an APNs bundle_id, so a device can register with either provider.
-    //
-    // Read per request rather than cached. The row carries the identity verification policy, so a
-    // cached copy would keep answering `disabled` for up to a cache lifetime after an admin turns
-    // verification on, and registrations would be stored unverified in that window. The app_id cache
-    // above only skips the query for an app_id the team has no channel for at all.
+    // Resolved from the app_id alone, not the device platform, so a device can register with either
+    // provider. Read per request: the row carries the verification policy, and a cached copy would
+    // keep answering `disabled` after an admin turns verification on.
     private async fetchIntegrations(teamId: number, appId: string): Promise<PushIntegration[]> {
         const { rows } = await this.postgres.query<{ config: Record<string, any> }>(
             PostgresUse.COMMON_READ,

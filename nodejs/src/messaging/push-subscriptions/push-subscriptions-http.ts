@@ -5,10 +5,8 @@ import { logger } from '~/common/utils/logger'
 
 import { MAX_BODY_BYTES, PushSubscriptionsService } from './push-subscriptions.service'
 
-/** These names match what Django already exposes, so the dashboard panels and alerts built on them
- * keep reporting across a cutover instead of going blank. prometheus_client appends `_total` to a
- * counter in the exposition format and prom-client does not, so the suffix is spelled out here.
- */
+/** Names match what Django exposes, so its dashboards and alerts survive a cutover. prometheus_client
+ * appends `_total` in the exposition format and prom-client does not, hence the explicit suffix. */
 const rejectionCounter = new Counter({
     name: 'push_subscription_rejection_total',
     help: 'Device registration requests rejected, by reason and HTTP method.',
@@ -126,11 +124,8 @@ function header(req: IncomingMessage, name: string): string | undefined {
     return Array.isArray(value) ? value[0] : value
 }
 
-/** Reads at most one byte more than the endpoint accepts.
- *
- * That byte is what separates the two answers: the service reads the length, so a body over the
- * limit stays over it and gets a 413, while nothing larger is ever held in memory.
- */
+/** Reads one byte past the limit, which is what lets the service answer 413 without holding a
+ * larger body in memory. */
 function readBody(req: IncomingMessage): Promise<Buffer> {
     return new Promise((resolve) => {
         const chunks: Buffer[] = []
@@ -151,8 +146,7 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
         })
         req.on('end', finish)
         req.on('error', finish)
-        // A client that disconnects mid-body emits neither, and without this the promise is never
-        // settled and the handler is retained for the life of the process.
+        // A client that disconnects mid-body emits neither, leaking the handler without this.
         req.on('aborted', finish)
         req.on('close', finish)
     })
@@ -182,8 +176,7 @@ function applyCors(req: IncomingMessage, res: ServerResponse): void {
 
 function isFirstDiscardInWindow(teamId: number): boolean {
     const window = Math.floor(Date.now() / DISCARD_LOG_WINDOW_MS)
-    // Replaced rather than added to, so the set holds one window of teams instead of every team the
-    // process has ever seen.
+    // Replaced rather than added to, so the set holds one window instead of every team seen.
     if (window !== discardLogWindow) {
         discardLogWindow = window
         discardedTeamsThisWindow = new Set()
@@ -196,8 +189,7 @@ function isFirstDiscardInWindow(teamId: number): boolean {
 }
 
 function parseUserAgentSdk(userAgent?: string): { name: string | null; version: string | null } {
-    // PostHog SDKs identify as "posthog-<name>/<version>", so a rejection can be attributed to the
-    // SDK from this log alone. Each part is bounded and any other user agent is ignored.
+    // PostHog SDKs identify as "posthog-<name>/<version>". Each part is bounded, others ignored.
     if (!userAgent || !userAgent.startsWith('posthog-')) {
         return { name: null, version: null }
     }

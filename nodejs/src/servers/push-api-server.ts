@@ -1,7 +1,7 @@
 import { Server, createServer } from 'http'
 
 import { EncryptedFields } from '~/cdp/utils/encryption-utils'
-import { defaultConfig } from '~/common/config/config'
+import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { PostgresRouter, PostgresRouterConfig } from '~/common/utils/db/postgres'
 import { isProdEnv, isTestEnv } from '~/common/utils/env-utils'
 import { logger } from '~/common/utils/logger'
@@ -14,16 +14,27 @@ import { CommonConfig } from '../common/config'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService } from '../types'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
+export type PushApiConfig = {
+    PUSH_API_PORT: number
+    PUSH_API_HOST: string
+    /** Django's SECRET_KEY. The rejection log fingerprints a submitted project token with it, so a
+     * different value here makes those fingerprints uncorrelatable with the ones Django wrote for
+     * the same client. */
+    SECRET_KEY: string
+}
+
+export function getDefaultPushApiConfig(): PushApiConfig {
+    return {
+        PUSH_API_PORT: 6750,
+        PUSH_API_HOST: '0.0.0.0',
+        SECRET_KEY: '',
+    }
+}
+
 export type PushApiServerConfig = BaseServerConfig &
     PostgresRouterConfig &
-    Pick<CommonConfig, 'LOG_LEVEL' | 'PLUGIN_SERVER_MODE' | 'ENCRYPTION_SALT_KEYS' | 'CAPTURE_INTERNAL_URL'> & {
-        PUSH_API_PORT: number
-        PUSH_API_HOST: string
-        /** Django's SECRET_KEY. The rejection log fingerprints a submitted project token with it, so
-         * a different value here makes those fingerprints uncorrelatable with the ones Django wrote
-         * for the same client. */
-        PUSH_API_SECRET_KEY: string
-    }
+    PushApiConfig &
+    Pick<CommonConfig, 'LOG_LEVEL' | 'PLUGIN_SERVER_MODE' | 'ENCRYPTION_SALT_KEYS' | 'CAPTURE_INTERNAL_URL'>
 
 /** Serves `/api/push_subscriptions/`, the endpoint every mobile SDK calls on app open.
  *
@@ -43,9 +54,7 @@ export class PushApiServer implements NodeServer {
     constructor(config: Partial<PushApiServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
-            PUSH_API_PORT: parseInt(process.env.PUSH_API_PORT || '6750', 10),
-            PUSH_API_HOST: process.env.PUSH_API_HOST || '0.0.0.0',
-            PUSH_API_SECRET_KEY: process.env.SECRET_KEY || '',
+            ...overrideConfigWithEnv(getDefaultPushApiConfig()),
             ...config,
         }
         this.lifecycle = new ServerLifecycle(this.config)
@@ -63,7 +72,7 @@ export class PushApiServer implements NodeServer {
     }
 
     private async startServices(): Promise<void> {
-        if (!this.config.PUSH_API_SECRET_KEY && isProdEnv()) {
+        if (!this.config.SECRET_KEY && isProdEnv()) {
             // Starting without it would answer requests correctly but write rejection fingerprints
             // that cannot be matched to the ones Django wrote, which is the field used to trace a
             // burst of invalid tokens back to a single misconfigured app.
@@ -78,7 +87,7 @@ export class PushApiServer implements NodeServer {
             this.postgres,
             new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS),
             new PushCaptureService(this.config.CAPTURE_INTERNAL_URL),
-            this.config.PUSH_API_SECRET_KEY
+            this.config.SECRET_KEY
         )
 
         if (!isTestEnv()) {

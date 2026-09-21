@@ -1,10 +1,8 @@
 import { gunzipSync } from 'zlib'
 
-/** Mirrors Django's `decompress` / `load_data_from_request`, which every released SDK is already
- * talking to. A body Django accepts and this rejects is a device that never registers, and the SDK
- * re-posts it on every app open for the life of the install, so the decoding has to match rather
- * than be merely reasonable.
- */
+/** Mirrors Django's `decompress` / `load_data_from_request`. A body Django accepts and this rejects
+ * is a device that never registers, and the SDK re-posts it on every app open for the life of the
+ * install, so the decoding has to match rather than be merely reasonable. */
 
 export class RequestParsingError extends Error {}
 
@@ -73,9 +71,8 @@ export function decompress(data: Buffer | string | null, compression: string): u
     }
 
     if (compression === 'lz64') {
-        // Django decompresses this with lzstring. No PostHog mobile SDK sends it — it is a
-        // posthog-js path, and web clients do not register devices — so rather than carry a
-        // decompressor for traffic that does not exist, this rejects it as an unparseable body.
+        // A posthog-js path. No mobile SDK sends it and web clients do not register devices, so
+        // this rejects it rather than carry a decompressor for traffic that does not exist.
         throw new RequestParsingError('lz64 compression is not supported.')
     }
 
@@ -96,8 +93,7 @@ export function decompress(data: Buffer | string | null, compression: string): u
         if (compression !== '') {
             throw new RequestParsingError(`Invalid JSON: ${String(error)}`)
         }
-        // A client that gzipped the body without saying so. Django retries as gzip before giving up,
-        // so a body it accepts this way must not fail here.
+        // Django retries as gzip before giving up, so a body it accepts this way must not fail here.
         try {
             return decompress(current, 'gzip')
         } catch {
@@ -106,13 +102,9 @@ export function decompress(data: Buffer | string | null, compression: string): u
     }
 }
 
-/** Python's `json.loads` reads the bare tokens `NaN`, `Infinity` and `-Infinity`, and this endpoint
- * maps them to null. `JSON.parse` rejects them outright, so a body carrying one would be a device
- * Django registers and this does not.
- *
- * Only reached once strict parsing has failed, so a string whose *contents* are "NaN" is already
- * parsed and never rewritten.
- */
+/** Python's `json.loads` reads the bare tokens `NaN`, `Infinity` and `-Infinity` and this endpoint
+ * maps them to null, where `JSON.parse` rejects them outright. Only reached once strict parsing has
+ * failed, so a string whose contents are "NaN" is already parsed and never rewritten. */
 function parseJsonLikePython(text: string): unknown {
     try {
         // oxlint-disable-next-line eslint-js/no-restricted-syntax
@@ -174,13 +166,9 @@ function replaceBareConstants(text: string): string | null {
 const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 const BASE64_VALUES = new Map([...BASE64_ALPHABET].map((character, index) => [character, index]))
 
-/** Django tries base64 on every body before parsing it, so a base64 payload it would accept has to
- * decode here too. Returns null when the attempt fails, which is the usual case for plain JSON.
- *
- * Mirrors `posthog.utils.base64_decode`, which encodes to ASCII, URL-decodes, re-pads, and then
- * decodes leniently. Each of those steps can reject a body, and a body Python rejects here is one it
- * goes on to parse unchanged, so the failures matter as much as the successes.
- */
+/** Django tries base64 on every body before parsing it. Mirrors `posthog.utils.base64_decode`, where
+ * each step can reject a body, and a body Python rejects here is one it goes on to parse unchanged,
+ * so the failures matter as much as the successes. */
 function tryBase64Decode(data: Buffer | string): string | null {
     const raw = Buffer.isBuffer(data) ? data : Buffer.from(data, 'utf8')
     // Python encodes to ASCII first, so anything outside it raises and the attempt is abandoned.
@@ -213,10 +201,8 @@ function tryBase64Decode(data: Buffer | string): string | null {
     return decodeUtf8Strict(decoded)
 }
 
-/** `urllib.parse.unquote` followed by `.encode("ascii")`. A percent-escape for a non-ASCII byte, or
- * a malformed one that Python replaces with U+FFFD, both leave a character the ASCII encode rejects,
- * so either abandons the attempt. Returns null in those cases.
- */
+/** `urllib.parse.unquote` then `.encode("ascii")`: a non-ASCII byte or a malformed escape both leave
+ * a character the ASCII encode rejects, so either abandons the attempt. */
 function percentDecodeToAscii(text: string): string | null {
     let result = ''
     let index = 0
@@ -240,13 +226,9 @@ function percentDecodeToAscii(text: string): string | null {
     return result
 }
 
-/** CPython's lenient `binascii.a2b_base64`: characters outside the alphabet are skipped, `=` is
- * skipped inline, and only padding that trails the final data character can close a partial quad.
- *
- * Node's own decoder is more forgiving and accepts bodies Python rejects. That is the direction that
- * changes an answer silently: Python leaving the body untouched is what lets a plain JSON body parse
- * as itself, so accepting more here would corrupt the ordinary request.
- */
+/** CPython's lenient `binascii.a2b_base64`: non-alphabet characters and `=` are skipped inline, and
+ * only trailing padding can close a partial quad. Node's decoder accepts bodies Python rejects, and
+ * Python leaving a body untouched is what lets a plain JSON body parse as itself. */
 function pythonB64Decode(text: string): Buffer | null {
     const out: number[] = []
     let quadPosition = 0
@@ -295,10 +277,8 @@ function pythonB64Decode(text: string): Buffer | null {
     return Buffer.from(out)
 }
 
-/** Python decodes with "surrogatepass", which still raises on bytes that are not valid UTF-8, and
- * that exception is what makes the caller keep the original body. Node's default decoder substitutes
- * U+FFFD instead, which would turn an abandoned attempt into a successful one holding mangled text.
- */
+/** Python raises on bytes that are not valid UTF-8, and that exception is what makes the caller keep
+ * the original body. Node's default decoder would substitute U+FFFD and mangle it instead. */
 function decodeUtf8Strict(buffer: Buffer): string | null {
     try {
         return new TextDecoder('utf-8', { fatal: true }).decode(buffer)
@@ -308,9 +288,8 @@ function decodeUtf8Strict(buffer: Buffer): string | null {
 }
 
 function parseForm(body: Buffer, contentType: string): URLSearchParams | undefined {
-    // Only urlencoded. Django also parses multipart here, but no client sends a device registration
-    // that way, and a half-built multipart parser would answer differently from Django rather than
-    // not at all.
+    // Django also parses multipart here, but no client registers a device that way and a half-built
+    // parser would answer differently rather than not at all.
     if (contentType !== 'application/x-www-form-urlencoded') {
         return undefined
     }
