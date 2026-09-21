@@ -6,6 +6,11 @@ from .enums import SubmissionKind
 
 MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG = "mcp-analytics-intent-routing"
 
+# $session_id comes from client-supplied event properties, and each MCP client picks its own
+# format, so the store holds more than a bare UUID. Django does not enforce max_length on save,
+# so the API rejects a longer id rather than letting Postgres fail the write.
+MAX_SESSION_ID_LENGTH = 200
+
 
 class IntentGenerationUnavailable(RuntimeError):
     """Raised when session-intent generation can't complete (LLM unconfigured or request failed).

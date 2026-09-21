@@ -1,10 +1,17 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { initKeaTests } from '~/test/init'
 
-import { mcpAnalyticsSessionsList, mcpAnalyticsSessionsToolCalls } from '../generated/api'
+import {
+    mcpAnalyticsSessionsGenerateIntent,
+    mcpAnalyticsSessionsList,
+    mcpAnalyticsSessionsToolCalls,
+} from '../generated/api'
 import { mcpSessionsLogic } from './mcpSessionsLogic'
 
+jest.mock('lib/lemon-ui/LemonToast/LemonToast')
 jest.mock('../generated/api', () => ({
     mcpAnalyticsSessionsList: jest.fn(),
     mcpAnalyticsSessionsToolCalls: jest.fn(),
@@ -13,6 +20,8 @@ jest.mock('../generated/api', () => ({
 
 const listMock = mcpAnalyticsSessionsList as jest.Mock
 const toolCallsMock = mcpAnalyticsSessionsToolCalls as jest.Mock
+const generateIntentMock = mcpAnalyticsSessionsGenerateIntent as jest.Mock
+const errorToastMock = lemonToast.error as jest.Mock
 
 const toolCall = (eventId: string): any => ({
     event_id: eventId,
@@ -69,5 +78,34 @@ describe('mcpSessionsLogic', () => {
 
         expect(logic.values.selectedSessionToolCalls.loading).toBe(true)
         expect(logic.values.selectedSessionToolCalls.calls.map((c) => c.event_id)).not.toContain('a2')
+    })
+
+    // The global kea-loaders handler used to toast on top of this logic's own listener, so one
+    // failed generation raised two stacked toasts. The 503 case guards the message choice: that
+    // detail names one fixed cause, which is wrong for a timed-out or empty LLM response.
+    it.each([
+        {
+            name: 'the server reason for a request that can never succeed',
+            sessionId: 'too-long',
+            status: 400,
+            detail: 'session_id must be at most 200 characters.',
+            expected: 'session_id must be at most 200 characters.',
+        },
+        {
+            name: 'the retry hint when generation fails server-side',
+            sessionId: 'session-a',
+            status: 503,
+            detail: 'Intent generation is unavailable (LLM not configured).',
+            expected: 'Could not generate the session intent. Please try again.',
+        },
+    ])('raises one toast carrying $name', async ({ sessionId, status, detail, expected }) => {
+        generateIntentMock.mockRejectedValueOnce({ status, detail })
+
+        await expectLogic(logic, () => {
+            logic.actions.generateIntent(sessionId)
+        }).toDispatchActions(['generateIntentFailure'])
+
+        expect(errorToastMock).toHaveBeenCalledTimes(1)
+        expect(errorToastMock).toHaveBeenCalledWith(expected)
     })
 })
