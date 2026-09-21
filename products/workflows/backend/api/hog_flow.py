@@ -3799,6 +3799,19 @@ SELF_OPTIMISING_FEATURE_FLAG = "self-optimising-workflows"
 # `trigger` and `abort_action` are read-only on the workflow serializer, so publish would drop them.
 PROPOSAL_CONTENT_FIELDS = tuple(field for field in DRAFT_CONTENT_FIELDS if field not in ("trigger", "abort_action"))
 
+
+# Fields a proposal replaces wholesale. `actions` merges per step instead, since steps carry stable
+# ids; edges have no id, and a variable list is short enough to carry whole.
+PROPOSAL_WHOLE_LIST_FIELDS = ("edges", "variables")
+
+PROPOSAL_MERGE_BY_ID_FIELDS = ("actions",)
+
+# Their items reach helpers that read each item as a mapping, so anything else has to fail here as a 400.
+PROPOSAL_LIST_OF_OBJECT_FIELDS = ("actions", "edges", "variables")
+
+# 1.0 is either every message or one of them; only the producer knows which.
+EVIDENCE_UNITS = ("rate", "count")
+
 WORKFLOW_PROPOSAL_CONTENT_SCHEMA = {
     "type": "object",
     "additionalProperties": True,
@@ -4084,16 +4097,6 @@ class ProposalOutOfDateError(exceptions.APIException):
         super().__init__(detail)
 
 
-# Fields a proposal replaces wholesale. `actions` merges per step instead, since steps carry stable
-# ids; edges have no id, and a variable list is short enough to carry whole.
-PROPOSAL_WHOLE_LIST_FIELDS = ("edges", "variables")
-
-PROPOSAL_MERGE_BY_ID_FIELDS = ("actions",)
-
-# 1.0 is either every message or one of them; only the producer knows which.
-EVIDENCE_UNITS = ("rate", "count")
-
-
 def merge_proposal_content(live_content: dict, proposal_content: dict) -> dict:
     """Live content with the proposal applied. Whole-list fields replace; `actions` merges per step,
     so a proposal that rewrites one email leaves the rest of the graph exactly as it is now."""
@@ -4106,7 +4109,7 @@ def merge_proposal_content(live_content: dict, proposal_content: dict) -> dict:
 
 def _merge_by_id(live_items: list, changed_items: list) -> list:
     changed_by_id = {item["id"]: item for item in changed_items if isinstance(item, dict) and "id" in item}
-    merged = [changed_by_id.pop(item["id"], item) if _item_id(item) in changed_by_id else item for item in live_items]
+    merged = [changed_by_id.pop(_item_id(item), item) for item in live_items]
     # Anything left names a step the workflow does not have yet, so the proposal is adding it.
     merged.extend(changed_by_id.values())
     return merged
@@ -4151,7 +4154,7 @@ def conflicting_step_ids(hog_flow: HogFlow, proposal: WorkflowProposal) -> list[
         return []
     if changes_whole_list:
         # A whole-list field replaces the list, so any publish since counts.
-        return sorted(touched) or ["edges"]
+        return sorted(touched) or [field for field in PROPOSAL_WHOLE_LIST_FIELDS if field in proposal.content]
     base_revision = HogFlowRevision.objects.filter(hog_flow=hog_flow, version=proposal.base_version).first()
     if base_revision is None:
         # Without the snapshot the proposal read, "changed since" is unanswerable.
@@ -4165,10 +4168,6 @@ def conflicting_step_ids(hog_flow: HogFlow, proposal: WorkflowProposal) -> list[
         # A step the proposal adds is only a conflict if that id now exists.
         and not (step_id not in base_actions and step_id not in live_actions)
     )
-
-
-# Their items reach helpers that read each item as a mapping, so anything else has to fail here as a 400.
-PROPOSAL_LIST_OF_OBJECT_FIELDS = ("actions", "edges", "variables")
 
 
 def unstage_workflow_proposals(hog_flow: HogFlow) -> None:
@@ -5536,16 +5535,16 @@ class HogFlowViewSet(
         instance = self.get_object()
 
         if request.method == "GET":
+            requested_status = request.query_params.get("status")
+            if requested_status and requested_status not in WorkflowProposal.Status.values:
+                raise exceptions.ValidationError(
+                    {"status": f"Must be one of: {', '.join(WorkflowProposal.Status.values)}."}
+                )
             # Applied ones order by the version that shipped them; the rest read as a queue, newest first.
-            applied_only = request.query_params.get("status") == WorkflowProposal.Status.APPLIED
+            applied_only = requested_status == WorkflowProposal.Status.APPLIED
             ordering = ("-applied_version", "-created_at") if applied_only else ("-created_at",)
             queryset = WorkflowProposal.objects.filter(hog_flow=instance).order_by(*ordering)
-            requested_status = request.query_params.get("status")
             if requested_status:
-                if requested_status not in WorkflowProposal.Status.values:
-                    raise exceptions.ValidationError(
-                        {"status": f"Must be one of: {', '.join(WorkflowProposal.Status.values)}."}
-                    )
                 queryset = queryset.filter(status=requested_status)
             queryset = queryset.select_related("created_by", "resolved_by", "hog_flow")
             page = self.paginate_queryset(queryset)
