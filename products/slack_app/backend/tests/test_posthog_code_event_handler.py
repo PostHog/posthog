@@ -720,6 +720,28 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_asyncio_run.assert_not_called()
         assert expected_pointer in mock_ephemeral.call_args.args[4]
 
+    @parameterized.expand(
+        [
+            ("top_level", {}, None),
+            ("thread_opener", {"thread_ts": "1234.5678"}, None),
+            ("thread_reply", {"thread_ts": "1111.2222"}, "1111.2222"),
+        ]
+    )
+    @patch("products.slack_app.backend.api._post_slack_user_ephemeral")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_mention_command_redirect_anchors_to_the_surface_the_user_is_viewing(
+        self, _name, extra_event_fields, expected_anchor, mock_ephemeral
+    ):
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+
+        route_posthog_code_event_to_relevant_region(
+            request, {**self.event, "text": "<@UBOT123> help", **extra_event_fields}, "T12345"
+        )
+
+        assert mock_ephemeral.call_args.args[3] == expected_anchor
+
     @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_link_shared_routes_to_unfurl(self, mock_unfurl):

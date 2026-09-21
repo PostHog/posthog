@@ -2738,12 +2738,14 @@ def _redirect_mention_command(
         action=command.action,
         source="mention",
     )
+    # Slack sets ``thread_ts`` to ``ts`` on a thread-opening post as well, and an ephemeral
+    # anchored there is invisible from the channel view the mentioner is looking at.
     thread_ts = event.get("thread_ts")
     _post_slack_user_ephemeral(
         SlackIntegration(probe),
         channel,
         slack_user_id,
-        thread_ts if isinstance(thread_ts, str) else None,
+        thread_ts if isinstance(thread_ts, str) and not _is_top_level_channel_post(event) else None,
         mention_command_redirect(command),
     )
     return ROUTE_HANDLED_LOCALLY
