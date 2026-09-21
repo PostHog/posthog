@@ -6,15 +6,21 @@ from django.db import transaction
 
 import structlog
 from pydantic import BaseModel, Field
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import DataTableNode, DataVisualizationNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
 
+from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
 from posthog.event_usage import EventSource, report_user_action
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.facade.api import (
+    get_or_create_saved_insight,
+    insights_including_soft_deleted_for_team,
+)
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.artifacts.types import ModelArtifactResult, VisualizationWithSourceResult
@@ -129,8 +135,8 @@ class UpsertDashboardTool(MaxTool):
         """
         Build a rich preview showing dashboard details and what will be modified.
         """
-        if isinstance(action, CreateDashboardToolArgs):
-            raise MaxToolFatalError("Create dashboard operation is not dangerous.")
+        if not isinstance(action, UpdateDashboardToolArgs):
+            raise MaxToolFatalError("Only dashboard updates can require a dangerous operation preview.")
 
         dashboard = await self._get_dashboard(action.dashboard_id)
         sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
@@ -234,7 +240,10 @@ class UpsertDashboardTool(MaxTool):
         dashboard = await self._get_dashboard(action.dashboard_id)
         insight_ids = list(dict.fromkeys(action.insight_ids))
         artifacts = await self._get_visualization_artifacts(insight_ids)
-        created_insights = await self._add_dashboard_insights(dashboard, insight_ids, artifacts)
+        try:
+            created_insights = await self._add_dashboard_insights(dashboard, insight_ids, artifacts)
+        except ValidationError as error:
+            raise MaxToolRetryableError(str(error.detail)) from error
         await self._report_dashboard_action(dashboard, "dashboard updated", {"operation": "add_insights"})
         for artifact, insight in created_insights:
             await self._report_new_insights([artifact], [insight])
@@ -354,22 +363,19 @@ class UpsertDashboardTool(MaxTool):
                 # Stable IDs let the database deduplicate artifact retries, including concurrent calls.
                 identity = f"dashboard:{dashboard.id}:{artifact.source.value}:{artifact_id}"
                 short_id = urlsafe_b64encode(hashlib.sha256(identity.encode()).digest()[:9]).decode()
-                insight, created = Insight.objects_including_soft_deleted.get_or_create(
-                    team=self._team,
+                insight_pk, created = get_or_create_saved_insight(
+                    team_id=self._team.id,
+                    user_id=self._user.id,
                     short_id=short_id,
-                    defaults={
-                        "created_by": self._user,
-                        "name": insight.name,
-                        "description": insight.description,
-                        "query": insight.query,
-                        "saved": True,
-                    },
+                    name=insight.name,
+                    description=insight.description,
+                    query=insight.query,
                 )
+                insight = insights_including_soft_deleted_for_team(team_id=self._team.id, insight_ids=[insight_pk])[0]
                 if created:
                     created_insights.append((artifact, insight))
-                elif insight.deleted:
-                    insight.deleted = False
-                    insight.save(update_fields=["deleted"])
+
+            check_can_add_insight_to_shared_dashboard(self._user, dashboard, insight.query, self.user_access_control)
 
             tile, created = DashboardTile.objects_including_soft_deleted.get_or_create(
                 dashboard=dashboard,
