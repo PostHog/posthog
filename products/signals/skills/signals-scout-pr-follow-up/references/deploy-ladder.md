@@ -24,7 +24,7 @@ FROM `<prefix>github_deployments` AS d
 LEFT JOIN `<prefix>github_deployment_statuses` AS s ON s.deployment_id = d.id
 WHERE parseDateTimeBestEffort(d.created_at) >= toDateTime('<merge ts>', 'UTC')
   AND coalesce(d.transient_environment, false) = false
-  AND d.environment IN ('<production environments, each with any quote doubled>')
+  AND d.environment IN ('<production environments, each escaped: backslashes doubled, then quotes doubled>')
 GROUP BY d.id, d.sha, d.environment
 HAVING first_success IS NOT NULL
 ORDER BY first_success ASC, d.id ASC
@@ -33,7 +33,7 @@ LIMIT 20 OFFSET <page * 20>
 
 `transient_environment` is nullable and a source that omits the flag leaves it NULL, so the `coalesce` keeps those persistent deployments, as the curated deployments view does.
 `minIf` has no NULL: a deployment with no success row gets the epoch, sorts first, and can pass containment as a 1970 onset, which is why the `OrNull` form and the `HAVING` are not optional.
-Quote both table names in backticks as shown (a flattened multi-repository name keeps hyphens), and double any `'` inside an environment name before it enters the `IN` list, since the names are data a repository owner typed.
+Quote both table names in backticks as shown (a flattened multi-repository name keeps hyphens), and escape each environment name before it enters the `IN` list by first replacing every `\` with `\\` and then doubling every `'`, in that order, since the names are data a repository owner typed and ClickHouse reads a backslash before a quote as an escaped quote, so doubling quotes alone leaves `\'` able to end the literal.
 Run the containment check from the top of that list: the first deployment created after the merge is often cut from a commit before it and reads `behind`, and the onset belongs to the first one that reads `ahead`.
 The limit is a page, not a horizon: when no row on the page reads `ahead` or `identical`, take the next page with `OFFSET` until one does or the rows run out, because a release-branch or multi-region repository can ship twenty production deployments after the merge before one contains it.
 A repository that ships the same SHA to several persistent production environments (one per region) has one onset per environment; take the earliest for the side-effect sweep, close its window only at the next **different** production SHA (a later region receiving the same SHA is still this batch rolling out, not the next one), and name the environment that serves the project's users when you cite a fix claim.
@@ -67,7 +67,7 @@ LIMIT 20 OFFSET <page * 20>
 ```
 
 Page it the same way until a marker's commit contains the merge or the markers run out.
-The environment name is data you discovered, so escape it before it enters the literal (double any `'`, and regex-escape it so `.`, `+`, and the like match literally), and match it as a whole token, never as a substring: `production` must not match `nonproduction`, and `prod` must not match a preview label that contains it, or a preview deployment of the same SHA sets a false early onset.
+The environment name is data you discovered, so escape it before it enters the literal (regex-escape it so `.`, `+`, and the like match literally, then escape the result as a ClickHouse string literal: every `\` doubled, then every `'` doubled, in that order), and match it as a whole token, never as a substring: `production` must not match `nonproduction`, and `prod` must not match a preview label that contains it, or a preview deployment of the same SHA sets a false early onset.
 Fall back to `annotations-list` only when that table is unavailable, and page it by date with `offset` and **no** `search`: a valid marker reads `production a1b2c3d` and never contains the word deploy, so filter the returned rows by `creation_type`, environment, and commit instead.
 When the content names a commit, the onset is the first marker after the merge whose commit contains it (the same containment check).
 A marker whose content names no commit cannot prove containment, so it corroborates a soak-proxy onset (rung 4) but never replaces it, and the report says the onset is estimated.
