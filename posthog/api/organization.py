@@ -491,7 +491,6 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [OrganizationPermissionsWithDelete, TimeSensitiveActionPermission]
     queryset = Organization.objects.none()
     lookup_field = "id"
-    ordering = "-created_by"
 
     def dangerously_get_permissions(self):
         if self.action == "list":
@@ -545,7 +544,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
                 queryset = queryset.filter(id__in=scoped_organizations)
 
-        return annotate_signed_baa(queryset)
+        return annotate_signed_baa(queryset).order_by("-created_at", "-id")
 
     def safely_get_object(self, queryset):
         return self.organization

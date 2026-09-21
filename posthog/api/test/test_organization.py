@@ -2,6 +2,7 @@ from datetime import timedelta
 from typing import cast
 from uuid import uuid4
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
@@ -21,7 +22,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.uploaded_media import UploadedMedia
-from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -214,6 +215,27 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertGreaterEqual(len(response.json()["results"]), 3)
         legal_document_queries = [q for q in context.captured_queries if "legal_documents_legaldocument" in q["sql"]]
         self.assertEqual(len(legal_document_queries), 1)
+
+    def test_listing_organizations_is_totally_ordered_across_pages(self):
+        with time_machine.travel("2026-01-01T12:00:00Z", tick=False):
+            ids = sorted(str(UUIDT()) for _ in range(3))
+            for organization_id in ids:
+                organization = Organization.objects.create(id=organization_id, name=f"Org {organization_id}")
+                OrganizationMembership.objects.create(organization=organization, user=self.user)
+
+        listed_ids = []
+        offset = 0
+        while True:
+            response = self.client.get(f"/api/organizations/?limit=1&offset={offset}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            results = response.json()["results"]
+            if not results:
+                break
+            listed_ids.extend(result["id"] for result in results)
+            offset += 1
+
+        self.assertEqual(len(listed_ids), len(set(listed_ids)))
+        self.assertEqual([listed for listed in listed_ids if listed in set(ids)], list(reversed(ids)))
 
     def test_cant_update_plugins_access_level(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
