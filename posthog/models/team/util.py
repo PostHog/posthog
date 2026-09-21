@@ -44,6 +44,7 @@ RETIRED_SESSION_SUMMARY_TABLES = ("ee_single_session_summary",)
 
 actions_that_require_current_team = [
     "rotate_secret_token",
+    "rotate_heatmaps_screenshot_secret",
     "delete_secret_token_backup",
     "reset_token",
     "generate_conversations_public_token",

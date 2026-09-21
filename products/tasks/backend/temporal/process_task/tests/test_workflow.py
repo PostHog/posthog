@@ -206,9 +206,18 @@ class TestProcessTaskWorkflow:
         ).encode()
         server = Path(__file__).with_name("workflow_api.py").read_bytes()
 
+        def task_api_is_already_serving(sandbox: SandboxBase) -> bool:
+            result = sandbox.execute(
+                "curl --fail --silent --max-time 2 http://127.0.0.1:8765/health",
+                timeout_seconds=30,
+            )
+            return result.exit_code == 0
+
         def prepare_api(sandbox: SandboxBase) -> None:
             # The remote agent cannot read this process's test database. Serve its
             # task context inside the sandbox, without sending a prompt to an LLM.
+            if task_api_is_already_serving(sandbox):
+                return
             for path, content in [("/tmp/workflow-api.json", payload), ("/tmp/workflow_api.py", server)]:
                 result = sandbox.write_file(path, content)
                 assert result.exit_code == 0, result.stderr

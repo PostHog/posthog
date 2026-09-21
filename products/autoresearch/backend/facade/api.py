@@ -12,14 +12,44 @@ filters on it. Business rules live in the modules behind this facade, not in the
 from typing import Any
 from uuid import UUID
 
+from posthog.models.team import Team
+from posthog.models.user import User
+
 from products.actions.backend.models.action import Action
 
+from ..dataset import templates as templates_module
 from ..dataset.labeling import (
     POPULATION_KINDS as _POPULATION_KINDS,
     PREDICTION_EVENT_NAME as _PREDICTION_EVENT_NAME,
 )
-from ..models import AutoresearchModel, AutoresearchPipeline
-from .contracts import InvalidTarget, Pipeline, PipelineNotFound, PipelineWrite
+from ..dataset.templates import TemplateKey as _TemplateKey
+from ..dataset.validation import (
+    ValidationWarningCode as _ValidationWarningCode,
+    validate_pipeline_definition as _validate_pipeline_definition,
+)
+from ..models import (
+    AutoresearchIteration,
+    AutoresearchModel,
+    AutoresearchPipeline,
+    AutoresearchRun,
+    AutoresearchTrainingRun,
+)
+from .contracts import (
+    AutoresearchConflict,
+    InvalidTarget,
+    IterationTrailEntry,
+    Model,
+    Pipeline,
+    PipelineNotFound,
+    PipelineValidation,
+    PipelineWrite,
+    ResolvedTemplate,
+    Run,
+    TemplateInfo,
+    TrainingRun,
+    TrainingRunNotFound,
+    ValidationWarning,
+)
 
 AUTORESEARCH_FLAG = "autoresearch"
 
@@ -27,6 +57,20 @@ AUTORESEARCH_FLAG = "autoresearch"
 def flag_key() -> str:
     """The feature flag that gates every autoresearch surface."""
     return AUTORESEARCH_FLAG
+
+
+def _as_uuid(value: str | UUID | None) -> UUID | None:
+    """A pk from a URL as a UUID, or None when it cannot be one.
+
+    An id that is not a UUID matches nothing, so callers filter it down to an empty result
+    rather than letting the malformed value reach the database.
+    """
+    if value is None:
+        return None
+    try:
+        return value if isinstance(value, UUID) else UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return None
 
 
 # ── Mappers ────────────────────────────────────────────────────────────────
@@ -77,6 +121,77 @@ def _pipeline_with_champion(row: AutoresearchPipeline) -> Pipeline:
     )
 
 
+def _model_to_contract(row: AutoresearchModel) -> Model:
+    return Model(
+        id=row.id,
+        pipeline=row.pipeline_id,
+        role=row.role,
+        recipe_hash=row.recipe_hash,
+        model_recipe=row.model_recipe or {},
+        model_explanation=row.model_explanation or {},
+        holdout_score=row.holdout_score,
+        realized_score=row.realized_score,
+        calibration_error=row.calibration_error,
+        metrics=row.metrics or {},
+        source_training_run=row.source_training_run_id,
+        agent_description=row.agent_description,
+        trained_on_start=row.trained_on_start,
+        trained_on_end=row.trained_on_end,
+        is_preliminary=row.is_preliminary,
+        promoted_at=row.promoted_at,
+        archived_at=row.archived_at,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _iteration_trail_entry(row: AutoresearchIteration) -> IterationTrailEntry:
+    return IterationTrailEntry(
+        iteration_number=row.iteration_number,
+        status=row.status,
+        holdout_score=row.holdout_score,
+        train_score=row.train_score,
+        agent_description=row.agent_description,
+        model_spec=row.model_spec or {},
+    )
+
+
+def _training_run_to_contract(row: AutoresearchTrainingRun) -> TrainingRun:
+    return TrainingRun(
+        id=row.id,
+        pipeline=row.pipeline_id,
+        task_id=row.task_id,
+        task_run_id=row.task_run_id,
+        task_url=f"/tasks/{row.task_id}" if row.task_id else None,
+        status=row.status,
+        iteration_budget=row.iteration_budget,
+        iteration_count=row.iteration_count,
+        best_holdout_score=row.best_holdout_score,
+        summary=row.summary or None,
+        iterations=[_iteration_trail_entry(i) for i in row.iterations.all()],
+        error=row.error,
+        started_at=row.started_at,
+        completed_at=row.completed_at,
+        created_at=row.created_at,
+    )
+
+
+def _run_to_contract(row: AutoresearchRun) -> Run:
+    return Run(
+        id=row.id,
+        pipeline=row.pipeline_id,
+        model=row.model_id,
+        run_type=row.run_type,
+        status=row.status,
+        rows_scored=row.rows_scored,
+        metrics=row.metrics or {},
+        error=row.error,
+        started_at=row.started_at,
+        completed_at=row.completed_at,
+        created_at=row.created_at,
+    )
+
+
 # ── Row lookups (internal) ─────────────────────────────────────────────────
 
 
@@ -88,13 +203,31 @@ def _pipeline_row(team_id: int, pipeline_id: str | UUID, *, live_only: bool = Fa
     a refusal that admits it exists. Routes nested under a pipeline id keep seeing archived rows,
     so they can explain why the write is refused.
     """
+    pipeline_uuid = _as_uuid(pipeline_id)
+    if pipeline_uuid is None:
+        raise PipelineNotFound("Pipeline not found.")
     qs = AutoresearchPipeline.objects.for_team(team_id)
     if live_only:
         qs = qs.exclude(status=AutoresearchPipeline.Status.ARCHIVED)
     try:
-        return qs.get(pk=str(pipeline_id))
-    except (AutoresearchPipeline.DoesNotExist, ValueError, TypeError):
+        return qs.get(pk=pipeline_uuid)
+    except AutoresearchPipeline.DoesNotExist:
         raise PipelineNotFound("Pipeline not found.")
+
+
+def _training_run_row(
+    team_id: int, training_run_id: str | UUID, *, pipeline_id: str | UUID | None = None
+) -> AutoresearchTrainingRun:
+    training_run_uuid = _as_uuid(training_run_id)
+    if training_run_uuid is None:
+        raise TrainingRunNotFound("Training run not found.")
+    qs = AutoresearchTrainingRun.objects.for_team(team_id).select_related("pipeline").prefetch_related("iterations")
+    if pipeline_id:
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
+    try:
+        return qs.get(pk=training_run_uuid)
+    except AutoresearchTrainingRun.DoesNotExist:
+        raise TrainingRunNotFound("Training run not found.")
 
 
 # ── Pipelines ──────────────────────────────────────────────────────────────
@@ -205,6 +338,161 @@ def resolve_action_target(project_id: int, action_id: Any) -> tuple[str, int]:
     return action.name or "", int(action_id)
 
 
+# ── Validation and templates ───────────────────────────────────────────────
+
+
+def list_templates() -> list[TemplateInfo]:
+    return [
+        TemplateInfo(
+            key=t.key,
+            display_name=t.display_name,
+            description=t.description,
+            default_horizon_days=t.default_horizon_days,
+            requires_user_event=t.requires_user_event,
+            requires_activity_resolution=t.requires_activity_resolution,
+            notes=t.notes,
+        )
+        for t in templates_module.TEMPLATES.values()
+    ]
+
+
+def resolve_template(
+    team_id: int,
+    *,
+    template_key: str,
+    target_event_override: str | None = None,
+    horizon_days_override: int | None = None,
+    user: User,
+) -> ResolvedTemplate:
+    team = Team.objects.get(pk=team_id)
+    try:
+        resolved = templates_module.resolve_template(
+            team=team,
+            template_key=template_key,
+            target_event_override=target_event_override,
+            horizon_days_override=horizon_days_override,
+            user=user,
+        )
+    except ValueError as exc:
+        raise AutoresearchConflict(str(exc)) from exc
+    return ResolvedTemplate(
+        template_key=resolved.template_key,
+        display_name=resolved.display_name,
+        description=resolved.description,
+        suggested_name=resolved.suggested_name,
+        target_event=resolved.target_event,
+        resolved_activity_event=resolved.resolved_activity_event,
+        activity_event_alternatives=list(resolved.activity_event_alternatives),
+        horizon_days=resolved.horizon_days,
+        training_lookback_days=resolved.training_lookback_days,
+        training_population=resolved.training_population,
+        inference_population=resolved.inference_population,
+        output_person_property=resolved.output_person_property,
+        notes=resolved.notes,
+    )
+
+
+def validate_definition(
+    team_id: int,
+    *,
+    target_event: str,
+    target_definition: dict[str, Any],
+    horizon_days: int,
+    training_lookback_days: int,
+    training_population: dict[str, Any],
+    inference_population: dict[str, Any],
+    user: User,
+) -> PipelineValidation:
+    team = Team.objects.get(pk=team_id)
+    result = _validate_pipeline_definition(
+        team=team,
+        target_event=target_event,
+        target_definition=target_definition,
+        horizon_days=horizon_days,
+        training_lookback_days=training_lookback_days,
+        training_population=training_population,
+        inference_population=inference_population,
+        user=user,
+    )
+    return PipelineValidation(
+        can_proceed=result.can_proceed,
+        requires_acknowledgement=result.requires_acknowledgement,
+        estimated_training_rows=result.estimated_training_rows,
+        positive_count=result.positive_count,
+        negative_count=result.negative_count,
+        base_rate=result.base_rate,
+        inference_population_size=result.inference_population_size,
+        warnings=[ValidationWarning(code=w.code, message=w.message, severity=w.severity) for w in result.warnings],
+        error=result.error,
+    )
+
+
+# ── Models ─────────────────────────────────────────────────────────────────
+
+
+def list_models(team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int) -> tuple[list[Model], int]:
+    qs = AutoresearchModel.objects.for_team(team_id).order_by("-created_at")
+    if pipeline_id:
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
+    count = qs.count()
+    return [_model_to_contract(row) for row in qs[offset : offset + limit]], count
+
+
+def get_model(team_id: int, model_id: str | UUID, *, pipeline_id: str | UUID | None = None) -> Model | None:
+    model_uuid = _as_uuid(model_id)
+    if model_uuid is None:
+        return None
+    qs = AutoresearchModel.objects.for_team(team_id).filter(pk=model_uuid)
+    if pipeline_id:
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
+    row = qs.first()
+    return _model_to_contract(row) if row else None
+
+
+# ── Operational runs ───────────────────────────────────────────────────────
+
+
+def list_runs(team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int) -> tuple[list[Run], int]:
+    qs = AutoresearchRun.objects.for_team(team_id).order_by("-created_at")
+    if pipeline_id:
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
+    count = qs.count()
+    return [_run_to_contract(row) for row in qs[offset : offset + limit]], count
+
+
+def get_run(team_id: int, run_id: str | UUID, *, pipeline_id: str | UUID | None = None) -> Run | None:
+    run_uuid = _as_uuid(run_id)
+    if run_uuid is None:
+        return None
+    qs = AutoresearchRun.objects.for_team(team_id).filter(pk=run_uuid)
+    if pipeline_id:
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
+    row = qs.first()
+    return _run_to_contract(row) if row else None
+
+
+# ── Training runs ──────────────────────────────────────────────────────────
+
+
+def list_training_runs(
+    team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int
+) -> tuple[list[TrainingRun], int]:
+    qs = AutoresearchTrainingRun.objects.for_team(team_id).prefetch_related("iterations").order_by("-created_at")
+    if pipeline_id:
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
+    count = qs.count()
+    return [_training_run_to_contract(row) for row in qs[offset : offset + limit]], count
+
+
+def get_training_run(
+    team_id: int, training_run_id: str | UUID, *, pipeline_id: str | UUID | None = None
+) -> TrainingRun | None:
+    try:
+        return _training_run_to_contract(_training_run_row(team_id, training_run_id, pipeline_id=pipeline_id))
+    except TrainingRunNotFound:
+        return None
+
+
 # ── Recipe validation surface for the presentation layer ───────────────────
 
 # The semantic population kinds the labeler can compile. Presentation validates a submitted
@@ -223,3 +511,11 @@ PREDICTION_EVENT_NAME = _PREDICTION_EVENT_NAME
 # model-bound serializers produced — including the one shared with another product, which
 # `ENUM_NAME_OVERRIDES` pins by value set.
 PIPELINE_STATUS_CHOICES = AutoresearchPipeline.Status.choices
+TEMPLATE_KEY_CHOICES = _TemplateKey.choices
+# A plain list, not choices: the serializer explains why `code` is not an enum.
+VALIDATION_WARNING_CODES = [code.value for code in _ValidationWarningCode]
+MODEL_ROLE_CHOICES = AutoresearchModel.Role.choices
+TRAINING_RUN_STATUS_CHOICES = AutoresearchTrainingRun.Status.choices
+ITERATION_STATUS_CHOICES = AutoresearchIteration.Status.choices
+RUN_TYPE_CHOICES = AutoresearchRun.RunType.choices
+RUN_STATUS_CHOICES = AutoresearchRun.Status.choices

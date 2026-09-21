@@ -30,7 +30,6 @@ from rest_framework.exceptions import (
     PermissionDenied,
     ValidationError,
 )
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import BaseParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -41,6 +40,7 @@ from rest_framework.views import APIView
 from posthog.schema import QuerySchemaRoot
 
 from posthog.api.mixins import validated_request
+from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
@@ -85,6 +85,7 @@ from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExcee
 from products.tasks.backend.facade.contracts import TaskAnalysisError, TaskRunLogAppendUnserialized
 from products.tasks.backend.facade.metrics import (
     StreamConnectionOutcome,
+    StreamTokenRoute,
     observe_stream_backlog_bytes,
     observe_stream_backlog_gap,
     observe_stream_backlog_oversized,
@@ -94,6 +95,7 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_connection_opened,
     observe_stream_length_on_connect,
     observe_stream_resume_gap,
+    observe_stream_token_routed,
 )
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
 from products.tasks.backend.facade.run_config import (
@@ -135,6 +137,7 @@ from products.tasks.backend.presentation.serializers import (
     SlackThreadContextQuerySerializer,
     SlackThreadContextResponseSerializer,
     SlackThreadContextThreadSerializer,
+    StreamReadTokenQuerySerializer,
     StreamReadTokenResponseSerializer,
     TaskArtifactsResponseSerializer,
     TaskBasicSerializer,
@@ -190,6 +193,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunResponseSerializer,
     TaskRunSessionLogsQuerySerializer,
     TaskRunSetOutputRequestSerializer,
+    TaskRunSetSummaryRequestSerializer,
     TaskRunStartRequestSerializer,
     TaskRunUpdateSerializer,
     TaskSearchQuerySerializer,
@@ -371,7 +375,7 @@ def _agent_run_enabled(request, team) -> bool:
         return False
 
 
-class _SchemaAwareLimitOffsetPagination(LimitOffsetPagination):
+class _SchemaAwareLimitOffsetPagination(PrecountedLimitOffsetPagination):
     """LimitOffsetPagination subclass that surfaces `default_limit`/`max_limit` in the OpenAPI schema."""
 
     def get_schema_operation_parameters(self, view):
@@ -535,7 +539,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         basic = getattr(request, "validated_query_data", {}).get("basic", False)
         serializer_class = TaskBasicSerializer if basic else TaskSerializer
         return self.get_paginated_response(
-            serializer_class(tasks_facade._tasks_to_dtos(page, self.team_id), many=True).data
+            serializer_class(tasks_facade._tasks_to_dtos(page, self.team_id, user_id=self._user_id()), many=True).data
         )
 
     @validated_request(
@@ -1071,7 +1075,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def summaries(self, request, **kwargs):
         ids = request.validated_data["ids"]
-        summaries = tasks_facade.get_task_summaries(self.team_id, self._user_id(), ids=ids)
+        paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
+        limit = paginator.get_limit(request)
+        offset = paginator.get_offset(request)
+        summaries, count = tasks_facade.get_task_summaries(
+            self.team_id, self._user_id(), ids=ids, limit=limit, offset=offset
+        )
+        paginator.set_count(count)
         page = self.paginate_queryset(summaries)
         if page is not None:
             return self.get_paginated_response(TaskSummarySerializer(page, many=True).data)
@@ -1688,7 +1698,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _get_run_or_404(self, pk) -> tasks_contracts.TaskRunDetailDTO:
         task_id = self._ensure_task_accessible()
         run = tasks_facade.get_task_run_detail(
-            pk, task_id, self.team_id, include_agent_state=self._is_sandbox_agent_request(task_id)
+            pk,
+            task_id,
+            self.team_id,
+            include_agent_state=self._is_sandbox_agent_request(task_id),
+            user_id=self._user_id(),
         )
         if run is None:
             raise NotFound()
@@ -1713,7 +1727,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def list(self, request, *args, **kwargs):
         task_id = self._ensure_task_accessible()
-        runs = tasks_facade.list_task_runs(task_id, self.team_id)
+        runs = tasks_facade.list_task_runs(task_id, self.team_id, user_id=self._user_id())
         page = self.paginate_queryset(runs)
         if page is not None:
             return self.get_paginated_response(TaskRunDetailSerializer(page, many=True).data)
@@ -1819,6 +1833,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if startable == "not_cloud":
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Only cloud runs can be started via this endpoint"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if startable == "scheduled":
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {
+                        "error": "This run is scheduled to start automatically. Wait for it to start, or create a new run."
+                    }
+                ).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if startable.startswith("bad_status:"):
@@ -1995,6 +2018,36 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
 
         run = tasks_facade.set_task_run_output(pk, task_id, self.team_id, output=output_data)
+        if run is None:
+            raise NotFound()
+        return Response(TaskRunDetailSerializer(run).data)
+
+    @validated_request(
+        request_serializer=TaskRunSetSummaryRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated task summary"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Set task run summary",
+        description="Replace the running summary for a task run.",
+        strict_request_validation=True,
+    )
+    @action(
+        detail=True,
+        methods=["patch"],
+        url_path="set_summary",
+        required_scopes=["task:write"],
+    )
+    def set_summary(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        run = tasks_facade.set_task_run_summary(
+            pk,
+            task_id,
+            self.team_id,
+            summary=request.validated_data["summary"],
+            include_agent_state=self._is_sandbox_agent_request(task_id),
+            user_id=self._user_id(),
+        )
         if run is None:
             raise NotFound()
         return Response(TaskRunDetailSerializer(run).data)
@@ -2897,6 +2950,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(ConnectionTokenResponseSerializer({"token": token}).data)
 
     @validated_request(
+        query_serializer=StreamReadTokenQuerySerializer,
         responses={
             200: OpenApiResponse(
                 response=StreamReadTokenResponseSerializer,
@@ -2905,7 +2959,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             404: OpenApiResponse(description="Task run not found"),
         },
         summary="Get task run stream read token",
-        description="Generate a run-scoped JWT that authorizes reading this task run's live event stream via the agent-proxy.",
+        description=(
+            "Generate a run-scoped JWT that authorizes reading this task run's live event stream via the agent-proxy. "
+            "A run that keeps only a short live tail in Redis is routed to the proxy only when the client sets "
+            "resync=true, meaning it rebuilds from the durable run log when the proxy reports a trimmed cursor."
+        ),
     )
     @action(
         detail=True,
@@ -2919,18 +2977,21 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         token = tasks_facade.create_task_run_stream_read_token(pk, task_id, self.team_id)
         if stream_info is None or token is None:
             raise NotFound()
-        # Only the Django read leg serves the durable backlog, so thin-tail runs must
-        # not be routed to the agent-proxy — a proxy reader would silently lose
-        # everything behind the 500-entry live window.
+        client_can_resync = bool(getattr(request, "validated_query_data", {}).get("resync"))
+        thin_tail_withheld = run_stream_thin_tail(stream_info.state) and not client_can_resync
         stream_base_url = (
             None
-            if run_stream_thin_tail(stream_info.state)
+            if thin_tail_withheld
             else tasks_facade.resolve_stream_base_url(
                 distinct_id=request.user.distinct_id,
                 organization_id=self.team.organization_id,
                 force_proxy=tasks_facade.task_uses_pi_runtime(task_id, self.team_id),
             )
         )
+        route: StreamTokenRoute = "thin_tail_withheld"
+        if not thin_tail_withheld:
+            route = "proxy" if stream_base_url else "django"
+        observe_stream_token_routed(stream_info.origin_product, route, client_can_resync)
         return Response(StreamReadTokenResponseSerializer({"token": token, "stream_base_url": stream_base_url}).data)
 
     @validated_request(
@@ -3129,6 +3190,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
             ):
                 return access_response
+
+        if (
+            method == "set_config_option"
+            and params.get("configId") == "model"
+            and tasks_facade.task_run_model_outside_gateway_pin(pk, task_id, self.team_id, params.get("value"))
+        ):
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "This run's gateway token does not allow that model."}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         connection = tasks_facade.get_task_run_sandbox_connection(
             pk, task_id, self.team_id, user_id=request.user.id, distinct_id=request.user.distinct_id

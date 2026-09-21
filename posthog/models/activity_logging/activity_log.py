@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
+from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
 from django.core.paginator import EmptyPage, Paginator
@@ -240,7 +241,10 @@ class ActivityLog(UUIDTModel):
     was_impersonated = models.BooleanField(null=True)
     # If truthy, user can be unset and this indicates a 'system' user made activity asynchronously
     is_system = models.BooleanField(null=True)
-    # Value of the x-posthog-client request header captured when the activity was logged
+    # Which API client the activity arrived through. Usually the self-reported x-posthog-client
+    # request header, which is capped shorter than this column. A sandbox OAuth token bound to a
+    # scout run overrides it with the scout's own `scout:<skill_name>` tag, which the caller
+    # cannot set and which needs the full width.
     client = models.CharField(max_length=ACTIVITY_LOG_CLIENT_MAX_LENGTH, null=True, blank=True)
     # Client IP captured at request time. Null for non-HTTP activity (system, Celery).
     ip_address = models.GenericIPAddressField(null=True, blank=True)
@@ -319,6 +323,7 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     ],
     "IdentityProviderConfig": [
         "scim_bearer_token",
+        "oidc_credentials",
         "saml_x509_cert",
     ],
     "User": [
@@ -356,6 +361,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "session_cookie_age": "session cookie age",
         "default_experiment_stats_method": "default experiment stats method",
         "is_ai_data_processing_approved": "third-party AI services",
+        "uses_most_specific_access_resolution": "most-specific access resolution",
     },
     "BatchExport": {
         "paused": "enabled",
@@ -576,6 +582,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "ReplayScanner": [*replay_scanner_machine_fields, "observations", "backfills", "prompt_suggestions", "alerts"],
     "VisionAlertConfiguration": [*vision_alert_machine_fields, "events", "matches"],
     "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
+    # The generic pointer mirrors whichever per-model foreign key is set, so it is never a user edit.
+    "TaggedItem": ["content_type", "object_id", "object_uuid", "team"],
     "StamphogRepoConfig": [
         # Reverse relation to the repo's review history. The diff would read every pull request row
         # on each settings toggle, and none of it is configuration.
@@ -682,6 +690,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "experimenttosavedmetric_set",
         # Optimistic-concurrency counter, not a user-meaningful change.
         "version",
+        # Internal pointer to the flag-cleanup task, not a user-meaningful change.
+        "flag_cleanup_task_id",
     ],
     "ExperimentSavedMetric": [
         "experiments",
@@ -764,11 +774,18 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "DataWarehouseSavedQuery": [
         "name",
         "columns",
+        "query_revision",
         "status",
         "external_tables",
         "last_run_at",
         "latest_error",
         "deleted_name",
+        "table",
+        "managed_viewset",
+        "origin",
+        "expires_at",
+        "incremental_state",
+        "semantic_enrichment_hash",
     ],
     "Endpoint": [
         "saved_query",
@@ -1041,6 +1058,9 @@ def changes_between(
 
     if previous is not None:
         fields = current._meta.get_fields() if current is not None else []
+        # get_fields() lists a GenericRelation last, as a private field, but lists the reverse
+        # foreign key it replaced first. Keep the old position so the diff order does not change.
+        fields = sorted(fields, key=lambda f: not isinstance(f, GenericRelation))
         excluded_fields = field_exclusions.get(model_type, []) + common_field_exclusions
         masked_fields = field_with_masked_contents.get(model_type, [])
         filtered_fields = [f for f in fields if f.name not in excluded_fields]
@@ -1063,8 +1083,11 @@ def changes_between(
                 field_name = "dashboards"
 
             # if is a django model field, check the empty_values list
-            left_is_none = left is None or (hasattr(field, "empty_values") and left in field.empty_values)
-            right_is_none = right is None or (hasattr(field, "empty_values") and right in field.empty_values)
+            # A reverse foreign key has no empty_values, so an empty list counts as a value. A
+            # GenericRelation inherits them from Field, and keeps the reverse foreign key behavior.
+            empty_values = None if isinstance(field, GenericRelation) else getattr(field, "empty_values", None)
+            left_is_none = left is None or (empty_values is not None and left in empty_values)
+            right_is_none = right is None or (empty_values is not None and right in empty_values)
 
             left_value = "masked" if field_name in masked_fields else left
             right_value = "masked" if field_name in masked_fields else right
@@ -1185,17 +1208,17 @@ AGENT_TRIGGER_JOB_TYPE = "agent"
 
 
 def agent_trigger() -> Optional[Trigger]:
-    """The agent attribution for this request, or None when no token-bound task reached it.
+    """The agent attribution for this request, or None when neither field reached it.
 
-    The task id is required because it is the only server-set part. The intent is the agent's claim.
+    The task id is the only server-set part. The intent is the agent's claim.
     """
     task_id = activity_storage.get_agent_task_id()
-    if not task_id:
-        return None
     intent = activity_storage.get_agent_intent()
+    if not task_id and not intent:
+        return None
     return Trigger(
         job_type=AGENT_TRIGGER_JOB_TYPE,
-        job_id=task_id,
+        job_id=task_id or "",
         payload={"intent": intent} if intent else {},
     )
 

@@ -1,8 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useValues } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { NewMarketingAnalyticsDashboard } from 'products/marketing_analytics/frontend/dashboard/NewMarketingAnalyticsDashboard'
 
 jest.mock('scenes/marketing-analytics/Setup/sectionRouting', () => ({ suggestionsForSection: () => [] }))
@@ -17,12 +15,14 @@ jest.mock('@posthog/lemon-ui', () => ({
         value,
         onChange,
         options,
+        'aria-label': label,
     }: {
         value: string
         onChange: (value: string) => void
         options: { value: string; label: string }[]
+        'aria-label': string
     }) => (
-        <select aria-label="Traffic breakdown" value={value} onChange={(event) => onChange(event.target.value)}>
+        <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
             {options.map((option) => (
                 <option key={option.value} value={option.value}>
                     {option.label}
@@ -56,7 +56,10 @@ jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketin
 jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/shared', () => ({
     MarketingAnalyticsCell: () => null,
 }))
-jest.mock('scenes/web-analytics/tiles/WebAnalyticsTile', () => ({ webAnalyticsDataTableQueryContext: {} }))
+jest.mock('scenes/web-analytics/tiles/WebAnalyticsTile', () => ({
+    VariationCell: () => () => null,
+    webAnalyticsDataTableQueryContext: {},
+}))
 jest.mock('~/queries/nodes/DataNode/dataNodeLogic', () => ({ dataNodeLogic: () => ({}) }))
 jest.mock('~/queries/nodes/OverviewGrid/OverviewMetricCardGrid', () => ({ OverviewMetricCardGrid: () => null }))
 jest.mock('~/queries/nodes/WebOverview/WebOverview', () => ({ labelFromKey: () => '' }))
@@ -84,17 +87,8 @@ jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/components/Ret
 describe('NewMarketingAnalyticsDashboard', () => {
     afterEach(cleanup)
 
-    it.each([
-        [false, false],
-        [true, false],
-        [false, true],
-        [true, true],
-    ])('keeps conversion (%s) and retention (%s) independently gated alongside traffic', (conversion, retention) => {
+    it('shows every section without per-section flags', () => {
         jest.mocked(useValues).mockReturnValue({
-            featureFlags: {
-                [FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION]: conversion,
-                [FEATURE_FLAGS.MARKETING_ANALYTICS_RETENTION]: retention,
-            },
             dateFilter: { dateFrom: '-30d', dateTo: null },
             compareFilter: { compare: false },
             shouldFilterTestAccounts: false,
@@ -102,6 +96,8 @@ describe('NewMarketingAnalyticsDashboard', () => {
             setupPlan: {},
             visibleSuggestions: [],
             trafficOrderBy: {},
+            trafficChartMetric: 'visitors',
+            trafficChartSeries: { kind: 'EventsNode', event: null, math: 'dau', custom_name: 'Visitors' },
         })
 
         render(<NewMarketingAnalyticsDashboard />)
@@ -112,7 +108,12 @@ describe('NewMarketingAnalyticsDashboard', () => {
         expect(screen.getByText('Engagement')).not.toBeNull()
         expect(screen.queryByText('Attribution explorer')).toBeNull()
         expect(screen.queryByText('Retention explorer')).toBeNull()
+        expect(screen.getByText('Visitors over time')).not.toBeNull()
+        expect(screen.getByLabelText('Chart metric')).not.toBeNull()
         const trendBeforeBreakdown = screen.getByTestId('trend-query').textContent
+        expect(JSON.parse(trendBeforeBreakdown || '{}').source.series).toEqual([
+            { kind: 'EventsNode', event: null, math: 'dau', custom_name: 'Visitors' },
+        ])
         fireEvent.change(screen.getByLabelText('Traffic breakdown'), { target: { value: 'InitialUTMCampaign' } })
         expect(JSON.parse(screen.getByTestId('traffic-query').textContent || '{}').source).toMatchObject({
             kind: 'WebStatsTableQuery',
@@ -134,26 +135,16 @@ describe('NewMarketingAnalyticsDashboard', () => {
         })
         expect(screen.queryByLabelText('Acquisition')).toBeNull()
         expect(screen.getByLabelText('Engagement')).not.toBeNull()
-        expect(screen.queryByText('Conversion') !== null).toBe(conversion)
-        expect(screen.queryByText('Retention') !== null).toBe(retention)
-        expect(screen.queryByText('Revenue') !== null).toBe(conversion)
-        if (conversion) {
-            fireEvent.click(screen.getByText('Conversion'))
-        }
-        expect(screen.queryByText('Attribution explorer') !== null).toBe(conversion)
-        expect(screen.queryByLabelText('Engagement') !== null).toBe(!conversion)
-        if (conversion) {
-            fireEvent.click(screen.getByText('Revenue'))
-        }
+        fireEvent.click(screen.getByText('Conversion'))
+        expect(screen.getByText('Attribution explorer')).not.toBeNull()
+        expect(screen.queryByLabelText('Engagement')).toBeNull()
+        fireEvent.click(screen.getByText('Revenue'))
         expect(screen.queryByText('Attribution explorer')).toBeNull()
-        expect(screen.queryByLabelText('Revenue') !== null).toBe(conversion)
-        if (retention) {
-            fireEvent.click(screen.getByText('Retention'))
-        }
-        expect(screen.queryByText('Retention explorer') !== null).toBe(retention)
-        expect(screen.queryByText('Compare periods') !== null).toBe(!conversion && !retention)
-        expect(screen.queryByText('Reload summary') !== null).toBe(!conversion && !retention)
-        expect(screen.queryByText('Attribution explorer')).toBeNull()
+        expect(screen.getByLabelText('Revenue')).not.toBeNull()
+        fireEvent.click(screen.getByText('Retention'))
+        expect(screen.getByText('Retention explorer')).not.toBeNull()
+        expect(screen.queryByText('Compare periods')).toBeNull()
+        expect(screen.queryByText('Reload summary')).toBeNull()
         fireEvent.click(screen.getByText('Acquisition'))
         expect(screen.getByLabelText('Acquisition')).not.toBeNull()
         expect(screen.queryByText('Compare periods')).not.toBeNull()

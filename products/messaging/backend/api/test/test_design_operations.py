@@ -223,3 +223,17 @@ class TestValidateDesign:
         design = _sample_design()
         design["body"]["rows"][0]["columns"][0]["contents"][0]["type"] = "hologram"
         assert any("unknown type" in w for w in validate_design(design))
+
+    def test_known_custom_tool_does_not_warn(self):
+        design = _sample_design()
+        content = design["body"]["rows"][0]["columns"][0]["contents"][0]
+        content["type"] = "custom"
+        content["slug"] = "unsubscribe_link"
+        assert validate_design(design) == []
+
+    def test_unexpandable_custom_tool_warns(self):
+        design = _sample_design()
+        content = design["body"]["rows"][0]["columns"][0]["contents"][0]
+        content["type"] = "custom"
+        content["slug"] = "hologram"
+        assert any("Missing" in w for w in validate_design(design))

@@ -1438,9 +1438,8 @@ def _maybe_hint_region_mismatch(name: str) -> None:
 @workspace_argument
 @click.option(
     "--disk",
-    type=click.Choice(["100", "200"]),
-    default="100",
-    help="Disk size in GiB (default: 100)",
+    type=int,
+    help="Disk size in GiB (default: set by the template)",
 )
 @click.option(
     "-t",
@@ -1478,7 +1477,7 @@ def _maybe_hint_region_mismatch(name: str) -> None:
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_start(
     workspace: str | None,
-    disk: str,
+    disk: int | None,
     template: str,
     preset: str,
     region: str | None,
@@ -1507,12 +1506,10 @@ def devbox_start(
 
     config = load_config()
 
-    click.echo(
-        f"Creating devbox '{name}' (template={template}, preset={preset}, region={effective_region}, disk={disk}GiB)..."
-    )
+    click.echo(f"Creating devbox '{name}' (template={template}, preset={preset}, region={effective_region})...")
     create_workspace(
         name,
-        int(disk),
+        disk,
         git_name=config.get("git_name"),
         git_email=config.get("git_email"),
         dotfiles_uri=config.get("dotfiles_uri"),

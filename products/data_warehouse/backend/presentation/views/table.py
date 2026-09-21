@@ -52,7 +52,7 @@ from products.warehouse_sources.backend.facade.types import (
     DataWarehouseTableFormat,
     ExternalDataSourceAccessMethod,
 )
-from products.warehouse_sources.backend.presentation.views.external_data_source import (
+from products.warehouse_sources.backend.presentation.views.external_data_source.source_setup import (
     SimpleExternalDataSourceSerializers,
 )
 

@@ -128,6 +128,7 @@ from products.warehouse_sources.backend.types import (
     ExternalDataJobStatus,
     ExternalDataSchemaStatus,
     ExternalDataSchemaSyncType,
+    IncrementalSyncBlockedReason,
 )
 
 BUCKET_NAME = "test-pipeline"
@@ -3222,6 +3223,7 @@ async def test_postgres_duplicate_primary_key(team, postgres_config, postgres_co
         disable_error_message=job.latest_error,
         disable_exclude_workflow_id=mock.ANY,
     )
+    assert schema.incremental_sync_blocked == IncrementalSyncBlockedReason.DUPLICATE_PRIMARY_KEY
 
 
 @pytest.mark.django_db(transaction=True)

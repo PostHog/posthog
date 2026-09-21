@@ -100,7 +100,7 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.3.0",
     "protobuf~=6.31.1",
-    "posthoganalytics==7.54.0",
+    "posthoganalytics==7.58.0",
     "polars==1.37.1",
     "psycopg2-binary==2.9.11",
     "psycopg[binary]==3.2.10",
@@ -125,6 +125,7 @@ dependencies = [
     "retry==0.9.2",
     "s3fs==2025.9.0",
     "scikit-learn~=1.7.0",
+    "scipy~=1.16.3",
     "semantic-version==2.8.5",
     "simple-salesforce~=1.12.9",
     "slack-sdk==3.42.0",
@@ -149,7 +150,8 @@ dependencies = [
     # Distributed owners.yaml resolver. A runtime dependency, not just tooling: stamphog's digest
     # reads a repo's team -> Slack channel registry through it (products/stamphog/backend/logic/
     # channel_resolution.py). Adds no third-party code — its own deps, pyyaml and click, are here.
-    "posthog-owners",
+    "owners-yaml",
+    "personhog-proto",
     "umap-learn~=0.5.0",
     "tbb==2022.3.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "whitenoise~=6.10.0",
@@ -199,7 +201,7 @@ dependencies = [
     "defusedxml~=0.7.1",
     "confluent-kafka~=2.13",
     "blake3>=1.0.8,<2",
-    "pixelhog~=1.3.0",
+    "pixelhog~=1.3.1",
     "google-re2>=1.1.20251105,<2",
     "scrubadub~=2.0.1",
     "braintrust-core>=0.0.59,<1",
@@ -211,6 +213,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    { include-group = "proto-codegen" },
     "aioresponses==0.7.6",
     "autoevals==0.2.0",
     "boto3-stubs[s3]~=1.38.30",
@@ -235,11 +238,10 @@ dev = [
     "pyinstrument~=5.1",
     "pytest-rerunfailures~=16.1",
     "time-machine==3.5.0",
-    "grpcio-tools~=1.75.1",
     "ipython~=9.3.0",
     "mypy~=2.1.0",
     "mypy-extensions~=1.1.0",
-    "ty==0.0.74",
+    "ty==0.0.80",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
     "orjson==3.11.9",
@@ -263,7 +265,6 @@ dev = [
     "python-dateutil~=2.9.0",
     "requests-mock~=1.12.1",
     "responses==0.23.1",
-    "ruff~=0.15.20",
     "stpyv8==13.1.201.22; sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64')",
     "syrupy~=4.9.1",
     "tach~=0.34",
@@ -296,6 +297,10 @@ sentiment = [
 hogql-parser-parity = [
     "shrinkray==26.4.14.0",
 ]
+proto-codegen = [
+    "grpcio-tools~=1.75.1",
+    "ruff~=0.15.20",
+]
 
 [tool.uv]
 required-version = ">=0.10.2"
@@ -309,11 +314,12 @@ exclude-newer = "7 days"
 exclude-newer-package = { granian = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
 
 [tool.uv.workspace]
-members = ["tools/hogli", "tools/owners"]
+members = ["tools/hogli", "packages/owners-yaml", "packages/personhog-proto"]
 
 [tool.uv.sources]
 hogli = { workspace = true }
-posthog-owners = { workspace = true }
+owners-yaml = { workspace = true }
+personhog-proto = { workspace = true }
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "4e3996becf66bf5c26580aff12a80425d9d56fe5" }
 # pytest-split: pinned to PostHog's fork (immutable tag) for the order-preserving
 # optimal_chunks split. Fork: PostHog/pytest-split (of jerry-git/pytest-split).
@@ -390,12 +396,9 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# protoletariat generates .pyi stubs with re-exports (e.g. `from . import person_pb2`)
-# that type checkers need to resolve the package structure.
-# protobuf 5.x _pb2.py files have side-effect-only imports that load dependency
-# descriptors into the pool before AddSerializedFile() — ruff must not strip them.
-"posthog/personhog_client/proto/generated/**/*.pyi" = ["F401"]
-"posthog/personhog_client/proto/generated/**/*_pb2.py" = ["F401", "E402"]
+# protoc's _pb2.py files import dependencies for the side effect of loading their descriptors
+# into the pool before AddSerializedFile(). ruff must not strip or move those imports.
+"packages/personhog-proto/**/*_pb2.py" = ["F401", "E402"]
 # deltalite's test suite bootstraps its harness/planner via sys.path (the package is a
 # maturin-built extension living under rust/, not part of the Django app), so imports
 # are necessarily lazy / post-path-insert (PLC0415, E402); the planner's small CLI
@@ -493,7 +496,10 @@ exclude_gitignore = true
 # (both resolve to top-level module "conftest")
 # rust/deltalite/python: pytest suite for the maturin-built extension; nothing Django
 # imports it and it has its own CI (ci-deltalite-python.yml).
-exclude = ["^(bin/.*|tools/.*|rust/deltalite/python/.*|products/desktop/.*|products/stamphog/packages/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
+# packages/owners-yaml: a standalone distribution that must build and run with no Django. This config
+# loads the Django and DRF plugins and the app's settings, so it is the wrong checker for it. ty
+# covers it repo-wide instead, and ci-python builds and exercises the wheel in an empty venv.
+exclude = ["^(bin/.*|tools/.*|packages/owners-yaml/.*|packages/personhog-proto/.*|rust/deltalite/python/.*|products/desktop/.*|products/stamphog/packages/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"
@@ -530,7 +536,7 @@ exclude = [
     "bin/**",
     "manage.py",
     "posthog/hogql/grammar/**",
-    "posthog/personhog_client/proto/generated/**",
+    "packages/personhog-proto/**",
     "posthog/schema.py",
     "posthog/schema_enums.py",
     "posthog/temporal/proxy_service/proto/**",
@@ -550,8 +556,18 @@ exclude = [
 # Complements tach (inter-module boundaries) with intra-product enforcement.
 
 [tool.importlinter]
-root_packages = ["products"]
+root_packages = ["products", "owners_yaml"]
 include_external_packages = true
+
+# A Python distribution under packages/ is a leaf: it must install and run outside the
+# monorepo venv, so it can import nothing from the app. tach resolves a uv distribution as
+# third-party and cannot police that boundary. import-linter resolves by installed import
+# name, so it can.
+[[tool.importlinter.contracts]]
+name = "packages/owners-yaml is a leaf"
+type = "forbidden"
+source_modules = ["owners_yaml"]
+forbidden_modules = ["posthog", "ee", "products", "common", "django", "rest_framework"]
 
 # Presentation must only reach product internals through the facade.
 # Forbid all backend imports, then allowlist facade + self-imports.
@@ -616,7 +632,11 @@ ignore_imports = [
     "products.tracing.backend.presentation.views_api -> products.tracing.backend.models",
     "products.user_interviews.backend.presentation.views -> products.user_interviews.backend.models",
     "products.user_interviews.backend.presentation.views -> products.user_interviews.backend.invite_email",
-    "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.models",
+    # The public interview view still resolves a share token itself and reads the team, the
+    # interviewee context and the topic off the ORM rows, so it takes the share lookup and the
+    # respondent-field helpers from logic directly. A facade read would have to hand back the
+    # SharingConfiguration, which §5 forbids.
+    "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.logic",
     # logs presentation isolation (temporary): the moved viewsets still reach in-product
     # internals directly. Removed by the follow-up that thins each viewset to go through
     # the facade.
@@ -688,6 +708,7 @@ ignore_imports = [
     "products.experiments.backend.presentation.serializers -> products.experiments.backend.session_buckets",
     "products.experiments.backend.presentation.serializers -> products.experiments.backend.session_context",
     "products.experiments.backend.presentation.serializers -> products.experiments.backend.session_event_deltas",
+    "products.experiments.backend.presentation.serializers -> products.experiments.backend.setup_context",
     "products.experiments.backend.presentation.serializers -> products.feature_flags.backend.api.feature_flag",
     "products.experiments.backend.presentation.serializers -> products.feature_flags.backend.models.feature_flag",
     "products.experiments.backend.presentation.views -> products.approvals.backend.mixins",
@@ -699,6 +720,7 @@ ignore_imports = [
     "products.experiments.backend.presentation.views -> products.experiments.backend.session_buckets",
     "products.experiments.backend.presentation.views -> products.experiments.backend.session_context",
     "products.experiments.backend.presentation.views -> products.experiments.backend.session_event_deltas",
+    "products.experiments.backend.presentation.views -> products.experiments.backend.setup_context",
     "products.experiments.backend.presentation.views -> products.experiments.backend.temporal.models",
     "products.experiments.backend.presentation.views -> products.feature_flags.backend.models.evaluation_context",
     "products.experiments.backend.presentation.views -> products.feature_flags.backend.models.feature_flag",
@@ -799,9 +821,7 @@ ignore_imports = [
 # webhook_consumers.py is the one module core reads (through posthog.ingress.dispatch.loading)
 # to register a product's inbound webhook consumers. Restricting what it may import gives the
 # chain core -> webhook_consumers -> facade as two import edges, so a handler cannot reach
-# product internals. Unlike the two contracts above it, this one carries no grandfathered list:
-# stamphog's is the only such module in the tree, and the ones arriving with the remaining
-# endpoint migrations already import only their own facade.
+# product internals.
 [[tool.importlinter.contracts]]
 name = "webhook consumers must only import facade"
 type = "forbidden"
@@ -833,7 +853,6 @@ ignore_imports = [
     # TODO: existing violations — move the presentation-shaped code out of the facade, or the
     # facade-shaped code out of presentation, and drop the line
     "products.managed_warehouse.backend.facade.api -> products.managed_warehouse.backend.presentation.views",
-    "products.stamphog.backend.facade.webhooks -> products.stamphog.backend.presentation.webhooks",
     "products.tasks.backend.facade.api -> products.tasks.backend.presentation.serializers",
     "products.billing_alerts.backend.facade.api -> rest_framework",
     "products.dashboards.backend.facade.api -> rest_framework",
@@ -860,6 +879,10 @@ too-many-positional-arguments = "ignore"  # Django metaprogramming signatures
 redundant-cast = "ignore"  # casts needed by mypy that ty resolves
 unused-type-ignore-comment = "ignore"  # type: ignore comments required by mypy
 unused-ignore-comment = "error"  # default is warn, which does not fail CI; error keeps stale ty: ignore directives out
+
+# Flags guards on stub and TypedDict types that runtime data does not honor
+# (billing JSON, posthoganalytics.api_key, untyped access-control callers)
+redundant-condition = "ignore"
 
 # Django lazy imports and settings indirection
 possibly-missing-submodule = "ignore"

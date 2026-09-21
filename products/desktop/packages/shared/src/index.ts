@@ -19,6 +19,14 @@ export type {
 } from "./agent-conversation";
 export * from "./agent-runtime";
 export * from "./analytics-events";
+export type { TaskRunUpdate } from "./api-http-client";
+export {
+  API_DOWNLOAD_TIMEOUT_MS,
+  API_TRANSFER_TIMEOUT_MS,
+  PostHogHttpClient,
+  PostHogHttpError,
+  transferTimeoutMs,
+} from "./api-http-client";
 export type { ArchivedTask } from "./archive-domain";
 export { withTimeout } from "./async";
 export {
@@ -82,7 +90,6 @@ export {
   getClaudeModelRecency,
   getCloudTaskGatewayUrl,
   getProviderName,
-  HARNESS_DISPLAY_NAMES,
   isAnthropicModel,
   isAnthropicModelId,
   isBasetenModel,
@@ -90,9 +97,6 @@ export {
   isCloudflareModel,
   isCloudflareModelId,
   isDeepseekModelId,
-  isGlm53FlashModelId,
-  isGlm53ModelId,
-  isGlmModelId,
   isModalModel,
   isModalModelId,
   isOpenAIModel,
@@ -121,6 +125,7 @@ export {
   DISMISSAL_REASON_OPTIONS,
   type DismissalReasonOptionValue,
   dismissalReasonLabel,
+  isDismissalReasonSnooze,
   RESOLVE_REASON_OPTIONS,
   type ReportStateReason,
   type ResolveReasonOptionValue,
@@ -188,7 +193,11 @@ export {
   MAX_IMAGE_BASE64_LENGTH,
   parseImageDataUrl,
 } from "./image";
-export { buildDiscussReportPrompt } from "./inbox-prompts";
+export {
+  buildDiscussReportPrompt,
+  buildLocalCodeSnapshotPrompt,
+  CODE_CONTEXT_DISCLOSURE,
+} from "./inbox-prompts";
 export type {
   AvailableSuggestedReviewer,
   SignalRecordKind,
@@ -271,12 +280,18 @@ export {
 export type { PiMessagingMode, PiRuntimeHealth } from "./pi-session";
 export {
   createPiToolCallRecord,
+  formatMcpToolLabel,
+  formatPiMcpToolName,
   isPiToolName,
   PI_TOOL_KIND_BY_NAME,
+  type PiMcpCallDetails,
   type PiToolCallInput,
   type PiToolCallRecord,
   type PiToolName,
+  parsePiMcpCallDetails,
+  readPiMcpCallDetails,
 } from "./pi-tool-call";
+export { POSTHOG_PRODUCTS, type PostHogProductId } from "./posthog-products";
 export {
   buildPrOutput,
   mergePrUrls,
@@ -378,11 +393,12 @@ export {
   posthogToolMeta,
   readAgentToolName,
   readMcpInstallationId,
+  readMcpProxyCallDetails,
   readMcpToolDescriptor,
   readMcpToolName,
   readParentToolCallId,
 } from "./tool-meta";
-export { isTranscriptNeutralNotificationMethod } from "./transcript-neutral-notifications";
+export { TranscriptBoundaries } from "./transcript-neutral-messages";
 export { TypedEventEmitter } from "./typed-event-emitter";
 export {
   isSafeExternalUrl,

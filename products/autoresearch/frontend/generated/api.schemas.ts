@@ -301,6 +301,357 @@ export interface AutoresearchPipelineCreateApi {
 }
 
 /**
+ * * `champion` - Champion
+ * * `challenger` - Challenger
+ * * `archived` - Archived
+ */
+export type AutoresearchModelRoleEnumApi =
+    (typeof AutoresearchModelRoleEnumApi)[keyof typeof AutoresearchModelRoleEnumApi]
+
+export const AutoresearchModelRoleEnumApi = {
+    Champion: 'champion',
+    Challenger: 'challenger',
+    Archived: 'archived',
+} as const
+
+/**
+ * Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata.
+ */
+export type AutoresearchModelApiModelRecipe = { [key: string]: unknown }
+
+/**
+ * Global feature importance and directionality. Used to explain top drivers on the model card.
+ */
+export type AutoresearchModelApiModelExplanation = { [key: string]: unknown }
+
+/**
+ * Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts.
+ */
+export type AutoresearchModelApiMetrics = { [key: string]: unknown }
+
+export interface AutoresearchModelApi {
+    /** Unique UUID of this model version. */
+    readonly id: string
+    /** Pipeline this model belongs to. */
+    pipeline: string
+    /** Model role: 'champion' (active scoring model), 'challenger' (shadow model), or 'archived'.
+     *
+     * * `champion` - Champion
+     * * `challenger` - Challenger
+     * * `archived` - Archived */
+    role?: AutoresearchModelRoleEnumApi
+    /** SHA-256 of the serialized recipe. Used to deduplicate identical recipes across runs. */
+    readonly recipe_hash: string
+    /** Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata. */
+    model_recipe: AutoresearchModelApiModelRecipe
+    /** Global feature importance and directionality. Used to explain top drivers on the model card. */
+    model_explanation: AutoresearchModelApiModelExplanation
+    /**
+     * AUC on the held-out test split at training time. Preliminary signal before online labels mature.
+     * @nullable
+     */
+    holdout_score?: number | null
+    /**
+     * Online AUC computed from actual realized outcomes. Authoritative once enough labels have matured.
+     * @nullable
+     */
+    realized_score?: number | null
+    /**
+     * Expected calibration error (ECE). Lower is better; well-calibrated models have ECE < 0.05.
+     * @nullable
+     */
+    calibration_error?: number | null
+    /** Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts. */
+    metrics?: AutoresearchModelApiMetrics
+    /**
+     * Training run that produced this model. Read that run's artifact bundle to reuse the champion's train.py and features.sql as a starting point. Null for legacy models.
+     * @nullable
+     */
+    readonly source_training_run: string | null
+    /** The agent's own plain-English description of what this recipe does and why it was chosen. */
+    agent_description?: string
+    /**
+     * Start of the training data window (inclusive).
+     * @nullable
+     */
+    trained_on_start?: string | null
+    /**
+     * End of the training data window (exclusive).
+     * @nullable
+     */
+    trained_on_end?: string | null
+    /** True if this model has not yet been validated against realized online outcomes. */
+    is_preliminary?: boolean
+    /**
+     * Timestamp when this model was promoted to champion.
+     * @nullable
+     */
+    promoted_at?: string | null
+    /**
+     * Timestamp when this model was archived (superseded or retired).
+     * @nullable
+     */
+    archived_at?: string | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedAutoresearchModelListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AutoresearchModelApi[]
+}
+
+/**
+ * * `inference` - Inference
+ * * `validation` - Validation
+ */
+export type AutoresearchRunRunTypeEnumApi =
+    (typeof AutoresearchRunRunTypeEnumApi)[keyof typeof AutoresearchRunRunTypeEnumApi]
+
+export const AutoresearchRunRunTypeEnumApi = {
+    Inference: 'inference',
+    Validation: 'validation',
+} as const
+
+/**
+ * * `pending` - Pending
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type ZendeskImportJobStatusEnumApi =
+    (typeof ZendeskImportJobStatusEnumApi)[keyof typeof ZendeskImportJobStatusEnumApi]
+
+export const ZendeskImportJobStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+/**
+ * Run metrics: rows scored, score distribution summary, validation AUC, etc.
+ */
+export type AutoresearchRunApiMetrics = { [key: string]: unknown }
+
+export interface AutoresearchRunApi {
+    /** Unique UUID of this run. */
+    readonly id: string
+    /** Pipeline this run belongs to. */
+    pipeline: string
+    /**
+     * Model used for scoring. Null for validation runs.
+     * @nullable
+     */
+    model?: string | null
+    /** Type of run: 'inference' (daily scoring) or 'validation' (outcome evaluation).
+     *
+     * * `inference` - Inference
+     * * `validation` - Validation */
+    run_type: AutoresearchRunRunTypeEnumApi
+    /** Run status: pending, running, completed, or failed.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    status?: ZendeskImportJobStatusEnumApi
+    /**
+     * Number of users scored in this inference run.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    rows_scored?: number | null
+    /** Run metrics: rows scored, score distribution summary, validation AUC, etc. */
+    metrics: AutoresearchRunApiMetrics
+    /** Error message if the run failed. */
+    error?: string
+    /**
+     * Timestamp when the run started.
+     * @nullable
+     */
+    started_at?: string | null
+    /**
+     * Timestamp when the run completed or failed.
+     * @nullable
+     */
+    completed_at?: string | null
+    readonly created_at: string
+}
+
+export interface PaginatedAutoresearchRunListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AutoresearchRunApi[]
+}
+
+/**
+ * One iteration referenced from a run summary's ladder or dead-ends list.
+ */
+export interface TrainingRunSummaryLadderItemApi {
+    /** Iteration index this entry refers to. */
+    iteration_number: number
+    /**
+     * Holdout AUC for this iteration.
+     * @nullable
+     */
+    holdout_score: number | null
+    /** Model class tried in this iteration. */
+    model_class: string
+    /** The agent's rationale for this attempt. */
+    agent_description: string
+}
+
+/**
+ * Tier-1 distilled summary of a completed run — the orientation memory a new run reads first.
+ */
+export interface TrainingRunSummaryApi {
+    /** Target event the run's pipeline predicts. */
+    target_event: string
+    /** Prediction horizon, in days. */
+    horizon_days: number
+    /**
+     * Best holdout AUC achieved in the run.
+     * @nullable
+     */
+    best_holdout_score: number | null
+    /** Whether this run's best model was promoted to champion (vs kept as challenger). */
+    champion_promoted: boolean
+    /** Model class of the run's best model. */
+    champion_model_class: string
+    /** Kept iterations, highest holdout AUC first — the winning approaches worth reusing. */
+    kept_ladder: TrainingRunSummaryLadderItemApi[]
+    /** Discarded or crashed iterations — approaches already tried that did not help; avoid repeating. */
+    dead_ends: TrainingRunSummaryLadderItemApi[]
+    /** Agent's suggested next experiments for a future run. Empty if not provided. */
+    recommended_next: string
+    /** Agent's 1–2 sentence distillation of what this run learned. Empty if not provided. */
+    distillation: string
+}
+
+/**
+ * * `kept` - Kept
+ * * `discarded` - Discarded
+ * * `crashed` - Crashed
+ */
+export type AutoresearchIterationStatusEnumApi =
+    (typeof AutoresearchIterationStatusEnumApi)[keyof typeof AutoresearchIterationStatusEnumApi]
+
+export const AutoresearchIterationStatusEnumApi = {
+    Kept: 'kept',
+    Discarded: 'discarded',
+    Crashed: 'crashed',
+} as const
+
+/**
+ * Compact, read-only view of one iteration for the cross-run history feed and the Training tab.
+ */
+export interface IterationTrailApi {
+    /**
+     * Order of this attempt within its run (0-based).
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    iteration_number: number
+    /** Whether this recipe was kept (improved the best score), discarded, or crashed.
+     *
+     * * `kept` - Kept
+     * * `discarded` - Discarded
+     * * `crashed` - Crashed */
+    status: AutoresearchIterationStatusEnumApi
+    /**
+     * Holdout AUC this iteration achieved. Null if it was skipped/degenerate.
+     * @nullable
+     */
+    holdout_score?: number | null
+    /**
+     * Train-fold AUC for this iteration, if recorded.
+     * @nullable
+     */
+    train_score?: number | null
+    /** The agent's one-line rationale for what it tried and why. */
+    agent_description?: string
+    /** Model class and hyperparameters tried in this iteration. */
+    model_spec: unknown
+}
+
+export interface AutoresearchTrainingRunApi {
+    /** Unique UUID of this training run. */
+    readonly id: string
+    /** Pipeline this training run belongs to. */
+    pipeline: string
+    /**
+     * Parent Task ID in the tasks sandbox. Null for stub runs.
+     * @nullable
+     */
+    task_id?: string | null
+    /**
+     * Task sandbox run ID. Null for stub/synchronous training runs.
+     * @nullable
+     */
+    task_run_id?: string | null
+    /**
+     * Relative URL to the underlying sandbox Task detail page. Null for stub/synchronous training runs.
+     * @nullable
+     */
+    readonly task_url: string | null
+    /** Run status: pending, running, completed, or failed.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: ZendeskImportJobStatusEnumApi
+    /**
+     * Maximum iterations allowed for this run.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    iteration_budget?: number
+    /** Number of iterations completed. */
+    readonly iteration_count: number
+    /**
+     * Best holdout AUC achieved across all iterations in this run.
+     * @nullable
+     */
+    readonly best_holdout_score: number | null
+    /** Distilled cross-run learning summary written on completion. Null until the run completes. */
+    readonly summary: TrainingRunSummaryApi | null
+    /** Per-iteration breakdown — every recipe the agent tried this run, kept or discarded, with its model spec, holdout/train AUC, and one-line rationale. Ordered by iteration_number. */
+    readonly iterations: readonly IterationTrailApi[]
+    /** Error message if the run failed. */
+    readonly error: string
+    /**
+     * Timestamp when the training run started.
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * Timestamp when the training run completed or failed.
+     * @nullable
+     */
+    readonly completed_at: string | null
+    readonly created_at: string
+}
+
+export interface PaginatedAutoresearchTrainingRunListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AutoresearchTrainingRunApi[]
+}
+
+/**
  * Omit (or pass {"type": "event"}) to predict target_event; pass {"type": "action", "action_id": N} to predict a PostHog action. No other shapes are accepted.
  */
 export type PatchedAutoresearchPipelineCreateApiTargetDefinition =
@@ -389,7 +740,262 @@ export interface PatchedAutoresearchPipelineCreateApi {
     output_person_property?: string
 }
 
+/**
+ * * `likely_active_soon` - Likely Active Soon
+ * * `at_risk_of_inactivity` - At Risk Of Inactivity
+ * * `return_after_first_use` - Return After First Use
+ * * `feature_adoption` - Feature Adoption
+ * * `repeat_key_behavior` - Repeat Key Behavior
+ */
+export type TemplateKeyEnumApi = (typeof TemplateKeyEnumApi)[keyof typeof TemplateKeyEnumApi]
+
+export const TemplateKeyEnumApi = {
+    LikelyActiveSoon: 'likely_active_soon',
+    AtRiskOfInactivity: 'at_risk_of_inactivity',
+    ReturnAfterFirstUse: 'return_after_first_use',
+    FeatureAdoption: 'feature_adoption',
+    RepeatKeyBehavior: 'repeat_key_behavior',
+} as const
+
+export interface ResolveTemplateRequestApi {
+    /** Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.
+     *
+     * * `likely_active_soon` - Likely Active Soon
+     * * `at_risk_of_inactivity` - At Risk Of Inactivity
+     * * `return_after_first_use` - Return After First Use
+     * * `feature_adoption` - Feature Adoption
+     * * `repeat_key_behavior` - Repeat Key Behavior */
+    template_key: TemplateKeyEnumApi
+    /** Event name to use as the prediction target. Required for 'feature_adoption' and 'repeat_key_behavior'. Optional override for activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'); omit to use the auto-resolved event. To predict an action, create the pipeline with target_definition after resolving. */
+    target_event?: string
+    /**
+     * Override the template's default prediction horizon in days.
+     * @minimum 1
+     * @maximum 365
+     */
+    horizon_days?: number
+}
+
+/**
+ * Resolved training population filter. Pass as 'training_population' to autoresearch-create.
+ */
+export type ResolvedTemplateApiTrainingPopulation = { [key: string]: unknown }
+
+/**
+ * Resolved inference (daily scoring) population filter. Pass as 'inference_population' to autoresearch-create.
+ */
+export type ResolvedTemplateApiInferencePopulation = { [key: string]: unknown }
+
+export interface ResolvedTemplateApi {
+    /** The template key that was resolved. Pass it back to re-resolve with a different target_event.
+     *
+     * * `likely_active_soon` - Likely Active Soon
+     * * `at_risk_of_inactivity` - At Risk Of Inactivity
+     * * `return_after_first_use` - Return After First Use
+     * * `feature_adoption` - Feature Adoption
+     * * `repeat_key_behavior` - Repeat Key Behavior */
+    template_key: TemplateKeyEnumApi
+    /** Human-readable template name. */
+    display_name: string
+    /** What this template predicts. */
+    description: string
+    /** Suggested pipeline name. Pass as 'name' to autoresearch-create. */
+    suggested_name: string
+    /** Resolved target event. Pass as 'target_event' to autoresearch-create. For activity-based templates this is the auto-resolved activity event (or your override). */
+    target_event: string
+    /**
+     * Activity event found in your event schema, populated only for templates that auto-resolve the target ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'). Null for templates where you supply target_event directly.
+     * @nullable
+     */
+    resolved_activity_event: string | null
+    /** Other viable activity events found in your schema. If the resolved event is not the right signal, re-resolve with one of these as target_event. */
+    activity_event_alternatives: string[]
+    /** Resolved prediction horizon in days. */
+    horizon_days: number
+    /** Training lookback in days, sized so the horizon leaves room for training examples. Pass as 'training_lookback_days' to autoresearch-create. */
+    training_lookback_days: number
+    /** Resolved training population filter. Pass as 'training_population' to autoresearch-create. */
+    training_population: ResolvedTemplateApiTrainingPopulation
+    /** Resolved inference (daily scoring) population filter. Pass as 'inference_population' to autoresearch-create. */
+    inference_population: ResolvedTemplateApiInferencePopulation
+    /** Suggested person property name for prediction scores. Pass as 'output_person_property' to autoresearch-create. */
+    output_person_property: string
+    /** Usage notes and guidance for interpreting this resolved config. */
+    notes: string
+}
+
+export interface TemplateInfoApi {
+    /** Template identifier, e.g. 'likely_active_soon'. Pass to autoresearch-resolve-template-create.
+     *
+     * * `likely_active_soon` - Likely Active Soon
+     * * `at_risk_of_inactivity` - At Risk Of Inactivity
+     * * `return_after_first_use` - Return After First Use
+     * * `feature_adoption` - Feature Adoption
+     * * `repeat_key_behavior` - Repeat Key Behavior */
+    key: TemplateKeyEnumApi
+    /** Human-readable template name. */
+    display_name: string
+    /** What this template predicts and who it is for. */
+    description: string
+    /** Default prediction horizon in days. Can be overridden when resolving. */
+    default_horizon_days: number
+    /** If true, you must supply a target_event when resolving — the template does not auto-select one. Required for 'feature_adoption' and 'repeat_key_behavior'. */
+    requires_user_event: boolean
+    /** If true, the target event is automatically resolved from your event schema ($pageview, $screen, or the highest-volume non-noisy event). You can override the resolved event when resolving the template. */
+    requires_activity_resolution: boolean
+    /** Usage guidance and implementation notes. */
+    notes: string
+}
+
+/**
+ * Optional target definition. Pass {"type": "action", "action_id": N} to predict a PostHog action (multi-step / property / autocapture matcher) instead of a single event.
+ */
+export type ValidatePipelineRequestApiTargetDefinition =
+    | {
+          type: 'event'
+      }
+    | {
+          type: 'action'
+          /**
+           * ID of the action to predict.
+           * @minimum 1
+           */
+          action_id: number
+      }
+
+/**
+ * Population filter for training examples. Use {} for all identified users.
+ */
+export type ValidatePipelineRequestApiTrainingPopulation = { [key: string]: unknown }
+
+/**
+ * Population filter for daily scoring. When omitted or empty, the training population is counted, as creation stores it.
+ */
+export type ValidatePipelineRequestApiInferencePopulation = { [key: string]: unknown }
+
+export interface ValidatePipelineRequestApi {
+    /** Event name to predict, e.g. '$pageview'. Must exist in the team's event schema. Omit when predicting an action target (pass target_definition instead). */
+    target_event?: string
+    /** Optional target definition. Pass {"type": "action", "action_id": N} to predict a PostHog action (multi-step / property / autocapture matcher) instead of a single event. */
+    target_definition?: ValidatePipelineRequestApiTargetDefinition
+    /**
+     * Predict whether the target event occurs within this many days.
+     * @minimum 1
+     * @maximum 365
+     */
+    horizon_days?: number
+    /**
+     * How far back to look for training examples. Default: 180.
+     * @minimum 7
+     * @maximum 730
+     */
+    training_lookback_days?: number
+    /** Population filter for training examples. Use {} for all identified users. */
+    training_population?: ValidatePipelineRequestApiTrainingPopulation
+    /** Population filter for daily scoring. When omitted or empty, the training population is counted, as creation stores it. */
+    inference_population?: ValidatePipelineRequestApiInferencePopulation
+}
+
+/**
+ * * `info` - info
+ * * `warning` - warning
+ * * `error` - error
+ */
+export type ValidationWarningSeverityEnumApi =
+    (typeof ValidationWarningSeverityEnumApi)[keyof typeof ValidationWarningSeverityEnumApi]
+
+export const ValidationWarningSeverityEnumApi = {
+    Info: 'info',
+    Warning: 'warning',
+    Error: 'error',
+} as const
+
+export interface ValidationWarningApi {
+    /** Machine-readable warning code. 'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail: fix the definition before creating. 'low_volume', 'low_positives' and 'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are severity 'warning'. */
+    code: string
+    /** Human-readable warning description. */
+    message: string
+    /** Severity level. 'error' means training would fail or the data is too thin for a reliable model; see 'code' for which. 'warning' is worth acknowledging. Creation enforces none of them.
+     *
+     * * `info` - info
+     * * `warning` - warning
+     * * `error` - error */
+    severity: ValidationWarningSeverityEnumApi
+}
+
+export interface ValidatePipelineResponseApi {
+    /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with 'population_too_large' or 'horizon_exceeds_lookback' cannot train. */
+    can_proceed: boolean
+    /** True if there are non-blocking warnings the user should acknowledge before proceeding. */
+    requires_acknowledgement: boolean
+    /**
+     * Estimated number of user-level training rows based on the population and lookback window.
+     * @nullable
+     */
+    estimated_training_rows: number | null
+    /**
+     * Estimated number of positive examples (users who performed the target event).
+     * @nullable
+     */
+    positive_count: number | null
+    /**
+     * Estimated number of negative examples.
+     * @nullable
+     */
+    negative_count: number | null
+    /**
+     * Fraction of the training population that performed the target event.
+     * @nullable
+     */
+    base_rate: number | null
+    /**
+     * Estimated number of users in the inference (daily scoring) population.
+     * @nullable
+     */
+    inference_population_size: number | null
+    /** List of validation warnings. Check 'severity' and 'code'. */
+    warnings: ValidationWarningApi[]
+    /**
+     * Why validation did not run, or null when it did. A query error in the definition itself is passed through; any other failure is a generic message and the detail is logged.
+     * @nullable
+     */
+    error: string | null
+}
+
 export type AutoresearchListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type AutoresearchModelsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type AutoresearchRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type AutoresearchTrainingRunsListParams = {
     /**
      * Number of results to return per page.
      */

@@ -15,6 +15,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.c
 from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MERGE_ONLY,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -113,7 +115,13 @@ Leave **Account ID** blank to use the first account your key can access, or set 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=MERGE_ONLY,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
+        )
 
     def validate_credentials(
         self,

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-09-16 10:05:38 UTC
+// Generated at: 2026-09-21 10:06:19 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -101,6 +101,7 @@ export type CanonicalProvider =
     | 'inceptron-fp4'
     | 'inceptron-int4'
     | 'inference-net'
+    | 'inference-net-fp4'
     | 'io-net-fp16'
     | 'io-net-fp8'
     | 'ionstream'
@@ -117,6 +118,7 @@ export type CanonicalProvider =
     | 'minimax-highspeed'
     | 'mistral'
     | 'mistral-eu'
+    | 'mistral-nvfp4'
     | 'mistral-zdr'
     | 'modal'
     | 'modal-fp8'
@@ -126,9 +128,8 @@ export type CanonicalProvider =
     | 'moonshotai-int4'
     | 'moonshotai-mxfp4'
     | 'morph'
-    | 'morph-bf16'
     | 'morph-fast'
-    | 'morph-fp8'
+    | 'near-ai-fp8'
     | 'nebius-fp4'
     | 'nebius-fp8'
     | 'nex-agi-bf16'
@@ -144,6 +145,7 @@ export type CanonicalProvider =
     | 'novita-int4'
     | 'nvidia'
     | 'nvidia-nvfp4'
+    | 'open-inference-fp4'
     | 'open-inference-fp8'
     | 'openai'
     | 'openai-default'
@@ -169,6 +171,7 @@ export type CanonicalProvider =
     | 'relace-fp8'
     | 'sail-research-fp4'
     | 'sail-research-fp8'
+    | 'sail-research-int4'
     | 'sail-research-us'
     | 'sakana'
     | 'sambanova'
@@ -183,6 +186,7 @@ export type CanonicalProvider =
     | 'tencent-fp8'
     | 'thinkingmachines-nvfp4'
     | 'together'
+    | 'unbiased'
     | 'upstage'
     | 'upstage-zdr'
     | 'venice'

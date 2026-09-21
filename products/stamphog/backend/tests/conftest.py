@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, ExitStack
 from dataclasses import dataclass
 from typing import Any
@@ -166,6 +166,10 @@ class StamphogChain:
         ).status_code
 
 
+def _run_on_commit_immediately(fn: Callable[[], object], using: str | None = None, robust: bool = False) -> None:
+    fn()
+
+
 @pytest.fixture
 def stamphog_chain() -> Iterator[StamphogChain]:
     """Wire the four chain boundaries (GitHub, Slack, sandbox, LLM) to deterministic fakes.
@@ -225,9 +229,7 @@ def stamphog_chain() -> Iterator[StamphogChain]:
             patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow", _inline_review_workflow)
         )
         stack.enter_context(
-            patch(
-                "products.stamphog.backend.tasks.tasks.transaction.on_commit", side_effect=lambda fn, using=None: fn()
-            )
+            patch("products.stamphog.backend.tasks.tasks.transaction.on_commit", side_effect=_run_on_commit_immediately)
         )
         stack.enter_context(patch("products.stamphog.backend.logic.slack_digest.SlackIntegration", fake_slack))
         stack.enter_context(patch("posthog.team_notifications.slack.SlackIntegration", fake_slack))

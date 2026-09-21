@@ -7,7 +7,7 @@ from django.test import override_settings
 
 from temporalio.client import Client, ScheduleActionStartWorkflow, ScheduleOverlapPolicy, ScheduleState
 
-from products.alerts.backend.temporal.schedule import SCHEDULE_ID, create_alerts_product_check_due_schedule
+from products.alerts.backend.temporal.schedule import SCHEDULE_ID, create_alerts_product_tick_schedule
 
 MODULE = "products.alerts.backend.temporal.schedule"
 
@@ -22,7 +22,7 @@ async def test_schedule_does_not_access_temporal_outside_dev(deployment: str | N
         patch(f"{MODULE}.a_create_schedule") as create,
         patch(f"{MODULE}.a_update_schedule") as update,
     ):
-        await create_alerts_product_check_due_schedule(client)
+        await create_alerts_product_tick_schedule(client)
     exists.assert_not_awaited()
     create.assert_not_awaited()
     update.assert_not_awaited()
@@ -46,7 +46,7 @@ async def test_dev_schedule_creates_or_updates_with_bounded_policy(already_exist
         patch(f"{MODULE}.a_create_schedule") as create,
         patch(f"{MODULE}.a_update_schedule") as update,
     ):
-        await create_alerts_product_check_due_schedule(client)
+        await create_alerts_product_tick_schedule(client)
 
     exists.assert_awaited_once_with(client, SCHEDULE_ID)
     called = update if already_exists else create

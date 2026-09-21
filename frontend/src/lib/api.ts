@@ -7,7 +7,14 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError, BROWSER_FETCH_FAILURE_MESSAGES, NetworkError, type NetworkFailureReason } from 'lib/api-error'
+import {
+    ApiError,
+    BROWSER_FETCH_FAILURE_MESSAGES,
+    NetworkError,
+    type NetworkFailureReason,
+    readableErrorMessage,
+    ResponseBodyReadError,
+} from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
@@ -327,7 +334,7 @@ export interface ApiUploadOptions extends ApiMethodOptions {
     onUploadProgress?: (progress: ApiUploadProgress) => void
 }
 
-export { ApiError, NetworkError }
+export { ApiError, NetworkError, ResponseBodyReadError }
 
 export class RateLimitError extends Error {
     constructor(public retryAfterSeconds: number) {
@@ -398,7 +405,9 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
  * must still surface as a failure. The thrown ApiError deliberately carries no `status`: the
  * HTTP status was 2xx, and recovery paths keyed on `status === undefined || status >= 500`
  * should classify a garbled body like the fetch-level network failure it effectively is. The
- * real status stays in the message for triage.
+ * real status stays in the message for triage. A read that fails mid-stream (rather than completing
+ * with unparsable content) throws `ResponseBodyReadError`, so it can be recognized as wire-level
+ * noise and left out of error tracking.
  */
 async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
     const requestContext = (): string =>
@@ -417,7 +426,18 @@ async function getJSONFromSuccessResponse(response: Response, method: string, ur
         }
         // The body stream failed mid-read (e.g. a network drop truncating a chunked response) —
         // the response is unusable, so surface it instead of handing callers a null.
-        throw new ApiError(`Failed to read response body ${requestContext()}`)
+        // Error tracking excludes this shape, so this event is the only remaining signal that can
+        // tell a persistent truncation regression from one user's bad connection. The URL is
+        // normalized first, because `handleFetch` records the prepared one and an endpoint that
+        // splits across two pathnames is not aggregatable.
+        captureClientRequestFailure({
+            pathname: requestPathname(normalizeUrl(url)),
+            method,
+            status: response.status,
+            is_shared_view: isSharedView(),
+            failure_reason: 'response_body_read',
+        })
+        throw new ResponseBodyReadError(`Failed to read response body ${requestContext()}`)
     }
     if (!text.trim()) {
         return null
@@ -2524,8 +2544,9 @@ const api = {
             // return a non-array, which would break callers that iterate over the result.
             return Array.isArray(response) ? response : []
         },
-        async create(data: { ref?: string; type?: string }): Promise<FileSystemEntry> {
-            return await new ApiRequest().fileSystemLogView().create({ data })
+        // The backend answers 204 No Content, so there is no entry to hand back.
+        async create(data: { ref?: string; type?: string }): Promise<void> {
+            await new ApiRequest().fileSystemLogView().create({ data })
         },
     },
 
@@ -5365,10 +5386,11 @@ const api = {
                     // only on a first connect (no resume cursor); the Last-Event-ID header, when
                     // present, takes precedence and an exact resume ignores `start`.
                     const base = options.proxyTarget.baseUrl.replace(/\/+$/, '')
-                    const url =
-                        !options.lastEventId && options.startLatest
-                            ? `${base}/v1/runs/${runId}/stream?start=latest`
-                            : `${base}/v1/runs/${runId}/stream`
+                    const params = new URLSearchParams({ resync: '1' })
+                    if (!options.lastEventId && options.startLatest) {
+                        params.set('start', 'latest')
+                    }
+                    const url = `${base}/v1/runs/${runId}/stream?${params.toString()}`
                     headers['Authorization'] = `Bearer ${options.proxyTarget.token}`
                     return api.getResponse(url, { signal: options.signal, headers })
                 }
@@ -5772,9 +5794,11 @@ const api = {
         async lineage({
             nodeId,
             savedQueryId,
+            metricId,
         }: {
             nodeId?: DataModelingNode['id']
             savedQueryId?: string
+            metricId?: string
         }): Promise<{ nodes: DataModelingNode[]; edges: DataModelingEdge[] }> {
             const params: Record<string, string> = {}
             if (nodeId) {
@@ -5782,6 +5806,9 @@ const api = {
             }
             if (savedQueryId) {
                 params.saved_query_id = savedQueryId
+            }
+            if (metricId) {
+                params.metric_id = metricId
             }
             return await new ApiRequest().dataModelingNodes().withAction('lineage').withQueryString(params).get()
         },
@@ -6601,10 +6628,13 @@ const api = {
             // `stage_draft` routes content edits on an active workflow into its staged draft instead of
             // the live config; publish promotes them. Ignored on non-active workflows.
             // `base_live_updated_at` fences a staged save's live metadata write the same way.
+            // `includes_staged_draft` marks a full save on a non-active workflow that carries its staged
+            // draft, so the server clears that draft.
             data: Partial<HogFlow> & {
                 base_updated_at?: string | null
                 stage_draft?: boolean
                 base_live_updated_at?: string | null
+                includes_staged_draft?: boolean
             }
         ): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).update({ data })
@@ -7456,14 +7486,21 @@ function classifyNetworkFailure(): NetworkFailureReason {
     return 'network'
 }
 
+/**
+ * `response_body_read` is not a `NetworkError` reason: the request completed and the server
+ * answered, so only the read of the body failed.
+ */
+type ClientRequestFailureReason = NetworkFailureReason | 'response_body_read'
+
 function captureClientRequestFailure(properties: {
     pathname: string
     method: string
-    duration: number
+    /** Absent when the failure surfaced after the response, outside the timed request. */
+    duration?: number
     /** 0 for a request that never reached the server, so network failures are separable from HTTP ones. */
     status: number
     is_shared_view: boolean
-    failure_reason?: NetworkFailureReason
+    failure_reason?: ClientRequestFailureReason
 }): void {
     // when used inside the posthog toolbar, `posthog.capture` isn't loaded
     // check if the function is available before calling it.
@@ -7565,7 +7602,14 @@ async function handleFetch(
             })
             throw new NetworkError(reason, error)
         }
-        throw new ApiError(error as any, response?.status)
+        // The caught value is the failure, not its message: passing it as `message` stringifies an
+        // object to "[object Object]" and leaves `detail`, `code` and `data` empty, so neither the
+        // user nor support can read what went wrong. `cause` carries the original stack, which is the
+        // only frame naming where in the request path the fault came from - every `ApiError` shares
+        // this one.
+        const failure = new ApiError(readableErrorMessage(error), response?.status, response?.headers, error)
+        failure.cause = error
+        throw failure
     }
 
     // Standalone OAuth mode: a 401 likely means the access token expired — refresh once and retry.
