@@ -2034,11 +2034,11 @@ Diffed against: <https://developer.copper.com/index.html>
 - [x] `GET /v1/pipeline_stages (and /v1/pipelines/{id}/stages)` — stage lookup; opportunities carry pipeline_stage_id and pipelines is already synced, so funnel analysis is blocked on this one table (high)
 - [x] `GET /v1/lead_statuses` — status lookup; every lead row carries status_id with nothing to resolve it against (high)
 - [x] `GET /v1/activity_types (and /v1/custom_activity_types)` — lookup resolving activity_type on activity rows; also needed to separate user activity from system activity (high)
-- [ ] `GET /v1/custom_field_definitions` — resolves custom_field_definition_id, which appears on companies, people, leads, opportunities and projects (high)
-- [ ] `GET /v1/tags` — tag lookup for segmenting every record type (medium)
-- [ ] `GET /v1/related_items (view all records related to an entity)` — cross-object relationship junction linking companies, people, opportunities and projects (medium)
+- [x] `GET /v1/custom_field_definitions` — resolves custom_field_definition_id, which appears on companies, people, leads, opportunities and projects (high)
+- [x] `GET /v1/tags` — tag lookup for segmenting every record type (medium)
+- [x] `GET /v1/related_items (view all records related to an entity)` — cross-object relationship junction linking companies, people, opportunities and projects (medium)
 - [ ] `GET /v1/{entity}/{id}/activities (see a company's / person's / lead's activities)` — per-record activity fan-out when the global activity search is too coarse (low)
-- [ ] `GET /v1/field_layouts/{entity_type}` — field layout metadata for interpreting per-pipeline custom field sets (low)
+- [x] `GET /v1/field_layouts/{entity_type}` — field layout metadata for interpreting per-pipeline custom field sets (low)
 
 Note: MkDocs site; its nav enumerates every operation one page per endpoint, which is what I diffed against. Copper already exposes most lookup tables (contact_types, customer_sources, loss_reasons, pipelines) - the notable omissions are the remaining lookups plus the activity log.
 
