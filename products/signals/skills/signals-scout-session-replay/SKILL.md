@@ -269,7 +269,7 @@ ORDER BY observations_30d DESC
 LIMIT 50
 ```
 
-Zero rows → the project doesn't use replay vision; skip this pattern without comment. Expect test/abandoned scanners in the tail — judge by `observations_7d`, and write a `noise:` entry for dead ones. Two angles on a live roster:
+Zero rows → skip this pattern without comment. Read it as "nothing to aggregate", not as proof of disuse: a failed or ineligible observation writes no row, so `vision-scanners-list` is what separates an unused project from an all-failing one where the tool is in your toolset. Expect test/abandoned scanners in the tail — judge by `observations_7d`, and write a `noise:` entry for dead ones. Two angles on a live roster:
 
 - **Cross-session aggregation** — observations carry flattened `scanner_output_*` properties (`scanner_output_verdict`, `scanner_output_tags`, `scanner_output_friction_points`). The scanner judges one session at a time; nobody aggregates. A monitor's `'yes'` rate stepping up week-over-week, or the same friction point / tag recurring across many sessions with persons spread, is a finding the per-session scanner cannot surface.
 - **Watch gaps** — a previously-active scanner whose `observations_7d` went to zero is silently watching nothing. If the `vision-*` tools are available, confirm the mechanism (`vision-scanners-list` for enabled state, `-observations-list` for failed/ineligible rates — failures never reach the events stream, `vision-quota-retrieve` for quota); without them, report the silence itself. P3; bundle all scanner-health items into one finding.

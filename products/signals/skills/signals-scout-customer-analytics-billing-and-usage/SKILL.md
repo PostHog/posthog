@@ -86,10 +86,11 @@ Coverage builds across runs instead of restarting cold.
   You need three shapes, and all three must carry an account key you can match to `system.accounts.external_id`:
   - **Daily per-account usage** — one row per account per day, carrying a usage measure per product, either as one typed column per product or as a product dimension plus a measure column. Daily grain — this is the divergence scorer, and the only shape the scout cannot work without.
   - **Per-product revenue lines** — one row per account, period, and product, with an amount and a period end. Monthly grain — this gives the product's share of the account's bill. Exclude credit, discount, and adjustment lines; check the units, since amounts are often stored in cents.
-  - **Account-total revenue** — one row per account and period, with the account's total or forecast MRR. The account-total contrast that makes a mix shift visible.
+  - **Account-total revenue** — one row per account and period, with the account's total MRR. Note how the source marks a forecast or upcoming period, since a scored number and a forecast never go in the same sum.
 
-  Confirm the account join before you trust a number: `countIf(external_id IN (SELECT DISTINCT toString(<account_key>) FROM <daily_usage_table>))` over `system.accounts`.
-  Record the resolved table names, the account key, and the product mapping between the usage measures and the revenue-line descriptions as `pattern:customer_analytics_billing_and_usage:billing-source` so future runs skip rediscovery.
+  Confirm the account join before you trust a number, and confirm it **in each of the three sources**: `countIf(external_id IN (SELECT DISTINCT toString(<account_key>) FROM <table>))` over `system.accounts`, once per table.
+  A source whose key matches partly or not at all silently drops rows, which moves a product's share and the account total without failing — so treat a miss on any required source as the broken-billing-join close-out, not as a source to use with a caveat.
+  Record the resolved table names, the account key, the forecast marker, and the product mapping between the usage measures and the revenue-line descriptions as `pattern:customer_analytics_billing_and_usage:billing-source` so future runs skip rediscovery.
   Nothing in the warehouse carries these shapes → quick close-out; this scout has no other source of billed usage.
 
 - **Discover the account grain for the in-product engagement context reads.**
@@ -162,20 +163,26 @@ SELECT <product_label>,
 FROM <revenue_lines>
 WHERE <account_key> = {account_key}
   AND period_end >= toStartOfMonth(today() - INTERVAL 1 MONTH)
+  AND period_end < toStartOfMonth(today())   -- the latest complete period only
   AND <product_label> NOT LIKE '%Credit%'   -- and any other credit / adjustment label the source uses
 GROUP BY <product_label>
 ```
+
+Both bounds matter: the current period is still accruing and a forecast line is not money yet, so either one mixed into the denominator moves every product's share and can push a real drop under the 5% floor.
 
 And pull the total-MRR contrast (confirmed + forecasted) for the evidence prose:
 
 ```sql
 SELECT toStartOfMonth(period_end) AS period,
-       sum(<mrr>) AS total_mrr
-       -- split confirmed from forecast here when the source marks upcoming periods
+       sumIf(<mrr>, NOT <is_forecast>) AS confirmed_mrr,
+       sumIf(<mrr>, <is_forecast>)     AS forecast_mrr
 FROM <account_revenue>
 WHERE <account_key> = {account_key} AND period_end >= today() - INTERVAL 90 DAY
 GROUP BY period ORDER BY period
 ```
+
+`<is_forecast>` is the marker you recorded at Orient; drop the second column where the source marks none.
+The "account total flat" check reads `confirmed_mrr` only. A forecast belongs in the evidence prose as a forecast, and one summed into the confirmed total can hold a real drop flat and cost you the finding.
 
 Never score a partial window.
 Check the source's freshness first (`SELECT max(date) FROM <daily_usage>`) — aggregation lag at the window edge fakes a drop, and there is no event-stream cross-check for billed usage (see the two-planes rule).

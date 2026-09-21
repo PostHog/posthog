@@ -62,7 +62,8 @@ WHERE event = '$recording_observed'
 ```
 
 - **Zero in 30d** — _don't_ conclude "not in use" from the event stream alone. Only _succeeded_ observations write `$recording_observed` (footgun #5), so zero events is ambiguous: either no scanners, or enabled scanners whose every observation is failing / ineligible / quota-skipped — exactly the observing-integrity failure you exist to catch. Do one cheap `vision-scanners-list` (`enabled: "enabled"`) check:
-  - **No enabled scanners** (or the roster tool is not in your toolset _and_ the profile shows no scanner config) — replay vision genuinely isn't in play. Write `not-in-use:replay_vision:team{team_id}` ("checked at {timestamp}, no observations in 30d, no enabled scanners") and close out empty. (Re-runs idempotently refresh the same key.)
+  - **No enabled scanners** — `vision-scanners-list` returns an empty or all-disabled roster and the 30d observation scan is empty. Write `not-in-use:replay_vision:team{team_id}` ("checked at {timestamp}, no observations in 30d, no enabled scanners") and close out empty. (Re-runs idempotently refresh the same key.)
+  - **No roster to read** — the roster tool is not in your toolset, so zero observations proves nothing: a scanner whose every run fails emits no `$recording_observed` row either. Record `pattern:replay_vision:roster-unreadable:team{team_id}` and close out without the `not-in-use` claim.
   - **Enabled scanners but zero events** — this is a watch gap, not non-adoption. Jump to the watch-gap pattern (check `status: "failed"` / `"ineligible"` and `vision-quota-retrieve`).
 - **Observations earlier in the 30d window but zero in 7d** — this is _not_ a close-out; it's the strongest-shaped watch-gap candidate. Investigate it first.
 - **Observations flowing** — proceed to a full run.

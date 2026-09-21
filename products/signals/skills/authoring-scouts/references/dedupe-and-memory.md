@@ -87,7 +87,8 @@ These are noise across essentially all PostHog projects — list the relevant on
 - **Dev-environment bursts** — high counts whose `service` / `properties.env` is `dev` / `local` / `test`.
   Filter before weighing.
 - **Exceptions the project's own tooling raises** — build, test, deploy, and agent tooling the team runs itself.
-  Read the project's own error inventory to learn which those are; internal operations are not something a user experienced.
+  The test is who was there: a machine ran the operation, so the exception carries no end-user session and repeats on a schedule rather than with traffic.
+  Learn which those are from the project's own error inventory, and keep any exception a user could have been sitting in front of.
 - **Single-session frontend state quirks** — a state-management or router error seen in one session; not user-impacting unless distinct-user counts climb.
 - **Known upstream provider errors** — Anthropic / OpenAI rate limits, third-party outages already covered by past memory.
   Don't re-file unless volume or shape changes meaningfully.

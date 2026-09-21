@@ -50,8 +50,8 @@ SELECT
     uniq(t.created_by_id)                                        AS creators,
     uniq(t.repository)                                           AS repos,
     countIf(r.status = 'failed')                                 AS failed,
-    countIf(isNotNull(r.error_message))                          AS with_error_msg,
-    countIf(isNotNull(r.branch))                                 AS with_branch
+    countIf(r.error_message != '')                               AS with_error_msg,
+    countIf(r.branch != '')                                      AS with_branch
 FROM system.task_runs AS r
 JOIN system.tasks AS t ON r.task_id = t.id
 WHERE r.created_at > now() - interval 14 day
