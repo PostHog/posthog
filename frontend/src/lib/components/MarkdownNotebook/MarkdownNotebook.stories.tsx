@@ -369,6 +369,19 @@ Select part of this paragraph to format it from the inline toolbar.`,
     },
 }
 
+export const BtwSelection: Story = {
+    ...SelectionToolbarState,
+    args: { ...SelectionToolbarState.args, onBtw: fn() },
+}
+
+export const BtwSlashMenu: Story = {
+    args: {
+        value: '# Btw mode\n\n ',
+        initialInsertMenu: { nodeIndex: 1, query: '' },
+        onBtw: fn(),
+    },
+}
+
 export const SlashMenuAndInsertion: Story = {
     args: {
         value: '',

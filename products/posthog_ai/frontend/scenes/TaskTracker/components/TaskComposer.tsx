@@ -73,7 +73,7 @@ export function TaskComposer(): JSX.Element {
     return (
         <div className="flex flex-col h-full min-h-0 items-center justify-center overflow-y-auto p-4">
             <div className="w-full max-w-2xl flex flex-col items-center gap-4">
-                <Welcome headline={displayHeadline}>
+                <Welcome headline={displayHeadline} subheadline={composerOverride?.subheadline}>
                     {/* Temporary migration affordance — delete with the rest of the onboarding takeover
                         once everyone is on the new PostHog AI. */}
                     {!composerOverride?.hideOnboardingReplay && <OnboardingReplayButton panelId={panelId} />}
@@ -112,7 +112,9 @@ export function TaskComposer(): JSX.Element {
                                     <AttachedContextBar />
                                 </Composer.Header>
                                 <Composer.Field>
-                                    <Composer.Placeholder>Describe the task in detail…</Composer.Placeholder>
+                                    <Composer.Placeholder>
+                                        {composerOverride?.placeholder ?? 'Describe the task in detail…'}
+                                    </Composer.Placeholder>
                                     <Composer.Textarea autoFocus data-attr="task-composer-input" />
                                 </Composer.Field>
                                 <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">

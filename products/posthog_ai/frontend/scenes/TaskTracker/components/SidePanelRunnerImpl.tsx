@@ -18,6 +18,7 @@ export interface SidePanelRunnerImplProps {
     /** Embedded `taskTrackerSceneLogic` key — keeps this instance independent of the `/tasks` scene singleton. */
     panelId: string
     composer?: ReactNode
+    attachApplyBackInstructions?: boolean
 }
 
 /**
@@ -27,15 +28,25 @@ export interface SidePanelRunnerImplProps {
  * `TaskTrackerSceneLogicProps`) so `TaskComposer` — which reads the unbound `taskTrackerSceneLogic` — resolves
  * this instance instead of the scene's own singleton.
  */
-export function SidePanelRunnerImpl({ panelId, composer }: SidePanelRunnerImplProps): JSX.Element {
+export function SidePanelRunnerImpl({
+    panelId,
+    composer,
+    attachApplyBackInstructions = true,
+}: SidePanelRunnerImplProps): JSX.Element {
     return (
         <BindLogic logic={taskTrackerSceneLogic} props={{ panelId }}>
-            <SidePanelRunnerContent composer={composer} />
+            <SidePanelRunnerContent composer={composer} attachApplyBackInstructions={attachApplyBackInstructions} />
         </BindLogic>
     )
 }
 
-function SidePanelRunnerContent({ composer }: { composer?: ReactNode }): JSX.Element {
+function SidePanelRunnerContent({
+    composer,
+    attachApplyBackInstructions,
+}: {
+    composer?: ReactNode
+    attachApplyBackInstructions: boolean
+}): JSX.Element {
     const { activeCreation, historyExpanded } = useValues(taskTrackerSceneLogic)
     const { composerOverride } = useValues(composerOverrideLogic)
     const { toggleHistory, updateActiveCreationRun, setStartupDraft } = useActions(taskTrackerSceneLogic)
@@ -47,10 +58,9 @@ function SidePanelRunnerContent({ composer }: { composer?: ReactNode }): JSX.Ele
     // `TaskRunChat`; registrations are provider-keyed, so co-mounted surfaces don't clobber each other.
     useForegroundStream(activeCreation?.streamKey ?? null)
 
-    // While this side-panel surface is mounted, tell the agent its tool calls are applied back into
-    // whatever the user has open (see `useMcpToolApplyBack` consumers). Attached unconditionally —
-    // unlike the foreground stream above, the instruction must ride the FIRST send, before a run exists.
-    useAttachedContext([AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM])
+    // Edit-capable hosts attach this before the first send, before a run exists. Question-only
+    // hosts provide their own instructions instead of advertising edits to the open page.
+    useAttachedContext(attachApplyBackInstructions ? [AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM] : null)
 
     // `!composer`: a host that supplies its own composer offers no way into the history list, and the
     // panel state is shared across hosts — so an expanded history left behind by another one must not

@@ -237,10 +237,16 @@ import {
 } from './types'
 import { cloneNotebookNode, getInlineText, getNodeFingerprint, normalizeInlineNodes } from './utils'
 
+export type NotebookBtwContext = {
+    markdown: string
+    selectedMarkdown?: string
+}
+
 export type MarkdownNotebookProps = {
     value: string
     onChange?: (value: string) => void
     onAskAI?: (request: MarkdownNotebookAskAIRequest) => void
+    onBtw?: (context: NotebookBtwContext) => void
     aiPromptAuthorName?: string
     isAskAIDisabled?: boolean
     askAIDisabledReason?: string
@@ -601,6 +607,7 @@ function MarkdownNotebookEditor({
     value,
     onChange,
     onAskAI,
+    onBtw,
     aiPromptAuthorName = 'You',
     isAskAIDisabled = false,
     askAIDisabledReason,
@@ -2932,6 +2939,35 @@ function MarkdownNotebookEditor({
         })
     }
 
+    const openBtw = useCallback(
+        (selectedMarkdown?: string): void => {
+            if (!onBtw || askAIDisabledReason) {
+                return
+            }
+            onBtw({ markdown: serializeMarkdownNotebook(documentRef.current), selectedMarkdown })
+            setFloatingToolbar(null)
+        },
+        [onBtw, askAIDisabledReason]
+    )
+
+    const openBtwFromSlash = useCallback(
+        (nodeId: string): void => {
+            if (!onBtw || askAIDisabledReason) {
+                return
+            }
+            const currentDocument = documentRef.current
+            const nextDocument = {
+                ...currentDocument,
+                nodes: currentDocument.nodes.map((node) =>
+                    node.id === nodeId ? { ...makeEmptyParagraph('btw'), id: nodeId } : node
+                ),
+            }
+            commitDocument(nextDocument)
+            onBtw({ markdown: serializeMarkdownNotebook(nextDocument) })
+        },
+        [onBtw, askAIDisabledReason, commitDocument]
+    )
+
     const renderedNodes = getRenderedNodes()
     const aiWritingPlaceholderNodeIds = useMemo(() => getAIWritingPlaceholderNodeIds(document.nodes), [document.nodes])
     const focusAIPromptNodeId = useMemo(
@@ -2963,7 +2999,8 @@ function MarkdownNotebookEditor({
                     },
                     onAskAI ? openAIPrompt : undefined,
                     !!askAIDisabledReason,
-                    extraInsertCommands ? extraInsertCommands(insertMenuApi) : []
+                    extraInsertCommands ? extraInsertCommands(insertMenuApi) : [],
+                    onBtw ? openBtwFromSlash : undefined
                 ),
                 hiddenInsertCommandKeys
             ),
@@ -2972,6 +3009,8 @@ function MarkdownNotebookEditor({
             replaceNodeWithInsertedComponent,
             replaceNode,
             onAskAI,
+            onBtw,
+            openBtwFromSlash,
             askAIDisabledReason,
             openAIPrompt,
             extraInsertCommands,
@@ -6067,6 +6106,10 @@ function MarkdownNotebookEditor({
                     },
                     updateNode,
                     replaceNodeWithNodes,
+                    onBtw: onBtw
+                        ? () => openBtw(serializeMarkdownNotebook({ ...documentRef.current, nodes: [node] }))
+                        : undefined,
+                    askAIDisabledReason,
                     deleteNode: () => deleteNodeWithRefCleanup(node.id),
                     deleteNodeAndFocusAdjacent: () => {
                         requestFocusAfterRemovingNode(node.id)
@@ -6344,6 +6387,7 @@ function MarkdownNotebookEditor({
                             setBlockStyle={setSelectedBlockStyle}
                             copySelection={copyFloatingToolbarSelection}
                             askAIAboutSelection={onAskAI ? askAIAboutSelection : undefined}
+                            btwAboutSelection={onBtw ? () => openBtw(floatingToolbar.selectedMarkdown) : undefined}
                             askAIDisabledReason={askAIDisabledReason}
                             startInlineCommentAtSelection={
                                 canStartInlineCommentAtSelection() ? startInlineCommentAtSelection : undefined

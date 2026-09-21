@@ -35,6 +35,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 
+import { NotebookBtw } from 'products/notebooks/frontend/NotebookBtw'
+import { notebookBtwLogic } from 'products/notebooks/frontend/notebookBtwLogic'
+
 import { NODE_ICONS } from '../nodeIcons'
 import { notebookWidgetCatalog, NotebookWidgetPickerKind } from '../notebookWidgetCatalog'
 import { NotebookNodeType } from '../types'
@@ -97,6 +100,8 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
     const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const { session: btwSession } = useValues(notebookBtwLogic({ shortId }))
+    const { openBtw, closeBtw } = useActions(notebookBtwLogic({ shortId }))
     const markdownRegistry = useMemo(() => getMarkdownRegistryForFeatureFlags(featureFlags), [featureFlags])
     const enabledAIComponentTags = useMemo(
         () => [
@@ -761,6 +766,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     remoteCarets={remoteCarets}
                     onCaretChange={isEditable ? publishMarkdownCaret : undefined}
                     onAskAI={isEditable ? handleAskAI : undefined}
+                    onBtw={isEditable ? openBtw : undefined}
                     convertExternalDataTransferToNodes={isEditable ? convertExternalDataTransferToNodes : undefined}
                     isAskAIDisabled={inlineAIRequests.length > 0}
                     askAIDisabledReason={
@@ -783,6 +789,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     aiWritingNodeIndexes={aiWritingNodeIndexes}
                 />
             </NotebookComponentRunStatusContext.Provider>
+            {btwSession && <NotebookBtw session={btwSession} onClose={closeBtw} />}
             {inlineAIRequests.map((request) => (
                 <InlineNotebookAIRunner
                     key={request.conversationId}
