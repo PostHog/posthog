@@ -41,7 +41,7 @@ logger = structlog.get_logger(__name__)
 ORIGIN_MARKER_PREFIX = "posthog-self-driving-origin"
 MAX_LINKS_PER_SOURCE = 5
 
-# Identifiers go into a URL path, so anything outside this set is counted but not linked.
+# Identifiers go into a URL path, so a signal with any other id keeps its source type but gets no link.
 _SOURCE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _SOURCE_PRODUCT_RE = re.compile(r"^[a-z0-9_]{1,40}$")
 _SCOUT_NAME_RE = re.compile(r"^[a-z0-9-]{1,64}$")
@@ -68,7 +68,6 @@ class EntityPage:
     path: str
 
 
-# Sources whose signals point at one entity with its own page in PostHog.
 _ENTITY_PAGES: dict[str, EntityPage] = {
     SignalSourceProduct.ERROR_TRACKING: EntityPage(link_label="issue", path="/error_tracking/{id}"),
     SignalSourceProduct.SESSION_REPLAY: EntityPage(link_label="recording", path="/replay/{id}"),
