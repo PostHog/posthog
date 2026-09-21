@@ -50,8 +50,9 @@ describe('verifyPushIdentityToken', () => {
     })
 
     it('refuses an unsigned token', () => {
-        // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret -- an alg=none
-        // token has no key by definition, and the empty key is what makes this the attack it tests for.
+        // An alg=none token has no key by definition, and the empty key is what makes this the
+        // attack the test covers.
+        // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
         const unsigned = jwt.sign({ sub: distinctId, app_id: appId, aud: AUDIENCE }, '', {
             algorithm: 'none',
             expiresIn: 300,
