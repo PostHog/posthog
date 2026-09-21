@@ -94,7 +94,22 @@ def project_label(integration: Integration) -> str:
     return f"{integration.team.organization.name} · {integration.team.name}"
 
 
-def format_project_candidate_list(candidates: list[Integration]) -> str:
+def format_project_candidate_list(candidates: list[Integration], *, first: Integration | None = None) -> str:
+    """One line per project, ``first`` at the head of the list.
+
+    The order is otherwise ``check_integrations_auth_and_filter``'s, which sorts by
+    freshest auth verdict and so reshuffles as cache entries expire. Leading with the
+    project a caller is already on gives the list its one stable landmark.
+
+    Every line carries the project's own name and nothing else. A caller marking one of
+    them says so around the list, by id, because a team may be called anything at all —
+    including whatever that marker would have been.
+
+    ``first`` outside ``candidates`` is ignored rather than prepended: for the classifier
+    this list and the reply schema's enum have to offer the same projects.
+    """
+    if first is not None and any(c.id == first.id for c in candidates):
+        candidates = [first, *(c for c in candidates if c.id != first.id)]
     return "\n".join(f"• `{c.team_id}` — {project_label(c)}" for c in candidates)
 
 
