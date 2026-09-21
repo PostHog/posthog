@@ -212,6 +212,7 @@ To find the channel for a team slug `T`, a purpose, and an optional producer:
 
 The channel of a path is the channel of its primary owner.
 When the primary owner is a person handle, the path has no channel.
+An implementation that answers requests from other programs takes the purpose and the producer from the caller, as section 7.1 states.
 
 ## 6. Alias files
 
@@ -244,6 +245,9 @@ In `owners-yaml`, both `owners resolve --json` and `python -m owners_yaml` imple
 2. When the caller passes no path arguments, the resolver MUST read paths from standard input, one path per line. It MUST remove whitespace at the start and end of each line and MUST skip empty lines.
 3. The caller MAY name the repository root. Without one, the resolver MAY find the root itself, for example from the git worktree.
 4. The caller MAY name the purpose of the channel: people or notifications (section 5.2). The default is people. `owners-yaml` spells these `--purpose slack` and `--purpose notifications`.
+5. The caller MAY name the producer of the channel (section 5.2). The default is no producer. `owners-yaml` spells this `--producer NAME`.
+6. The resolver MUST pass the producer to the channel lookup of section 5.2 for every path of the request.
+7. When the root file declares `producers` and the caller names a producer that is not in that list, the resolver MUST exit with a non-zero status. The error message MUST list the declared names.
 
 ### 7.2 Response
 
@@ -418,8 +422,10 @@ rules:
 - **Unowned is a decision.** `owners: null` records that nobody owns a path on purpose. A missing owner fails the coverage check.
 - **The alias default is for old trees.** `product.yaml` is the default alias file name so that a repository written before `alias_files` existed resolves the same as it did then. A repository with no alias files sets `alias_files: []` and pays no lookups for it.
 - **Routing, not approval.** The format answers "who owns this path" for review requests, alerts, and reports. It does not replace a platform's required-approval rules.
+- **One input format.** A resolver reads ownership files only. CODEOWNERS is an export target, and a source for a one-time migration into ownership files, never a second input the resolver reads. The two formats resolve differently: CODEOWNERS takes the last matching line in one file, and this format takes the nearest file, field by field. CODEOWNERS also carries owners and nothing else, so it can say nothing about status or channels. Reading both would make the answer depend on which file a tool found first.
 
 ## Changelog
 
 - **1** (2026-09): First published version.
 - **1**, amended (2026-09): Section 3.5 adds `[...]` character classes. No pattern that was valid before the amendment changes meaning. Section 6 gives `alias_files` the default `[product.yaml]`, so a root file that does not declare the key now has one alias file instead of none.
+- **1**, amended (2026-09): Section 7.1 adds the producer to the resolver request, so a caller can reach a team's per-producer `notifications` mapping through an entrypoint. No ownership file changes meaning.

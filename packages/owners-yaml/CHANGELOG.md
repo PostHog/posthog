@@ -7,6 +7,19 @@ Notable changes to the `owners-yaml` package. The format follows
 `publish-owners-yaml.yml` reads the section matching the tagged version and uses it as
 the GitHub Release body, so add the entry here before you cut the tag.
 
+## 0.2.1
+
+### Added
+
+- `--producer NAME` on `owners resolve` and on `python -m owners_yaml`, and a `producer` argument on `OwnersResolver`. Without it, a team that maps `notifications` per producer was never matched, so every bot fell back to the team's `slack` channel. A name the root file's `producers` list does not declare is an error, because it would silently route to the people channel. SPEC section 7.1 now defines the producer as part of a resolver request.
+
+### Docs
+
+- The `notifications` example in the README and the command next to it now agree: a per-producer mapping needs `--purpose notifications --producer review-bot`. A plain channel string covers all automation.
+- The install section warns that the PyPI project named `owners` is a different package. Always write `owners-yaml`.
+- "Lint in CI" says what plain `lint` does not check: it does not know which teams exist, `lint --live` asks GitHub through the `gh` CLI, and `who` and `resolve` answer from the parent directory when a file does not parse.
+- SPEC section 10 and the README record a non-goal: CODEOWNERS is an export target and a one-time migration source, never a second input format.
+
 ## 0.2.0
 
 First release on PyPI, as `owners-yaml`. The package was developed in the monorepo as `posthog-owners` and never published under that name.
