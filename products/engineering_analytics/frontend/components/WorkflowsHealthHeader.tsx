@@ -86,7 +86,7 @@ export function WorkflowsHealthHeader({
 
             <div className="flex flex-col border-l border-primary pl-6">
                 <Tooltip
-                    title={`Share of workflows whose latest run passed, of the ${summary.settledWorkflows} with a completed run. Workflow-level and current — distinct from the volume-weighted Run pass rate.`}
+                    title={`Share of workflows whose latest run passed, of the ${summary.settledWorkflows} with a completed run. This is per workflow and current, unlike the run pass rate, which weighs every run.`}
                 >
                     <span className="self-start cursor-default text-xs text-tertiary">Passing now</span>
                 </Tooltip>

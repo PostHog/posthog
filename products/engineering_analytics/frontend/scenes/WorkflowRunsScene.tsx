@@ -364,8 +364,8 @@ export function WorkflowRunsScene(): JSX.Element {
                         loading={workflowHealthLoading}
                     />
                     <MetricTile
-                        label="Queue time p50"
-                        tooltip="From job created to started, weighted across the workflow's jobs."
+                        label="Estimated median queue time"
+                        tooltip="Estimated median wait from job created to started: each job's median, weighted by how often the job ran."
                         value={queueP50Seconds != null ? humanFriendlyDuration(queueP50Seconds) : '—'}
                         loading={jobAggregatesLoading}
                     />
