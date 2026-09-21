@@ -297,6 +297,11 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             # of the substring). `_is_stripe_account_access_error` classifies the same phrase for the
             # webhook-creation path.
             "does not have access to account": "Stripe rejected the request because your API key isn't authorized for the configured Stripe account. Remove or correct the 'Account id' in your source settings if your key belongs directly to the account. If you connected via OAuth, the application access may have been revoked — reconnect your Stripe account.",
+            # The `Account` table lists the connected accounts under a Stripe Connect platform.
+            # Stripe rejects this call outright when the key's own account isn't itself a platform
+            # (e.g. it's a connected account of someone else's platform) — every retry hits the
+            # same rejection, since it depends on the account's Connect role, not the request.
+            "You cannot access the connected accounts of your platform's connected accounts": "Your Stripe account isn't a Stripe Connect platform, so it can't sync the 'Account' table. Turn off the 'Account' table in your source's schema settings, then try again.",
             # Deterministic credential/config errors from _get_api_key and OAuthMixin
             "Missing Stripe API key": "Stripe API key is not configured. Please update the source configuration.",
             "Missing Stripe integration ID": "Stripe integration ID is not configured. Please reconnect your Stripe account.",

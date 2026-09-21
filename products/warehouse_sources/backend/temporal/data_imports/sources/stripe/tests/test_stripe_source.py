@@ -247,6 +247,9 @@ class TestStripeSource:
             # listing a specific customer's nested resources — every retry replays the same request
             # against the same customer and fails identically.
             "Request req_abc123: error_details_unknown",
+            # The key's own account isn't a Stripe Connect platform, so it can never list connected
+            # accounts — an intrinsic account-topology rejection, not something a retry can fix.
+            "InvalidRequestError: You cannot access the connected accounts of your platform's connected accounts.",
         ],
     )
     def test_non_retryable_errors_match_permission_failures(self, observed_error):
