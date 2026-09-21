@@ -20,11 +20,11 @@ Filter on `transient_environment = false` plus the environment name (`production
 ```sql
 SELECT d.id AS id, d.sha AS sha, d.environment AS env,
        minOrNullIf(parseDateTimeBestEffort(s.created_at), s.state = 'success') AS first_success
-FROM <prefix>github_deployments AS d
-LEFT JOIN <prefix>github_deployment_statuses AS s ON s.deployment_id = d.id
+FROM `<prefix>github_deployments` AS d
+LEFT JOIN `<prefix>github_deployment_statuses` AS s ON s.deployment_id = d.id
 WHERE parseDateTimeBestEffort(d.created_at) >= toDateTime('<merge ts>', 'UTC')
   AND coalesce(d.transient_environment, false) = false
-  AND d.environment IN ('<production environments>')
+  AND d.environment IN ('<production environments, each with any quote doubled>')
 GROUP BY d.id, d.sha, d.environment
 HAVING first_success IS NOT NULL
 ORDER BY first_success ASC, d.id ASC
@@ -33,6 +33,7 @@ LIMIT 20 OFFSET <page * 20>
 
 `transient_environment` is nullable and a source that omits the flag leaves it NULL, so the `coalesce` keeps those persistent deployments, as the curated deployments view does.
 `minIf` has no NULL: a deployment with no success row gets the epoch, sorts first, and can pass containment as a 1970 onset, which is why the `OrNull` form and the `HAVING` are not optional.
+Quote both table names in backticks as shown (a flattened multi-repository name keeps hyphens), and double any `'` inside an environment name before it enters the `IN` list, since the names are data a repository owner typed.
 Run the containment check from the top of that list: the first deployment created after the merge is often cut from a commit before it and reads `behind`, and the onset belongs to the first one that reads `ahead`.
 The limit is a page, not a horizon: when no row on the page reads `ahead` or `identical`, take the next page with `OFFSET` until one does or the rows run out, because a release-branch or multi-region repository can ship twenty production deployments after the merge before one contains it.
 A repository that ships the same SHA to several persistent production environments (one per region) has one onset per environment; take the earliest for the side-effect sweep, close its window only at the next **different** production SHA (a later region receiving the same SHA is still this batch rolling out, not the next one), and name the environment that serves the project's users when you cite a fix claim.
@@ -40,9 +41,10 @@ A repository that ships the same SHA to several persistent production environmen
 The onset is the **first** `success` status's `created_at` on the earliest candidate whose `sha` contains the merge, never the deployment's own `created_at`: a queued or slow deployment is created minutes or hours before users receive it, and a window that starts at creation counts pre-release traffic as post-deploy.
 When no candidate contains the merge, this rung has no answer: move down the ladder.
 
-## Rung 2: `gh` deployments and releases
+## Rung 2: `gh` releases (and deployments, where the token allows)
 
-The deployments endpoint's `sha` filter matches only a deployment recorded at exactly that commit, so never filter by the merge SHA.
+The sandbox's read-only token carries `contents`, `metadata`, and `pull_requests` only, and the deployments endpoint needs a `deployments: read` grant, so expect a 403 from it and go straight to releases below; the warehouse rung is where deployments are read.
+Where a token does carry that grant, the deployments endpoint's `sha` filter matches only a deployment recorded at exactly that commit, so never filter by the merge SHA.
 Enumerate instead: `gh api 'repos/<owner>/<repo>/deployments?per_page=100&page=<n>'`, paging until `created_at` falls before the merge, and filter the returned JSON by exact string comparison on `environment`; never put an environment name from deployment data into the command itself, because a crafted name with a quote and shell syntax would run in the sandbox that holds the read-only GitHub token and the scout's PostHog token.
 Keep persistent production environments, read each candidate's statuses from its `statuses_url` and keep any deployment with a `success` among them (its newest status is usually `inactive` once a later deployment succeeded, and that does not mean it never shipped), then apply the containment check; the onset is the `created_at` of the first `success` status on the earliest candidate that passes.
 

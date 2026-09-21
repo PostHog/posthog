@@ -47,9 +47,9 @@ Two cheap reads decide whether this run does work:
 
 - The state entries, each read with `scout-scratchpad-search` `key=<the key>` (an exact match that returns one entry or nothing): the repositories you watch, the deploy signal this project has, and the `cursor:`, `deferred:`, and `recheck:` entries per repository.
   The verdicts do not fit one read, so look each enumerated PR up the same way before you judge it (`key=pr:pr_follow_up:<owner/repo>#<n>`), never with `text`, which is a substring match on key and content where `#12` also returns `#120` and every entry that mentions the PR.
-- One merged-PR listing per watched repository (source ladder below), merged since the later of 14 days ago and this scout's previous run (so a scout on a 30-day schedule lists the whole month, capped at 45 days), newest first.
+- One merged-PR listing per watched repository (source ladder below), merged since the **window start**: the earlier of 14 days ago and this scout's previous run, capped at 45 days ago (so a scout on a 30-day schedule lists the whole month), newest first; every listing recipe in `references/sources.md` takes that same boundary.
 
-If no repository is reachable by any source, write `not-in-use:pr_follow_up:team{team_id}` ("checked at {timestamp}: no connected repository, no GitHub source, no PRs linked from the inbox") and close out empty.
+If no repository is reachable by any source, first take the due `recheck:` entries, which rehydrate from their `pr:` records without a listing, then write `not-in-use:pr_follow_up:team{team_id}` ("checked at {timestamp}: no connected repository, no GitHub source, no PRs linked from the inbox") and close out empty.
 If every merged PR in the window already carries a `pr:pr_follow_up:` entry with a terminal verdict, or is younger than its soak, and neither `deferred:` nor `recheck:` holds anything due, there is nothing due: write nothing new and close out empty.
 Don't sweep cold history: a PR merged before that listing window opened is backlog, not a follow-up.
 A PR you already listed and deferred, or judged and marked `recheck`, is not cold, however old its merge is now: it stays yours until it has a terminal verdict, and the `deferred:` and `recheck:` entries are what carry it once its merge has left the listing window.
@@ -105,12 +105,13 @@ A deferred PR is never judged claim-only to beat a clock: it is not cold, it wai
 Every claim candidate you listed and did not judge goes into `deferred:` as a compact rewritten list (`#n@<merge date>`, one entry per repository), capped at about 200 PRs; when the list is full, stop advancing the `cursor:` so the rest are relisted next run instead of overflowing one entry.
 Permanent exclusions (bots, dependency bumps, `noise:` entries, docs-only PRs) never enter it: they would be filtered out again every run and fill the cap for nothing.
 The `cursor:` is the oldest merge you have not yet listed, so it only advances past PRs that are judged, in `deferred:`, in `recheck:`, named by a `noise:` entry, covered by a `batch:` entry, or excluded by a rule you re-apply from listing metadata alone (a bot author), except that a bot row whose batch has not been swept yet holds the cursor until its `batch:` entry exists, or a dependency-only batch listed before its onset would be skipped for good.
+Every batch you sweep gets a `batch:` entry naming all its members, whether the sweep ran for a judged claim candidate or for a batch with none, so the bot rows in a mixed batch are covered by the same entry and release the cursor.
 Say how many you deferred and how many rechecks you took in the close-out.
 
 ### Has it deployed? (deploy ladder)
 
 Establish that the merge commit is live before you measure anything; `references/deploy-ladder.md` carries the rungs and their commands.
-Strongest first: GitHub deployments in the warehouse, `gh` deployments and releases, GIT deploy annotations, then the soak proxy (24h server-side, 72h or more client-side and mobile, named in anything you file).
+Strongest first: GitHub deployments in the warehouse, `gh` releases (the deployments API needs a `deployments: read` grant the sandbox token does not carry), GIT deploy annotations, then the soak proxy (24h server-side, 72h or more client-side and mobile, named in anything you file).
 Two rules hold on every signal-bearing rung (the first three): only commit containment (`compare` reads `ahead` or `identical`) sets the onset, never ordering, and only a persistent production environment counts.
 The soak proxy is the one exception, because it has no deployment to check: its onset is merge time plus the surface's soak, it is always estimated, and every report built on it says which soak it used.
 Record which rung this project supports in `pattern:pr_follow_up:deploy-signal` so later runs go straight to it.
@@ -233,7 +234,7 @@ Direct calls (read-only):
 
 - `engineering-analytics-sources`, `pull-requests`, `pr-lifecycle`: the synced GitHub source, its merged PRs with CI rollups, and one PR's timeline.
 - `integrations-list`, then `integrations-github-repos-retrieve`: the repositories the connected GitHub App can see, when no source is synced.
-- `gh` (sandbox CLI, read-only token, always pass `--repo`): `gh api 'repos/<owner>/<repo>/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=<n>'` for the listing (never `gh pr list`, which is creation-ordered), `gh pr view --json ...`, `gh issue view --json ...`, `gh pr diff`, `gh api repos/<owner>/<repo>/deployments`, `/releases`, `/compare/<a>...<b>`.
+- `gh` (sandbox CLI, read-only token, always pass `--repo`): `gh api 'repos/<owner>/<repo>/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=<n>'` for the listing (never `gh pr list`, which is creation-ordered), `gh pr view --json ...`, `gh issue view --json ...`, `gh pr diff`, `gh api repos/<owner>/<repo>/releases`, `/compare/<a>...<b>` (the `/deployments` endpoint answers 403 to the sandbox token, which holds only `contents`, `metadata`, and `pull_requests`).
   Cap the calls per run; degrade to the other sources when it fails with auth errors.
 - `annotations-list` (page by date with `offset`, no `search`; filter the rows by `creation_type`, environment, and commit): GIT deploy markers, when `system.annotations` is unavailable.
 - `execute-sql`: warehouse GitHub tables (`<prefix>github_pull_requests`, `<prefix>github_deployments`, `<prefix>github_deployment_statuses`), `events` for pre-vs-post probes, `$web_vitals`, `$feature_flag_called`, `$pageview`.

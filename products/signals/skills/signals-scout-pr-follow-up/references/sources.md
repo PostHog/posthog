@@ -5,7 +5,7 @@ Read this when you are about to list PRs; the policy (which rung wins, the cap, 
 
 ## The window and the paging rule
 
-The window is the last 14 days of merges.
+The window starts at the **window start** the body defines (the earlier of 14 days ago and the previous run, capped at 45 days ago); every recipe below that says 14 days or `-14d` takes that boundary instead when it is older.
 Every bounded listing is paged to that boundary, and a run that stops paging early has not listed the repository: record where it stopped in `cursor:pr_follow_up:<owner/repo>` and say so in the close-out, never close out as if the window were covered.
 
 The paging rule for any list sorted by update time (the REST pulls endpoint, the inbox): a PR updated after its merge (a comment, a label) can sit on an early page with an old `merged_at`, so an old `merged_at` on a page proves nothing.
@@ -21,7 +21,7 @@ List the PRs with `gh` exactly as rung 3 describes.
 
 `engineering-analytics-sources` lists each configured `owner/repo` with its `source_id`, table prefix, and a `synced` flag.
 `synced: true` means both the pull-request and workflow-run tables exist; this scout needs only the first, so a `synced: false` entry can still carry a readable `<prefix>github_pull_requests` table (a source that never synced workflow runs): prefer a synced entry when one repository appears under several sources, and otherwise confirm the pull-request table itself in `system.information_schema.tables` before you give the source up.
-`pull-requests` (`date_from=-14d`, pass `source_id` and `repo`) returns open PRs plus those merged in the window with their CI rollup, newest first, capped at 1,000 rows; open PRs count against the cap, so on a busy repository the page holds a few days of merges, not 14, and carries `truncated: true`.
+`pull-requests` (`date_from` set to the window start, `-14d` at its narrowest, pass `source_id` and `repo`) returns open PRs plus those merged in the window with their CI rollup, newest first, capped at 1,000 rows; open PRs count against the cap, so on a busy repository the page holds a few days of merges, not 14, and carries `truncated: true`.
 Treat that flag as the signal to list from the raw table instead:
 
 ```sql
@@ -31,7 +31,7 @@ SELECT number, toString(title) AS title,
        merged_at, html_url
 FROM `<prefix>github_pull_requests`
 WHERE merged_at IS NOT NULL AND merged_at != ''
-  AND parseDateTimeBestEffort(merged_at) >= now() - INTERVAL 14 DAY
+  AND parseDateTimeBestEffort(merged_at) >= toDateTime('<window start>', 'UTC')
 ORDER BY parseDateTimeBestEffort(merged_at) DESC, number DESC
 LIMIT 500
 ```
@@ -54,7 +54,7 @@ A warehouse row carries the title and body but not the file paths, and often not
 `integrations-list` names the project's integrations; the sandbox's read-only `gh` token comes from one of them (the harness picks the first eligible GitHub integration), so take that integration's `id` only, not every `github` one, because a repository visible only through another installation would enter the roster and then fail every `gh` call with a 404; pass the id to `integrations-github-repos-retrieve`, which lists the repositories that GitHub App can see, 100 per page: follow `has_more` with successive `offset` values until it is false before you write the roster, or an installation with more repositories than one page silently loses the rest.
 
 Write the **whole** discovered list to `roster:pr_follow_up:repos` with a rotation pointer, and never into `config:pr_follow_up:repos`, which is the human-curated list that outranks discovery: a run that recorded only the slice it had budget for would silently drop the rest of the roster forever.
-A scratchpad entry holds at most 50,000 characters, so keep the roster compact (one `owner/repo` per line, nothing else) and, past roughly a thousand repositories, shard it: `roster:pr_follow_up:repos` keeps the discovery date, the shard count, and the rotation pointer, and `roster:pr_follow_up:repos:<k>` holds shard `k`, each written whole; an oversized single write fails and leaves the previous roster in place, which is the silent drop this rule exists to prevent.
+A scratchpad entry holds at most 50,000 characters, so keep the roster compact (one `owner/repo` per line, nothing else) and shard it by measured size, not by count: when the serialized text would pass about 40,000 characters, split it (a few hundred long `owner/repo` names can cross the limit well before a thousand): `roster:pr_follow_up:repos` keeps the discovery date, the shard count, and the rotation pointer, and `roster:pr_follow_up:repos:<k>` holds shard `k`, each written whole; an oversized single write fails and leaves the previous roster in place, which is the silent drop this rule exists to prevent.
 When the roster is larger than one run can list, take the next slice from the rotation pointer each run and advance it.
 
 For each repository the listing is one stream under one ordering: `gh api 'repos/<owner>/<repo>/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=<n>'` from page 1, keeping rows with a `merged_at` and applying the paging rule above.
