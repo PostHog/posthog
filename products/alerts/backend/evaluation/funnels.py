@@ -38,11 +38,10 @@ def _trailing_date_range_override(interval: IntervalType | None, periods: int) -
 
 def _validation_message(err: DRFValidationError) -> str:
     """Flatten a DRF validation error into the plain sentence the query runner raised."""
+    # DRF coerces detail to a list or a dict of lists, never a bare message.
     detail = err.detail
     if isinstance(detail, dict):
         detail = [item for value in detail.values() for item in (value if isinstance(value, list) else [value])]
-    if not isinstance(detail, list):
-        detail = [detail]
     return " ".join(str(item) for item in detail)
 
 
