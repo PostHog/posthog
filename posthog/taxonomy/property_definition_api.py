@@ -15,7 +15,7 @@ from rest_framework import mixins, request, response, serializers, status, views
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.documentation import extend_schema
-from posthog.api.pagination import PrecountedLimitOffsetPagination
+from posthog.api.pagination import CappedCountLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.statement_timeout import statement_timeout
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -669,7 +669,7 @@ class PropertyDefinitionViewSet(
     filter_backends = [TermSearchFilterBackend]
     ordering = "name"
     search_fields = ["name"]
-    pagination_class = PrecountedLimitOffsetPagination
+    pagination_class = CappedCountLimitOffsetPagination
     queryset = PropertyDefinition.objects.all()
 
     @staticmethod
@@ -732,7 +732,7 @@ class PropertyDefinitionViewSet(
 
             span.set_attribute("ee_available", EE_AVAILABLE)
 
-            assert isinstance(self.paginator, PrecountedLimitOffsetPagination)
+            assert isinstance(self.paginator, CappedCountLimitOffsetPagination)
             limit = self.paginator.get_limit(self.request)
             offset = self.paginator.get_offset(self.request)
 
@@ -813,9 +813,9 @@ class PropertyDefinitionViewSet(
                     full_count = cursor.fetchone()[0]
                 count_span.set_attribute("full_count", full_count)
 
-            self.paginator.set_count(full_count)
             # A capped count is a lower bound already, so `list()` must not add the virtual rows to it.
             self._count_is_lower_bound = large_project and full_count >= LARGE_PROJECT_COUNT_CAP
+            self.paginator.set_count(full_count, is_capped=self._count_is_lower_bound)
             span.set_attribute("full_count", full_count)
 
             # nosemgrep: python.django.security.audit.custom-expression-as-sql.custom-expression-as-sql (all user input goes through query_context.params)
@@ -882,9 +882,9 @@ class PropertyDefinitionViewSet(
         description=(
             "List the property definitions of a project. On projects with more than "
             f"{PROJECT_SCAN_MAX_DEFINITIONS} property definitions, `count` stops at "
-            f"{LARGE_PROJECT_COUNT_CAP}. It is a lower bound there, not a total, and `next` is empty "
-            "from that offset on, so read the rows past the cap with a higher explicit `offset`. The "
-            "default sort on those projects is verified definitions first, then name."
+            f"{LARGE_PROJECT_COUNT_CAP} and `count_is_capped` is true. `count` is a lower bound there, "
+            "not a total, and `next` keeps paging past it. The default sort on those projects is "
+            "verified definitions first, then name."
         ),
         parameters=[PropertyDefinitionQuerySerializer],
     )
@@ -905,7 +905,7 @@ class PropertyDefinitionViewSet(
         # Inject virtual event/person/group properties to the end of the results
         if event_type in ["event", "person", "group"]:
             paginator = self.paginator
-            assert isinstance(paginator, PrecountedLimitOffsetPagination)
+            assert isinstance(paginator, CappedCountLimitOffsetPagination)
 
             query = PropertyDefinitionQuerySerializer(data=request.query_params)
             query.is_valid(raise_exception=True)

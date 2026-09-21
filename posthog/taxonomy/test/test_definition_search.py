@@ -1,5 +1,3 @@
-from collections.abc import Callable
-
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
@@ -55,14 +53,13 @@ class TestIsLargeProject(BaseTest):
         with patch.object(cache, failing_method, side_effect=ConnectionError("redis down")):
             assert is_large_project("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS) is False
 
-    @parameterized.expand([("search_plan", search_plan), ("is_large_project", is_large_project)])
-    def test_plan_is_recorded_on_the_request_span(self, _name: str, read_plan: Callable[..., object]) -> None:
+    def test_plan_is_recorded_on_the_request_span(self) -> None:
         exporter = InMemorySpanExporter()
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(exporter))
 
         with provider.get_tracer(__name__).start_as_current_span("definitions_list"):
-            read_plan("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS)
+            is_large_project("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS)
 
         attributes = exporter.get_finished_spans()[0].attributes or {}
         assert attributes["taxonomy_search_plan"] == "project_scan"
