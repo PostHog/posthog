@@ -63,6 +63,15 @@ from products.logs.backend.logs_query_runner import (
     LogsQueryRunner,
 )
 from products.logs.backend.pattern_diff import run_patterns_diff
+from products.logs.backend.pattern_response import (
+    MCP_MAX_PATTERN_CHARS,
+    MCP_PATTERN_LIMIT,
+    MIN_PATTERN_CHARS,
+    bound_patterns_response,
+    max_pattern_limit,
+    parse_limit,
+    parse_max_pattern_chars,
+)
 from products.logs.backend.patterns_query_runner import PatternsQueryRunner
 from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
 from products.logs.backend.presentation.views.explain import LogExplainViewSet
@@ -841,8 +850,32 @@ class _LogsPatternsBodySerializer(serializers.Serializer):
     sessionId = _session_scope_field("mining")
 
 
+# The bounds live here rather than on the shared body, because `patterns_diff` takes that body
+# and does not read them. A param an action ignores is worse than an absent one.
+class _LogsPatternsBoundedBodySerializer(_LogsPatternsBodySerializer):
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text=(
+            "Highest-volume pattern groups to return, held down to the miner's own cap of "
+            f"{max_pattern_limit()}. Defaults to that cap, or to {MCP_PATTERN_LIMIT} for a request the "
+            "MCP server proxied. `omitted_pattern_count` reports the groups this left out."
+        ),
+    )
+    maxPatternChars = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "Character budget for each pattern group's template and match predicates. One template can "
+            "be a whole stack trace, so a budget keeps a response readable. Zero returns whole templates. "
+            f"Defaults to zero, or to {MCP_MAX_PATTERN_CHARS} for a request the MCP server proxied. Must be "
+            f"{MIN_PATTERN_CHARS} or greater when nonzero, because a smaller budget cannot carry the cut marker."
+        ),
+    )
+
+
 class _LogsPatternsRequestSerializer(serializers.Serializer):
-    query = _LogsPatternsBodySerializer(help_text="The patterns query to execute.")
+    query = _LogsPatternsBoundedBodySerializer(help_text="The patterns query to execute.")
 
 
 class _LogPatternExampleSerializer(serializers.Serializer):
@@ -1006,10 +1039,52 @@ class _LogsPatternsSourceSerializer(serializers.Serializer):
     )
 
 
+# The bound reports live here rather than on the pattern itself, because `patterns_diff` returns
+# patterns and does not bound them.
+class _LogBoundedPatternSerializer(_LogPatternSerializer):
+    pattern_truncated = serializers.BooleanField(
+        help_text=(
+            "True when `maxPatternChars` cut the template, which then ends in a marker saying so. "
+            "The match fields still target the pattern's whole lines; re-run with `maxPatternChars=0` "
+            "to read the template itself."
+        ),
+    )
+    match_patterns_omitted = serializers.IntegerField(
+        help_text=(
+            "Canonical members left out of `match_patterns` by `maxPatternChars`. The returned members "
+            "are exact, so a pivot on them reads their lines and no others, but it covers part of the "
+            "group rather than all of it. Zero means the pivot is complete."
+        ),
+    )
+    match_regex_omitted = serializers.BooleanField(
+        help_text=(
+            "True when `match_regex` was dropped for exceeding `maxPatternChars`. A cut regex would "
+            "match nothing, so it is withheld rather than shortened. Pivot on `match_literal` instead, "
+            "or re-run with `maxPatternChars=0`."
+        ),
+    )
+    match_literal_truncated = serializers.BooleanField(
+        help_text=(
+            "True when `maxPatternChars` shortened `match_literal`. The prefix is still a literal run "
+            "of every line of the pattern, so an icontains filter on it still matches them, together "
+            "with any other line that contains the prefix."
+        ),
+    )
+
+
 class _LogsPatternsResponseSerializer(_LogsPatternsSourceSerializer):
-    patterns = _LogPatternSerializer(
+    patterns = _LogBoundedPatternSerializer(
         many=True,
         help_text="Pattern groups ordered by count. Stored-pattern counts are exact; body-mining counts describe the sample.",
+    )
+    returned_pattern_count = serializers.IntegerField(
+        help_text="Pattern groups in `patterns`, after the `limit` bound.",
+    )
+    omitted_pattern_count = serializers.IntegerField(
+        help_text=(
+            "Mined pattern groups the `limit` bound left out, always the lowest-volume ones. Raise "
+            "`limit` to see them, or narrow the window, services, or filters to mine a finer sample."
+        ),
     )
     scanned_count = serializers.IntegerField(
         help_text="Rows scanned: the sample size for body mining, or the full matching count for stored-pattern aggregation.",
@@ -1724,6 +1799,12 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query_data = request.data.get("query", {})
         self._require_dict_query(query_data)
 
+        # A request proxied by the MCP server is read by an agent, which has no way to ask for a
+        # smaller response once the first one has spent its context. Bound that one by default.
+        over_mcp = request.headers.get("x-posthog-client") == "mcp"
+        limit = parse_limit(query_data.get("limit"), over_mcp=over_mcp)
+        max_pattern_chars = parse_max_pattern_chars(query_data.get("maxPatternChars"), over_mcp=over_mcp)
+
         query = self._filtered_logs_query(query_data)
 
         runner = PatternsQueryRunner(
@@ -1734,14 +1815,19 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             analytics_props=get_request_analytics_properties(request),
         )
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+        results = (
+            bound_patterns_response(response.results, limit=limit, max_pattern_chars=max_pattern_chars)
+            if isinstance(response.results, dict)
+            else response.results
+        )
 
         report_user_action(
             request.user,
             "logs patterns queried",
             {
-                "patterns_count": len(response.results.get("patterns", []))
-                if isinstance(response.results, dict)
-                else 0,
+                "patterns_count": results.get("returned_pattern_count", 0) if isinstance(results, dict) else 0,
+                "omitted_patterns_count": results.get("omitted_pattern_count", 0) if isinstance(results, dict) else 0,
+                "max_pattern_chars": max_pattern_chars,
                 "sampled": response.results.get("sampled") if isinstance(response.results, dict) else None,
                 "source": response.results.get("source") if isinstance(response.results, dict) else None,
                 "pattern_version": response.results.get("pattern_version")
@@ -1757,8 +1843,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             team=self.team,
             request=request,
         )
-
-        return Response(response.results, status=status.HTTP_200_OK)
+        return Response(results, status=status.HTTP_200_OK)
 
     @extend_schema(request=_LogsPatternsDiffRequestSerializer, responses={200: _LogsPatternsDiffResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"], url_path="patterns_diff")
