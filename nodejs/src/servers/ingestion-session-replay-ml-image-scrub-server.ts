@@ -102,6 +102,7 @@ export class IngestionSessionReplayMlImageScrubServer extends MlMirrorConsumerSe
             consumer,
             scrubClient,
             {
+                flushIntervalMs: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_FLUSH_INTERVAL_MS,
                 maxImages: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGES,
                 maxBytes: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES,
                 scrubConcurrency: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY,
@@ -113,7 +114,7 @@ export class IngestionSessionReplayMlImageScrubServer extends MlMirrorConsumerSe
         await scrubClient.waitUntilReachable()
         await consumer.connect((messages) => {
             const heartbeat = setInterval(() => consumer.heartbeat(), BATCH_HEARTBEAT_INTERVAL_MS)
-            return batcher.handleBatch(messages).finally(() => clearInterval(heartbeat))
+            return batcher.handleBatch(messages, Date.now()).finally(() => clearInterval(heartbeat))
         })
 
         this.lifecycle.services.push({
