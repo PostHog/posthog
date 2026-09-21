@@ -21,7 +21,10 @@ import sys
 from typing import Any
 
 import psycopg
+import structlog
 from psycopg.adapt import AdaptersMap
+
+logger = structlog.get_logger(__name__)
 
 
 def _resolve(fqn: str) -> type | None:
@@ -58,7 +61,15 @@ def warm(adapters: AdaptersMap | None = None) -> None:
         return
 
     for fmt, by_key in dumpers.items():
+        # get_dumper rewrites the mapping we are reading, so take the names first. Iterating
+        # it live raises "dictionary keys changed during iteration" and breaks startup.
         for fqn in [key for key in by_key if isinstance(key, str)]:
             cls = _resolve(fqn)
-            if cls is not None:
+            if cls is None:
+                continue
+            try:
                 adapters.get_dumper(cls, fmt)
+            except Exception:
+                # Every process runs this at boot, so a driver that refuses one name must
+                # cost the warm-up for that name, not the process.
+                logger.warning("psycopg_adapter_warm_failed", fqn=fqn, format=str(fmt))
