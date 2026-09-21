@@ -7,6 +7,7 @@ import { TextMorph } from 'torph/react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as doctorPng from '@posthog/brand/hoggies/png/doctor-1'
+import * as hourglassPng from '@posthog/brand/hoggies/png/hourglass'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import * as stampDeniedPng from '@posthog/brand/hoggies/png/stamp-denied'
 import * as trafficControllerPng from '@posthog/brand/hoggies/png/traffic-controller'
@@ -64,6 +65,7 @@ import { sampleDataStateLogic } from './sampleDataStateLogic'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
 const HedgehogDoctor = pngHoggie(doctorPng)
+const HedgehogHourglass = pngHoggie(hourglassPng)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 const HedgehogStampDenied = pngHoggie(stampDeniedPng)
 const HedgehogTrafficController = pngHoggie(trafficControllerPng)
@@ -609,10 +611,14 @@ export function InsightValidationError({
 }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const debugWithAI = (): void => openSidePanel(SidePanelTab.Max, MEMORY_LIMIT_AI_PROMPT)
-    const isMemoryLimitError = validationErrorCode === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE
+    // Everything that reaches this panel is a validation status, so the kind stays invalid_query
+    // unless the code says otherwise: a memory failure is not a broken query definition.
+    const errorKind = getInsightErrorKind(400, validationErrorCode)
+    const isMemoryLimitError = errorKind === 'memory_limit'
     const displayDetail = getInsightValidationDetail(detail)
     const showQueryDebuggerInstruction =
         query &&
+        !isMemoryLimitError &&
         displayDetail !== 'Check the query for errors, then run it again.' &&
         placement !== DashboardPlacement.Export
     const shouldExcludeActions = excludeActions || placement === DashboardPlacement.Export
@@ -633,12 +639,10 @@ export function InsightValidationError({
             data-attr="insight-empty-state"
             className="flex flex-col items-center justify-center gap-2 rounded px-4 py-6 h-full w-full text-center text-balance"
         >
-            <InsightErrorHoggie kind="invalid_query" />
+            <InsightErrorHoggie kind={errorKind} />
 
             <h2 data-attr="insight-loading-too-long" className="text-xl leading-tight font-bold mb-0 text-danger">
-                We couldn't run this query
-                {/* Note that this phrasing above signals the issue is not intermittent, */}
-                {/* but rather that it's something with the definition of the query itself */}
+                {getInsightErrorTitle(errorKind, null)}
             </h2>
 
             <p className="text-sm text-muted max-w-120 mb-2">{renderDetailWithLinks(displayDetail)}</p>
@@ -720,7 +724,7 @@ type InsightErrorKind =
 
 const ERROR_HOGGIES: Record<InsightErrorKind, React.ComponentType<{ className?: string }>> = {
     rate_limit: HedgehogTrafficController,
-    memory_limit: HedgehogMagnifyingGlass,
+    memory_limit: HedgehogHourglass,
     invalid_query: HedgehogMagnifyingGlass,
     permission: HedgehogStampDenied,
     transient: HedgehogConstruction2,
@@ -733,7 +737,11 @@ function InsightErrorHoggie({ kind }: { kind: InsightErrorKind }): JSX.Element {
     return <Hoggie className="w-24 h-24 mb-2" />
 }
 
-function getInsightErrorKind(status?: number | null): InsightErrorKind {
+function getInsightErrorKind(status?: number | null, code?: string | null): InsightErrorKind {
+    // The code is the surer signal: a tile failure carries it even when the status was rebuilt.
+    if (code === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE) {
+        return 'memory_limit'
+    }
     if (status === 429) {
         return 'rate_limit'
     }
