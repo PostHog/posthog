@@ -3,7 +3,7 @@ import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 import { hasScope } from '@/lib/api'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
-import type { ChatActionCatalogEntry, QueryToolInfo } from '@/lib/instructions'
+import type { QueryToolInfo } from '@/lib/instructions'
 import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
 import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
@@ -15,7 +15,7 @@ import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
 import { EXEC_TOOL_ANNOTATIONS } from '@/tools/exec'
 import { ExecLearnCatalog } from '@/tools/exec-learn'
-import { SUGGEST_ACTIONS_TOOL_NAME } from '@/tools/posthogAiTools/suggestActions'
+import { buildChatActionCatalog } from '@/tools/posthogAiTools/suggestActions'
 import {
     getRenderableToolNames,
     makeRenderUiSchema,
@@ -82,26 +82,8 @@ export class InstructionsBuilder {
             groupTypes: state.groupTypes,
             notebookCellsEnabled: state.allTools.some((tool) => tool.name === NOTEBOOK_ADD_CELL_TOOL),
             docsSearchEnabled: state.allTools.some((tool) => tool.name === DOCS_SEARCH_TOOL),
-            chatActions: this.buildChatActionCatalog(state),
+            chatActions: buildChatActionCatalog(state.allTools.map((tool) => tool.name)),
         }
-    }
-
-    /**
-     * The declared actions of the caller's visible tools, only when `suggest-actions` is visible too.
-     * A `run` action whose target this caller cannot see is left out, so the agent is never told to
-     * offer a click that `suggest-actions` would then refuse.
-     */
-    private buildChatActionCatalog(state: ResolvedState): ChatActionCatalogEntry[] | undefined {
-        const visible = new Set(state.allTools.map((tool) => tool.name))
-        if (!visible.has(SUGGEST_ACTIONS_TOOL_NAME)) {
-            return undefined
-        }
-        return state.allTools.flatMap((tool) => {
-            const actions = (getToolDefinition(tool.name).actions ?? []).filter(
-                (action) => action.kind !== 'run' || (!!action.tool && visible.has(action.tool))
-            )
-            return actions.length ? [{ tool: tool.name, actions }] : []
-        })
     }
 
     buildExecToolEntry(state: ResolvedState): McpTool {

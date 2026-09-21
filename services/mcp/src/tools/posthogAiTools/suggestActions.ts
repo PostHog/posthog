@@ -1,7 +1,15 @@
 import { z } from 'zod'
 
-import { type ChatActionKind, chatActionSlots, parseChatActionKey, renderChatActionTemplate } from '@/tools/chatActions'
-import { getToolDefinitions } from '@/tools/toolDefinitions'
+import type { ChatActionCatalogEntry } from '@/lib/instructions'
+import {
+    type ChatAction,
+    type ChatActionKind,
+    chatActionKey,
+    chatActionSlots,
+    parseChatActionKey,
+    renderChatActionTemplate,
+} from '@/tools/chatActions'
+import { getToolDefinition, getToolDefinitions } from '@/tools/toolDefinitions'
 import type { Context, Tool, ToolBase, ZodObjectAny } from '@/tools/types'
 
 export const SUGGEST_ACTIONS_TOOL_NAME = 'suggest-actions'
@@ -109,6 +117,43 @@ export function createSuggestActionsTool(
             return result
         },
     }
+}
+
+/**
+ * The declared actions of the caller's visible tools, only when `suggest-actions` is visible too.
+ * A `run` action whose target this caller cannot see is left out, so the agent is never told to
+ * offer a click that `suggest-actions` would then refuse. Shared by the command reference and the
+ * per-result hint, so both surfaces agree on what the agent may offer.
+ */
+export function buildChatActionCatalog(visibleToolNames: Iterable<string>): ChatActionCatalogEntry[] | undefined {
+    const visible = new Set(visibleToolNames)
+    if (!visible.has(SUGGEST_ACTIONS_TOOL_NAME)) {
+        return undefined
+    }
+    return [...visible].flatMap((toolName) => {
+        const actions = (getToolDefinition(toolName).actions ?? []).filter(
+            (action) => action.kind !== 'run' || (!!action.tool && visible.has(action.tool))
+        )
+        return actions.length ? [{ tool: toolName, actions }] : []
+    })
+}
+
+/**
+ * The hint appended to a successful result of a tool that declares actions. The command reference
+ * lists the same catalog, but tens of thousands of characters away from the result the agent is
+ * reading, so the agent tends to miss it there. This puts the exact `suggest-actions` command next
+ * to the result it belongs to. Slot values stay placeholders because only the agent knows the values.
+ */
+export function renderChatActionHint(tool: string, actions: ChatAction[]): string {
+    const picks = actions.map((action) => {
+        const slots = chatActionSlots(action.message ?? action.label)
+        const args = slots.length ? { args: Object.fromEntries(slots.map((slot) => [slot, `<${slot}>`])) } : {}
+        return { key: chatActionKey(tool, action.key), ...args }
+    })
+    return (
+        'Suggested actions for this result. If the user is likely to do one of these next, call `suggest-actions` once as the last tool call of this turn and do not list them in prose:\n' +
+        `call ${SUGGEST_ACTIONS_TOOL_NAME} ${JSON.stringify({ actions: picks })}`
+    )
 }
 
 /** Gives the `suggest-actions` entry of a filtered tool list the names of that same list. */

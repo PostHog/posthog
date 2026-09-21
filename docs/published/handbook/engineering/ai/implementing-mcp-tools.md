@@ -339,8 +339,10 @@ Product teams own their definitions and control which operations are exposed as 
 
    `actions` only take effect behind the `posthog-ai-chat-actions` feature flag: the flag exposes the
    `suggest-actions` tool, which lists every declared action in the exec command reference, and the agent
-   picks the ones that fit at the end of its turn. Handwritten tools declare `actions` the same way in
-   `services/mcp/schema/tool-definitions.json`.
+   picks the ones that fit at the end of its turn. The same hint also rides on the result of the offering
+   tool: after a successful `call`, exec appends a trailing text block with the ready-to-run `suggest-actions`
+   command for that tool, so the agent reads it at the moment it matters. Handwritten tools declare `actions`
+   the same way in `services/mcp/schema/tool-definitions.json`.
 
    For generated list apps, `generate:ui-apps` also checks `detail_tool` and the
    `detail_args` keys against the tool's input schema snapshot, so a wrong argument

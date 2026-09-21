@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 
 import { InstructionsBuilder } from '@/hono/instructions'
 import { chatActionToolsToExclude, type ResolvedState } from '@/hono/request-state-resolver'
+import type { ToolCatalog } from '@/hono/tool-catalog'
+import { ToolExecutor } from '@/hono/tool-executor'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { ChatActionSchema } from '@/tools/chatActions'
 import {
@@ -13,6 +16,7 @@ import { getToolDefinition, getToolDefinitions, ToolDefinitionSchema } from '@/t
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import { ToolConfigSchema } from '../../scripts/yaml-config-schema'
+import { makeToolExecutorState } from '../shared/test-utils'
 
 const baseDefinition = {
     description: 'd',
@@ -106,6 +110,59 @@ describe('suggest-actions', () => {
             const rendered = reference(['workflows-create', 'suggest-actions'])
             expect(rendered).toContain('- `workflows-create.test-send` (insert)')
             expect(rendered).not.toContain('workflows-create.enable')
+        })
+    })
+
+    // The command reference carries the catalog too, but far from the result, and in live runs the
+    // agent skipped the call. The hint on the result is what makes it call `suggest-actions`.
+    describe('hint on the offering tool result', () => {
+        const fakeTool = (name: string, handler: () => Promise<unknown>): Tool<ZodObjectAny> =>
+            ({
+                name,
+                schema: z.object({}).loose(),
+                handler,
+                annotations: {},
+                scopes: [],
+            }) as unknown as Tool<ZodObjectAny>
+        const execCall = async (tools: Tool<ZodObjectAny>[], command: string): Promise<any> => {
+            const executor = new ToolExecutor({} as ToolCatalog, new InstructionsBuilder(''))
+            return executor.handleToolCall(
+                { name: 'exec', arguments: { command } },
+                makeToolExecutorState(tools, { useSingleExec: true })
+            )
+        }
+        const suggestActions = createSuggestActionsTool() as unknown as Tool<ZodObjectAny>
+        const created = fakeTool('workflows-create', async () => ({ id: 'wf_1' }))
+
+        it('appends the suggest-actions command as a separate trailing block after a successful call', async () => {
+            const enable = fakeTool('workflows-enable', async () => ({}))
+            const result = await execCall([created, enable, suggestActions], 'call --json workflows-create {}')
+            expect(result.isError).toBeFalsy()
+            expect(result.content).toHaveLength(2)
+            expect(JSON.parse(result.content[0].text)).toEqual({ id: 'wf_1' })
+            expect(result.content[1].text).toBe(
+                'Suggested actions for this result. If the user is likely to do one of these next, call `suggest-actions` once as the last tool call of this turn and do not list them in prose:\n' +
+                    'call suggest-actions {"actions":[{"key":"workflows-create.enable","args":{"id":"<id>"}},{"key":"workflows-create.test-send"}]}'
+            )
+        })
+
+        it.each([
+            [
+                'the call failed',
+                [fakeTool('workflows-create', async () => Promise.reject(new Error('boom'))), suggestActions],
+                'call workflows-create {}',
+            ],
+            [
+                'the tool is suggest-actions itself',
+                [created, suggestActions],
+                'call suggest-actions {"actions":[{"key":"workflows-create.test-send"}]}',
+            ],
+            ['suggest-actions is hidden', [created], 'call workflows-create {}'],
+        ])('appends nothing when %s', async (_case, tools, command) => {
+            const result = await execCall(tools, command)
+            expect(result.content.map((block: { text: string }) => block.text).join('')).not.toContain(
+                'Suggested actions'
+            )
         })
     })
 
