@@ -10,6 +10,7 @@ import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { objectsEqual } from 'lib/utils/objects'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { isDomain, isURL } from 'lib/utils/url'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -291,20 +292,19 @@ export function rebaseAuthorizedUrls(serverUrls: string[], knownUrls: string[], 
     const removed = knownUrls.filter((url) => !intendedUrls.includes(url))
     const added = intendedUrls.filter((url) => !knownUrls.includes(url))
 
-    const pendingAdditions = [...added]
     const rebased: string[] = []
     for (const url of serverUrls) {
         if (!removed.includes(url)) {
             rebased.push(url)
-        } else if (pendingAdditions.length) {
+        } else if (added.length) {
             // An edit replaces its entry in place, so the list keeps the order the server has.
-            rebased.push(pendingAdditions.shift() as string)
+            rebased.push(added.shift() as string)
         }
     }
     // An addition, or an edit whose original entry is already gone from the server, goes last.
-    rebased.push(...pendingAdditions)
+    rebased.push(...added)
 
-    return rebased.filter((url, index) => rebased.indexOf(url) === index)
+    return [...new Set(rebased)]
 }
 
 /**
@@ -333,7 +333,7 @@ async function saveAuthorizedUrls(
         return knownUrls
     }
 
-    if (serverUrls.length !== knownUrls.length || serverUrls.some((url, index) => url !== knownUrls[index])) {
+    if (!objectsEqual(serverUrls, knownUrls)) {
         posthog.capture('authorized urls save conflict', {
             list_type: type,
             known_count: knownUrls.length,
