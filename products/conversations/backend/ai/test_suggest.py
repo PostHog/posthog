@@ -1,11 +1,10 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
-from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -33,6 +32,10 @@ from products.customer_analytics.backend.facade.testing import (
     create_custom_property_definition,
     create_custom_property_value,
 )
+
+# Prior tickets are ordered by created_at, so the tests only need a stable point to count
+# back from. A real clock makes the same assertions flaky when CI runs near midnight UTC.
+_FIXED_NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 class TestFormatEnhancedContext(SimpleTestCase):
@@ -187,7 +190,7 @@ class TestBuildTicketContext(BaseTest):
             email_subject="Replay is blank",
             email_from="customer@example.com",
         )
-        prior.created_at = timezone.now() - timedelta(days=1)
+        prior.created_at = _FIXED_NOW - timedelta(days=1)
         prior.save(update_fields=["created_at"])
         self._comment(prior, content="Enable session replay in project settings.", author_type="support")
         self._comment(prior, content="Private diagnosis", author_type="support", is_private=True)
@@ -225,14 +228,14 @@ class TestBuildTicketContext(BaseTest):
         assert "same-person" not in context
 
     def test_prior_tickets_match_organization_when_distinct_id_differs(self) -> None:
-        current = self._create_ticket(distinct_id="person-a", organization_id="acct-99")
+        current = self._create_ticket(distinct_id="person-a", organization_id="acct-99", identity_verified=True)
         prior = self._create_ticket(
             distinct_id="person-b",
             organization_id="acct-99",
             status=TicketStatus.RESOLVED,
             email_subject="SSO setup",
         )
-        prior.created_at = timezone.now() - timedelta(days=2)
+        prior.created_at = _FIXED_NOW - timedelta(days=2)
         prior.save(update_fields=["created_at"])
         self._comment(prior, content="Use Google SSO.", author_type="support")
         context = self._context(current)
@@ -247,7 +250,7 @@ class TestBuildTicketContext(BaseTest):
                 status=TicketStatus.RESOLVED,
                 email_subject=subject,
             )
-            prior.created_at = timezone.now() - timedelta(days=5 - index)
+            prior.created_at = _FIXED_NOW - timedelta(days=5 - index)
             prior.save(update_fields=["created_at"])
             self._comment(prior, content=f"Reply {subject}", author_type="support")
         context = self._context(current)
@@ -263,7 +266,7 @@ class TestBuildTicketContext(BaseTest):
             status=TicketStatus.RESOLVED,
             email_subject="Billing",
         )
-        prior.created_at = timezone.now() - timedelta(days=1)
+        prior.created_at = _FIXED_NOW - timedelta(days=1)
         prior.save(update_fields=["created_at"])
         self._comment(prior, content="Team analytics type", author_type="team")
         self._comment(prior, content="Use the billing page.", author_type="human")
@@ -280,7 +283,7 @@ class TestBuildTicketContext(BaseTest):
             status=TicketStatus.RESOLVED,
             email_subject="Silent",
         )
-        silent.created_at = timezone.now() - timedelta(days=1)
+        silent.created_at = _FIXED_NOW - timedelta(days=1)
         silent.save(update_fields=["created_at"])
         self._comment(silent, content="Private only", author_type="support", is_private=True)
         answered = self._create_ticket(
@@ -288,7 +291,7 @@ class TestBuildTicketContext(BaseTest):
             status=TicketStatus.RESOLVED,
             email_subject="Answered",
         )
-        answered.created_at = timezone.now() - timedelta(days=2)
+        answered.created_at = _FIXED_NOW - timedelta(days=2)
         answered.save(update_fields=["created_at"])
         self._comment(answered, content="Here is the fix.", author_type="support")
         context = self._context(current)
@@ -310,7 +313,7 @@ class TestBuildTicketContext(BaseTest):
             status=TicketStatus.RESOLVED,
             email_subject="SSO setup",
         )
-        prior.created_at = timezone.now() - timedelta(days=1)
+        prior.created_at = _FIXED_NOW - timedelta(days=1)
         prior.save(update_fields=["created_at"])
         comment = Comment.objects.create(
             team=child,
@@ -332,7 +335,7 @@ class TestBuildTicketContext(BaseTest):
             status=TicketStatus.RESOLVED,
             last_message_text="email me at customer@example.com",
         )
-        prior.created_at = timezone.now() - timedelta(days=1)
+        prior.created_at = _FIXED_NOW - timedelta(days=1)
         prior.save(update_fields=["created_at"])
         self._comment(prior, content="Reset the API key.", author_type="support")
         prior.last_message_text = "email me at customer@example.com"
@@ -340,6 +343,38 @@ class TestBuildTicketContext(BaseTest):
         context = self._context(current)
         assert "customer@example.com" not in context
         assert "Reset the API key." in context
+
+    def test_unattested_organization_never_keys_another_accounts_context(self) -> None:
+        # organization_id resolves from client-supplied person properties, so a widget visitor can
+        # claim any organization group key in the project. Without identity verification or a
+        # team-mapped Slack channel, that claim must not reach another account's content.
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan", target_type="account")
+        account = create_account(team_id=self.team.id, name="Acme", external_id="acct-1")
+        create_custom_property_value(team_id=self.team.id, account=account, definition=plan, value_str="Enterprise")
+        self.team.conversations_settings = {"ai_context_account_property_ids": [str(plan.id)]}
+        self.team.save(update_fields=["conversations_settings"])
+
+        victim = self._create_ticket(
+            distinct_id="victim",
+            organization_id="acct-1",
+            status=TicketStatus.RESOLVED,
+            email_subject="Their SSO setup",
+        )
+        victim.created_at = _FIXED_NOW - timedelta(days=1)
+        victim.save(update_fields=["created_at"])
+        self._comment(victim, content="Their private workaround.", author_type="support")
+
+        spoofed = self._create_ticket(distinct_id="attacker", organization_id="acct-1")
+        context = self._context(spoofed)
+        assert "Their SSO setup" not in context
+        assert "Their private workaround." not in context
+        assert "Account properties:" not in context
+
+        spoofed.identity_verified = True
+        spoofed.save(update_fields=["identity_verified"])
+        attested = self._context(spoofed)
+        assert "Their SSO setup" in attested
+        assert "- Plan: Enterprise" in attested
 
     def test_entity_refs_only_in_posthog_docs_mode(self) -> None:
         ticket = self._create_ticket()
@@ -378,7 +413,7 @@ class TestBuildTicketContext(BaseTest):
             "ai_context_account_property_ids": [str(plan.id), str(deleted.id), str(uuid4())]
         }
         self.team.save(update_fields=["conversations_settings"])
-        ticket = self._create_ticket(organization_id="acct-1")
+        ticket = self._create_ticket(organization_id="acct-1", identity_verified=True)
         context = self._context(ticket)
         assert "- Plan: Enterprise" in context
         assert "Seats" not in context
@@ -388,7 +423,7 @@ class TestBuildTicketContext(BaseTest):
         plan = create_custom_property_definition(team_id=self.team.id, name="Plan", target_type="account")
         self.team.conversations_settings = {"ai_context_account_property_ids": [str(plan.id)]}
         self.team.save(update_fields=["conversations_settings"])
-        ticket = self._create_ticket(organization_id="missing-acct")
+        ticket = self._create_ticket(organization_id="missing-acct", identity_verified=True)
         context = self._context(ticket)
         assert "Account properties:" not in context
 

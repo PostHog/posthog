@@ -1890,8 +1890,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         existing = getattr(self.instance, "conversations_settings", None) if self.instance is not None else None
         validate_playbook_conversations_settings(value, existing=existing if isinstance(existing, dict) else None)
-        if self.instance is not None:
-            validate_ai_context_conversations_settings(value, team_id=self.instance.id)
+        validate_ai_context_conversations_settings(
+            value, team_id=self.instance.id if self.instance is not None else None
+        )
         return value
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:

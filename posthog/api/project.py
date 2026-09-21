@@ -658,8 +658,9 @@ class ProjectBackwardCompatSerializer(
         # update that omits docs_source still normalizes against the saved source.
         existing = self.instance.passthrough_team.conversations_settings if self.instance is not None else None
         validate_playbook_conversations_settings(value, existing=existing if isinstance(existing, dict) else None)
-        if self.instance is not None:
-            validate_ai_context_conversations_settings(value, team_id=self.instance.passthrough_team.id)
+        validate_ai_context_conversations_settings(
+            value, team_id=self.instance.passthrough_team.id if self.instance is not None else None
+        )
         return value
 
     class Meta:

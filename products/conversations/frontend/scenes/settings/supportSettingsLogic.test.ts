@@ -578,6 +578,10 @@ describe('supportSettingsLogic', () => {
 
     describe('AI context account properties', () => {
         it('saves selected ids and ignores a second submit while in flight', async () => {
+            let resolveTeamPatch: () => void = () => {}
+            const releaseTeamPatch = new Promise<void>((resolve) => {
+                resolveTeamPatch = resolve
+            })
             useMocks({
                 get: {
                     '/api/conversations/v1/email/status': { configs: [] },
@@ -587,7 +591,11 @@ describe('supportSettingsLogic', () => {
                     ],
                 },
                 patch: {
-                    '/api/environments/:team_id/': async ({ request }) => [200, await request.json()],
+                    '/api/environments/:team_id/': async ({ request }) => {
+                        const body = await request.json()
+                        await releaseTeamPatch
+                        return [200, body]
+                    },
                 },
             })
             initKeaTests(true, {
@@ -608,9 +616,14 @@ describe('supportSettingsLogic', () => {
                 .toDispatchActions(['setAiContextAccountPropertiesSaving', 'updateCurrentTeam'])
                 .toMatchValues({ aiContextAccountPropertiesSaving: true })
 
+            // The first PATCH is still open, so the second submit must hit the in-flight guard.
             await expectLogic(logic, () => {
                 logic.actions.setAiContextAccountPropertyIds(['aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'])
             }).toNotHaveDispatchedActions(['updateCurrentTeam'])
+
+            resolveTeamPatch()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.aiContextAccountPropertiesSaving).toBe(false)
         })
     })
 })

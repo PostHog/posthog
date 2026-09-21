@@ -19,7 +19,7 @@ from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.conversations.backend.models import Ticket
-from products.conversations.backend.models.constants import TicketStatus
+from products.conversations.backend.models.constants import OrganizationIdSource, TicketStatus
 from products.conversations.backend.playbook import is_posthog_docs_source
 from products.conversations.backend.services.messages import public_human_ticket_replies
 from products.customer_analytics.backend.facade.api import (
@@ -200,11 +200,26 @@ def _load_last_public_human_replies(team: Team, ticket_ids: list[str]) -> dict[s
     return latest
 
 
+def org_identity_is_attested(ticket: Ticket) -> bool:
+    """Whether ``organization_id`` may key another account's content into this reply.
+
+    ``organization_id`` is enrichment. It resolves from person properties and event ``$groups``,
+    both client-supplied, so a widget visitor can claim any organization group key that already
+    exists in the project. Naming the wrong account on an event is a mis-attribution; putting that
+    account's prior replies and account properties in front of the reply model is a disclosure. Two
+    sources clear that bar: an account the team itself mapped to a Slack channel, and a requester
+    the host application vouched for through identity verification.
+    """
+    if ticket.organization_id_source == OrganizationIdSource.SLACK_CHANNEL_ACCOUNT:
+        return True
+    return ticket.identity_verified is True
+
+
 def load_prior_tickets(ticket: Ticket) -> list[PriorTicket]:
     identity = Q()
     if ticket.distinct_id:
         identity |= Q(distinct_id=ticket.distinct_id)
-    if ticket.organization_id:
+    if ticket.organization_id and org_identity_is_attested(ticket):
         identity |= Q(organization_id=ticket.organization_id)
     if not identity:
         return []
@@ -347,7 +362,7 @@ def extra_ticket_context(ticket: Ticket, messages: list[Comment], team: Team) ->
         if entities:
             parts.append(entities)
 
-    account = load_account_context(team, ticket.organization_id)
+    account = load_account_context(team, ticket.organization_id if org_identity_is_attested(ticket) else None)
     if account:
         parts.append(account)
     return "\n\n".join(parts)

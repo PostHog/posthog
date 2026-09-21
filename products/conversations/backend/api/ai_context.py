@@ -9,15 +9,20 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.permissions import TeamMemberLightManagementPermission
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.conversations.backend.ai.ticket_context import ACCOUNT_TARGET_TYPE, MAX_AI_CONTEXT_ACCOUNT_PROPERTY_IDS
 from products.customer_analytics.backend.facade.api import (
     get_custom_property_definition_target_type,
     list_custom_property_definitions,
 )
 
-_LIST_PAGE_SIZE = 200
+# One bounded read, not a paging loop: each facade call repeats the count, the workflow
+# reference scan and the source enrichment, so paging a large team costs several full scans
+# for a picker that only ever shows a short list.
+MAX_ACCOUNT_PROPERTY_OPTIONS = 500
 
 
 class AIContextAccountPropertySerializer(serializers.Serializer):
@@ -26,34 +31,31 @@ class AIContextAccountPropertySerializer(serializers.Serializer):
 
 
 def list_account_property_options(team_id: int, user_access_control: UserAccessControl) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-    offset = 0
-    while True:
-        page, total = list_custom_property_definitions(
-            team_id,
-            offset=offset,
-            limit=_LIST_PAGE_SIZE,
-            user_access_control=user_access_control,
-            exclude_group_targets=True,
-        )
-        for item in page:
-            if item.target_type != ACCOUNT_TARGET_TYPE or item.id is None or not item.name:
-                continue
-            rows.append({"id": item.id, "name": item.name})
-        offset += _LIST_PAGE_SIZE
-        if offset >= total or not page:
-            break
-    return rows
+    page, _ = list_custom_property_definitions(
+        team_id,
+        offset=0,
+        limit=MAX_ACCOUNT_PROPERTY_OPTIONS,
+        user_access_control=user_access_control,
+        exclude_group_targets=True,
+        target_type=ACCOUNT_TARGET_TYPE,
+    )
+    return [{"id": item.id, "name": item.name} for item in page if item.id is not None and item.name]
 
 
-class AIContextAccountPropertiesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "project"
+class AIContextAccountPropertiesViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
+    # Same authorization as the Customer analytics definition list this reads from: the names
+    # and ids are account data, so project membership alone is not enough.
+    scope_object = "account"
+    permission_classes = [TeamMemberLightManagementPermission]
     pagination_class = None
     serializer_class = AIContextAccountPropertySerializer
 
     @extend_schema(
         responses=AIContextAccountPropertySerializer(many=True),
-        description="Account-target Customer analytics properties that can be included in AI reply context.",
+        description=(
+            "Account-target Customer analytics properties that can be included in AI reply context. "
+            f"Capped at the first {MAX_ACCOUNT_PROPERTY_OPTIONS} properties by name."
+        ),
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = self.get_serializer(
@@ -63,8 +65,11 @@ class AIContextAccountPropertiesViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         return Response(serializer.data)
 
 
-def validate_ai_context_conversations_settings(value: dict, *, team_id: int) -> dict:
-    """Normalize ai_context_account_property_ids. Raises DRF ValidationError."""
+def validate_ai_context_conversations_settings(value: dict, *, team_id: int | None) -> dict:
+    """Normalize ai_context_account_property_ids. Raises DRF ValidationError.
+
+    ``team_id`` is ``None`` while a team is being created. The shape checks still run, but a team
+    that does not exist yet owns no property definition, so every id is dropped."""
     if "ai_context_account_property_ids" not in value:
         return value
     raw = value.get("ai_context_account_property_ids")
@@ -94,7 +99,7 @@ def validate_ai_context_conversations_settings(value: dict, *, team_id: int) -> 
         if len(ids) >= MAX_AI_CONTEXT_ACCOUNT_PROPERTY_IDS:
             break
 
-    if not ids:
+    if not ids or team_id is None:
         value["ai_context_account_property_ids"] = []
         return value
 
