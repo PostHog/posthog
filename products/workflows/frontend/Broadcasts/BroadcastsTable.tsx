@@ -18,6 +18,7 @@ const STATUS_CONFIG: Record<BroadcastStatus, { label: string; type: LemonTagType
     scheduled: { label: 'Scheduled', type: 'warning' },
     sending: { label: 'Sending', type: 'completion' },
     sent: { label: 'Sent', type: 'success' },
+    failed: { label: 'Failed', type: 'danger' },
     archived: { label: 'Archived', type: 'muted' },
 }
 
