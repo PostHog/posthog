@@ -29,12 +29,12 @@ interface SelectorMatchChangeNoticeContentProps {
 export function SelectorMatchChangeNotice({ insightProps }: SelectorMatchChangeNoticeProps): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentProjectId } = useValues(projectLogic)
-    const { series } = useValues(insightVizDataLogic(insightProps as InsightLogicProps))
+    const { querySource } = useValues(insightVizDataLogic(insightProps as InsightLogicProps))
 
     if (!featureFlags[FEATURE_FLAGS.SELECTOR_MATCH_CHANGE_NOTICE]) {
         return null
     }
-    const actionIds = getSelectorMatchChangeActionIds(series)
+    const actionIds = getSelectorMatchChangeActionIds(querySource)
     if (currentProjectId === null || actionIds.length === 0) {
         return null
     }
