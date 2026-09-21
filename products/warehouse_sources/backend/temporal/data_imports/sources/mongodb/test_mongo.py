@@ -616,6 +616,18 @@ class TestGetRetryableErrors(SimpleTestCase):
         assert "Topology Description" not in message
         assert expected_phrase in message.lower()
 
+    def test_connection_reset_is_classified_retryable(self):
+        # AutoReconnect wrapping a bare ConnectionResetError mid-cursor-read (an RST, not a
+        # timeout) — the next connection attempt succeeds once the network recovers, so this must
+        # not flood error tracking as an unclassified exception on every retry.
+        error_msg = (
+            "cluster0.example.mongodb.net:27017: [Errno 104] Connection reset by peer "
+            "(configured timeouts: connectTimeoutMS: 20000.0ms)"
+        )
+        assert any(pattern in error_msg for pattern in self.retryable), (
+            f"MongoDB connection reset should be classified retryable: {error_msg}"
+        )
+
     def test_interrupted_at_shutdown_is_classified_retryable(self):
         # NotPrimaryError raised when a read is killed by a routine replica-set failover (the
         # primary shutting down or stepping down); the next retry hits the new primary.
