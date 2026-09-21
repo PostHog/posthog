@@ -4070,6 +4070,10 @@
             },
             "type": "object"
         },
+        "sdk_diagnostics_opt_out": {
+            "description": "Disables SDK diagnostics for this project when true.",
+            "type": "boolean"
+        },
         "session_recording_event_trigger_config": {
             "anyOf": [
                 {
