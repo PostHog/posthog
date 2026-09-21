@@ -153,10 +153,11 @@ export class RoutingPersonsStore implements PersonsStore {
      * the consumer's poll budget, so a verb that outruns the ceiling is
      * abandoned and counted as lost fidelity; the bound is per verb.
      */
-    private async shadowed(verb: string, run: () => Promise<unknown>): Promise<void> {
+    private async shadowed(verb: string, run: (abandoned: AbortSignal) => Promise<unknown>): Promise<void> {
         const stopTimer = personhogStoreShadowDurationSeconds.labels({ verb }).startTimer()
         let timer: ReturnType<typeof setTimeout> | undefined
-        const running = run()
+        const abandon = new AbortController()
+        const running = run(abandon.signal)
         // The abandoned leg keeps running against the personhog side; its
         // settlement is swallowed here so a rejection arriving after the
         // ceiling cannot surface as an unhandled one.
@@ -165,7 +166,10 @@ export class RoutingPersonsStore implements PersonsStore {
             await Promise.race([
                 running,
                 new Promise<never>((_resolve, reject) => {
-                    timer = setTimeout(() => reject(new ShadowVerbTimeoutError(verb)), SHADOW_VERB_TIMEOUT_MS)
+                    timer = setTimeout(() => {
+                        abandon.abort()
+                        reject(new ShadowVerbTimeoutError(verb))
+                    }, SHADOW_VERB_TIMEOUT_MS)
                 }),
             ])
         } catch (error) {
@@ -193,19 +197,19 @@ export class RoutingPersonsStore implements PersonsStore {
         pg: () => Promise<T>,
         personhog: () => Promise<T>,
         opts?: {
-            shadow?: () => Promise<unknown>
+            shadow?: (abandoned: AbortSignal) => Promise<unknown>
             compare?: (authoritative: T, shadow: unknown) => void
-            after?: (authoritative: T, shadow: unknown) => Promise<void>
+            after?: (authoritative: T, shadow: unknown, abandoned: AbortSignal) => Promise<void>
         }
     ): Promise<T> {
         if (this.mode === 'personhog') {
             return personhog()
         }
         const result = await pg()
-        await this.shadowed(verb, async () => {
-            const shadow = await (opts?.shadow ?? personhog)()
+        await this.shadowed(verb, async (abandoned) => {
+            const shadow = await (opts?.shadow ? opts.shadow(abandoned) : personhog())
             this.compared(verb, () => opts?.compare?.(result, shadow))
-            await opts?.after?.(result, shadow)
+            await opts?.after?.(result, shadow, abandoned)
         })
         return result
     }
@@ -435,29 +439,42 @@ export class RoutingPersonsStore implements PersonsStore {
             () => this.pg.mergePersons(request, batchId),
             () => this.personhog.mergePersons(request, batchId),
             {
-                shadow: () => this.shadowMerge(request, batchId),
+                shadow: (abandoned) => this.shadowMerge(request, batchId, abandoned),
                 compare: (authoritative, shadow) => this.compareMerge(authoritative, shadow),
-                after: (authoritative, shadow) => this.redriveShadowFoldPairs(request, batchId, authoritative, shadow),
+                after: (authoritative, shadow, abandoned) =>
+                    this.redriveShadowFoldPairs(request, batchId, authoritative, shadow, abandoned),
             }
         )
     }
 
     /** The merge service's retries wrap the routed call, which never throws for the shadow side. */
-    private retriedShadowMerge(request: MergePersonsRequest, batchId: number): Promise<MergePersonsResult> {
+    private retriedShadowMerge(
+        request: MergePersonsRequest,
+        batchId: number,
+        abandoned: AbortSignal
+    ): Promise<MergePersonsResult> {
         return promiseRetry(
-            () => this.personhog.mergePersons(request, batchId),
+            // An abandoned verb starts no new write; one already in flight still finishes.
+            () =>
+                abandoned.aborted
+                    ? Promise.reject(new ShadowVerbTimeoutError('mergePersons'))
+                    : this.personhog.mergePersons(request, batchId),
             'shadow_merge_persons',
             undefined,
             undefined,
             undefined,
-            [ConnectError]
+            [ConnectError, ShadowVerbTimeoutError]
         )
     }
 
     /** A fold is never retried as a fold: one that throws aborts, and its pairs take the re-drive. */
-    private async shadowMerge(request: MergePersonsRequest, batchId: number): Promise<MergePersonsResult> {
+    private async shadowMerge(
+        request: MergePersonsRequest,
+        batchId: number,
+        abandoned: AbortSignal
+    ): Promise<MergePersonsResult> {
         if (!isFoldRequest(request)) {
-            return this.retriedShadowMerge(request, batchId)
+            return this.retriedShadowMerge(request, batchId, abandoned)
         }
         try {
             return await this.personhog.mergePersons(request, batchId)
@@ -478,7 +495,8 @@ export class RoutingPersonsStore implements PersonsStore {
         request: MergePersonsRequest,
         batchId: number,
         authoritative: MergePersonsResult,
-        shadow: unknown
+        shadow: unknown,
+        abandoned: AbortSignal
     ): Promise<void> {
         const shadowResult = shadow as MergePersonsResult
         if (authoritative.foldAborted !== undefined || shadowResult?.foldAborted === undefined) {
@@ -504,7 +522,8 @@ export class RoutingPersonsStore implements PersonsStore {
                         mergeMode: request.mergeMode,
                         createdAtMs: request.createdAtMs,
                     },
-                    batchId
+                    batchId,
+                    abandoned
                 )
                 const outcome = result.results[0]?.outcome ?? 'error'
                 personhogStoreShadowFoldRedriveCounter.labels({ outcome }).inc()

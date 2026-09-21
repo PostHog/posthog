@@ -374,6 +374,45 @@ describe('RoutingPersonsStore', () => {
             ])
         })
 
+        it.each([
+            ['a plain merge starts no further attempt', mergeRequest, [], 1],
+            [
+                'a fold re-drive starts no further pair',
+                foldRequest,
+                [{ survivor: null, results: [], foldAborted: 'conflict' as const }],
+                2,
+            ],
+        ])('abandoned at the shadow ceiling, %s', async (_name, request, answeredFirst, expectedCalls) => {
+            jest.useFakeTimers()
+            try {
+                const stores = makeStores()
+                stores.pg.mergePersons.mockResolvedValue({
+                    survivor: person(1, '1'),
+                    results: [
+                        { sourceDistinctId: 'anon-1', outcome: 'merged' },
+                        { sourceDistinctId: 'anon-2', outcome: 'merged' },
+                    ],
+                })
+                let failHanging: (error: Error) => void = () => {}
+                const hanging = new Promise<never>((_resolve, reject) => (failHanging = reject))
+                for (const answer of answeredFirst) {
+                    stores.personhogMock.mergePersons.mockResolvedValueOnce(answer)
+                }
+                stores.personhogMock.mergePersons.mockReturnValueOnce(hanging)
+                const store = makeStore(stores, 'shadow')
+
+                const pending = store.mergePersons(request() as never, 7)
+                await jest.advanceTimersByTimeAsync(60_000)
+                await pending
+                failHanging(new PersonMergeCallFailedError('no verdict', new Error('deadline')))
+                await jest.advanceTimersByTimeAsync(1_000)
+
+                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(expectedCalls)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('a fold both backends aborted records nothing', async () => {
             const stores = makeStores()
             stores.pg.mergePersons.mockResolvedValue({ survivor: null, results: [], foldAborted: 'limit' })
