@@ -70,7 +70,9 @@ def default_branch_head_sha(repo: Repo) -> str | None:
     """The commit the repo's default branch points at, or None when GitHub cannot say."""
     try:
         github = get_github_integration_for_repo(repo)
-        branch = _get_default_branch(github, repo.repo_full_name)
+        # Not `_get_default_branch`: its fallback name can point at a branch that is not the default,
+        # and a commit from that branch would scope the lift wrongly.
+        branch = github.get_default_branch(repo.repo_full_name)
         # One path segment, so a branch name with a slash does not split the ref.
         response = github.api_request("GET", f"/repos/{repo.repo_full_name}/commits/{quote(branch, safe='')}")
     except Exception:

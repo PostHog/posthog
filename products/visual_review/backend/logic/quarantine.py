@@ -134,10 +134,10 @@ def quarantine_identifier(
 
 def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_id: int) -> None:
     repo = repos.get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
-    # Ask GitHub before reading the clock, and lift only rows that existed at that moment. A
+    # Take the cutoff before the GitHub request, and lift only rows that existed at the cutoff. A
     # quarantine that somebody creates while the request is in flight must survive this lift.
-    lifted_at_sha = github_api.default_branch_head_sha(repo)
     now = timezone.now()
+    lifted_at_sha = github_api.default_branch_head_sha(repo)
     QuarantinedIdentifier.objects.using(WRITER_DB).filter(
         repo_id=repo_id,
         identifier=identifier,
@@ -155,9 +155,9 @@ def expire_quarantine_entry(entry_id: UUID, team_id: int) -> None:
     except QuarantinedIdentifier.DoesNotExist as e:
         raise errors.RunNotFoundError(f"Quarantine entry {entry_id} not found or already expired") from e
 
-    # Ask GitHub before reading the clock again, for the same reason as `unquarantine_identifier`.
+    # The cutoff is `now`, taken before the GitHub request, for the same reason as in
+    # `unquarantine_identifier`.
     lifted_at_sha = github_api.default_branch_head_sha(entry.repo)
-    now = timezone.now()
     # Expire all active entries for the same identifier/run_type, not just this one
     QuarantinedIdentifier.objects.using(WRITER_DB).filter(
         repo_id=entry.repo_id,
@@ -165,7 +165,7 @@ def expire_quarantine_entry(entry_id: UUID, team_id: int) -> None:
         run_type=entry.run_type,
         team_id=team_id,
         created_at__lte=now,
-    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)).update(expires_at=now, lifted_at_sha=lifted_at_sha)
+    ).filter(active).update(expires_at=now, lifted_at_sha=lifted_at_sha)
 
 
 def identifiers_lifted_after_commit(run: Run, *, now: datetime) -> set[str]:
