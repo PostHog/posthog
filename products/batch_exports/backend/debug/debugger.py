@@ -391,7 +391,7 @@ class BatchExportsDebugger:
     ) -> collections.abc.Generator[pa.RecordBatch]:
         team_id = batch_export_run.parent.team.id
         full_range = (batch_export_run.data_interval_start, batch_export_run.data_interval_end)
-        parameters = {
+        parameters: dict[str, typing.Any] = {
             "team_id": team_id,
             "interval_start": full_range[0].strftime("%Y-%m-%d %H:%M:%S.%f") if full_range[0] else None,
             "interval_end": full_range[1].strftime("%Y-%m-%d %H:%M:%S.%f"),
