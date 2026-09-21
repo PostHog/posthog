@@ -40,6 +40,7 @@ class NodeRole(StrEnum):
     LOGS = "logs"
 
     # Below nodes are part of separate clusters.
+    APM = "apm"
     AI_EVENTS = "ai_events"
     AUX = "aux"
     BATCH_EXPORTS = "batch_exports"

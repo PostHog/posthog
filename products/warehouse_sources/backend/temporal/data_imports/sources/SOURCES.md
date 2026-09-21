@@ -962,6 +962,7 @@ doesn't conflict with concurrent PRs.
 - codecov
 - collibra
 - commission_junction
+- commslayer
 - constant_contact
 - conta_azul
 - contentsquare
@@ -1014,6 +1015,7 @@ doesn't conflict with concurrent PRs.
 - entsoe
 - eurostat
 - expensify
+- expo
 - facebook_pages
 - faros_ai
 - fastbill
@@ -1286,6 +1288,7 @@ doesn't conflict with concurrent PRs.
 - podium
 - polygon
 - poplar
+- postnord
 - practicepanther
 - preset
 - prestashop

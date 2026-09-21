@@ -23,9 +23,27 @@ logger = structlog.get_logger(__name__)
 RefreshOutcome = Literal["successful", "failed", "enqueued"]
 
 
-def get_teams_with_expiring_caches(
+@frozen
+class ExpiringTeamSelection:
+    """The teams one run will refresh, and whether Redis had more to give.
+
+    `limit_reached` is read from the sorted-set range and not from `len(teams)`. A range
+    that comes back full of identifiers for deleted teams resolves to fewer Team rows
+    than it read, and the run is still leaving work behind. It is None when the range
+    could not be read, because a run that never saw the queue cannot report on it.
+
+    The range is capped at the limit, so a run that drained the queue exactly reports
+    True as well. `ExpiryBacklogSample.due_count` is the unbounded reading that tells
+    those two apart; this flag is the cheap signal on top of it, not a substitute.
+    """
+
+    teams: list[Team]
+    limit_reached: bool | None
+
+
+def select_expiring_teams(
     config: HyperCacheManagementConfig, ttl_threshold_hours: int = 24, limit: int = 5000
-) -> list[Team]:
+) -> ExpiringTeamSelection:
     """
     Get teams whose caches are expiring soon using sorted set for efficient lookup.
 
@@ -38,13 +56,13 @@ def get_teams_with_expiring_caches(
         limit: Maximum number of teams to return (default 5000, prevents unbounded results)
 
     Returns:
-        List of Team objects whose caches need refresh (up to limit)
+        The teams whose caches need refresh (up to limit), and whether the range filled
     """
     hypercache = config.hypercache
 
     if not hypercache.expiry_sorted_set_key:
         logger.warning(f"No expiry sorted set configured for {config.log_prefix}")
-        return []
+        return ExpiringTeamSelection(teams=[], limit_reached=False)
 
     try:
         redis_client = get_client(hypercache.redis_url)
@@ -57,9 +75,11 @@ def get_teams_with_expiring_caches(
             hypercache.expiry_sorted_set_key, "-inf", threshold_timestamp, start=0, num=limit
         )
 
+        limit_reached = len(expiring_identifiers) >= limit
+
         if not expiring_identifiers:
             logger.info(f"No {config.log_prefix} expiring soon")
-            return []
+            return ExpiringTeamSelection(teams=[], limit_reached=False)
 
         # Decode bytes to strings and convert to appropriate type based on token_based
         query_field = "api_token" if hypercache.token_based else "id"
@@ -79,49 +99,93 @@ def get_teams_with_expiring_caches(
             f"Found teams with expiring {config.log_prefix}",
             team_count=len(teams),
             ttl_threshold_hours=ttl_threshold_hours,
+            limit_reached=limit_reached,
         )
 
-        return teams
+        return ExpiringTeamSelection(teams=teams, limit_reached=limit_reached)
 
     except Exception as e:
         logger.exception(f"Error finding expiring {config.log_prefix}", error=str(e))
         capture_exception(e)
-        return []
+        return ExpiringTeamSelection(teams=[], limit_reached=None)
 
 
-def count_expiring_caches(config: HyperCacheManagementConfig, ttl_threshold_hours: int = 24) -> int | None:
-    """
-    Count the entries due for refresh in the expiry tracking sorted set.
+def get_teams_with_expiring_caches(
+    config: HyperCacheManagementConfig, ttl_threshold_hours: int = 24, limit: int = 5000
+) -> list[Team]:
+    """Teams whose caches are expiring soon, for callers that do not report on the run."""
+    return select_expiring_teams(config, ttl_threshold_hours, limit).teams
 
-    Deliberately unbounded, unlike get_teams_with_expiring_caches, which stops at the
-    run's limit. The count is the sweep's saturation signal: it has to be able to
+
+@frozen
+class ExpiryBacklogSample:
+    """One reading of the expiry sorted set, taken at a single moment.
+
+    `due_count` is deliberately unbounded, unlike `select_expiring_teams`, which stops at
+    the run's limit. The count is the sweep's saturation signal: it has to be able to
     exceed what one run processes, or it cannot tell a drained queue from a queue the
     sweep is falling behind on.
 
+    `oldest_seconds_to_expiry` answers the question the count has only ever been a proxy
+    for: is anything about to expire before the sweep reaches it. Unlike the count it is
+    not inflated by refreshes already in flight. It is not immune to members left behind
+    for deleted teams, though: such a member is never re-scored, so it holds the set's
+    minimum and pins this reading until `cleanup_stale_expiry_tracking` removes it, and
+    that cleanup is a daily task where it is scheduled at all.
+
+    Both are None when Redis does not answer, which pushes no series rather than a zero
+    that reads as a drained queue.
+    """
+
+    due_count: int | None
+    oldest_seconds_to_expiry: float | None
+
+
+def sample_expiry_backlog(config: HyperCacheManagementConfig, ttl_threshold_hours: int = 24) -> ExpiryBacklogSample:
+    """
+    Read the expiry tracking sorted set: how much is due, and how urgent the worst is.
+
     Args:
-        config: HyperCache management config specifying which cache to count
+        config: HyperCache management config specifying which cache to read
         ttl_threshold_hours: Count entries expiring within this many hours
 
     Returns:
-        Number of entries due for refresh, or None if the count is unavailable
+        The reading, with None fields when the sorted set cannot be read
     """
     hypercache = config.hypercache
 
     if not hypercache.expiry_sorted_set_key:
-        return None
+        return ExpiryBacklogSample(due_count=None, oldest_seconds_to_expiry=None)
 
     try:
         redis_client = get_client(hypercache.redis_url)
-        return redis_client.zcount(hypercache.expiry_sorted_set_key, "-inf", _expiry_threshold(ttl_threshold_hours))
+        # One clock for both readings, so the count and the age describe the same moment.
+        now = time.time()
+        due_count = redis_client.zcount(
+            hypercache.expiry_sorted_set_key, "-inf", _expiry_threshold(ttl_threshold_hours, now)
+        )
     except Exception as e:
-        logger.warning(f"Error counting expiring {config.log_prefix}", error=str(e))
-        return None
+        logger.warning(f"Error reading expiry backlog for {config.log_prefix}", error=str(e))
+        return ExpiryBacklogSample(due_count=None, oldest_seconds_to_expiry=None)
+
+    # Guarded separately from the count so that a zrange failure does not discard a
+    # zcount that already succeeded.
+    try:
+        oldest = redis_client.zrange(hypercache.expiry_sorted_set_key, 0, 0, withscores=True)
+        # The score is the expiration timestamp, so the value goes negative once the
+        # oldest entry is past its expiry and the sweep is behind.
+        oldest_seconds = oldest[0][1] - now if oldest else None
+    except Exception as e:
+        logger.warning(f"Error reading oldest expiry entry for {config.log_prefix}", error=str(e))
+        oldest_seconds = None
+
+    return ExpiryBacklogSample(due_count=due_count, oldest_seconds_to_expiry=oldest_seconds)
 
 
-def _expiry_threshold(ttl_threshold_hours: int) -> float:
+def _expiry_threshold(ttl_threshold_hours: int, now: float | None = None) -> float:
     """The sorted-set score below which an entry is due for refresh. Shared so the
     backlog gauge always describes the same set the sweep pulls its teams from."""
-    return time.time() + (ttl_threshold_hours * 3600)
+    return (time.time() if now is None else now) + (ttl_threshold_hours * 3600)
 
 
 @frozen
@@ -168,8 +232,45 @@ class RefreshPacing:
             raise ValueError("pacing delays must not be negative")
 
 
+@frozen
+class RefreshRun:
+    """Everything a run reads before it touches a team.
+
+    Built in one place because the order matters. Once the run starts, a config with a
+    routing hook produces messages for another builder, and those teams stay in the
+    sorted set until that builder rebuilds them seconds to minutes later. A backlog
+    sample taken after that point counts work that is already in flight, so the only
+    clean reading of the queue is the one taken before the first team is processed.
+
+    `ttl_threshold_hours` rides along so the after sample counts the same set the before
+    sample did. Passed separately to both ends, the two could drift and their difference
+    would stop meaning anything.
+    """
+
+    backlog_before: ExpiryBacklogSample
+    teams: list[Team]
+    limit_reached: bool | None
+    ttl_threshold_hours: int
+
+
+def start_refresh_run(
+    config: HyperCacheManagementConfig, ttl_threshold_hours: int = 24, limit: int = 5000
+) -> RefreshRun:
+    """Sample the expiry backlog, then pick the teams this run will refresh."""
+    backlog_before = sample_expiry_backlog(config, ttl_threshold_hours)
+    selection = select_expiring_teams(config, ttl_threshold_hours, limit)
+    return RefreshRun(
+        backlog_before=backlog_before,
+        teams=selection.teams,
+        limit_reached=selection.limit_reached,
+        ttl_threshold_hours=ttl_threshold_hours,
+    )
+
+
 def push_refresh_metrics(
-    config: HyperCacheManagementConfig, counts: CacheRefreshCounts, ttl_threshold_hours: int = 24
+    config: HyperCacheManagementConfig,
+    run: RefreshRun,
+    counts: CacheRefreshCounts,
 ) -> None:
     """
     Push a refresh run's counts and its expiry backlog to Pushgateway.
@@ -178,16 +279,37 @@ def push_refresh_metrics(
     in remote_config_cache. One function so the next field added reaches both without
     anyone having to remember the fork exists.
 
+    Both ends of the run are pushed, because neither reading means anything alone. The
+    before sample is the clean one, taken before the run touches a team.
+
+    A member leaves the due window only when something writes its cache and re-scores it.
+    So `before - after` is what a run that builds its own teams drained. A run that routes
+    its refreshes writes nothing, so its teams hold their scores until the other builder
+    rebuilds them, and the same subtraction returns close to zero.
+
+    One run's before sample minus the previous run's after sample is the net change
+    between runs, not an arrival rate. Rebuilds that complete in the gap re-score out of
+    the window and cancel part of the arrivals.
+
+    To see whether the queue is growing, read the before series run over run. Its slope is
+    arrivals minus completions, so a rising series means the sweep is falling behind.
+    Nothing here counts entries as they enter the window.
+
     An empty run pushes too. Pushgateway keeps serving the last value pushed, so
     skipping it would latch a drained backlog at whatever the last busy run saw.
     """
+    backlog_after = sample_expiry_backlog(config, run.ttl_threshold_hours)
+
     push_hypercache_teams_processed_metrics(
         namespace=config.namespace,
         cache_name=config.cache_name,
         successful=counts.successful,
         failed=counts.failed,
         enqueued=counts.enqueued,
-        expiry_backlog=count_expiring_caches(config, ttl_threshold_hours),
+        expiry_backlog=backlog_after.due_count,
+        expiry_backlog_before=run.backlog_before.due_count,
+        oldest_expiry_seconds=run.backlog_before.oldest_seconds_to_expiry,
+        limit_reached=run.limit_reached,
     )
 
 
@@ -201,7 +323,8 @@ def refresh_expiring_caches(
     Refresh caches that are expiring soon to prevent cache misses.
 
     This is the main hourly job that keeps caches fresh. It:
-    1. Finds teams whose caches are expiring within the threshold (up to limit)
+    1. Samples the expiry backlog, then finds teams whose caches are expiring within the
+       threshold (up to limit)
     2. Refreshes each cache, either by calling the configured update function or, when
        the config binds a routing hook that claims the team, by handing the refresh to
        the builder behind that hook
@@ -221,18 +344,20 @@ def refresh_expiring_caches(
     Returns:
         CacheRefreshCounts with successful, failed and enqueued counts
     """
-    teams = get_teams_with_expiring_caches(config, ttl_threshold_hours, limit)
-    counts = _refresh_teams(config, teams, pacing)
+    run = start_refresh_run(config, ttl_threshold_hours, limit)
+    counts = _refresh_teams(config, run.teams, pacing)
 
     logger.info(
         f"Completed refreshing {config.log_prefix}",
         successful=counts.successful,
         failed=counts.failed,
         enqueued=counts.enqueued,
-        total=len(teams),
+        total=len(run.teams),
+        limit_reached=run.limit_reached,
+        backlog_before=run.backlog_before.due_count,
     )
 
-    push_refresh_metrics(config, counts, ttl_threshold_hours)
+    push_refresh_metrics(config, run, counts)
 
     return counts
 
