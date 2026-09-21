@@ -39,7 +39,7 @@ from django.db.models import (
     When,
 )
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone as django_timezone
 from django.utils.http import content_disposition_header
 
@@ -54,7 +54,10 @@ from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.utils import absolute_uri
 
 from products.canvas.backend.models import Canvas
-from products.posthog_ai.backend.task_ownership import detach_conversations_for_task_handoff
+from products.posthog_ai.backend.task_ownership import (
+    detach_conversations_for_task_handoff,
+    soft_delete_conversations_for_task,
+)
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
@@ -153,6 +156,7 @@ from products.tasks.backend.visibility import (
 )
 
 from . import contracts
+from .task_run_signals import hidden_task_ids, task_run_start_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +196,13 @@ __all__ = [
     "TaskRunEnvironment",
     "TaskRunStatus",
     "WarmRunActivationUnavailable",
+    "append_imported_task_run_log",
     "append_task_run_log",
+    "create_imported_task",
+    "create_imported_task_run",
+    "get_imported_task_run",
+    "get_task_by_origin_key",
+    "touch_imported_task",
     "apply_task_run_model_config",
     "task_run_model_outside_gateway_pin",
     "ensure_task_run_session",
@@ -459,6 +469,11 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "context_window",
         "custom_image_id",
         "fast_mode",
+        # An imported transcript's provenance and mirror cursor: the viewer marks the run as
+        # imported, and the legacy mirror reads its own cursor back through this DTO.
+        "conversation_last_message_id",
+        "conversation_messages_copied",
+        "imported_from",
         "initial_permission_mode",
         "mode",
         "model",
@@ -3278,6 +3293,132 @@ def append_task_run_log(
     return _task_run_detail_to_dto(run)
 
 
+def get_task_by_origin_key(team_id: int, origin_key: str) -> contracts.TaskDetailDTO | None:
+    """The live task carrying ``origin_key`` in ``team_id``, or None. Bypasses visibility: an
+    origin key is an idempotency handle for a system writer, not a user-facing lookup."""
+    task = Task.objects.filter(team_id=team_id, origin_key=origin_key, deleted=False).first()
+    return _task_detail_to_dto(task) if task is not None else None
+
+
+def get_imported_task_run(task_id: str | UUID, team_id: int) -> contracts.TaskRunDetailDTO | None:
+    """The run that holds a task's imported transcript (``state.imported_from`` set), or None."""
+    run = (
+        TaskRun.objects.filter(task_id=task_id, team_id=team_id, state__has_key="imported_from")
+        .order_by("created_at", "id")
+        .first()
+    )
+    return _task_run_detail_to_dto(run) if run is not None else None
+
+
+def create_imported_task(
+    team_id: int,
+    user_id: int,
+    *,
+    title: str,
+    origin_key: str,
+    internal: bool,
+    created_at: datetime,
+) -> contracts.TaskDetailDTO:
+    """Create the task that hosts a transcript imported from elsewhere.
+
+    Backdated to the source's creation time so the task list keeps the order the user remembers.
+    The title comes from the source, not the user, so a later rename of the task must win over it.
+    """
+    return create_task(
+        team_id,
+        user_id,
+        validated_data={
+            "title": title,
+            "title_manually_set": False,
+            "description": "",
+            "origin_product": Task.OriginProduct.POSTHOG_AI,
+            "origin_key": origin_key,
+            "internal": internal,
+            "created_at": created_at,
+        },
+    )
+
+
+def create_imported_task_run(
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    state: dict,
+    created_at: datetime,
+    completed_at: datetime,
+) -> contracts.TaskRunDetailDTO:
+    """Create a completed run that never executed, to host a transcript imported from elsewhere.
+
+    The run is backdated to the source's timestamps so the task sorts and reads as old as the
+    conversation it came from. Nothing dispatches a workflow for it; a later real run chains to it
+    through ``resume_from_run_id`` like any earlier run. A task holds one import run: the create
+    runs under the task's row lock and returns the existing run when a concurrent import won.
+    """
+    with transaction.atomic():
+        task = Task.objects.select_for_update().get(id=task_id, team_id=team_id)
+        existing = (
+            TaskRun.objects.filter(task=task, team_id=team_id, state__has_key="imported_from")
+            .order_by("created_at", "id")
+            .first()
+        )
+        if existing is not None:
+            return _task_run_detail_to_dto(existing)
+        run = TaskRun.objects.create(
+            task=task,
+            team_id=team_id,
+            status=TaskRun.Status.COMPLETED,
+            environment=TaskRun.Environment.CLOUD,
+            state=state,
+            completed_at=completed_at,
+        )
+        # created_at is auto_now_add, so the backdate has to go through update().
+        TaskRun.objects.filter(id=run.id).update(created_at=created_at)
+    run.refresh_from_db()
+    return _task_run_detail_to_dto(run)
+
+
+def append_imported_task_run_log(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    entries: list[dict],
+    batch_id: str,
+    expected_state: dict,
+    state_updates: dict,
+    completed_at: datetime,
+) -> bool:
+    """Append lines to an import run's log and record how far the source has been copied.
+
+    Holds the run's row lock across the append so two copies of the same source cannot both
+    append the same lines: the append only happens while ``expected_state`` still matches the
+    run's state, and returns False when another writer moved it on first. ``batch_id`` names
+    this batch in the log, so a retry after the append succeeded but the state write failed
+    skips the append instead of writing the lines twice. Imported transcripts are user chat
+    history, so the log is never tagged for expiry, and there is no workflow to heartbeat.
+    ``completed_at`` follows the source so the run reads as current as the conversation it copies.
+    """
+    with transaction.atomic():
+        run = TaskRun.objects.select_for_update().get(id=run_id, task_id=task_id, team_id=team_id)
+        state = run.state or {}
+        if any(state.get(key) != value for key, value in expected_state.items()):
+            return False
+        run.append_log(entries, ttl_days=None, batch_id=batch_id)
+        run.state = {**state, **state_updates}
+        run.completed_at = completed_at
+        run.save(update_fields=["state", "completed_at"])
+    return True
+
+
+def touch_imported_task(task_id: str | UUID, team_id: int, *, title: str | None, last_activity_at: datetime) -> None:
+    """Keep an imported task's list row in step with its source conversation."""
+    tasks = Task.objects.filter(id=task_id, team_id=team_id)
+    tasks.update(last_activity_at=last_activity_at)
+    if title:
+        # A title the user set on the task outranks the source's generated one.
+        tasks.filter(title_manually_set=False).update(title=title)
+
+
 def clear_task_run_conversation(
     run_id: str | UUID, task_id: str | UUID, team_id: int
 ) -> tuple[Literal["cleared", "not_found", "not_terminal"], contracts.TaskRunDetailDTO | None]:
@@ -5579,6 +5720,11 @@ def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bo
         qs = qs.filter(
             task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
         )
+        # Another product may hide tasks it owns from this user, for example the copies of chats a
+        # user cannot continue as tasks yet.
+        hidden = hidden_task_ids(team_id, user_id)
+        if hidden:
+            qs = qs.exclude(id__in=hidden)
     return qs
 
 
@@ -6712,6 +6858,7 @@ def soft_delete_task(task_id: str | UUID, team_id: int, user_id: int | None) -> 
             return False
         logger.info("Soft deleting task %s", task.id)
         task.soft_delete()
+        soft_delete_conversations_for_task(task.id)
     return True
 
 
@@ -7650,6 +7797,8 @@ def warm_task_resume_sandbox(
     for protected_key in ("wizard_head_branch", "self_driving_head_branch", "github_read_access"):
         if protected_key in (previous_run.state or {}):
             extra_state[protected_key] = (previous_run.state or {})[protected_key]
+    if "imported_from" in (previous_run.state or {}):
+        extra_state["resume_from_import_run"] = True
     extra_state = {key: value for key, value in extra_state.items() if value is not None or key == "pr_base_branch"}
     stable_selection = {
         key: value
@@ -7733,6 +7882,11 @@ def run_task(
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
+    # Another product may need to finish something before this task runs, for example a chat that
+    # is copied into the task a few seconds behind each turn.
+    refusal = task_run_start_refusal(str(task.id), team_id, user_id)
+    if refusal is not None:
+        return contracts.TaskRunResult(error=contracts.TaskValidationError(kind="detail", detail=refusal))
     report_id_for_slot_check = (
         str(task.signal_report_id)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT
@@ -7768,12 +7922,14 @@ def run_task(
     is_pi_task = task.runtime == Task.Runtime.PI
     previous_run: TaskRun | None = None
     previous_state = None
+    previous_is_import_run = False
     if resume_from_run_id:
         previous_run = task.runs.filter(id=resume_from_run_id).first()
         if previous_run is None:
             return contracts.TaskRunResult(
                 error=contracts.TaskValidationError(kind="detail", detail="Invalid resume_from_run_id")
             )
+        previous_is_import_run = "imported_from" in (previous_run.state or {})
         if not previous_run.matches_task_ownership(task):
             return contracts.TaskRunResult(
                 error=contracts.TaskValidationError(
@@ -7807,10 +7963,11 @@ def run_task(
             team_id, task.repositories[0] if task.repositories else task.repository
         )
 
-    if not resume_from_run_id:
+    if not resume_from_run_id or previous_is_import_run:
         # Fill team/user default AI run preferences before warm matching: a warm run
         # provisioned under the default triple must still match a submit that pinned
-        # nothing. Resumes instead carry the previous run's selection (below).
+        # nothing. Resumes instead carry the previous run's selection (below), except from
+        # an import run, which never ran and so pins no selection to carry.
         validated_data = _with_ai_run_defaults(
             validated_data,
             team_id=task.team_id,
@@ -7977,6 +8134,8 @@ def run_task(
         if not is_pi_task:
             extra_state["resume_from_run_id"] = str(resume_from_run_id)
             extra_state.update(prev_state.resume_snapshot_carry_state())
+            if previous_is_import_run:
+                extra_state["resume_from_import_run"] = True
 
         # The resumed agent still pushes the head branch baked into the original prompt, so the
         # PR webhook must be able to match this run, not the terminal predecessor.
@@ -9693,10 +9852,70 @@ def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
     return TaskActivity.objects.for_team(team_id).filter(user_id=user_id, task__in=visible_tasks)
 
 
+def _visible_canvas_comment_ids(team_id: int, user_id: int) -> QuerySet[Canvas, dict[str, str]]:
+    return (
+        Canvas.objects.for_team(team_id)
+        .filter(deleted=False)
+        .filter(visible_channels_q(user_id, relation="channel"))
+        .annotate(comment_item_id=Cast("id", output_field=CharField()))
+        .values("comment_item_id")
+    )
+
+
 def _comment_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskCommentActivity]:
     visible_tasks = _activity_visible_task_qs(team_id, user_id)
-    return TaskCommentActivity.objects.for_team(team_id).filter(
-        user_id=user_id, task__in=visible_tasks, comment__deleted=False
+    return (
+        TaskCommentActivity.objects.for_team(team_id)
+        .filter(user_id=user_id, comment__deleted=False)
+        .filter(
+            Q(comment__scope="desktop_canvas", comment__item_id__in=_visible_canvas_comment_ids(team_id, user_id))
+            | (~Q(comment__scope="desktop_canvas") & Q(task__in=visible_tasks))
+        )
+    )
+
+
+def _visible_canvases_by_id(
+    team_id: int, user_id: int, comment_rows: Sequence[TaskCommentActivity]
+) -> dict[str, Canvas]:
+    canvas_ids: list[UUID] = []
+    for row in comment_rows:
+        if row.comment.scope != "desktop_canvas":
+            continue
+        try:
+            canvas_ids.append(UUID(row.comment.item_id))
+        except ValueError:
+            continue
+    if not canvas_ids:
+        return {}
+    canvases = (
+        Canvas.objects.for_team(team_id)
+        .filter(id__in=canvas_ids, deleted=False)
+        .filter(visible_channels_q(user_id, relation="channel"))
+        .select_related("channel")
+    )
+    return {str(canvas.id): canvas for canvas in canvases}
+
+
+@frozen
+class _ActivityTaskDetails:
+    title: str
+    channel_id: UUID | None
+    channel_name: str | None
+
+
+def _activity_task_details(
+    row: TaskActivity | TaskCommentActivity, canvases_by_id: dict[str, Canvas]
+) -> _ActivityTaskDetails:
+    if isinstance(row, TaskCommentActivity) and row.comment.scope == "desktop_canvas" and row.comment.item_id:
+        canvas = canvases_by_id.get(row.comment.item_id)
+        if canvas is not None:
+            return _ActivityTaskDetails(
+                title=canvas.name, channel_id=canvas.channel_id, channel_name=canvas.channel.name
+            )
+    return _ActivityTaskDetails(
+        title=row.task.title,
+        channel_id=row.task.channel_id,
+        channel_name=row.task.channel.name if row.task.channel else None,
     )
 
 
@@ -9732,8 +9951,12 @@ def list_task_activity(
         task_qs = task_qs.filter(cursor)
         comment_qs = comment_qs.filter(cursor)
     task_rows = task_qs.select_related("task__channel", "message__author").order_by("-activity_at", "-id")[: limit + 1]
-    comment_rows = comment_qs.select_related("task__channel", "comment__created_by").order_by("-activity_at", "-id")[
-        : limit + 1
+    comment_rows = list(
+        comment_qs.select_related("task__channel", "comment__created_by").order_by("-activity_at", "-id")[: limit + 1]
+    )
+    canvases_by_id = _visible_canvases_by_id(team_id, user_id, comment_rows)
+    comment_rows = [
+        row for row in comment_rows if row.comment.scope != "desktop_canvas" or row.comment.item_id in canvases_by_id
     ]
     activity_rows: list[TaskActivity | TaskCommentActivity] = [*task_rows, *comment_rows]
     rows: list[TaskActivity | TaskCommentActivity] = sorted(
@@ -9750,9 +9973,9 @@ def list_task_activity(
             contracts.TaskActivityDTO(
                 id=row.id,
                 task_id=row.task_id,
-                task_title=row.task.title,
-                channel_id=row.task.channel_id,
-                channel_name=row.task.channel.name if row.task.channel else None,
+                task_title=task_details.title,
+                channel_id=task_details.channel_id,
+                channel_name=task_details.channel_name,
                 activity_at=row.activity_at,
                 activity_kind=row.kind,
                 snippet=_bounded_activity_snippet(
@@ -9772,6 +9995,7 @@ def list_task_activity(
                 is_unread=row.read_at is None,
             )
             for row in rows
+            for task_details in [_activity_task_details(row, canvases_by_id)]
         ],
         unread_count=count_unread_task_activity(team_id, user_id),
         next_before=next_row.activity_at if next_row else None,

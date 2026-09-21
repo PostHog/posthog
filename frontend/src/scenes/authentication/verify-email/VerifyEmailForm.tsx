@@ -62,7 +62,7 @@ function NotSeeingIt(): JSX.Element {
                 Not seeing it?
             </button>
             {open && (
-                <div className="AuthScene__note mt-3 w-full py-3 px-3.5 text-xs leading-relaxed text-secondary text-left bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
+                <div className="AuthScene__note mt-3 w-full py-3 px-3.5 text-xs leading-relaxed text-secondary text-left border border-dashed rounded">
                     <p className="m-0 mb-2.5 font-semibold text-primary">Before we resend, three quick checks:</p>
                     <div className="flex flex-col gap-2">
                         {CHECKLIST.map((item, i) => (

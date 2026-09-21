@@ -1,5 +1,5 @@
-import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { lazyLoaders, loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
@@ -252,7 +252,7 @@ export const metricsLogic = kea<metricsLogicType>([
         closeMetricFromInsightModal: true,
         createMetricFromInsight: (request: MetricFromInsightRequest) => ({ request }),
     }),
-    loaders(({ values }) => ({
+    lazyLoaders(() => ({
         allMetrics: [
             [] as DataCatalogMetricApi[],
             {
@@ -273,6 +273,8 @@ export const metricsLogic = kea<metricsLogicType>([
                 },
             },
         ],
+    })),
+    loaders(({ values }) => ({
         savedInsights: [
             [] as SavedInsightOption[],
             {
@@ -561,7 +563,4 @@ export const metricsLogic = kea<metricsLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadMetrics()
-    }),
 ])

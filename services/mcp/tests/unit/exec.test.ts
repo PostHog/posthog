@@ -247,7 +247,22 @@ describe('exec tool', () => {
                 command: 'learn posthog:bot-traffic SKILL.md -s',
                 hint: 'Usage: learn <source>:<skill> <path> -s "<keywords>"',
             },
-        ])('returns recovery guidance for $command without opening the gate', async ({ command, hint }) => {
+            {
+                command: 'learn posthog:bot-traffic/SKILL.md',
+                hint: 'Separate the skill name and file path with a space: `learn <source>:<skill> <path>`.',
+                recovery: 'learn posthog:bot-traffic SKILL.md',
+            },
+            {
+                command: 'learn posthog:bot-traffic --file SKILL.md',
+                hint: '`learn` does not support --file. Pass the file path directly: `learn <source>:<skill> <path>`.',
+                recovery: 'learn posthog:bot-traffic SKILL.md',
+            },
+            {
+                command: 'learn posthog:bot-traffic SKILL.md --file',
+                hint: '`learn` does not support --file. Pass the file path directly: `learn <source>:<skill> <path>`.',
+                recovery: 'learn posthog:bot-traffic SKILL.md',
+            },
+        ])('returns recovery guidance for $command without opening the gate', async ({ command, hint, recovery }) => {
             const exec = createExec(undefined, undefined, {
                 learnCatalog: guideCatalog(false),
                 skillsSession: makeSkillsSession(),
@@ -269,7 +284,7 @@ describe('exec tool', () => {
             await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toMatchObject({
                 reason: 'skills_gate',
             })
-            await exec.handler(mockContext, { command: 'learn posthog:bot-traffic' })
+            await exec.handler(mockContext, { command: recovery ?? 'learn posthog:bot-traffic' })
             await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
         })
 
@@ -1629,9 +1644,23 @@ describe('exec tool', () => {
             expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
         })
 
+        it('accepts an anchored alternation of a whole toolset', async () => {
+            const flagTool = makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' })
+            const exec = createExec([flagTool])
+            const alternation = [
+                ...Array.from({ length: 20 }, (_, index) => `^scout-some-long-tool-name-${index}$`),
+                '^feature-flag-get-all$',
+            ].join('|')
+            expect(alternation.length).toBeGreaterThan(400)
+
+            const result = await exec.handler(mockContext, { command: `search ${alternation}` })
+
+            expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
+        })
+
         it('rejects an overly long search pattern before compiling the regex', async () => {
             const exec = createExec([makeMockTool()])
-            const longPattern = 'a'.repeat(401)
+            const longPattern = 'a'.repeat(801)
             await expect(exec.handler(mockContext, { command: `search ${longPattern}` })).rejects.toThrow(
                 /pattern too long/i
             )

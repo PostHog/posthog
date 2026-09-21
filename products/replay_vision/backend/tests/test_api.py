@@ -4316,6 +4316,24 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         self.assertEqual(items[3]["reason"], {"kind": "unviewed_recent"})
         assert plain_new and hit and signal and plain_old
 
+    def test_signal_reason_carries_the_persisted_problem_types(self) -> None:
+        # The card counts what kinds of issue a signal row carries, so the reason must surface one entry
+        # per signal in order, repeats kept — not a deduplicated set.
+        scanner = self._create_scanner(name="m")
+        self._succeeded_observation(
+            scanner,
+            "signal",
+            10,
+            {
+                "model_output": {"scanner_type": "monitor", "verdict": "no", "reasoning": "r", "confidence": 0.9},
+                "signals_count": 3,
+                "signal_problem_types": ["bug", "bug", "crash"],
+            },
+        )
+        reason = self.client.get(self.feed_url).json()["results"][0]["reason"]
+        self.assertEqual(reason["kind"], "signal_emitted")
+        self.assertEqual(reason["problem_types"], ["bug", "bug", "crash"])
+
     def test_minority_verdict_is_the_hit_regardless_of_prompt_polarity(self) -> None:
         # "Was the experience good?" answers yes almost always, so its rare "no" is the notable
         # one; a majority "yes" must not rank as a hit just for being yes.
@@ -4332,9 +4350,9 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         reasons = {item["observation"]["session_id"]: item["reason"]["kind"] for item in items}
         self.assertEqual(reasons["good-0"], "unviewed_recent")
 
-    def test_notability_ranks_below_intent_above_heuristics_and_carries_its_sentence(self) -> None:
-        # The scan's own judgment must beat keyword friction but never outrank what the user
-        # configured the scanner to find, and its sentence must reach the card.
+    def test_high_notability_outranks_a_weak_hit_but_still_beats_friction_and_carries_its_sentence(self) -> None:
+        # The blend lets the scan's own judgment surface: a high notability outranks a bare verdict-yes
+        # hit (weak, no baseline), still beats keyword friction, and its sentence reaches the card.
         scanner = self._create_scanner(name="m")
         self._succeeded_observation(
             scanner,
@@ -4372,11 +4390,11 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         items = resp.json()["results"]
         self.assertEqual(
             [item["observation"]["session_id"] for item in items],
-            ["intent-hit", "notable-sess", "friction-sess"],
+            ["notable-sess", "intent-hit", "friction-sess"],
         )
-        self.assertEqual(items[1]["reason"]["kind"], "notable")
+        self.assertEqual(items[0]["reason"]["kind"], "notable")
         self.assertEqual(
-            items[1]["reason"]["notability_reason"], "Tried the same export three times and never saw an error."
+            items[0]["reason"]["notability_reason"], "Tried the same export three times and never saw an error."
         )
 
     def test_notability_reason_stays_off_rows_that_did_not_rank_on_notability(self) -> None:
