@@ -69,7 +69,7 @@ Handoff locks the private channel before the task. It fails if the task moved to
 `POST /tasks/` with `start_run: true` and `POST /tasks/{task_id}/run/` accept `scheduled_at`.
 So do `tasks-create-and-run` and `tasks-run-create` in MCP.
 Use a future ISO 8601 time within 90 days; missing offsets mean UTC. Omit or send null to start immediately.
-Scheduled runs require background ACP execution, server-managed credentials, and the PostHog gateway. Dispatch rechecks project access and usage limits.
+Scheduled runs require background ACP execution, server-managed credentials, and the PostHog gateway. New file attachments are not supported. Dispatch rechecks task access and usage limits.
 Model settings use saved defaults or the previous run on resume. Use `tasks-models-retrieve` for explicit model and effort choices.
 The existing run cancellation endpoint also supports scheduled runs.
 

@@ -3403,6 +3403,8 @@ class TaskRunCreateRequestSerializer(
         if attrs.get("scheduled_at") is not None:
             if is_pi_task or attrs.get("mode") != "background":
                 errors["scheduled_at"] = "Scheduling requires a background ACP run."
+            if attrs.get("pending_user_artifact_ids"):
+                errors["pending_user_artifact_ids"] = "Scheduled runs do not support new file attachments."
             for field in ("github_user_token", "imported_mcp_servers", "relayed_mcp_servers"):
                 if attrs.get(field):
                     errors[field] = "Scheduled runs cannot use credentials or connections from a connected desktop."

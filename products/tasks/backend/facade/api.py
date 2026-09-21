@@ -5377,16 +5377,15 @@ def _trigger_task_processing_workflow(
         enqueue_or_start_workflow,
     )
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
-        RunSource,
+        mcp_scopes_for_run_source,
         parse_run_state,
     )
     from products.tasks.backend.temporal.process_task.workflow import PendingFollowup  # noqa: PLC0415
 
     # SIGNAL_REPORT: implementation runs log their work on the report (notes, code references)
     # via the task:write artefact tools.
-    full_mcp_run_sources = frozenset({None, RunSource.MANUAL, RunSource.SIGNAL_REPORT})
     run_source = parse_run_state(run.state).run_source
-    posthog_mcp_scopes: Literal["read_only", "full"] = "full" if run_source in full_mcp_run_sources else "read_only"
+    posthog_mcp_scopes = mcp_scopes_for_run_source(run_source)
     try:
         logger.info("Attempting to trigger task processing workflow for task %s, run %s", task.id, run.id)
         message = None
@@ -7876,6 +7875,7 @@ def run_task(
         cache_github_user_token,
         get_provider_for_runtime_adapter,
         get_reasoning_effort_error,
+        mcp_scopes_for_run_source,
         parse_run_state,
     )
 
@@ -8313,9 +8313,7 @@ def run_task(
         extra_state["pending_dispatch"] = {
             "user_id": user_id,
             "create_pr": True,
-            "posthog_mcp_scopes": "full"
-            if run_source in (None, RunSource.MANUAL, RunSource.SIGNAL_REPORT)
-            else "read_only",
+            "posthog_mcp_scopes": mcp_scopes_for_run_source(run_source),
         }
     try:
         with transaction.atomic():

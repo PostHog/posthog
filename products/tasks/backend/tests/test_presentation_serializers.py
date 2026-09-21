@@ -132,6 +132,7 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
             ("interactive", {"mode": "interactive"}, "scheduled_at"),
             ("pi", {}, "scheduled_at"),
             ("token", {"github_user_token": "test-token"}, "github_user_token"),
+            ("attachments", {"pending_user_artifact_ids": ["artifact-id"]}, "pending_user_artifact_ids"),
             (
                 "imported",
                 {"imported_mcp_servers": [{"type": "http", "name": "example", "url": "https://example.com"}]},
@@ -141,7 +142,7 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
     )
     @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
     @patch("posthog.security.url_validation.resolve_host_ips", return_value={ipaddress.ip_address("93.184.216.34")})
-    def test_schedule_rejects_connected_runtime(self, name: str, payload: dict, field: str, _resolve_host_ips) -> None:
+    def test_schedule_rejects_unsupported_inputs(self, name: str, payload: dict, field: str, _resolve_host_ips) -> None:
         serializer = TaskRunCreateRequestSerializer(data={"scheduled_at": "2026-09-19T12:00:00", **payload})
         with patch(
             "products.tasks.backend.presentation.serializers._is_pi_task_run_request", return_value=name == "pi"

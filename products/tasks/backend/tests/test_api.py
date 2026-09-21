@@ -1629,6 +1629,21 @@ class TestTaskAPI(BaseTaskAPITest):
         assert dispatch.payload["posthog_mcp_scopes"] == "read_only"
 
     @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
+    def test_schedule_rejects_attachments_before_creating_run(self) -> None:
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tasks/{task.id}/run/",
+            {"scheduled_at": "2026-09-19T12:00:00Z", "pending_user_artifact_ids": [str(uuid.uuid4())]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "pending_user_artifact_ids"
+        assert not TaskRun.objects.filter(task=task).exists()
+        assert not TaskWorkflowDispatch.objects.for_team(self.team.id).filter(task_run__task=task).exists()
+
+    @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
     @patch("products.tasks.backend.facade.api._idling_warm_run_for_task")
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_schedule_resume_keeps_model_without_reusing_warm_run(self, mock_workflow, mock_warm):
