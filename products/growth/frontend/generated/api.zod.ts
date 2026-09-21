@@ -184,3 +184,44 @@ export const GrowthEnrichmentRescoreCreateBody = /* @__PURE__ */ zod.object({
         .uuid()
         .describe("Organization to re-score, from the $group_key of the wizard's $groupidentify event."),
 })
+
+export const GrowthEnrichmentScoringActivateCreateBody = /* @__PURE__ */ zod.object({
+    config_id: zod.uuid().describe('Saved scoring version to activate for subsequent evaluations.'),
+})
+
+export const growthEnrichmentScoringPreviewCreateBodySourceMax = 30000
+
+export const growthEnrichmentScoringPreviewCreateBodySampleDefault = 10
+export const growthEnrichmentScoringPreviewCreateBodySampleMax = 10
+
+export const GrowthEnrichmentScoringPreviewCreateBody = /* @__PURE__ */ zod.object({
+    source: zod
+        .string()
+        .max(growthEnrichmentScoringPreviewCreateBodySourceMax)
+        .describe('Hog formula to compile and execute.'),
+    base_config_id: zod
+        .uuid()
+        .describe('Configuration whose curated tags, investors, and label names to use for the draft.'),
+    sample: zod
+        .number()
+        .min(1)
+        .max(growthEnrichmentScoringPreviewCreateBodySampleMax)
+        .default(growthEnrichmentScoringPreviewCreateBodySampleDefault)
+        .describe('Number of recent companies to preview.'),
+})
+
+export const growthEnrichmentScoringSaveCreateBodySourceMax = 30000
+
+export const growthEnrichmentScoringSaveCreateBodyVersionMax = 128
+
+export const GrowthEnrichmentScoringSaveCreateBody = /* @__PURE__ */ zod.object({
+    source: zod
+        .string()
+        .max(growthEnrichmentScoringSaveCreateBodySourceMax)
+        .describe('Hog formula to compile and execute.'),
+    version: zod
+        .string()
+        .max(growthEnrichmentScoringSaveCreateBodyVersionMax)
+        .describe('Unique name for the new scoring version.'),
+    base_config_id: zod.uuid().describe('Configuration whose curated tags, investors, and label names to retain.'),
+})

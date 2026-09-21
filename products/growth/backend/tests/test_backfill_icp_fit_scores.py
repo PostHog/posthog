@@ -126,7 +126,10 @@ class TestBackfillIcpFitScores(BaseTest):
 
     def test_policy_change_stops_an_old_backfill_before_it_overwrites_a_new_score(self):
         record = self._record({})
-        next_config = IcpScoringConfig.objects.create(version="test-lists-2", scoring_rules={"ai_sources": []})
+        next_config = IcpScoringConfig.objects.create(
+            version="test-lists-2",
+            scoring_rules={"source": "return {'status': 'scored', 'score': 0, 'components': {}};"},
+        )
         old_client, current_client = MagicMock(), MagicMock()
 
         def activate_and_score_new_policy(**kwargs):

@@ -197,6 +197,140 @@ export interface RescoreResponseApi {
     reason: RescoreResponseReasonEnumApi | null
 }
 
+export interface ScoringActivateRequestApi {
+    /** Saved scoring version to activate for subsequent evaluations. */
+    config_id: string
+}
+
+export interface ScoringConfigApi {
+    /** Saved scoring configuration identifier. */
+    id: string
+    /** Name of this immutable scoring version. */
+    version: string
+    /** Editable Hog scoring formula. */
+    readonly source: string
+    /** Whether scoring uses this version. */
+    is_active: boolean
+    /** When this version was saved. */
+    created_at: string
+    /**
+     * Author email, or null for imported configurations.
+     * @nullable
+     */
+    readonly created_by_email: string | null
+}
+
+export interface ScoringConfigListResponseApi {
+    /** Saved configurations, newest first. */
+    results: ScoringConfigApi[]
+    /** Hog source for the default ICP scoring policy. */
+    default_source: string
+}
+
+export interface ScoringPreviewRequestApi {
+    /**
+     * Hog formula to compile and execute.
+     * @maxLength 30000
+     */
+    source: string
+    /** Configuration whose curated tags, investors, and label names to use for the draft. */
+    base_config_id: string
+    /**
+     * Number of recent companies to preview.
+     * @minimum 1
+     * @maximum 10
+     */
+    sample?: number
+}
+
+/**
+ * Points for each scoring component.
+ * @nullable
+ */
+export type ScoringOutcomeApiComponents = { [key: string]: number } | null
+
+export interface ScoringOutcomeApi {
+    /** Scored, disqualified, missing-company, or insufficient-data status. */
+    status: string
+    /**
+     * Total ICP score, or null when the company cannot be scored.
+     * @nullable
+     */
+    score: number | null
+    /**
+     * Points for each scoring component.
+     * @nullable
+     */
+    components: ScoringOutcomeApiComponents
+    /**
+     * Whether the formula marks the score as low confidence.
+     * @nullable
+     */
+    low_confidence: boolean | null
+    /**
+     * Reason for disqualification, or null when absent.
+     * @nullable
+     */
+    dq_reason: string | null
+}
+
+/**
+ * Saved company facts, curated lists, and eligible AI label supplied to the formula.
+ */
+export type ScoringPreviewRowApiInputs = { [key: string]: unknown }
+
+export interface ScoringPreviewRowApi {
+    /** Company name from the archived enrichment. */
+    company: string
+    /**
+     * Company signup domain.
+     * @nullable
+     */
+    domain: string | null
+    /** Saved company facts, curated lists, and eligible AI label supplied to the formula. */
+    inputs: ScoringPreviewRowApiInputs
+    /** Result from the active formula on these inputs. */
+    active: ScoringOutcomeApi | null
+    /** Result from the draft formula, or null on failure. */
+    preview: ScoringOutcomeApi | null
+    /**
+     * Formula error for this company, or null on success.
+     * @nullable
+     */
+    error: string | null
+}
+
+export interface ScoringPreviewSummaryApi {
+    /** Number of companies in the sample. */
+    evaluated: number
+    /** Companies whose draft result differs from the active formula. */
+    changed: number
+    /** Companies whose active or draft formula failed. */
+    errors: number
+}
+
+export interface ScoringPreviewResponseApi {
+    /** Read-only comparison using saved company facts and labels. */
+    results: ScoringPreviewRowApi[]
+    /** Counts for this preview. */
+    summary: ScoringPreviewSummaryApi
+}
+
+export interface ScoringSaveRequestApi {
+    /**
+     * Hog formula to compile and execute.
+     * @maxLength 30000
+     */
+    source: string
+    /**
+     * Unique name for the new scoring version.
+     * @maxLength 128
+     */
+    version: string
+    /** Configuration whose curated tags, investors, and label names to retain. */
+    base_config_id: string
+}
+
 export interface ProductPushCampaignApi {
     /** Campaign id. Stable for the campaign's lifetime — key per-user dismissal state on it. */
     readonly id: string

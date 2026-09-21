@@ -36,7 +36,9 @@ class TestIcpScoringConfigLifecycle(BaseTest):
             version="initial",
             tags=[{"tag": "Invented category", "recommendation": "software_positive"}],
             quality_investors=[{"investor": "Example Ventures", "aliases": []}],
-            scoring_rules={"ai_sources": ["wizard"]},
+            scoring_rules={
+                "source": "return {'status': 'scored', 'score': 0, 'components': {}, 'low_confidence': true};"
+            },
             is_active=True,
         )
         self.admin = IcpScoringConfigAdmin(IcpScoringConfig, AdminSite())
@@ -59,13 +61,15 @@ class TestIcpScoringConfigLifecycle(BaseTest):
             self.config.save()
         self.config.refresh_from_db()
         assert self.config.version == "initial"
-        assert self.config.scoring_rules == {"ai_sources": ["wizard"]}
+        assert self.config.scoring_rules == {
+            "source": "return {'status': 'scored', 'score': 0, 'components': {}, 'low_confidence': true};"
+        }
         assert self.config.is_active is True
 
     def test_activation_replaces_the_active_config_and_clears_cached_policy(self) -> None:
         active = load_active_lists()
         assert active is not None and active.version == "initial"
-        candidate = IcpScoringConfig.objects.create(version="candidate", scoring_rules={"ai_sources": []})
+        candidate = IcpScoringConfig.objects.create(version="candidate", scoring_rules={})
 
         candidate.activate()
 
@@ -76,7 +80,7 @@ class TestIcpScoringConfigLifecycle(BaseTest):
         assert IcpScoringConfig.objects.filter(is_active=True).count() == 1
 
     def test_invalid_rules_cannot_be_created_or_activated(self) -> None:
-        invalid = {"ai_sources": ["unrecognized"]}
+        invalid = {"source": "return {"}
         with self.assertRaises(ValidationError):
             IcpScoringConfig.objects.create(version="invalid", scoring_rules=invalid)
         candidate = IcpScoringConfig.objects.create(version="candidate")
@@ -127,9 +131,7 @@ class TestIcpScoringConfigLifecycle(BaseTest):
     def test_preview_compares_rules_without_changing_scores_or_contacting_providers(
         self, _name: str, use_label: bool
     ) -> None:
-        candidate = IcpScoringConfig.objects.create(
-            version="candidate", scoring_rules={"ai_sources": ["llm"]} if use_label else {}
-        )
+        candidate = IcpScoringConfig.objects.create(version="candidate", scoring_rules={})
         fetch = OrganizationEnrichmentFetch.objects.create(
             organization=self.organization,
             provider="harmonic",
@@ -190,7 +192,10 @@ class TestIcpScoringConfigLifecycle(BaseTest):
 
     def test_preview_counts_a_confidence_change_without_a_score_change(self) -> None:
         candidate = IcpScoringConfig.objects.create(
-            version="confidence", scoring_rules={"ai_sources": ["wizard"], "coverage": {"low_confidence_maximum": 0}}
+            version="confidence",
+            scoring_rules={
+                "source": "return {'status': 'scored', 'score': 0, 'components': {}, 'low_confidence': false};"
+            },
         )
         OrganizationEnrichmentFetch.objects.create(
             organization=self.organization,

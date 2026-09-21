@@ -68,9 +68,10 @@ See [products/README.md](/products/README.md) for how to create products. For ne
 
 Growth's company enrichment and ICP fit scoring live in `products/growth/backend/enrichment/`.
 The backend matches labels to the company and prompt version, checks AI consent, then saves and publishes the score.
-`EnrichmentPromptConfig` holds versioned labeler prompts; `IcpScoringConfig` holds immutable versions of the curated lists and scoring rules.
-Operators can clone a scoring configuration in Django admin, change points, thresholds or accepted AI labels, and save an inactive version.
-Preview that version against archived company data with `preview_icp_scoring_config` before using the separate activation action.
+`EnrichmentPromptConfig` holds versioned labeler prompts; `IcpScoringConfig` holds immutable versions of the curated lists and a Hog scoring formula.
+Staff can edit the formula in AI enrichment, compare up to ten archived companies, and save an inactive version before activating it.
+The preview reuses saved facts and eligible AI labels without provider calls. The formula runs synchronously in the Python Hog VM without network access.
+The `preview_icp_scoring_config` command also compares saved configurations against archived company data.
 The preview does not lock prompt configurations. In `enrichment_label_batch`, `--limit` separately bounds new classifications and repairs of stored scores.
 Scores record the configuration version in `icp_fit_lists_version`; activation affects subsequent evaluations, and `backfill_icp_fit_scores` reapplies the rules to archived data.
 Failed label-driven score updates retry the stored label without another model request.

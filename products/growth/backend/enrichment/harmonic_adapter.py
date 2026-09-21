@@ -17,9 +17,9 @@ series too sparse to cover the horizon yields None (unknown), never 0.
 """
 
 import datetime as dt
-from typing import Any, Optional, get_args
+from typing import Any, Literal, Optional, get_args
 
-from products.growth.backend.enrichment.scoring_rules import Horizon
+Horizon = Literal["30d_ago", "90d_ago", "180d_ago", "365d_ago"]
 
 
 def _dict(value: Any) -> dict[str, Any]:

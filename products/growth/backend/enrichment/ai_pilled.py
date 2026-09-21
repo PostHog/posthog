@@ -32,7 +32,7 @@ def current_ai_pilled_label(
     if not isinstance(identity, gates.SignupIdentity) or identity.domain != domain:
         return None
     lists = lists if lists is not None else load_active_lists()
-    if lists is None or "llm" not in lists.rules.ai_sources:
+    if lists is None:
         return None
     configs = EnrichmentPromptConfig.objects.filter(name__in=lists.rules.ai_labels, is_active=True).order_by("name")
     if lock_prompt_config:

@@ -9,7 +9,6 @@ from products.growth.backend.enrichment.fit_score import (
     STATUS_NOT_FOUND,
     STATUS_SCORED,
     AiPilledLabel,
-    is_quality_investor,
     score_company,
 )
 from products.growth.backend.enrichment.icp_lists import CuratedLists, norm
@@ -215,6 +214,29 @@ def test_quality_investor_matching(_name, investors, expect_quality):
     assert (result.components or {}).get("capital") == (30 if expect_quality else 20)
 
 
+@parameterized.expand([("no_match", False), ("last_match", True)])
+def test_large_investor_lists_finish_within_a_deterministic_execution_budget(_name, matching):
+    from dataclasses import replace
+    from datetime import timedelta
+    from itertools import count
+
+    from unittest.mock import patch
+
+    lists = replace(LISTS, quality_investors=frozenset(f"synthetic investor {i:04}" for i in range(200)))
+    investors = [{"name": f"unknown investor {i}"} for i in range(50)]
+    if matching:
+        investors[-1] = {"name": "Synthetic Investor 0199 North"}
+    clock = count(0, 0.001)
+    with (
+        patch("products.growth.backend.enrichment.fit_score.SCORING_TIMEOUT", timedelta(seconds=5)),
+        patch("common.hogvm.python.execute.time.time", side_effect=lambda: next(clock)),
+    ):
+        result = score_company(_payload(funding={"investors": investors}), lists=lists)
+    assert result.status == STATUS_SCORED
+    assert result.quality_investor is matching
+    assert (result.components or {}).get("capital") == (10 if matching else 0)
+
+
 def test_yc_batch_tag_type_confers_quality_capital_for_any_batch():
     # Matched on tag TYPE so future batches (W27, ...) qualify without a list update.
     payload = _payload(
@@ -408,7 +430,8 @@ def test_archetype_scores_high_across_all_components():
     ]
 )
 def test_norm_based_matching(_name, observed, expected):
-    assert is_quality_investor(observed, LISTS.quality_investors) is expected
+    result = score_company(_payload(funding={"investors": [{"name": observed}]}), lists=LISTS)
+    assert result.quality_investor is expected
 
 
 def test_norm_folds_and_to_ampersand():
@@ -417,74 +440,60 @@ def test_norm_folds_and_to_ampersand():
 
 @parameterized.expand(
     [
-        (["llm"], "llm", True),
-        (["wizard"], "wizard", False),
-        (["harmonic"], "harmonic", False),
-        ([], None, False),
+        ("label_used", True, 12, "llm"),
+        ("label_missing", False, 0, None),
     ]
 )
-def test_editable_ai_sources_control_points_and_provenance(sources, expected_source, keeps_label):
-    from dataclasses import replace
-
-    from products.growth.backend.enrichment.scoring_rules import parse_scoring_rules
-
-    rules = parse_scoring_rules({"ai_points": 12, "ai_sources": sources})
-    result = score_company(
-        _payload(description="AI platform"),
-        lists=replace(LISTS, rules=rules),
-        wizard_ai_sdk=True,
-        ai_pilled_label=AI_PILLED_LABEL,
-    )
-    assert result.components is not None
-    assert result.components["ai_pilled"] == (12 if sources else 0)
-    assert result.ai_pilled_source == expected_source
-    assert (result.ai_pilled_label is not None) == keeps_label
-
-
-def test_editable_policy_changes_horizons_thresholds_and_component_points():
+def test_formula_owns_points_and_label_selection(_name, has_label, expected_score, expected_source):
     from dataclasses import replace
 
     from products.growth.backend.enrichment.scoring_rules import parse_scoring_rules
 
     rules = parse_scoring_rules(
         {
-            "traction": {
-                "traffic_levels": [{"minimum": 100, "points": 2}],
-                "growth_horizon": "365d_ago",
-                "minimum_traffic_for_growth": 100,
-                "growth_levels": [{"minimum": 50, "points": 9}],
-                "positive_growth_points": 1,
-            },
-            "capital": {
-                "funding_levels": [{"minimum": 100, "points": 3}],
-                "funded_points": 1,
-                "quality_bonus": 2,
-                "cap": 5,
-            },
-            "headcount_growth": {
-                "horizon": "90d_ago",
-                "levels": [{"minimum": 100, "points": 4}],
-                "minimum_hires": 1,
-                "hires_points": 2,
-                "positive_growth_points": 1,
-            },
-            "software_relevance": {"engineering_minimum": 2, "engineering_points": 4, "other_points": 2},
-            "coverage": {"headcount_minimum": 10, "traffic_minimum": 1000, "low_confidence_maximum": 2},
+            "source": """
+            let points := if(ai_pilled, 12, 0);
+            return {'status': 'scored', 'score': points, 'components': {'ai_pilled': points},
+                    'ai_pilled_source': if(ai_pilled, 'llm', null)};
+        """
         }
     )
-    metrics = _traction(web_traffic=200, traffic_growth=0, headcount=4, headcount_growth=0, eng=3)
+    result = score_company(
+        _payload(description="AI platform"),
+        lists=replace(LISTS, rules=rules),
+        wizard_ai_sdk=True,
+        ai_pilled_label=AI_PILLED_LABEL if has_label else None,
+    )
+    assert result.score == expected_score
+    assert result.components == {"ai_pilled": expected_score}
+    assert result.ai_pilled_source == expected_source
+    assert result.ai_pilled_label == (AI_PILLED_LABEL if has_label else None)
+
+
+def test_formula_can_change_eligibility_and_score_using_saved_company_facts():
+    from dataclasses import replace
+
+    from products.growth.backend.enrichment.scoring_rules import parse_scoring_rules
+
+    rules = parse_scoring_rules(
+        {
+            "source": """
+            if (company.company_type == 'SCHOOL') {
+                return {'status': 'scored', 'score': 24, 'components': {'school': 24}};
+            }
+            let points := if(company.traction_metrics.web_traffic['365d_ago'].percent_change >= 50, 11, 0);
+            return {'status': 'scored', 'score': points, 'components': {'traction': points}};
+        """
+        }
+    )
+    changed = replace(LISTS, version="changed-policy", rules=rules)
+    school = score_company(_payload(company_type="SCHOOL"), lists=changed, role="Student")
+    assert school.status == STATUS_SCORED
+    assert school.score == 24
+    assert school.components == {"school": 24}
+    metrics = _traction(web_traffic=200)
     metrics["web_traffic"]["365d_ago"] = {"percent_change": 50}
-    metrics["headcount"]["90d_ago"] = {"percent_change": 100, "change": 1}
-    payload = _payload(traction_metrics=metrics, funding={"funding_total": 100, "investors": [{"name": "GV"}]})
-    result = score_company(payload, lists=replace(LISTS, version="changed-policy", rules=rules))
-    assert result.components == {
-        "traction": 11,
-        "capital": 5,
-        "ai_pilled": 0,
-        "headcount_growth": 4,
-        "software_relevance": 4,
-    }
-    assert result.score == 24
-    assert result.data_coverage == 2
-    assert result.low_confidence is True
+    result = score_company(_payload(traction_metrics=metrics), lists=changed)
+    assert result.score == 11
+    assert result.components == {"traction": 11}
     assert result.lists_version == "changed-policy"
