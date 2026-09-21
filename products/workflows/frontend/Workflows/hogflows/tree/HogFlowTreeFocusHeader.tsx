@@ -28,7 +28,7 @@ export function HogFlowTreeFocusHeader({
             <p className="my-2 break-words text-xs text-secondary">
                 {focusedPath.map(({ node, branch }) => `${node.action.name} › ${branch.label}`).join(' › ')}
             </p>
-            <h3 className="mb-1">{focused.branch.label}</h3>
+            <h3 className="mb-1 break-words">{focused.branch.label}</h3>
             <p className="mb-0 break-words text-xs text-secondary">
                 {getWorkflowTreeBranchSummary(focused.node, focused.branch)}
             </p>
