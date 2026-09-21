@@ -763,15 +763,16 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
     @extend_schema_field(serializers.BooleanField(allow_null=True))
     def get_llm_detector_available(self, obj: AlertConfiguration) -> bool | None:
-        # One flag evaluation per alert is fine on the detail view and not on a list.
-        if getattr(self.context.get("view"), "action", None) != "retrieve":
+        # One flag evaluation per alert is fine on the alert detail view, and nowhere else: not on
+        # a list, and not when the alert is nested inside another resource such as a dashboard.
+        if self.parent is not None or getattr(self.context.get("view"), "action", None) != "retrieve":
             return None
         if obj.created_by is None:
             return False
         try:
             return (
                 llm_detector_access_error(
-                    distinct_id=str(obj.created_by.distinct_id), organization=obj.team.organization
+                    distinct_id=str(obj.created_by.distinct_id), organization=self.context["get_organization"]()
                 )
                 is None
             )

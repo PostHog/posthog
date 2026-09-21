@@ -87,6 +87,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             "id": mock.ANY,
             "insight": mock.ANY,
             "insight_display_name": mock.ANY,
+            "llm_detector_available": None,
             "insight_short_id": mock.ANY,
             "last_notified_at": None,
             "name": "alert name",
