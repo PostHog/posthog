@@ -416,6 +416,30 @@ class GitHubIntegration(GitHubIntegrationBase):
                 status_code=response.status_code,
             )
 
+    def _get_issue_by_number(self, repo_path: str, repository_name: str, issue_number: int) -> dict[str, Any] | None:
+        response = self.api_request(
+            "GET",
+            f"/repos/{repo_path}/issues/{issue_number}",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}",
+        )
+        if response.status_code not in {200, 404}:
+            raise GitHubIntegrationError(
+                f"GitHubIntegration: failed to retrieve issue {repo_path}#{issue_number}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+        if response.status_code == 404:
+            return None
+
+        issue = response.json()
+        if issue.get("pull_request"):
+            return None
+        return {
+            "id": str(issue_number),
+            "title": issue.get("title") or f"#{issue_number}",
+            "url": issue.get("html_url") or "",
+            "external_context": {"repository": repository_name, "number": issue_number},
+        }
+
     def search_issues(self, repository: str, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
         """Search existing GitHub issues in a repository for the link-existing flow."""
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
@@ -425,6 +449,12 @@ class GitHubIntegration(GitHubIntegrationBase):
         # `repository` is stored bare in external_context so build_external_issue_url can re-prefix
         # the org, matching what create_issue persists.
         repository_name = repo_path.split("/", 1)[1]
+
+        issue_number_match = re.fullmatch(r"#?([1-9][0-9]{0,9})", query.strip())
+        if issue_number_match:
+            issue = self._get_issue_by_number(repo_path, repository_name, int(issue_number_match.group(1)))
+            if issue:
+                return [issue]
 
         # Quote the user's text so search syntax in it (qualifiers like repo:, operators like OR)
         # is matched literally instead of rewriting the query, which would fill the result page
