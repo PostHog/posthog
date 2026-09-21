@@ -212,10 +212,11 @@ class TestDashboardRunInsights(APIBaseTest):
         self.dashboard_api.create_insight({"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]})
 
         with patch.object(DashboardsViewSet, "_format_insight_for_llm", return_value=None):
-            body = self._run(dashboard_id, refresh="blocking", max_result_chars="60")
+            body = self._run(dashboard_id, refresh="blocking", max_result_chars=str(RUN_INSIGHTS_MIN_TILE_CHARS))
 
         result = body["results"][0]["insight"]["result"]
         self.assertIsInstance(result, str)
+        self.assertLessEqual(len(result), RUN_INSIGHTS_MIN_TILE_CHARS)
         self.assertIn("tile_ids=", result)
 
     def test_a_generous_per_tile_budget_cannot_overshoot_the_response_budget(self) -> None:
