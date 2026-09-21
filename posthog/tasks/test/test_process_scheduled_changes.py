@@ -1,7 +1,9 @@
 import ast
 import json
+import inspect
 import tempfile
 import zoneinfo
+import importlib
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -1735,9 +1737,10 @@ def corrupt_system_tzdata() -> Iterator[None]:
     """
     original_tzpath = zoneinfo.TZPATH
     with tempfile.TemporaryDirectory() as tzdir:
-        (Path(tzdir) / "America").mkdir()
         for name in ("UTC", "America/New_York"):
-            (Path(tzdir) / name).write_bytes(b"this is not a TZif file")
+            tzfile = Path(tzdir) / name
+            tzfile.parent.mkdir(parents=True, exist_ok=True)
+            tzfile.write_bytes(b"this is not a TZif file")
         zoneinfo.reset_tzpath([tzdir])
         zoneinfo.ZoneInfo.clear_cache()
         try:
@@ -1758,14 +1761,16 @@ class TestScheduledChangesWithoutReadableTzdata(SimpleTestCase):
         # reads a TZif file while every management command is still starting up. One corrupt
         # file then stops the process before it runs, the temporal worker included. Use
         # datetime.UTC, which needs no tzdata file.
-        source = Path(process_scheduled_changes.__globals__["__file__"]).read_text()
-        module_scope_calls = [
-            node
-            for statement in ast.parse(source).body
-            for node in ast.walk(statement)
-            if isinstance(statement, ast.Assign)
-            and isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "ZoneInfo"
+        module = importlib.import_module(resolve_schedule_timezone.__module__)
+        module_scope = [
+            statement
+            for statement in ast.parse(inspect.getsource(module)).body
+            if not isinstance(statement, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
         ]
-        self.assertEqual(module_scope_calls, [])
+        zoneinfo_calls = [
+            node
+            for statement in module_scope
+            for node in ast.walk(statement)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "ZoneInfo"
+        ]
+        self.assertEqual(zoneinfo_calls, [])
