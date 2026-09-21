@@ -54,6 +54,8 @@ class TestVercelWebhooks(VercelTestBase):
             content_type="application/json",
             headers=headers,
             SERVER_NAME=host,
+            # Vercel delivers over HTTPS, and the forward keeps the scheme of the request it received.
+            secure=True,
         )
 
     def _post_signed(self, payload: dict, host: str = US_HOST):
