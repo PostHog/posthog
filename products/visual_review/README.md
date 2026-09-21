@@ -242,6 +242,7 @@ This is how a quarantined story's entry keeps up with the story.
 The story still renders on every run, so a code change to it makes the entry stale while the quarantine hides the drift, and every run fails on the day the quarantine is lifted or expires.
 It is also how a story gets an entry when it has none and the quarantine must stay, because every run without the entry classifies the story `new`, and lifting the quarantine first fails every run until the entry lands.
 The procedure is: open a PR that renders the story, approve the `changed` or `new` snapshot on that run by identifier (the API or the `visual-review-runs-approve-create` MCP tool), finalize the run so the entry is committed to the PR branch, then merge the PR.
+A PR renders only the stories its diff affects, so a story the PR does not touch needs the full matrix: add the `run-ci-frontend` label before the push that should render it.
 
 Lift the quarantine after the merge.
 A lift records the default branch's head commit, and a run whose commit does not contain that commit still treats the story as quarantined.
