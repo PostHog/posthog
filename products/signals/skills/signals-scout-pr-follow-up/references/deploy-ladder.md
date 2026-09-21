@@ -5,6 +5,7 @@ Strongest first; record which rung this project supports in `pattern:pr_follow_u
 
 Two rules hold on every signal-bearing rung (rungs 1 to 3); rung 4 has no deployment to check and is the stated exception.
 **Ordering is not proof**: a deployment or marker after the merge can come from another branch, a hotfix, or another environment, so only commit containment sets the onset, which `gh api repos/<owner>/<repo>/compare/<merge_sha>...<deploy_sha> --jq .status` confirms by reading `ahead` or `identical`.
+A SHA or tag that reaches that command came from data (a deployment row, an annotation body, a release name), so check it before it touches a shell: a commit must match `^[0-9a-f]{7,40}$`, a tag must be URL-encoded and quoted, and anything else is not a candidate, because an unquoted value with shell metacharacters would run in the sandbox.
 **Only persistent production counts**: a per-PR preview, a staging environment, or an ephemeral environment named after a branch never sets the onset, whatever its status.
 
 ## Rung 1: GitHub deployments in the warehouse
@@ -22,7 +23,7 @@ SELECT d.id AS id, d.sha AS sha, d.environment AS env,
 FROM <prefix>github_deployments AS d
 LEFT JOIN <prefix>github_deployment_statuses AS s ON s.deployment_id = d.id
 WHERE parseDateTimeBestEffort(d.created_at) >= toDateTime('<merge ts>', 'UTC')
-  AND d.transient_environment = false
+  AND coalesce(d.transient_environment, false) = false
   AND d.environment IN ('<production environments>')
 GROUP BY d.id, d.sha, d.environment
 HAVING first_success IS NOT NULL
@@ -30,6 +31,7 @@ ORDER BY first_success ASC
 LIMIT 20 OFFSET <page * 20>
 ```
 
+`transient_environment` is nullable and a source that omits the flag leaves it NULL, so the `coalesce` keeps those persistent deployments, as the curated deployments view does.
 `minIf` has no NULL: a deployment with no success row gets the epoch, sorts first, and can pass containment as a 1970 onset, which is why the `OrNull` form and the `HAVING` are not optional.
 Run the containment check from the top of that list: the first deployment created after the merge is often cut from a commit before it and reads `behind`, and the onset belongs to the first one that reads `ahead`.
 The limit is a page, not a horizon: when no row on the page reads `ahead` or `identical`, take the next page with `OFFSET` until one does or the rows run out, because a release-branch or multi-region repository can ship twenty production deployments after the merge before one contains it.
@@ -44,7 +46,7 @@ The deployments endpoint's `sha` filter matches only a deployment recorded at ex
 Enumerate instead: `gh api 'repos/<owner>/<repo>/deployments?per_page=100&page=<n>'` (add `environment=<name>` once you know the production environment), paging until `created_at` falls before the merge.
 Keep persistent production environments, read each candidate's statuses from its `statuses_url` and keep any deployment with a `success` among them (its newest status is usually `inactive` once a later deployment succeeded, and that does not mean it never shipped), then apply the containment check; the onset is the `created_at` of the first `success` status on the earliest candidate that passes.
 
-Releases work the same way: `gh api 'repos/<owner>/<repo>/releases?per_page=100&page=<n>'`, paging until `published_at` falls before the merge, then the earliest release published after the merge whose tag contains it (`compare/<merge_sha>...<tag>`), skipping any release with `draft` or `prerelease` set, since a beta or release candidate never reached production users; when the repository ships production from a named channel, keep only that channel's releases.
+Releases work the same way: `gh api 'repos/<owner>/<repo>/releases?per_page=100&page=<n>'`, which GitHub orders by **creation** date, not publication, so a draft cut before the merge and published after it sits behind older-published rows; page until a row's `created_at` falls before the merge (or the rows run out), then pick from everything collected the earliest release published after the merge whose tag contains it (`compare/<merge_sha>...<tag>`), skipping any release with `draft` or `prerelease` set, since a beta or release candidate never reached production users; when the repository ships production from a named channel, keep only that channel's releases.
 A small first page can miss the qualifying release, so page before you select.
 
 ## Rung 3: deploy annotations
@@ -63,7 +65,7 @@ LIMIT 20 OFFSET <page * 20>
 ```
 
 Page it the same way until a marker's commit contains the merge or the markers run out.
-Fall back to `annotations-list` (`search=deploy`, page with `offset` until `date_marker` passes the merge time) only when that table is unavailable.
+Fall back to `annotations-list` only when that table is unavailable, and page it by date with `offset` and **no** `search`: a valid marker reads `production a1b2c3d` and never contains the word deploy, so filter the returned rows by `creation_type`, environment, and commit instead.
 When the content names a commit, the onset is the first marker after the merge whose commit contains it (the same containment check).
 A marker whose content names no commit cannot prove containment, so it corroborates a soak-proxy onset (rung 4) but never replaces it, and the report says the onset is estimated.
 

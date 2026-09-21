@@ -68,7 +68,8 @@ The exception is a repository whose merge rate outruns the cap (see the cap rule
 ### Find the pull requests (source ladder)
 
 Never hardcode a repository.
-Read them from the project, in this order, and stop at the first source that yields a list; combine sources only when each covers a repository the others miss.
+Read them from the project, in this order, and stop at the first source that yields a **current** list; combine sources only when each covers a repository the others miss.
+A warehouse source's `synced` flag says its tables exist, not that they are fresh: when the newest `merged_at` it returns trails now by more than the run interval on a repository that merges daily, or its `last_synced_at` does, treat the list as stale and reconcile it against the next rung before you trust the cursor.
 The mechanics of each rung (commands, paging, table naming, the detail fetch) are in `references/sources.md`: read it with `skill-file-get` before you list.
 
 1. **Pinned checkout**: the trees the harness cloned, for diffs and touched paths; the listing still comes from `gh`.
@@ -95,6 +96,7 @@ That sweep takes one slot of the cap; a batch that has not reached its onset is 
 **Cap ~8 PRs per run**, and take the carried backlog before anything new.
 First the due rechecks: the `recheck:pr_follow_up:<owner/repo>` entry lists every PR judged non-terminal with the date its recheck is due (`#n@<due date>`), and a due one is hydrated by its number (`gh pr view <n>`, or the `pr:` entry's own record of its files and onset) whatever its merge date, because a PR marked `recheck` at day 12 is due after its merge has left the 14-day listing and would otherwise never be looked at again, its report left open with no one re-measuring it.
 Then the `deferred:pr_follow_up:<owner/repo>` entry, which lists every PR a past run listed but did not judge, oldest merge first; those go before new arrivals because a newest-first pick under sustained merge activity would keep them below the cap until they leave the window with no verdict.
+Rechecks take at most half the cap in one run, and a recheck that finds the same report still open and still failing backs off (recheck dates double: 3, 6, 12 days), so a handful of long-lived failures cannot fill every run and age new merges out unjudged; the rest of the due rechecks wait in `recheck:` for the next run.
 That holds while the repository merges fewer claim candidates **per run interval** than the cap: measure arrivals against this scout's own schedule (an hourly scout sees a twelfth of a daily count, a monthly one thirty days' worth), or read the growth of `deferred:` between runs, never a per-day count against a per-run cap.
 When it merges more, oldest-first can never catch up and every slot goes to stale merges: rank the whole window by claim strength instead, take the cap from the top, and let a `deferred:` entry leave when its merge passes the 14-day window, counted in the close-out as unjudged.
 Record which posture the repository is on in `pattern:pr_follow_up:deploy-signal` next to its deploy rung.
@@ -141,7 +143,8 @@ Attribute to the PR whose files match the evidence; when the deploy batch carrie
 
 A failed verdict is not terminal while its report is open: the `pr:` entry carries `recheck` with a date a few days out, and the recheck reads the report (`inbox-reports-retrieve`) before it re-probes.
 Every `recheck` you write also goes into the repository's `recheck:` entry (`#n@<due date>`), and leaves it when the verdict turns terminal; the `pr:` entry alone is not a queue, because nothing lists `pr:` entries by due date and a PR whose merge has left the window is never enumerated again.
-Still open and still failing appends the fresh window to your report; resolved means a fix merged, and that fix PR starts its own follow-up cycle, so the entry becomes terminal; dismissed is the team's call, so the entry becomes terminal with the dismissal reason.
+Still open and still failing appends the fresh window to your report; dismissed is the team's call, so the entry becomes terminal with the dismissal reason.
+Resolved is not terminal by itself: a report can be resolved by hand with no PR behind it, and a merged fix PR is not a deployed one, so the entry stays `recheck` until the report's `implementation_pr_merged` names a replacement PR that has passed the deploy ladder, at which point that PR starts its own follow-up cycle and the original becomes terminal; a resolved report with no such PR is re-measured like an open one.
 
 ### Save memory as you go
 
@@ -174,7 +177,7 @@ This is only the PR-follow-up judgment on top:
   Cite the PR URL and every entity id.
   Cross-check `inbox-reports-list {"search": "<PR number or key terms>"}` first: a report already open on the same problem gets a `scout-edit-report` with the PR linkage appended, not a duplicate.
   Set `repository` to the PR's own repository; a **Not held** or **Side effect** with an unambiguous same-entity regression is `immediately_actionable`, an **Impact missing** is usually `requires_human_input` (whether the lift was ever realistic is the author's call).
-  Priority: **P2** when the regression is user-impacting at material volume, **P3** otherwise.
+  Priority: **P2** when the regression is user-impacting at material volume, **P3** otherwise, and **P1** only when the attributed regression is what a specialist would file as P1 (an active error-rate regression hitting many requests, a capture outage, a broad web-vitals collapse) and is still ongoing, because you suppress the specialist's duplicate and the priority must not drop with the attribution.
   Route `suggested_reviewers` to the PR author first (they are on the roster far more often than a commit-history guess), cross-checked with `scout-members-list`; fall back to `reviewer:` memory and the `gh` ownership evidence the harness prompt describes.
   After authoring, write `report:pr_follow_up:<owner/repo>#<n>`.
 - **Edit** an open report on the same problem whoever authored it, appending the PR (URL, merge and deploy times, the attribution) with `append_evidence`; a rewritten title or summary is only for a report you authored.
