@@ -1,5 +1,4 @@
 import datetime as dt
-from unittest.mock import patch
 from uuid import UUID, uuid4
 
 from posthog.test.base import (
@@ -10,6 +9,7 @@ from posthog.test.base import (
     snapshot_clickhouse_alter_queries,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import AsyncDeletion, DeletionType, Team, User
