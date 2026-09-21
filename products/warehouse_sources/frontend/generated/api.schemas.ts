@@ -1901,6 +1901,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `Depot` - Depot
  * * `Schematic` - Schematic
  * * `Dokploy` - Dokploy
+ * * `GoogleTagManager` - GoogleTagManager
  * * `Hootsuite` - Hootsuite
  * * `WisprFlow` - WisprFlow
  * * `SamCart` - SamCart
@@ -3254,6 +3255,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Depot: 'Depot',
     Schematic: 'Schematic',
     Dokploy: 'Dokploy',
+    GoogleTagManager: 'GoogleTagManager',
     Hootsuite: 'Hootsuite',
     WisprFlow: 'WisprFlow',
     SamCart: 'SamCart',
@@ -4754,6 +4756,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Depot` - Depot
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
+     * * `GoogleTagManager` - GoogleTagManager
      * * `Hootsuite` - Hootsuite
      * * `WisprFlow` - WisprFlow
      * * `SamCart` - SamCart
@@ -6603,6 +6606,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Depot` - Depot
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
+     * * `GoogleTagManager` - GoogleTagManager
      * * `Hootsuite` - Hootsuite
      * * `WisprFlow` - WisprFlow
      * * `SamCart` - SamCart
@@ -7985,6 +7989,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Depot` - Depot
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
+     * * `GoogleTagManager` - GoogleTagManager
      * * `Hootsuite` - Hootsuite
      * * `WisprFlow` - WisprFlow
      * * `SamCart` - SamCart
@@ -9342,6 +9347,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Depot` - Depot
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
+     * * `GoogleTagManager` - GoogleTagManager
      * * `Hootsuite` - Hootsuite
      * * `WisprFlow` - WisprFlow
      * * `SamCart` - SamCart
@@ -10784,6 +10790,7 @@ export interface SourcePreviewRequestApi {
      * * `Depot` - Depot
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
+     * * `GoogleTagManager` - GoogleTagManager
      * * `Hootsuite` - Hootsuite
      * * `WisprFlow` - WisprFlow
      * * `SamCart` - SamCart
@@ -12176,6 +12183,7 @@ export interface SourceSetupApi {
      * * `Depot` - Depot
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
+     * * `GoogleTagManager` - GoogleTagManager
      * * `Hootsuite` - Hootsuite
      * * `WisprFlow` - WisprFlow
      * * `SamCart` - SamCart
@@ -13575,6 +13583,7 @@ export interface SourceCredentialCreateApi {
      * * `Depot` - Depot
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
+     * * `GoogleTagManager` - GoogleTagManager
      * * `Hootsuite` - Hootsuite
      * * `WisprFlow` - WisprFlow
      * * `SamCart` - SamCart

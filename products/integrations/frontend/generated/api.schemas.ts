@@ -174,6 +174,7 @@ export interface RoleLookupResponseApi {
  * * `google-pubsub` - Google Pubsub
  * * `google-search-console` - Google Search Console
  * * `google-sheets` - Google Sheets
+ * * `google-tag-manager` - Google Tag Manager
  * * `helpscout` - Helpscout
  * * `hubspot` - Hubspot
  * * `instagram` - Instagram
@@ -226,6 +227,7 @@ export const IntegrationKindEnumApi = {
     GooglePubsub: 'google-pubsub',
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
+    GoogleTagManager: 'google-tag-manager',
     Helpscout: 'helpscout',
     Hubspot: 'hubspot',
     Instagram: 'instagram',
@@ -553,6 +555,7 @@ export interface IntegrationAccessRequestApi {
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
+     * * `google-tag-manager` - Google Tag Manager
      * * `helpscout` - Helpscout
      * * `hubspot` - Hubspot
      * * `instagram` - Instagram
@@ -717,6 +720,7 @@ export type IntegrationsListParams = {
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
+     * * `google-tag-manager` - Google Tag Manager
      * * `helpscout` - Helpscout
      * * `hubspot` - Hubspot
      * * `instagram` - Instagram
@@ -780,6 +784,7 @@ export const IntegrationsListKind = {
     GooglePubsub: 'google-pubsub',
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
+    GoogleTagManager: 'google-tag-manager',
     Helpscout: 'helpscout',
     Hubspot: 'hubspot',
     Instagram: 'instagram',
