@@ -226,6 +226,23 @@ describe('productSetupLogic', () => {
             expect(task(SetupTaskId.CreateFirstInsight).completed).toBe(true)
         })
 
+        // teamLogic reports one failure for every team update, so a settings save that fails
+        // elsewhere in the app must not undo an uncheck the checklist already saved.
+        it('keeps an uncheck when an unrelated team update fails', async () => {
+            const update = holdTeamUpdate()
+            await setTeam({ ingested_event: true, onboarding_tasks: {} })
+
+            logic.actions.unmarkTaskAsCompleted(SetupTaskId.IngestFirstEvent)
+            await flushPromises()
+            update.resolve({ ...teamLogic.values.currentTeam, onboarding_tasks: {} })
+            await flushPromises()
+
+            teamLogic.actions.updateCurrentTeamFailure('unrelated settings save failed')
+            await flushPromises()
+
+            expect(task(SetupTaskId.IngestFirstEvent).completed).toBe(false)
+        })
+
         // A save that fails must not leave a checkmark that exists nowhere.
         it('rolls the checkmark back when the save fails', async () => {
             const update = holdTeamUpdate()

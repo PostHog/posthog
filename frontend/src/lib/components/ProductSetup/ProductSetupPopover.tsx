@@ -12,13 +12,12 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { addProductIntent } from 'lib/utils/product-intents'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { getTreeItemsProducts } from '~/products'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { ActivationTaskStatus } from '~/types'
 
-import { globalSetupLogic, mergeTaskStatuses } from './globalSetupLogic'
+import { globalSetupLogic } from './globalSetupLogic'
 import { productSetupLogic } from './productSetupLogic'
 import { PRODUCTS_WITH_SETUP, getProductSetupConfig, getTasksForProduct } from './productSetupRegistry'
 import type { SetupTaskWithState } from './types'
@@ -62,8 +61,15 @@ export function ProductSetupPopover({
     children,
 }: ProductSetupPopoverProps): JSX.Element {
     const logic = productSetupLogic({ productKey: selectedProduct })
-    const { tasksWithState, completedCount, totalTasks, isDismissed, isSetupComplete, showCelebration } =
-        useValues(logic)
+    const {
+        tasksWithState,
+        completedCount,
+        totalTasks,
+        isDismissed,
+        isSetupComplete,
+        showCelebration,
+        savedOnboardingTasks,
+    } = useValues(logic)
     const {
         runTask,
         markTaskAsCompleted,
@@ -75,9 +81,7 @@ export function ProductSetupPopover({
         setShowCelebration,
     } = useActions(logic)
 
-    const { isProductSelectionLocked, optimisticTaskStatuses } = useValues(globalSetupLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const savedOnboardingTasks = mergeTaskStatuses(currentTeam?.onboarding_tasks, optimisticTaskStatuses)
+    const { isProductSelectionLocked } = useValues(globalSetupLogic)
 
     const config = getProductSetupConfig(selectedProduct)
     const [hoveredTask, setHoveredTask] = useState<SetupTaskWithState | null>(null)

@@ -60,7 +60,7 @@ export interface productSetupLogicActions {
     } // globalSetupLogic
     markTaskAsCompleted: (
         taskIdOrIds: SetupTaskId | SetupTaskId[],
-        userInitiated?: boolean
+        userInitiated?: boolean | undefined
     ) => {
         taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]
         userInitiated: boolean

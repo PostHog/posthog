@@ -155,8 +155,12 @@ export interface integrationsLogicActions {
         error: string
         kind: string
     } // eventUsageLogic
-    markTaskAsCompleted: (taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]) => {
+    markTaskAsCompleted: (
+        taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[],
+        userInitiated?: boolean | undefined
+    ) => {
         taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]
+        userInitiated: boolean
     } // globalSetupLogic
     closeNewIntegrationModal: () => {
         value: true

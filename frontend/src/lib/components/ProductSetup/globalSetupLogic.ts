@@ -53,6 +53,7 @@ export interface globalSetupLogicValues {
     isGlobalModalOpen: boolean
     isProductSelectionLocked: boolean
     optimisticTaskStatuses: Record<string, ActivationTaskStatus | null>
+    pendingSaveTaskIds: string[]
     sceneHasNoSetup: boolean
     sceneProductKey: ProductKey | null
     selectedProduct: ProductKey
@@ -94,6 +95,9 @@ export interface globalSetupLogicActions {
     }
     setSelectedProduct: (productKey: ProductKey) => {
         productKey: ProductKey
+    }
+    settleTaskSaves: (taskIds: SetupTaskId[]) => {
+        taskIds: AvailableSetupTaskIdsEnumApi[]
     }
     unmarkTaskAsCompleted: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => {
         taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]
@@ -149,6 +153,7 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
         // null value means "this task should appear as unmarked"
         setOptimisticTaskStatuses: (statuses: Record<string, ActivationTaskStatus | null>) => ({ statuses }),
         clearOptimisticTaskStatuses: (taskIds: SetupTaskId[]) => ({ taskIds }),
+        settleTaskSaves: (taskIds: SetupTaskId[]) => ({ taskIds }),
 
         // UI actions for the global setup popover
         setSelectedProduct: (productKey: ProductKey) => ({ productKey }),
@@ -199,6 +204,32 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
                     }
                     return newState
                 },
+                settleTaskSaves: (state, { taskIds }) => {
+                    const newState = { ...state }
+                    for (const taskId of taskIds) {
+                        // A null entry is the user's unmark. The saved state cannot express it, so it
+                        // stays for the session while every other entry hands back to the saved state.
+                        if (newState[taskId] !== null) {
+                            delete newState[taskId]
+                        }
+                    }
+                    return newState
+                },
+            },
+        ],
+        // The tasks whose save is still in flight. Only these roll back on a failure, because
+        // teamLogic reports one failure for every team update and most of them are not ours.
+        pendingSaveTaskIds: [
+            [] as string[],
+            {
+                setOptimisticTaskStatuses: (state, { statuses }) => [
+                    ...state.filter((taskId) => !(taskId in statuses)),
+                    ...Object.keys(statuses),
+                ],
+                clearOptimisticTaskStatuses: (state, { taskIds }) =>
+                    state.filter((taskId) => !taskIds.includes(taskId as SetupTaskId)),
+                settleTaskSaves: (state, { taskIds }) =>
+                    state.filter((taskId) => !taskIds.includes(taskId as SetupTaskId)),
             },
         ],
     }),
@@ -341,19 +372,17 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
                 const savedTasks =
                     currentTeam && 'onboarding_tasks' in currentTeam ? (currentTeam.onboarding_tasks ?? {}) : {}
                 const settledTaskIds = Object.entries(values.optimisticTaskStatuses)
-                    // A null entry records an unmark, which the saved state cannot express, so it is
-                    // kept for the session instead of settled here.
-                    .filter(([taskId, status]) => status !== null && savedTasks[taskId] === status)
+                    .filter(([taskId, status]) => (savedTasks[taskId] ?? null) === status)
                     .map(([taskId]) => taskId as SetupTaskId)
                 if (settledTaskIds.length > 0) {
-                    actions.clearOptimisticTaskStatuses(settledTaskIds)
+                    actions.settleTaskSaves(settledTaskIds)
                 }
             },
 
             // The save failed, so roll the checklist back to what is actually stored rather than
             // leaving the user with a checkmark that exists nowhere.
             [globalTeamLogic.actionTypes.updateCurrentTeamFailure]: () => {
-                const taskIds = Object.keys(values.optimisticTaskStatuses) as SetupTaskId[]
+                const taskIds = values.pendingSaveTaskIds as SetupTaskId[]
                 if (taskIds.length > 0) {
                     actions.clearOptimisticTaskStatuses(taskIds)
                 }
