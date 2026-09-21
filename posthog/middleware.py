@@ -1766,6 +1766,15 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
             r"^/api/(environments|projects)/([0-9]+|@current)/external_data_schemas/[^/]+/incremental_fields/?$"
         ),
     ),
+    # POST but read-only: parses the query's SQL to report whether it can be materialized
+    # incrementally, and writes nothing. The editor calls it on every open of a model's
+    # materialization panel, so blocking it hides the whole Refresh mode section with no error.
+    # The action is named exactly, because the same prefix hosts the mutating saved-query
+    # actions (materialize, run, cancel, resume).
+    (
+        "POST",
+        re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/warehouse_saved_queries/check_incremental/?$"),
+    ),
     # POST but read-only: kicks off insight/dashboard/session replay export renders (e.g. MP4)
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/exports/?$")),
     # POST but read-only: the Logs product sends its queries as POST because the filter payload
