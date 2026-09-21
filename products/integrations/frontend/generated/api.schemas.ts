@@ -163,6 +163,7 @@ export interface RoleLookupResponseApi {
  * * `customerio-webhook` - Customerio Webhook
  * * `databricks` - Databricks
  * * `email` - Email
+ * * `facebook-pages` - Facebook Pages
  * * `firebase` - Firebase
  * * `github` - Github
  * * `gitlab` - Gitlab
@@ -215,6 +216,7 @@ export const IntegrationKindEnumApi = {
     CustomerioWebhook: 'customerio-webhook',
     Databricks: 'databricks',
     Email: 'email',
+    FacebookPages: 'facebook-pages',
     Firebase: 'firebase',
     Github: 'github',
     Gitlab: 'gitlab',
@@ -542,6 +544,7 @@ export interface IntegrationAccessRequestApi {
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
      * * `email` - Email
+     * * `facebook-pages` - Facebook Pages
      * * `firebase` - Firebase
      * * `github` - Github
      * * `gitlab` - Gitlab
@@ -706,6 +709,7 @@ export type IntegrationsListParams = {
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
      * * `email` - Email
+     * * `facebook-pages` - Facebook Pages
      * * `firebase` - Firebase
      * * `github` - Github
      * * `gitlab` - Gitlab
@@ -769,6 +773,7 @@ export const IntegrationsListKind = {
     CustomerioWebhook: 'customerio-webhook',
     Databricks: 'databricks',
     Email: 'email',
+    FacebookPages: 'facebook-pages',
     Firebase: 'firebase',
     Github: 'github',
     Gitlab: 'gitlab',
