@@ -923,7 +923,7 @@ class SignalReportViewSet(
         "oldest": "created_at,status,-updated_at",
     }
     _INBOX_VIEWS = frozenset(
-        {"actionable", "needs_input", "monitoring", "resolved", "dismissed", "not_actionable", "all"}
+        {"actionable", "needs_input", "needs_decision", "monitoring", "resolved", "dismissed", "not_actionable", "all"}
     )
     _SIGNAL_REPORT_ORDERING_FIELDS: dict[str, str] = {
         "status": "pipeline_status_rank",
@@ -1472,6 +1472,20 @@ class SignalReportViewSet(
                 status=SignalReport.Status.PENDING_INPUT,
                 latest_actionability_value=ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
             )
+        if inbox_view == "needs_decision":
+            return queryset.filter(
+                Q(status=SignalReport.Status.FAILED)
+                | (
+                    Q(
+                        status__in=[SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT],
+                        latest_actionability_value__in=[
+                            ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
+                            ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
+                        ],
+                    )
+                    & ~self._implementation_pr_report_filter()
+                )
+            )
         if inbox_view == "monitoring":
             return queryset.filter(status=SignalReport.Status.READY).filter(self._implementation_pr_report_filter())
         if inbox_view == "resolved":
@@ -1971,9 +1985,9 @@ class SignalReportViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=(
-                    "Apply an inbox view: actionable, needs_input, monitoring, resolved, dismissed, "
+                    "Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, "
                     "not_actionable, or all. Each view applies the corresponding status, actionability, and "
-                    "implementation-PR filters."
+                    "implementation-PR filters. needs_decision also includes failed reports without a judgment."
                 ),
             ),
             OpenApiParameter(

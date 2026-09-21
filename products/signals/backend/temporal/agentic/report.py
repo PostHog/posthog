@@ -26,6 +26,7 @@ from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo
 from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
+from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_CONTENT_NEEDLE, WRONG_REPO_CONTENT_NEEDLE
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
@@ -255,6 +256,8 @@ async def _load_resolved_report_context(team_id: int, report_id: str) -> tuple[s
         .only("title", "summary", "status", "team")
         .order_by("-created_at")
     ):
+        if await database_sync_to_async(_is_safety_suppressed, thread_sensitive=False)(str(candidate.id), team_id):
+            continue
         if candidate.status == SignalReport.Status.RESOLVED:
             return candidate.title, candidate.summary
         # Only an archived candidate costs the dismissal read, and the newest match wins, so the

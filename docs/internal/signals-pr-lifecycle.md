@@ -26,18 +26,21 @@ Links must name a different live report in the same project and cannot form a cy
 A report dismissed as `already_fixed`, `fixed_outside_posthog`, or `pr_merged` can create a new report when the issue returns.
 The pipeline records the new report's parent with a typed `recurrence_of` report link.
 Generic `related_to` links do not control signal assignment.
-Later signals follow the recurrence chain.
+Later signals follow the recurrence chain, even if an older parent is restored.
 A successor dismissed for a preference reason keeps absorbing signals, including signals that match an older parent.
 Repeated fixed feedback does not create another successor.
 A new dismissal without feedback clears the fixed claim from an earlier dismissal cycle.
 
-The backfill command creates a potential report with zero signal count and weight.
-Historical evidence stays on the parent; only signals stored on the new report count toward its promotion.
-The earliest absorbed recurrence signal determines the new report's billing exemption.
-The command checks the parent and successor under the same parent lock as live grouping.
+This change does not recover historical signals automatically.
+Older dismissal records cannot reliably identify the active dismissal cycle.
+Historical recovery needs a verified transition history before it can create new reports.
+Research context excludes parent reports whose latest safety judgment rejects their content.
+New reports do not copy the title or summary from these unsafe parents.
 
 The state API also accepts resolution from `failed`.
 The web inbox offers Resolve for failed reports.
+The Needs decision section includes failed reports, even without an actionability judgment.
+Its `needs_decision` API view also includes actionable ready or pending-input reports without an implementation PR.
 The desktop eligibility change must ship separately after this backend transition is deployed.
 A suppressed report can resolve if its prior status was `ready`, `pending_input`, `failed`, or `resolved`.
 

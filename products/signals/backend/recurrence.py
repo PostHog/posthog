@@ -3,8 +3,7 @@
 A resolved report and a report dismissed as fixed make the same factual claim: the issue is gone.
 A later matching signal is direct evidence that the claim was wrong, so both must surface the
 recurrence instead of absorbing it. The grouping stage reads this module to tell the two kinds of
-dismissal apart, and the `backfill_fixed_dismissal_forks` command reads it to find the parents whose
-recurrences were absorbed before the rule existed.
+dismissal apart.
 """
 
 from datetime import datetime

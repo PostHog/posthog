@@ -175,30 +175,6 @@ python manage.py backfill_task_run_artefacts
 
 Idempotent — skips any report that already has a `task_run` artefact referencing the same task, so it is safe to re-run. Each artefact carries a `(product, type)` pair: these are signals-pipeline runs, so `product` is `signals` and `type` is the legacy relationship label (`research` / `implementation` / `repo_selection`). Backfilled artefacts are attributed to their task and backdated to their `SignalReportTask.created_at` so the log stays chronologically correct (the artefact row is created now, but the run happened earlier). Live creation paths append the same artefacts at run time going forward — custom agents instead use their own `identifier()` `(product, type)` pair.
 
-## Backfilling recurrence forks
-
-One-off data migration for reports dismissed as fixed (`already_fixed`, `fixed_outside_posthog`,
-`pr_merged`) before the grouping stage learned to fork on recurrence. Such a report absorbed every
-later matching signal silently, so the evidence that the fix did not hold is buried on it. The
-command creates one new report per parent, with the parent's title and summary.
-The pipeline records the parent with a typed `recurrence_of` report link.
-
-```bash
-# Preview, scoped to one team
-python manage.py backfill_fixed_dismissal_forks --team-id 1 --dry-run
-
-# Fork for real (all teams, or add --team-id N)
-python manage.py backfill_fixed_dismissal_forks
-```
-
-The new report starts in `potential` with zero signal count and weight.
-Historical signals stay on the parent and do not count toward the new report's promotion.
-New matching signals increase its count and weight under the normal thresholds.
-The earliest absorbed recurrence signal determines the billing exemption.
-The command locks the parent and checks its state and successor again before it creates a report.
-It skips a parent that already has a successor, including a dismissed successor.
-The command reads recurrence evidence from ClickHouse, so it needs a working analytics connection.
-
 ## Backfilling report work and pull requests
 
 `uv run manage.py backfill_report_pull_requests --team-id <id>` imports assignment

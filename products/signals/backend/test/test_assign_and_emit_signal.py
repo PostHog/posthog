@@ -462,11 +462,19 @@ async def _suppressed_report(team, reason: str) -> SignalReport:
         ("other", False),
     ],
 )
-async def test_suppressed_report_forks_only_for_a_fixed_dismissal(ateam, reason, forks):
+@pytest.mark.parametrize("unsafe_parent", [False, True])
+async def test_suppressed_report_forks_only_for_a_fixed_dismissal(ateam, reason, forks, unsafe_parent):
     # A dismissal that claims the issue is fixed is contradicted by a new signal, so the signal
     # starts a fresh report, exactly as a resolved report does. Every other reason states a
     # preference about the report, so a sink stays the right answer.
     parent = await _suppressed_report(ateam, reason)
+    if unsafe_parent:
+        await database_sync_to_async(SignalReportArtefact.objects.create)(
+            team=ateam,
+            report=parent,
+            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
+            content='{"choice": false}',
+        )
     input_ = _build_input(ateam.id, _existing_match(str(parent.id)), weight=WEIGHT_THRESHOLD)
 
     result = await assign_and_emit_signal_activity(input_)
@@ -483,7 +491,7 @@ async def test_suppressed_report_forks_only_for_a_fixed_dismissal(ateam, reason,
     fork = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
     assert fork.status == SignalReport.Status.CANDIDATE  # weight at threshold promotes it
     assert fork.signal_count == 1
-    assert (fork.title, fork.summary) == ("original title", "original summary")
+    assert (fork.title, fork.summary) == (("", "") if unsafe_parent else ("original title", "original summary"))
     # The parent keeps its verdict and counts nothing: the recurrence lives on the fork.
     assert refreshed_parent.signal_count == 2
     link = await database_sync_to_async(
@@ -513,7 +521,8 @@ async def test_latest_dismissal_decides_whether_a_suppressed_report_forks(ateam)
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize("repeat_feedback", [False, True])
-async def test_second_recurrence_signal_joins_the_open_fork(ateam, repeat_feedback):
+@pytest.mark.parametrize("restore_parent", [False, True])
+async def test_second_recurrence_signal_joins_the_open_fork(ateam, repeat_feedback, restore_parent):
     # A parent that absorbed hundreds of signals must produce one live recurrence report, not one
     # per signal: the second signal accumulates on the first signal's fork.
     parent = await _suppressed_report(ateam, "already_fixed")
@@ -523,6 +532,9 @@ async def test_second_recurrence_signal_joins_the_open_fork(ateam, repeat_feedba
     )
     if repeat_feedback:
         await _dismiss(parent, "already_fixed")
+    if restore_parent:
+        parent.status = SignalReport.Status.READY
+        await database_sync_to_async(parent.save)(update_fields=["status"])
     second = await assign_and_emit_signal_activity(
         _build_input(ateam.id, _existing_match(str(parent.id)), weight=WEIGHT_THRESHOLD * 0.5)
     )
@@ -595,7 +607,8 @@ async def test_generic_relation_does_not_redirect_recurrence(ateam, link_kind):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize("reason", ["wontfix_intentional", "already_fixed"])
-async def test_suppressed_successor_controls_parent_matches(ateam, reason):
+@pytest.mark.parametrize("restore_parent", [False, True])
+async def test_suppressed_successor_controls_parent_matches(ateam, reason, restore_parent):
     parent = await _suppressed_report(ateam, "already_fixed")
     successor = await _suppressed_report(ateam, reason)
     await database_sync_to_async(SignalReportArtefact.add_log)(
@@ -604,6 +617,10 @@ async def test_suppressed_successor_controls_parent_matches(ateam, reason):
         content=ReportLink(kind=ReportLinkKind.RECURRENCE_OF, report_id=str(parent.id)),
         attribution=ArtefactAttribution.system(),
     )
+
+    if restore_parent:
+        parent.status = SignalReport.Status.READY
+        await database_sync_to_async(parent.save)(update_fields=["status"])
 
     result = await assign_and_emit_signal_activity(
         _build_input(ateam.id, _existing_match(str(parent.id)), weight=WEIGHT_THRESHOLD)

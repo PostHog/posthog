@@ -37,6 +37,7 @@ from products.signals.backend.daily_limit import capture_signal_report_daily_lim
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
+from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at, recurrence_report
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
@@ -759,15 +760,13 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 # codes state a preference about the report, and a sink is the right answer for
                 # them (see recurrence.py).
                 while True:
-                    dismissed_as_fixed_at = (
-                        fixed_dismissal_at(report) if report.status == SignalReport.Status.SUPPRESSED else None
-                    )
-                    if report.status != SignalReport.Status.RESOLVED and dismissed_as_fixed_at is None:
-                        break
                     successor = recurrence_report(report, lock=True)
                     if successor is None:
                         break
                     report = successor
+                dismissed_as_fixed_at = (
+                    fixed_dismissal_at(report) if report.status == SignalReport.Status.SUPPRESSED else None
+                )
                 # Resolved reports are terminal — never reopen them. When a signal would have grouped
                 # into an already-resolved report, the issue it fixed has recurred (or a related one
                 # has), so we start a fresh report and link it to the resolved report via a
@@ -775,13 +774,14 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 # resolved report as context (see report.py).
                 if report.status == SignalReport.Status.RESOLVED or dismissed_as_fixed_at is not None:
                     parent_report = report
+                    inherit_content = not _is_safety_suppressed(str(parent_report.id), input.team_id)
                     report = SignalReport.objects.create(
                         team_id=input.team_id,
                         status=SignalReport.Status.POTENTIAL,
                         total_weight=input.weight,
                         signal_count=1,
-                        title=parent_report.title,
-                        summary=parent_report.summary,
+                        title=parent_report.title if inherit_content else "",
+                        summary=parent_report.summary if inherit_content else "",
                         billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
                     )
                     SignalReportArtefact.add_log(

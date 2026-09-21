@@ -1606,6 +1606,36 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [row["id"] for row in response.json()["results"]] == [str(dismissed.id)]
 
+    def test_needs_decision_includes_failures_without_an_actionability_judgment(self):
+        failed = self._create_report(title="Failed research", status=SignalReport.Status.FAILED)
+        actionable = self._create_report(title="Ready for a decision")
+        self._actionability_artefact(actionable, actionability="immediately_actionable")
+        needs_input = self._create_report(title="Needs input", status=SignalReport.Status.PENDING_INPUT)
+        self._actionability_artefact(needs_input, actionability="requires_human_input")
+        not_actionable = self._create_report(title="Not actionable")
+        self._actionability_artefact(not_actionable, actionability="not_actionable")
+        self._create_report(title="No judgment")
+        self._create_report(title="Dismissed", status=SignalReport.Status.SUPPRESSED)
+        self._create_report(title="Resolved", status=SignalReport.Status.RESOLVED)
+        with_pr = self._create_report(title="Has an implementation PR")
+        self._actionability_artefact(with_pr, actionability="immediately_actionable")
+        self._create_assignment(with_pr, pr_url="https://github.com/org/repo/pull/42")
+        failed_with_pr = self._create_report(title="Failed with a PR", status=SignalReport.Status.FAILED)
+        self._create_assignment(failed_with_pr, pr_url="https://github.com/org/repo/pull/43")
+
+        response = self.client.get(self._list_url(view="needs_decision", scope="entire_project"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["id"] for row in response.json()["results"]} == {
+            str(failed.id),
+            str(actionable.id),
+            str(needs_input.id),
+            str(failed_with_pr.id),
+        }
+        response = self.client.get(self._list_url(view="needs_decision", scope="entire_project", count_only="true"))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 4
+
     def test_priority_preference_uses_personal_threshold_then_project_threshold(self):
         reports_by_priority: dict[str, SignalReport] = {}
         for priority in ("P0", "P1", "P2"):

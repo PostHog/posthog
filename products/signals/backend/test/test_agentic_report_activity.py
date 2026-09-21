@@ -273,8 +273,9 @@ def _build_signals() -> list[SignalData]:
     ],
 )
 @pytest.mark.parametrize("typed_link", [False, True])
+@pytest.mark.parametrize("safety_verdicts", [[], [False], [True], [False, True], [True, False], ["invalid"]])
 async def test_recurrence_context_comes_from_a_parent_closed_as_fixed(
-    ateam, parent_status, dismissal_reason, expected, typed_link
+    ateam, parent_status, dismissal_reason, expected, typed_link, safety_verdicts
 ):
     parent = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam, status=parent_status, title="stale chunk TypeError", summary="Imports fail after a deploy."
@@ -287,6 +288,13 @@ async def test_recurrence_context_comes_from_a_parent_closed_as_fixed(
             attribution=ArtefactAttribution.system(),
         )
     fork = await database_sync_to_async(SignalReport.objects.create)(team=ateam, title="fork", summary="fork")
+    for verdict in safety_verdicts:
+        await database_sync_to_async(SignalReportArtefact.objects.create)(
+            team=ateam,
+            report=parent,
+            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
+            content="invalid" if verdict == "invalid" else json.dumps({"choice": verdict}),
+        )
     await database_sync_to_async(SignalReportArtefact.add_log)(
         team_id=ateam.id,
         report_id=str(fork.id),
@@ -300,7 +308,9 @@ async def test_recurrence_context_comes_from_a_parent_closed_as_fixed(
 
     context = await _load_resolved_report_context(ateam.id, str(fork.id))
 
-    assert context == (("stale chunk TypeError", "Imports fail after a deploy.") if expected else (None, None))
+    safe = not safety_verdicts or safety_verdicts[-1] is True
+    assert context == (("stale chunk TypeError", "Imports fail after a deploy.") if expected and safe else (None, None))
+    assert await _load_previous_research(ateam.id, str(fork.id)) is None
 
 
 @pytest.mark.asyncio
