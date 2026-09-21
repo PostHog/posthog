@@ -94,8 +94,9 @@ Patterns use the GitHub CODEOWNERS syntax, applied to paths relative to the dire
 4. A trailing `/` matches the directory and everything below it.
 5. A pattern whose last segment has no wildcard also matches everything below a directory of that name.
 6. `*` matches any characters except `/`. `?` matches one character except `/`. `**` matches zero or more directories.
-7. `\` escapes the next character.
-8. A pattern MUST NOT be empty and MUST NOT contain `***`.
+7. `[abc]` matches one character from the set. `[a-z]` matches one character from the range. A `[!` or a `[^` at the start negates the set. A set MUST NOT match `/`. A `]` in the first position is a member of the set, not the end of it. An unclosed `[` is a literal `[`. GitHub CODEOWNERS has no character classes, so this rule is an extension of that syntax.
+8. `\` escapes the next character.
+9. A pattern MUST NOT be empty and MUST NOT contain `***`.
 
 ## 4. Resolution
 
@@ -417,3 +418,4 @@ rules:
 ## Changelog
 
 - **1** (2026-09): First published version.
+- **1**, amended (2026-09): Section 3.5 adds `[...]` character classes. No pattern that was valid before the amendment changes meaning.

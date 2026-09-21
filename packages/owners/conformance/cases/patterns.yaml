@@ -453,3 +453,141 @@ cases:
               status: active
               source: owners.yaml
               slack: '#team-file'
+
+    - name: a character class matches one character from the set
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: '/docs/[ab].md'
+                  owners: team-rule
+      expect:
+          'docs/a.md':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'docs/b.md':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'docs/c.md':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: a character class matches one character from a range
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: '/docs/[a-c]*.py'
+                  owners: team-rule
+      expect:
+          'docs/bar.py':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'docs/zar.py':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: an exclamation mark at the start of a character class negates it
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: '/docs/[!ab]?.md'
+                  owners: team-rule
+      expect:
+          'docs/cx.md':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'docs/ax.md':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: a closing bracket in the first position is a member of the character class
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: '/docs/[]a].md'
+                  owners: team-rule
+      expect:
+          'docs/].md':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'docs/a.md':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'docs/b.md':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: a character class does not match a slash
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: '/a[/]b'
+                  owners: team-rule
+      expect:
+          'a/b':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: an unclosed bracket is a literal bracket
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: '/docs/[ab.md'
+                  owners: team-rule
+      expect:
+          'docs/[ab.md':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'docs/a.md':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'

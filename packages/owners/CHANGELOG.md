@@ -27,6 +27,10 @@ First release on PyPI, as `owners-yaml`. The package was developed in the monore
 - The top-level `owners_yaml` package exports the full public API, so consumers do not import submodules.
 - `py.typed`, so type checkers read the package's annotations.
 
+### Fixed
+
+- Rule patterns support `[abc]`, `[a-z]` and `[!abc]` character classes, as SPEC section 3.5 now states. `match_is_glob` already counted `[` as a wildcard, so such a pattern passed lint, counted as a crosscutting glob, then matched nothing and let its paths fall through to an ancestor's owner.
+
 ### Changed
 
 - The GitHub organization is no longer hardcoded. `codeowners` and `lint --live` read it from `github_org` or `--org`, and fail with a clear message when neither is set.
