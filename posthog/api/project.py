@@ -1413,7 +1413,6 @@ class ProjectViewSet(
         )
     )
     lookup_field = "id"
-    ordering = "-created_by"
     filter_backends = [PhraseSearchFilter]
     search_fields = ["name"]
 
@@ -1424,7 +1423,8 @@ class ProjectViewSet(
         if scoped_organizations := get_authenticator_scoped_organization_ids(self.request.successful_authenticator):
             queryset = queryset.filter(organization_id__in=scoped_organizations)
         queryset = project_tags.filter_queryset(queryset, self.request.query_params)
-        return queryset
+        # `id` breaks ties, so offset pagination cannot drop or repeat a project between pages.
+        return queryset.order_by("-created_at", "-id")
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self.action == "list":

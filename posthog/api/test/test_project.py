@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
@@ -1199,6 +1200,33 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         returned_ids = [project["id"] for project in response.json()["results"]]
         self.assertEqual(len(returned_ids), len(set(returned_ids)), "A project matching several tags was duplicated")
         self.assertEqual(set(returned_ids), {ids_by_key[key] for key in expected_keys})
+
+    @time_machine.travel("2023-05-17", tick=False)
+    def test_list_pages_over_projects_created_at_the_same_time_without_loss(self):
+        # The three projects share a `created_at`, so only the id tie-breaker can put them in a stable order.
+        created_ids = [
+            Project.objects.create_with_team(
+                organization=self.organization, name=f"Tied {index}", initiating_user=self.user
+            )[0].id
+            for index in range(3)
+        ]
+
+        paged_ids: list[int] = []
+        offset = 0
+        while True:
+            page = self.client.get(f"/api/projects/?limit=2&offset={offset}")
+            self.assertEqual(page.status_code, status.HTTP_200_OK, page.json())
+            body = page.json()
+            paged_ids += [project["id"] for project in body["results"]]
+            offset += 2
+            if offset >= body["count"]:
+                break
+
+        self.assertEqual(len(paged_ids), len(set(paged_ids)), "A project appeared on more than one page")
+        self.assertEqual(
+            [project_id for project_id in paged_ids if project_id in created_ids],
+            sorted(created_ids, reverse=True),
+        )
 
     def test_list_rows_carry_tags(self):
         self.client.patch(f"/api/projects/{self.project.id}/", {"tags": ["production"]}, format="json")
