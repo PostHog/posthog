@@ -1678,7 +1678,7 @@ export const GroupsTypesMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided. Omitting pinned_properties leaves the configuration unchanged. At most 50 account custom properties and relationships can be pinned.
+ * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, and change the task digest email preferences when task_digest is provided. Anything omitted keeps its current value. At most 50 account custom properties and relationships can be pinned.
  * @summary Update account sidebar configuration
  */
 export const UserCustomerAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -1697,5 +1697,22 @@ export const UserCustomerAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod.
         .optional()
         .describe(
             'Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them.'
+        ),
+    task_digest: zod
+        .object({
+            enabled: zod.boolean().optional().describe('Whether the task digest email is sent to this user.'),
+            send_time: zod.iso
+                .time({})
+                .optional()
+                .describe('Time of day to send the digest, as HH:MM in the project timezone.'),
+            cadence: zod
+                .enum(['weekdays', 'every_day'])
+                .describe('\* `weekdays` - Weekdays\n\* `every_day` - Every day')
+                .optional()
+                .describe('How often the digest is sent.\n\n\* `weekdays` - Weekdays\n\* `every_day` - Every day'),
+        })
+        .optional()
+        .describe(
+            'Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one.'
         ),
 })

@@ -524,7 +524,8 @@ def list_for_team(
         term = search.strip()
         if term:
             queryset = queryset.filter(Q(name__icontains=term) | Q(source_url__icontains=term))
-    return list(queryset.annotate(**_source_list_annotations()).order_by("-created_at"))
+    # `id` breaks created_at ties so paging over the list can't skip or repeat a source.
+    return list(queryset.annotate(**_source_list_annotations()).order_by("-created_at", "id"))
 
 
 @with_team_scope(canonical=True)

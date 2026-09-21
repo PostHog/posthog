@@ -78,7 +78,7 @@ export function CustomerTasksFilters({ logic, context, canViewAll = false }: Cus
     const showAssigneeFilters = canViewAll && context === 'inbox'
     const options = accountOptions.map((a) => ({ key: a.id, label: a.name }))
     if (filters.account && !options.some((o) => o.key === filters.account?.id)) {
-        options.unshift({ key: filters.account.id, label: filters.account.name })
+        options.unshift({ key: filters.account.id, label: filters.account.name || filters.account.id })
     }
     return (
         <div className="flex flex-wrap items-center gap-2" data-attr="customer-tasks-filters">
@@ -145,7 +145,7 @@ export function CustomerTasksFilters({ logic, context, canViewAll = false }: Cus
                     }
                 >
                     <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                        {filters.account?.name ?? 'Account'}
+                        {filters.account?.name || 'Account'}
                     </LemonButton>
                 </LemonDropdown>
             )}

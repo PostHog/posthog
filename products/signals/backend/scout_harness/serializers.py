@@ -3266,6 +3266,15 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "paused statuses it is when the scout was paused. Null if the status never changed."
         ),
     )
+    updated_at = serializers.DateTimeField(
+        read_only=True,
+        help_text=(
+            "When this config last changed: an edit through this API, or a status change the system "
+            "made such as an automatic pause. A scheduled run does not bump it — the coordinator "
+            "stamps `last_run_at` with a direct write — so this reads as when the scout was last "
+            "tuned rather than when it last ran."
+        ),
+    )
     auto_pause_exempt = serializers.BooleanField(
         read_only=True,
         help_text=(
@@ -3354,8 +3363,9 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "source_product",
             "source_id",
             "created_at",
+            "updated_at",
         ]
-        read_only_fields = ["id", "created_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
 
 
 def _validate_run_cron_schedule(value: str) -> str:

@@ -9,6 +9,33 @@ This doc says how a change becomes an activity row, where the code for a new mod
 The skill `.agents/skills/adding-activity-logging/SKILL.md` carries the step-by-step workflow.
 Read this doc before you add or change activity logging.
 
+## Reading activity rows
+
+Activity rows show the actor, optional client tag, and time above the action summary and its target.
+Long action summaries collapse to two lines.
+Description changes include a two-line preview of the new value in normal text.
+The expand control on the right reveals the complete action, preview, and agent intent, along with the existing detail tabs.
+Diff compares the recorded values, and Raw shows the activity payload.
+Product-specific detail tabs remain the initial view when supplied by a describer.
+The copy-link control beside expand appears on hover or keyboard focus.
+
+Every visible describer result supplies a `summary` with `actor`, `action`, and `target` fields alongside its existing `description`.
+Use `activityLogSummary` for the usual actor, or pass a specialized actor such as a workflow link or an anonymous user.
+The optional plain-text `preview` holds long values such as descriptions; keep them out of the action headline.
+Field mappings can supply separate summary clauses and a preview while preserving their notification wording.
+Summary clauses stay lowercase so combined changes read as one sentence, and they do not depend on notification mode.
+Use `summarizeDescriptionChange` for consistent added, updated, and cleared description clauses.
+Rename summaries retain both names, with the resource link in the target.
+Use `describeMappedChanges` for a field-to-handler mapping, or `describeChangeMappings` when a product needs its own change selection.
+Both helpers assemble the summary and notification sentence and retain extended descriptions and custom detail tabs.
+The row uses that structure without parsing a JSX sentence.
+The complete `description` remains available to notifications and other activity consumers.
+A describer can still return `description: null` to hide an event.
+Keep existing fallback rows when no fields have a description, and preserve collected changes if a later field cannot be described.
+The row retains sentence rendering for legacy items constructed without a summary.
+The sentence aligns with the avatar, with the client tag and time underneath.
+Agent intent and task links remain optional and retain their existing attribution rules.
+
 ## How a change becomes an activity row
 
 ```text
