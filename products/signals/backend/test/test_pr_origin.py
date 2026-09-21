@@ -11,7 +11,12 @@ from parameterized import parameterized
 from posthog.models.integration import GitHubIntegration
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.pr_origin import PullRequestOrigin, place_origin_section, write_origin_section
+from products.signals.backend.pr_origin import (
+    PullRequestOrigin,
+    _scout_label,
+    place_origin_section,
+    write_origin_section,
+)
 from products.signals.backend.pull_request_body import BodyEditOutcome
 from products.signals.backend.signal_metadata import OriginSignal, SignalSourceReference
 from products.signals.backend.task_run_artefacts import record_implementation_task
@@ -58,6 +63,11 @@ class TestPlaceOriginSection(SimpleTestCase):
                 f"## Problem\n\n```\n## Origin\n---\n```\n\n{SECTION}\n\n## Changes\n",
             ),
             (
+                "indented_fence_with_longer_close",
+                "## Problem\n\n  ```\n## Origin\n  `````\n\n## Changes\n",
+                f"## Problem\n\n  ```\n## Origin\n  `````\n\n{SECTION}\n\n## Changes\n",
+            ),
+            (
                 "appended_without_problem",
                 "Fixes the thing.\n",
                 f"Fixes the thing.\n\n{SECTION}\n",
@@ -66,6 +76,24 @@ class TestPlaceOriginSection(SimpleTestCase):
     )
     def test_places_section(self, _name: str, body: str, expected: str) -> None:
         assert place_origin_section(body, report_id="r1", section=SECTION) == expected
+
+
+class TestScoutLabel(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("canonical", "signals-scout-error-tracking", "`signals-scout-error-tracking`"),
+            ("custom", "signals-scout-acme-payment-incident", "a custom scout"),
+        ]
+    )
+    def test_names_only_shipped_scouts(self, _name: str, scout_name: str, expected: str) -> None:
+        signal = OriginSignal(
+            source_product="error_tracking",
+            source_id="run:1:finding:2",
+            scout_name=scout_name,
+            ticket_number=0,
+            timestamp=datetime(2026, 9, 15, tzinfo=UTC),
+        )
+        assert _scout_label([signal]) == expected
 
 
 class TestPullRequestOrigin(BaseTest):

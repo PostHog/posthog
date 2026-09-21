@@ -28,6 +28,7 @@ from products.signals.backend.artefact_schemas import PriorityAssessment, Signal
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.pull_request_body import BodyEditOutcome, edit_pull_request_body
+from products.signals.backend.scout_harness.lazy_seed import canonical_skill_names
 from products.signals.backend.signal_metadata import (
     OriginSignal,
     SignalSourceReference,
@@ -44,7 +45,6 @@ MAX_LINKS_PER_SOURCE = 5
 # Identifiers go into a URL path, so a signal with any other id keeps its source type but gets no link.
 _SOURCE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _SOURCE_PRODUCT_RE = re.compile(r"^[a-z0-9_]{1,40}$")
-_SCOUT_NAME_RE = re.compile(r"^[a-z0-9-]{1,64}$")
 _COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 _PROBLEM_HEADING_RE = re.compile(r"^##[ \t]+Problem[ \t]*$", re.MULTILINE | re.IGNORECASE)
 _ORIGIN_HEADING_RE = re.compile(r"^##[ \t]+Origin[ \t]*$", re.MULTILINE | re.IGNORECASE)
@@ -52,7 +52,7 @@ _MARKED_BLOCK_RE = re.compile(rf"<!-- {ORIGIN_MARKER_PREFIX}:\S+ -->.*?<!-- /{OR
 # A section ends at the next level-two heading, a horizontal rule, or a PostHog Origin block.
 _SECTION_END_RE = re.compile(rf"^(##[ \t]|---[ \t]*$|<!-- {ORIGIN_MARKER_PREFIX}:)", re.MULTILINE)
 # A heading or rule inside a fenced code block is code, not structure.
-_FENCE_RE = re.compile(r"^(`{3,}|~{3,}).*?^\1[ \t]*$", re.MULTILINE | re.DOTALL)
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,}).*?^ {0,3}\1[`~]*[ \t]*$", re.MULTILINE | re.DOTALL)
 
 # Linear and GitHub signals come from `fetch_source_references_for_report`, which already
 # validates their public links.
@@ -192,6 +192,14 @@ def _priority(team_id: int, report_id: str) -> str | None:
     return judgment.priority.value if judgment else None
 
 
+def _scout_label(signals: list[OriginSignal]) -> str | None:
+    """Name a scout only when it ships with PostHog. A custom scout's name comes from its creator and can be private."""
+    scout_name = next((signal.scout_name for signal in signals if signal.scout_name), None)
+    if scout_name is None:
+        return None
+    return f"`{scout_name}`" if scout_name in canonical_skill_names() else "a custom scout"
+
+
 def _issue_link(reference: SignalSourceReference, repository: str) -> OriginLink:
     """Link an issue only when it is as public as the pull request itself.
 
@@ -215,7 +223,7 @@ class PullRequestOrigin:
     report_url: str
     sources: tuple[OriginSource, ...]
     issue_references: tuple[OriginLink, ...]
-    scout_name: str | None
+    scout_label: str | None
     first_seen: date | None
     cause_commit: OriginLink | None
     started_automatically: bool | None
@@ -231,7 +239,7 @@ class PullRequestOrigin:
             issue_references=tuple(
                 _issue_link(reference, repository) for reference in fetch_source_references_for_report(team, report_id)
             ),
-            scout_name=next((s.scout_name for s in signals if _SCOUT_NAME_RE.match(s.scout_name)), None),
+            scout_label=_scout_label(signals),
             first_seen=signals[0].timestamp.date() if signals else None,
             cause_commit=_cause_commit(team.pk, report_id, repository),
             started_automatically=_started_automatically(team.pk, report_id, task_id),
@@ -251,8 +259,8 @@ class PullRequestOrigin:
         lines = [source.render() for source in self.sources]
         if self.issue_references:
             lines.append(f"- Issues: {', '.join(link.render() for link in self.issue_references)}")
-        if self.scout_name:
-            lines.append(f"- Scout: `{self.scout_name}`")
+        if self.scout_label:
+            lines.append(f"- Scout: {self.scout_label}")
         if self.first_seen:
             lines.append(f"- First signal: {self.first_seen.isoformat()}")
         lines.append(f"- Inbox report: [open]({self.report_url})")
@@ -271,20 +279,20 @@ class PullRequestOrigin:
 
 
 def _first_outside(
-    pattern: re.Pattern[str], body: str, position: int, skipped: list[tuple[int, int]]
+    pattern: re.Pattern[str], body: str, position: int, skipped: list[re.Match[str]]
 ) -> re.Match[str] | None:
     for match in pattern.finditer(body, position):
-        if not any(start <= match.start() < end for start, end in skipped):
+        if not any(block.start() <= match.start() < block.end() for block in skipped):
             return match
     return None
 
 
-def _fenced_spans(body: str) -> list[tuple[int, int]]:
-    return [fence.span() for fence in _FENCE_RE.finditer(body)]
+def _fenced_blocks(body: str) -> list[re.Match[str]]:
+    return list(_FENCE_RE.finditer(body))
 
 
 def _section_end(body: str, position: int) -> int:
-    match = _first_outside(_SECTION_END_RE, body, position, _fenced_spans(body))
+    match = _first_outside(_SECTION_END_RE, body, position, _fenced_blocks(body))
     return match.start() if match else len(body)
 
 
@@ -295,7 +303,7 @@ def _splice(body: str, start: int, end: int, section: str) -> str:
 
 def _agent_origin_heading(body: str) -> re.Match[str] | None:
     """The first Origin heading outside a PostHog block, which only an agent can have written."""
-    skipped = [block.span() for block in _MARKED_BLOCK_RE.finditer(body)] + _fenced_spans(body)
+    skipped = list(_MARKED_BLOCK_RE.finditer(body)) + _fenced_blocks(body)
     return _first_outside(_ORIGIN_HEADING_RE, body, 0, skipped)
 
 
@@ -316,7 +324,7 @@ def place_origin_section(body: str, *, report_id: str, section: str) -> str:
     if agent_origin is not None:
         return _splice(body, agent_origin.start(), _section_end(body, agent_origin.end()), section)
 
-    problem = _first_outside(_PROBLEM_HEADING_RE, body, 0, _fenced_spans(body))
+    problem = _first_outside(_PROBLEM_HEADING_RE, body, 0, _fenced_blocks(body))
     if problem is None:
         return _splice(body, len(body), len(body), section)
     insert_at = _section_end(body, problem.end())
