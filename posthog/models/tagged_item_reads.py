@@ -4,6 +4,8 @@ Writes fill both pointers either way, so the flag can move in either direction a
 Reads outside a team scope, such as Celery and Temporal jobs, stay on the legacy pointer.
 """
 
+import time
+import threading
 from typing import Any
 
 from django.db import models
@@ -15,6 +17,13 @@ from posthog.models.tagged_item_registry import content_type_for_entry, require_
 from posthog.ph_client import feature_enabled_or_false
 
 GENERIC_READS_FLAG = "tagged-item-generic-reads"
+
+# One query build reads the pointer several times: the relation's column, its join fields, and its
+# join restriction. They must agree, so each team's decision is held briefly, not evaluated per call.
+_DECISION_TTL_SECONDS = 30.0
+_MAX_CACHED_TEAMS = 50_000
+_decisions: dict[int, "_Decision"] = {}
+_decisions_lock = threading.Lock()
 
 
 @frozen
@@ -40,12 +49,22 @@ class TagReadPointer:
         return condition & Q(content_type_id=self.content_type_id)
 
 
+@frozen
+class _Decision:
+    evaluated_at: float
+    enabled: bool
+
+
 def generic_reads_enabled() -> bool:
     """Whether tag reads in the current team scope use the generic pointer."""
     team_id = get_current_team_id()
     if team_id is None:
         return False
-    return feature_enabled_or_false(
+    now = time.monotonic()
+    cached = _decisions.get(team_id)
+    if cached is not None and now - cached.evaluated_at < _DECISION_TTL_SECONDS:
+        return cached.enabled
+    enabled = feature_enabled_or_false(
         GENERIC_READS_FLAG,
         str(team_id),
         groups={"project": str(team_id)},
@@ -53,6 +72,17 @@ def generic_reads_enabled() -> bool:
         only_evaluate_locally=True,
         send_feature_flag_events=False,
     )
+    with _decisions_lock:
+        if len(_decisions) >= _MAX_CACHED_TEAMS:
+            _decisions.clear()
+        _decisions[team_id] = _Decision(evaluated_at=now, enabled=enabled)
+    return enabled
+
+
+def clear_generic_reads_cache() -> None:
+    """Forget every held decision, so the next read evaluates the flag again."""
+    with _decisions_lock:
+        _decisions.clear()
 
 
 def tag_read_pointer(model: type[models.Model]) -> TagReadPointer:

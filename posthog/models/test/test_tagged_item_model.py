@@ -9,7 +9,7 @@ from parameterized import parameterized, parameterized_class
 
 from posthog.models import Tag, TaggedItem, Team
 from posthog.models.scoping import reset_current_team_id, set_current_team_id
-from posthog.models.tagged_item_reads import TagReadPointer, tag_read_pointer
+from posthog.models.tagged_item_reads import TagReadPointer, clear_generic_reads_cache, tag_read_pointer
 
 from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -230,6 +230,11 @@ class TestTaggedItemGenericColumns(BaseTest):
 
 
 class TestTagReadPointer(BaseTest):
+    def setUp(self):
+        super().setUp()
+        clear_generic_reads_cache()
+        self.addCleanup(clear_generic_reads_cache)
+
     @parameterized.expand(
         [
             ("flag on in a team scope", True, True, True),
@@ -250,6 +255,17 @@ class TestTagReadPointer(BaseTest):
         else:
             assert pointer == TagReadPointer(object_column="dashboard_id", content_type_id=None)
 
+    def test_one_team_evaluates_the_flag_once_for_repeated_reads(self):
+        token = set_current_team_id(self.team.id)
+        self.addCleanup(reset_current_team_id, token)
+        with patch("posthog.models.tagged_item_reads.feature_enabled_or_false", return_value=True) as flag:
+            first = tag_read_pointer(Dashboard)
+            flag.return_value = False
+            second = tag_read_pointer(Dashboard)
+
+        assert flag.call_count == 1
+        assert first == second
+
 
 @parameterized_class(("generic_reads",), [(False,), (True,)])
 class TestTaggedItemsRelation(BaseTest):
@@ -257,6 +273,8 @@ class TestTaggedItemsRelation(BaseTest):
 
     def setUp(self):
         super().setUp()
+        clear_generic_reads_cache()
+        self.addCleanup(clear_generic_reads_cache)
         flag = patch("posthog.models.tagged_item_reads.feature_enabled_or_false", return_value=self.generic_reads)
         flag.start()
         self.addCleanup(flag.stop)
