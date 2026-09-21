@@ -125,11 +125,11 @@ class CanonicalPlan:
     canonical_cost: int
     creations: list[str]
     deletions: list[str]
-    additions: dict[str, list[str]]  # file -> human-readable rule lines added
+    rule_edits: dict[str, list[str]]  # file -> human-readable rule lines changed
 
     @property
     def is_canonical(self) -> bool:
-        return not self.creations and not self.deletions and not self.additions
+        return not self.creations and not self.deletions and not self.rule_edits
 
 
 class CanonicalPlacer:
@@ -434,13 +434,13 @@ class CanonicalPlacer:
         proposed = self._proposed_files(entries, placements, open_dirs)
         self._prove(proposed, all_owners)  # raises on any resolution mismatch
 
-        creations, deletions, additions = self._diff(entries, proposed, open_dirs, pinned_dirs, code_files)
+        creations, deletions, rule_edits = self._diff(entries, proposed, open_dirs, pinned_dirs, code_files)
         return CanonicalPlan(
             current_cost=self._current_cost(entries),
             canonical_cost=self._layout_cost(open_dirs, placements, pinned_dirs),
             creations=creations,
             deletions=deletions,
-            additions=additions,
+            rule_edits=rule_edits,
         )
 
     def _layout_cost(self, open_dirs: set[str], placements: list[_Placement], pinned_dirs: set[str]) -> int:
@@ -523,7 +523,7 @@ class CanonicalPlacer:
                 current_simple_dirs.add(entry.rel_dir)
 
         creations, deletions = [], []
-        additions: dict[str, list[str]] = {}
+        rule_edits: dict[str, list[str]] = {}
 
         for carrier in sorted(open_dirs):
             proposed_file = proposed[carrier]
@@ -567,13 +567,13 @@ class CanonicalPlacer:
                         removed.append(f"drop {m} (was {_fmt_owners(cur_rules[m])})")
             edits += sorted(changed) + sorted(added) + sorted(removed)
             if edits:
-                additions[path] = edits
+                rule_edits[path] = edits
 
         for carrier in current_simple_dirs:
             if carrier not in open_dirs:
                 deletions.append(f"{carrier}/{OWNERS_FILENAME}" if carrier else OWNERS_FILENAME)
 
-        return sorted(creations), sorted(deletions), additions
+        return sorted(creations), sorted(deletions), rule_edits
 
     # --- equivalence proof ----------------------------------------------
 

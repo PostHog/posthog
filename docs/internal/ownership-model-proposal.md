@@ -90,6 +90,12 @@ status: active
 # ancestor owners.yaml. false = Gerrit's `set noparent`.
 inherit: true
 
+# Who decides what may ENTER this directory, as opposed to who owns the
+# files already in it. Names people only; whether a consumer asks them
+# for review or blocks on them is that consumer's policy. Unlike every
+# other field this one adds up across the walk (see below).
+additions: [team-devex]
+
 # Per-path overrides inside this directory, *within this file only*.
 # Every matching rule applies in order, and each replaces only the fields
 # it sets: owners, status, or inherit. `match` is one glob or a list of globs (each is its own
@@ -111,6 +117,32 @@ The 90% case is two lines:
 version: 1
 owners: team-ingestion
 ```
+
+### `additions:` — ownership of the namespace, not the file
+
+`owners:` answers "whose is this file".
+`additions:` answers a different question about the same path: "who decides what is allowed to appear here".
+The two are independent: each product under `products/` is owned by its team, while the decision to add a product at all can sit with one team.
+Much of the architecture guidance already has this shape as prose that nothing checks, such as reserving top-level `tools/`, `services/` and `packages/` for cross-product things.
+
+- **It adds up across the walk.** Every declaration on the walk applies, so a nested directory cannot shed an ancestor's gate.
+  `owners:` stays nearest-wins, and `inherit: false` still cuts everything, additions included.
+- **Ask about the directory, not a file inside it.** The walk stops at the parent of the path it resolves, so resolving `products/newthing` matches a `match: '/*'` rule on `products/`, while resolving `products/newthing/product.yaml` does not.
+  `/*` therefore means "a direct child", and `/**` reaches any descendant.
+  A directory query also skips that directory's own ownership file, so a new product cannot name itself out of its parent's gate.
+- **Newness and enforcement belong to the consumer.** The file says who decides and where. A consumer works out from the diff that a directory is new, treats a rename into the directory as an entry (git reports it as `R`, not `A`), and decides whether the answer is a review request or a blocking check.
+
+**Why not `owners:` on the parent directory.**
+An owner on `products/` would also claim every file below it that has no nearer owner.
+That misattributes those files, and it satisfies the coverage check for them, which turns real gaps into permanent false coverage.
+Over a hundred files under `products/` are unowned today and would flip.
+`additions:` contributes nothing to `owners`, so the coverage signal survives.
+
+**A consumer asks `owners` ∪ `additions`.**
+The owners are already responsible for anything in their tree, so an empty `additions` means "the owners decide", not "nobody decides".
+That is also why the key does not default to `owners`: a reader could no longer tell a deliberately gated directory from one that merely has an owner.
+
+The normative definition is section 3.6 of [`packages/owners-yaml/SPEC.md`](../../packages/owners-yaml/SPEC.md).
 
 ### `product.yaml` as an accepted alias
 
@@ -277,4 +309,4 @@ Safety properties of the atomic switch:
 1. **Oncall routing**: resolved — dropped from v1. The Slack channel costs nothing (derived from the team slug by convention, with the root `teams:` registry overriding or setting `slack: false` where needed), but nothing consumes an oncall reference, so it is not carried. Re-adding it is additive once a consumer exists.
 2. **Resolver ownership**: resolved — the resolver package is covered by the hard `CODEOWNERS` (see §5).
 3. **Coverage gating cadence**: how soon after the PR to flip `owners:lint` coverage from warn to fail — immediately for _new_ directories (ratchet), or only once the whole tree is clean?
-4. **Hard-CODEOWNERS future** (explicitly out of scope now): if blocking gates ever move into the schema, approver inheritance should probably union up the tree rather than nearest-wins — parked until `team-security` wants to revisit.
+4. **Hard-CODEOWNERS future** (explicitly out of scope now): if blocking gates ever move into the schema, approver inheritance should probably union up the tree rather than nearest-wins — parked until `team-security` wants to revisit. `additions:` set the precedent for the union half; it is advisory, so it did not settle the blocking half.

@@ -9,6 +9,12 @@ the GitHub Release body, so add the entry here before you cut the tag.
 
 ## Unreleased
 
+### Added
+
+- An optional `additions` field, at file level and in rules, names who decides what may enter a directory, besides the owners of the files in it. Unlike `owners`, additions from every file on the walk and every matching rule add up, and `inherit: false` still cuts them. `SPEC.md` section 3.6 defines it.
+- The resolver response carries an `additions` member, and `Resolution` an `additions` field. Consumers that ignore unknown members, as SPEC section 7.4 requires, are unaffected.
+- Conformance cases may state `additions`. The runner checks it only where a case does, so existing cases need no edit.
+
 ### Changed
 
 - Every matching rule in a file now applies, and each replaces only the fields it sets. Before, the last matching rule replaced the earlier ones entirely, so a rule that set only `status` dropped the `owners` an earlier rule had set. `SPEC.md` section 3.4 records the amendment.

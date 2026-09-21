@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sys
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Protocol, TypedDict, runtime_checkable
@@ -102,6 +102,10 @@ class Resolution:
     slack: str | None
     source: str | None  # repo-relative path of the file that decided owners
     unowned_by_design: bool  # explicit `owners: null` exemption
+    # Who decides what may enter the path, besides its owners. Every other field is nearest-file-
+    # wins; this one collects every declaration on the walk, so a nested file cannot drop what an
+    # ancestor set. `inherit: false` still cuts it like everything else.
+    additions: list[str] = field(default_factory=list)
 
     @property
     def is_owned(self) -> bool:
@@ -122,10 +126,17 @@ class WireResolution(TypedDict):
     status: str
     slack: str | None
     source: str | None
+    additions: list[str]
 
 
 def resolution_to_wire(r: Resolution) -> WireResolution:
-    return {"owners": r.owners or [], "status": r.status, "slack": r.slack, "source": r.source}
+    return {
+        "owners": r.owners or [],
+        "status": r.status,
+        "slack": r.slack,
+        "source": r.source,
+        "additions": r.additions,
+    }
 
 
 def read_stdin_paths() -> list[str]:
@@ -153,6 +164,12 @@ class _Merged:
     owners: list[str] | None | _Unset = UNSET
     status: str | _Unset = UNSET
     source: str | None = None
+    additions: list[str] = field(default_factory=list)
+
+
+def _union(*groups: Iterable[str]) -> list[str]:
+    """Every entry across ``groups``, first occurrence first, without duplicates."""
+    return list(dict.fromkeys(item for group in groups for item in group))
 
 
 class RepoRootNotFound(Exception):
@@ -318,6 +335,7 @@ class OwnersResolver:
             status=f.status,
             inherit=f.inherit,
             is_alias=f.is_alias,
+            additions=_union(f.additions, *(rule.additions for rule in matched)),
         )
         for rule in matched:
             if not isinstance(rule.owners, _Unset):
@@ -364,6 +382,8 @@ class OwnersResolver:
             if not isinstance(contrib.status, _Unset):
                 merged.status = contrib.status
 
+            merged.additions = _union(merged.additions, contrib.additions)
+
         return self._build_resolution(norm, merged)
 
     def _teams_registry(self) -> dict[str, TeamEntry]:
@@ -403,6 +423,7 @@ class OwnersResolver:
             slack=slack,
             source=merged.source,
             unowned_by_design=unowned_by_design,
+            additions=merged.additions,
         )
 
     def _rel(self, path: Path) -> str:

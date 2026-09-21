@@ -32,7 +32,7 @@ A path in `expect` is the input to the resolver, before normalization.
 Some keys start with `./` or `/`, or contain `\`, to test step 1 of the algorithm.
 A path in `expect` does not have to exist in `files`.
 
-Each resolution is a mapping with all five keys:
+Each resolution is a mapping with these keys:
 
 | Key                 | Type             | Meaning                                                                    |
 | ------------------- | ---------------- | -------------------------------------------------------------------------- |
@@ -41,8 +41,10 @@ Each resolution is a mapping with all five keys:
 | `status`            | string           | The resolved status.                                                       |
 | `source`            | string or `null` | The path of the file that set the owners, or `null` when no file did.      |
 | `slack`             | string or `null` | The channel for the purpose and the producer of the case, or `null`.       |
+| `additions`         | list of strings  | Optional. Who decides what may enter the path (SPEC section 3.6).          |
 
-A case never leaves a key out, so no value is implied.
+A case never leaves out one of the first five keys, so no value is implied.
+`additions` is checked only where a case states it, so the cases that predate the field stay as they are.
 
 An example case:
 

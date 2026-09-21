@@ -23,6 +23,11 @@
                 "type": ["string", "null"],
                 "minLength": 1,
                 "description": "The repository-relative path of the file that set the owners."
+            },
+            "additions": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 },
+                "description": "Who decides what may enter the path, besides its owners. A resolver that predates the member leaves it out, which means an empty array."
             }
         }
     }

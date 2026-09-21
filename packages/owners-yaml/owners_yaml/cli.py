@@ -376,10 +376,10 @@ def cmd_fmt(repo_root: Path | None) -> None:
         click.echo(f"Delete ({len(plan.deletions)}) — statements fold into an ancestor:")
         for path in plan.deletions:
             click.echo(f"    - {path}")
-    if plan.additions:
+    if plan.rule_edits:
         click.echo("Add rules:")
-        for path in sorted(plan.additions):
-            for line in plan.additions[path]:
+        for path in sorted(plan.rule_edits):
+            for line in plan.rule_edits[path]:
                 click.echo(f"    {path}: {line}")
 
     click.echo(f"\ncost: current {plan.current_cost} → canonical {plan.canonical_cost}")

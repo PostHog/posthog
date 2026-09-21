@@ -22,6 +22,7 @@ from owners_yaml.cli import _consolidation_suggestions, _live_scope, _reserved_l
 from owners_yaml.fmt import CanonicalPlacer, CanonicalPlan
 from owners_yaml.resolver import OwnersResolver, team_channel
 from owners_yaml.schema import (
+    _RULE_KEYS,
     DEFAULT_ALIAS_FILES,
     TOP_LEVEL_KEYS,
     CodeownersSettings,
@@ -160,9 +161,27 @@ def test_teams_registry_and_settings_are_root_only(tmp_path: Path) -> None:
     assert root.settings.codeowners == CodeownersSettings(jest_root="web")
 
 
-def test_json_schema_accepts_the_same_top_level_keys_as_the_parser() -> None:
+def test_json_schema_accepts_the_same_keys_as_the_parser() -> None:
     schema = json.loads((Path(__file__).parent.parent / "owners.schema.json").read_text())
     assert set(schema["properties"]) == TOP_LEVEL_KEYS
+    assert set(schema["$defs"]["rule"]["properties"]) == _RULE_KEYS
+
+
+@pytest.mark.parametrize(
+    "fragment",
+    [
+        "additions: 5\n",
+        "additions: [team-a, '']\n",
+        "additions: {}\n",
+        "rules:\n  - match: '/*'\n    additions: [team-a, '']\n",
+    ],
+)
+def test_malformed_additions_is_a_schema_error_and_adds_nobody(tmp_path: Path, fragment: str) -> None:
+    file, errors = parse_owners_file(
+        "version: 1\nowners: [team-a]\n" + fragment, path=tmp_path / "owners.yaml", directory=""
+    )
+    assert any("'additions' must be" in e for e in errors), errors
+    assert file is not None and file.additions == [] and all(r.additions == [] for r in file.rules)
 
 
 @pytest.mark.parametrize(
@@ -375,7 +394,7 @@ def test_fmt_folds_dedicated_child_into_pinned_parent(tmp_path: Path) -> None:
         },
     )
     assert plan.deletions == ["a/b/owners.yaml"]
-    assert plan.additions == {"a/owners.yaml": ["/b/ -> [team-b]"]}
+    assert plan.rule_edits == {"a/owners.yaml": ["/b/ -> [team-b]"]}
     assert plan.creations == []
 
 
@@ -444,7 +463,7 @@ def test_fmt_never_places_rules_on_a_product_yaml_dir(tmp_path: Path) -> None:
     # A product.yaml manifest only exposes its owners list — it cannot physically hold
     # rules, and an owners.yaml next to it is a lint error. A differently-owned subtree
     # below a product must keep its own file or fold to an ancestor, never produce
-    # additions keyed on the product dir.
+    # rule edits keyed on the product dir.
     plan = _fmt_plan(
         tmp_path,
         {
@@ -457,7 +476,7 @@ def test_fmt_never_places_rules_on_a_product_yaml_dir(tmp_path: Path) -> None:
             "r2.py": "x",
         },
     )
-    assert "products/foo/owners.yaml" not in plan.additions
+    assert "products/foo/owners.yaml" not in plan.rule_edits
     assert "products/foo/owners.yaml" not in plan.creations
 
 
@@ -518,7 +537,7 @@ def test_fmt_reports_top_level_owner_edits(tmp_path: Path) -> None:
     )
     assert not plan.is_canonical
     assert sorted(plan.deletions) == ["a/owners.yaml", "b/owners.yaml"]
-    assert any("owners: [] -> [team-a]" in line for line in plan.additions.get("owners.yaml", []))
+    assert any("owners: [] -> [team-a]" in line for line in plan.rule_edits.get("owners.yaml", []))
 
 
 def test_fmt_reports_rule_owner_changes(tmp_path: Path) -> None:
@@ -536,7 +555,7 @@ def test_fmt_reports_rule_owner_changes(tmp_path: Path) -> None:
         },
     )
     assert "a/owners.yaml" in plan.deletions
-    assert "/a/: [team-old] -> [team-new]" in plan.additions.get("owners.yaml", [])
+    assert "/a/: [team-old] -> [team-new]" in plan.rule_edits.get("owners.yaml", [])
 
 
 def test_fmt_preserves_unowned_by_design_exemptions(tmp_path: Path) -> None:
@@ -553,7 +572,7 @@ def test_fmt_preserves_unowned_by_design_exemptions(tmp_path: Path) -> None:
         },
     )
     if "a/owners.yaml" in plan.deletions:
-        assert "/a/ -> (unowned)" in plan.additions.get("owners.yaml", [])
+        assert "/a/ -> (unowned)" in plan.rule_edits.get("owners.yaml", [])
 
 
 def test_fmt_reports_stale_rule_removals(tmp_path: Path) -> None:
@@ -576,7 +595,7 @@ def test_fmt_reports_stale_rule_removals(tmp_path: Path) -> None:
         },
     )
     assert not plan.is_canonical
-    assert "drop /b/ (was [team-a])" in plan.additions.get("products/foo/backend/owners.yaml", [])
+    assert "drop /b/ (was [team-a])" in plan.rule_edits.get("products/foo/backend/owners.yaml", [])
     assert "products/foo/backend/owners.yaml" not in plan.deletions
 
 
@@ -616,18 +635,24 @@ def test_fmt_folds_a_child_under_a_status_only_rule_without_losing_the_status(tm
     assert plan.deletions == ["a/gen/owners.yaml"]
 
 
-def test_fmt_pins_files_with_rule_level_metadata(tmp_path: Path) -> None:
-    # Relocation only preserves match+owners, so a rule carrying status/inherit
-    # must pin its file exactly like a glob does — otherwise folding this child
-    # into the parent would silently drop the generated status.
+@pytest.mark.parametrize(
+    "child_yaml",
+    [
+        "version: 1\nowners: [team-b]\nrules:\n  - match: '/gen/'\n    owners: [team-b]\n    status: generated\n",
+        "version: 1\nowners: [team-b]\nrules:\n  - match: '/gen/'\n    owners: [team-b]\n    additions: team-x\n",
+        "version: 1\nowners: [team-b]\nadditions: team-x\n",
+    ],
+)
+def test_fmt_pins_files_with_rule_level_metadata(tmp_path: Path, child_yaml: str) -> None:
+    # Relocation only preserves match+owners, so a file carrying status or additions
+    # must pin itself exactly like a glob does — otherwise folding this child into the
+    # parent would silently drop the generated status or the additions.
     plan = _fmt_plan(
         tmp_path,
         {
             "a/owners.yaml": "version: 1\nowners: [team-a]\nstatus: deprecated\n",
             "a/f.py": "x",
-            "a/b/owners.yaml": (
-                "version: 1\nowners: [team-b]\nrules:\n  - match: '/gen/'\n    owners: [team-b]\n    status: generated\n"
-            ),
+            "a/b/owners.yaml": child_yaml,
             "a/b/gen/g.py": "x",
             "r1.py": "x",
             "r2.py": "x",
@@ -811,6 +836,7 @@ def test_json_entrypoint_resolves_against_an_explicit_repo_root(registry_repo: P
             "status": "active",
             "slack": "#registry-chan",
             "source": "reg/owners.yaml",
+            "additions": [],
         }
     }
     jsonschema = pytest.importorskip("jsonschema")

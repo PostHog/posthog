@@ -94,6 +94,22 @@ rules:
     owners: null
 ```
 
+`additions` names who decides what may enter a directory, as opposed to who owns the files already in it.
+It never changes `owners`, so a directory can gate new entries while the unowned files below it still show up as unowned:
+
+```yaml
+# products/owners.yaml
+version: 1
+owners: []
+rules:
+  - match: '/*'
+    additions: team-architecture
+```
+
+Resolve the new directory itself, not a file inside it: `owners resolve --json products/new-thing` returns `"additions": ["team-architecture"]`, and a deeper path does not.
+Additions from every file on the walk add up, so a nested file cannot drop what an ancestor declared.
+The format does not say when a directory counts as new or what happens next; a review bot or CI check decides that from the change set.
+
 The root file can also hold repository settings:
 
 ```yaml
@@ -124,12 +140,14 @@ For editor completion, point your YAML language server at [`owners.schema.json`]
 $ owners resolve --json billing/vendor/stripe.py web/app.ts
 {
   "billing/vendor/stripe.py": {
+    "additions": [],
     "owners": [],
     "slack": null,
     "source": "billing/owners.yaml",
     "status": "active"
   },
   "web/app.ts": {
+    "additions": [],
     "owners": [
       "team-platform"
     ],

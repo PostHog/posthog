@@ -65,6 +65,9 @@ def test_conformance_case(tmp_path: Path, case: ConformanceCase) -> None:
             "source": resolution.source,
             "slack": resolve_channel(case, owners, resolution.slack),
         }
+        # Optional in a case, so the cases written before the field existed need no edit.
+        if "additions" in case.expect[path]:
+            actual[path]["additions"] = resolution.additions
 
     assert actual == case.expect
 
