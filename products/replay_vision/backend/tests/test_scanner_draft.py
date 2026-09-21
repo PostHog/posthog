@@ -975,6 +975,14 @@ class TestMeasuredEvents(_VisionAPITestCase):
             _CandidateEvent(name="old_flow_started", sessions=0),
         ]
 
+    def test_a_count_returned_in_another_casing_still_reaches_its_candidate(self):
+        # The query keys its result by the stored casing, which the hardcoded survey names do not
+        # match. A missed lookup would measure zero, and a zero now drops the event as dead.
+        with patch(f"{_MODULE}.recent_event_sessions", return_value={"Survey Sent": 7}):
+            measured = _measured_events(self.team, ["survey sent"])
+
+        assert measured == [_CandidateEvent(name="survey sent", sessions=7)]
+
     def test_a_failed_measurement_keeps_every_candidate_uncounted(self):
         # Losing the counts must cost the ranking hint, not the grounding: a briefing with no
         # events sends the model back to drafting filters it invents.

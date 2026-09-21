@@ -56,6 +56,14 @@ class TestRecentEventSessions(ClickhouseTestMixin):
         assert recent_event_sessions(team=team, event_names=["invoice_paid"]) == {}
 
     @pytest.mark.django_db
+    def test_a_name_that_differs_only_in_case_still_measures(self, team) -> None:
+        # The survey event names are hardcoded lowercase, so a team whose SDK sent "Survey Sent"
+        # would otherwise measure zero and have the event dropped as dead.
+        _event(team, "Survey Sent", "s1", _NOW - dt.timedelta(hours=1))
+
+        assert recent_event_sessions(team=team, event_names=["survey sent"]) == {"Survey Sent": 1}
+
+    @pytest.mark.django_db
     def test_another_projects_events_are_never_counted(self, team) -> None:
         # The names come from a definition search, and a count that leaked across teams would
         # report another project's traffic into this team's briefing.

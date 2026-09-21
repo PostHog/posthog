@@ -1435,7 +1435,10 @@ def _measured_events(team: Team, names: Sequence[str]) -> list[_CandidateEvent]:
     except Exception:
         logger.warning("replay_vision.scanner_draft.event_volume_failed", team_id=team.id, exc_info=True)
         return [_CandidateEvent(name=name) for name in names]
-    return [_CandidateEvent(name=name, sessions=sessions.get(name, 0)) for name in names]
+    # Matched case-insensitively, the way _grounded_events resolves names. A casing mismatch between
+    # the definition and the stored event would otherwise measure 0 and read as dead.
+    measured = {name.lower(): count for name, count in sessions.items()}
+    return [_CandidateEvent(name=name, sessions=measured.get(name.lower(), 0)) for name in names]
 
 
 def _page_filter_regex(pathname: str) -> str | None:

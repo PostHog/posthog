@@ -38,6 +38,9 @@ def recent_event_sessions(
     sessions a scanner could watch. The two are then comparable to each other; both overstate what
     is scannable by the short sessions the sweep skips.
 
+    Matches names case-insensitively, but keys the result by the stored casing, so a caller whose
+    name differs in case still gets a count rather than a zero that reads as dead.
+
     Raises on query failure, so the caller decides whether a missing measurement is fatal.
     """
     names = list(dict.fromkeys(name for name in event_names if name))
@@ -50,13 +53,15 @@ def recent_event_sessions(
         SELECT event, count(DISTINCT `$session_id`) AS sessions
         FROM events
         WHERE timestamp >= {window_start}
-          AND event IN {names}
+          AND lower(event) IN {names}
           AND notEmpty(`$session_id`)
         GROUP BY event
         """,
         placeholders={
             "window_start": ast.Constant(value=window_start),
-            "names": ast.Constant(value=names),
+            # Matched on lowercase, because a caller's name can differ in case from the stored
+            # event. The caller resolves the count back to its own casing.
+            "names": ast.Constant(value=[name.lower() for name in names]),
         },
     )
 
