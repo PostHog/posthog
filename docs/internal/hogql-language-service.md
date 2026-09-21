@@ -334,6 +334,20 @@ The marker is advisory: a missing or legacy Go response overrides it, and neithe
 Redis outages use the existing direct publication path.
 If catalog construction outlives the lease, a second publisher can duplicate the Go catalog build and publication.
 
+Warehouse table and alias validation is isolated per exported entry.
+The shared catalog excludes direct-connection table rows because those rows belong only to an explicit `connectionId` database.
+This keeps a direct table's raw dotted name from replacing a synced table that resolves to the same catalog key.
+When one canonical warehouse table does not match the permission-filtered HogQL resolver, Django omits that table and its dependent aliases while publishing unrelated tables, aliases, and properties.
+Canonical names stay reserved after omission, so another alias cannot restore a rejected table spelling.
+An editor query that references an omitted table can report an unknown table until its warehouse metadata is corrected, while unrelated queries continue to use the language service.
+
+Django writes one structured error for each omitted table or alias with its bounded name, tenant scope, and stable rejection reason.
+ID mismatches also include the bounded serialized and resolver table IDs.
+It sends one aggregate Error Tracking event without table names, alias names, SQL, columns, catalog contents, raw responses, or exception messages.
+Global permission, schema, or property collection failures do not publish a partial catalog.
+Recoverable catalog-build, publication, and language-service request failures use the Python editor path and the same sanitized Error Tracking path.
+Ordinary catalog misses, legacy refreshes, and Redis lock contention are not errors.
+
 The initial rollout keeps ClickHouse execution in Django:
 
 ```text

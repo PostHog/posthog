@@ -820,12 +820,14 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         # Guards the deleted-source exclusion against the Django exclude()-with-NULL gotcha:
         # a self-managed table (no source) must still resolve.
         credential = DataWarehouseCredential.objects.create(team=self.team, access_key="k", access_secret="s")
-        self._create_warehouse_table(name="self_managed", url_pattern="s3://self/*", credential=credential)
+        table = self._create_warehouse_table(name="self_managed", url_pattern="s3://self/*", credential=credential)
 
         database = Database.create_for(team=self.team)
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         assert database.has_table("self_managed")
         assert cast(HogQLDataWarehouseTable, database.get_table("self_managed")).url == "s3://self/*"
+        assert serialized["self_managed"].id == str(table.id)
 
     def test_create_hogql_database_resolves_duplicate_live_table_names_to_newest(self):
         # Two live tables share a name (e.g. a re-sync produced a duplicate): newest wins.
@@ -3625,21 +3627,38 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
         )
-        source = ExternalDataSource.objects.create(
+        synced_source = ExternalDataSource.objects.create(
             team=self.team,
-            source_id="source_id",
-            connection_id="connection_id",
+            source_id="synced_source",
+            connection_id="synced_connection",
             status=ExternalDataSource.Status.COMPLETED,
             source_type=ExternalDataSourceType.POSTGRES,
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
-            prefix="ph3",
+            prefix="",
         )
-        DataWarehouseTable.objects.create(
-            name="analytics_platform_preaggregationjob",
+        synced_table = DataWarehouseTable.objects.create(
+            name="orders",
             format="Parquet",
             team=self.team,
             credential=credentials,
-            external_data_source=source,
+            external_data_source=synced_source,
+            url_pattern="s3://synthetic/orders/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        direct_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="direct_source",
+            connection_id="direct_connection",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="managed",
+        )
+        DataWarehouseTable.objects.create(
+            name="postgres.orders",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=direct_source,
             url_pattern="direct://postgres",
             columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
         )
@@ -3647,9 +3666,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         database = Database.create_for(team=self.team)
         serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
-        assert not database.has_table("analytics_platform_preaggregationjob")
-        assert "analytics_platform_preaggregationjob" not in database.get_warehouse_table_names()
-        assert "analytics_platform_preaggregationjob" not in serialized
+        assert database.has_table("postgres.orders")
+        assert "postgres.orders" in database.get_warehouse_table_names()
+        assert cast(DatabaseSchemaDataWarehouseTable, serialized["postgres.orders"]).id == str(synced_table.id)
 
     def test_serialize_direct_postgres_table_uses_table_name_in_direct_mode(self) -> None:
         credentials = DataWarehouseCredential.objects.create(

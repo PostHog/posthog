@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from hashlib import sha256
 from time import perf_counter
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -25,6 +25,7 @@ from posthog.hogql.editor_assist_metrics import (
 )
 from posthog.hogql.errors import QueryError, ResolutionError
 
+from posthog.dataclasses import frozen
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import PropertyDefinition, Team, User
 from posthog.redis import get_client
@@ -65,6 +66,64 @@ class LanguageServiceResult:
     body: dict[str, Any]
     duration_seconds: float
     response_size_bytes: int
+
+
+type CatalogValidationReason = Literal[
+    "canonical_not_visible",
+    "canonical_unresolvable",
+    "canonical_not_warehouse",
+    "canonical_id_mismatch",
+    "alias_dependency_omitted",
+    "alias_not_visible",
+    "alias_unresolvable",
+    "alias_not_warehouse",
+    "alias_ambiguous",
+    "alias_canonical_collision",
+    "alias_conflict",
+]
+type _WarehouseResolutionFailure = Literal["not_visible", "unresolvable", "not_warehouse"]
+
+_CANONICAL_FAILURE_REASONS: dict[_WarehouseResolutionFailure, CatalogValidationReason] = {
+    "not_visible": "canonical_not_visible",
+    "unresolvable": "canonical_unresolvable",
+    "not_warehouse": "canonical_not_warehouse",
+}
+_ALIAS_FAILURE_REASONS: dict[_WarehouseResolutionFailure, CatalogValidationReason] = {
+    "not_visible": "alias_not_visible",
+    "unresolvable": "alias_unresolvable",
+    "not_warehouse": "alias_not_warehouse",
+}
+
+
+@frozen
+class CatalogValidationOmission:
+    entry_type: Literal["table", "alias"]
+    reason: CatalogValidationReason
+    table_name: str = field(repr=False)
+    alias_name: str | None = field(default=None, repr=False)
+    schema_table_id: str | None = field(default=None, repr=False)
+    resolver_table_id: str | None = field(default=None, repr=False)
+
+
+@frozen
+class CatalogValidationSummary:
+    reasons: tuple[CatalogValidationReason, ...]
+    omitted_tables: int
+    omitted_aliases: int
+    omissions: tuple[CatalogValidationOmission, ...] = field(repr=False)
+
+
+@frozen
+class CatalogBuildResult:
+    catalog: dict[str, Any] = field(repr=False)
+    validation: CatalogValidationSummary | None
+
+
+@frozen
+class _WarehouseAliasResult:
+    aliases: dict[str, str]
+    omitted_canonical_names: frozenset[str]
+    validation: CatalogValidationSummary | None
 
 
 def coordinate_catalog_publication(
@@ -159,9 +218,12 @@ def build_catalog(
     schema: DatabaseSchemaQueryResponse,
     *,
     database: Database,
-) -> dict[str, Any]:
+) -> CatalogBuildResult:
+    warehouse_aliases = _warehouse_table_aliases(schema, database)
     tables: dict[str, Any] = {}
     for name, table in schema.tables.items():
+        if name in warehouse_aliases.omitted_canonical_names:
+            continue
         fields = {
             field_name: {"name": field.name or field_name, "type": field.type}
             for field_name, field in table.fields.items()
@@ -179,56 +241,158 @@ def build_catalog(
         properties[f"group:{group_type_index}"] = _properties_for_namespace(
             team, user, PropertyDefinition.Type.GROUP, group_type_index
         )
-    return {
-        "tables": tables,
-        "properties": properties,
-        "tableAliases": _warehouse_table_aliases(schema, database),
-    }
+    return CatalogBuildResult(
+        catalog={"tables": tables, "properties": properties, "tableAliases": warehouse_aliases.aliases},
+        validation=warehouse_aliases.validation,
+    )
 
 
-def _warehouse_table_aliases(schema: DatabaseSchemaQueryResponse, database: Database) -> dict[str, str]:
+def _warehouse_table_aliases(schema: DatabaseSchemaQueryResponse, database: Database) -> _WarehouseAliasResult:
     visible_names = set(database.tables.resolve_visible_table_names())
     canonical_by_resolved_object: dict[int, list[str]] = {}
-    warehouse_tables: list[DatabaseSchemaDataWarehouseTable] = []
+    valid_warehouse_tables: list[tuple[str, DatabaseSchemaDataWarehouseTable]] = []
+    omitted_canonical_names: set[str] = set()
+    omitted_alias_names: set[str] = set()
+    failures: set[CatalogValidationReason] = set()
+    omissions: set[CatalogValidationOmission] = set()
 
     for canonical_name, schema_table in schema.tables.items():
         if not isinstance(schema_table, DatabaseSchemaDataWarehouseTable):
             continue
-        warehouse_tables.append(schema_table)
-        resolved = _visible_warehouse_table(database, visible_names, canonical_name)
-        if resolved.table_id != schema_table.id:
-            raise LanguageServiceError(f"catalog table {canonical_name!r} does not match the HogQL resolver")
+        resolved, failure = _visible_warehouse_table(database, visible_names, canonical_name)
+        reason = _CANONICAL_FAILURE_REASONS[failure] if failure is not None else None
+        if resolved is not None and resolved.table_id != schema_table.id:
+            reason = "canonical_id_mismatch"
+        if reason is not None:
+            failures.add(reason)
+            omitted_canonical_names.add(canonical_name)
+            omissions.add(
+                CatalogValidationOmission(
+                    entry_type="table",
+                    reason=reason,
+                    table_name=canonical_name,
+                    schema_table_id=str(schema_table.id) if reason == "canonical_id_mismatch" else None,
+                    resolver_table_id=str(resolved.table_id)
+                    if reason == "canonical_id_mismatch" and resolved is not None
+                    else None,
+                )
+            )
+            for alias in schema_table.search_aliases or []:
+                if alias != canonical_name:
+                    failures.add("alias_dependency_omitted")
+                    omitted_alias_names.add(alias)
+                    omissions.add(
+                        CatalogValidationOmission(
+                            entry_type="alias",
+                            reason="alias_dependency_omitted",
+                            table_name=canonical_name,
+                            alias_name=alias,
+                        )
+                    )
+            continue
+        assert resolved is not None
+        valid_warehouse_tables.append((canonical_name, schema_table))
         canonical_by_resolved_object.setdefault(id(resolved), []).append(canonical_name)
 
     aliases: dict[str, str] = {}
     canonical_names = set(schema.tables)
-    for schema_table in warehouse_tables:
+    for canonical_name, schema_table in valid_warehouse_tables:
         for alias in schema_table.search_aliases or []:
-            resolved = _visible_warehouse_table(database, visible_names, alias)
+            if alias in omitted_alias_names:
+                continue
+            resolved, failure = _visible_warehouse_table(database, visible_names, alias)
+            if failure is not None:
+                reason = _ALIAS_FAILURE_REASONS[failure]
+                failures.add(reason)
+                omitted_alias_names.add(alias)
+                omissions.add(
+                    CatalogValidationOmission(
+                        entry_type="alias", reason=reason, table_name=canonical_name, alias_name=alias
+                    )
+                )
+                continue
+            assert resolved is not None
             targets = canonical_by_resolved_object.get(id(resolved), [])
             if len(targets) != 1:
-                raise LanguageServiceError(f"catalog alias {alias!r} has no unique visible target")
+                failures.add("alias_ambiguous")
+                omitted_alias_names.add(alias)
+                omissions.add(
+                    CatalogValidationOmission(
+                        entry_type="alias",
+                        reason="alias_ambiguous",
+                        table_name=canonical_name,
+                        alias_name=alias,
+                    )
+                )
+                continue
             target = targets[0]
             if alias == target:
                 continue
             if alias in canonical_names:
-                raise LanguageServiceError(f"catalog alias {alias!r} collides with a canonical table")
-            previous = aliases.setdefault(alias, target)
-            if previous != target:
-                raise LanguageServiceError(f"catalog alias {alias!r} resolves to conflicting tables")
-    return aliases
+                failures.add("alias_canonical_collision")
+                omitted_alias_names.add(alias)
+                omissions.add(
+                    CatalogValidationOmission(
+                        entry_type="alias",
+                        reason="alias_canonical_collision",
+                        table_name=canonical_name,
+                        alias_name=alias,
+                    )
+                )
+                continue
+            previous = aliases.get(alias)
+            if previous is not None and previous != target:
+                failures.add("alias_conflict")
+                omitted_alias_names.add(alias)
+                aliases.pop(alias)
+                omissions.add(
+                    CatalogValidationOmission(
+                        entry_type="alias",
+                        reason="alias_conflict",
+                        table_name=canonical_name,
+                        alias_name=alias,
+                    )
+                )
+                continue
+            aliases[alias] = target
+
+    validation = None
+    if failures:
+        validation = CatalogValidationSummary(
+            reasons=tuple(sorted(failures)),
+            omitted_tables=len(omitted_canonical_names),
+            omitted_aliases=len(omitted_alias_names),
+            omissions=tuple(
+                sorted(
+                    omissions,
+                    key=lambda omission: (
+                        omission.entry_type,
+                        omission.table_name,
+                        omission.alias_name or "",
+                        omission.reason,
+                    ),
+                )
+            ),
+        )
+    return _WarehouseAliasResult(
+        aliases=aliases,
+        omitted_canonical_names=frozenset(omitted_canonical_names),
+        validation=validation,
+    )
 
 
-def _visible_warehouse_table(database: Database, visible_names: set[str], name: str) -> S3Table:
+def _visible_warehouse_table(
+    database: Database, visible_names: set[str], name: str
+) -> tuple[S3Table | None, _WarehouseResolutionFailure | None]:
     if name not in visible_names:
-        raise LanguageServiceError(f"catalog table {name!r} is not visible")
+        return None, "not_visible"
     try:
         table = database.get_table(name)
-    except (QueryError, ResolutionError) as error:
-        raise LanguageServiceError(f"catalog table {name!r} cannot be resolved") from error
+    except (QueryError, ResolutionError):
+        return None, "unresolvable"
     if not isinstance(table, S3Table) or table.table_id is None:
-        raise LanguageServiceError(f"catalog table {name!r} is not a warehouse table")
-    return table
+        return None, "not_warehouse"
+    return table, None
 
 
 def _properties_for_namespace(

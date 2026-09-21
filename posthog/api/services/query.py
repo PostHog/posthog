@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Optional, overload
 
 import structlog
@@ -37,6 +37,7 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.language_service import (
     WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX,
     CatalogMissing,
+    CatalogValidationOmission,
     LanguageServiceClient,
     LanguageServiceError,
     LanguageServiceResult,
@@ -84,6 +85,24 @@ class _DatabaseSchemaCatalog:
 type _EditorAssistReason = Literal["served", "ineligible", "service_error", "invalid_response"]
 type _EditorAssistOperation = Literal["autocomplete", "metadata"]
 type _MalformedResponseStage = Literal["http_response", "response_mapping"]
+type _CatalogTelemetryStage = Literal["catalog_validation", "catalog_build", "catalog_publish", "service_request"]
+type _CatalogTelemetryReason = Literal["partial_catalog", "language_service_error", "unexpected_error"]
+
+
+@frozen
+class _CatalogTelemetryEvent:
+    stage: _CatalogTelemetryStage
+    reason: _CatalogTelemetryReason
+    validation_reasons: tuple[str, ...] = ()
+    omitted_tables: int = 0
+    omitted_aliases: int = 0
+    omissions: tuple[CatalogValidationOmission, ...] = field(default=(), repr=False)
+
+
+class _CatalogPublicationFailure(LanguageServiceError):
+    def __init__(self, event: _CatalogTelemetryEvent) -> None:
+        super().__init__("HogQL catalog publication failed")
+        self.event = event
 
 
 @frozen
@@ -92,6 +111,7 @@ class _EditorAssistRoute:
     result: LanguageServiceResult | None
     reason: _EditorAssistReason
     malformed_stage: _MalformedResponseStage | None = None
+    catalog_telemetry: tuple[_CatalogTelemetryEvent, ...] = ()
 
 
 def _is_alias_capable_catalog_revision(revision: object) -> bool:
@@ -113,6 +133,7 @@ def _language_service_eligible(query: HogQLAutocomplete | HogQLMetadata) -> bool
 
 
 def _language_service_call(team: Team, user: User, query: HogQLAutocomplete | HogQLMetadata) -> _EditorAssistRoute:
+    catalog_telemetry: list[_CatalogTelemetryEvent] = []
     try:
         client = LanguageServiceClient()
 
@@ -127,7 +148,12 @@ def _language_service_call(team: Team, user: User, query: HogQLAutocomplete | Ho
     except MalformedLanguageServiceResponse:
         return _EditorAssistRoute(enabled=True, result=None, reason="invalid_response", malformed_stage="http_response")
     except LanguageServiceError:
-        return _EditorAssistRoute(enabled=True, result=None, reason="service_error")
+        return _EditorAssistRoute(
+            enabled=True,
+            result=None,
+            reason="service_error",
+            catalog_telemetry=(_CatalogTelemetryEvent(stage="service_request", reason="language_service_error"),),
+        )
 
     if result is not None:
         if _is_alias_capable_catalog_revision(result.body.get("catalogRevision")):
@@ -139,17 +165,46 @@ def _language_service_call(team: Team, user: User, query: HogQLAutocomplete | Ho
         nonlocal publication_succeeded
         schema_catalog = _build_database_schema_query(team, DatabaseSchemaQuery(), user=user)
         revision = f"{WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX}{time.time_ns()}"
-        client.publish(
-            team.pk,
-            user.pk,
-            revision,
-            build_catalog(
+        try:
+            build_result = build_catalog(
                 team,
                 user,
                 schema_catalog.response,
                 database=schema_catalog.database,
-            ),
-        )
+            )
+        except LanguageServiceError:
+            raise _CatalogPublicationFailure(
+                _CatalogTelemetryEvent(stage="catalog_build", reason="language_service_error")
+            ) from None
+        except Exception:
+            raise _CatalogPublicationFailure(
+                _CatalogTelemetryEvent(stage="catalog_build", reason="unexpected_error")
+            ) from None
+
+        if build_result.validation is not None:
+            catalog_telemetry.append(
+                _CatalogTelemetryEvent(
+                    stage="catalog_validation",
+                    reason="partial_catalog",
+                    validation_reasons=build_result.validation.reasons,
+                    omitted_tables=build_result.validation.omitted_tables,
+                    omitted_aliases=build_result.validation.omitted_aliases,
+                    omissions=build_result.validation.omissions,
+                )
+            )
+
+        try:
+            client.publish(team.pk, user.pk, revision, build_result.catalog)
+        except MalformedLanguageServiceResponse:
+            raise
+        except LanguageServiceError:
+            raise _CatalogPublicationFailure(
+                _CatalogTelemetryEvent(stage="catalog_publish", reason="language_service_error")
+            ) from None
+        except Exception:
+            raise _CatalogPublicationFailure(
+                _CatalogTelemetryEvent(stage="catalog_publish", reason="unexpected_error")
+            ) from None
         publication_succeeded = True
 
     def check_catalog() -> LanguageServiceResult | None:
@@ -166,12 +221,30 @@ def _language_service_call(team: Team, user: User, query: HogQLAutocomplete | Ho
     try:
         result = coordinate_catalog_publication(team.pk, user.pk, client.base_url, check_catalog, publish_catalog)
     except MalformedLanguageServiceResponse:
-        return _EditorAssistRoute(enabled=True, result=None, reason="invalid_response", malformed_stage="http_response")
-    except (DatabaseSchemaUnavailable, LanguageServiceError):
+        return _EditorAssistRoute(
+            enabled=True,
+            result=None,
+            reason="invalid_response",
+            malformed_stage="http_response",
+            catalog_telemetry=tuple(catalog_telemetry),
+        )
+    except _CatalogPublicationFailure as failure:
+        catalog_telemetry.append(failure.event)
+        return _EditorAssistRoute(
+            enabled=True, result=None, reason="service_error", catalog_telemetry=tuple(catalog_telemetry)
+        )
+    except DatabaseSchemaUnavailable:
         return _EditorAssistRoute(enabled=True, result=None, reason="service_error")
+    except LanguageServiceError:
+        catalog_telemetry.append(_CatalogTelemetryEvent(stage="service_request", reason="language_service_error"))
+        return _EditorAssistRoute(
+            enabled=True, result=None, reason="service_error", catalog_telemetry=tuple(catalog_telemetry)
+        )
     if result is None:
-        return _EditorAssistRoute(enabled=True, result=None, reason="service_error")
-    return _EditorAssistRoute(enabled=True, result=result, reason="served")
+        return _EditorAssistRoute(
+            enabled=True, result=None, reason="service_error", catalog_telemetry=tuple(catalog_telemetry)
+        )
+    return _EditorAssistRoute(enabled=True, result=result, reason="served", catalog_telemetry=tuple(catalog_telemetry))
 
 
 def _route_editor_assist(team: Team, user: User | None, query: HogQLAutocomplete | HogQLMetadata) -> _EditorAssistRoute:
@@ -197,7 +270,59 @@ def _capture_malformed_language_service_response(
                 },
             )
     except Exception:
-        logger.warning("hogql_language_service_error_tracking_failed")
+        _safe_editor_assist_warning("hogql_language_service_error_tracking_failed")
+
+
+def _safe_editor_assist_warning(event: str, **properties: object) -> None:
+    try:
+        logger.warning(event, **properties)
+    except Exception:
+        pass
+
+
+def _safe_editor_assist_error(event: str, **properties: object) -> None:
+    try:
+        logger.error(event, **properties)
+    except Exception:
+        pass
+
+
+def _capture_catalog_telemetry(
+    team: Team,
+    user: User,
+    operation: _EditorAssistOperation,
+    events: tuple[_CatalogTelemetryEvent, ...],
+) -> None:
+    for event in events:
+        for omission in event.omissions:
+            _safe_editor_assist_error(
+                "hogql_catalog_entry_omitted",
+                team_id=team.pk,
+                user_id=user.pk,
+                entry_type=omission.entry_type,
+                reason=omission.reason,
+                table_name=omission.table_name[:256],
+                alias_name=omission.alias_name[:256] if omission.alias_name is not None else None,
+                schema_table_id=omission.schema_table_id[:256] if omission.schema_table_id is not None else None,
+                resolver_table_id=omission.resolver_table_id[:256] if omission.resolver_table_id is not None else None,
+            )
+        try:
+            with posthoganalytics.new_context(fresh=True, capture_exceptions=False):
+                posthoganalytics.set_capture_exception_code_variables_context(False)
+                posthoganalytics.capture_exception(
+                    RuntimeError("HogQL catalog publication issue"),
+                    properties={
+                        "component": "hogql_language_service",
+                        "operation": operation,
+                        "stage": event.stage,
+                        "reason": event.reason,
+                        "validation_reasons": event.validation_reasons,
+                        "omitted_tables": event.omitted_tables,
+                        "omitted_aliases": event.omitted_aliases,
+                    },
+                )
+        except Exception:
+            _safe_editor_assist_warning("hogql_catalog_error_tracking_failed")
 
 
 def _record_editor_assist_backend(
@@ -211,7 +336,7 @@ def _record_editor_assist_backend(
     try:
         EDITOR_ASSIST_RESPONSES_TOTAL.labels(operation=operation, backend=backend, reason=reason).inc()
     except Exception:
-        logger.warning("hogql_editor_assist_metric_failed")
+        _safe_editor_assist_warning("hogql_editor_assist_metric_failed")
 
 
 def _autocomplete_response_from_language_service(
@@ -538,6 +663,8 @@ def process_query_model(
     if isinstance(query, HogQLAutocomplete):
         with EDITOR_ASSIST_DURATION_SECONDS.labels(kind="autocomplete").time():
             route = _route_editor_assist(team, user, query)
+            if user is not None:
+                _capture_catalog_telemetry(team, user, "autocomplete", route.catalog_telemetry)
             python_reason = route.reason
             if (language_result := route.result) is not None:
                 try:
@@ -567,6 +694,8 @@ def process_query_model(
     if isinstance(query, HogQLMetadata):
         with EDITOR_ASSIST_DURATION_SECONDS.labels(kind="metadata").time():
             route = _route_editor_assist(team, user, query)
+            if user is not None:
+                _capture_catalog_telemetry(team, user, "metadata", route.catalog_telemetry)
             python_reason = route.reason
             if (language_result := route.result) is not None:
                 try:
