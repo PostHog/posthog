@@ -31,6 +31,10 @@ class ExpiringTeamSelection:
     that comes back full of identifiers for deleted teams resolves to fewer Team rows
     than it read, and the run is still leaving work behind. It is None when the range
     could not be read, because a run that never saw the queue cannot report on it.
+
+    The range is capped at the limit, so a run that drained the queue exactly reports
+    True as well. `ExpiryBacklogSample.due_count` is the unbounded reading that tells
+    those two apart; this flag is the cheap signal on top of it, not a substitute.
     """
 
     teams: list[Team]
@@ -160,14 +164,22 @@ def sample_expiry_backlog(config: HyperCacheManagementConfig, ttl_threshold_hour
         due_count = redis_client.zcount(
             hypercache.expiry_sorted_set_key, "-inf", _expiry_threshold(ttl_threshold_hours, now)
         )
+    except Exception as e:
+        logger.warning(f"Error reading expiry backlog for {config.log_prefix}", error=str(e))
+        return ExpiryBacklogSample(due_count=None, oldest_seconds_to_expiry=None)
+
+    # Guarded separately from the count so that a zrange failure does not discard a
+    # zcount that already succeeded.
+    try:
         oldest = redis_client.zrange(hypercache.expiry_sorted_set_key, 0, 0, withscores=True)
         # The score is the expiration timestamp, so the value goes negative once the
         # oldest entry is past its expiry and the sweep is behind.
         oldest_seconds = oldest[0][1] - now if oldest else None
-        return ExpiryBacklogSample(due_count=due_count, oldest_seconds_to_expiry=oldest_seconds)
     except Exception as e:
-        logger.warning(f"Error reading expiry backlog for {config.log_prefix}", error=str(e))
-        return ExpiryBacklogSample(due_count=None, oldest_seconds_to_expiry=None)
+        logger.warning(f"Error reading oldest expiry entry for {config.log_prefix}", error=str(e))
+        oldest_seconds = None
+
+    return ExpiryBacklogSample(due_count=due_count, oldest_seconds_to_expiry=oldest_seconds)
 
 
 def _expiry_threshold(ttl_threshold_hours: int, now: float | None = None) -> float:
@@ -229,11 +241,16 @@ class RefreshRun:
     sorted set until that builder rebuilds them seconds to minutes later. A backlog
     sample taken after that point counts work that is already in flight, so the only
     clean reading of the queue is the one taken before the first team is processed.
+
+    `ttl_threshold_hours` rides along so the after sample counts the same set the before
+    sample did. Passed separately to both ends, the two could drift and their difference
+    would stop meaning anything.
     """
 
     backlog_before: ExpiryBacklogSample
     teams: list[Team]
     limit_reached: bool | None
+    ttl_threshold_hours: int
 
 
 def start_refresh_run(
@@ -246,6 +263,7 @@ def start_refresh_run(
         backlog_before=backlog_before,
         teams=selection.teams,
         limit_reached=selection.limit_reached,
+        ttl_threshold_hours=ttl_threshold_hours,
     )
 
 
@@ -253,7 +271,6 @@ def push_refresh_metrics(
     config: HyperCacheManagementConfig,
     run: RefreshRun,
     counts: CacheRefreshCounts,
-    ttl_threshold_hours: int = 24,
 ) -> None:
     """
     Push a refresh run's counts and its expiry backlog to Pushgateway.
@@ -270,7 +287,7 @@ def push_refresh_metrics(
     An empty run pushes too. Pushgateway keeps serving the last value pushed, so
     skipping it would latch a drained backlog at whatever the last busy run saw.
     """
-    backlog_after = sample_expiry_backlog(config, ttl_threshold_hours)
+    backlog_after = sample_expiry_backlog(config, run.ttl_threshold_hours)
 
     push_hypercache_teams_processed_metrics(
         namespace=config.namespace,
@@ -329,7 +346,7 @@ def refresh_expiring_caches(
         backlog_before=run.backlog_before.due_count,
     )
 
-    push_refresh_metrics(config, run, counts, ttl_threshold_hours)
+    push_refresh_metrics(config, run, counts)
 
     return counts
 

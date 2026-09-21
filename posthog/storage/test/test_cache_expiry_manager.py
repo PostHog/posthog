@@ -217,3 +217,14 @@ class TestRefreshExpiringCaches(SimpleTestCase):
         assert push_kwargs["expiry_backlog"] is None
         assert push_kwargs["expiry_backlog_before"] is None
         assert push_kwargs["oldest_expiry_seconds"] is None
+
+    def test_an_unreadable_oldest_entry_still_reports_the_count(self):
+        self.mock_redis.zcount.return_value = 9000
+        self.mock_redis.zrange.side_effect = RuntimeError("redis timed out")
+
+        refresh_expiring_caches(build_config())
+
+        # A zrange failure must not discard a zcount that already succeeded.
+        push_kwargs = self.mock_push.call_args.kwargs
+        assert push_kwargs["expiry_backlog_before"] == 9000
+        assert push_kwargs["oldest_expiry_seconds"] is None

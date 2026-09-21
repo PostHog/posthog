@@ -154,18 +154,21 @@ def push_hypercache_teams_processed_metrics(
         expiry_backlog: Entries in the expiry sorted set that are due for refresh,
             sampled after the run. None when the count is unavailable, which pushes
             no series rather than a zero that reads as a drained queue.
-        expiry_backlog_before: The same count, sampled before the run started. A run
-            that routes its refreshes to another builder leaves those teams in the
-            sorted set until that builder rebuilds them, so the after count includes
-            work that is already in flight and the before count does not.
+        expiry_backlog_before: The same count, sampled before the run started. See
+            `RefreshRun` in `cache_expiry_manager` for why the before sample is the
+            one to trust.
         oldest_expiry_seconds: Seconds until the oldest tracked entry expires, sampled
             before the run started. Negative once that entry is past its expiry.
-        limit_reached: Whether the run filled its team limit and left work behind.
-            None when the caller cannot tell, which pushes no series.
+        limit_reached: Whether the run took as many teams as its limit allowed. Read
+            from the sorted-set range, which is capped at the limit, so a run that
+            drained the queue exactly also reports True. `expiry_backlog_before` is
+            the unbounded count and settles that case. None when the caller cannot
+            tell, which pushes no series.
 
-    Every optional value is dropped when None. Pushgateway keeps serving the last value
-    pushed, so a series that goes missing holds its previous reading until the next run
-    supplies one.
+    Every optional value is dropped when None. The push is a PUT that replaces the whole
+    job, so a dropped series disappears from Pushgateway rather than holding its previous
+    reading. The gap is the signal: it says Redis did not answer, where a zero would say
+    the queue is drained. Alert on absence, not on a stale value.
     """
     if not settings.PROM_PUSHGATEWAY_ADDRESS:
         return
@@ -182,13 +185,13 @@ def push_hypercache_teams_processed_metrics(
             expiry_backlog_before,
         ),
         (
-            "posthog_hypercache_expiry_oldest_seconds_before_run",
+            "posthog_hypercache_expiry_oldest_before_run_seconds",
             "Seconds until the oldest tracked entry expires, sampled before the last batch refresh run started, negative once it is past expiry",
             oldest_expiry_seconds,
         ),
         (
             "posthog_hypercache_refresh_limit_reached_last_run",
-            "1 when the last batch refresh run filled its team limit and left work behind, 0 otherwise",
+            "1 when the last batch refresh run took as many teams as its limit allowed, 0 otherwise",
             None if limit_reached is None else int(limit_reached),
         ),
     ]

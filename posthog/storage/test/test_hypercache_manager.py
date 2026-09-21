@@ -502,7 +502,7 @@ class TestPushHypercacheTeamsProcessedMetrics(BaseTest):
         # The before sample is what the after sample is read against: 11000 - 7000 is what
         # the run drained, and the next run's before sample against 7000 is the arrival rate.
         assert registry.get_sample_value("posthog_hypercache_expiry_backlog_before_run", base) == 11000
-        assert registry.get_sample_value("posthog_hypercache_expiry_oldest_seconds_before_run", base) == -1800.0
+        assert registry.get_sample_value("posthog_hypercache_expiry_oldest_before_run_seconds", base) == -1800.0
         assert registry.get_sample_value("posthog_hypercache_refresh_limit_reached_last_run", base) == 1
 
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
@@ -520,6 +520,7 @@ class TestPushHypercacheTeamsProcessedMetrics(BaseTest):
                 expiry_backlog=None,
                 expiry_backlog_before=None,
                 oldest_expiry_seconds=None,
+                limit_reached=None,
             )
 
         base = {"namespace": "feature_flags", "cache_name": "flags"}
@@ -527,7 +528,9 @@ class TestPushHypercacheTeamsProcessedMetrics(BaseTest):
         # opposite of "Redis did not answer".
         assert registry.get_sample_value("posthog_hypercache_expiry_backlog_last_run", base) is None
         assert registry.get_sample_value("posthog_hypercache_expiry_backlog_before_run", base) is None
-        assert registry.get_sample_value("posthog_hypercache_expiry_oldest_seconds_before_run", base) is None
+        assert registry.get_sample_value("posthog_hypercache_expiry_oldest_before_run_seconds", base) is None
+        # A 0 here would read as a run that saw the whole queue and left nothing behind.
+        assert registry.get_sample_value("posthog_hypercache_refresh_limit_reached_last_run", base) is None
         assert (
             registry.get_sample_value("posthog_hypercache_teams_processed_last_run", {**base, "result": "success"})
             == 900
@@ -549,8 +552,8 @@ class TestPushHypercacheTeamsProcessedMetrics(BaseTest):
             )
 
         base = {"namespace": "feature_flags", "cache_name": "flags"}
-        # Dropping a known False on falsiness would leave Pushgateway serving the last run
-        # that did fill its limit, which reads as work still being shed.
+        # Dropping a known False on falsiness would remove the series, which a consumer
+        # cannot tell apart from a run that could not read the queue at all.
         assert registry.get_sample_value("posthog_hypercache_refresh_limit_reached_last_run", base) == 0
 
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")

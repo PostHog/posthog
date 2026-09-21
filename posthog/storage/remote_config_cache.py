@@ -115,7 +115,7 @@ def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) ->
             failed += 1
 
     counts = CacheRefreshCounts(successful=successful, failed=failed)
-    push_refresh_metrics(REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG, run, counts, ttl_threshold_hours)
+    push_refresh_metrics(REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG, run, counts)
     return counts
 
 
