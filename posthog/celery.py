@@ -95,7 +95,7 @@ class PrometheusMultiprocDir:
 
     def purge_all(self) -> int:
         """Remove every metric file. Only safe before the children write their own."""
-        return self._remove(lambda file_pid: True)
+        return self._remove(lambda _pid: True)
 
     def purge_pid(self, pid: int) -> int:
         """Remove every metric file one process wrote, not the live gauge files alone."""

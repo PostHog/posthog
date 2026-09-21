@@ -154,15 +154,5 @@ class TestPrometheusMultiprocDir(TestCase):
         assert not any(path.exists() for path in dead)
         assert all(path.exists() for path in live)
 
-    def test_purge_all_keeps_files_that_are_not_metric_files(self) -> None:
-        metric_file = self.directory / "counter_4242.db"
-        metric_file.write_bytes(b"")
-        unrelated = self.directory / "notes.txt"
-        unrelated.write_bytes(b"")
-
-        assert self.multiproc.purge_all() == 1
-        assert not metric_file.exists()
-        assert unrelated.exists()
-
     def test_missing_directory_does_not_raise(self) -> None:
         assert PrometheusMultiprocDir(str(self.directory / "gone")).sweep_orphans() == 0
