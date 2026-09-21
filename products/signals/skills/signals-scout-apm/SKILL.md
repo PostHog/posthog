@@ -31,7 +31,7 @@ You author reports directly via the report channel (`scout-emit-report` / `scout
 
 ## Quick close-out: is APM even in use?
 
-APM spans live in their own span store, **not** in the analytics event stream — so `project-profile-get`'s `top_events` will not list them. Use the APM tools to check:
+APM spans live in their own span store, **not** in the analytics event stream — so `scout-project-profile-get`'s `top_events` will not list them. Use the APM tools to check:
 
 - `apm-services-list` — empty (no service has emitted spans), **and**
 - `apm-spans-count` over the last 24h — ~0,

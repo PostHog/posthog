@@ -56,6 +56,7 @@ class AvailableFeature(StrEnum):
     APPROVALS = "approvals"
     XAA_AUTHENTICATION = "xaa_authentication"
     POSTHOG_CODE_USAGE = "posthog_code_usage"
+    TOOLBAR_HEATMAPS = "toolbar_heatmaps"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
