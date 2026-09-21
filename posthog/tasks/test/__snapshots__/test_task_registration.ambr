@@ -122,7 +122,6 @@
     'posthog.tasks.tasks.clickhouse_mutation_count',
     'posthog.tasks.tasks.clickhouse_part_count',
     'posthog.tasks.tasks.clickhouse_row_count',
-    'posthog.tasks.tasks.clickhouse_send_license_usage',
     'posthog.tasks.tasks.delete_expired_delegation_invites',
     'posthog.tasks.tasks.delete_expired_exported_assets',
     'posthog.tasks.tasks.demo_reset_master_team',

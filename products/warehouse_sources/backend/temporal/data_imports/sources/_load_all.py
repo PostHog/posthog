@@ -781,6 +781,7 @@ from .mode.source import ModeSource
 from .moengage.source import MoEngageSource
 from .moesif.source import MoesifSource
 from .mollie.source import MollieSource
+from .monaco.source import MonacoSource
 from .monday.source import MondaySource
 from .moneybird.source import MoneybirdSource
 from .mongodb.source import MongoDBSource
@@ -838,6 +839,7 @@ from .omnisend.source import OmnisendSource
 from .oncehub.source import OncehubSource
 from .onedrive.source import OneDriveSource
 from .onehundredms.source import OneHundredMsSource
+from .oneleet.source import OneleetSource
 from .onelogin.source import OneloginSource
 from .onepagecrm.source import OnepagecrmSource
 from .onepassword.source import OnePasswordSource

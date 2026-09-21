@@ -59,6 +59,7 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin, ScannerType
+from products.replay_vision.backend.observation_formatting import summarize_observation
 from products.replay_vision.backend.scanner_access import (
     accessible_observations,
     can_read_targeted_experiment,
@@ -302,6 +303,19 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
 
     viewed = serializers.BooleanField(read_only=True, help_text="Whether the calling user has opened this observation.")
 
+    summary_line = serializers.SerializerMethodField(
+        help_text=(
+            "One line of plain text saying what the scanner found: its verdict, score, tags or title, then its "
+            "own words, with markdown flattened and the text truncated. An observation that produced no result "
+            "carries the reason instead, and one still in flight carries an empty string. Read this in place of "
+            "`scanner_result` when you scan a list of observations."
+        ),
+    )
+
+    @extend_schema_field(serializers.CharField())
+    def get_summary_line(self, obj: ReplayObservation) -> str:
+        return summarize_observation(obj)
+
     class Meta:
         model = ReplayObservation
         fields = [
@@ -323,6 +337,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             "next_observation_id",
             "label",
             "viewed",
+            "summary_line",
             "started_at",
             "completed_at",
             "created_at",

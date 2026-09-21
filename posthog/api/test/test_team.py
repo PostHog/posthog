@@ -46,6 +46,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.conversations.backend.playbook import compose_support_playbook
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
@@ -1936,6 +1937,84 @@ def team_api_test_factory():
             assert settings["widget_identification_form_title"] == "Before we start..."
             assert settings["widget_identification_form_description"] == "Please provide your details."
             assert settings["widget_placeholder_text"] == "Type your message..."
+
+        def test_conversations_playbook_custom_instructions(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_reply_custom_instructions": "  Always greet first.  "}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["ai_reply_custom_instructions"] == "Always greet first."
+
+            blank = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_reply_custom_instructions": "   "}},
+            )
+            assert blank.status_code == status.HTTP_200_OK
+            assert blank.json()["conversations_settings"]["ai_reply_custom_instructions"] is None
+
+            too_long = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_reply_custom_instructions": "x" * 8001}},
+            )
+            assert too_long.status_code == status.HTTP_400_BAD_REQUEST
+
+            reset = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_reply_custom_instructions": None}},
+            )
+            assert reset.status_code == status.HTTP_200_OK
+            assert reset.json()["conversations_settings"]["ai_reply_custom_instructions"] is None
+
+            inherited = compose_support_playbook().inherited_text
+            snapshot = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_reply_custom_instructions": inherited}},
+            )
+            assert snapshot.status_code == status.HTTP_200_OK
+            assert snapshot.json()["conversations_settings"]["ai_reply_custom_instructions"] is None
+
+            prefixed = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_reply_custom_instructions": f"{inherited}\n\nAlways greet first."}},
+            )
+            assert prefixed.status_code == status.HTTP_200_OK
+            assert prefixed.json()["conversations_settings"]["ai_reply_custom_instructions"] == "Always greet first."
+
+            # A later PATCH that omits docs_source has to normalize against the saved source, or
+            # the PostHog overlay the editor displayed gets stored as custom text and stacks twice.
+            assert (
+                self.client.patch(
+                    "/api/environments/@current/",
+                    {"conversations_settings": {"docs_source": "posthog"}},
+                ).status_code
+                == status.HTTP_200_OK
+            )
+            posthog_inherited = compose_support_playbook(docs_source="posthog").inherited_text
+            overlay = self.client.patch(
+                "/api/environments/@current/",
+                {
+                    "conversations_settings": {
+                        "ai_reply_custom_instructions": f"{posthog_inherited}\n\nAlways greet first."
+                    }
+                },
+            )
+            assert overlay.status_code == status.HTTP_200_OK
+            assert overlay.json()["conversations_settings"]["ai_reply_custom_instructions"] == "Always greet first."
+
+        def test_conversations_docs_source_validation(self):
+            ok = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"docs_source": "posthog"}},
+            )
+            assert ok.status_code == status.HTTP_200_OK
+            assert ok.json()["conversations_settings"]["docs_source"] == "posthog"
+
+            bad = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"docs_source": "acme"}},
+            )
+            assert bad.status_code == status.HTTP_400_BAD_REQUEST
 
         def test_enabling_conversations_auto_generates_token(self):
             self.team.conversations_enabled = False

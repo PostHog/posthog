@@ -227,6 +227,7 @@ export class RequestStateResolver {
             ...switchToolsToExclude({ organizationId }),
             ...tasksContextToolsToExclude(clientProfile, props.taskId),
             ...(apiKeyScopes.includes('internal_run:read') ? ['tasks-run-create', 'tasks-create-and-run'] : []),
+            ...(props.excludeTools ?? []),
         ]
 
         const filterOptions = {

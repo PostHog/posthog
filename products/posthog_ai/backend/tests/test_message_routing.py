@@ -696,11 +696,10 @@ class TestAwaitUserMessageStoredKey:
         assert dumped == {"await_user_message": True}
 
 
-class TestSandboxFirstMessageConversion(APIBaseTest):
-    """Converting an idle LangGraph conversation on its first sandbox message.
+class TestSandboxFirstMessageOnLangGraphConversation(APIBaseTest):
+    """A LangGraph conversation with no task takes the ordinary first-message path.
 
-    Conversion is just: flip the runtime + link the Task on the normal first-message path, with the
-    legacy window prepended to the first prompt. No ACP seeding, no synthetic historical run.
+    Linking the task marks the conversation sandbox; nothing else about the path changes.
     """
 
     def setUp(self):
@@ -713,20 +712,13 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
             status=Conversation.Status.IDLE,
         )
 
-    def _block(self) -> str:
-        return "<posthog_context>This session was resumed from the legacy implementation.\nUser: hi</posthog_context>"
-
-    def _open(self, *, resumed_context=None, convert_to_acp=False, content="continue here"):
+    def _open(self, *, content="continue here"):
         with patch(f"{ROUTING}.dispatch_task_processing_workflow") as m_workflow:
-            result = SandboxSession(self.conversation, self.user).open(
-                {"content": content, "trace_id": "t"},
-                resumed_context=resumed_context,
-                convert_to_acp=convert_to_acp,
-            )
+            result = SandboxSession(self.conversation, self.user).open({"content": content, "trace_id": "t"})
         return result, m_workflow
 
-    def test_first_message_conversion_flips_runtime_and_links_task(self):
-        result, m_workflow = self._open(resumed_context=self._block(), convert_to_acp=True)
+    def test_first_message_links_task_and_marks_runtime_sandbox(self):
+        result, m_workflow = self._open()
 
         self.conversation.refresh_from_db()
         assert self.conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX
@@ -735,33 +727,16 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         task = self.conversation.task
         assert task is not None
         assert task.origin_product == Task.OriginProduct.POSTHOG_AI
-        # The live first run, not a synthetic terminal one.
         assert task.runs.count() == 1
         first_run = task.runs.first()
         assert first_run is not None
         assert first_run.status != TaskRun.Status.COMPLETED
+        assert first_run.state["pending_user_message"] == "continue here"
         assert result is not None
         assert result.just_created_run is True
         m_workflow.assert_called_once()
 
-    def test_first_message_conversion_does_not_seed_s3_log(self):
-        with patch.object(TaskRun, "append_log") as m_append:
-            self._open(resumed_context=self._block(), convert_to_acp=True)
-        m_append.assert_not_called()
-
-    def test_first_message_conversion_prepends_window_context(self):
-        self._open(resumed_context=self._block(), convert_to_acp=True)
-
-        self.conversation.refresh_from_db()
-        task = self.conversation.task
-        assert task is not None
-        run = task.runs.first()
-        assert run is not None
-        pending = run.state["pending_user_message"]
-        assert pending.startswith(self._block())
-        assert pending.endswith("continue here")
-
-    def test_first_message_conversion_idempotent_under_lock(self):
+    def test_first_message_idempotent_under_lock(self):
         # Simulate a concurrent winner: the DB row is linked to a Task after this request's entry
         # check but before it takes the lock. The under-lock re-check must surface a Conflict.
         other_task = Task.objects.create(
@@ -774,19 +749,15 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         Conversation.objects.filter(id=self.conversation.id).update(task=other_task)
 
         with self.assertRaises(Conflict):
-            self._open(resumed_context=self._block(), convert_to_acp=True)
+            self._open()
 
         self.conversation.refresh_from_db()
         assert self.conversation.task_id == other_task.id
 
-    def test_first_message_conversion_reverts_on_workflow_start_failure(self):
+    def test_first_message_reverts_on_workflow_start_failure(self):
         with patch(f"{ROUTING}.dispatch_task_processing_workflow", side_effect=RuntimeError("boom")):
             with self.assertRaises(RuntimeError):
-                SandboxSession(self.conversation, self.user).open(
-                    {"content": "continue here", "trace_id": "t"},
-                    resumed_context=self._block(),
-                    convert_to_acp=True,
-                )
+                SandboxSession(self.conversation, self.user).open({"content": "continue here", "trace_id": "t"})
 
         # A failed start leaves a clean idle LangGraph conversation the user can retry.
         self.conversation.refresh_from_db()
@@ -806,7 +777,7 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         assert result.just_created_run is True
         m_workflow.assert_called_once()
 
-    def test_born_sandbox_first_message_has_no_resumed_context(self):
+    def test_born_sandbox_first_message_carries_only_the_user_message(self):
         self.conversation.agent_runtime = Conversation.AgentRuntime.SANDBOX
         self.conversation.save(update_fields=["agent_runtime"])
 

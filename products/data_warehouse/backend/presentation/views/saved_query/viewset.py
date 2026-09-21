@@ -42,6 +42,19 @@ class _CancelTarget:
     workflow_run_id: str | None
 
 
+class DependentsValidationError(serializers.ValidationError):
+    """A refused delete, carrying the blocked view's node id for a link to its lineage.
+
+    exceptions_hog renders only str, list, or {field: message} details, so the id travels on
+    `extra`, which the handler attaches to the response verbatim.
+    """
+
+    def __init__(self, detail: str, node_id: str | None = None) -> None:
+        super().__init__(detail)
+        if node_id:
+            self.extra = {"node_id": node_id}
+
+
 class DataWarehouseSavedQueryPagination(PageNumberPagination):
     page_size = 1000
 
@@ -217,15 +230,17 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        from products.data_modeling.backend.facade.api import HasDependentsError
+        from products.data_modeling.backend.facade.api import HasDependentsError, describe_dependents
 
         instance: DataWarehouseSavedQuery = self.get_object()
         name = instance.name
         try:
             lifecycle.delete_saved_query(instance)
-        except HasDependentsError:
-            raise serializers.ValidationError(
-                "Cannot delete this view because other views depend on it. Delete or update those views first."
+        except HasDependentsError as dependents_error:
+            visible = lifecycle.visible_dependents(dependents_error.dependents, self.user_access_control)
+            raise DependentsValidationError(
+                describe_dependents(name, visible, any_hidden=len(visible) < len(dependents_error.dependents)),
+                node_id=lifecycle.refusal_node_id(dependents_error, visible, self.user_access_control),
             )
 
         log_activity(

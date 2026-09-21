@@ -1,5 +1,6 @@
-"""`scout-check-record-result`: the one way a scout run closes the report check it was sent to answer.
+"""The report-check tools a scout run holds: author one, read a report's, cancel one, close one.
 
+`scout-check-record-result` is the one way a run closes the check it was dispatched to answer.
 An `agent` check is dispatched as a scout run and stays open until this tool is called. Nothing
 else closes it: the coordinator does not read the run's summary, and an agent that investigates and
 then says nothing leaves a check its report can see is unanswered. That is deliberate. A verdict is
@@ -8,27 +9,45 @@ a claim recorded on the report, so it has to be a claim the run made on purpose.
 The binding is what keeps the tool narrow. A run may only close a check that its own lane was
 dispatched for and that is still waiting on a dispatch, so the broadest thing a compromised or
 confused run can do is answer the question it was actually asked.
+
+The authoring tools are the other direction: a run that surfaces something whose fix will show in
+data writes the re-measurement down instead of leaving a note for a future run to find. They write
+through `report_check_authoring`, so a scout-written check is the same row the REST endpoint writes
+and obeys the same cap, the same metric-query copy, and the same bounds. Both are gated on the
+report channel, because a check is a write on a report.
 """
 
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
+
+from django.db.models.functions import Coalesce
+from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.models import SignalReportCheck, SignalScoutRun
+from products.signals.backend.models import SignalReport, SignalReportCheck, SignalScoutRun
 from products.signals.backend.report_check_agent import resolve_check_skill_name
+from products.signals.backend.report_check_authoring import CheckCreationError, create_check
 from products.signals.backend.report_check_execution import CheckVerdict, record_check_verdict
 from products.signals.backend.report_checks import AgentCheckConfig, parse_check_config
-from products.signals.backend.scout_harness.tools.emit import _resolve_task_id
+from products.signals.backend.scout_harness.tools.emit import _preflight_emit_gates, _resolve_task_id
 
 MAX_CHECK_EXPLANATION_LENGTH = 1_000
+# Rows one `scout-report-check-list` call returns. A report carries at most five open checks, so
+# this only bounds the terminal ones a long-lived report accumulates.
+MAX_CHECKS_LISTED = 50
 
 
 class InvalidCheckResultError(ValueError):
     """A result a run may not record: an unknown check, someone else's, or one nothing is waiting on."""
+
+
+class InvalidCheckWriteError(ValueError):
+    """A check a run may not write, read, or cancel: an unknown report, or one outside its project."""
 
 
 @frozen
@@ -118,3 +137,141 @@ def record_check_result(
         check_status=check.status,
         runs_remaining=check.runs_remaining,
     )
+
+
+@frozen
+class ScoutCheckSummary:
+    """One check, as a scout run reads it back."""
+
+    check_id: str
+    report_id: str
+    title: str
+    kind: str
+    status: str
+    next_run_at: datetime
+    last_outcome: str | None
+
+
+def _summarize(check: SignalReportCheck) -> ScoutCheckSummary:
+    return ScoutCheckSummary(
+        check_id=str(check.id),
+        report_id=str(check.report_id),
+        title=check.title,
+        kind=check.kind,
+        status=check.status,
+        # Provisional on a pending check, whose clock the report's resolve starts.
+        next_run_at=check.next_run_at,
+        last_outcome=check.last_outcome,
+    )
+
+
+def _assert_run_may_write_checks(team: Team, run: SignalScoutRun) -> None:
+    """Refuse a check write from a run whose other write channels are closed.
+
+    A check is durable and later runs a query or starts a scout, so it follows the rule signals,
+    reports and structured output follow: a dry-run scout previews what it would do and changes
+    nothing, and a project without AI-processing consent gets no agent output.
+    """
+    skipped_reason = _preflight_emit_gates(team, run)
+    if skipped_reason is not None:
+        raise InvalidCheckWriteError(f"this run cannot write checks: {skipped_reason}")
+
+
+def _resolve_report(team: Team, report_id: str) -> SignalReport:
+    """The report a run may attach a check to, scoped the way `_resolve_dispatched_check` scopes a check.
+
+    A report sits on its own environment team while the run is resolved on the canonical project, so
+    the read matches canonical teams in the query: a report on a child environment of
+    the run's project is reachable, and nothing outside it is.
+    """
+    try:
+        uuid.UUID(str(report_id))
+    except (ValueError, TypeError):
+        raise InvalidCheckWriteError(f"report {report_id} not found")
+    report = (
+        SignalReport.objects.select_related("team")
+        .alias(effective_project_id=Coalesce("team__parent_team_id", "team_id"))
+        .filter(id=report_id, effective_project_id=team.parent_team_id or team.id)
+        .exclude(status=SignalReport.Status.DELETED)
+        .first()
+    )
+    if report is None:
+        raise InvalidCheckWriteError(f"report {report_id} not found")
+    return report
+
+
+def create_report_check(
+    *,
+    team: Team,
+    run: SignalScoutRun,
+    report_id: str,
+    title: str,
+    kind: str,
+    config: dict,
+    rationale: str = "",
+    next_run_at: datetime,
+    expires_at: datetime,
+    run_interval_minutes: int | None = None,
+    runs_remaining: int = 1,
+) -> ScoutCheckSummary:
+    """Write one forward-looking check on a report this run can reach.
+
+    Attributed to the run's task, like every other scout write, so the report's log names the run
+    that decided the fix was worth re-measuring rather than the coordinator that will measure it.
+    """
+    _assert_run_may_write_checks(team, run)
+    report = _resolve_report(team, report_id)
+    task_id = _resolve_task_id(run)
+    try:
+        check = create_check(
+            report=report,
+            title=title,
+            rationale=rationale,
+            kind=kind,
+            config=config,
+            attribution=ArtefactAttribution.from_task(task_id) if task_id else ArtefactAttribution.system(),
+            next_run_at=next_run_at,
+            expires_at=expires_at,
+            run_interval_minutes=run_interval_minutes,
+            runs_remaining=runs_remaining,
+        )
+    except CheckCreationError as error:
+        raise InvalidCheckWriteError(str(error)) from None
+    return _summarize(check)
+
+
+def list_report_checks(*, team: Team, report_id: str) -> list[ScoutCheckSummary]:
+    """Every check on one report, newest first. Read it before writing: a report already carrying a
+    check for the claim needs no second one, and the cap is five."""
+    report = _resolve_report(team, report_id)
+    checks = SignalReportCheck.objects.for_team(report.team_id).filter(report_id=report.id).order_by("-created_at")
+    return [_summarize(check) for check in checks[:MAX_CHECKS_LISTED]]
+
+
+def cancel_report_check(*, team: Team, run: SignalScoutRun, check_id: str) -> ScoutCheckSummary:
+    """Stop a check that is no longer worth running. Its recorded results stay on the report.
+
+    One conditional update rather than a read and then a write, as the REST path does: a verdict
+    that lands in between leaves a result artefact, and an unconditional write would overwrite the
+    status that artefact explains.
+    """
+    _assert_run_may_write_checks(team, run)
+    try:
+        uuid.UUID(str(check_id))
+    except (ValueError, TypeError):
+        raise InvalidCheckWriteError(f"check {check_id} not found")
+    check = SignalReportCheck.all_teams.select_related("team").filter(id=check_id).first()
+    if check is None:
+        raise InvalidCheckWriteError(f"check {check_id} not found")
+    canonical_team_id = team.parent_team_id or team.id
+    if (check.team.parent_team_id or check.team_id) != canonical_team_id:
+        raise InvalidCheckWriteError(f"check {check_id} not found")
+    cancelled = (
+        SignalReportCheck.objects.for_team(check.team_id)
+        .filter(id=check.id, status__in=SignalReportCheck.OPEN_STATUSES)
+        .update(status=SignalReportCheck.Status.CANCELLED, updated_at=timezone.now())
+    )
+    check.refresh_from_db()
+    if not cancelled:
+        raise InvalidCheckWriteError(f"check {check_id} already finished as `{check.status}` and cannot be cancelled")
+    return _summarize(check)

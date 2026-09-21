@@ -53,6 +53,10 @@ class MatomoSource(ResumableSource[MatomoSourceConfig, MatomoResumeConfig], Vali
         return {
             "401 Client Error: Unauthorized for url": "Matomo authentication failed. Please check your API token.",
             "403 Client Error: Forbidden for url": "Matomo denied access. Please check your API token's permissions for this site.",
+            # The instance's own HTTPS certificate has expired. This is a problem with the
+            # customer's Matomo host, not PostHog's request, and every retry hits the same
+            # expired cert until they renew it.
+            "certificate has expired": "PostHog could not connect to your Matomo instance because its SSL certificate has expired. Renew the certificate on your Matomo host, then try again.",
             "Matomo API error:": None,
         }
 
