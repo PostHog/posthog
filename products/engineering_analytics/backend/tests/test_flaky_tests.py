@@ -9,7 +9,7 @@ from rest_framework import status
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 
-from products.engineering_analytics.backend.logic.job_logs.coordinator import _query_failed_jobs
+from products.engineering_analytics.backend.logic.job_logs.coordinator import _query_jobs_with_diagnostics
 from products.engineering_analytics.backend.logic.queries._test_spans import selector_from_nodeid
 from products.engineering_analytics.backend.logic.views.source_schema import WORKFLOW_JOBS_COLUMNS
 from products.engineering_analytics.backend.tests._github_fixtures import (
@@ -238,7 +238,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
                 for job_id, run_id, attempt, runner, conclusion in jobs
             ],
         )
-        rows = _query_failed_jobs(
+        rows = _query_jobs_with_diagnostics(
             self.team, GITHUB_SOURCE_PREFIX, (now - timedelta(hours=12)).isoformat(), "posthog/POSTHOG"
         )
         assert {row["job_id"] for row in rows} == {1, 5}
