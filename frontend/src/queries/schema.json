@@ -39193,11 +39193,6 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
-        "PersonSearchMatchFieldEnumApi": {
-            "description": "* `distinct_id` - Distinct ID\n* `email` - Email\n* `name` - Name\n* `id` - Person ID",
-            "enum": ["distinct_id", "email", "name", "id"],
-            "type": "string"
-        },
         "PersonType": {
             "additionalProperties": false,
             "properties": {
@@ -39222,7 +39217,7 @@
                 "matched_fields": {
                     "description": "Only on a search result: the fields the search term was found in.",
                     "items": {
-                        "$ref": "#/definitions/PersonSearchMatchFieldEnumApi"
+                        "type": "string"
                     },
                     "type": "array"
                 },

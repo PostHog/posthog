@@ -1,4 +1,5 @@
 import json
+import functools
 from typing import Optional, cast
 from uuid import UUID, uuid4
 
@@ -31,6 +32,7 @@ from posthog.api.person import tag_client_query_id
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_tags
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.serialized_actors import get_serialized_people
 from posthog.models import Organization, Person, PropertyDefinition, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.missing_person import uuidFromDistinctId
@@ -237,14 +239,17 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # second page. Following it would leave the fast path and run the ClickHouse search for
         # results that cannot exist.
         for url, expected in [
-            (f"/api/person/?search={person.uuid}&limit=1", person),
-            (f"/api/person/?search={anonymous_distinct_id}&limit=1", anonymous),
-            ("/api/person/?distinct_id=someone@gmail.com&limit=1", person),
+            (f"/api/person/?search={person.uuid}&limit=1", [person]),
+            (f"/api/person/?search={person.uuid}&limit=1&offset=1", []),
+            (f"/api/person/?search={anonymous_distinct_id}&limit=1", [anonymous]),
+            ("/api/person/?distinct_id=someone@gmail.com&limit=1", [person]),
         ]:
             with self.subTest(url=url), self.capture_select_queries() as clickhouse_queries:
                 response = self.client.get(url)
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
-                self.assertEqual([result["id"] for result in response.json()["results"]], [str(expected.uuid)])
+                self.assertEqual(
+                    [result["id"] for result in response.json()["results"]], [str(match.uuid) for match in expected]
+                )
                 self.assertIsNone(response.json()["next"])
             self.assertEqual(clickhouse_queries, [])
 
@@ -278,7 +283,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertIsNone(response.json()["next"])
         # The identifier hit answered the ID arms of the fuzzy search, so the page and count queries
         # read the email property and never scan the team's distinct IDs.
-        person_queries = [query for query in clickhouse_queries if "system.columns" not in query]
+        person_queries = [
+            query for query in clickhouse_queries if "system.columns" not in query and "system.tables" not in query
+        ]
         self.assertEqual(len(person_queries), 2)
         for query in person_queries:
             self.assertNotIn("person_distinct_id2", query)
@@ -297,6 +304,21 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 self.assertNotIn("person_distinct_id2", query)
             next_url = response.json()["next"]
         self.assertEqual(listed, [str(by_distinct_id.uuid), str(by_property.uuid)])
+
+    def test_search_by_email_tags_the_distinct_id_hit_past_the_hydration_cap(self) -> None:
+        _create_person(team=self.team, distinct_ids=["abe@example.com"], properties={"name": "Abe"}, immediate=True)
+        flush_persons_and_events()
+
+        # A person can hold more distinct IDs than a response hydrates, so the tag cannot depend on
+        # the matched one being in the hydrated list.
+        hydrate_no_distinct_ids = functools.partial(get_serialized_people, distinct_id_limit=0)
+        with mock.patch("posthog.api.person.get_serialized_people", new=hydrate_no_distinct_ids):
+            response = self.client.get("/api/person/?search=abe@example.com")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [(result["distinct_ids"], result["matched_fields"]) for result in response.json()["results"]],
+            [([], ["distinct_id"])],
+        )
 
     def test_search_by_exact_identifier_still_applies_other_filters(self) -> None:
         _create_person(
@@ -2590,3 +2612,26 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
         properties = response.json()["results"][result_key]["properties"]
         self.assertEqual(properties.get("email"), "visible@example.com")
         self.assertNotIn("ssn", properties)
+
+    def test_search_does_not_tag_a_restricted_property(self) -> None:
+        email = PropertyDefinition.objects.create(
+            team=self.team, name="email", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=email, access_level=PropertyAccessLevel.NONE.value
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["hidden@example.com"],
+            properties={"email": "hidden@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        # The distinct ID finds the row. A tag on the hidden property would confirm what it holds.
+        response = self.client.get("/api/person/?search=hidden@example.com")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [(result["properties"], result["matched_fields"]) for result in response.json()["results"]],
+            [({}, ["distinct_id"])],
+        )

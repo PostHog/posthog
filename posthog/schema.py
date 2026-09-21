@@ -215,7 +215,6 @@ from posthog.schema_enums import (
     PathsV2ElementType as PathsV2ElementType,
     PathType as PathType,
     PersonsArgMaxVersion as PersonsArgMaxVersion,
-    PersonSearchMatchFieldEnumApi as PersonSearchMatchFieldEnumApi,
     PersonsJoinMode as PersonsJoinMode,
     PersonsOnEventsMode as PersonsOnEventsMode,
     PinterestAdsDefaultSources as PinterestAdsDefaultSources,
@@ -2588,7 +2587,7 @@ class PersonType(BaseModel):
     id: str | None = None
     is_identified: bool | None = None
     last_seen_at: str | None = None
-    matched_fields: list[PersonSearchMatchFieldEnumApi] | None = Field(
+    matched_fields: list[str] | None = Field(
         default=None,
         description="Only on a search result: the fields the search term was found in.",
     )

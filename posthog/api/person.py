@@ -2,7 +2,7 @@ import re
 import uuid
 import builtins
 import dataclasses
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from datetime import UTC, datetime
 from typing import Any, Optional, Union, cast  # noqa: UP035
 
@@ -143,7 +143,7 @@ API_PERSON_LIST_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
 
 API_PERSON_LIST_SEARCH_COUNTER = Counter(
     "api_person_list_search_total",
-    "Person list searches, by whether an exact identifier answered them or ClickHouse had to.",
+    "Person list searches, by what answered them: an exact identifier, ClickHouse, or both.",
     labelnames=["answered_by"],
 )
 
@@ -389,6 +389,9 @@ class DeletionStatusPagination(LimitOffsetPagination):
     default_limit = 100
 
 
+# Keep in step with the OR arms of `PersonStrategy.filter_conditions` and with `TAG_BY_FIELD` in
+# `PersonSearchMatchTags.tsx`: a field added to one and not the others is either tagged without
+# being searched, or searched without being tagged.
 class PersonSearchMatchField(TextChoices):
     DISTINCT_ID = "distinct_id", "Distinct ID"
     EMAIL = "email", "Email"
@@ -553,8 +556,9 @@ def _is_canonical_uuid(value: str) -> bool:
         return False
 
 
-def _exact_identifier_person_uuids(team_id: int, search: str) -> list[str]:
-    """Resolve a search term as a person UUID or distinct ID; empty when it matches neither.
+def _exact_identifier_hits(team_id: int, search: str) -> dict[str, list[str]]:
+    """Resolve a search term as a person UUID or distinct ID: each hit's person UUID, mapped to
+    the fields the term was found in. Empty when the term matches neither.
 
     Fuzzy person search reads every person row and distinct ID of the team, which is what times
     out on large projects. Identifiers resolve over personhog in milliseconds and hold no
@@ -562,27 +566,29 @@ def _exact_identifier_person_uuids(team_id: int, search: str) -> list[str]:
     """
     term_is_uuid = _is_canonical_uuid(search)
     if not term_is_uuid and not _COMPLETE_EMAIL_TERM.match(search):
-        return []
+        return {}
 
-    matches: list[str] = []
+    hits: dict[str, list[str]] = {}
     with personhog_caller_tag("persons/list-exact-identifier"):
         # A UUID term can be a person's own ID or an anonymous distinct ID, so try both.
         if term_is_uuid:
             by_uuid = get_person_by_uuid(team_id, search, distinct_id_limit=0)
             if by_uuid is not None:
-                matches.append(str(by_uuid.uuid))
+                hits[str(by_uuid.uuid)] = [PersonSearchMatchField.ID.value]
         by_distinct_id = get_person_by_distinct_id(team_id, search, distinct_id_limit=0)
-        if by_distinct_id is not None and str(by_distinct_id.uuid) not in matches:
-            matches.append(str(by_distinct_id.uuid))
-    return matches
+        if by_distinct_id is not None:
+            hits.setdefault(str(by_distinct_id.uuid), []).append(PersonSearchMatchField.DISTINCT_ID.value)
+    return hits
 
 
-def _search_match_fields(search: str, person: SerializedPerson) -> list[str]:
+def _search_match_fields(search: str, person: SerializedPerson, known_fields: Collection[str] = ()) -> list[str]:
     """Which searched fields hold the term, so a picker can say why a row is there.
 
     Two people often share one display name, for example when an address is one person's
     distinct ID and another person's email property, so the name alone cannot tell them apart.
     The check is the fuzzy search's: case-insensitive substring over the same four fields.
+    `known_fields` carries what the identifier lookup established, because the hydrated distinct
+    IDs are capped and the one that matched can sit past the cap.
     """
     needle = search.lower()
     properties = person["properties"]
@@ -592,7 +598,7 @@ def _search_match_fields(search: str, person: SerializedPerson) -> list[str]:
         (PersonSearchMatchField.NAME, needle in str(properties.get("name") or "").lower()),
         (PersonSearchMatchField.ID, needle in str(person["id"]).lower()),
     )
-    return [field.value for field, holds_term in checks if holds_term]
+    return [field.value for field, holds_term in checks if holds_term or field.value in known_fields]
 
 
 @extend_schema(extensions={"x-product": ProductKey.PERSONS})
@@ -762,7 +768,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ),
             properties=slo_properties,
         ) as slo:
-            exact_uuids: list[str] = []
+            exact_hits: dict[str, list[str]] = {}
+            email_property_search = False
             properties: list[dict] | dict[str, Any] = person_properties
             order_by = ["created_at DESC", "id DESC"]
             answered_by = "clickhouse"
@@ -786,27 +793,28 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     )
                 person_properties.append({"type": "hogql", "key": f"id = toUUID('{matched.uuid}')"})
             elif search:
-                exact_uuids = _exact_identifier_person_uuids(team.pk, search) if can_answer_from_identifier else []
+                exact_hits = _exact_identifier_hits(team.pk, search) if can_answer_from_identifier else {}
                 # A UUID hit is the whole answer. An email hit is not, because the address can also
                 # sit in another person's email property, and only ClickHouse can find that row.
-                email_property_search = bool(exact_uuids) and _COMPLETE_EMAIL_TERM.match(search) is not None
-                if exact_uuids and not email_property_search:
+                email_property_search = bool(exact_hits) and _COMPLETE_EMAIL_TERM.match(search) is not None
+                if exact_hits and not email_property_search:
                     API_PERSON_LIST_SEARCH_COUNTER.labels(answered_by="exact_identifier").inc()
-                    page = exact_uuids[filter.offset : filter.offset + filter.limit]
+                    page = list(exact_hits)[filter.offset : filter.offset + filter.limit]
                     slo.tag(answered_by="exact_identifier", result_count=len(page))
                     return self._person_list_response(
                         request,
                         page,
                         filter,
-                        total_count=len(exact_uuids) if include_total else None,
-                        has_next=len(exact_uuids) > filter.offset + filter.limit,
+                        total_count=len(exact_hits) if include_total else None,
+                        has_next=len(exact_hits) > filter.offset + filter.limit,
                         search=search,
+                        exact_hits=exact_hits,
                     )
                 if email_property_search:
                     # One predicate joins the identifier hit to the email arm of the fuzzy search, so
                     # every page and the total come from one query. The identifier arms of the fuzzy
                     # search stay out, because the distinct ID scan they need is what makes it slow.
-                    identifier_hit = " or ".join(f"id = toUUID('{person_uuid}')" for person_uuid in exact_uuids)
+                    identifier_hit = " or ".join(f"id = toUUID('{person_uuid}')" for person_uuid in exact_hits)
                     properties = {
                         "type": "OR",
                         "values": [
@@ -814,7 +822,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                             {"type": "person", "key": "email", "value": search, "operator": "icontains"},
                         ],
                     }
-                    # The hit leads, ahead of the rows that only hold the address in a property.
                     order_by = [f"({identifier_hit}) DESC", *order_by]
                     answered_by = "exact_identifier_and_email"
                 API_PERSON_LIST_SEARCH_COUNTER.labels(answered_by=answered_by).inc()
@@ -822,7 +829,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             actors_query = ActorsQuery(
                 select=["id"],
                 properties=properties,
-                search=None if exact_uuids else filter.search or None,
+                search=None if email_property_search else search or None,
                 orderBy=order_by,
                 limit=filter.limit,
                 offset=filter.offset,
@@ -844,6 +851,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     count_inner = actors_runner.to_query()
                     count_inner.limit = None
                     count_inner.offset = None
+                    if isinstance(count_inner, ast.SelectQuery):
+                        count_inner.order_by = None
                     count_query = ast.SelectQuery(
                         select=[ast.Call(name="count", args=[])],
                         select_from=ast.JoinExpr(table=count_inner),
@@ -862,14 +871,14 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 slo.tag(cancelled=True)
                 return Response(status=HTTP_CLIENT_CLOSED_REQUEST)
 
-            if exact_uuids:
+            if email_property_search:
                 # The runner tagged `has_search` from its query, which carries the address as a
                 # property filter rather than a search term. The request did search.
                 slo.tag(has_search=True)
 
             slo.tag(answered_by=answered_by, result_count=len(actor_ids))
             return self._person_list_response(
-                request, actor_ids, filter, total_count=total_count, search=search, lead_uuids=exact_uuids
+                request, actor_ids, filter, total_count=total_count, search=search, exact_hits=exact_hits
             )
 
     def _person_list_response(
@@ -880,9 +889,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         total_count: Optional[int] = None,
         has_next: Optional[bool] = None,
         search: Optional[str] = None,
-        lead_uuids: Collection[str] = (),
+        exact_hits: Optional[Mapping[str, Collection[str]]] = None,
     ) -> Response:
         team = self.team
+        exact_hits = exact_hits or {}
         with personhog_caller_tag("persons/list"):
             serialized_actors = get_serialized_people(team, person_uuids) if person_uuids else []
 
@@ -900,11 +910,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # header depend on its rows, so an export carries no tags.
         if search and self.request.accepted_renderer.format != "csv":
             for person_dict in serialized_actors:
-                person_dict["matched_fields"] = _search_match_fields(search, person_dict)
-        if lead_uuids:
+                known_fields = exact_hits.get(str(person_dict["id"]), ())
+                person_dict["matched_fields"] = _search_match_fields(search, person_dict, known_fields)
+        if exact_hits:
             # Hydration orders a page by creation date. An identifier hit is the row the term names
             # outright, so it leads the rows that only hold the term in a property.
-            serialized_actors.sort(key=lambda person_dict: str(person_dict["id"]) not in lead_uuids)
+            serialized_actors.sort(key=lambda person_dict: str(person_dict["id"]) not in exact_hits)
 
         # A full page means there may be more behind it. Callers that know the whole result set up
         # front say so instead, so a page that happens to fill the limit does not advertise an

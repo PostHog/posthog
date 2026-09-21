@@ -2217,13 +2217,6 @@ class PathsV2ElementType(StrEnum):
     CHAIN = "chain"
 
 
-class PersonSearchMatchFieldEnumApi(StrEnum):
-    DISTINCT_ID = "distinct_id"
-    EMAIL = "email"
-    NAME = "name"
-    ID = "id"
-
-
 class SliceContent(StrEnum):
     LABELS = "labels"
     VALUES = "values"

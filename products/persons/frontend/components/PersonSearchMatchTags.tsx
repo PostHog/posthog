@@ -6,7 +6,7 @@ import type { PersonSearchMatchFieldEnumApi } from '../generated/api.schemas'
 
 type TagContent = { label: string; explanation: string }
 
-const TAG_BY_FIELD: Partial<Record<PersonSearchMatchFieldEnumApi, TagContent>> = {
+const TAG_BY_FIELD: Record<PersonSearchMatchFieldEnumApi, TagContent> = {
     distinct_id: { label: 'Distinct ID', explanation: "The search matched one of this person's distinct IDs." },
     email: { label: 'Email', explanation: "The search matched this person's email property." },
     name: { label: 'Name', explanation: "The search matched this person's name property." },
@@ -16,7 +16,9 @@ const TAG_BY_FIELD: Partial<Record<PersonSearchMatchFieldEnumApi, TagContent>> =
 /** Which of a person's fields a search matched, for picker rows where two people can share one display name. */
 export function PersonSearchMatchTags({ person }: { person: PersonType }): JSX.Element | null {
     // A field this bundle predates gets no tag rather than a wrong one.
-    const tags = (person.matched_fields ?? []).flatMap((field) => TAG_BY_FIELD[field] ?? [])
+    const tags = (person.matched_fields ?? []).flatMap(
+        (field) => TAG_BY_FIELD[field as PersonSearchMatchFieldEnumApi] ?? []
+    )
     if (tags.length === 0) {
         return null
     }
