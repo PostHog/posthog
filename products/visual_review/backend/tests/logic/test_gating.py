@@ -4,7 +4,7 @@ import pytest
 
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import RunType
-from products.visual_review.backend.logic import approvals, artifact_store, quarantine, repos, runs
+from products.visual_review.backend.logic import approvals, artifact_store, github_api, quarantine, repos, runs
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
@@ -71,8 +71,24 @@ class TestQuarantineStamping:
         assert snapshots["Button-secondary"].is_quarantined is False
         assert snapshots["Card-default"].is_quarantined is False
 
-    def test_unquarantine_clears_flag_on_approve(self, repo, team, user, mocker):
+    @pytest.mark.parametrize(
+        ("lifted_at_sha", "merge_base", "expect_quarantined"),
+        [
+            (None, None, False),
+            ("lift", "lift", False),
+            ("lift", "older", True),
+            ("lift", None, True),
+        ],
+        ids=["lift-without-sha", "run-contains-lift", "branch-forked-before-lift", "ancestry-unknown"],
+    )
+    def test_unquarantine_clears_flag_on_approve(
+        self, repo, team, user, mocker, lifted_at_sha, merge_base, expect_quarantined
+    ):
         from products.visual_review.backend.models import QuarantinedIdentifier
+
+        mocker.patch.object(github_api, "default_branch_head_sha", return_value=lifted_at_sha)
+        mocker.patch.object(github_api, "get_github_integration_for_repo")
+        mocker.patch.object(github_api, "_get_merge_base_sha", return_value=merge_base)
 
         # Create quarantine entry
         QuarantinedIdentifier.objects.create(
@@ -104,7 +120,7 @@ class TestQuarantineStamping:
         approvals.finalize_run(run_id=run.id, user_id=user.id, approve_all=True, commit_to_github=False)
 
         snapshot.refresh_from_db()
-        assert snapshot.is_quarantined is False
+        assert snapshot.is_quarantined is expect_quarantined
 
     def test_quarantine_excludes_from_changed_count(self, repo, team, mocker):
         from products.visual_review.backend.models import QuarantinedIdentifier

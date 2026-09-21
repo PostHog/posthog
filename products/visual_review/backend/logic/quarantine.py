@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -13,8 +14,12 @@ from ..db import READER_DB, WRITER_DB
 from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS
 from ..facade.enums import ActorType
 from ..models import QuarantinedIdentifier, Run
-from . import errors, repos
+from . import errors, github_api, repos
 from .run_queries import SnapshotKey
+
+# How long a lift stays scoped to its commit. A branch that forked before the lift and is still
+# open after this has usually merged the default branch since; past it, the lift applies everywhere.
+LIFT_SCOPE_DAYS = 30
 
 
 def list_quarantined_identifiers(
@@ -128,13 +133,16 @@ def quarantine_identifier(
 
 
 def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_id: int) -> None:
-    repos.get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
+    repo = repos.get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
+    now = timezone.now()
     QuarantinedIdentifier.objects.using(WRITER_DB).filter(
         repo_id=repo_id,
         identifier=identifier,
         run_type=run_type,
         team_id=team_id,
-    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())).update(expires_at=timezone.now())
+    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)).update(
+        expires_at=now, lifted_at_sha=github_api.default_branch_head_sha(repo)
+    )
 
 
 def expire_quarantine_entry(entry_id: UUID, team_id: int) -> None:
@@ -151,4 +159,31 @@ def expire_quarantine_entry(entry_id: UUID, team_id: int) -> None:
         identifier=entry.identifier,
         run_type=entry.run_type,
         team_id=team_id,
-    ).filter(active).update(expires_at=now)
+    ).filter(active).update(expires_at=now, lifted_at_sha=github_api.default_branch_head_sha(entry.repo))
+
+
+def identifiers_lifted_after_commit(run: Run, *, now: datetime) -> set[str]:
+    """Identifiers whose quarantine was lifted at a commit that `run`'s commit does not contain.
+
+    Such a run is on a branch that forked before the lift. The quarantine still applies there,
+    because the branch lacks what the lift relied on. It stops applying once the branch merges the
+    default branch. A lift whose ancestry GitHub cannot confirm keeps applying the quarantine,
+    because a missed gate costs less than a red run that nobody on the branch can fix.
+    """
+    lifts = (
+        QuarantinedIdentifier.objects.using(WRITER_DB)
+        .filter(repo_id=run.repo_id, run_type=run.run_type, team_id=run.team_id, lifted_at_sha__isnull=False)
+        .filter(expires_at__lte=now, expires_at__gt=now - timedelta(days=LIFT_SCOPE_DAYS))
+        .values_list("identifier", "lifted_at_sha")
+    )
+    identifiers_by_sha: dict[str, set[str]] = defaultdict(set)
+    for identifier, lifted_at_sha in lifts:
+        if lifted_at_sha is not None:  # always true after the filter; narrows the type
+            identifiers_by_sha[lifted_at_sha].add(identifier)
+
+    return {
+        identifier
+        for lifted_at_sha, identifiers in identifiers_by_sha.items()
+        if not github_api.commit_contains(run.repo, lifted_at_sha, run.commit_sha)
+        for identifier in identifiers
+    }

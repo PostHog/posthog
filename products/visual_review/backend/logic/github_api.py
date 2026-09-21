@@ -66,6 +66,36 @@ def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
         return "master"
 
 
+def default_branch_head_sha(repo: Repo) -> str | None:
+    """The commit the repo's default branch points at, or None when GitHub cannot say."""
+    try:
+        github = get_github_integration_for_repo(repo)
+        branch = _get_default_branch(github, repo.repo_full_name)
+        response = _github_api_request("GET", repo, f"commits/{branch}")
+    except Exception:
+        logger.warning("visual_review.default_branch_head_fetch_failed", repo_id=str(repo.id))
+        return None
+    if response.status_code != 200:
+        logger.warning(
+            "visual_review.default_branch_head_fetch_failed", repo_id=str(repo.id), status=response.status_code
+        )
+        return None
+    return response.json().get("sha")
+
+
+def commit_contains(repo: Repo, ancestor_sha: str, head_sha: str) -> bool:
+    """Whether `ancestor_sha` is in the history of `head_sha`. False when GitHub cannot tell."""
+    if ancestor_sha == head_sha:
+        return True
+    try:
+        github = get_github_integration_for_repo(repo)
+        merge_base = _get_merge_base_sha(github, repo.repo_full_name, ancestor_sha, head_sha)
+    except (errors.GitHubIntegrationNotFoundError, GitHubRateLimitError):
+        logger.warning("visual_review.commit_ancestry_unknown", repo_id=str(repo.id), ancestor=ancestor_sha)
+        return False
+    return merge_base == ancestor_sha
+
+
 _MERGE_QUEUE_BRANCH_RE = re.compile(r"^trunk-merge/pr-(?P<pr_number>\d+)/")
 
 
