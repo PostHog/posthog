@@ -3,16 +3,18 @@ from typing import TYPE_CHECKING
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
 
-from products.slack_app.backend.services.slack_messages import post_slack_ephemeral
+from products.slack_app.backend.services.slack_messages import app_home_url, post_slack_ephemeral
 
 if TYPE_CHECKING:
     from products.slack_app.backend.api import RulesCommand
     from products.slack_app.backend.services.integration_resolver import ResolutionResult
 
 MENTION_COMMAND_PREFIX = "@PostHog"
+SLASH_COMMAND_PREFIX = "/posthog"
 
 MENTION_HELP_REDIRECT = (
-    "Run `/posthog help` to see the available commands. To start a task, mention me with a description of the work."
+    f"Run `{SLASH_COMMAND_PREFIX} help` to see the available commands. "
+    "To start a task, mention me with a description of the work."
 )
 
 
@@ -255,8 +257,8 @@ def _handle_project_show(
     from posthog.models.user import User
 
     from products.slack_app.backend.services.integration_resolver import (
-        format_project_candidate_list,
         load_integrations,
+        pick_a_project_message,
         resolve_from_candidates,
     )
 
@@ -301,17 +303,16 @@ def _handle_project_show(
         )
         return
 
-    lines = format_project_candidate_list(result.candidates)
     post_slack_ephemeral(
         slack.client,
         channel=channel,
         user=slack_user_id,
         thread_ts=thread_ts,
-        text=(
-            "You haven't set a default project for this Slack workspace yet. Available PostHog "
-            "projects you can pick:\n"
-            f"{lines}\n\n"
-            f"Set one with `{command_prefix} project <id>`."
+        text=pick_a_project_message(
+            "You haven't set a default project for this Slack workspace yet. You can pick from:",
+            result.candidates,
+            set_command=command_prefix,
+            home_tab_url=app_home_url(slack.integration),
         ),
     )
 
