@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 
 from django.test import SimpleTestCase
 
@@ -45,7 +46,7 @@ class TestArtefactSchemas(SimpleTestCase):
             )
 
     def test_verification_query_requires_both_bound_window_placeholders(self):
-        payload = {
+        payload: dict[str, Any] = {
             "description": "Measures failed imports and all import attempts.",
             "query": "SELECT count() FROM events WHERE timestamp >= {window_start}",
             "snapshot_result": {

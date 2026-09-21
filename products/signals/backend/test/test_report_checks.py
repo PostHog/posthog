@@ -499,6 +499,7 @@ class TestReportCheckExecution(APIBaseTest):
         assert check.config["verification_query_id"] == str(verification.id)
         assert check.config["pull_request_id"] == str(pull_request.id)
         assert check.next_run_at >= now + timedelta(hours=1)
+        assert pull_request.merged_at is not None
         assert check.expires_at == pull_request.merged_at + timedelta(days=14)
 
     def test_an_inconclusive_jev_attempt_is_recorded_and_retried(self) -> None:

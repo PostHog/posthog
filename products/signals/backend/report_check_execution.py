@@ -431,6 +431,7 @@ def record_check_verdict(
                 "updated_at",
             ]
         )
+        result_content: VerificationResult | CheckResult
         if current.kind == SignalReportCheck.Kind.VERIFICATION_QUERY:
             result_content = VerificationResult(
                 check_id=str(current.id),

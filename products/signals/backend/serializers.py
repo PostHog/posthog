@@ -1875,11 +1875,15 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
         if obj.type == SignalReportArtefact.ArtefactType.VERIFICATION_QUERY and isinstance(parsed, dict):
             if report_metric_access_policy(self.context).may_read_hogql_snapshot():
                 return parsed
+            raw_snapshot_result = parsed.get("snapshot_result")
+            snapshot_result = (
+                cast(dict[str, object], raw_snapshot_result) if isinstance(raw_snapshot_result, dict) else {}
+            )
             return {
                 **parsed,
                 "query": "",
                 "snapshot_result": {
-                    **(parsed.get("snapshot_result") if isinstance(parsed.get("snapshot_result"), dict) else {}),
+                    **snapshot_result,
                     "columns": [],
                     "rows": [],
                 },

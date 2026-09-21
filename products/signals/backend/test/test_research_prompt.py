@@ -197,8 +197,10 @@ class TestBuildFixVerificationPrompt:
             "No upload events or a failed query is inconclusive."
         )
         result = FixVerificationOutput(current_state=f" {current_state} ", outcome=f" {outcome} ")
+        note = result.to_note()
 
-        assert result.to_note().note == (
+        assert note is not None
+        assert note.note == (
             f"## Verification plan\n\n"
             f"### Confirm the current state\n\n{current_state}\n\n"
             f"### Confirm the outcome\n\n{outcome}"
