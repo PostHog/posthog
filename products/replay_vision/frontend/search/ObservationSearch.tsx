@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { visionScannersListLogic } from '../logics/visionScannersListLogic'
-import type { ReplayScanner } from '../replay_scanners/types'
+import { type ReplayScanner, scannerFromApi } from '../replay_scanners/types'
 import { type ObservationSearchLogicProps, observationSearchLogic } from './observationSearchLogic'
 import { SearchResults } from './SearchResults'
 
@@ -117,7 +117,8 @@ export function ObservationSearch({ className }: { className?: string }): JSX.El
 
     const [paletteOpen, setPaletteOpen] = useState(false)
 
-    const selectedScanner = (scanners.find((scanner) => scanner.id === scannerId) as ReplayScanner | undefined) ?? null
+    const selectedApi = scanners.find((scanner) => scanner.id === scannerId)
+    const selectedScanner = selectedApi ? scannerFromApi(selectedApi) : null
     const suggestions = suggestedQueries.length > 0 ? suggestedQueries : exampleQueries(selectedScanner)
     const typed = query.trim().toLowerCase()
     const matchingRecents = recentQueries.filter((recent) => recent !== query && recent.toLowerCase().includes(typed))

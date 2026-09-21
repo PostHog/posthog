@@ -11,6 +11,7 @@ import { visionObservationsRetrieve, visionObservationsViewedCreate } from '../g
 import type { ReplayObservationApi, VisionObservationsRetrieveParams } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
+import { ReplayScannerTab } from '../replay_scanners/replayScannerSceneLogic'
 import { OBSERVATION_LIST_FILTER_KEYS, OBSERVATION_LIST_URL_PARAM_KEYS } from '../replay_scanners/types'
 import { searchBreadcrumb } from '../search/observationQueries'
 import {
@@ -325,7 +326,7 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             replayObservationSceneLogic().actions.setParentBreadcrumb(
                 searchParams[OBSERVATION_ORIGIN_PARAM] === WATCH_FEED_ORIGIN
                     ? watchFeedBreadcrumb()
-                    : returnParams.tab === 'search'
+                    : returnParams.tab === ReplayScannerTab.Search
                       ? searchBreadcrumb(returnParams)
                       : observationParentBreadcrumb(observation, returnParams)
             )

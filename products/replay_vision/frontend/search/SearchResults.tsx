@@ -12,6 +12,7 @@ import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { ObservationResultSummary } from '../components/ObservationCard'
+import { ObservationThumbnail } from '../components/ObservationThumbnail'
 import { ScannerOutputBadge } from '../components/ScannerOutputBadge'
 import { TimestampCitation } from '../components/TimestampCitation'
 import type { ObservationSearchResultApi, ReplayObservationApi } from '../generated/api.schemas'
@@ -49,29 +50,27 @@ interface ResultProps {
     returnParams: Record<string, string>
 }
 
-// Placeholder art until observations carry a rendered still.
 function WatchLink({ observation, compact }: { observation: ReplayObservationApi; compact?: boolean }): JSX.Element {
     const routerValues = useValues(router)
     const citedMs = firstCitedTimestampMs(observation)
     return (
         <Link
             to={watchMomentUrl(observation, citedMs, routerValues)}
-            className={clsx(
-                'relative block aspect-video bg-gradient-to-br from-surface-tertiary to-surface-secondary text-primary hover:from-fill-highlight-100 hover:to-fill-highlight-100',
-                compact && 'w-28 rounded overflow-hidden'
-            )}
+            className={clsx('relative block text-primary group', compact && 'w-28')}
             data-attr="vision-search-result-watch"
         >
-            <span className="absolute inset-0 flex items-center justify-center">
+            {/* The card clips its own corners and draws its own edge, so the poster goes edge to edge there. */}
+            <ObservationThumbnail observation={observation} className={clsx(!compact && 'rounded-none border-0')}>
+                {/* A fixed dark scrim, not a theme surface: the chip sits on a frame of any colour, white included. */}
                 <span
                     className={clsx(
-                        'rounded-full bg-surface-primary border border-primary flex items-center justify-center',
+                        'rounded-full bg-black/60 text-white flex items-center justify-center group-hover:bg-black/80',
                         compact ? 'size-6 text-sm' : 'size-10 text-lg'
                     )}
                 >
                     <IconPlayFilled />
                 </span>
-            </span>
+            </ObservationThumbnail>
             {!compact && (
                 <span className="absolute bottom-2 right-2 text-xs font-medium px-1.5 py-0.5 rounded bg-surface-primary border border-primary">
                     {citedMs !== null
