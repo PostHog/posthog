@@ -2,7 +2,6 @@ import { useValues } from 'kea'
 
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
-import { DataWarehouseTab } from 'scenes/data-warehouse/dataWarehouseSceneLogic'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 import { urls } from 'scenes/urls'
 
@@ -24,7 +23,7 @@ function GateNotice(): JSX.Element | null {
             {gateConfig.gate_materialization_on_checks
                 ? 'This project blocks materialization on failing error-severity checks.'
                 : 'This project materializes this view even when an error-severity check fails.'}{' '}
-            <Link to={urls.dataOps(DataWarehouseTab.DATA_QUALITY)} data-attr="node-detail-tests-gate-settings">
+            <Link to={urls.settings('environment-data-quality')} data-attr="node-detail-tests-gate-settings">
                 Change this in data quality settings
             </Link>
         </LemonBanner>

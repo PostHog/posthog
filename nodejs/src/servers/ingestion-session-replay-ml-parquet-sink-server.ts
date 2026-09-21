@@ -1,17 +1,15 @@
 import { S3Client } from '@aws-sdk/client-s3'
 
-import { initializePrometheusLabels } from '~/common/api/router'
 import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
 import { logger } from '~/common/utils/logger'
 import { BlockMetadataBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-batcher'
 import { BlockMetadataParquetStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-parquet-store'
+import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 
-import { CleanupResources, NodeServer, ServerLifecycle } from './base-server'
-import {
-    IngestionSessionReplayMlMirrorServerConfig,
-    buildMlMirrorServerConfig,
-} from './ingestion-session-replay-ml-mirror-server'
+import { CleanupResources } from './base-server'
+import { IngestionSessionReplayMlMirrorServerConfig } from './ingestion-session-replay-ml-mirror-server'
+import { MlMirrorConsumerServer } from './ml-mirror-consumer-server'
 
 /** The Parquet sink writes unencrypted data, so a misconfigured (absent) S3 client must fail loudly, not silently no-op. */
 export function requireS3Client(client: S3Client | null): S3Client {
@@ -36,29 +34,14 @@ export function buildSinkConsumerConfig(config: IngestionSessionReplayMlMirrorSe
 }
 
 /** Drains the ML block-metadata topic, rolling rows up into one Parquet object per flush interval in the ML bucket. */
-export class IngestionSessionReplayMlParquetSinkServer implements NodeServer {
-    readonly lifecycle: ServerLifecycle
-    private config: IngestionSessionReplayMlMirrorServerConfig
+export class IngestionSessionReplayMlParquetSinkServer extends MlMirrorConsumerServer {
+    private keyManager?: MlKeyManager
 
-    constructor(config: Partial<IngestionSessionReplayMlMirrorServerConfig> = {}) {
-        this.config = buildMlMirrorServerConfig(config)
-        this.lifecycle = new ServerLifecycle(this.config)
-    }
-
-    async start(): Promise<void> {
-        return this.lifecycle.start(
-            () => this.startServices(),
-            () => this.getCleanupResources()
-        )
-    }
-
-    async stop(error?: Error): Promise<void> {
-        return this.lifecycle.stop(() => this.getCleanupResources(), error)
-    }
-
-    private async startServices(): Promise<void> {
-        initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
-
+    protected async startServices(): Promise<void> {
+        if (this.config.AI_RESEARCH_REPLAY_KEY_TABLE) {
+            this.keyManager = new MlKeyManager(this.config)
+            await this.keyManager.start()
+        }
         const s3Client = requireS3Client(buildSessionRecordingS3Client(this.config))
         const store = new BlockMetadataParquetStore(
             s3Client,
@@ -74,7 +57,8 @@ export class IngestionSessionReplayMlParquetSinkServer implements NodeServer {
                 flushIntervalMs: this.config.SESSION_RECORDING_ML_PARQUET_FLUSH_INTERVAL_MS,
                 maxRows: this.config.SESSION_RECORDING_ML_PARQUET_MAX_ROWS,
             },
-            Date.now()
+            Date.now(),
+            this.keyManager?.kafka
         )
         await consumer.connect((messages) => {
             consumer.heartbeat()
@@ -97,10 +81,14 @@ export class IngestionSessionReplayMlParquetSinkServer implements NodeServer {
         })
     }
 
-    private getCleanupResources(): CleanupResources {
+    protected getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
             redisPools: [],
+            additionalCleanup: () => {
+                this.keyManager?.stop()
+                return Promise.resolve()
+            },
         }
     }
 }

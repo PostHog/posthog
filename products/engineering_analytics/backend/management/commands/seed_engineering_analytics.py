@@ -54,6 +54,7 @@ from products.engineering_analytics.backend.logic.sources import (
     DEPLOYMENTS_SCHEMA,
     ISSUE_EVENTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
+    REVIEWS_SCHEMA,
     TEAM_MEMBERS_SCHEMA,
     TRUNK_QUARANTINED_TESTS_SCHEMA,
     WORKFLOW_JOBS_SCHEMA,
@@ -65,6 +66,7 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     DEPLOYMENTS_COLUMNS,
     ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
+    REVIEWS_COLUMNS,
     TEAM_MEMBERS_COLUMNS,
     TRUNK_QUARANTINED_TESTS_COLUMNS,
     WORKFLOW_JOBS_COLUMNS,
@@ -502,6 +504,54 @@ def _issue_event_rows(prs: list[dict[str, Any]], anchor: datetime) -> list[dict[
         created = datetime.fromisoformat(demo_pr["created_at"])
         add(7_000_000_050, "convert_to_draft", demo_pr, created + timedelta(hours=6))
         add(7_000_000_051, "ready_for_review", demo_pr, created + timedelta(hours=30))
+    return rows
+
+
+# Open PRs get a mix of verdicts so both open groups of the day view ("the author's move", "waiting on others") have rows.
+_MERGED_REVIEW_PLANS: tuple[tuple[tuple[str, float], ...], ...] = (
+    (("CHANGES_REQUESTED", 0.35), ("APPROVED", 0.7)),
+    (("APPROVED", 0.5),),
+    (("COMMENTED", 0.3), ("APPROVED", 0.85)),
+    (("APPROVED", 0.9),),
+)
+_OPEN_REVIEW_PLANS: tuple[tuple[tuple[str, float], ...], ...] = (
+    (("CHANGES_REQUESTED", 0.6),),
+    (("COMMENTED", 0.5),),
+    (),
+)
+
+
+def _review_rows(prs: list[dict[str, Any]], anchor: datetime) -> list[dict[str, Any]]:
+    logins = sorted({(pr.get("user") or {}).get("login") or "" for pr in prs} - {""})
+    reviewers = [login for login in logins if not login.endswith("[bot]") and login not in KNOWN_BOT_HANDLES]
+    rows: list[dict[str, Any]] = []
+    for index, pr in enumerate(prs):
+        if not pr.get("created_at") or not reviewers:
+            continue
+        created = datetime.fromisoformat(pr["created_at"])
+        if pr.get("merged_at"):
+            end = datetime.fromisoformat(pr["merged_at"])
+            plan = _MERGED_REVIEW_PLANS[index % len(_MERGED_REVIEW_PLANS)]
+        elif pr.get("state") == "open" and not pr.get("draft"):
+            end = anchor
+            plan = _OPEN_REVIEW_PLANS[index % len(_OPEN_REVIEW_PLANS)]
+        else:
+            continue
+        author = (pr.get("user") or {}).get("login") or ""
+        reviewer = reviewers[index % len(reviewers)]
+        if reviewer == author:
+            reviewer = reviewers[(index + 1) % len(reviewers)]
+        for step, (state, fraction) in enumerate(plan):
+            rows.append(
+                {
+                    "id": 6_000_000_000 + index * 10 + step,
+                    "pr_number": pr["number"],
+                    "user": json.dumps({"login": reviewer, "avatar_url": ""}),
+                    "state": state,
+                    "commit_id": "",
+                    "submitted_at": (created + (end - created) * fraction).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+            )
     return rows
 
 
@@ -1178,6 +1228,7 @@ class Command(BaseCommand):
         # Synthetic draft/ready transitions + merged events for ready_to_merge_seconds, windowed
         # like a real capped issue-events sync (see _issue_event_rows).
         issue_events = _issue_event_rows(prs, _fixture_anchor(prs, runs))
+        reviews = _review_rows(prs, _fixture_anchor(prs, runs))
         deploy_rows = _deployment_rows(prs)
 
         # Always normalize timestamps to a ClickHouse-friendly format; rebasing is optional.
@@ -1185,6 +1236,7 @@ class Command(BaseCommand):
         prs = [self._shift_dates(pr, PR_DATE_FIELDS, shift) for pr in prs]
         runs = [self._shift_dates(run, RUN_DATE_FIELDS, shift) for run in runs]
         issue_events = [self._shift_dates(event, ("created_at",), shift) for event in issue_events]
+        reviews = [self._shift_dates(review, ("submitted_at",), shift) for review in reviews]
         deployments = [self._shift_dates(row, ("created_at",), shift) for row in deploy_rows.deployments]
         deployment_statuses = [self._shift_dates(row, ("created_at",), shift) for row in deploy_rows.statuses]
         if shift:
@@ -1221,6 +1273,7 @@ class Command(BaseCommand):
             self._upsert_schema_table(
                 team, source, credential, prefix, ISSUE_EVENTS_SCHEMA, ISSUE_EVENTS_COLUMNS, issue_events
             )
+            self._upsert_schema_table(team, source, credential, prefix, REVIEWS_SCHEMA, REVIEWS_COLUMNS, reviews)
             # A TrunkIo sibling source backs the Trunk quarantine debt scoreboard.
             trunk_source = self._get_or_create_seed_source(
                 team,

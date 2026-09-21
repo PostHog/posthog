@@ -263,6 +263,7 @@ function EditSubscriptionForm({
     const {
         subscription,
         subscriptionLoading,
+        subscriptionErrors,
         isSubscriptionSubmitting,
         subscriptionChanged,
         lastDelivery,
@@ -323,6 +324,13 @@ function EditSubscriptionForm({
     const parts = formatter.formatToParts(new Date())
     const currentTimezone = parts?.find((part) => part.type === 'timeZoneName')?.value
     const nextDeliveryDate = subscription ? getNextDeliveryDate(subscription) : null
+
+    let saveDisabledReason: string | undefined = undefined
+    if (aiGate.submitBlocked) {
+        saveDisabledReason = AI_NOT_ALLOWED_REASON
+    } else if (!subscriptionChanged) {
+        saveDisabledReason = id === 'new' ? 'Nothing to create yet' : 'No changes to save'
+    }
 
     return (
         <Form
@@ -525,9 +533,13 @@ function EditSubscriptionForm({
                                                     integration="slack"
                                                     value={value}
                                                     onChange={(newValue) => {
+                                                        // value === null is the initial auto-select
+                                                        // rather than a user switch.
+                                                        if (value === null && typeof newValue === 'number') {
+                                                            logic.actions.applyDefaultIntegration(newValue)
+                                                            return
+                                                        }
                                                         onChange(newValue)
-                                                        // Only clear channel when user actively switches,
-                                                        // not on initial auto-select (value is null)
                                                         if (value !== null && newValue !== value) {
                                                             logic.actions.setSubscriptionValue('target_value', '')
                                                         }
@@ -682,6 +694,8 @@ function EditSubscriptionForm({
                                     <LemonField name="interval">
                                         <LemonSelect options={intervalOptions} />
                                     </LemonField>
+                                    {/* The error renders under the box instead, because an error node
+                                        inside this inline row breaks the "Send every ... at ..." layout. */}
                                     <LemonField name="frequency" renderError={() => null}>
                                         <LemonSelect options={availableFrequencyOptions} />
                                     </LemonField>
@@ -753,6 +767,11 @@ function EditSubscriptionForm({
                                     </LemonField>
                                 </div>
                             </div>
+                            {typeof subscriptionErrors.frequency === 'string' && (
+                                <div className="mt-1">
+                                    <LemonField.Error error={subscriptionErrors.frequency} />
+                                </div>
+                            )}
                             {nextDeliveryDate && (
                                 <div className="text-sm text-secondary mt-1">
                                     Next delivery:{' '}
@@ -945,7 +964,7 @@ function EditSubscriptionForm({
                     type="primary"
                     htmlType="submit"
                     loading={isSubscriptionSubmitting}
-                    disabled={!subscriptionChanged || subscriptionLoading || aiGate.submitBlocked}
+                    disabledReason={saveDisabledReason}
                 >
                     {id === 'new' ? 'Create subscription' : 'Save'}
                 </LemonButton>

@@ -93,8 +93,9 @@ def get_live_query_progress(recalc: ExperimentMetricsRecalculation) -> dict | No
     queries already finished during the run from system.query_log, matched by query_id prefix.
 
     Returns None unless the run is IN_PROGRESS. No storage needed: each metric query is tagged with the
-    deterministic client_query_id `experiment_metric_recalc_{recalc_id}_{metric_uuid}`, which ClickHouse
-    stamps into query_id as `{team_id}_{client_query_id}_{random}`. system.processes only holds a query
+    deterministic client_query_id `experiment_metric_recalc_{recalc_id}_{metric_uuid}_attempt{attempt:02d}`,
+    which ClickHouse stamps into query_id as `{team_id}_{client_query_id}_{random}`. The prefix matched below
+    stops at the recalc id, so the metric and attempt suffixes do not affect it. system.processes only holds a query
     while it executes, and the metric queries are usually shorter than the poll interval, so processes
     alone reads zero for most of the run; the query_log branch keeps finished queries counted, making
     rows_read cumulative and roughly monotonic across the run (modulo query_log flush lag).

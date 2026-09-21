@@ -255,10 +255,22 @@ class PersonHogServiceStub:
             response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.FencePersonResponse.FromString,
             _registered_method=True,
         )
+        self.FencePersons = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/FencePersons",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.FencePersonsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.FencePersonsResponse.FromString,
+            _registered_method=True,
+        )
         self.ReleaseFence = channel.unary_unary(
             "/personhog.service.v1.PersonHogService/ReleaseFence",
             request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFenceRequest.SerializeToString,
             response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFenceResponse.FromString,
+            _registered_method=True,
+        )
+        self.ReleaseFences = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/ReleaseFences",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFencesRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFencesResponse.FromString,
             _registered_method=True,
         )
         self.FoldPersonDocument = channel.unary_unary(
@@ -277,6 +289,12 @@ class PersonHogServiceStub:
             "/personhog.service.v1.PersonHogService/DeletePersonsBatchForTeam",
             request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamRequest.SerializeToString,
             response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamResponse.FromString,
+            _registered_method=True,
+        )
+        self.DeleteTombstonedPersons = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/DeleteTombstonedPersons",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsResponse.FromString,
             _registered_method=True,
         )
         self.SplitPerson = channel.unary_unary(
@@ -523,7 +541,19 @@ class PersonHogServiceServicer:
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def FencePersons(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
     def ReleaseFence(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def ReleaseFences(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
@@ -537,6 +567,9 @@ class PersonHogServiceServicer:
 
     def DeletePersons(self, request, context):
         """Person deletes
+        DeletePersons removes the persons in any state. A caller working from an advisory
+        list of tombstoned persons must use DeleteTombstonedPersons instead, which re-checks
+        the tombstone under the row lock.
         WARNING: This is a write operation on person data. It should route to the leader
         once personhog-leader supports deletes. Currently routed through the replica
         (which uses the primary Postgres pool) as a temporary measure.
@@ -548,6 +581,15 @@ class PersonHogServiceServicer:
 
     def DeletePersonsBatchForTeam(self, request, context):
         """WARNING: Same routing caveat as DeletePersons above."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def DeleteTombstonedPersons(self, request, context):
+        """Deletes only persons that are still tombstoned when the delete runs, a bounded
+        number of rows per call; pending uuids are sent again by the caller.
+        WARNING: Same routing caveat as DeletePersons above.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
@@ -756,10 +798,20 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.FencePersonRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.FencePersonResponse.SerializeToString,
         ),
+        "FencePersons": grpc.unary_unary_rpc_method_handler(
+            servicer.FencePersons,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.FencePersonsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.FencePersonsResponse.SerializeToString,
+        ),
         "ReleaseFence": grpc.unary_unary_rpc_method_handler(
             servicer.ReleaseFence,
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFenceRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFenceResponse.SerializeToString,
+        ),
+        "ReleaseFences": grpc.unary_unary_rpc_method_handler(
+            servicer.ReleaseFences,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFencesRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFencesResponse.SerializeToString,
         ),
         "FoldPersonDocument": grpc.unary_unary_rpc_method_handler(
             servicer.FoldPersonDocument,
@@ -775,6 +827,11 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             servicer.DeletePersonsBatchForTeam,
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamResponse.SerializeToString,
+        ),
+        "DeleteTombstonedPersons": grpc.unary_unary_rpc_method_handler(
+            servicer.DeleteTombstonedPersons,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsResponse.SerializeToString,
         ),
         "SplitPerson": grpc.unary_unary_rpc_method_handler(
             servicer.SplitPerson,
@@ -1883,6 +1940,36 @@ class PersonHogService:
         )
 
     @staticmethod
+    def FencePersons(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/FencePersons",
+            personhog_dot_types_dot_v1_dot_person__pb2.FencePersonsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.FencePersonsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
     def ReleaseFence(
         request,
         target,
@@ -1901,6 +1988,36 @@ class PersonHogService:
             "/personhog.service.v1.PersonHogService/ReleaseFence",
             personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFenceRequest.SerializeToString,
             personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFenceResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def ReleaseFences(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/ReleaseFences",
+            personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFencesRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFencesResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1991,6 +2108,36 @@ class PersonHogService:
             "/personhog.service.v1.PersonHogService/DeletePersonsBatchForTeam",
             personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamRequest.SerializeToString,
             personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def DeleteTombstonedPersons(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/DeleteTombstonedPersons",
+            personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsResponse.FromString,
             options,
             channel_credentials,
             insecure,

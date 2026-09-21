@@ -126,6 +126,8 @@ def push_hypercache_teams_processed_metrics(
     cache_name: str,
     successful: int,
     failed: int,
+    enqueued: int = 0,
+    expiry_backlog: int | None = None,
 ) -> None:
     """
     Push teams processed metrics to Pushgateway after batch refresh operations.
@@ -142,6 +144,13 @@ def push_hypercache_teams_processed_metrics(
         cache_name: The canonical cache name (e.g., "team_metadata", "llm_gateway_policy")
         successful: Number of teams successfully processed
         failed: Number of teams that failed processing
+        enqueued: Number of teams whose refresh was routed to another builder instead
+            of being built in this process. Kept apart from `successful` because the
+            build has not happened yet when the run ends, so folding the two together
+            would report a healthy sweep while the other builder was down.
+        expiry_backlog: Entries in the expiry sorted set that are due for refresh,
+            sampled after the run. None when the count is unavailable, which pushes
+            no series rather than a zero that reads as a drained queue.
     """
     if not settings.PROM_PUSHGATEWAY_ADDRESS:
         return
@@ -156,6 +165,16 @@ def push_hypercache_teams_processed_metrics(
             )
             success_gauge.labels(namespace=namespace, cache_name=cache_name, result="success").set(successful)
             success_gauge.labels(namespace=namespace, cache_name=cache_name, result="failure").set(failed)
+            success_gauge.labels(namespace=namespace, cache_name=cache_name, result="enqueued").set(enqueued)
+
+            if expiry_backlog is not None:
+                backlog_gauge = Gauge(
+                    "posthog_hypercache_expiry_backlog_last_run",
+                    "Entries due for refresh in the expiry sorted set, sampled after the last batch refresh run",
+                    labelnames=["namespace", "cache_name"],
+                    registry=registry,
+                )
+                backlog_gauge.labels(namespace=namespace, cache_name=cache_name).set(expiry_backlog)
     except Exception as e:
         logger.warning(
             "Failed to push hypercache teams processed to Pushgateway",
@@ -224,6 +243,19 @@ class HyperCacheManagementConfig:
     # lags. Applied by the verifier's direct db_data write and the self-heal drain; a
     # veto is neither a fix nor a failure. `update_fn` paths already guard internally.
     should_skip_write: Callable[[Any, dict], bool] | None = None
+
+    # Optional routing hook for the expiry refresh sweep, called per team before the
+    # sweep would call update_fn. True hands the refresh to another builder, which
+    # makes the sweep skip its own build and count the team as enqueued. Unset, the
+    # sweep only ever builds, which is what every cache that has not opted in gets.
+    # The hook owns its own gating, so a cache can ramp the handover per team. A hook
+    # that raises makes the sweep count the team as failed and skip the build, so it
+    # should swallow a gate failure it can decide around, and raise only where failed
+    # is the reading it wants.
+    # Takes a team id rather than a Team: `refresh_only_fields` defers most columns on
+    # the Team the sweep loads, so a hook reading any other field would trigger a lazy
+    # refetch, or fail outright against a read replica that has not applied the column.
+    route_refresh_fn: Callable[[int], bool] | None = None
 
     # Optional attribution of a team's primary cache writer, used to label verifier
     # fixes. During a dual-writer migration (Python Celery builder vs Rust Kafka

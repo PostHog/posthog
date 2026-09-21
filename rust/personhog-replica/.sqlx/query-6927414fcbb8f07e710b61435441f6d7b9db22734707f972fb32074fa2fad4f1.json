@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id::bigint AS \"id!\"\n            FROM posthog_person\n            WHERE team_id = $1 AND id = ANY($2) AND is_deleted\n            ORDER BY id\n            FOR UPDATE\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6927414fcbb8f07e710b61435441f6d7b9db22734707f972fb32074fa2fad4f1"
+}

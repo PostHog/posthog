@@ -634,6 +634,7 @@ def test_familiarity_computed_on_every_tier_but_prompted_only_on_t1(
         files_prev_count=2,
         files_total=3,
         capped=False,
+        blame_incomplete_files=0,
         top_prior_authors=(),
     )
     pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
@@ -681,6 +682,7 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
             files_prev_count=1,
             files_total=3,
             capped=False,
+            blame_incomplete_files=0,
             top_prior_authors=("Alice",),
         )
         pipeline.provenance = CommitProvenance(

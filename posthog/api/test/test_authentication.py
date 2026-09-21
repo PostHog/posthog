@@ -95,6 +95,7 @@ class TestLoginPrecheckAPI(APIBaseTest):
             {
                 "sso_enforcement": None,
                 "saml_available": False,
+                "oidc_available": False,
                 "webauthn_credentials": [],
                 "password_login_available": True,
                 "social_providers": [],
@@ -118,6 +119,7 @@ class TestLoginPrecheckAPI(APIBaseTest):
             {
                 "sso_enforcement": None,
                 "saml_available": False,
+                "oidc_available": False,
                 "webauthn_credentials": [],
                 "password_login_available": True,
                 "social_providers": [],
@@ -253,6 +255,7 @@ class TestLoginPrecheckAPI(APIBaseTest):
             {
                 "sso_enforcement": None,
                 "saml_available": False,
+                "oidc_available": False,
                 "webauthn_credentials": [],
                 "password_login_available": False,
                 "social_providers": [],

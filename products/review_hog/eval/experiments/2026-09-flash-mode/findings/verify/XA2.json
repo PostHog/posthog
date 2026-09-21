@@ -1,0 +1,27 @@
+{
+    "letter": "XA",
+    "id": "XA2",
+    "cluster": 6,
+    "is_real": true,
+    "severity": "must_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "/tmp/frozen-75215/tools/pr-approval-agent/review_pr.py:225,590 gates bot/draft refusal solely on self_driving. The hosted caller tools/pr-approval-agent/review_local.py:321-330 uses that flag and the same prerequisite implementation, including for human-authored drafts. This is reachable through the current initial trigger: tasks/backend/presentation/views/api.py:1101-1118 and facade/api.py:1770-1788,2149-2154 let a task controller replace output.pr_url; review_hog/backend/receivers.py:97-138 stamps the existing signal implementation task/reviewer identity onto the submitted URL. stamphog/backend/tasks/tasks.py:1159-1181 checks fetched state=open and a nonempty head, then creates inbox provenance without checking author identity. temporal/activities.py:434-451 converts it into self_driving_review, and 715-745 posts approval when the remaining review passes. An unrelated human draft in a configured repository can therefore bypass its deterministic draft gate.",
+            "refutation": "I first checked the caller trust boundary and ready-state behavior. The Action cannot enable self_driving (review_pr.py:973-985), and the webhook carve-out rejects humans (stamphog tasks.py:169-172), but neither protects the separate initial receiver path, whose caller-writable PR URL reaches provenance stamping without that check. The ready-PR portion is refuted: tasks.py:160-168 and tests/test_tasks.py:835-854 explicitly preserve a draft-time approval when the PR becomes ready and allow later head-changing reviews. A still-draft requirement would contradict that behavior. The independent human-draft bypass remains a reachable correctness/security defect; no hypothetical PR-author mutation or queue race is needed."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "The human-draft case is reachable in the hosted caller: /tmp/frozen-75215/products/review_hog/backend/receivers.py:92-138 accepts a signal task's output.pr_url, and /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1159-1181 fetches the PR but validates only open state and a nonempty head before stamping inbox_review. Task output is caller-writable through /tmp/frozen-75215/products/tasks/backend/presentation/views/api.py:1101-1118 and facade/api.py:1770-1788,2139-2154. activities.py:434-451 converts that provenance to self_driving_review=True; /tmp/frozen-75215/tools/pr-approval-agent/review_local.py:321-330 accepts a human PR and invokes Pipeline._check_prerequisites, whose review_pr.py:590 skips the draft refusal. A linked human draft therefore receives the relaxed approval path without any current-author validation.",
+            "refutation": "First checked whether true is impossible for an unintended shape: review_pr.py:202-205 and :984 keep Action invocations false, and tests/test_review_pr.py:568-600 verify intended draft relaxation plus retained changes-requested blocking. However the hosted receiver/worker path above fails the stated positive-linkage/author premise and is publicly reachable through task output updates. The ready-PR part is refuted: tasks.py:160-165 explicitly preserves draft-time approvals on ready_for_review and permits subsequent head-changing re-reviews; requiring draft forever would contradict that intended lifecycle. The retained defect is the human-draft bypass, not accepting a legitimate ready self-driving PR."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "The human-draft case is production-reachable. tools/pr-approval-agent/review_local.py:321-330 accepts the hosted flag, and review_pr.py:590 skips draft prerequisites without checking author type. Task controllers can set arbitrary output.pr_url through products/tasks/backend/presentation/serializers.py:179, views/api.py:1082-1087 and facade/api.py:1770-1788,2038-2044,2075. products/review_hog/backend/receivers.py:92-105,111-138 forwards that target from an eligible opted-in signal task. stamphog/backend/tasks/tasks.py:1140-1181 checks the configured repository/open state/head SHA but not bot identity before stamping provenance at :1223-1229; temporal/activities.py:451 converts it into the engine flag. A human-authored draft can consequently reach an approval posted at temporal/activities.py:723-745.",
+            "refutation": "I first checked whether defaults and production callers already constrain the flag. The Action leaves it off, and webhook re-reviews reject humans at tasks.py:169-172, but the initial task accepts a caller-writable target and omits that author check. Thus the human case survives without a handcrafted context. The ready-state portion is refuted: tasks.py:160-165 intentionally preserves the draft-time approval on a ready flip and permits later head-changing re-reviews. Requiring every self-driving review to remain draft would break that lifecycle; a queued review observing readiness alone is not a demonstrated defect."
+        }
+    ]
+}

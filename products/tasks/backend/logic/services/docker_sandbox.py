@@ -14,18 +14,15 @@ import logging
 import tempfile
 import threading
 import subprocess
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional
 
 from django.conf import settings
 
-if TYPE_CHECKING:
-    from products.tasks.backend.temporal.process_task.utils import McpServerConfig
-
-from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX, SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
+from products.tasks.backend.constants import SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
 from products.tasks.backend.exceptions import (
     ProcessTaskError,
     ProcessTaskFatalError,
@@ -38,6 +35,7 @@ from products.tasks.backend.exceptions import (
 )
 from products.tasks.backend.models import SandboxSnapshot
 
+from .agent_server_launcher import AgentServerLaunchMixin
 from .agentsh import (
     BASH_ENV_SCRIPT,
     ENV_WRAPPER_SCRIPT,
@@ -62,7 +60,6 @@ from .sandbox import (
     AgentServerResult,
     ExecutionResult,
     ExecutionStream,
-    SandboxBase,
     SandboxConfig,
     SandboxStatus,
     SandboxTemplate,
@@ -177,7 +174,7 @@ def _run_cancellable_subprocess(
             continue
 
 
-class DockerSandbox(SandboxBase):
+class DockerSandbox(AgentServerLaunchMixin):
     """
     Docker-based sandbox for local development and testing.
     Implements the same interface as the Modal-based Sandbox.
@@ -840,10 +837,14 @@ class DockerSandbox(SandboxBase):
         # An empty payload still has to produce an empty file: with no chunks the temp path is
         # never created and the mv below fails. Blanking a credential file is exactly this case.
         chunks = [encoded_payload[start : start + chunk_size] for start in range(0, len(encoded_payload), chunk_size)]
-        for index, chunk in enumerate(chunks or [""]):
+        prepared_chunks = chunks or [""]
+        last_index = len(prepared_chunks) - 1
+        for index, chunk in enumerate(prepared_chunks):
             write_mode = "wb" if index == 0 else "ab"
+            prologue = f"umask 077 && rm -f {shlex.quote(path)}.tmp-* && " if index == 0 else ""
+            epilogue = f" && mv {shlex.quote(temp_path)} {shlex.quote(path)}" if index == last_index else ""
             command = (
-                "python3 - <<'EOF_SANDBOX_WRITE'\n"
+                f"{prologue}python3 - <<'EOF_SANDBOX_WRITE'{epilogue}\n"
                 "import base64\n"
                 "from pathlib import Path\n"
                 f"path = Path({json.dumps(temp_path)})\n"
@@ -860,15 +861,6 @@ class DockerSandbox(SandboxBase):
                     extra={"stdout": result.stdout, "stderr": result.stderr, "sandbox_id": self.id},
                 )
                 break
-
-        if result.exit_code == 0:
-            move_command = f"mv {shlex.quote(temp_path)} {shlex.quote(path)}"
-            result = self.execute(move_command, timeout_seconds=step_timeout)
-            if result.exit_code != 0:
-                logger.warning(
-                    "sandbox_write_failed",
-                    extra={"stdout": result.stdout, "stderr": result.stderr, "sandbox_id": self.id},
-                )
 
         return result
 
@@ -1046,129 +1038,43 @@ class DockerSandbox(SandboxBase):
         New base images bake it in, but a resume from a pre-shim filesystem snapshot (or any window
         where the image lags this backend) would otherwise lack it, leaving gh with no token once the
         frozen launch-env token is unset."""
-        self.write_file(GH_GUARD_INSTALL_PATH, read_gh_guard_script())
-        self.execute(f"chmod +x {shlex.quote(GH_GUARD_INSTALL_PATH)}", timeout_seconds=30)
+        self._write_required_file(GH_GUARD_INSTALL_PATH, read_gh_guard_script())
+        self._chmod_required(GH_GUARD_INSTALL_PATH, "+x")
 
-    def start_agent_server(
-        self,
-        repository: str | None,
-        task_id: str,
-        run_id: str,
-        mode: str = "background",
-        create_pr: bool = True,
-        auto_publish: bool = False,
-        interaction_origin: str | None = None,
-        branch: str | None = None,
-        agent_runtime: str | None = None,
-        runtime_adapter: str | None = None,
-        provider: str | None = None,
-        model: str | None = None,
-        reasoning_effort: str | None = None,
-        service_tier: str | None = None,
-        context_window: str | None = None,
-        fast_mode: bool | None = None,
-        initial_permission_mode: str | None = None,
-        mcp_configs: list[McpServerConfig] | None = None,
-        relayed_mcp_servers: list[str] | None = None,
-        allowed_domains: list[str] | None = None,
-        event_ingest_token: str | None = None,
-        task_run_session_token: str | None = None,
-        event_ingest_url: str | None = None,
-        event_ingest_keep_stream_open: bool = False,
-        repo_ready_file: str | None = None,
-        wait_for_health: bool = True,
-        rtk_enabled: bool = True,
-        benjamin_enabled: bool = False,
-        peer_messaging: bool = False,
-        claude_model_access: str | None = None,
-    ) -> None:
-        """Start the agent-server HTTP server in the sandbox.
+    def supports_combined_agent_server_start_and_health(self) -> bool:
+        return False
 
-        The sandbox URL should be obtained via get_connect_credentials()
-        before calling this method.
-        """
-        if not self.is_running():
-            raise RuntimeError("Sandbox not in running state.")
-
+    def _validate_agent_server_launch(self) -> None:
+        super()._validate_agent_server_launch()
         if self._host_port is None:
             raise RuntimeError("Sandbox was not created with port exposure.")
 
-        self.clear_bundled_skills_if_disabled()
+    def _reuse_healthy_agent_server(self, allowed_domains: list[str] | None) -> bool:
+        return False
 
-        repo_path: str | None = None
-        if repository:
-            org, repo = repository.lower().split("/")
-            repo_path = f"/tmp/workspace/repos/{org}/{repo}"
-
+    def _prepare_agent_server_launch(self, allowed_domains: list[str] | None) -> None:
         # The agent runs each tool command in a fresh shell; BASH_ENV re-sources
         # the (backend-refreshed) GitHub token from the env file per command, so
         # mid-session credential refreshes reach git/gh. Needed for both agentsh
         # and non-agentsh runs.
-        self.write_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
+        self._write_required_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
         self._install_gh_guard()
 
         if allowed_domains is not None:
             self._setup_agentsh(WORKING_DIR, allowed_domains)
 
-        mcp_servers_arg = ""
-        if mcp_configs:
-            mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
-            mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
-
-        relay_mcp_servers_arg = ""
-        if relayed_mcp_servers:
-            relay_mcp_servers_arg = f" --relayMcpServers {shlex.quote(json.dumps(relayed_mcp_servers))}"
-
-        if agent_runtime == "pi" and not self.agent_server_supports_pi_runtime():
-            raise RuntimeError("Installed sandbox agent-server does not support the Pi runtime")
-
-        if auto_publish and not self.agent_server_supports_auto_publish():
-            logger.warning(f"Installed agent-server in sandbox {self.id} predates --autoPublish; starting review-first")
-            auto_publish = False
-
-        exec_permission_regex: str | None = POSTHOG_EXEC_PERMISSION_REGEX
-        if not self.agent_server_supports_exec_permission_regex():
-            logger.warning(
-                f"Installed agent-server in sandbox {self.id} predates --posthogExecPermissionRegex; "
-                "connected-project operations will not prompt"
-            )
-            exec_permission_regex = None
-
-        command = self._build_agent_server_command(
-            repo_path,
-            task_id,
-            run_id,
-            mode,
-            create_pr,
-            auto_publish,
-            interaction_origin,
-            branch,
-            agent_runtime,
-            runtime_adapter,
-            provider,
-            model,
-            reasoning_effort,
-            service_tier=service_tier,
-            context_window=context_window,
-            fast_mode=fast_mode,
-            initial_permission_mode=initial_permission_mode,
-            mcp_servers_arg=mcp_servers_arg,
-            relay_mcp_servers_arg=relay_mcp_servers_arg,
-            allowed_domains=allowed_domains,
-            event_ingest_token=event_ingest_token,
-            task_run_session_token=task_run_session_token,
-            event_ingest_url=event_ingest_url,
-            event_ingest_keep_stream_open=event_ingest_keep_stream_open,
-            repo_ready_file=repo_ready_file,
-            rtk_enabled=rtk_enabled,
-            benjamin_enabled=benjamin_enabled,
-            peer_messaging=peer_messaging,
-            posthog_exec_permission_regex=exec_permission_regex,
-            claude_model_access=claude_model_access,
-        )
-
-        logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
-
+    def _launch_prepared_agent_server(
+        self,
+        build_command: Callable[[str | None], str],
+        *,
+        branch: str | None,
+        task_id: str,
+        run_id: str,
+        wait_for_health: bool,
+        allowed_domains: list[str] | None,
+        claude_model_access: str | None,
+    ) -> int | None:
+        command = build_command(branch)
         if not wait_for_health:
             result = self.execute(command, timeout_seconds=30)
             if result.exit_code != 0:
@@ -1177,12 +1083,12 @@ class DockerSandbox(SandboxBase):
                     {"sandbox_id": self.id, "stderr": result.stderr, "exit_code": str(result.exit_code)},
                     cause=RuntimeError(result.stderr or "launch command returned non-zero exit"),
                 )
-            return
+            return None
 
         max_attempts = 300 if claude_model_access == "own-subscription" else 20
         if self._launch_and_check(command, max_attempts=max_attempts):
             logger.info(f"Agent-server started on port {self._host_port}")
-            return
+            return None
 
         # If branch flag was used, the installed agent-server version may not support --baseBranch.
         # Kill the failed process and retry without it.
@@ -1194,41 +1100,10 @@ class DockerSandbox(SandboxBase):
             )
             self.execute("pkill -f agent-server || true", timeout_seconds=5)
 
-            command = self._build_agent_server_command(
-                repo_path,
-                task_id,
-                run_id,
-                mode,
-                create_pr,
-                auto_publish,
-                interaction_origin,
-                branch=None,
-                agent_runtime=agent_runtime,
-                runtime_adapter=runtime_adapter,
-                provider=provider,
-                model=model,
-                reasoning_effort=reasoning_effort,
-                service_tier=service_tier,
-                context_window=context_window,
-                fast_mode=fast_mode,
-                initial_permission_mode=initial_permission_mode,
-                mcp_servers_arg=mcp_servers_arg,
-                relay_mcp_servers_arg=relay_mcp_servers_arg,
-                allowed_domains=allowed_domains,
-                event_ingest_token=event_ingest_token,
-                task_run_session_token=task_run_session_token,
-                event_ingest_url=event_ingest_url,
-                event_ingest_keep_stream_open=event_ingest_keep_stream_open,
-                repo_ready_file=repo_ready_file,
-                rtk_enabled=rtk_enabled,
-                benjamin_enabled=benjamin_enabled,
-                peer_messaging=peer_messaging,
-                posthog_exec_permission_regex=exec_permission_regex,
-                claude_model_access=claude_model_access,
-            )
+            command = build_command(None)
             if self._launch_and_check(command, max_attempts=max_attempts):
                 logger.info(f"Agent-server started on port {self._host_port} (without --baseBranch)")
-                return
+                return None
 
         log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
         logger.warning(f"Agent-server health check failed for sandbox {self.id}. Log output:\n{log_result.stdout}")

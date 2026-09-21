@@ -6,11 +6,13 @@ import sys
 import json
 import subprocess
 from collections import defaultdict
+from pathlib import Path
 from typing import cast
 
 import click
 
 from .census import census
+from .codeowners import package_dirs_from, project
 from .matcher import compile_pattern, normalize_path
 from .resolver import OWNERS_FILENAME, PRODUCT_FILENAME, OwnersResolver, Purpose, read_stdin_paths, resolution_to_wire
 from .schema import is_simple_owners_file, normalize_product_owners
@@ -76,6 +78,28 @@ def cmd_census(as_json: bool, prefix: str | None) -> None:
             f"{row.test_file_count:6d}  {row.pytest_file_count:6d} py  {row.jest_file_count:6d} js  {row.owner_team}"
         )
     click.echo(f"\n{sum(r.test_file_count for r in rows)} test file(s) across {len(rows)} team(s)", err=True)
+
+
+@click.command(name="owners:codeowners", help="Emit a CODEOWNERS projection of test-file ownership")
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(dir_okay=False, writable=True),
+    help="Write to this file instead of stdout",
+)
+def cmd_codeowners(output: str | None) -> None:
+    resolver = OwnersResolver()
+    tracked = resolver.tracked_files()
+    projection = project(tracked, resolver, package_dirs_from(tracked))
+    if output:
+        Path(output).write_text(projection.render())
+    else:
+        click.echo(projection.render(), nl=False)
+    click.echo(
+        f"{len(projection.lines)} rule(s) covering {projection.owned_file_count} test file(s); "
+        f"{projection.unowned_file_count} unowned, {len(projection.ambiguous_spellings)} ambiguous spelling(s) dropped",
+        err=True,
+    )
 
 
 @click.command(name="owners:unowned", help="List unowned tracked files (respecting owners: null exemptions)")
@@ -335,6 +359,7 @@ def main() -> None:
 
 
 main.add_command(cmd_census, name="census")
+main.add_command(cmd_codeowners, name="codeowners")
 main.add_command(cmd_resolve, name="resolve")
 main.add_command(cmd_who, name="who")
 main.add_command(cmd_unowned, name="unowned")

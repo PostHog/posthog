@@ -90,10 +90,13 @@ _invalid_token_cache: TTLCache = TTLCache(maxsize=_INVALID_TOKEN_CACHE_SIZE, ttl
 _invalid_token_lock = threading.Lock()
 _PUSH_INTEGRATION_KINDS = ("firebase", "apns")
 
-VALID_PLATFORMS = ("android", "ios")
+# SDKs send a `platform` field. It is ignored: the property is keyed on app_id and the provider is
+# resolved from app_id alone. Rejecting on it cost a registration per device, because a rejected
+# device re-posts on every app open and never registers.
+
 
 # A device registration payload is a handful of short string fields (distinct_id, device_token,
-# platform, app_id, api_key) — well under 1 KiB. Cap the raw request body far above that but far below
+# app_id, api_key) — well under 1 KiB. Cap the raw request body far above that but far below
 # Django's global limit, so a compressed body can't inflate into a memory-exhaustion payload when
 # load_data_from_request decompresses it.
 MAX_BODY_BYTES = 16 * 1024
@@ -240,7 +243,8 @@ def _rejection_response(
         method=request.method,
         team_id=team_id,
         # app_id is client-supplied, so bound it to keep a hostile value from bloating the log line.
-        app_id=app_id[:128] if isinstance(app_id, str) else app_id,
+        # A non-string (a large array or object) is dropped rather than serialized whole.
+        app_id=app_id[:128] if isinstance(app_id, str) else None,
         detail=detail,
         sdk_name=sdk.name,
         sdk_version=sdk.version,
@@ -325,6 +329,7 @@ def push_subscriptions(request: Request):
             code="invalid_api_key",
             status_code=status.HTTP_401_UNAUTHORIZED,
             api_key_fingerprint=_api_key_fingerprint(api_key),
+            app_id=data.get("app_id"),
         )
 
     team = Team.objects.get_team_from_cache_or_token(api_key)
@@ -339,11 +344,11 @@ def push_subscriptions(request: Request):
             code="invalid_api_key",
             status_code=status.HTTP_401_UNAUTHORIZED,
             api_key_fingerprint=_api_key_fingerprint(api_key),
+            app_id=data.get("app_id"),
         )
 
     distinct_id = data.get("distinct_id")
     device_token = data.get("device_token")
-    platform = data.get("platform")
     app_id = data.get("app_id")
 
     missing_fields = [
@@ -351,7 +356,6 @@ def push_subscriptions(request: Request):
         for field_name, value in [
             ("distinct_id", distinct_id),
             ("device_token", device_token),
-            ("platform", platform),
             ("app_id", app_id),
         ]
         if not value or not isinstance(value, str)
@@ -375,19 +379,7 @@ def push_subscriptions(request: Request):
 
     assert isinstance(distinct_id, str)
     assert isinstance(device_token, str)
-    assert isinstance(platform, str)
     assert isinstance(app_id, str)
-
-    if platform not in VALID_PLATFORMS:
-        return _rejection_response(
-            request,
-            f"Invalid platform. Must be one of: {', '.join(VALID_PLATFORMS)}.",
-            error_type="validation_error",
-            code="invalid_platform",
-            status_code=status.HTTP_400_BAD_REQUEST,
-            team_id=team.id,
-            app_id=app_id,
-        )
 
     # Skip the JSONB lookup when the team has no integration for this app_id, which is the endpoint's
     # normal case. A cache miss or outage returns None and falls through to the real query.
@@ -410,9 +402,17 @@ def push_subscriptions(request: Request):
             JsonResponse(
                 {
                     "distinct_id": distinct_id,
-                    "platform": platform,
                     "stored": False,
                     "push_enabled": False,
+                    # The status code cannot say this: a 4xx would make every SDK retry on every app
+                    # open. Without a reason in the body, a developer whose token goes nowhere sees a
+                    # success and has no way to tell the difference from a working registration.
+                    "reason": "no_push_channel_for_app_id",
+                    "detail": (
+                        f"This project has no push channel for app_id '{app_id}'. The device token was "
+                        "not stored. Add a push channel whose Firebase project id or APNs bundle id "
+                        "matches this app_id, and check the project the SDK is sending to."
+                    ),
                 },
                 status=status.HTTP_200_OK,
             ),
@@ -488,7 +488,6 @@ def push_subscriptions(request: Request):
         JsonResponse(
             {
                 "distinct_id": distinct_id,
-                "platform": platform,
             },
             status=status.HTTP_200_OK,
         ),

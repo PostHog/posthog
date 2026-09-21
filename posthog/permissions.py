@@ -9,7 +9,7 @@ from django.db.models import Model
 
 import posthoganalytics
 from loginas.utils import is_impersonated_session
-from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
@@ -729,6 +729,22 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     return None
 
 
+SCOUT_SANDBOX_SCOPE_PREFIX = "signal_scout_internal:"
+
+
+def is_scout_sandbox_request(request: Request) -> bool:
+    """Whether a request is authenticated with a Signals scout sandbox token.
+
+    The scout harness is the only issuer of `signal_scout_internal:*`, so those scopes identify a
+    scout run. The scope object is internal, so session auth and ordinary API keys never carry
+    them. Shared rather than reimplemented per product: a viewset that restricts what a scout may
+    do has to read the same signal as every other one, or a rule holds on one surface and not the
+    next.
+    """
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    return scopes is not None and any(scope.startswith(SCOUT_SANDBOX_SCOPE_PREFIX) for scope in scopes)
+
+
 def get_authenticator_scoped_organization_ids(authenticator) -> list[str] | None:
     """The organizations a scoped token is confined to, or None when the credential carries no
     organization restriction (session auth, or a token scoped to every organization).
@@ -1099,7 +1115,13 @@ class AccessControlPermission(ScopeBasePermission):
         if hasattr(view, "param_derived_from_user_current_team"):
             if view.param_derived_from_user_current_team in ("team_id", "project_id"):
                 if request.user.current_team_id is None:
-                    raise AuthenticationFailed("This endpoint requires a current project to be set on your account.")
+                    # Not `AuthenticationFailed`: the credential is valid, the account state is
+                    # not. A 401 here tells a token caller to replace a key that was never the
+                    # problem, and clients act on it by refreshing the token and retrying.
+                    raise PermissionDenied(
+                        "This endpoint reads the project that is set on your account, and your "
+                        "account has none. Open PostHog, select a project, then try again."
+                    )
 
         uac = self._get_user_access_control(request, view)
         scope_object = self._get_scope_object(request, view)

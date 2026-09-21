@@ -78,6 +78,17 @@ def looks_like_merge_queue_branch_expr(branch_column: str) -> str:
     return f"{_source_pr_string(branch_column)} != ''"
 
 
+def in_merge_queue_namespace_expr(branch_column: str) -> str:
+    """HogQL predicate on the queue's branch namespace, for spend totals only.
+
+    Wider than ``_SOURCE_PR_PATTERN``: a batched or otherwise unresolvable gate branch still sits
+    here. A false positive can only misplace a sum, so the shape needs no corroboration. Anything
+    that decides what a row *is* must use ``merge_queue_branch_expr``.
+    """
+    branch = f"ifNull({branch_column}, '')"
+    return f"(startsWith({branch}, 'trunk-merge/') OR startsWith({branch}, 'gh-readonly-queue/'))"
+
+
 def source_pr_string_expr(branch_column: str, *, queue_actor_column: str) -> str:
     """HogQL: the PR number a corroborated gate branch is landing, as a string; '' otherwise.
 

@@ -21,6 +21,37 @@ vi.mock("../src/adapters/acp-connection", () => ({
 }));
 
 describe("live e2e host permissions", () => {
+  it("holds a question open until the host releases its answer", async () => {
+    let releaseAnswer: () => void = () => {};
+    const answer = new Promise<void>((resolve) => {
+      releaseAnswer = resolve;
+    });
+    const onQuestion = vi.fn(() => answer);
+    openConnection({ adapter: "claude", cwd: "/tmp", onQuestion });
+    const request = {
+      sessionId: "session",
+      toolCall: {
+        toolCallId: "question",
+        title: "Choose an approach",
+        kind: "other",
+        _meta: { codeToolKind: "question" },
+      },
+      options: [{ kind: "allow_once", optionId: "option_0", name: "A" }],
+    } as unknown as RequestPermissionRequest;
+    const answered = vi.fn();
+    const response = Promise.resolve(
+      host.client?.requestPermission(request),
+    ).then(answered);
+
+    await vi.waitFor(() => expect(onQuestion).toHaveBeenCalledOnce());
+    expect(answered).not.toHaveBeenCalled();
+    releaseAnswer();
+    await response;
+    expect(answered).toHaveBeenCalledWith({
+      outcome: { outcome: "selected", optionId: "option_0" },
+    });
+  });
+
   it.each([
     {
       kind: "switch_mode",

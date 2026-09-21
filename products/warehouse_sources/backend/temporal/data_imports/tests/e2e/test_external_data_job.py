@@ -268,18 +268,15 @@ def test_create_external_job_activity_emit_signals_respects_ai_consent(
 
 
 @pytest.mark.parametrize(
-    "flag_enabled,ai_consent,expected",
+    "ai_consent,expected",
     [
-        (True, True, True),  # flag on + AI consent → enrichment runs
-        (True, False, False),  # AI opt-out blocks it even with the flag on
-        (True, None, False),  # unset consent is not consent
-        (False, True, False),  # flag off blocks it even with consent
+        (True, True),  # AI consent → enrichment runs
+        (False, False),  # AI opt-out blocks it
+        (None, False),  # unset consent is not consent
     ],
 )
 @pytest.mark.django_db(transaction=True)
-def test_create_external_job_activity_enrichment_enabled_gates_on_flag_and_consent(
-    activity_environment, team, flag_enabled, ai_consent, expected
-):
+def test_create_external_job_activity_enrichment_gates_on_consent(activity_environment, team, ai_consent, expected):
     organization = team.organization
     organization.is_ai_data_processing_approved = ai_consent
     organization.save()
@@ -295,12 +292,8 @@ def test_create_external_job_activity_enrichment_enabled_gates_on_flag_and_conse
     inputs = CreateExternalDataJobModelActivityInputs(
         team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
     )
-    with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.enrich_table_semantics.enrichment_enabled",
-        return_value=flag_enabled,
-    ):
-        result = activity_environment.run(create_external_data_job_model_activity, inputs)
-    assert result.enrichment_enabled is expected
+    result = activity_environment.run(create_external_data_job_model_activity, inputs)
+    assert result.enrichment_needed is expected
 
 
 @pytest.mark.django_db(transaction=True)
