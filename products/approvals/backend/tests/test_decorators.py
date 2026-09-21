@@ -253,8 +253,12 @@ class TestChangeRequestCreateFailureCounter(APIBaseTest):
         serializer = self._gated_serializer()
         before = self._failures("feature_flag.enable", "TypeError")
 
-        with patch(
-            "products.approvals.backend.decorators._create_change_request",
+        # Patching the ORM boundary rather than _create_change_request keeps the helper's
+        # own display-data, expiry and JSON-safe steps in the path, so the no-row assertion
+        # below covers code that actually runs.
+        with patch.object(
+            ChangeRequest.objects,
+            "create",
             side_effect=TypeError("Object of type datetime is not JSON serializable"),
         ):
             with self.assertRaises(APIException):
