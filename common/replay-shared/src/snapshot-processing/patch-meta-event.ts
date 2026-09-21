@@ -54,7 +54,13 @@ export const extractDimensionsFromMobileSnapshot = (snapshot: RecordingSnapshot)
         }
 
         for (const child of bodyElement.childNodes) {
-            if (child.type === 2 && child.tagName === 'img' && child.attributes?.[SCREENSHOT_ATTRIBUTE]) {
+            if (
+                child.type === 2 &&
+                child.tagName === 'img' &&
+                child.attributes?.[SCREENSHOT_ATTRIBUTE] &&
+                child.attributes.width &&
+                child.attributes.height
+            ) {
                 return {
                     width: String(child.attributes.width),
                     height: String(child.attributes.height),

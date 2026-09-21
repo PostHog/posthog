@@ -913,6 +913,46 @@ describe('process all snapshots', () => {
             expect(meta?.data).toEqual({ width: 400, height: 800, href: 'https://example.com' })
         })
 
+        it('does not patch meta from a screenshot wireframe without dimensions', async () => {
+            const sessionId = 'test-mobile-session'
+
+            const snapshotJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 2,
+                        timestamp: 1000,
+                        data: {
+                            wireframes: [
+                                {
+                                    id: 2,
+                                    type: 'screenshot',
+                                    base64: 'data:image/webp;base64,test',
+                                    x: 0,
+                                    y: 0,
+                                },
+                            ],
+                            initialOffset: { top: 0, left: 0 },
+                        },
+                    },
+                ],
+            })
+
+            const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            const results = await processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                { snapshots: {} },
+                () => ({ width: '400', height: '800', href: 'https://example.com' }),
+                sessionId
+            )
+
+            const meta = results.find((r) => r.type === 4)
+            expect(meta?.data).toEqual({ width: 400, height: 800, href: 'https://example.com' })
+        })
+
         it('transforms mobile event data during parsing', async () => {
             const sessionId = 'test-mobile-session'
 
