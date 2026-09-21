@@ -1,0 +1,18 @@
+#!/bin/bash
+# Serves the tsgo build pinned in package.json, so navigation agrees with
+# `pnpm --filter=@posthog/frontend typescript:check`.
+set -euo pipefail
+
+cd "$1"
+. bin/helpers/worktree-borrow.sh
+
+# A linked worktree without node_modules borrows the main clone's when pnpm-lock.yaml matches.
+PATH="$PWD/node_modules/.bin:$PATH"
+posthog_worktree_borrow node
+
+if ! command -v tsgo >/dev/null; then
+    echo "posthog-lsp: tsgo not found, run 'pnpm install' to get the TypeScript LSP" >&2
+    exit 1
+fi
+
+exec tsgo --lsp --stdio

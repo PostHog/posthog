@@ -7,9 +7,8 @@
     },
     "lspServers": {
         "tsgo": {
-            "command": "${CLAUDE_PROJECT_DIR}/node_modules/.bin/tsgo",
-            "args": ["--lsp", "--stdio"],
-            "workspaceFolder": "${CLAUDE_PROJECT_DIR}",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/typescript-lsp",
+            "args": ["${CLAUDE_PROJECT_DIR}"],
             "extensionToLanguage": {
                 ".ts": "typescript",
                 ".tsx": "typescriptreact",
