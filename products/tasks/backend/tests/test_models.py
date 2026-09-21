@@ -339,6 +339,104 @@ class TestTask(TestCase):
 
         self.assertEqual(run.state["ai_stage"], "chat")
 
+    def _pipeline_task(self, title="Pipeline"):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        return Task.objects.create(
+            team=self.team,
+            title=title,
+            description="Pipeline",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+            internal=True,
+        )
+
+    def test_rerun_inherits_the_pipeline_stage(self):
+        task = self._pipeline_task()
+        task.create_run(extra_state={"ai_stage": "research"})
+
+        rerun = task.create_run()
+
+        self.assertEqual(rerun.state["ai_stage"], "research")
+
+    def test_rerun_keeps_a_caller_supplied_stage(self):
+        task = self._pipeline_task()
+        task.create_run(extra_state={"ai_stage": "research"})
+
+        rerun = task.create_run(extra_state={"ai_stage": "implementation"})
+
+        self.assertEqual(rerun.state["ai_stage"], "implementation")
+
+    def test_resume_inherits_from_its_source_run(self):
+        # The resume source names the run being continued, which need not be the newest one.
+        task = self._pipeline_task()
+        source = task.create_run(extra_state={"ai_stage": "research"})
+        task.create_run(extra_state={"ai_stage": "implementation"})
+
+        resumed = task.create_run(extra_state={"resume_from_run_id": str(source.id)})
+
+        self.assertEqual(resumed.state["ai_stage"], "research")
+
+    def test_resume_from_an_unstamped_source_still_inherits(self):
+        task = self._pipeline_task()
+        task.create_run(extra_state={"ai_stage": "research"})
+        unstamped = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"mode": "background"},
+        )
+
+        resumed = task.create_run(extra_state={"resume_from_run_id": str(unstamped.id)})
+
+        self.assertEqual(resumed.state["ai_stage"], "research")
+
+    def test_rerun_of_an_unstamped_task_stays_unstamped(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="Plain",
+            description="No stage",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        task.create_run()
+
+        rerun = task.create_run()
+
+        self.assertNotIn("ai_stage", rerun.state)
+
+    def test_inheritance_skips_runs_that_carry_no_stage(self):
+        # An unstamped row between the stamped run and the new one; reading only the newest would lose the stage.
+        task = self._pipeline_task()
+        task.create_run(extra_state={"ai_stage": "research"})
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"mode": "background"},
+        )
+
+        rerun = task.create_run()
+
+        self.assertEqual(rerun.state["ai_stage"], "research")
+
+    def test_interactive_stamp_still_wins_over_an_inherited_stage(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        task = Task.objects.create(
+            team=self.team,
+            title="Discuss report",
+            description="From the Inbox",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+        )
+        task.create_run(extra_state={"ai_stage": "implementation"})
+
+        rerun = task.create_run(mode="interactive")
+
+        self.assertEqual(rerun.state["ai_stage"], "inbox")
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_omits_permission_mode_when_not_provided(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")

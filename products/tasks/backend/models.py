@@ -801,20 +801,37 @@ class Task(DeletedMetaFields, models.Model):
                 state[TASK_OWNERSHIP_VERSION_STATE_KEY] = task.ownership_version
 
             # Both conditions withhold the stamp, so a caller can only cost itself the mint.
-            # `internal` marks a pipeline-created task, whose reruns and resumes carry no stage
-            # and would otherwise land on the wider interactive cap.
+            # `internal` marks a pipeline-created task, whose reruns inherit their own pipeline
+            # stage below and must not land on the wider interactive cap.
             interactive_stage = INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN.get(task.origin_product)
             if interactive_stage and not state.get("ai_stage") and not task.internal:
                 if task.origin_product != Task.OriginProduct.SIGNAL_REPORT or task.signal_report_id:
                     state["ai_stage"] = interactive_stage
 
             resume_from_run_id = (extra_state or {}).get("resume_from_run_id")
+            resume_source = None
             if resume_from_run_id is not None:
                 resume_source = TaskRun.objects.filter(id=resume_from_run_id, task_id=task.id).only("state").first()
                 if resume_source is None or not resume_source.matches_task_ownership(task):
                     raise TaskOwnershipChangedError("The resume source belongs to a previous task owner")
                 if resume_source.task_summary:
                     state.setdefault(PRIOR_RUN_SUMMARY_STATE_KEY, resume_source.task_summary)
+
+            # Reruns start from fresh state; inherit the stage so the run keeps its gateway product.
+            # `ai_stage` is PATCH-protected and no API path writes it, so an earlier run's value is server-stamped.
+            if not state.get("ai_stage"):
+                # The resume source wins; an unstamped source falls through to the newest stamped run.
+                inherited_stage = (resume_source.state or {}).get("ai_stage") if resume_source else None
+                if not inherited_stage:
+                    latest_stamped = (
+                        TaskRun.objects.filter(task_id=task.id, state__has_key="ai_stage")
+                        .order_by("-created_at", "-id")
+                        .only("state")
+                        .first()
+                    )
+                    inherited_stage = (latest_stamped.state or {}).get("ai_stage") if latest_stamped else None
+                if inherited_stage:
+                    state["ai_stage"] = inherited_stage
 
             # Pin the stream-routing decision once so every reader/writer agrees for this run's life.
             state.setdefault("use_dedicated_stream", dedicated_stream)
