@@ -4,6 +4,7 @@ from typing import Any
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import IntegrityError
+from django.db.models import QuerySet
 from django.utils import timezone as django_timezone
 from django.utils.dateparse import parse_datetime
 
@@ -42,6 +43,19 @@ def _parse_boundary_at(value: str | None) -> datetime | None:
     if django_timezone.is_naive(boundary_at):
         raise CommandError("--boundary-at must include a UTC offset")
     return boundary_at
+
+
+# Both dry runs read only what the eligibility predicates and the pinners touch. Narrowed because
+# the queryset spans every cohort row the team ever created, including the deleted ones, and
+# `Cohort` carries four JSONFields of which only `filters` is read here.
+_DRY_RUN_FIELDS = ("id", "team_id", "cohort_type", "is_static", "deleted", "filters")
+
+
+def _dry_run_candidates(team_id: int, cohort_ids: set[int] | None) -> QuerySet[Cohort]:
+    queryset = Cohort.objects.filter(team_id=team_id).only(*_DRY_RUN_FIELDS)
+    if cohort_ids is not None:
+        queryset = queryset.filter(id__in=cohort_ids)
+    return queryset.order_by("id")
 
 
 class Command(BaseCommand):
@@ -100,23 +114,24 @@ class Command(BaseCommand):
         if options["dry_run"]:
             # Deliberately wider than `create_team_backfill_run`, which narrows the SQL-expressible
             # half of eligibility away before it locks. Both sides decide with the same predicate.
-            queryset = Cohort.objects.filter(team_id=team_id)
-            if cohort_ids is not None:
-                queryset = queryset.filter(id__in=cohort_ids)
+            requested_ids = set(cohort_ids) if cohort_ids is not None else None
             candidates = [
-                (cohort, behavioral_backfill_ineligibility_reason(cohort)) for cohort in queryset.order_by("id")
+                (cohort, behavioral_backfill_ineligibility_reason(cohort))
+                for cohort in _dry_run_candidates(team_id, requested_ids)
             ]
             refusals = [(cohort.id, reason) for cohort, reason in candidates if reason is not None]
-            if cohort_ids is not None:
+            if requested_ids is not None:
                 candidate_ids = {cohort.id for cohort, _ in candidates}
-                refusals.extend((cohort_id, "not found") for cohort_id in sorted(set(cohort_ids) - candidate_ids))
+                refusals.extend((cohort_id, "not found") for cohort_id in sorted(requested_ids - candidate_ids))
             if refusals:
                 self.stdout.write(
                     "Refused cohorts: " + ", ".join(f"{cohort_id} ({reason})" for cohort_id, reason in refusals)
                 )
             cohorts = [cohort for cohort, reason in candidates if reason is None]
-            if cohort_ids is not None and refusals:
+            if requested_ids is not None and refusals:
                 raise CommandError("One or more --cohort-ids are not eligible realtime behavioral cohorts")
+            if not cohorts:
+                raise CommandError(f"Team {team_id} has no eligible realtime behavioral cohorts")
             pinned, event_names = pin_conditions_for_cohorts(cohorts)
             self.stdout.write(
                 f"Dry run: {len(cohorts)} cohorts, {len(pinned['conditions'])} conditions, "
@@ -200,10 +215,10 @@ class Command(BaseCommand):
         # Deliberately wider than `_person_cohorts_for_team`, which narrows the SQL-expressible half
         # of eligibility away before it locks: the dry run's whole job is naming *why* each cohort was
         # refused, and it takes no locks. Both sides decide with `person_backfill_ineligibility_reason`.
-        queryset = Cohort.objects.filter(team_id=team_id)
-        if requested_ids is not None:
-            queryset = queryset.filter(id__in=requested_ids)
-        candidates = [(cohort, person_backfill_ineligibility_reason(cohort)) for cohort in queryset.order_by("id")]
+        candidates = [
+            (cohort, person_backfill_ineligibility_reason(cohort))
+            for cohort in _dry_run_candidates(team_id, requested_ids)
+        ]
 
         refusals = [(cohort.id, reason) for cohort, reason in candidates if reason is not None]
         if requested_ids is not None:

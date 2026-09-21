@@ -19,7 +19,7 @@ use tracing::{debug, info, warn};
 use crate::domain::{
     plan_days, ConditionAnalyses, ConditionClass, Lookback, PersonEmissionPolicy,
     PersonRunValidation, PinnedError, PinnedPersonRun, PinnedRun, PinnedWarning, PlanCaps,
-    ProjectedKeys, RunId,
+    ProjectedKeys, RunId, UncoveredParticipations,
 };
 use crate::observability::metrics::{
     team_label, BOUNDARY_CAS_LOST, BOUNDARY_ESTABLISHED, CHUNKS_PLANNED, CONDITIONS_CLASSIFIED,
@@ -30,8 +30,9 @@ use crate::observability::metrics::{
 use crate::store::chunks::{PgChunkStore, PlanOutcome};
 use crate::store::completion::{mark_chunks_planned, read_planning_stamp, PlanningStampOutcome};
 use crate::store::runs::{
-    discover_runs, establish_boundary, fail_run, record_run_warning, BoundaryOutcome,
-    DiscoveredRun, RunError, RunKind, RunStatus, RunWarningNote, SeedableRun,
+    discover_runs, establish_boundary, fail_run, fail_run_while_uncovered, record_run_warning,
+    BoundaryOutcome, DiscoveredRun, RunError, RunKind, RunStatus, RunWarningNote, SeedableRun,
+    UncoveredFailOutcome,
 };
 use crate::store::RenderedError;
 
@@ -402,14 +403,48 @@ async fn stamp_planning(pool: &PgPool, run_id: RunId, kind: RunKind) {
 async fn handle_run_error(pool: &PgPool, run_id: Option<RunId>, error: RunError) {
     let disposition = run_error_disposition(run_id, &error);
     if let RunErrorDisposition::Fail { run_id, reason } = disposition {
-        counter!(RUN_VALIDATION_FAILURES, "reason" => reason).increment(1);
         let detail = RenderedError::render(&error);
+        if let RunError::Pinned(PinnedError::UncoveredParticipations(uncovered)) = &error {
+            fail_uncovered_run(pool, run_id, reason, uncovered, &detail).await;
+            return;
+        }
+        counter!(RUN_VALIDATION_FAILURES, "reason" => reason).increment(1);
         if let Err(failure) = fail_run(pool, run_id, &detail).await {
             warn!(run_id = ?run_id, error = %failure, "failing invalid run did not apply");
         }
         return;
     }
     warn!(error = %error, "transient run preparation failed");
+}
+
+/// The terminal write for a refused run, guarded on the participations still being active. A
+/// failing run never reaches `record_pinned_warnings`, so the drop reasons behind the refusal are
+/// counted here or nowhere.
+async fn fail_uncovered_run(
+    pool: &PgPool,
+    run_id: RunId,
+    reason: &'static str,
+    uncovered: &UncoveredParticipations,
+    detail: &RenderedError,
+) {
+    match fail_run_while_uncovered(pool, run_id, &uncovered.cohort_ids(), detail).await {
+        Ok(UncoveredFailOutcome::Failed) => {
+            counter!(RUN_VALIDATION_FAILURES, "reason" => reason).increment(1);
+            for dropped in uncovered.dropped() {
+                counter!(CONDITIONS_DROPPED, "reason" => dropped.as_str()).increment(1);
+            }
+        }
+        Ok(UncoveredFailOutcome::VerdictStale) => info!(
+            run_id = ?run_id,
+            "every refused participation was superseded after validation read it; revalidating on the next poll",
+        ),
+        Ok(UncoveredFailOutcome::NotActive) => {
+            warn!(run_id = ?run_id, "failing invalid run did not apply");
+        }
+        Err(failure) => {
+            warn!(run_id = ?run_id, error = %failure, "failing invalid run did not apply");
+        }
+    }
 }
 
 async fn persist_run_warning(pool: &PgPool, run_id: RunId, note: RunWarningNote) {
@@ -571,7 +606,7 @@ mod tests {
     use uuid::Uuid;
 
     use crate::domain::{
-        ConditionHash, PinnedDropReason, UncoveredCohort, UncoveredParticipations,
+        ConditionHash, PinnedDropReason, UncoveredCohort, UncoveredParticipations, UncoveredReason,
     };
 
     use super::*;
@@ -582,6 +617,7 @@ mod tests {
         let uncovered = RunError::Pinned(PinnedError::UncoveredParticipations(
             UncoveredParticipations(vec![UncoveredCohort {
                 cohort_id: CohortId(574801),
+                reason: UncoveredReason::NoSurvivingCondition,
                 catalog_class: Some("excluded_has_dropped_leaf"),
                 dropped: vec![(
                     ConditionHash::parse("c8236865303eb463").unwrap(),

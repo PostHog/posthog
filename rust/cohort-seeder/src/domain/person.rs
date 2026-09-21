@@ -606,7 +606,7 @@ mod tests {
     use super::super::backoff::AttemptCount;
     use super::super::chunk::BandSpec;
     use super::super::ids::{ChunkId, SChunkMs};
-    use super::super::pinned::{UncoveredCohort, UncoveredParticipations};
+    use super::super::pinned::{UncoveredCohort, UncoveredParticipations, UncoveredReason};
     use super::*;
 
     fn hash(value: &str) -> ConditionHash {
@@ -862,6 +862,7 @@ mod tests {
             uncovered,
             vec![UncoveredCohort {
                 cohort_id: CohortId(2),
+                reason: UncoveredReason::NoSurvivingCondition,
                 catalog_class: Some("excluded_empty_group"),
                 dropped: vec![(hash(HASH_B), PinnedDropReason::AbsentFromFrozenCatalog)],
             }]
@@ -1415,30 +1416,47 @@ mod tests {
         }
     }
 
+    /// The person kind shares the behavioral coverage proof, so it shares the refusal. A
+    /// root-negated cohort is excluded the same way in both services, so seeding it would scan the
+    /// team for a reconcile the processor discards without a completion marker.
+    #[test]
+    fn a_root_negated_participation_fails_the_person_run_closed() {
+        let error = PinnedPersonRun::validate(snapshot(
+            pinned(&[(1, HASH_A)]),
+            vec![participation(1, negated_root_filter(HASH_A), false)],
+        ))
+        .unwrap_err();
+
+        let PinnedError::UncoveredParticipations(UncoveredParticipations(uncovered)) = error else {
+            panic!("expected an uncovered-participation failure, got {error}");
+        };
+        assert_eq!(
+            uncovered,
+            vec![UncoveredCohort {
+                cohort_id: CohortId(1),
+                reason: UncoveredReason::NotComposable,
+                catalog_class: Some("excluded_top_level_negation"),
+                dropped: Vec::new(),
+            }]
+        );
+    }
+
     /// The cascade-off asymmetry, driven through `RelevanceOracle::build` rather than a hand-built
     /// tree: the seeder calls a ref-bearing cohort `Excluded(HasCohortRef)` because it freezes with
     /// cascade off, while the consumer composes it. Counting it as never-composed would prune its
-    /// real members. A root-negated cohort is excluded the same way in both services and is skipped.
+    /// real members, and refusing the run over it would refuse a cohort the consumer serves.
     #[test]
-    fn build_counts_a_ref_bearing_cohort_and_skips_a_root_negated_one() {
+    fn build_counts_a_ref_bearing_cohort_rather_than_pruning_it() {
         let person = Uuid::from_u128(7).to_string();
         let ctx = context();
-        const HASH_C: &str = "cccccccccccccccc";
         let run = Arc::new(
             seedable(PinnedPersonRun::validate(snapshot(
-                pinned(&[(1, HASH_A), (1, HASH_B), (2, HASH_C)]),
-                vec![
-                    participation(1, and_with_a_cohort_reference(), false),
-                    participation(2, negated_root_filter(HASH_C), false),
-                ],
+                pinned(&[(1, HASH_A), (1, HASH_B)]),
+                vec![participation(1, and_with_a_cohort_reference(), false)],
             )))
             .run,
         );
-        assert_eq!(
-            run.composable_cohorts(),
-            Some(1),
-            "the ref-bearing cohort composes; the root-negated one does not"
-        );
+        assert_eq!(run.composable_cohorts(), Some(1));
 
         let mut quiet = PersonEvaluator::new(&run, PersonEmissionPolicy::RelevantToSomeCohort);
         // Both pinned leaves true turns the AND's unknown reference into the deciding leaf, so the

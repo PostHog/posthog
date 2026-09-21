@@ -6,7 +6,7 @@ use std::fmt;
 use std::str::FromStr;
 
 use chrono_tz::Tz;
-use cohort_core::eligibility::CohortEligibility;
+use cohort_core::eligibility::{CohortEligibility, ExcludedReason};
 use cohort_core::filters::tree::{BehavioralLeafConfig, BehavioralValue};
 use cohort_core::filters::{CohortId, FilterError, TeamFilters, TeamFiltersBuilder, TeamId};
 use cohort_core::leaf_state::select::{pick_state_variant, UnsupportedVariant};
@@ -157,9 +157,61 @@ pub enum PinnedWarning {
     },
 }
 
+/// Whether the *consumer* composes a cohort of this class at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Composability {
+    NeverComposed,
+    Composable,
+}
+
+/// The seeder freezes its catalog with cascade off, so every ref-bearing cohort reads
+/// `Excluded(HasCohortRef)` here while the consumer runs with cascade on and composes it. The
+/// seeder also holds only the run's own participations, never the referenced cohorts, so
+/// `CycleDetected` and `UnresolvedRef` cannot be trusted either. Only the structural exclusions —
+/// decided from the tree and the parse flags alone — classify identically in both services.
+///
+/// Exhaustive rather than defaulted: a new eligibility variant has to decide here rather than
+/// silently join the class whose members are pruned away.
+pub(super) const fn composability(eligibility: CohortEligibility) -> Composability {
+    match eligibility {
+        CohortEligibility::SingleLeaf(_)
+        | CohortEligibility::Stage2Composable
+        | CohortEligibility::Stage2ComposableRef => Composability::Composable,
+        CohortEligibility::Excluded(reason) => match reason {
+            ExcludedReason::NotMultiLeaf
+            | ExcludedReason::TopLevelNegation
+            | ExcludedReason::EmptyGroup
+            | ExcludedReason::HasDroppedLeaf => Composability::NeverComposed,
+            ExcludedReason::HasCohortRef
+            | ExcludedReason::CycleDetected
+            | ExcludedReason::UnresolvedRef => Composability::Composable,
+        },
+    }
+}
+
+/// Why one active participation cannot be seeded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UncoveredReason {
+    /// No surviving pinned condition names the cohort, so the scan would emit nothing for it.
+    NoSurvivingCondition,
+    /// The frozen catalog will not compose the cohort. Seeding it is wasted work the processor
+    /// discards without a completion marker, which leaves the run stuck in `reconciling`.
+    NotComposable,
+}
+
+impl UncoveredReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::NoSurvivingCondition => "no pinned condition survives the frozen catalog",
+            Self::NotComposable => "the frozen catalog will not compose it",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UncoveredCohort {
     pub cohort_id: CohortId,
+    pub reason: UncoveredReason,
     pub catalog_class: Option<&'static str>,
     pub dropped: Vec<(ConditionHash, PinnedDropReason)>,
 }
@@ -170,8 +222,9 @@ impl fmt::Display for UncoveredCohort {
         if let Some(class) = self.catalog_class {
             write!(formatter, " ({class})")?;
         }
+        write!(formatter, ": {}", self.reason.as_str())?;
         if self.dropped.is_empty() {
-            return formatter.write_str(": no pinned condition names this cohort");
+            return Ok(());
         }
         let dropped = self
             .dropped
@@ -179,7 +232,7 @@ impl fmt::Display for UncoveredCohort {
             .map(|(hash, reason)| format!("{hash} {reason}"))
             .collect::<Vec<_>>()
             .join(", ");
-        write!(formatter, ": {dropped}")
+        write!(formatter, ", dropped {dropped}")
     }
 }
 
@@ -187,11 +240,27 @@ impl fmt::Display for UncoveredCohort {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UncoveredParticipations(pub Vec<UncoveredCohort>);
 
+impl UncoveredParticipations {
+    /// The drop reasons behind the refusal, for the `seeder_conditions_dropped_total` breakdown the
+    /// failing run never reaches `record_pinned_warnings` to report.
+    pub fn dropped(&self) -> impl Iterator<Item = &PinnedDropReason> {
+        self.0
+            .iter()
+            .flat_map(|cohort| cohort.dropped.iter().map(|(_, reason)| reason))
+    }
+
+    /// The refused cohorts, ascending — the predicate `fail_run` re-checks against the live
+    /// participation rows before it writes a terminal status.
+    pub fn cohort_ids(&self) -> Vec<i32> {
+        self.0.iter().map(|cohort| cohort.cohort_id.0).collect()
+    }
+}
+
 impl fmt::Display for UncoveredParticipations {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "no pinned condition survives the frozen catalog for {} active participation(s): ",
+            "{} active participation(s) cannot be seeded: ",
             self.0.len()
         )?;
         let clauses = self
@@ -412,7 +481,9 @@ impl ParticipationSet {
         &self.filters
     }
 
-    /// Coverage is a pure function of the frozen row, so this refusal is permanent.
+    /// Every active participation must both keep a surviving pinned condition and be a cohort the
+    /// frozen catalog composes. Both are pure functions of the frozen row, so this refusal is
+    /// permanent and the run is failed rather than retried.
     pub(super) fn prove_covered(
         &self,
         covered: &HashSet<CohortId>,
@@ -424,8 +495,9 @@ impl ParticipationSet {
         }
         let payload = uncovered
             .into_iter()
-            .map(|cohort_id| UncoveredCohort {
+            .map(|(cohort_id, reason)| UncoveredCohort {
                 cohort_id,
+                reason,
                 catalog_class: self
                     .filters
                     .eligibility
@@ -450,18 +522,39 @@ impl ParticipationSet {
         ))
     }
 
-    /// The active cohorts absent from `covered`, ascending.
-    pub(super) fn uncovered_from(&self, covered: &HashSet<CohortId>) -> Vec<CohortId> {
+    /// The active cohorts this run cannot seed, ascending. A cohort absent from `covered` has no
+    /// surviving condition; one the catalog refuses to compose would be seeded into a reconcile the
+    /// processor discards.
+    pub(super) fn uncovered_from(
+        &self,
+        covered: &HashSet<CohortId>,
+    ) -> Vec<(CohortId, UncoveredReason)> {
         let mut uncovered = self
             .states
             .iter()
-            .filter(|(cohort_id, state)| {
-                **state == PinnedParticipationState::Active && !covered.contains(cohort_id)
+            .filter(|(_, state)| **state == PinnedParticipationState::Active)
+            .filter_map(|(cohort_id, _)| {
+                if !covered.contains(cohort_id) {
+                    Some((*cohort_id, UncoveredReason::NoSurvivingCondition))
+                } else if self.refuses_to_compose(*cohort_id) {
+                    Some((*cohort_id, UncoveredReason::NotComposable))
+                } else {
+                    None
+                }
             })
-            .map(|(cohort_id, _)| *cohort_id)
             .collect::<Vec<_>>();
-        uncovered.sort_unstable();
+        uncovered.sort_unstable_by_key(|(cohort_id, _)| *cohort_id);
         uncovered
+    }
+
+    /// Whether the consumer would refuse to compose this cohort. The seeder's own catalog cannot
+    /// decide the reference classes, so [`composability`] leaves them out and this proof does too.
+    fn refuses_to_compose(&self, cohort_id: CohortId) -> bool {
+        self.filters
+            .eligibility
+            .get(&cohort_id)
+            .copied()
+            .is_some_and(|class| composability(class) == Composability::NeverComposed)
     }
 
     fn into_filters(self) -> TeamFilters {
@@ -718,7 +811,6 @@ mod tests {
                 { "type": "behavioral", "value": "performed_event", "key": "relative", "conditionHash": hashes[1], "explicit_datetime": "-30d", "bytecode": bytecode("relative") },
                 { "type": "behavioral", "value": "performed_event", "key": "absolute", "conditionHash": hashes[2], "explicit_datetime": "2026-01-03", "explicit_datetime_to": "2026-01-05", "bytecode": bytecode("absolute") },
                 { "type": "behavioral", "value": "performed_event", "key": "hourly", "conditionHash": hashes[3], "time_value": 5, "time_interval": "hour", "bytecode": bytecode("hourly") },
-                { "type": "behavioral", "value": "performed_event", "key": 42, "conditionHash": hashes[4], "time_value": 7, "time_interval": "day", "bytecode": BYTECODE },
             ]}
         });
         let second_filters = json!({
@@ -772,7 +864,9 @@ mod tests {
             day_idx_of_naive_date(NaiveDate::from_ymd_opt(year, month, day).unwrap())
         };
         // The action-keyed condition (`hashes[4]`, no event name) resolves to a drop and is absent
-        // from the stored conditions; its `ConditionDropped` warning is asserted below.
+        // from the stored conditions; its `ConditionDropped` warning is asserted below. Its leaf is
+        // deliberately not in the pinned filters: a dropped leaf makes the whole cohort
+        // `Excluded(HasDroppedLeaf)`, which fails the run before any of this is reached.
         let expected = [
             Lookback::SlidingDays(7),
             Lookback::SlidingDays(30),
@@ -960,6 +1054,7 @@ mod tests {
             uncovered,
             vec![UncoveredCohort {
                 cohort_id: CohortId(2),
+                reason: UncoveredReason::NoSurvivingCondition,
                 catalog_class: Some("excluded_empty_group"),
                 dropped: vec![(
                     ConditionHash::parse(action_hash).unwrap(),
@@ -1168,9 +1263,76 @@ mod tests {
             uncovered,
             vec![UncoveredCohort {
                 cohort_id: CohortId(1),
+                reason: UncoveredReason::NoSurvivingCondition,
                 catalog_class: Some("single_leaf"),
                 dropped: vec![(
                     ConditionHash::parse(hash).unwrap(),
+                    PinnedDropReason::AbsentFromFrozenCatalog,
+                )],
+            }]
+        );
+    }
+
+    /// A cohort keeping one leaf and losing another is `Excluded(HasDroppedLeaf)`, so the processor
+    /// discards its reconcile tile with no completion marker. Coverage read per surviving condition
+    /// would call the cohort covered off its kept leaf, seed it, and leave the run stuck in
+    /// `reconciling` — the wedge this failure exists to prevent, one stage later.
+    #[test]
+    fn a_cohort_the_catalog_will_not_compose_fails_the_run_even_with_a_surviving_condition() {
+        let kept_hash = "kept000000000000";
+        let dropped_hash = "dropped000000000";
+        let leaf = |event: &str, hash: &str, code: Value| {
+            json!({
+                "type": "behavioral",
+                "value": "performed_event",
+                "key": event,
+                "conditionHash": hash,
+                "time_value": 7,
+                "time_interval": "day",
+                "bytecode": code,
+            })
+        };
+        let pinned_condition = |hash: &str, event: &str| {
+            let mut raw = condition(1, hash, "performed_event", Some(event), 7);
+            raw["time_value"] = json!(7);
+            raw["time_interval"] = json!("day");
+            raw
+        };
+
+        let error = PinnedRun::validate(snapshot(
+            json!({
+                "schema_version": 1,
+                "conditions": [
+                    pinned_condition(kept_hash, "kept-event"),
+                    pinned_condition(dropped_hash, "dropped-event"),
+                ],
+                "event_names": ["dropped-event", "kept-event"],
+            }),
+            vec![PinnedParticipation {
+                cohort_id: CohortId(1),
+                pinned_filters: json!({
+                    "properties": { "type": "AND", "values": [
+                        leaf("kept-event", kept_hash, bytecode("kept-event")),
+                        // The HogVM refuses an empty program, so the catalog drops this leaf.
+                        leaf("dropped-event", dropped_hash, json!(BYTECODE)),
+                    ]}
+                }),
+                state: PinnedParticipationState::Active,
+            }],
+        ))
+        .unwrap_err();
+
+        let PinnedError::UncoveredParticipations(UncoveredParticipations(uncovered)) = error else {
+            panic!("expected an uncovered-participation failure, got {error}");
+        };
+        assert_eq!(
+            uncovered,
+            vec![UncoveredCohort {
+                cohort_id: CohortId(1),
+                reason: UncoveredReason::NotComposable,
+                catalog_class: Some("excluded_has_dropped_leaf"),
+                dropped: vec![(
+                    ConditionHash::parse(dropped_hash).unwrap(),
                     PinnedDropReason::AbsentFromFrozenCatalog,
                 )],
             }]
@@ -1217,6 +1379,7 @@ mod tests {
             uncovered,
             vec![UncoveredCohort {
                 cohort_id: CohortId(1),
+                reason: UncoveredReason::NoSurvivingCondition,
                 catalog_class: Some("excluded_has_dropped_leaf"),
                 dropped: vec![(
                     ConditionHash::parse(hash).unwrap(),
@@ -1227,10 +1390,11 @@ mod tests {
     }
 
     #[test]
-    fn the_persisted_failure_names_the_cohort_its_class_and_every_dropped_hash() {
+    fn the_persisted_failure_names_each_cohort_its_class_its_reason_and_every_dropped_hash() {
         let rendered = UncoveredParticipations(vec![
             UncoveredCohort {
                 cohort_id: CohortId(574801),
+                reason: UncoveredReason::NoSurvivingCondition,
                 catalog_class: Some("excluded_has_dropped_leaf"),
                 dropped: vec![(
                     ConditionHash::parse("c8236865303eb463").unwrap(),
@@ -1239,7 +1403,14 @@ mod tests {
             },
             UncoveredCohort {
                 cohort_id: CohortId(9),
+                reason: UncoveredReason::NoSurvivingCondition,
                 catalog_class: Some("excluded_has_dropped_leaf"),
+                dropped: Vec::new(),
+            },
+            UncoveredCohort {
+                cohort_id: CohortId(11),
+                reason: UncoveredReason::NotComposable,
+                catalog_class: Some("excluded_top_level_negation"),
                 dropped: Vec::new(),
             },
         ])
@@ -1247,10 +1418,12 @@ mod tests {
 
         assert_eq!(
             rendered,
-            "no pinned condition survives the frozen catalog for 2 active participation(s): \
-             cohort 574801 (excluded_has_dropped_leaf): c8236865303eb463 unsupported_state_variant \
+            "3 active participation(s) cannot be seeded: \
+             cohort 574801 (excluded_has_dropped_leaf): no pinned condition survives the frozen \
+             catalog, dropped c8236865303eb463 unsupported_state_variant \
              (performed_event leaf has no resolvable window); \
-             cohort 9 (excluded_has_dropped_leaf): no pinned condition names this cohort"
+             cohort 9 (excluded_has_dropped_leaf): no pinned condition survives the frozen catalog; \
+             cohort 11 (excluded_top_level_negation): the frozen catalog will not compose it"
         );
     }
 }

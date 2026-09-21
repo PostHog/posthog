@@ -16,9 +16,13 @@ pub const BOUNDARY_ESTABLISHED: &str = "seeder_boundary_established_total";
 pub const BOUNDARY_CAS_LOST: &str = "seeder_boundary_cas_lost_total";
 pub const RUNS_WAITING_BOUNDARY: &str = "seeder_runs_waiting_boundary";
 /// Runs terminally failed during pinned-payload validation, labelled by `reason` (counter). For
-/// `uncovered_participation` the run's `error` column names the cohorts and their dropped hashes.
+/// `uncovered_participation` the run's `error` column names the cohorts, why each cannot be seeded,
+/// and their dropped hashes.
 pub const RUN_VALIDATION_FAILURES: &str = "seeder_run_validation_failures_total";
 pub const TZ_FALLBACK: &str = "seeder_tz_fallback_total";
+/// Pinned conditions the frozen catalog did not resolve, labelled by `reason` (counter). A run that
+/// validates reports these once per process; a run failed for `uncovered_participation` reports the
+/// drops behind its refusal instead, so the reason breakdown survives the failure.
 pub const CONDITIONS_DROPPED: &str = "seeder_conditions_dropped_total";
 pub const LOOKBACK_TRUNCATED: &str = "seeder_lookback_truncated_total";
 /// Pinned behavioral conditions by what a static read of their bytecode found, labelled by `class`

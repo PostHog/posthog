@@ -33,6 +33,11 @@ from products.cohorts.backend.models.backfill import (
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 
+# The catalog drops a leaf with no bytecode or a `conditionHash` that is not 16 characters, and
+# `_calculate_realtime_support` grants `cohort_type=REALTIME` only when every leaf compiled to
+# bytecode. A fixture missing either is a cohort shape no realtime cohort can have.
+_BYTECODE = ["_H", 1, 32, "matched", 32, "event", 1, 1, 11]
+
 
 @override_settings(
     REALTIME_COHORT_TEAM_ALLOWLIST="all",
@@ -50,11 +55,12 @@ class TestBackfillRuns(BaseTest):
                         "key": event,
                         "event_type": "events",
                         "value": "performed_event_multiple",
-                        "conditionHash": f"hash-{event}",
+                        "conditionHash": f"hash-{event}"[:16].ljust(16, "0"),
                         "time_value": window_days,
                         "time_interval": "day",
                         "operator": "gte",
                         "operator_value": 2,
+                        "bytecode": _BYTECODE,
                     }
                 ],
             }
@@ -217,15 +223,17 @@ class TestBackfillRuns(BaseTest):
         "value": "performed_event",
         "conditionHash": "c8236865303eb463",
         "event_filters": [{"key": "item_type", "type": "event", "value": "insight", "operator": "exact"}],
+        "bytecode": _BYTECODE,
     }
     _WINDOWED_LEAF = {
         "type": "behavioral",
         "key": "$pageview",
         "event_type": "events",
         "value": "performed_event",
-        "conditionHash": "hash-$pageview",
+        "conditionHash": "hash-$pageview00",
         "time_value": 7,
         "time_interval": "day",
+        "bytecode": _BYTECODE,
     }
 
     @parameterized.expand(
@@ -245,7 +253,19 @@ class TestBackfillRuns(BaseTest):
                 ],
             ),
             ("hashless", [{k: v for k, v in _WINDOWED_LEAF.items() if k != "conditionHash"}]),
+            ("short_hash", [{**_WINDOWED_LEAF, "conditionHash": "tooshort"}]),
+            ("bytecodeless", [{k: v for k, v in _WINDOWED_LEAF.items() if k != "bytecode"}]),
             ("one_seedable_sibling", [_WINDOWED_LEAF, _WINDOWLESS_LEAF]),
+            # The dropped leaf is not behavioral, so a gate reading behavioral leaves alone admits
+            # this cohort while the catalog classifies it `excluded_has_dropped_leaf` whole.
+            (
+                "person_metadata_sibling",
+                [_WINDOWED_LEAF, {"type": "person_metadata", "key": "created_at", "value": "2026-01-01"}],
+            ),
+            (
+                "bytecodeless_person_sibling",
+                [_WINDOWED_LEAF, {"type": "person", "key": "email", "conditionHash": "person0000000001"}],
+            ),
         ]
     )
     def test_unseedable_behavioral_cohort_is_refused(self, _name: str, leaves: list[dict]) -> None:
@@ -315,6 +335,7 @@ class TestPersonBackfillRuns(BaseTest):
                 "value": ["person@example.com"],
                 "operator": "exact",
                 "conditionHash": condition_hash,
+                "bytecode": _BYTECODE,
             }
             for condition_hash in person_hashes
         ]
@@ -328,6 +349,7 @@ class TestPersonBackfillRuns(BaseTest):
                     "conditionHash": "behavior00000001",
                     "time_value": 7,
                     "time_interval": "day",
+                    "bytecode": _BYTECODE,
                 }
             )
         if person_metadata:
@@ -806,11 +828,12 @@ class TestCancelRuns(BaseTest):
                             "key": event,
                             "event_type": "events",
                             "value": "performed_event_multiple",
-                            "conditionHash": f"hash-{event}",
+                            "conditionHash": f"hash-{event}"[:16].ljust(16, "0"),
                             "time_value": 7,
                             "time_interval": "day",
                             "operator": "gte",
                             "operator_value": 2,
+                            "bytecode": _BYTECODE,
                         }
                     ],
                 }

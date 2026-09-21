@@ -69,7 +69,7 @@ pub use person_analysis::{AlwaysEvaluateReason, PersonAnalysisCensus};
 pub use pinned::{
     PinnedDropReason, PinnedError, PinnedParticipation, PinnedParticipationState, PinnedRun,
     PinnedRunSnapshot, PinnedWarning, TriggerKind, UncoveredCohort, UncoveredParticipations,
-    UnknownTriggerKind, ValidatedPinnedRun,
+    UncoveredReason, UnknownTriggerKind, ValidatedPinnedRun,
 };
 pub use plan::{bands_for_day, conditions_active_on, plan_days, ActiveConditions};
 pub use projection::{BlobSource, ChunkProjection, ColumnPlan, ProjectedKeys, ScalarColumn};

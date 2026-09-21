@@ -236,12 +236,8 @@ def explain_unsupported_window(node: Mapping[str, Any]) -> str:
     return "relative_range_unsupported"
 
 
-def behavioral_window_days(node: Mapping[str, Any], value: str) -> Optional[float]:
-    """The leaf's window in days, or ``None`` when the state variant is unsupported (drop).
-
-    Public so the backfill seedability gate (``backfill/pinning.py``) reads this grammar rather
-    than keeping a third copy of it.
-    """
+def _behavioral_window_days(node: Mapping[str, Any], value: str) -> Optional[float]:
+    """The leaf's window in days, or None when the state variant is unsupported (drop)."""
     window = resolve_behavioral_window(node)
     if value == "performed_event":
         return window.days if window is not None else None
@@ -283,6 +279,19 @@ def _classify_leaf(node: Mapping[str, Any]) -> Union[_Leaf, str]:
     return "unknown_leaf_type"
 
 
+def leaf_drop_reason(node: Mapping[str, Any]) -> Optional[str]:
+    """The catalog's drop label for a leaf the frozen catalog refuses, or ``None`` when it keeps it.
+
+    A cohort reference counts as kept: whether the cohort composes then depends on the reference
+    target, which one leaf cannot answer.
+
+    Public so the backfill seedability gate (``backfill/pinning.py``) reads this mirror rather than
+    keeping a looser copy of the classifier's rules.
+    """
+    classified = _classify_leaf(node)
+    return classified if isinstance(classified, str) else None
+
+
 def _explicit_negation(node: Mapping[str, Any]) -> bool:
     return node.get("negation") is True
 
@@ -303,7 +312,7 @@ def _classify_behavioral(node: Mapping[str, Any]) -> Union[_Leaf, str]:
         return "malformed_bytecode"
     if not isinstance(key, str) or not key:
         return "malformed_leaf"
-    window = behavioral_window_days(node, value)
+    window = _behavioral_window_days(node, value)
     if window is None:
         return "unsupported_state_variant"
     return _Leaf(kind="behavioral", negated=_explicit_negation(node), window_days=window)

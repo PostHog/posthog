@@ -5,7 +5,7 @@ import structlog
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
-from products.cohorts.backend.parity.eligibility import behavioral_window_days
+from products.cohorts.backend.parity.eligibility import leaf_drop_reason
 
 _INTERVAL_DAYS = {"day": 1, "week": 7, "month": 30, "year": 365}
 logger = structlog.get_logger(__name__)
@@ -28,29 +28,24 @@ def derive_window_days(time_value: object, time_interval: object) -> int:
 
 
 def _is_action(leaf: dict[str, Any]) -> bool:
-    return leaf.get("event_type") == "actions" or isinstance(leaf.get("key"), int)
+    """`classify_behavioral` reads a numeric `key` and nothing else, so the pinner must too.
 
-
-def behavioral_leaf_unpinnable_reason(leaf: dict[str, Any]) -> str | None:
-    """The catalog's drop label for a behavioral leaf the seeder could never resolve, or ``None``.
-
-    Mirrors the order and the labels of ``classify_behavioral`` in
-    ``rust/cohort-core/src/filters/leaf_classifier.rs``, but only its shape checks. A hash of the
-    wrong length and missing or unloadable bytecode are left to the seeder, which fails such a run
-    closed, because screening them here means a second copy of the bytecode loader's rules.
+    Reading `event_type` here would mark a leaf the catalog keeps as action-keyed, and the seeder
+    drops an action-keyed condition — refusing a cohort the gate below admits.
     """
-    if leaf.get("value") not in ("performed_event", "performed_event_multiple"):
-        return "unsupported_behavioral_value"
-    if _is_action(leaf):
-        return "behavioral_action_key"
-    if leaf.get("conditionHash") is None:
-        return "missing_condition_hash"
     key = leaf.get("key")
-    if not isinstance(key, str) or not key:
-        return "malformed_leaf"
-    if behavioral_window_days(leaf, leaf["value"]) is None:
-        return "unsupported_state_variant"
-    return None
+    return isinstance(key, (int, float)) and not isinstance(key, bool)
+
+
+def leaf_unpinnable_reason(leaf: dict[str, Any]) -> str | None:
+    """The catalog's drop label for a leaf the seeder could never resolve, or ``None``.
+
+    Every leaf type, not only behavioral: a cohort that loses any leaf classifies
+    ``Excluded(HasDroppedLeaf)``, so one refused `person_metadata` leaf takes the whole cohort out
+    of composition. Delegates to the processor mirror, which already carries the 16-byte hash and
+    HogVM header rules a second copy here would have to restate.
+    """
+    return leaf_drop_reason(leaf)
 
 
 def pin_conditions_for_cohorts(cohorts: Iterable[Cohort]) -> tuple[dict[str, Any], list[str]]:

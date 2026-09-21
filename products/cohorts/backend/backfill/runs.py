@@ -16,7 +16,7 @@ from posthog.models.team.team import Team
 
 from products.cohorts.backend.backfill.pinning import (
     PersonPinningCapExceeded,
-    behavioral_leaf_unpinnable_reason,
+    leaf_unpinnable_reason,
     pin_conditions_for_cohorts,
     pin_person_conditions_for_cohorts,
 )
@@ -96,6 +96,13 @@ def _contains_person_metadata_leaf(cohort: Cohort) -> bool:
     return any(leaf.get("type") == "person_metadata" for leaf in walk_filter_leaves(properties))
 
 
+NO_BEHAVIORAL_FILTER = "has no behavioral filter"
+NO_PERSON_FILTER = "has no person filter with a condition hash"
+# Reasons that say only that this run kind does not apply to the cohort. Every save of a cohort
+# carrying the other kind's leaves produces one, so they are not a refusal an operator can act on.
+INAPPLICABLE_BACKFILL_REASONS = frozenset({NO_BEHAVIORAL_FILTER, NO_PERSON_FILTER})
+
+
 def person_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
     """The single person-run eligibility predicate, shared by the creators, the management command,
     and the dispatch receiver so none of them can judge a cohort backfillable that another refuses."""
@@ -108,7 +115,7 @@ def person_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
     if _contains_person_metadata_leaf(cohort):
         return "contains person_metadata filters"
     if not _has_pinnable_person_filters(cohort):
-        return "has no person filter with a condition hash"
+        return NO_PERSON_FILTER
     return None
 
 
@@ -119,7 +126,9 @@ def behavioral_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
 
     A cohort with any leaf the frozen catalog would drop is refused whole rather than narrowed to
     its seedable leaves, because the processor excludes such a cohort from composition entirely and
-    a readiness stamp on it would claim a membership the flags reader can never see.
+    a readiness stamp on it would claim a membership the flags reader can never see. The exclusion
+    is per cohort, not per leaf, so a refused `person_metadata` leaf beside a seedable behavioral
+    one takes the whole cohort out — every leaf is screened, not only the behavioral ones.
     """
     if cohort.cohort_type != CohortType.REALTIME:
         return "not realtime"
@@ -127,17 +136,13 @@ def behavioral_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
         return "static"
     if cohort.deleted:
         return "deleted"
-    behavioral_leaves = [
-        leaf
-        for leaf in walk_filter_leaves((cohort.filters or {}).get("properties"))
-        if leaf.get("type") == "behavioral"
-    ]
-    if not behavioral_leaves:
-        return "has no behavioral filter"
-    for leaf in behavioral_leaves:
-        reason = behavioral_leaf_unpinnable_reason(leaf)
+    leaves = list(walk_filter_leaves((cohort.filters or {}).get("properties")))
+    if not any(leaf.get("type") == "behavioral" for leaf in leaves):
+        return NO_BEHAVIORAL_FILTER
+    for leaf in leaves:
+        reason = leaf_unpinnable_reason(leaf)
         if reason is not None:
-            return f"has a behavioral filter the seeder cannot pin ({reason})"
+            return f"has a filter the realtime catalog drops ({reason})"
     return None
 
 
