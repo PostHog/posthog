@@ -9,6 +9,7 @@ keeps that import graph acyclic.
 
 import re
 from dataclasses import dataclass
+from datetime import datetime
 
 from posthog.schema import EmbeddingModelName
 
@@ -357,3 +358,57 @@ def fetch_source_references_for_report(team: Team, report_id: str) -> list[Signa
 
     references.sort(key=lambda ref: (ref.source_product, ref.label, ref.url))
     return references[:_SOURCE_REFERENCE_CAP]
+
+
+@dataclass(frozen=True)
+class OriginSignal:
+    """Where one of a report's signals came from, without any of its content."""
+
+    source_product: str
+    source_id: str
+    # The authoring scout's skill slug, or "" for pipeline signals.
+    scout_name: str
+    ticket_number: int
+    timestamp: datetime
+
+
+def fetch_origin_signals_for_report(team: Team, report_id: str) -> list[OriginSignal]:
+    """Return the source of each non-deleted signal of a report, oldest first.
+
+    Reads identifiers and timestamps only. The signal `content` never leaves ClickHouse here,
+    because the caller writes the result into a public pull request.
+    """
+    ch_query = f"""
+        SELECT
+            JSONExtractString(metadata, 'source_product') as source_product,
+            JSONExtractString(metadata, 'source_id') as source_id,
+            JSONExtractString(metadata, 'extra', 'skill_name') as scout_name,
+            JSONExtractInt(metadata, 'extra', 'ticket_number') as ticket_number,
+            timestamp
+        FROM ({_deduped_signals_subquery(include_content=False, candidate_document_filter="JSONExtractString(metadata, 'report_id') = {report_id}")})
+        WHERE JSONExtractString(metadata, 'report_id') = {{report_id}}
+          AND NOT JSONExtractBool(metadata, 'deleted')
+        ORDER BY timestamp ASC
+    """
+
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+    result = execute_hogql_query(
+        query_type="SignalsFetchOriginSignalsForReport",
+        query=ch_query,
+        team=team,
+        context=_signals_query_context(team),
+        placeholders={
+            "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+            "report_id": ast.Constant(value=report_id),
+        },
+    )
+    return [
+        OriginSignal(
+            source_product=source_product or "",
+            source_id=source_id or "",
+            scout_name=scout_name or "",
+            ticket_number=ticket_number or 0,
+            timestamp=timestamp,
+        )
+        for source_product, source_id, scout_name, ticket_number, timestamp in result.results or []
+    ]
