@@ -14,7 +14,7 @@ CORTEX_BASE_URL = "https://api.getcortexapp.com/api/v1"
 DEFAULT_PAGE_SIZE = 250
 
 
-@dataclass
+@dataclass(frozen=True)
 class CortexEndpointConfig:
     name: str
     path: str
