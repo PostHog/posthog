@@ -61,6 +61,17 @@ def get_saved_query_summary(team_id: int, saved_query_id: UUID | str) -> SavedQu
     )
 
 
+def all_saved_query_columns(team_id: int) -> dict[str, dict[str, str]]:
+    """Each still-resolving saved query's columns, by id, unwrapped the way ``get_saved_query_columns`` does."""
+    rows = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True).values_list("id", "columns")
+    return {
+        str(saved_query_id): {
+            name: type_ for name, entry in (stored or {}).items() if (type_ := _clickhouse_type(entry)) is not None
+        }
+        for saved_query_id, stored in rows
+    }
+
+
 def all_saved_query_names(team_id: int) -> dict[str, str]:
     """The current name of every saved query in this team that still resolves. One query."""
     rows = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True).values_list("id", "name")
