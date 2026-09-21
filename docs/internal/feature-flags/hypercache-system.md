@@ -215,6 +215,8 @@ Project admins can set it through `PATCH /api/projects/{id}/` to disable diagnos
 No settings-page controls are exposed.
 Neither preference overrides a disable at a higher level.
 Organization changes enqueue remote-config updates for all projects in that organization after the transaction commits; project changes use the existing team-save refresh.
+The organization refresh task retries broker connection failures up to three times with exponential backoff and jitter.
+A retry starts the organization's dispatch again, so projects queued before the failure can receive another refresh.
 
 Changing the global setting requires restarting the config-building workers and running `sync_all_remote_configs` to rebuild and sync existing remote configs.
 Changes take effect after the cache update and the SDK's next remote-config fetch, not immediately.

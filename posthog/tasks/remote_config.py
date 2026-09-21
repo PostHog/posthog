@@ -4,6 +4,7 @@ from django.conf import settings
 
 import structlog
 from celery import shared_task
+from kombu.exceptions import OperationalError
 
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team import Team
@@ -41,6 +42,10 @@ def update_team_remote_config(team_id: int, bypass_recordings_quota_cache: bool 
     queue=CeleryQueue.DEFAULT.value,
     soft_time_limit=300,
     time_limit=360,
+    autoretry_for=(OperationalError,),
+    retry_backoff=10,
+    retry_backoff_max=60,
+    max_retries=3,
 )
 @skip_team_scope_audit
 def update_organization_remote_configs(organization_id: str) -> None:
