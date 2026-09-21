@@ -71,7 +71,8 @@ def default_branch_head_sha(repo: Repo) -> str | None:
     try:
         github = get_github_integration_for_repo(repo)
         branch = _get_default_branch(github, repo.repo_full_name)
-        response = _github_api_request("GET", repo, f"commits/{branch}")
+        # One path segment, so a branch name with a slash does not split the ref.
+        response = github.api_request("GET", f"/repos/{repo.repo_full_name}/commits/{quote(branch, safe='')}")
     except Exception:
         logger.warning("visual_review.default_branch_head_fetch_failed", repo_id=str(repo.id))
         return None
