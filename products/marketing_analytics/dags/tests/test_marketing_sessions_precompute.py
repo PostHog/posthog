@@ -1,3 +1,4 @@
+import os
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
@@ -13,6 +14,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.marketing_analytics.dags.marketing_sessions_precompute import (
     _ensure_for_team,
     ensure_marketing_sessions_precompute_op,
+    get_selected_team_ids,
 )
 
 _ENSURE = "products.marketing_analytics.dags.marketing_sessions_precompute.ensure_marketing_sessions_precomputed"
@@ -22,6 +24,14 @@ END = datetime(2026, 1, 2, tzinfo=UTC)
 
 
 class TestMarketingSessionsPrecomputeDag(APIBaseTest):
+    @parameterized.expand([(None, []), ("", []), ("12, 34", [12, 34])])
+    def test_rollout_requires_an_explicit_allowlist(self, value: str | None, expected: list[int]) -> None:
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("MARKETING_SESSIONS_PRECOMPUTE_TEAM_IDS", None)
+            if value is not None:
+                os.environ["MARKETING_SESSIONS_PRECOMPUTE_TEAM_IDS"] = value
+            assert get_selected_team_ids() == expected
+
     def _run(self, side_effect: Callable[[Team, datetime, datetime], LazyComputationResult] | Exception) -> int:
         with patch(_ENSURE, side_effect=side_effect):
             return _ensure_for_team(MagicMock(), self.team, START, END, chunk_days=1)

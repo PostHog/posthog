@@ -1,8 +1,7 @@
 """Scheduled population of the marketing session-grain precompute table.
 
-Rollout is an allowlist, not a flag: the table is only useful for teams whose windows this job keeps
-warm, and a team outside it falls through to the live path. `MARKETING_SESSIONS_PRECOMPUTE_TEAM_IDS`
-overrides the built-in list; set it empty to disable the job.
+The table is only useful for teams whose windows this job keeps warm. Configure
+`MARKETING_SESSIONS_PRECOMPUTE_TEAM_IDS` to enable the job; an empty or unset value disables it.
 """
 
 import os
@@ -12,7 +11,6 @@ import dagster
 import structlog
 from prometheus_client import Counter
 
-from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, check_for_concurrent_runs, chunk_ranges, skip_on_kill_switch
 from posthog.models import Team
 
@@ -26,36 +24,28 @@ from products.marketing_analytics.backend.hogql_queries.marketing_sessions_preco
 logger = structlog.get_logger(__name__)
 
 
-# The team the attribution memory failures come from. Widen once the trial holds.
-DEFAULT_ROLLOUT_TEAM_IDS = [2]
-
 SELECTED_TEAM_IDS_ENV_VAR = "MARKETING_SESSIONS_PRECOMPUTE_TEAM_IDS"
 
-MARKETING_SESSIONS_PRECOMPUTE_TEAM_DONE = Counter(
-    "marketing_sessions_precompute_team_done_total",
-    "Teams whose marketing session precompute window was ensured.",
+MARKETING_SESSIONS_PRECOMPUTE_CHUNK_DONE = Counter(
+    "marketing_sessions_precompute_chunk_done_total",
+    "Daily chunks whose marketing session precompute window was ensured.",
 )
-MARKETING_SESSIONS_PRECOMPUTE_TEAM_FAILED = Counter(
-    "marketing_sessions_precompute_team_failed_total",
-    "Teams whose marketing session precompute failed, by exception type.",
+MARKETING_SESSIONS_PRECOMPUTE_CHUNK_FAILED = Counter(
+    "marketing_sessions_precompute_chunk_failed_total",
+    "Daily chunks whose marketing session precompute failed, by error type.",
     ["error_type"],
 )
 
 
 def get_selected_team_ids() -> list[int]:
-    """The env var wins if set, even to empty. Self-hosted defaults to none, so the job never
-    precomputes for unrelated teams that happen to share those IDs."""
-    raw = os.getenv(SELECTED_TEAM_IDS_ENV_VAR)
-    if raw is None:
-        return list(DEFAULT_ROLLOUT_TEAM_IDS) if is_cloud() else []
+    raw = os.getenv(SELECTED_TEAM_IDS_ENV_VAR, "")
     return [int(part.strip()) for part in raw.split(",") if part.strip().isdigit()]
 
 
 def _ensure_for_team(
     context: dagster.OpExecutionContext, team: Team, start: datetime, end: datetime, chunk_days: int
 ) -> int:
-    """One bounded chunk at a time, so no single INSERT scans the whole window. A failed chunk is
-    caught so it does not poison the rest; already-fresh chunks cost a Postgres check."""
+    """Keep each failed chunk isolated so the rest of the team's history can still warm."""
     failures = 0
     for chunk_start, chunk_end in chunk_ranges(start, end, chunk_days):
         try:
@@ -63,7 +53,7 @@ def _ensure_for_team(
             # The executor reports a failed insert in the result rather than by raising, so a chunk
             # that never materialized would otherwise be counted as done.
             if not result.ready:
-                MARKETING_SESSIONS_PRECOMPUTE_TEAM_FAILED.labels(
+                MARKETING_SESSIONS_PRECOMPUTE_CHUNK_FAILED.labels(
                     error_type="memory_exceeded" if result.memory_exceeded else "not_ready"
                 ).inc()
                 context.log.error(
@@ -72,9 +62,9 @@ def _ensure_for_team(
                 )
                 failures += 1
                 continue
-            MARKETING_SESSIONS_PRECOMPUTE_TEAM_DONE.inc()
+            MARKETING_SESSIONS_PRECOMPUTE_CHUNK_DONE.inc()
         except Exception as exc:
-            MARKETING_SESSIONS_PRECOMPUTE_TEAM_FAILED.labels(error_type=type(exc).__name__).inc()
+            MARKETING_SESSIONS_PRECOMPUTE_CHUNK_FAILED.labels(error_type=type(exc).__name__).inc()
             context.log.exception(
                 f"marketing_sessions_precompute_failed team={team.pk} chunk=[{chunk_start}, {chunk_end})"
             )
@@ -117,7 +107,7 @@ def ensure_marketing_sessions_precompute_op(context: dagster.OpExecutionContext)
 
 @dagster.job(
     description=(
-        f"Populates marketing_sessions_dimensional_preaggregated over the trailing "
+        f"Populates web_sessions_dimensional_preaggregated over the trailing "
         f"{PRECOMPUTE_WINDOW_DAYS} display days plus team attribution lookback and session reachback for the teams in the {SELECTED_TEAM_IDS_ENV_VAR} allowlist. "
         f"No-op when the allowlist is empty."
     ),

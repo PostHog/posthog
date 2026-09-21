@@ -1,9 +1,4 @@
-"""Materialization of the session-grain table the attribution reads use.
-
-One row per session, with the channel resolved here rather than on every read. That classifier is
-what puts attribution on the sessions nodes: over 5.8M sessions, reading the ingredients costs
-857 MiB and classifying them costs 4.24 GiB.
-"""
+"""Materialize session touchpoints with their channel classified before attribution reads."""
 
 import os
 import hashlib
@@ -11,13 +6,17 @@ from datetime import datetime
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import expand_default_channel_type_call
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team import Team
+from posthog.schema_enums import SessionTableVersion
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
     ensure_precomputed,
+    get_daily_windows,
     parse_ttl_schedule,
 )
 
@@ -42,15 +41,22 @@ SESSION_CHANNEL_CLASSIFIER_VERSION = 1
 SESSION_READ_REACHBACK_DAYS = 1
 
 SESSION_SETTLING_PERIOD_SECONDS = 24 * 60 * 60
+MAX_PRECOMPUTED_SESSION_SECONDS = 3 * 24 * 60 * 60
 
-# Bound the event scan by observed session ends; session IDs can span more than one day.
-# The bound compares `$start_timestamp` directly: wrapped in a function the sessions where-clause
-# extractor cannot push the window into raw_sessions, and the subquery aggregates every session
-# the team ever had. Window edges are hour-aligned, so the comparison is equivalent.
+# Keep start predicates unwrapped so the sessions resolver pushes them into raw sessions.
+UNSUPPORTED_SESSIONS_QUERY = """
+SELECT 1
+FROM sessions
+WHERE $start_timestamp >= {time_window_min}
+    AND $start_timestamp < {time_window_max}
+    AND $end_timestamp > $start_timestamp + toIntervalSecond({max_session_seconds})
+LIMIT 1
+"""
+
 SESSIONS_INSERT_TEMPLATE = """
 SELECT
     toStartOfHour(min(events.session.$start_timestamp)) AS period_bucket,
-    events.$session_id AS session_id,
+    events.$session_id_uuid AS session_id_v7,
     events.person_id AS person_id,
     min(events.session.$start_timestamp) AS start_timestamp,
     min(events.timestamp) AS min_event_timestamp,
@@ -67,17 +73,12 @@ SELECT
 FROM events
 WHERE and(
     {classifier_version} = {classifier_version},
-    events.$session_id IS NOT NULL,
+    events.$session_id_uuid IS NOT NULL,
     equals(events.event, '$pageview'),
     events.timestamp >= {time_window_min},
-    events.timestamp <= (
-        SELECT max($end_timestamp)
-        FROM sessions
-        WHERE $start_timestamp >= {time_window_min}
-            AND $start_timestamp < {time_window_max}
-    )
+    events.timestamp < {time_window_max} + toIntervalSecond({max_session_seconds})
 )
-GROUP BY session_id, person_id
+GROUP BY session_id_v7, person_id
 HAVING and(
     toStartOfHour(min(events.session.$start_timestamp)) >= {time_window_min},
     toStartOfHour(min(events.session.$start_timestamp)) < {time_window_max}
@@ -94,7 +95,10 @@ def base_placeholders() -> dict[str, ast.Expr]:
     )
     fingerprint = hashlib.sha256(classifier.to_hogql().encode()).hexdigest()
     # The executor hashes before resolving $channel_type, so carry its identity in the input AST.
-    return {"classifier_version": ast.Constant(value=f"{SESSION_CHANNEL_CLASSIFIER_VERSION}:{fingerprint}")}
+    return {
+        "classifier_version": ast.Constant(value=f"{SESSION_CHANNEL_CLASSIFIER_VERSION}:{fingerprint}"),
+        "max_session_seconds": ast.Constant(value=MAX_PRECOMPUTED_SESSION_SECONDS),
+    }
 
 
 def precompute_window_days(team: Team) -> int:
@@ -111,6 +115,37 @@ def ensure_marketing_sessions_precomputed(
     run_inserts: bool = True,
     stale_while_revalidate_seconds: float | None = None,
 ) -> LazyComputationResult:
+    modifiers = create_default_modifiers_for_team(team)
+    if modifiers.sessionTableVersion == SessionTableVersion.V1:
+        return LazyComputationResult(ready=False, job_ids=[], errors=["Session precompute requires sessions v2 or v3"])
+    if modifiers.sessionTableVersion == SessionTableVersion.AUTO:
+        modifiers.sessionTableVersion = SessionTableVersion.V2
+
+    windows = get_daily_windows(time_range_start, time_range_end)
+    if not windows:
+        return LazyComputationResult(ready=True, job_ids=[])
+
+    # Check cache hits too: a session can outgrow the scan budget after its window was materialized.
+    unsupported = execute_hogql_query(
+        UNSUPPORTED_SESSIONS_QUERY,
+        team,
+        modifiers=modifiers,
+        query_type="marketing_sessions_precompute_coverage",
+        placeholders={
+            "time_window_min": ast.Constant(value=windows[0][0]),
+            "time_window_max": ast.Constant(value=windows[-1][1]),
+            "max_session_seconds": ast.Constant(value=MAX_PRECOMPUTED_SESSION_SECONDS),
+        },
+    )
+    if unsupported.results is None:
+        return LazyComputationResult(ready=False, job_ids=[], errors=["Could not verify session precompute coverage"])
+    if unsupported.results:
+        return LazyComputationResult(
+            ready=False,
+            job_ids=[],
+            errors=["Session duration exceeds the precompute scan budget; use live attribution"],
+        )
+
     return ensure_precomputed(
         run_inserts=run_inserts,
         stale_while_revalidate_seconds=stale_while_revalidate_seconds,
@@ -126,7 +161,9 @@ def ensure_marketing_sessions_precomputed(
             max_window_days=CHUNK_DAYS,
             settling_period_seconds=SESSION_SETTLING_PERIOD_SECONDS,
         ),
-        table=LazyComputationTable.MARKETING_SESSIONS_DIMENSIONAL_PREAGGREGATED,
+        table=LazyComputationTable.WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED,
+        modifiers=modifiers,
+        cache_key_context={"modifiers": modifiers.model_dump_json(exclude_none=True)},
         placeholders=base_placeholders(),
         query_type="marketing_sessions_dimensional_insert",
     )
