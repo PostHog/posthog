@@ -121,6 +121,8 @@ class HogFlow(UUIDTModel):
 
         constraints = [
             models.UniqueConstraint(fields=["team", "version", "id"], name="unique_version_per_flow"),
+            # No condition: Postgres treats NULLs as distinct, so the key-less rows never collide.
+            models.UniqueConstraint(fields=["team", "key"], name="unique_key_for_team"),
         ]
 
     class State(models.TextChoices):
@@ -139,6 +141,15 @@ class HogFlow(UUIDTModel):
         BROADCASTS = "broadcasts", "Broadcasts"
 
     name = models.CharField(max_length=400, null=True, blank=True)
+    # The identity a source file carries, so a client can find the workflow it owns without
+    # knowing the server-minted UUID. Null for workflows built in the UI or over the API.
+    key = models.CharField(
+        max_length=400,
+        null=True,
+        blank=True,
+        help_text="Client-chosen identifier, unique within the project. Set only when creating a workflow. "
+        "Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only.",
+    )
     description = models.TextField(blank=True, default="")
     version = models.IntegerField(default=1)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
