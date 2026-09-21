@@ -682,10 +682,19 @@ class TestPostgresSections(APIBaseTest):
         other = self._experiment(
             "other", start_date=now - timedelta(days=10), metrics=[_mean_metric("metric-z")], days_ago=2
         )
+        # A legacy metric listed first can never have a stored result, so it must not hide the
+        # current metric's result behind it.
+        mixed = self._experiment(
+            "mixed",
+            start_date=now - timedelta(days=10),
+            metrics=[{"kind": "ExperimentTrendsQuery", "uuid": "legacy-first"}, _mean_metric("current")],
+            days_ago=3,
+        )
         for experiment, metric_uuid, result in [
             (ordered, "metric-a", _stored_result(10, [1], False)),
             (ordered, "metric-z", _stored_result(900, [99], True)),
             (other, "metric-z", _stored_result(3, [2], False)),
+            (mixed, "current", _stored_result(40, [2], False)),
         ]:
             ExperimentMetricResult.objects.create(
                 experiment=experiment,
@@ -702,6 +711,7 @@ class TestPostgresSections(APIBaseTest):
         outcomes = {listed.name: listed.outcome for listed in previous.experiments}
         assert outcomes["ordered"] is not None and outcomes["ordered"].analyzed_exposures == 11
         assert outcomes["other"] is not None and outcomes["other"].analyzed_exposures == 5
+        assert outcomes["mixed"] is not None and outcomes["mixed"].analyzed_exposures == 42
 
     def test_shared_metrics_rank_by_live_reuse_and_match_action_events(self) -> None:
         live_a = self._experiment("live-a")

@@ -62,6 +62,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.temporal.metric_resolution import is_scheduled_metric
 from products.experiments.backend.variant_distribution import is_evenly_distributed
 
 logger = logging.getLogger(__name__)
@@ -853,12 +854,22 @@ def _link_type(link: ExperimentToSavedMetric) -> str:
 
 
 def _first_primary_metric_uuid(experiment: Experiment) -> str | None:
-    """The uuid the experiment's results page shows first among its primary metrics."""
-    inline_uuids = [metric.get("uuid") for metric in experiment.metrics or [] if isinstance(metric, dict)]
+    """The uuid the experiment's results page shows first among its primary metrics.
+
+    Only metrics that can have a stored result count. A legacy metric listed first would otherwise
+    hide the result of the current metric behind it.
+    """
+    inline_uuids = [
+        metric.get("uuid")
+        for metric in experiment.metrics or []
+        if isinstance(metric, dict) and is_scheduled_metric(metric)
+    ]
     saved_uuids = [
         link.saved_metric.query.get("uuid")
         for link in _saved_metric_links(experiment)
-        if _link_type(link) == "primary" and isinstance(link.saved_metric.query, dict)
+        if _link_type(link) == "primary"
+        and isinstance(link.saved_metric.query, dict)
+        and is_scheduled_metric(link.saved_metric.query)
     ]
     candidates = [uuid for uuid in [*inline_uuids, *saved_uuids] if uuid]
     for uuid in experiment.primary_metrics_ordered_uuids or []:
