@@ -88,10 +88,10 @@ export interface observationSearchLogicActions {
     }
     loadSuggestedQueriesSuccess: (
         suggestedQueries: string[],
-        payload?: any
+        payload?: void
     ) => {
         suggestedQueries: string[]
-        payload?: any
+        payload?: void
     }
     search: () => {
         value: true
