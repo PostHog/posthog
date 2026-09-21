@@ -380,8 +380,8 @@ tools:
             successful runs only, so superseded cancels and failed runs never bias the duration percentile. Runs under
             10 seconds that did no work are excluded when longer successful runs exist. An all-fast workflow uses every
             successful run. Pass run_scope to report on one group of runs: default_branch, pull_request (PR branches
-            only, same-repo PRs: fork PRs carry no PR attribution),
-            merge_queue, or all. To get a trend, call this over two adjacent windows and compare.
+            only, same-repo PRs: fork PRs carry no PR attribution), merge_queue, or all. To get a trend, call this over
+            two adjacent windows and compare.
         param_overrides:
             date_from:
                 description: "Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h."
