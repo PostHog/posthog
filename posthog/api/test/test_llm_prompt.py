@@ -1462,7 +1462,7 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
         assert results[0]["prompt"] == "Prompt content"
 
     @patch("posthog.api.llm_prompt.report_team_action")
-    def test_list_with_label_reports_one_fetch_per_returned_prompt(self, mock_report: Any) -> None:
+    def test_list_with_label_reports_one_fetch_per_request(self, mock_report: Any) -> None:
         self.create_prompt_version(name="prompt-a", version=1, is_latest=False)
         self.create_prompt_version(name="prompt-a", version=2)
         self.create_prompt_version(name="prompt-b", version=1)
@@ -1473,16 +1473,12 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?label=production")
 
         assert response.status_code == status.HTTP_200_OK
+        # One event per request, never one per prompt: per-prompt events bill a page
+        # of N prompts as N events into the calling team's project.
         fetch_properties = [
             call.args[2] for call in mock_report.call_args_list if call.args[1] == "llma prompt fetched"
         ]
-        assert sorted(
-            (p["prompt_name"], p["prompt_version"], p["prompt_label"], p["prompt_is_latest"], p["prompt_fetch_path"])
-            for p in fetch_properties
-        ) == [
-            ("prompt-a", 1, "production", False, "list"),
-            ("prompt-b", 1, "production", True, "list"),
-        ]
+        assert fetch_properties == [{"prompt_fetch_path": "list", "prompt_label": "production", "prompt_count": 2}]
 
         # The unlabeled list backs the prompts UI page and must not count as fetches.
         mock_report.reset_mock()
