@@ -5,6 +5,7 @@ import { IconGithub } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { VisualImageDiffViewer, type VisualDiffResult } from 'lib/components/VisualImageDiffViewer'
+import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { urls } from 'scenes/urls'
@@ -12,6 +13,13 @@ import { urls } from 'scenes/urls'
 import type { QuarantinedIdentifierEntryApi, SnapshotApi, ToleratedHashEntryApi } from '../generated/api.schemas'
 import { visualReviewPreferencesLogic } from '../scenes/visualReviewPreferencesLogic'
 import { QuarantineAction } from './QuarantineAction'
+import { QuarantineModal, type OnQuarantine } from './QuarantineModal'
+import {
+    QUARANTINE_NUDGE_WINDOW_DAYS,
+    type RecentTolerations,
+    countRecentTolerations,
+    shouldSuggestQuarantine,
+} from './quarantineNudge'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from './SnapshotChangeBadge'
 import { SnapshotClusterPanel } from './SnapshotClusterPanel'
 import { SnapshotShiftSummary } from './SnapshotShiftSummary'
@@ -23,6 +31,15 @@ const TOLERATION_REASON_LABELS: Record<string, string> = {
     human: 'manual',
     agent: 'agent',
     auto_threshold: 'auto',
+}
+
+function describeRecentTolerations(counts: RecentTolerations): string {
+    const total = counts.intentional + counts.auto
+    const parts = [
+        counts.intentional > 0 && `${counts.intentional} manual`,
+        counts.auto > 0 && `${counts.auto} automatic`,
+    ].filter(Boolean)
+    return `Tolerated ${total} time${total === 1 ? '' : 's'} in the last ${QUARANTINE_NUDGE_WINDOW_DAYS} days (${parts.join(', ')}).`
 }
 
 function DiffMinimap({ url, onClick }: { url: string; onClick?: () => void }): JSX.Element {
@@ -57,7 +74,7 @@ interface SnapshotDiffViewerProps {
     isApproving?: boolean
     onMarkTolerated?: () => void
     quarantineEntry?: QuarantinedIdentifierEntryApi | null
-    onQuarantine?: (reason: string, identifiers: string[], expiresAt: string | null, sourceRunId: string | null) => void
+    onQuarantine?: OnQuarantine
     onUnquarantine?: () => void
     commitSha?: string
     prNumber?: number | null
@@ -101,6 +118,7 @@ export function SnapshotDiffViewer({
     const height = snapshot.current_artifact?.height || snapshot.baseline_artifact?.height
 
     const [highlightedClusterIndex, setHighlightedClusterIndex] = useState<number | null>(null)
+    const [isNudgedQuarantineOpen, setIsNudgedQuarantineOpen] = useState(false)
 
     // When a single (post-merge) cluster covers most of the image, the
     // bbox overlay adds no information beyond the diff% tag — full
@@ -143,6 +161,44 @@ export function SnapshotDiffViewer({
     // Default-branch (tracking-only) runs are never approvable — don't offer accept/reject/tolerate.
     const needsAction = hasChanges && !isApproved && !isTolerated && !isQuarantined && !isReportingOnly
 
+    // A snapshot that keeps needing a toleration is flaky, and one more toleration
+    // only covers this exact rendering. While the history loads, fall back to the
+    // plain confirm so the nudge never delays the click.
+    const openTolerateDialog = (): void => {
+        const counts =
+            toleratedHashes && !toleratedHashesLoading ? countRecentTolerations(toleratedHashes, dayjs()) : null
+        if (counts && onQuarantine && shouldSuggestQuarantine(counts)) {
+            LemonDialog.open({
+                title: 'This snapshot keeps changing',
+                description:
+                    `${describeRecentTolerations(counts)} A toleration only covers this exact rendering, so the next variation blocks PRs again. ` +
+                    'If this change is unrelated to your PR, quarantine the snapshot. It stops blocking PRs until someone fixes it.',
+                primaryButton: {
+                    children: 'Quarantine…',
+                    onClick: () => setIsNudgedQuarantineOpen(true),
+                    'data-attr': 'visual-review-tolerate-nudge-quarantine',
+                },
+                secondaryButton: {
+                    children: 'Tolerate anyway',
+                    onClick: onMarkTolerated,
+                    'data-attr': 'visual-review-tolerate-nudge-tolerate',
+                },
+            })
+            return
+        }
+        LemonDialog.open({
+            title: 'Does this snapshot really render correctly?',
+            description:
+                'Only tolerate slight rendering noise above the difference threshold. Confirm there are no visible errors or missing elements. ' +
+                'Otherwise, quarantine this snapshot.',
+            primaryButton: {
+                children: 'Tolerate',
+                onClick: onMarkTolerated,
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+    }
+
     // Parse identifier for display (e.g., "Feature-Flags-settings--e2e-test--dark--1440x900")
     const parts = snapshot.identifier.split('--')
     const pageName = parts[0]?.replace(/-/g, ' ') || snapshot.identifier
@@ -183,19 +239,7 @@ export function SnapshotDiffViewer({
                                 <LemonButton
                                     type="secondary"
                                     size="small"
-                                    onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Does this snapshot really render correctly?',
-                                            description:
-                                                'Only tolerate slight rendering noise above the difference threshold. Confirm there are no visible errors or missing elements. ' +
-                                                'Otherwise, quarantine this snapshot.',
-                                            primaryButton: {
-                                                children: 'Tolerate',
-                                                onClick: onMarkTolerated,
-                                            },
-                                            secondaryButton: { children: 'Cancel' },
-                                        })
-                                    }}
+                                    onClick={openTolerateDialog}
                                     data-attr="visual-review-snapshot-tolerate"
                                 >
                                     Tolerate
@@ -517,7 +561,16 @@ export function SnapshotDiffViewer({
 
                     {/* Quarantine */}
                     {hasChanges && !isQuarantined && onQuarantine && (
-                        <QuarantineAction identifier={snapshot.identifier} onQuarantine={onQuarantine} />
+                        <>
+                            <QuarantineAction identifier={snapshot.identifier} onQuarantine={onQuarantine} />
+                            <QuarantineModal
+                                isOpen={isNudgedQuarantineOpen}
+                                onClose={() => setIsNudgedQuarantineOpen(false)}
+                                identifier={snapshot.identifier}
+                                onQuarantine={onQuarantine}
+                                initialReason="Keeps changing in unrelated PRs"
+                            />
+                        </>
                     )}
                     {isQuarantined && onUnquarantine && (
                         <div>
