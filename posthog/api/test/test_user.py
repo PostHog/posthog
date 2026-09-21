@@ -102,7 +102,6 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response_data["email"], self.user.email)
         self.assertEqual(response_data["has_password"], True)
         self.assertEqual(response_data["is_staff"], False)
-        self.assertEqual(response_data["is_impersonated"], False)
         self.assertNotIn("password", response_data)
         self.assertNotIn("current_password", response_data)
         self.assertNotIn("set_current_team", response_data)
@@ -361,10 +360,8 @@ class TestUserAPI(APIBaseTest):
             response = self.client.get("/api/users/@me/")
         assert response.status_code == 200
         assert response.json()["requires_credential_review"] is False
-        assert response.json()["is_impersonated"] is True
 
-    @parameterized.expand([True, False])
-    def test_requires_credential_review_with_oauth_token(self, impersonated: bool) -> None:
+    def test_requires_credential_review_skipped_when_impersonating_via_oauth_token(self):
         User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
         PersonalAPIKey.objects.create(
             user=self.user,
@@ -389,13 +386,13 @@ class TestUserAPI(APIBaseTest):
             scope="user:read",
             expires=timezone.now() + timedelta(hours=1),
             scoped_teams=[self.team.id],
-            impersonated_by=staff if impersonated else None,
+            impersonated_by=staff,
         )
         self.client.logout()
         response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {token.token}"})
         assert response.status_code == 200
-        assert response.json()["requires_credential_review"] is not impersonated
-        assert response.json()["is_impersonated"] is impersonated
+        assert response.json()["requires_credential_review"] is False
+        assert response.json()["is_impersonated"] is False
 
     def test_requires_credential_review_unverified_passkey(self):
         # Unverified passkeys are the realistic pre-claim attack artifact - a partner

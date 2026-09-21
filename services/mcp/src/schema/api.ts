@@ -5,7 +5,6 @@ export type ApiEventDefinition = Schemas.EnterpriseEventDefinition
 
 export interface ApiUser {
     distinct_id: string
-    is_impersonated?: Schemas.User['is_impersonated']
     first_name?: string
     last_name?: string
     email: string
@@ -43,6 +42,7 @@ export interface ApiUser {
 // at the wire boundary (see `StateManager._fetchApiKey`); this type represents
 // the post-normalization shape that the rest of the codebase consumes.
 export interface ApiRedactedPersonalApiKey {
+    is_impersonated?: boolean
     scopes: string[]
     scoped_teams: number[]
     scoped_organizations: string[]
@@ -51,6 +51,7 @@ export interface ApiRedactedPersonalApiKey {
 export type ApiOAuthIntrospection =
     | {
           active: true
+          is_impersonated?: boolean
           scope: string
           scoped_teams: number[]
           scoped_organizations: string[]

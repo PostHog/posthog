@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
     capture: vi.fn(),
     getAnalyticsContext: vi.fn(),
     getApiKey: vi.fn(),
-    getUser: vi.fn(),
+    getDistinctId: vi.fn(),
 }))
 
 vi.mock('@/lib/posthog', () => ({
@@ -18,7 +18,7 @@ vi.mock('@/lib/posthog', () => ({
 
 vi.mock('@/lib/StateManager', () => ({
     StateManager: class {
-        getUser = mocks.getUser
+        getDistinctId = mocks.getDistinctId
         getAnalyticsContext = mocks.getAnalyticsContext
         getApiKey = mocks.getApiKey
     },
@@ -29,10 +29,10 @@ import { buildCliContext } from '@/cli/context'
 describe('CLI context', () => {
     beforeEach(() => {
         mocks.capture.mockClear()
-        mocks.getUser.mockReset()
+        mocks.getDistinctId.mockReset()
         mocks.getAnalyticsContext.mockReset()
         mocks.getApiKey.mockReset()
-        mocks.getUser.mockRejectedValue(new Error('offline'))
+        mocks.getDistinctId.mockRejectedValue(new Error('offline'))
         mocks.getAnalyticsContext.mockRejectedValue(new Error('offline'))
         mocks.getApiKey.mockRejectedValue(new Error('offline'))
     })
@@ -96,7 +96,8 @@ describe('CLI context', () => {
         [AnalyticsEvent.MCP_FEEDBACK_SUBMITTED, true],
         [AnalyticsEvent.MCP_FEEDBACK_SUBMITTED, false],
     ])('passes impersonation status to the SDK for %s with impersonation %s', async (event, impersonated) => {
-        mocks.getUser.mockResolvedValue({ distinct_id: 'user-123', is_impersonated: impersonated })
+        mocks.getDistinctId.mockResolvedValue('user-123')
+        mocks.getApiKey.mockResolvedValue({ scopes: [], is_impersonated: impersonated })
         const context = await buildCliContext({ host: 'https://us.posthog.com', version: 2 })
 
         await context.trackEvent(event, { is_impersonated: !impersonated })

@@ -33,7 +33,6 @@ import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolDefinition } from '@/tools/tool
 function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
     return {
         reqCtx: {
-            isImpersonated: vi.fn(async () => false),
             safelyGetAnalyticsContext: vi.fn(async () => undefined),
             getSessionUuid: vi.fn(async () => 'session-uuid'),
             getEffectiveSessionUuid: vi.fn(async () => 'session-uuid'),
@@ -107,8 +106,7 @@ describe('Hono MCP analytics contexts', () => {
         { impersonated: false, isError: false },
         { impersonated: false, isError: true },
     ])('passes impersonated=$impersonated to the SDK with isError=$isError', async ({ impersonated, isError }) => {
-        const state = makeState()
-        vi.mocked(state.reqCtx.isImpersonated).mockResolvedValue(impersonated)
+        const state = makeState({ isImpersonated: impersonated })
 
         await trackToolCall('user-get', 12, isError, state, { is_impersonated: !impersonated })
 
@@ -119,14 +117,6 @@ describe('Hono MCP analytics contexts', () => {
                 properties: expect.objectContaining({ is_impersonated: impersonated }),
             })
         )
-    })
-
-    it('does not fail a tool call when impersonation lookup fails', async () => {
-        const state = makeState()
-        vi.mocked(state.reqCtx.isImpersonated).mockRejectedValue(new Error('Identity unavailable'))
-
-        await expect(trackToolCall('user-get', 12, false, state)).resolves.toBeUndefined()
-        expect(mockCaptureToolCall).not.toHaveBeenCalled()
     })
 
     it('emits request properties on $mcp fields and session properties on mcp_session fields', async () => {

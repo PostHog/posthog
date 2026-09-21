@@ -72,15 +72,15 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
         trackEvent: (event: AnalyticsEvent, properties: Record<string, unknown> = {}) => {
             const capture = (async (): Promise<void> => {
                 try {
-                    const [user, analyticsContext, apiKey] = await Promise.all([
-                        stateManager.getUser().catch(() => undefined),
+                    const [distinctId, analyticsContext, apiKey] = await Promise.all([
+                        stateManager.getDistinctId().catch(() => undefined),
                         stateManager.getAnalyticsContext().catch(() => undefined),
                         stateManager.getApiKey().catch(() => undefined),
                     ])
                     const groups = analyticsContext ? buildMCPAnalyticsGroups(analyticsContext) : {}
 
                     getPostHogClient().capture({
-                        distinctId: user?.distinct_id ?? fallbackDistinctId,
+                        distinctId: distinctId ?? fallbackDistinctId,
                         event,
                         ...(Object.keys(groups).length > 0 ? { groups } : {}),
                         properties: {
@@ -95,7 +95,7 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
                             ...(analyticsContext ? buildMCPContextProperties(analyticsContext) : {}),
                             $session_id: await sessionManager.getSessionUuid(sessionId),
                             ...properties,
-                            is_impersonated: user?.is_impersonated === true,
+                            is_impersonated: apiKey?.is_impersonated === true,
                         },
                     })
                 } catch {}

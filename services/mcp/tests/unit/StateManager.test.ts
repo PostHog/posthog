@@ -82,7 +82,7 @@ describe('StateManager', () => {
     })
 
     describe('getApiKey', () => {
-        function oauthApi(clientName: string | null): ApiClient {
+        function oauthApi(clientName: string | null, impersonated?: boolean): ApiClient {
             return {
                 config: { apiToken: 'phx_test' },
                 apiKeys: () => ({
@@ -91,11 +91,46 @@ describe('StateManager', () => {
                 oauth: () => ({
                     introspect: async () => ({
                         success: true,
-                        data: { active: true, scope: 'insight:read', client_name: clientName },
+                        data: {
+                            active: true,
+                            scope: 'insight:read',
+                            client_name: clientName,
+                            is_impersonated: impersonated,
+                        },
                     }),
                 }),
             } as unknown as ApiClient
         }
+
+        it.each([true, false, undefined])(
+            'refreshes old token metadata and caches impersonation=%s',
+            async (impersonated) => {
+                await cache.set('apiKey', mockApiKey)
+                stateManager = new StateManager(cache, oauthApi(null, impersonated))
+
+                const result = await stateManager.getApiKey()
+
+                expect(result.is_impersonated).toBe(impersonated === true)
+                expect(await new StateManager(cache, {} as ApiClient).getApiKey()).toEqual(result)
+
+                const otherTokenCache = new MemoryCache<State>('other-token')
+                await otherTokenCache.clear()
+                const otherToken = new StateManager(otherTokenCache, oauthApi(null, false))
+                expect((await otherToken.getApiKey()).is_impersonated).toBe(false)
+                expect((await stateManager.getApiKey()).is_impersonated).toBe(impersonated === true)
+            }
+        )
+
+        it('caches personal API keys as not impersonated', async () => {
+            const api = {
+                apiKeys: () => ({ current: async () => ({ success: true, data: mockApiKey }) }),
+            } as unknown as ApiClient
+
+            const result = await new StateManager(cache, api).getApiKey()
+
+            expect(result).toEqual({ ...mockApiKey, is_impersonated: false })
+            expect(await new StateManager(cache, {} as ApiClient).getApiKey()).toEqual(result)
+        })
 
         it.each([
             { label: 'an OAuth app name', clientName: 'Claude', expected: 'Claude' },
@@ -872,7 +907,12 @@ describe('StateManager', () => {
         const projectId = '42'
 
         it('returns undefined without calling the API when the key lacks integration:read', async () => {
-            await cache.set('apiKey', { scopes: ['project:read'], scoped_organizations: [], scoped_teams: [] })
+            await cache.set('apiKey', {
+                scopes: ['project:read'],
+                scoped_organizations: [],
+                scoped_teams: [],
+                is_impersonated: false,
+            })
             const request = vi.fn()
             ;(stateManager as any)._api = { request }
 
@@ -883,7 +923,12 @@ describe('StateManager', () => {
         })
 
         it('fetches, dedupes, and sorts integration kinds when the scope is present', async () => {
-            await cache.set('apiKey', { scopes: ['integration:read'], scoped_organizations: [], scoped_teams: [] })
+            await cache.set('apiKey', {
+                scopes: ['integration:read'],
+                scoped_organizations: [],
+                scoped_teams: [],
+                is_impersonated: false,
+            })
             const request = vi.fn().mockResolvedValue({
                 results: [{ kind: 'slack' }, { kind: 'github' }, { kind: 'github' }],
             })
