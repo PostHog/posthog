@@ -237,9 +237,12 @@ class TestMirrorConversation(APIBaseTest):
     def _mirror(self):
         return async_to_sync(amirror_conversation)(self.conversation.id, self.team.id, self.user.id)
 
-    def _log_methods(self) -> list[str]:
+    def _log_frames(self) -> list[dict[str, Any]]:
         (content,) = self.logs.values()
-        return [_method(json.loads(line)) for line in content.strip().split("\n")]
+        return [json.loads(line) for line in content.strip().split("\n")]
+
+    def _log_methods(self) -> list[str]:
+        return [_method(frame) for frame in self._log_frames()]
 
     def test_first_touch_creates_task_and_import_run_then_appends(self) -> None:
         self.state_messages = [HumanMessage(content="hello", id="h1"), AssistantMessage(content="hi there", id="a1")]
@@ -329,13 +332,8 @@ class TestMirrorConversation(APIBaseTest):
         ]
         result = self._mirror()
         assert result.appended_frames == 7
-        (content,) = self.logs.values()
-        frames = [json.loads(line) for line in content.strip().split("\n")]
-        (output,) = [
-            f["notification"]["params"]["update"]["rawOutput"]
-            for f in frames
-            if _method(f) == "session/update:tool_call_update" and "rawOutput" in f["notification"]["params"]["update"]
-        ]
+        updates = [frame["notification"]["params"].get("update", {}) for frame in self._log_frames()]
+        (output,) = [update["rawOutput"] for update in updates if "rawOutput" in update]
         assert output["artifact_id"] == artifact.short_id
         assert output["query"]["funnelsFilter"]["funnelAggregateByHogQL"] == "properties.$session_id"
 
