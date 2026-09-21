@@ -319,7 +319,8 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
     confidence = serializers.FloatField(
         min_value=0.0,
         max_value=1.0,
-        help_text="Agent's confidence the finding is real in [0, 1].",
+        allow_null=True,
+        help_text="Deprecated and no longer set on new findings. Null unless the run supplied one.",
     )
     severity = serializers.ChoiceField(
         choices=[(p.value, p.value) for p in Priority],
@@ -1316,7 +1317,9 @@ class EmitFindingRequestSerializer(serializers.Serializer):
     confidence = serializers.FloatField(
         min_value=0.0,
         max_value=1.0,
-        help_text="Agent's confidence the finding is real in [0, 1]. Persisted in `extra`.",
+        required=False,
+        allow_null=True,
+        help_text="Deprecated and ignored. Nothing reads it; omit it. Still range-checked when supplied.",
     )
     evidence = serializers.ListField(
         child=EvidenceEntrySerializer(),
