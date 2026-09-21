@@ -67,14 +67,19 @@ class _SourceLinksTestMixin(APIBaseTest):
             team=self.team, ref=str(uuid7()), storage_ptr=f"symbolsets/{uuid7()}", content_hash="h1"
         )
 
-    def _frame(self, symbol_set: ErrorTrackingSymbolSet, raw_id: str, source: str, line: int = 3) -> str:
+    def _frame(
+        self, symbol_set: ErrorTrackingSymbolSet, raw_id: str, source: str, line: int = 3, with_context: bool = True
+    ) -> str:
+        # Mirrors what cymbal stores for a source map frame: the token line counts from zero, and
+        # the context holds the line as the stack trace shows it.
         ErrorTrackingStackFrame.objects.create(
             team=self.team,
             raw_id=raw_id,
             part=0,
             symbol_set=symbol_set,
             resolved=True,
-            contents={"source": source, "line": line, "lang": "javascript", "in_app": True, "resolved": True},
+            contents={"source": source, "line": line - 1, "lang": "javascript", "in_app": True, "resolved": True},
+            context={"before": [], "line": {"number": line, "line": "run()"}, "after": []} if with_context else None,
         )
         return f"{raw_id}/0"
 
@@ -123,6 +128,18 @@ class TestGitProviderFileLinksResolve(_SourceLinksTestMixin):
 
         assert links[two]["url"] == "https://github.com/acme/app/blob/main/packages/web/src/two.ts#L7"
         assert self.api.calls == ["/repos/acme/app", "/repos/acme/app/git/trees/main?recursive=1"]
+
+    @parameterized.expand(
+        [
+            ("with_context", True),
+            ("without_context", False),
+        ]
+    )
+    def test_anchors_the_link_at_the_line_the_stack_trace_shows(self, _name: str, with_context: bool) -> None:
+        release = self._release({"remote_url": "https://github.com/acme/app", "commit_id": COMMIT})
+        three = self._frame(self._symbol_set(), "frame-three", "../src/three.ts", line=5, with_context=with_context)
+
+        assert self._resolve(str(release.id), [three])[three]["url"].endswith("/packages/web/src/three.ts#L5")
 
     def test_a_second_page_load_makes_no_github_request(self) -> None:
         release = self._release({"remote_url": "https://github.com/acme/app", "commit_id": COMMIT})

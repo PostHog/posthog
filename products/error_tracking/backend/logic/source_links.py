@@ -776,11 +776,26 @@ def _frame_raw_id(frame: ErrorTrackingStackFrame) -> str:
     return f"{frame.raw_id}/{frame.part}"
 
 
-def _blob_url(target: SourceTarget, path: str, line: object) -> str:
+def frame_line_number(frame: ErrorTrackingStackFrame) -> int | None:
+    """The one-based line a link anchors at.
+
+    The context carries the line as the UI shows it. A frame resolved through a source map stores
+    the token's line in ``contents``, which counts from zero, so a frame without context adds one.
+    """
+    context = frame.context if isinstance(frame.context, dict) else {}
+    context_line = context.get("line")
+    number = context_line.get("number") if isinstance(context_line, dict) else None
+    if isinstance(number, int) and number > 0:
+        return number
+    line = frame.contents.get("line")
+    if not isinstance(line, int) or line < 0:
+        return None
+    return (line + 1 if frame.contents.get("lang") == "javascript" else line) or None
+
+
+def _blob_url(target: SourceTarget, path: str, line: int | None) -> str:
     url = f"{target.repository.url}/blob/{urllib.parse.quote(target.ref, safe='')}/{urllib.parse.quote(path)}"
-    if isinstance(line, int) and line > 0:
-        url += f"#L{line}"
-    return url
+    return f"{url}#L{line}" if line else url
 
 
 def resolve_source_links(team_id: int, release_id: str, raw_ids: list[str]) -> list[SourceLink]:
@@ -833,7 +848,7 @@ def resolve_source_links(team_id: int, release_id: str, raw_ids: list[str]) -> l
                 SourceLink(
                     raw_id=_frame_raw_id(frame),
                     provider="github",
-                    url=_blob_url(target, path, frame.contents.get("line")),
+                    url=_blob_url(target, path, frame_line_number(frame)),
                     path=path,
                 )
             )
@@ -848,8 +863,8 @@ def _gitlab_links(team_id: int, repository: Repository, frames: list[ErrorTracki
             if hit is None:
                 continue
             url = f"{hit.host_url}/{repository.path}/-/blob/{hit.ref}/{hit.path}"
-            line = frame.contents.get("line")
-            if isinstance(line, int) and line > 0:
+            line = frame_line_number(frame)
+            if line:
                 url = f"{url}#L{line}"
             links.append(SourceLink(raw_id=_frame_raw_id(frame), provider="gitlab", url=url, path=hit.path))
     return links
