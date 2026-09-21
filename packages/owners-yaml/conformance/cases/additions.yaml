@@ -109,6 +109,13 @@ cases:
               source: null
               slack: null
               additions: [team-arch]
+          products/new/:
+              owners: []
+              unowned_by_design: false
+              status: active
+              source: null
+              slack: null
+              additions: [team-arch]
           products/new/backend:
               owners: [team-new]
               unowned_by_design: false

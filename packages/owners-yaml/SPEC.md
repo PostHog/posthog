@@ -119,7 +119,7 @@ A consumer SHOULD get resolutions from an implementation of this algorithm, not 
 
 To resolve a path `P`:
 
-1. Normalize `P`: replace `\` with `/`, then remove any leading `./` and `/`.
+1. Normalize `P`: replace `\` with `/`, then remove any leading `./` and `/`, and any trailing `/`.
 2. List the directories from the repository root down to the parent directory of `P`, root first.
 3. For each directory, find its ownership file. Skip the directory when it has none. A file that is not a YAML mapping, or that lacks `version: 1` or `owners`, counts as absent.
 4. Start with an empty result: owners unset, status unset, source unset, additions empty.
@@ -445,4 +445,4 @@ rules:
 - **1** (2026-09): First published version.
 - **1**, amended (2026-09): Section 3.5 adds `[...]` character classes. No pattern that was valid before the amendment changes meaning. Section 6 gives `alias_files` the default `[product.yaml]`, so a root file that does not declare the key now has one alias file instead of none.
 - **1**, amended (unreleased): Section 3.4 applies every matching rule, field by field. Before, the last matching rule replaced the earlier ones entirely, so a file with two matching rules that set different fields now resolves differently.
-- **1**, amended (unreleased): Section 3.6 adds the optional `additions` field, and section 7.2 adds the `additions` member. A file without the field resolves as before.
+- **1**, amended (unreleased): Section 3.6 adds the optional `additions` field, and section 7.2 adds the `additions` member. A file without the field resolves as before. Section 4 step 1 also removes a trailing `/`, so a directory path resolves the same with or without it.
