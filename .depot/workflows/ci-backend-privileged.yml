@@ -21,6 +21,7 @@ jobs:
             github.event.workflow_run.event == 'pull_request'
             && github.event.workflow_run.run_attempt > 1
             && github.event.workflow_run.head_repository.full_name == github.repository
+            && github.event.workflow_run.pull_requests[0].base.ref == 'master'
             && github.event.workflow_run.pull_requests[0].number != ''
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5

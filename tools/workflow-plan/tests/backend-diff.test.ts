@@ -145,6 +145,7 @@ describe('Backend CI comparison boundaries', () => {
         expect(JSON.stringify(shadow.jobs)).not.toContain('secrets.DEPOT_')
         expect(privileged.on).toEqual({ workflow_run: { workflows: ['Backend CI'], types: ['in_progress'] } })
         expect(retry.if).toContain('github.event.workflow_run.run_attempt > 1')
+        expect(retry.if).toContain("github.event.workflow_run.pull_requests[0].base.ref == 'master'")
         expect(retryStep.env).toMatchObject({ DEPOT_TOKEN: '${{ secrets.DEPOT_CI_CANCEL_TOKEN }}' })
         expect(retry.steps!.map((candidate) => candidate.uses)).not.toContain(
             expect.stringContaining('actions/checkout')
