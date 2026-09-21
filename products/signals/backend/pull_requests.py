@@ -3,13 +3,25 @@ from enum import StrEnum
 from functools import partial
 from typing import TYPE_CHECKING
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import PullRequestLink
+from products.signals.backend.artefact_schemas import PullRequestLink, VerificationQuery, parse_artefact_content
 from products.signals.backend.claim_display_name import claim_display_name
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportCheck,
+    SignalReportPullRequest,
+)
+from products.signals.backend.report_checks import (
+    MAX_ACTIVE_CHECKS_PER_REPORT,
+    VERIFICATION_HORIZON,
+    VERIFICATION_RETRY_INTERVAL,
+    VerificationQueryConfig,
+)
 
 if TYPE_CHECKING:
     from products.signals.backend.report_assignments import PullRequestDetails
@@ -31,7 +43,80 @@ def reconcile_reports_for_pull_request(*, team_id: int, pr_id: str) -> None:
         reports = SignalReport.objects.select_for_update().filter(team_id=team_id, id__in=report_ids).order_by("id")
         for report in reports:
             apply_report_completion(report)
+            _schedule_verification_check(report=report, pull_request=pr)
             schedule_report_replacements(team_id, str(report.id))
+
+
+def _schedule_verification_check(*, report: SignalReport, pull_request: SignalReportPullRequest) -> None:
+    """Create one post-merge verification run for the report's latest query artefact."""
+
+    if pull_request.state != SignalReportPullRequest.State.MERGED or pull_request.merged_at is None:
+        return
+    verification = (
+        SignalReportArtefact.objects.filter(
+            team_id=report.team_id,
+            report_id=report.id,
+            type=SignalReportArtefact.ArtefactType.VERIFICATION_QUERY,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if verification is None:
+        return
+    existing = SignalReportCheck.objects.for_team(report.team_id).filter(
+        report_id=report.id,
+        kind=SignalReportCheck.Kind.VERIFICATION_QUERY,
+        config__verification_query_id=str(verification.id),
+        config__pull_request_id=str(pull_request.id),
+    )
+    if existing.exists():
+        return
+    if (
+        SignalReportCheck.objects.for_team(report.team_id)
+        .filter(report_id=report.id, status=SignalReportCheck.Status.ACTIVE)
+        .count()
+        >= MAX_ACTIVE_CHECKS_PER_REPORT
+    ):
+        return
+    parsed = parse_artefact_content(verification.type, verification.content)
+    if not isinstance(parsed, VerificationQuery):
+        return
+    expires_at = pull_request.merged_at + VERIFICATION_HORIZON
+    if expires_at <= timezone.now():
+        return
+    next_run_at = pull_request.merged_at + VERIFICATION_RETRY_INTERVAL
+    SignalReportCheck.objects.for_team(report.team_id).create(
+        team_id=report.team_id,
+        report_id=report.id,
+        title="Verify the merged fix",
+        rationale="Compare the research snapshot with an equal post-merge window.",
+        kind=SignalReportCheck.Kind.VERIFICATION_QUERY,
+        config=VerificationQueryConfig(
+            verification_query_id=str(verification.id),
+            pull_request_id=str(pull_request.id),
+            min_confidence=settings.TYPESAFE_VERIFICATION_MIN_CONFIDENCE,
+        ).model_dump(mode="json"),
+        next_run_at=next_run_at,
+        runs_remaining=1,
+        expires_at=expires_at,
+    )
+
+
+def schedule_report_verification_checks(*, team_id: int, report_id: str) -> None:
+    """Schedule any merged PR that gained verification evidence after its merge event."""
+
+    with transaction.atomic():
+        report = SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first()
+        if report is None:
+            return
+        pull_requests = SignalReportPullRequest.objects.for_team(team_id).filter(
+            state=SignalReportPullRequest.State.MERGED,
+            report_links__team_id=team_id,
+            report_links__report_id=report_id,
+            report_links__type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
+        )
+        for pull_request in pull_requests.distinct():
+            _schedule_verification_check(report=report, pull_request=pull_request)
 
 
 def completion_state(states: Sequence[str]) -> str | None:
@@ -70,11 +155,17 @@ def link_pull_request(
         # Imported/task snapshots must not overwrite a state already verified with GitHub.
         if state_source == PullRequestStateSource.GITHUB or pr.checked_at is None:
             pr.state = details.state
+            if details.state == SignalReportPullRequest.State.MERGED and pr.merged_at is None:
+                pr.merged_at = timezone.now()
             if state_source == PullRequestStateSource.GITHUB:
                 pr.checked_at = timezone.now()
-            pr.save(update_fields=["state", "checked_at", "updated_at"])
+            pr.save(update_fields=["state", "checked_at", "merged_at", "updated_at"])
             # Wait for the complete PR batch and release its locks before locking shared reports.
             transaction.on_commit(partial(reconcile_reports_for_pull_request, team_id=report.team_id, pr_id=str(pr.id)))
+    elif details.state == SignalReportPullRequest.State.MERGED and pr.merged_at is None:
+        pr.merged_at = timezone.now()
+        pr.save(update_fields=["merged_at", "updated_at"])
+        transaction.on_commit(partial(reconcile_reports_for_pull_request, team_id=report.team_id, pr_id=str(pr.id)))
     links = SignalReportArtefact.objects.filter(
         team_id=report.team_id,
         report_id=report.id,
@@ -235,8 +326,13 @@ def update_pull_request_state(*, team_id: int, repository: str, number: int, sta
             return 0
         if pr.state != SignalReportPullRequest.State.MERGED:
             pr.state = state
+        if (
+            state == SignalReportPullRequest.State.MERGED or pr.state == SignalReportPullRequest.State.MERGED
+        ) and pr.merged_at is None:
+            pr.merged_at = timezone.now()
         pr.checked_at = timezone.now()
-        pr.save(update_fields=["state", "checked_at", "updated_at"])
+        pr.save(update_fields=["state", "checked_at", "merged_at", "updated_at"])
         for report in reports:
             apply_report_completion(report)
+            _schedule_verification_check(report=report, pull_request=pr)
         return len(reports)

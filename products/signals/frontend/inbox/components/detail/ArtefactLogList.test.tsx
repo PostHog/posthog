@@ -20,6 +20,64 @@ describe('ArtefactLogList', () => {
         cleanup()
     })
 
+    it('shows the verification query, snapshot window, and success criterion', () => {
+        render(
+            <ArtefactLogList
+                reportId="report-1"
+                artefacts={[
+                    makeArtefact(
+                        {
+                            description: 'Counts failed imports after an import attempt.',
+                            query: 'SELECT count() FROM events WHERE timestamp >= {window_start}',
+                            snapshot_result: {
+                                window_start: '2026-06-01T00:00:00Z',
+                                window_end: '2026-06-08T00:00:00Z',
+                                columns: ['failures'],
+                                rows: [[12]],
+                            },
+                            success_criteria: 'Attempts continue and the failure rate falls to zero.',
+                        },
+                        'verification_query'
+                    ),
+                ]}
+            />
+        )
+
+        expect(screen.getByText('Verification query prepared')).toBeInTheDocument()
+        expect(screen.getByText(/Counts failed imports/)).toBeInTheDocument()
+        expect(
+            screen.getByText(
+                (_content, element) =>
+                    element?.textContent === 'Snapshot 2026-06-01T00:00:00Z to 2026-06-08T00:00:00Z · 1 rows'
+            )
+        ).toBeInTheDocument()
+        expect(screen.getByText(/Attempts continue/)).toBeInTheDocument()
+    })
+
+    it('shows an inconclusive verification attempt with its model confidence', () => {
+        render(
+            <ArtefactLogList
+                reportId="report-1"
+                artefacts={[
+                    makeArtefact(
+                        {
+                            outcome: 'inconclusive',
+                            explanation: 'The current window had no import attempts.',
+                            confidence: 0.42,
+                            model: 'jev-1.13.0',
+                        },
+                        'verification_result'
+                    ),
+                ]}
+            />
+        )
+
+        expect(screen.getByText('Fix verification attempted')).toBeInTheDocument()
+        expect(screen.getByText('Inconclusive')).toBeInTheDocument()
+        expect(screen.getByText('The current window had no import attempts.')).toBeInTheDocument()
+        expect(screen.getByText('42% confidence · jev-1.13.0')).toBeInTheDocument()
+    })
+
     it.each([
         ['a replacement recommendation', true, undefined, 'Replacement recommended'],
         ['a kept PR', false, undefined, 'Still the right fix'],

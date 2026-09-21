@@ -1042,6 +1042,7 @@ class SignalReportPullRequest(TeamScopedRootMixin, UUIDModel):
     url = models.URLField(max_length=2048)
     state = models.CharField(max_length=10, choices=State, default=State.UNKNOWN)
     checked_at = models.DateTimeField(null=True, blank=True)
+    merged_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1107,13 +1108,17 @@ class SignalReportArtefact(UUIDModel):
         WORK_RELEASE = "work_release"
         PULL_REQUEST = "pull_request"
         CHECK_RESULT = "check_result"
+        VERIFICATION_QUERY = "verification_query"
+        VERIFICATION_RESULT = "verification_result"
         IMPLEMENTATION_DECISION = "implementation_decision"
         IMPLEMENTATION_DISPATCH = "implementation_dispatch"
         IMPLEMENTATION_REPLACEMENT = "implementation_replacement"
         IMPLEMENTATION_HANDOVER = "implementation_handover"
 
-    # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
-    # the producers. The two sets below classify *what an entry means*, not how it is written:
+    # Artefacts are normally append-only point-in-time log entries. `verification_result` is the
+    # narrow exception: an hourly attempt replaces it while it remains the newest report artefact
+    # for the same query and pull request; intervening work creates a new row. The two sets below
+    # classify *what an entry means*, not how it is written:
     #   - status artefacts describe the report's current state (judgments, repo selection,
     #     suggested reviewers, channel assignments). They are appended on each change; the
     #     report's *current* status is the latest row of that type by `created_at` (the serializer
@@ -1133,6 +1138,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.CHANNEL_ASSIGNMENT,
             ArtefactType.IMPLEMENTATION_DECISION,
             ArtefactType.IMPLEMENTATION_DISPATCH,
+            ArtefactType.VERIFICATION_QUERY,
         }
     )
     LOG_ARTEFACT_TYPES: frozenset[str] = frozenset(
@@ -1151,6 +1157,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.WORK_RELEASE,
             ArtefactType.PULL_REQUEST,
             ArtefactType.CHECK_RESULT,
+            ArtefactType.VERIFICATION_RESULT,
         }
     )
 
@@ -1743,6 +1750,8 @@ class SignalReportCheck(UUIDModel):
         # settles, which is most of the inbox: a resolved error-tracking report needs its issue
         # looked up and its recent events read, not a threshold compared.
         AGENT = "agent"
+        # One stored HogQL query, one comparable window, and one TypeSafe Jev decision.
+        VERIFICATION_QUERY = "verification_query"
 
     class Status(models.TextChoices):
         # Written before the fix it checks exists, so it carries a soak rather than a date and

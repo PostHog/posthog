@@ -61,6 +61,8 @@ import {
     SummaryChangeContent,
     TaskRunArtefactContent,
     TitleChangeContent,
+    VerificationQueryContent,
+    VerificationResultContent,
 } from './artefactTypes'
 import { prActivityTitle } from './prActivityPresentation'
 
@@ -140,6 +142,8 @@ const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
     related_to: IconListTreeConnected,
     code_review: IconListCheck,
     check_result: IconCalendar,
+    verification_query: IconSearch,
+    verification_result: IconListCheck,
     implementation_decision: IconRefresh,
     implementation_replacement: IconRefresh,
     implementation_handover: IconRefresh,
@@ -312,7 +316,21 @@ const CHECK_OUTCOME: Record<NonNullable<CheckResultContent['outcome']>, { label:
     errored: { label: "Couldn't measure", type: 'warning' },
 }
 
-function CheckResultBody({ content }: { content: CheckResultContent }): JSX.Element | null {
+const VERIFICATION_OUTCOME: Record<
+    NonNullable<VerificationResultContent['outcome']>,
+    { label: string; type: LemonTagType }
+> = {
+    solved: { label: 'Solved', type: 'success' },
+    not_solved: { label: 'Not solved', type: 'danger' },
+    inconclusive: { label: 'Inconclusive', type: 'warning' },
+    errored: { label: "Couldn't verify", type: 'warning' },
+}
+
+function CheckResultBody({
+    content,
+}: {
+    content: Pick<CheckResultContent, 'explanation' | 'threshold' | 'baseline_value' | 'confidence' | 'model'>
+}): JSX.Element | null {
     if (!content.explanation?.trim()) {
         return null
     }
@@ -324,6 +342,35 @@ function CheckResultBody({ content }: { content: CheckResultContent }): JSX.Elem
                     Expected {content.threshold}
                     {typeof content.baseline_value === 'number' ? `, was ${content.baseline_value} when set` : ''}
                 </span>
+            ) : null}
+            {typeof content.confidence === 'number' ? (
+                <span className="text-xs text-tertiary">
+                    {Math.round(content.confidence * 100)}% confidence{content.model ? ` · ${content.model}` : ''}
+                </span>
+            ) : null}
+        </div>
+    )
+}
+
+function VerificationQueryBody({ content }: { content: VerificationQueryContent }): JSX.Element | null {
+    const snapshot = content.snapshot_result
+    return (
+        <div className="flex min-w-0 flex-col gap-2">
+            {content.description ? <ReasoningBody text={content.description} /> : null}
+            {content.query ? (
+                <CodeSnippet language={Language.SQL} compact wrap>
+                    {content.query}
+                </CodeSnippet>
+            ) : (
+                <span className="text-xs text-tertiary">Query details are hidden for this viewer.</span>
+            )}
+            {snapshot?.window_start && snapshot?.window_end ? (
+                <span className="text-xs text-tertiary">
+                    Snapshot {snapshot.window_start} to {snapshot.window_end} · {snapshot.rows?.length ?? 0} rows
+                </span>
+            ) : null}
+            {content.success_criteria ? (
+                <span className="text-xs text-secondary">Success: {content.success_criteria}</span>
             ) : null}
         </div>
     )
@@ -450,6 +497,15 @@ function renderArtefactSummary(artefact: SignalReportArtefact): JSX.Element | nu
                 </LemonTag>
             ) : null
         }
+        case 'verification_result': {
+            const outcome = (content as VerificationResultContent).outcome
+            const meta = outcome ? VERIFICATION_OUTCOME[outcome] : null
+            return meta ? (
+                <LemonTag size="small" type={meta.type}>
+                    {meta.label}
+                </LemonTag>
+            ) : null
+        }
         case 'implementation_decision': {
             const { supersede, blocked_reason } = content as ImplementationDecisionContent
             if (typeof supersede !== 'boolean') {
@@ -551,6 +607,10 @@ function renderArtefactBody({
             return <CodeReviewBody content={content as CodeReviewContent} />
         case 'check_result':
             return <CheckResultBody content={content as CheckResultContent} />
+        case 'verification_query':
+            return <VerificationQueryBody content={content as VerificationQueryContent} />
+        case 'verification_result':
+            return <CheckResultBody content={content as VerificationResultContent} />
         case 'title_change': {
             const c = content as TitleChangeContent
             return <ContentChangeBody previous={c.old_title} current={c.new_title ?? ''} />

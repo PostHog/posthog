@@ -915,6 +915,15 @@ FIRECRAWL_EGRESS_PER_MINUTE_BUDGET = get_from_env("FIRECRAWL_EGRESS_PER_MINUTE_B
 FIRECRAWL_EGRESS_HOURLY_BUDGET = get_from_env("FIRECRAWL_EGRESS_HOURLY_BUDGET", 1000, type_cast=int)
 
 ####
+# TypeSafe Jev (Signals verification, see posthog/egress/typesafe/)
+TYPESAFE_API_KEY = get_from_env("TYPESAFE_API_KEY", "")
+TYPESAFE_BASE_URL = get_from_env("TYPESAFE_BASE_URL", "https://api.typesafe.ai")
+TYPESAFE_DEFAULT_MODEL = get_from_env("TYPESAFE_DEFAULT_MODEL", "jev-latest")
+TYPESAFE_VERIFICATION_MIN_CONFIDENCE = get_from_env("TYPESAFE_VERIFICATION_MIN_CONFIDENCE", 0.6, type_cast=float)
+TYPESAFE_EGRESS_PER_MINUTE_BUDGET = get_from_env("TYPESAFE_EGRESS_PER_MINUTE_BUDGET", 1000, type_cast=int)
+TYPESAFE_EGRESS_HOURLY_BUDGET = get_from_env("TYPESAFE_EGRESS_HOURLY_BUDGET", 50000, type_cast=int)
+
+####
 # Feature flag billing analytics
 # Used to track feature flag requests for billing purposes.
 # Named "decide" for historical reasons: the /decide endpoint was the original

@@ -24,6 +24,7 @@ from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_
 from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, SuggestedReviewers
 from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
+from products.signals.backend.pull_requests import schedule_report_verification_checks
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_CONTENT_NEEDLE, WRONG_REPO_CONTENT_NEEDLE
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_content_gates import team_report_metrics_enabled
@@ -47,6 +48,7 @@ from products.signals.backend.report_generation.reviewer_telemetry import (
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_metrics import ReportMetric, metric_batch_error
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
+from products.signals.backend.report_verification import verification_snapshot_matches
 from products.signals.backend.supersession import research_implementation_context
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
@@ -251,6 +253,7 @@ _AGENTIC_ARTEFACT_TYPES = [
     SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
     SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
     SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION,
+    SignalReportArtefact.ArtefactType.VERIFICATION_QUERY,
 ]
 
 
@@ -492,6 +495,29 @@ async def _persist_agentic_report_artefacts(
         if repo_selection.task_id
         else ArtefactAttribution.system()
     )
+    trusted_verification_query = result.verification_query
+    if trusted_verification_query is not None:
+        team = await Team.objects.aget(id=team_id)
+        try:
+            snapshot_matches = await database_sync_to_async(verification_snapshot_matches, thread_sensitive=False)(
+                trusted_verification_query,
+                team=team,
+            )
+        except Exception:
+            logger.exception(
+                "signals verification query snapshot could not be reproduced",
+                report_id=report_id,
+                team_id=team_id,
+            )
+            snapshot_matches = False
+        if not snapshot_matches:
+            logger.warning(
+                "signals verification query dropped because its snapshot did not match",
+                report_id=report_id,
+                team_id=team_id,
+            )
+            trusted_verification_query = None
+
     # Everything the run flagged as new gets persisted; the artefact type derives from each content
     # model. The verification note is fresh output from the final turn of every actionable research
     # run, so it is appended as a log entry rather than folded into the latest-wins research state.
@@ -522,6 +548,8 @@ async def _persist_agentic_report_artefacts(
         ),
         *(ArtefactDraft(content=content, attribution=research_attribution) for content in result.new_artefacts),
     ]
+    if trusted_verification_query is not None:
+        artefacts.append(ArtefactDraft(content=trusted_verification_query, attribution=research_attribution))
     if result.verification_note is not None:
         artefacts.append(ArtefactDraft(content=result.verification_note, attribution=research_attribution))
     if reviewers_content and has_new_finding:
@@ -537,6 +565,11 @@ async def _persist_agentic_report_artefacts(
         report_id=report_id,
         artefacts=artefacts,
     )
+    if trusted_verification_query is not None:
+        await database_sync_to_async(schedule_report_verification_checks, thread_sensitive=False)(
+            team_id=team_id,
+            report_id=report_id,
+        )
 
     # Telemetry mirrors persistence: fires when a suggested_reviewers artefact was appended
     # above, so re-promotions without new findings don't re-fire. Delivery is at-least-once

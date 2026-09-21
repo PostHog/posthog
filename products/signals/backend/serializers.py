@@ -1872,6 +1872,24 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
         if obj.type == SignalReportArtefact.ArtefactType.CHECK_RESULT and isinstance(parsed, dict):
             return self._redact_check_result(obj, parsed)
 
+        if obj.type == SignalReportArtefact.ArtefactType.VERIFICATION_QUERY and isinstance(parsed, dict):
+            if report_metric_access_policy(self.context).may_read_hogql_snapshot():
+                return parsed
+            return {
+                **parsed,
+                "query": "",
+                "snapshot_result": {
+                    **(parsed.get("snapshot_result") if isinstance(parsed.get("snapshot_result"), dict) else {}),
+                    "columns": [],
+                    "rows": [],
+                },
+            }
+
+        if obj.type == SignalReportArtefact.ArtefactType.VERIFICATION_RESULT and isinstance(parsed, dict):
+            if report_metric_access_policy(self.context).may_read_hogql_snapshot():
+                return parsed
+            return {**parsed, "current_result": None, "explanation": CHECK_RESULT_HIDDEN_EXPLANATION}
+
         return parsed
 
     def _redact_check_result(self, obj: SignalReportArtefact, content: dict) -> dict:
@@ -1902,6 +1920,16 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
             kind, config = check
             if kind == SignalReportCheck.Kind.AGENT:
                 return content
+            if kind == SignalReportCheck.Kind.VERIFICATION_QUERY:
+                if policy.may_read_hogql_snapshot():
+                    return content
+                return {
+                    **content,
+                    "observed_value": None,
+                    "baseline_value": None,
+                    "current_result": None,
+                    "explanation": CHECK_RESULT_HIDDEN_EXPLANATION,
+                }
             if isinstance(config, Mapping) and policy.may_read_snapshot(config):
                 return content
         return {

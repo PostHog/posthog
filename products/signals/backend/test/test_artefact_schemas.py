@@ -1,4 +1,6 @@
 import json
+from datetime import UTC, datetime
+from decimal import Decimal
 
 from django.test import SimpleTestCase
 
@@ -16,6 +18,8 @@ from products.signals.backend.artefact_schemas import (
     SummaryChange,
     TaskRunArtefact,
     TitleChange,
+    VerificationQuery,
+    VerificationQueryResult,
     artefact_type_for,
     parse_artefact_content,
 )
@@ -23,6 +27,43 @@ from products.signals.backend.models import SignalReportArtefact
 
 
 class TestArtefactSchemas(SimpleTestCase):
+    def test_verification_results_are_aggregate_json_numbers_only(self):
+        result = VerificationQueryResult(
+            window_start=datetime(2026, 6, 1, tzinfo=UTC),
+            window_end=datetime(2026, 6, 8, tzinfo=UTC),
+            columns=["rate"],
+            rows=[[Decimal("0.25")]],
+        )
+        assert json.loads(result.model_dump_json())["rows"] == [[0.25]]
+
+        with self.assertRaises(ValidationError):
+            VerificationQueryResult(
+                window_start=datetime(2026, 6, 1, tzinfo=UTC),
+                window_end=datetime(2026, 6, 8, tzinfo=UTC),
+                columns=["message"],
+                rows=[["customer data"]],
+            )
+
+    def test_verification_query_requires_both_bound_window_placeholders(self):
+        payload = {
+            "description": "Measures failed imports and all import attempts.",
+            "query": "SELECT count() FROM events WHERE timestamp >= {window_start}",
+            "snapshot_result": {
+                "window_start": "2026-06-01T00:00:00Z",
+                "window_end": "2026-06-08T00:00:00Z",
+                "columns": ["failures", "attempts"],
+                "rows": [[12, 40]],
+            },
+            "success_criteria": "Attempts continue and failures fall to zero.",
+            "inconclusive_conditions": ["No import attempts occur."],
+            "mcp_commands": ["execute-sql"],
+        }
+        with self.assertRaises(ValidationError):
+            VerificationQuery.model_validate(payload)
+
+        payload["query"] += " AND timestamp < {window_end}"
+        assert artefact_type_for(VerificationQuery.model_validate(payload)) == "verification_query"
+
     def test_reviewer_reasons_are_bounded_on_write(self):
         with self.assertRaises(ValidationError):
             SuggestedReviewerEntry(github_login="reviewer", reason="x" * 501)

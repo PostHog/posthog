@@ -23,7 +23,7 @@ It is exercised locally via management commands, and it is also used by the prod
   - very short factual summary
   - optional typed impact metrics (see below), when the team is opted in
   - optional charts (see below)
-  - an optional task-attributed fix verification note for actionable reports
+  - an optional task-attributed verification query or manual verification note for actionable reports
 
   The repository used for research is tracked separately via the `repo_selection` artefact.
 
@@ -63,6 +63,10 @@ In production, the `update` path is triggered automatically when a `ready` repor
 This module is intentionally prompt-orchestration only.
 Production persistence is handled outside `run_multi_turn_research()`, in the caller activity, so this module stays isolated from report DB writes.
 Fix verification is best-effort. Generation failures do not fail completed research, but cancellation still does.
+
+When PostHog data can directly show the reported behavior, the final research turn emits a `verification_query` artefact. It contains successfully executed HogQL with `{window_start}` and `{window_end}` placeholders, the exact pre-fix snapshot, success criteria, inconclusive conditions, and MCP provenance. The query must measure the behavior the fix intends to change. It must include opportunity or denominator evidence when absence alone is ambiguous. Failed queries and reconstructed results are not artefacts.
+
+When no direct query exists, research emits the existing manual verification note. It never emits both forms for one run.
 
 ### Charts
 

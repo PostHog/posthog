@@ -121,6 +121,13 @@ class TestBuildInitialResearchPrompt:
         prompt = build_initial_research_prompt(signal, 1)
         assert "## Previously resolved report" not in prompt
 
+    def test_research_preserves_successful_query_evidence_for_verification(self):
+        prompt = build_initial_research_prompt(_make_signal({}), 1)
+
+        assert "{window_start}" in prompt
+        assert "opportunity or denominator" in prompt
+        assert "failed query" in prompt
+
     # The steering section is what carries a reviewer's dismissal reason into the stage that judges
     # whether to surface the topic again. A team that left no notes renders nothing, so a quiet
     # project pays no tokens for a heading with nothing under it.

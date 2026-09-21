@@ -1936,6 +1936,10 @@ export const signalsScoutReportCheckCreateBodyConfigOneTwoSkillNameOneMax = 200
 
 export const signalsScoutReportCheckCreateBodyConfigOneTwoProbeHintsMax = 5
 
+export const signalsScoutReportCheckCreateBodyConfigOneThreeMinConfidenceDefault = 0.6
+export const signalsScoutReportCheckCreateBodyConfigOneThreeMinConfidenceMin = 0
+export const signalsScoutReportCheckCreateBodyConfigOneThreeMinConfidenceMax = 1
+
 export const signalsScoutReportCheckCreateBodyRunIntervalMinutesMin = 360
 export const signalsScoutReportCheckCreateBodyRunIntervalMinutesMax = 129600
 
@@ -1953,9 +1957,13 @@ export const SignalsScoutReportCheckCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe('Why the check is worth running.'),
         kind: zod
-            .enum(['metric_threshold', 'agent'])
-            .describe('\* `metric_threshold` - Metric Threshold\n\* `agent` - Agent')
-            .describe('How the check is evaluated.\n\n\* `metric_threshold` - Metric Threshold\n\* `agent` - Agent'),
+            .enum(['metric_threshold', 'agent', 'verification_query'])
+            .describe(
+                '\* `metric_threshold` - Metric Threshold\n\* `agent` - Agent\n\* `verification_query` - Verification Query'
+            )
+            .describe(
+                'How the check is evaluated.\n\n\* `metric_threshold` - Metric Threshold\n\* `agent` - Agent\n\* `verification_query` - Verification Query'
+            ),
         config: zod
             .union([
                 zod
@@ -2027,6 +2035,19 @@ export const SignalsScoutReportCheckCreateBody = /* @__PURE__ */ zod
                     .describe(
                         'A check a scout run answers: re-probe the report\'s claim and record one verdict.\n\nThe kind for a claim no single number settles. A resolved error-tracking report is the usual\ncase: \"did the exception stop?\" needs the issue looked up, its recent events read, and the\nstack compared against what the fix changed, which is a run rather than a comparison.\n\nEverything here is prompt material a scout reads, so it is untrusted by construction: it renders\nin the run block the agent is told to weigh, never in the instructions it is told to follow. The\nverdict still comes back through `scout-check-record-result`, so instructions cannot widen what\na check run may write.\n\n``skill_name`` names the lane. Most reports are pipeline-authored and have no scout behind them,\nso it is optional: a check that names none runs on the fleet\'s follow-up scout\n(see ``report_check_agent.FALLBACK_CHECK_SKILL_NAME``).'
                     ),
+                zod
+                    .object({
+                        verification_query_id: zod
+                            .uuid()
+                            .describe('UUID of the verification_query artefact to execute.'),
+                        pull_request_id: zod.uuid().describe('UUID of the merged pull request being verified.'),
+                        min_confidence: zod
+                            .number()
+                            .min(signalsScoutReportCheckCreateBodyConfigOneThreeMinConfidenceMin)
+                            .max(signalsScoutReportCheckCreateBodyConfigOneThreeMinConfidenceMax)
+                            .default(signalsScoutReportCheckCreateBodyConfigOneThreeMinConfidenceDefault),
+                    })
+                    .describe('A post-merge run of one trusted verification-query artefact.'),
             ])
             .describe('What the check measures and what the result must satisfy; the shape depends on `kind`.'),
         next_run_at: zod.iso

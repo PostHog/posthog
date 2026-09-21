@@ -18,15 +18,23 @@ from posthog.models import PropertyDefinition, Team
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import Dismissal
+from products.signals.backend.artefact_schemas import (
+    Dismissal,
+    NoteArtefact,
+    PullRequestLink,
+    VerificationQuery,
+    VerificationQueryResult,
+)
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportCheck,
+    SignalReportPullRequest,
     SignalScoutConfig,
     SignalScoutRun,
 )
+from products.signals.backend.pull_requests import schedule_report_verification_checks
 from products.signals.backend.report_check_agent import (
     AGENT_CHECK_RESULT_WINDOW,
     CHECK_DISPATCH_DEFER_AFTER,
@@ -66,6 +74,7 @@ from products.signals.backend.report_checks import (
     parse_check_config,
 )
 from products.signals.backend.report_metric_refresh import MetricMeasurement
+from products.signals.backend.report_verification import VerificationDecision
 from products.signals.backend.scout_harness.tools.checks import (
     InvalidCheckResultError,
     InvalidCheckWriteError,
@@ -322,6 +331,250 @@ class TestReportCheckExecution(APIBaseTest):
                 report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_RESULT
             ).order_by("created_at")
         )
+
+    def test_verification_attempts_replace_the_latest_result_until_other_work_arrives(self) -> None:
+        now = timezone.now()
+        verification = SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(self.report.id),
+            content=VerificationQuery(
+                description="Measures failed imports and import attempts.",
+                query=(
+                    "SELECT countIf(event = 'failed'), count() FROM events "
+                    "WHERE timestamp >= {window_start} AND timestamp < {window_end}"
+                ),
+                snapshot_result=VerificationQueryResult(
+                    window_start=now - timedelta(days=7),
+                    window_end=now,
+                    columns=["failures", "attempts"],
+                    rows=[[12, 40]],
+                ),
+                success_criteria="Attempts continue and failures fall to zero.",
+                inconclusive_conditions=["No import attempts occur."],
+                mcp_commands=["execute-sql"],
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+        pull_request = SignalReportPullRequest.objects.for_team(self.team.id).create(
+            team=self.team,
+            repository="posthog/posthog",
+            number=123,
+            url="https://github.com/posthog/posthog/pull/123",
+            state=SignalReportPullRequest.State.MERGED,
+            merged_at=now,
+        )
+        check = self._check(
+            kind=SignalReportCheck.Kind.VERIFICATION_QUERY,
+            config={
+                "verification_query_id": str(verification.id),
+                "pull_request_id": str(pull_request.id),
+                "min_confidence": 0.6,
+            },
+        )
+        current = VerificationQueryResult(
+            window_start=now,
+            window_end=now + timedelta(days=7),
+            columns=["failures", "attempts"],
+            rows=[[0, 55]],
+        )
+
+        record_check_verdict(
+            check,
+            CheckVerdict(
+                outcome="failed",
+                explanation="The failure still occurs.",
+                verification_query_id=str(verification.id),
+                pull_request_id=str(pull_request.id),
+                confidence=0.82,
+                model="jev-1.13.0",
+                current_result=current,
+                verification_outcome="not_solved",
+            ),
+            now=now,
+        )
+
+        result = SignalReportArtefact.objects.get(
+            report=self.report,
+            type=SignalReportArtefact.ArtefactType.VERIFICATION_RESULT,
+        )
+        assert result.pull_request_id == pull_request.id
+        assert '"outcome":"not_solved"' in result.content
+        assert '"verification_query_id"' in result.content
+        assert '"rows":[[0,55]]' in result.content
+
+        record_check_verdict(
+            check,
+            CheckVerdict(
+                outcome="errored",
+                explanation="There were no attempts in the latest window.",
+                verification_query_id=str(verification.id),
+                pull_request_id=str(pull_request.id),
+                confidence=0.4,
+                model="jev-1.13.0",
+                current_result=current.model_copy(update={"rows": [[0, 0]]}),
+                verification_outcome="inconclusive",
+            ),
+            now=now + timedelta(hours=1),
+        )
+        results = SignalReportArtefact.objects.filter(
+            report=self.report,
+            type=SignalReportArtefact.ArtefactType.VERIFICATION_RESULT,
+        )
+        assert results.count() == 1
+        result.refresh_from_db()
+        assert '"outcome":"inconclusive"' in result.content
+
+        note = SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(self.report.id),
+            content=NoteArtefact(note="A new deployment started."),
+            attribution=ArtefactAttribution.system(),
+        )
+        SignalReportArtefact.objects.filter(id=note.id).update(created_at=now + timedelta(minutes=90))
+        record_check_verdict(
+            check,
+            CheckVerdict(
+                outcome="passed",
+                explanation="The failure no longer occurs.",
+                verification_query_id=str(verification.id),
+                pull_request_id=str(pull_request.id),
+                confidence=0.91,
+                model="jev-1.13.0",
+                current_result=current,
+                verification_outcome="solved",
+            ),
+            now=now + timedelta(hours=2),
+        )
+        assert results.count() == 2
+
+    def test_verification_evidence_schedules_one_check_for_an_already_merged_pr(self) -> None:
+        now = timezone.now()
+        verification = SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(self.report.id),
+            content=VerificationQuery(
+                description="Measures failed imports and import attempts.",
+                query=(
+                    "SELECT countIf(event = 'failed'), count() FROM events "
+                    "WHERE timestamp >= {window_start} AND timestamp < {window_end}"
+                ),
+                snapshot_result=VerificationQueryResult(
+                    window_start=now - timedelta(days=7),
+                    window_end=now,
+                    columns=["failures", "attempts"],
+                    rows=[[12, 40]],
+                ),
+                success_criteria="Attempts continue and failures fall to zero.",
+                inconclusive_conditions=["No import attempts occur."],
+                mcp_commands=["execute-sql"],
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+        pull_request = SignalReportPullRequest.objects.for_team(self.team.id).create(
+            team=self.team,
+            repository="posthog/posthog",
+            number=123,
+            url="https://github.com/posthog/posthog/pull/123",
+            state=SignalReportPullRequest.State.MERGED,
+            merged_at=now,
+        )
+        link = SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(self.report.id),
+            content=PullRequestLink(url=pull_request.url),
+            attribution=ArtefactAttribution.system(),
+        )
+        link.pull_request = pull_request
+        link.save(update_fields=["pull_request"])
+
+        schedule_report_verification_checks(team_id=self.team.id, report_id=str(self.report.id))
+        schedule_report_verification_checks(team_id=self.team.id, report_id=str(self.report.id))
+
+        checks = SignalReportCheck.objects.for_team(self.team.id).filter(
+            report=self.report,
+            kind=SignalReportCheck.Kind.VERIFICATION_QUERY,
+        )
+        assert checks.count() == 1
+        check = checks.get()
+        assert check.config["verification_query_id"] == str(verification.id)
+        assert check.config["pull_request_id"] == str(pull_request.id)
+        assert check.next_run_at >= now + timedelta(hours=1)
+        assert check.expires_at == pull_request.merged_at + timedelta(days=14)
+
+    def test_an_inconclusive_jev_attempt_is_recorded_and_retried(self) -> None:
+        now = timezone.now()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        verification = SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(self.report.id),
+            content=VerificationQuery(
+                description="Measures failed imports and import attempts.",
+                query=(
+                    "SELECT countIf(event = 'failed'), count() FROM events "
+                    "WHERE timestamp >= {window_start} AND timestamp < {window_end}"
+                ),
+                snapshot_result=VerificationQueryResult(
+                    window_start=now - timedelta(days=7),
+                    window_end=now,
+                    columns=["failures", "attempts"],
+                    rows=[[12, 40]],
+                ),
+                success_criteria="Attempts continue and failures fall to zero.",
+                inconclusive_conditions=["No import attempts occur."],
+                mcp_commands=["execute-sql"],
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+        pull_request = SignalReportPullRequest.objects.for_team(self.team.id).create(
+            team=self.team,
+            repository="posthog/posthog",
+            number=123,
+            url="https://github.com/posthog/posthog/pull/123",
+            state=SignalReportPullRequest.State.MERGED,
+            merged_at=now - timedelta(hours=1),
+        )
+        check = self._check(
+            kind=SignalReportCheck.Kind.VERIFICATION_QUERY,
+            config={
+                "verification_query_id": str(verification.id),
+                "pull_request_id": str(pull_request.id),
+                "min_confidence": 0.6,
+            },
+        )
+        current = VerificationQueryResult(
+            window_start=now - timedelta(hours=1),
+            window_end=now,
+            columns=["failures", "attempts"],
+            rows=[[0, 0]],
+        )
+
+        with (
+            patch(
+                "products.signals.backend.report_check_execution.execute_verification_query", return_value=current
+            ) as execute,
+            patch(
+                "products.signals.backend.report_check_execution.ask_jev_for_verdict",
+                return_value=(
+                    VerificationDecision(choice="insufficient_evidence", confidence=0.93),
+                    "jev-1.13.0",
+                ),
+            ),
+        ):
+            summary = run_due_report_checks(now=now)
+
+        assert summary.errored == 1
+        assert execute.call_args.kwargs["window_start"] == pull_request.merged_at
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.ACTIVE
+        assert check.next_run_at == now + timedelta(hours=1)
+        result = SignalReportArtefact.objects.get(
+            report=self.report,
+            type=SignalReportArtefact.ArtefactType.VERIFICATION_RESULT,
+        )
+        assert result.pull_request_id == pull_request.id
+        assert '"outcome":"inconclusive"' in result.content
+        assert '"confidence":0.93' in result.content
 
     def test_a_one_shot_check_that_holds_retires_as_passed_with_a_result(self) -> None:
         check = self._check()

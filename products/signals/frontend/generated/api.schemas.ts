@@ -2131,6 +2131,8 @@ export interface SignalReportStateRequestApi {
  * * `work_release` - Work Release
  * * `pull_request` - Pull Request
  * * `check_result` - Check Result
+ * * `verification_query` - Verification Query
+ * * `verification_result` - Verification Result
  * * `implementation_decision` - Implementation Decision
  * * `implementation_dispatch` - Implementation Dispatch
  * * `implementation_replacement` - Implementation Replacement
@@ -2161,6 +2163,8 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     WorkRelease: 'work_release',
     PullRequest: 'pull_request',
     CheckResult: 'check_result',
+    VerificationQuery: 'verification_query',
+    VerificationResult: 'verification_result',
     ImplementationDecision: 'implementation_decision',
     ImplementationDispatch: 'implementation_dispatch',
     ImplementationReplacement: 'implementation_replacement',
@@ -2282,6 +2286,7 @@ export interface CommitDiffResponseApi {
 /**
  * * `metric_threshold` - Metric Threshold
  * * `agent` - Agent
+ * * `verification_query` - Verification Query
  */
 export type SignalReportCheckKindEnumApi =
     (typeof SignalReportCheckKindEnumApi)[keyof typeof SignalReportCheckKindEnumApi]
@@ -2289,6 +2294,7 @@ export type SignalReportCheckKindEnumApi =
 export const SignalReportCheckKindEnumApi = {
     MetricThreshold: 'metric_threshold',
     Agent: 'agent',
+    VerificationQuery: 'verification_query',
 } as const
 
 /**
@@ -2404,7 +2410,22 @@ export interface AgentCheckConfigApi {
     probe_hints?: string[]
 }
 
-export type SignalReportCheckConfigApi = MetricThresholdConfigApi | AgentCheckConfigApi
+/**
+ * A post-merge run of one trusted verification-query artefact.
+ */
+export interface VerificationQueryConfigApi {
+    /** UUID of the verification_query artefact to execute. */
+    verification_query_id: string
+    /** UUID of the merged pull request being verified. */
+    pull_request_id: string
+    /**
+     * @minimum 0
+     * @maximum 1
+     */
+    min_confidence?: number
+}
+
+export type SignalReportCheckConfigApi = MetricThresholdConfigApi | AgentCheckConfigApi | VerificationQueryConfigApi
 
 /**
  * * `passed` - Passed
@@ -2429,7 +2450,8 @@ export interface SignalReportCheckApi {
     /** How the check is evaluated.
      *
      * * `metric_threshold` - Metric Threshold
-     * * `agent` - Agent */
+     * * `agent` - Agent
+     * * `verification_query` - Verification Query */
     readonly kind: SignalReportCheckKindEnumApi
     /** `pending` while the check waits for the report to resolve, `active` while it still runs; every other value is terminal.
      *
@@ -5097,7 +5119,8 @@ export interface CreateReportCheckRequestApi {
     /** How the check is evaluated.
      *
      * * `metric_threshold` - Metric Threshold
-     * * `agent` - Agent */
+     * * `agent` - Agent
+     * * `verification_query` - Verification Query */
     kind: SignalReportCheckKindEnumApi
     /** What the check measures and what the result must satisfy; the shape depends on `kind`. */
     config: SignalReportCheckConfigApi
