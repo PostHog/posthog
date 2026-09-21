@@ -708,7 +708,14 @@ def _project_name(team_id: int, *, integration_id: int | None, created_by_id: in
     if integration_id is None or created_by_id is None:
         return None
     try:
-        integration = Integration.objects.filter(pk=integration_id).only("integration_id").first()
+        # The id is the install this reply posts through, read off stored thread state
+        # rather than off the message, and all this reads from the row is the Slack
+        # workspace it belongs to.
+        integration = (
+            Integration.objects.filter(pk=integration_id)  # nosemgrep: idor-lookup-without-team
+            .only("integration_id")
+            .first()
+        )
         user = User.objects.filter(pk=created_by_id).first()
         if integration is None or user is None:
             return None
