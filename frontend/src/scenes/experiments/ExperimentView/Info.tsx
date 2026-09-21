@@ -234,7 +234,26 @@ export function Info(): JSX.Element {
                 </div>
             </div>
             {experiment.conclusion && experiment.end_date && experiment.conclusion_comment && (
-                <div className="mt-2 max-w-[600px] text-secondary">{experiment.conclusion_comment}</div>
+                <div
+                    className="mt-2 border border-primary rounded bg-[var(--color-bg-table)] px-3 py-2.5"
+                    data-attr="experiment-conclusion-comment"
+                >
+                    <div className="flex items-center gap-2">
+                        <span className="metric-cell-header font-bold">Conclusion</span>
+                        <div
+                            className={clsx(
+                                'w-2 h-2 rounded-full shrink-0',
+                                CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]?.color || ''
+                            )}
+                        />
+                        <span className="metric-cell font-semibold">
+                            {CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]?.title || experiment.conclusion}
+                        </span>
+                    </div>
+                    <p className="metric-cell font-normal m-0 mt-1 leading-relaxed whitespace-pre-wrap">
+                        {experiment.conclusion_comment}
+                    </p>
+                </div>
             )}
         </>
     )
