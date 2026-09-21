@@ -8,9 +8,10 @@ from typing import TYPE_CHECKING, Optional
 
 import structlog
 
-from posthog.schema import MarketingAnalyticsAttributionBreakdown
+from posthog.schema import MarketingAnalyticsAttributionBreakdown, SessionTableVersion
 
 from posthog.hogql import ast
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
@@ -39,6 +40,8 @@ from .marketing_lazy_precompute import (
 from .session_breakdown_base import UNATTRIBUTED_SESSION_VALUES
 
 if TYPE_CHECKING:
+    from posthog.schema import HogQLQueryModifiers
+
     from .attribution_base import AttributionQueryRunnerBase
 
 logger = structlog.get_logger(__name__)
@@ -62,17 +65,35 @@ def _field(name: str) -> ast.Expr:
     return ast.Field(chain=[name])
 
 
+def _session_table_version(modifiers: "HogQLQueryModifiers") -> SessionTableVersion:
+    version = modifiers.sessionTableVersion
+    return SessionTableVersion.V2 if version is None or version == SessionTableVersion.AUTO else version
+
+
+def _session_modifiers_reason(runner: "AttributionQueryRunnerBase") -> Optional[str]:
+    writer_modifiers = create_default_modifiers_for_team(runner.team)
+    modifiers = runner.modifiers or writer_modifiers
+    if modifiers.customChannelTypeRules or writer_modifiers.customChannelTypeRules:
+        # Custom rules can depend on the full URL, which the shared dimensions do not store.
+        return "custom_channel_rules"
+    if modifiers.convertToProjectTimezone is False:
+        return "project_timezone_disabled"
+    version = _session_table_version(modifiers)
+    if version == SessionTableVersion.V1 or version != _session_table_version(writer_modifiers):
+        return "session_table_version_mismatch"
+    if version == SessionTableVersion.V2 and modifiers.sessionsV2JoinMode != writer_modifiers.sessionsV2JoinMode:
+        return "session_join_mode_mismatch"
+    return None
+
+
 def ineligible_reason(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> Optional[str]:
     """Why this query cannot read from the precompute, or None if it can.
 
     A reason string rather than a bool, so the caller can label the fallback counter: these carry very
     different weight, and an unlabeled counter would blur permanent and transient apart.
     """
-    modifiers = runner.modifiers
-    if modifiers is not None and modifiers.customChannelTypeRules:
-        # The stored channel is the builtin classification; custom rules can key on the full URL,
-        # which no precompute holds.
-        return "custom_channel_rules"
+    if reason := _session_modifiers_reason(runner):
+        return reason
 
     if not is_integer_timezone(runner.team.timezone):
         # `period_bucket` is an hourly UTC bucket, so a half-hour-offset team's midnight lands
@@ -99,7 +120,7 @@ def ineligible_reason(runner: "AttributionQueryRunnerBase", date_range: QueryDat
 @frozen
 class ReadWindow:
     """The span of session activity a query reads: its display range extended back by the attribution
-    window, in UTC. Both edges are datetimes, so they are named rather than positional."""
+    window, in UTC. Bounds include whole seconds to match conversion date filters."""
 
     start: datetime
     end: datetime
@@ -110,8 +131,9 @@ def window(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> 
     arithmetic, which lands an hour away from the credit side across a DST transition.
     """
     return ReadWindow(
-        start=date_range.date_from().astimezone(UTC) - timedelta(seconds=runner.attribution_window_seconds),
-        end=date_range.date_to().astimezone(UTC),
+        start=date_range.date_from().astimezone(UTC).replace(microsecond=0)
+        - timedelta(seconds=runner.attribution_window_seconds),
+        end=date_range.date_to().astimezone(UTC).replace(microsecond=999999),
     )
 
 

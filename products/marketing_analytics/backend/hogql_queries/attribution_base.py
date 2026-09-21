@@ -167,10 +167,12 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
 
     def _lookback_date_conditions(self, date_range: QueryDateRange) -> list[ast.Expr]:
         """Pageview bounds extended back by the attribution window, so touches that predate the
-        display range can still be credited for a conversion inside it."""
+        display range can still be credited for a conversion inside it.
+        The inclusive final second matches the conversion date filters.
+        """
         return [
             ast.CompareOperation(
-                left=ast.Field(chain=["events", "timestamp"]),
+                left=ast.Call(name="toDateTime", args=[ast.Field(chain=["events", "timestamp"])]),
                 op=ast.CompareOperationOp.GtEq,
                 right=ast.ArithmeticOperation(
                     left=ast.Call(name="toDateTime", args=[ast.Constant(value=date_range.date_from_str)]),
@@ -179,7 +181,7 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
                 ),
             ),
             ast.CompareOperation(
-                left=ast.Field(chain=["events", "timestamp"]),
+                left=ast.Call(name="toDateTime", args=[ast.Field(chain=["events", "timestamp"])]),
                 op=ast.CompareOperationOp.LtEq,
                 right=ast.Call(name="toDateTime", args=[ast.Constant(value=date_range.date_to_str)]),
             ),

@@ -10,6 +10,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     ConversionGoalFilter1,
+    CustomChannelRule,
     DateRange,
     HogQLQueryModifiers,
     MarketingAnalyticsAttributionQuery,
@@ -56,6 +57,7 @@ class TestAttributionSessionsRead(SimpleTestCase):
         )
         self.enterContext(patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=False))
         self.team = Team(id=1, organization=Organization(id=UUID(int=1)))
+        self.team.modifiers = {"personsOnEventsMode": "person_id_override_properties_on_events"}
         config = TeamMarketingAnalyticsConfig(team=self.team)
         config.conversion_goals = [
             ConversionGoalFilter1(
@@ -201,6 +203,44 @@ class TestAttributionSessionsRead(SimpleTestCase):
         ) as ensure:
             assert attribution_sessions_read.build_person_arrays(runner, runner.query_date_range) is None
         ensure.assert_called_once()
+
+    @parameterized.expand(
+        [
+            (HogQLQueryModifiers(), HogQLQueryModifiers(sessionTableVersion="v1"), "session_table_version_mismatch"),
+            (HogQLQueryModifiers(), HogQLQueryModifiers(sessionsV2JoinMode="string"), "session_join_mode_mismatch"),
+            (HogQLQueryModifiers(), HogQLQueryModifiers(convertToProjectTimezone=False), "project_timezone_disabled"),
+            (HogQLQueryModifiers(convertToProjectTimezone=False), HogQLQueryModifiers(), "project_timezone_disabled"),
+            (
+                HogQLQueryModifiers(
+                    customChannelTypeRules=[
+                        CustomChannelRule(id="custom", channel_type="Custom", combiner="AND", items=[])
+                    ]
+                ),
+                HogQLQueryModifiers(customChannelTypeRules=[]),
+                "custom_channel_rules",
+            ),
+        ]
+    )
+    def test_incompatible_dimension_modifiers_fall_back(
+        self, team_modifiers: HogQLQueryModifiers, query_modifiers: HogQLQueryModifiers, reason: str
+    ) -> None:
+        self.team.modifiers.update(team_modifiers.model_dump(exclude_none=True))
+        self.team.timezone = "America/New_York"
+        runner = MarketingAnalyticsAttributionQueryRunner(
+            team=self.team,
+            query=MarketingAnalyticsAttributionQuery(
+                conversionGoalId="goal",
+                properties=[],
+                lookbackWindowDays=4,
+                dateRange=DateRange(date_from="2023-01-10", date_to="2023-01-11"),
+                modifiers=query_modifiers,
+            ),
+        )
+        assert attribution_sessions_read.ineligible_reason(runner, runner.query_date_range) == reason
+        with patch.object(attribution_sessions_read, "ensure_marketing_sessions_precomputed") as ensure:
+            assert attribution_sessions_read.build_person_arrays(runner, runner.query_date_range) is None
+        ensure.assert_not_called()
+        self.coverage.assert_not_called()
 
     def test_classifier_changes_invalidate_shared_query_identity(self) -> None:
         def identity() -> str:

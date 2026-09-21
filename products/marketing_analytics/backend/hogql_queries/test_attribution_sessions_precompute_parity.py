@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.schema import (
     ConversionGoalFilter1,
     DateRange,
+    HogQLQueryModifiers,
     MarketingAnalyticsAttributionBreakdown,
     MarketingAnalyticsAttributionPathsQuery,
     MarketingAnalyticsAttributionQuery,
@@ -134,6 +135,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         precomputed: bool,
         exclude_direct: bool = False,
         allow_multiple_conversions: bool | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
     ) -> tuple[dict[str, _AttributionCounts], bool]:
         query = MarketingAnalyticsAttributionQuery(
             dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
@@ -142,6 +144,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
             properties=[],
             excludeDirectTraffic=exclude_direct,
             allowMultipleConversionsPerVisitor=allow_multiple_conversions,
+            modifiers=modifiers,
         )
         runner = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team)
         runner.config.sessions_precomputation_enabled = precomputed
@@ -524,3 +527,102 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         )
         self.assertTrue(hit.ready)
         self.assertEqual(set(hit.job_ids), set(result.job_ids))
+
+    @parameterized.expand(
+        [
+            (SessionTableVersion.V2, SessionTableVersion.V3, False, "google"),
+            (SessionTableVersion.V3, SessionTableVersion.V2, False, "old"),
+            (SessionTableVersion.AUTO, SessionTableVersion.V2, True, "old"),
+            (SessionTableVersion.V2, SessionTableVersion.AUTO, True, "old"),
+            (SessionTableVersion.V3, SessionTableVersion.V3, True, "google"),
+        ]
+    )
+    def test_query_session_version_matches_cached_dimensions(
+        self, team_version: SessionTableVersion, query_version: SessionTableVersion, expected_cached: bool, source: str
+    ) -> None:
+        self.team.modifiers = {"sessionTableVersion": team_version}
+        opened_at = datetime(2023, 1, 11, 9, tzinfo=UTC)
+        session_id = str(uuid7(opened_at.strftime("%Y-%m-%dT%H:%M:%SZ")))
+        create_person(team=self.team, distinct_ids=["version-override"])
+        for event, offset, utm_source in [("$autocapture", 0, "old"), ("$pageview", 1, "google")]:
+            _create_event(
+                team=self.team,
+                distinct_id="version-override",
+                event=event,
+                timestamp=opened_at + timedelta(minutes=offset),
+                properties={"$session_id": session_id, "utm_source": utm_source, "utm_medium": "cpc"},
+            )
+        self._conversion("version-override", datetime(2023, 1, 12, 12, tzinfo=UTC))
+        flush_persons_and_events()
+        self._materialize()
+        modifiers = HogQLQueryModifiers(sessionTableVersion=query_version)
+        live, _ = self._run(MarketingAnalyticsAttributionBreakdown.SOURCE, precomputed=False, modifiers=modifiers)
+        cached, used = self._run(MarketingAnalyticsAttributionBreakdown.SOURCE, precomputed=True, modifiers=modifiers)
+        assert used is expected_cached
+        assert cached == live == {source: _AttributionCounts(visitors=1, conversions=1)}
+
+    @parameterized.expand([(goal, explicit) for goal in ("purchase", "$pageview") for explicit in (False, True)])
+    def test_fractional_boundary_events_match_conversion_date_precision(self, goal: str, explicit: bool) -> None:
+        config = self.team.marketing_analytics_config
+        config.conversion_goals[0]["event"] = goal
+        config.save()
+        end = datetime(2023, 1, 20, 23, 59, 59, tzinfo=UTC)
+        for distinct_id, at, converts in [
+            ("reach-only", end + timedelta(microseconds=500000), False),
+            ("boundary", end + timedelta(microseconds=500000), True),
+            ("start", datetime(2023, 1, 10, 0, 0, 0, 250000, tzinfo=UTC), True),
+            ("excluded", end + timedelta(seconds=1), True),
+        ]:
+            create_person(team=self.team, distinct_ids=[distinct_id])
+            _create_event(
+                team=self.team,
+                distinct_id=distinct_id,
+                event="$pageview",
+                timestamp=at,
+                properties={
+                    "$session_id": str(uuid7(at.strftime("%Y-%m-%dT%H:%M:%SZ"))),
+                    "utm_campaign": distinct_id,
+                    "revenue": 100,
+                },
+            )
+            if converts and goal == "purchase":
+                _create_event(
+                    team=self.team,
+                    distinct_id=distinct_id,
+                    event=goal,
+                    timestamp=at + timedelta(microseconds=100000),
+                    properties={"revenue": 100},
+                )
+        flush_persons_and_events()
+        self._materialize()
+        date_range = DateRange(
+            date_from="2023-01-10T00:00:00.750000Z" if explicit else DATE_FROM,
+            date_to="2023-01-20T23:59:59.250000Z" if explicit else DATE_TO,
+            explicitDate=explicit,
+        )
+        expected_conversions = 3 if goal == "$pageview" else 2
+        for query_type, runner_type in (
+            (MarketingAnalyticsAttributionQuery, MarketingAnalyticsAttributionQueryRunner),
+            (MarketingAnalyticsAttributionPathsQuery, MarketingAnalyticsAttributionPathsQueryRunner),
+        ):
+            results = []
+            for precomputed in (False, True):
+                query = query_type(
+                    dateRange=date_range,
+                    breakdownBy=MarketingAnalyticsAttributionBreakdown.CAMPAIGN,
+                    conversionGoalId=GOAL_ID,
+                    properties=[],
+                )
+                runner = runner_type(query=query, team=self.team)
+                runner.config.sessions_precomputation_enabled = precomputed
+                response = runner.calculate()
+                assert runner._sessions_precompute_used is precomputed
+                assert response.totalConversions == expected_conversions
+                if isinstance(response, MarketingAnalyticsAttributionQueryResponse):
+                    assert response.unattributedConversions == 0
+                    rows = {row.breakdownValue: row.visitors for row in response.results or []}
+                    assert rows == {"reach-only": 1, "boundary": 1, "start": 1}, (precomputed, rows)
+                else:
+                    assert response.attributedConversions == expected_conversions
+                results.append(response.results)
+            self.assertCountEqual(results[0], results[1])

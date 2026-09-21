@@ -9,3 +9,7 @@ With the existing serve-stale flag, readers may use jobs expired within six hour
 The reader caches session dimensions, then joins them to current pageview identities by `session_id_v7`. It resolves both touchpoints and conversions through `events.person_id`, so person merges, splits, and delayed identity mappings follow the same behavior as live attribution without rebuilding session jobs. The stored `person_id` is not used for attribution.
 
 Materialized CTEs share the pageview identity scan between reach and credit, and share the conversion aggregation with the timestamp bounds. Event scans remain necessary for identity and conversions; cached dimensions avoid the sessions join and channel classification. This uses the existing `web_sessions_dimensional_preaggregated` schema and does not require a migration.
+
+Queries that override the session table version or v2 join mode fall back to live attribution when they differ from the writer. AUTO and v2 share the same session semantics. Custom channel rules on either the query or the team, and disabled project-timezone conversion, also use the live path. Identity and execution-only modifiers do not invalidate cached dimensions.
+
+Live and cached pageview scans include the full final second of the selected date range, matching conversion filters. This also applies to explicit fractional date bounds and pageview conversion goals.
