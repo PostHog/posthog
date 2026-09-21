@@ -94,6 +94,7 @@ class _FakeManager(ResumableSourceManager[AppStoreConnectResumeConfig]):
         self.saved.append(data)
 
     def clear_state(self) -> None:
+        self._state = None
         self.cleared += 1
 
 
@@ -1215,6 +1216,14 @@ class TestAnalyticsSnapshotBackfill:
         # The fulfilled snapshot request is reused, never re-created.
         assert api.posts == []
 
+    def test_readiness_probe_reuses_segments_during_snapshot_emission(self) -> None:
+        api = self._ready_api()
+
+        _collect_analytics(api, _FakeManager(), should_use_incremental_field=True)
+
+        for instance_id in ("I1", "I2", "IS1"):
+            assert [url for url, _ in api.calls].count(_segments_url(instance_id)) == 1
+
     def test_running_the_backfill_twice_emits_identical_keys(self) -> None:
         first = _collect_analytics(self._ready_api(), _FakeManager())
         api = self._ready_api()
@@ -1497,6 +1506,7 @@ class TestAnalyticsSnapshotBackfill:
             (date(2026, 8, 2), -2),
         ]
         assert decision.cleared == 1
+        assert not decision.can_resume()
 
 
 class TestFindAnalyticsReport:

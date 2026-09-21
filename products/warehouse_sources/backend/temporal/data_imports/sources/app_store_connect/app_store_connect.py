@@ -1691,13 +1691,15 @@ def _get_analytics_report(
     has_snapshot_instances = any(
         walk_instance.is_snapshot for walk_instances in instances_by_date.values() for walk_instance in walk_instances
     )
+    probed_segments: dict[str, list[dict[str, Any]]] = {}
     if should_use_incremental_field and snapshot_ceiling is not None:
         # Probe every instance at or below the snapshot for downloadable files before emitting
         # anything: a not-ready instance below the snapshot would stop the walk mid-emission,
         # ratchet the watermark, and strand the history until a manual resync.
         for processing_date in sorted(candidate for candidate in instances_by_date if candidate <= snapshot_ceiling):
             for walk_instance in instances_by_date[processing_date]:
-                if not _analytics_segments(segments_session, token_provider, logger, walk_instance.instance_id):
+                segments = _analytics_segments(segments_session, token_provider, logger, walk_instance.instance_id)
+                if not segments:
                     logger.info(
                         f"App Store Connect: an analytics instance below the historical snapshot "
                         f"has no files yet; waiting so the snapshot isn't stranded. "
@@ -1705,6 +1707,7 @@ def _get_analytics_report(
                         f"processing_date={processing_date.isoformat()}"
                     )
                     return
+                probed_segments[walk_instance.instance_id] = segments
 
     instances_fetched = 0
     for processing_date in sorted(instances_by_date):
@@ -1728,7 +1731,9 @@ def _get_analytics_report(
                 )
                 return
 
-            segments = _analytics_segments(segments_session, token_provider, logger, walk_instance.instance_id)
+            segments = probed_segments.get(walk_instance.instance_id)
+            if segments is None:
+                segments = _analytics_segments(segments_session, token_provider, logger, walk_instance.instance_id)
             if not segments:
                 # The instance is listed but its files aren't ready. Stop the whole walk at
                 # this date so no newer date is emitted past the gap: the watermark then
