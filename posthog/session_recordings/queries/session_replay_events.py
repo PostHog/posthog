@@ -14,7 +14,11 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.team import Team
-from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES, RecordingMetadata
+from posthog.session_recordings.models.metadata import (
+    ONGOING_SESSION_WINDOW_MINUTES,
+    RecordingMetadata,
+    activity_score_expression,
+)
 
 DEFAULT_EVENT_FIELDS = [
     "event",
@@ -446,9 +450,10 @@ class SessionReplayEvents:
                 dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl,
                 max(_timestamp) >= toDateTime(%(python_now)s) - INTERVAL {ongoing_window_minutes} MINUTE as ongoing,
                 sum(size) as total_size,
-                sum(event_count) as event_count
+                sum(event_count) as event_count,
+                {activity_score} as activity_score
             FROM
-                session_replay_events
+                session_replay_events s
             PREWHERE
                 team_id = %(team_id)s
                 AND session_id = %(session_id)s
@@ -467,6 +472,7 @@ class SessionReplayEvents:
             ),
             optional_format_clause=(f"FORMAT {format}" if format else ""),
             ongoing_window_minutes=ONGOING_SESSION_WINDOW_MINUTES,
+            activity_score=activity_score_expression("s"),
         )
         return query
 
@@ -501,6 +507,7 @@ class SessionReplayEvents:
             ongoing=bool(replay[21]),
             total_size=replay[22],
             event_count=replay[23],
+            activity_score=replay[24],
         )
 
     def get_metadata(
@@ -592,9 +599,10 @@ class SessionReplayEvents:
                 dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl,
                 max(_timestamp) >= toDateTime(%(python_now)s) - INTERVAL {ONGOING_SESSION_WINDOW_MINUTES} MINUTE as ongoing,
                 sum(size) as total_size,
-                sum(event_count) as event_count
+                sum(event_count) as event_count,
+                {activity_score_expression("s")} as activity_score
             FROM
-                session_replay_events
+                session_replay_events s
             PREWHERE
                 team_id = %(team_id)s
                 AND session_id IN %(session_ids)s
