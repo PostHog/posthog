@@ -140,11 +140,17 @@ export function observedValueCell(
     if (run.observed_value === null) {
         return { label: '-', tooltip: null }
     }
-    if (run.check_type !== CheckTypeEnumApi.Freshness) {
-        return { label: humanFriendlyNumber(run.observed_value), tooltip: null }
+    if (run.check_type === CheckTypeEnumApi.Freshness) {
+        return freshnessCell(run.observed_value, run.check_config)
     }
-    const stalenessSeconds = run.observed_value
-    const maxAgeMinutes = run.check_config?.max_age_minutes
+    if (run.check_type === CheckTypeEnumApi.RowCount) {
+        return rowCountCell(run.observed_value, run.check_config)
+    }
+    return { label: humanFriendlyNumber(run.observed_value), tooltip: null }
+}
+
+function freshnessCell(stalenessSeconds: number, config: DataQualityCheckRunApi['check_config']): ObservedValueCell {
+    const maxAgeMinutes = config?.max_age_minutes
     const limit =
         typeof maxAgeMinutes === 'number'
             ? ` The limit is ${humanFriendlyDuration(maxAgeMinutes * SECONDS_PER_MINUTE, { maxUnits: DURATION_UNITS })}.`
@@ -153,4 +159,25 @@ export function observedValueCell(
         label: `${humanFriendlyDuration(stalenessSeconds, { maxUnits: DURATION_UNITS })} old`,
         tooltip: `Newest row is ${humanFriendlyNumber(stalenessSeconds)} seconds old.${limit}`,
     }
+}
+
+function rowCountCell(rowCount: number, config: DataQualityCheckRunApi['check_config']): ObservedValueCell {
+    const label = `${humanFriendlyNumber(rowCount)} rows`
+    const limit = rowCountLimit(config?.min, config?.max)
+    return { label, tooltip: limit ? `${label}. The limit is ${limit}.` : null }
+}
+
+function rowCountLimit(min: unknown, max: unknown): string | null {
+    const hasMin = typeof min === 'number'
+    const hasMax = typeof max === 'number'
+    if (hasMin && hasMax) {
+        return `between ${humanFriendlyNumber(min)} and ${humanFriendlyNumber(max)} rows`
+    }
+    if (hasMin) {
+        return `at least ${humanFriendlyNumber(min)} rows`
+    }
+    if (hasMax) {
+        return `at most ${humanFriendlyNumber(max)} rows`
+    }
+    return null
 }

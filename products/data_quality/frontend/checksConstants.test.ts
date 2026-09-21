@@ -80,7 +80,23 @@ describe('checksConstants', () => {
             '1d\u00a016h old',
             'Newest row is 147,117 seconds old.',
         ],
-        ['a row count run stays a plain number', CheckTypeEnumApi.RowCount, 1493355, { min: 1 }, '1,493,355', null],
+        [
+            'a row count run names the bound it is held to',
+            CheckTypeEnumApi.RowCount,
+            1493355,
+            { min: 1000000, max: 2000000 },
+            '1,493,355 rows',
+            '1,493,355 rows. The limit is between 1,000,000 and 2,000,000 rows.',
+        ],
+        [
+            'a row count run with one bound names only that one',
+            CheckTypeEnumApi.RowCount,
+            12,
+            { max: 10 },
+            '12 rows',
+            '12 rows. The limit is at most 10 rows.',
+        ],
+        ['a not null run stays a plain number', CheckTypeEnumApi.NotNull, 7, null, '7', null],
         ['a run with nothing observed shows a dash', CheckTypeEnumApi.Freshness, null, null, '-', null],
     ])('%s', (_case, checkType, observedValue, checkConfig, label, tooltip) => {
         expect(
