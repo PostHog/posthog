@@ -412,10 +412,14 @@ class TestValidateAlertConfig:
         expected_error_fragment: str | None,
     ) -> None:
         if expected_error_fragment is None:
-            validate_alert_config(query, condition, config, threshold_config, calculation_interval, team=None)
+            validate_alert_config(
+                query, condition, config, threshold_config, calculation_interval, team=None, user=None
+            )
         else:
             with pytest.raises(ValueError, match=expected_error_fragment):
-                validate_alert_config(query, condition, config, threshold_config, calculation_interval, team=None)
+                validate_alert_config(
+                    query, condition, config, threshold_config, calculation_interval, team=None, user=None
+                )
 
     @parameterized.expand(
         [
@@ -432,6 +436,7 @@ class TestValidateAlertConfig:
                 _base_threshold(bounds={}),
                 "daily",
                 team=None,
+                user=None,
             )
 
     def test_detector_alert_allows_empty_threshold_bounds(self) -> None:
@@ -443,6 +448,7 @@ class TestValidateAlertConfig:
             "daily",
             detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
             team=None,
+            user=None,
         )
 
     def test_detector_alert_rejects_non_time_series_trend(self) -> None:
@@ -455,6 +461,7 @@ class TestValidateAlertConfig:
                 "daily",
                 detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
                 team=None,
+                user=None,
             )
 
     def test_any_row_hogql_alert_rejects_relative_conditions(self) -> None:
@@ -466,6 +473,7 @@ class TestValidateAlertConfig:
                 _base_threshold(type="percentage"),
                 "daily",
                 team=None,
+                user=None,
             )
 
     def test_invalid_hogql_config_rejected(self) -> None:
@@ -477,6 +485,7 @@ class TestValidateAlertConfig:
                 _base_threshold(),
                 "daily",
                 team=None,
+                user=None,
             )
 
     def test_hogql_config_without_evaluation_rejected(self) -> None:
@@ -489,6 +498,7 @@ class TestValidateAlertConfig:
                 _base_threshold(),
                 "daily",
                 team=None,
+                user=None,
             )
 
     def test_first_row_hogql_alert_accepts_relative_conditions(self) -> None:
@@ -500,6 +510,7 @@ class TestValidateAlertConfig:
             _base_threshold(type="percentage"),
             "daily",
             team=None,
+            user=None,
         )
 
     def test_detector_config_accepted_for_hogql_insight(self) -> None:
@@ -513,6 +524,7 @@ class TestValidateAlertConfig:
             "daily",
             detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
             team=None,
+            user=None,
         )
 
     def test_detector_config_rejected_for_any_row_hogql_alert(self) -> None:
@@ -527,6 +539,7 @@ class TestValidateAlertConfig:
                 "daily",
                 detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
                 team=None,
+                user=None,
             )
 
     def test_detector_config_rejected_for_unsupported_insight(self) -> None:
@@ -540,6 +553,7 @@ class TestValidateAlertConfig:
                 "daily",
                 detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
                 team=None,
+                user=None,
             )
 
     def test_skips_threshold_bounds_when_not_required(self) -> None:
@@ -551,4 +565,5 @@ class TestValidateAlertConfig:
             "daily",
             require_threshold_bounds=False,
             team=None,
+            user=None,
         )

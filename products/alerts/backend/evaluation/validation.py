@@ -322,15 +322,16 @@ def validate_alert_config(
     require_threshold_bounds: bool = True,
     *,
     team: Team | None,
-    user: User | None = None,
+    user: User | None,
 ) -> None:
     """Validate alert configuration dicts. Raises ValueError on failure.
 
     Common checks run here; per-config-type rules live in ``_ALERT_CONFIG_VALIDATORS``.
 
-    ``team`` also runs the insight's own query validation rules, which need a team to build. It has
-    no default because leaving it out drops half the validation without saying so. Pass None only
-    where there is no team to build the rules from.
+    ``team`` also runs the insight's own query validation rules, which need a team to build, and
+    ``user`` resolves what that query is allowed to read. Neither has a default, because leaving
+    one out drops part of the validation without saying so. Pass None only where there is no team
+    or user to run the rules against.
     """
     if not calculation_interval or not isinstance(calculation_interval, str):
         raise ValueError(f"Invalid calculation interval: {calculation_interval}")
