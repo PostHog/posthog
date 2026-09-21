@@ -7,13 +7,14 @@ ViewSet remains in experiments.py.
 """
 
 from copy import deepcopy
-from typing import Any, TypeGuard
+from typing import Annotated, Any, TypeGuard
 
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
 from pydantic import (
+    Field as PydanticField,
     RootModel as PydanticRootModel,
     ValidationError as PydanticValidationError,
 )
@@ -21,6 +22,7 @@ from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    AnyPropertyFilterDiscriminated,
     EventPropertyFilter,
     ExperimentApiExposureCriteria,
     ExperimentApiMetric,
@@ -28,6 +30,7 @@ from posthog.schema import (
     ExperimentRunningTimeCalculation,
     MultipleVariantHandling,
     PersonPropertyFilter,
+    PropertyOperator,
 )
 
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
@@ -93,13 +96,24 @@ class ExperimentMetricsField(serializers.JSONField):
 
 
 class _ExperimentSetupPropertyFilterList(PydanticRootModel):
-    """List wrapper for OpenAPI schema generation. The field stores an array of property filters."""
+    """Event or person property filters that narrow which events are counted."""
 
-    root: list[EventPropertyFilter | PersonPropertyFilter]
+    root: Annotated[list[EventPropertyFilter | PersonPropertyFilter], PydanticField(max_length=MAX_PROPERTY_FILTERS)]
 
 
 @extend_schema_field(_ExperimentSetupPropertyFilterList)  # type: ignore[arg-type]
 class ExperimentSetupPropertyFiltersField(serializers.JSONField):
+    pass
+
+
+class _ExperimentSetupStoredPropertyFilterList(PydanticRootModel):
+    """Property filters as an experiment stored them. Any filter type can appear, cohorts included."""
+
+    root: list[AnyPropertyFilterDiscriminated]
+
+
+@extend_schema_field(_ExperimentSetupStoredPropertyFilterList)  # type: ignore[arg-type]
+class ExperimentSetupStoredPropertyFiltersField(serializers.JSONField):
     pass
 
 
@@ -2229,21 +2243,31 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
     )
 
 
+# `property_to_expr` raises NotImplementedError for this operator. Rejecting it here answers the
+# caller with a 400 rather than failing the section that reads the filters.
+_UNSUPPORTED_SETUP_CONTEXT_OPERATORS: frozenset[PropertyOperator] = frozenset({PropertyOperator.FLAG_EVALUATES_TO})
+
+
 def _validated_setup_context_property_filters(value: Any) -> list[dict[str, Any]]:
     """Parse the filters the way the query builder will, so a shape it cannot read fails as a 400."""
     if value is None:
         return []
     if not isinstance(value, list):
         raise ValidationError("Pass a list of event or person property filters.")
-    if len(value) > MAX_PROPERTY_FILTERS:
-        raise ValidationError(f"Pass at most {MAX_PROPERTY_FILTERS} filters.")
     try:
         parsed = _ExperimentSetupPropertyFilterList.model_validate(value)
     except PydanticValidationError as error:
+        first_error = error.errors()[0]
+        if first_error.get("type") == "too_long":
+            raise ValidationError(f"Pass at most {MAX_PROPERTY_FILTERS} filters.")
         raise ValidationError(
             "Each filter needs type 'event' or 'person', a key, an operator and a value. "
-            f"{error.errors()[0].get('msg', 'Check the filter shape.')}"
+            f"{first_error.get('msg', 'Check the filter shape.')}"
         )
+    used_operators = {property_filter.operator for property_filter in parsed.root if property_filter.operator}
+    unsupported = sorted(operator.value for operator in used_operators & _UNSUPPORTED_SETUP_CONTEXT_OPERATORS)
+    if unsupported:
+        raise ValidationError(f"These operators cannot be read here: {', '.join(unsupported)}.")
     return [property_filter.model_dump(exclude_none=True) for property_filter in parsed.root]
 
 
@@ -2472,10 +2496,13 @@ class ExperimentSetupSdkProfileSerializer(serializers.Serializer):
         many=True,
         allow_null=True,
         help_text=(
-            "SDKs seen on any event over the last day, most events first. Set only when libs is empty, so a "
-            "project creating its first experiment still says which platforms it sends from. Null when flag "
+            "Up to 10 SDKs seen on any event over the last day, most events first. Set only when libs is empty, "
+            "so a project creating its first experiment still says which platforms it sends from. Null when flag "
             "calls exist, and null when this extra read timed out."
         ),
+    )
+    libs_on_any_event_truncated = serializers.BooleanField(
+        help_text="True when more SDKs sent events than libs_on_any_event lists. False when it is null."
     )
 
 
@@ -2672,7 +2699,8 @@ class ExperimentSetupPreviousExperimentSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "The one variant the flag now serves to everyone it matches, or null. Shipping a variant rewrites "
-            "the flag this way, so the split the experiment ran with cannot be read from the flag any more."
+            "the flag this way, so the split the experiment ran with cannot be read from the flag any more. "
+            "Only a launched experiment can be shipped, so a draft at 100/0 reports its split as it stands."
         ),
     )
     rollout_percentage = serializers.FloatField(
@@ -2711,12 +2739,11 @@ class ExperimentSetupPreviousExperimentSerializer(serializers.Serializer):
     custom_exposure_action_id = serializers.IntegerField(
         allow_null=True, help_text="Action used as the custom exposure, or null."
     )
-    exposure_property_filters = serializers.ListField(
-        child=serializers.JSONField(help_text="One stored property filter, in PostHog's filter shape."),
+    exposure_property_filters = ExperimentSetupStoredPropertyFiltersField(
         help_text=(
             "Property filters the exposure is narrowed by, whichever event it counts. An experiment that counts "
-            "exposure only where $pathname is '/' is the precedent for a new test on that page. Empty when the "
-            "exposure is not narrowed."
+            "exposure only where $pathname is '/' is the precedent for a new test on that page. Any filter type "
+            "can appear, cohorts included. Empty when the exposure is not narrowed."
         ),
     )
     activation_event = serializers.CharField(
@@ -2791,7 +2818,9 @@ class ExperimentSetupPreviousExperimentsSummarySerializer(serializers.Serializer
         )
     )
     serving_single_variant = serializers.IntegerField(
-        help_text="Experiments whose flag now serves one variant to everyone it matches, usually after shipping."
+        help_text=(
+            "Launched experiments whose flag now serves one variant to everyone it matches, usually after shipping."
+        )
     )
 
 

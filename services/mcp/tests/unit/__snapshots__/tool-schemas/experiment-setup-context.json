@@ -17,7 +17,7 @@
         "metric_properties": {
             "anyOf": [
                 {
-                    "description": "List wrapper for OpenAPI schema generation. The field stores an array of property filters.",
+                    "description": "Event or person property filters that narrow which events are counted.",
                     "items": {
                         "anyOf": [
                             {
@@ -230,6 +230,7 @@
                             }
                         ]
                     },
+                    "maxItems": 10,
                     "type": "array"
                 },
                 {
@@ -267,7 +268,7 @@
         "target_properties": {
             "anyOf": [
                 {
-                    "description": "List wrapper for OpenAPI schema generation. The field stores an array of property filters.",
+                    "description": "Event or person property filters that narrow which events are counted.",
                     "items": {
                         "anyOf": [
                             {
@@ -480,6 +481,7 @@
                             }
                         ]
                     },
+                    "maxItems": 10,
                     "type": "array"
                 },
                 {

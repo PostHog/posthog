@@ -1464,11 +1464,15 @@ export const experimentsSetupContextCreateBodyTargetUrlContainsMax = 1000
 export const experimentsSetupContextCreateBodyTargetPropertiesOneItemOneOperatorDefault = `exact`
 export const experimentsSetupContextCreateBodyTargetPropertiesOneItemOneTypeDefault = `event`
 export const experimentsSetupContextCreateBodyTargetPropertiesOneItemTwoTypeDefault = `person`
+export const experimentsSetupContextCreateBodyTargetPropertiesOneMax = 10
+
 export const experimentsSetupContextCreateBodyMetricEventMax = 400
 
 export const experimentsSetupContextCreateBodyMetricPropertiesOneItemOneOperatorDefault = `exact`
 export const experimentsSetupContextCreateBodyMetricPropertiesOneItemOneTypeDefault = `event`
 export const experimentsSetupContextCreateBodyMetricPropertiesOneItemTwoTypeDefault = `person`
+export const experimentsSetupContextCreateBodyMetricPropertiesOneMax = 10
+
 export const experimentsSetupContextCreateBodyPreviousExperimentsLimitDefault = 10
 export const experimentsSetupContextCreateBodyPreviousExperimentsLimitMax = 25
 
@@ -1619,9 +1623,8 @@ export const ExperimentsSetupContextCreateBody = /* @__PURE__ */ zod
                             }),
                         ])
                     )
-                    .describe(
-                        'List wrapper for OpenAPI schema generation. The field stores an array of property filters.'
-                    ),
+                    .max(experimentsSetupContextCreateBodyTargetPropertiesOneMax)
+                    .describe('Event or person property filters that narrow which events are counted.'),
                 zod.null(),
             ])
             .optional()
@@ -1763,9 +1766,8 @@ export const ExperimentsSetupContextCreateBody = /* @__PURE__ */ zod
                             }),
                         ])
                     )
-                    .describe(
-                        'List wrapper for OpenAPI schema generation. The field stores an array of property filters.'
-                    ),
+                    .max(experimentsSetupContextCreateBodyMetricPropertiesOneMax)
+                    .describe('Event or person property filters that narrow which events are counted.'),
                 zod.null(),
             ])
             .optional()

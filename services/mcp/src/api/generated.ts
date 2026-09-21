@@ -39059,7 +39059,8 @@ export namespace Schemas {
     }
 
     /**
-     * List wrapper for OpenAPI schema generation. The field stores an array of property filters.
+     * Event or person property filters that narrow which events are counted.
+     * @maxItems 10
      */
     export type _ExperimentSetupPropertyFilterList = (EventPropertyFilter | PersonPropertyFilter)[];
 
@@ -39336,10 +39337,12 @@ export namespace Schemas {
       /** True when at least one flag key was called by both a server SDK and the web SDK. The same flag decided on the server and read in the browser can bucket one user into two variants. */
       evaluated_on_server_and_web: boolean;
       /**
-         * SDKs seen on any event over the last day, most events first. Set only when libs is empty, so a project creating its first experiment still says which platforms it sends from. Null when flag calls exist, and null when this extra read timed out.
+         * Up to 10 SDKs seen on any event over the last day, most events first. Set only when libs is empty, so a project creating its first experiment still says which platforms it sends from. Null when flag calls exist, and null when this extra read timed out.
          * @nullable
          */
       libs_on_any_event: ExperimentSetupLibActivity[] | null;
+      /** True when more SDKs sent events than libs_on_any_event lists. False when it is null. */
+      libs_on_any_event_truncated: boolean;
     }
 
     export interface ExperimentSetupSdkProfileSection {
@@ -39442,6 +39445,11 @@ export namespace Schemas {
       Stopped: 'stopped',
     } as const;
 
+    /**
+     * Property filters as an experiment stored them. Any filter type can appear, cohorts included.
+     */
+    export type _ExperimentSetupStoredPropertyFilterList = (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[];
+
     export interface ExperimentSetupOutcome {
       /** metric_type of the metric this outcome describes: 'funnel', 'mean', 'ratio' or 'retention'. */
       metric_type: string;
@@ -39514,7 +39522,7 @@ export namespace Schemas {
          */
       split_even: boolean | null;
       /**
-         * The one variant the flag now serves to everyone it matches, or null. Shipping a variant rewrites the flag this way, so the split the experiment ran with cannot be read from the flag any more.
+         * The one variant the flag now serves to everyone it matches, or null. Shipping a variant rewrites the flag this way, so the split the experiment ran with cannot be read from the flag any more. Only a launched experiment can be shipped, so a draft at 100/0 reports its split as it stands.
          * @nullable
          */
       serving_single_variant: string | null;
@@ -39548,8 +39556,8 @@ export namespace Schemas {
          * @nullable
          */
       custom_exposure_action_id: number | null;
-      /** Property filters the exposure is narrowed by, whichever event it counts. An experiment that counts exposure only where $pathname is '/' is the precedent for a new test on that page. Empty when the exposure is not narrowed. */
-      exposure_property_filters: unknown[];
+      /** Property filters the exposure is narrowed by, whichever event it counts. An experiment that counts exposure only where $pathname is '/' is the precedent for a new test on that page. Any filter type can appear, cohorts included. Empty when the exposure is not narrowed. */
+      exposure_property_filters: _ExperimentSetupStoredPropertyFilterList;
       /**
          * Event a user must send after their first exposure event before they count as exposed, or null. This is activation mode, which sits on top of the default exposure event.
          * @nullable
@@ -39612,7 +39620,7 @@ export namespace Schemas {
       using_activation: number;
       /** Experiments whose variants split traffic unevenly. A flag that now serves one variant is left out, because its split no longer says what the experiment ran with. */
       using_uneven_split: number;
-      /** Experiments whose flag now serves one variant to everyone it matches, usually after shipping. */
+      /** Launched experiments whose flag now serves one variant to everyone it matches, usually after shipping. */
       serving_single_variant: number;
     }
 

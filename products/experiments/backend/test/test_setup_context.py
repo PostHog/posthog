@@ -299,11 +299,11 @@ class TestSdkProfile(ClickhouseTestMixin, APIBaseTest):
         assert ios.device_id_share == 0.0
         assert ios.locally_evaluated_share is None
 
-        assert profile.libs_on_any_event is None
+        assert (profile.libs_on_any_event, profile.libs_on_any_event_truncated) == (None, False)
 
     def test_a_project_without_flag_calls_reports_the_libs_it_sends_from(self) -> None:
         # A project creating its first experiment has sent no multivariate flag call, so the flag
-        # profile is empty and used to say nothing at all about the platform.
+        # profile is empty and this fallback is all the caller has about the platform.
         _create_event(
             team=self.team,
             event="$screen",
@@ -319,6 +319,7 @@ class TestSdkProfile(ClickhouseTestMixin, APIBaseTest):
         assert [(lib.lib, lib.category, lib.events, lib.distinct_ids) for lib in profile.libs_on_any_event] == [
             ("posthog-ios", "mobile", 1, 1)
         ]
+        assert profile.libs_on_any_event_truncated is False
 
     def test_more_libs_than_the_cap_are_truncated(self) -> None:
         for index in range(SDK_PROFILE_MAX_LIBS + 2):
@@ -413,8 +414,8 @@ class TestTargetSurfaceAndCandidateMetric(ClickhouseTestMixin, APIBaseTest):
         assert surface.device_id_share == 2 / 3
 
     def test_shares_come_from_the_rows_whichever_sdk_sent_them(self) -> None:
-        # Computing the shares over web rows only returned null for a mobile or server surface,
-        # even where those rows carry $is_identified and $device_id.
+        # A mobile surface carries $is_identified and $device_id as well, so the shares have to
+        # come from every SDK rather than from the web rows alone.
         for distinct_id, identified in [("ios-anon", False), ("ios-user", True)]:
             _create_person(team=self.team, distinct_ids=[distinct_id])
             _create_event(
@@ -541,8 +542,8 @@ class TestTargetSurfaceAndCandidateMetric(ClickhouseTestMixin, APIBaseTest):
         assert metric.funnel_baseline_stats is None
 
     def test_a_metric_event_that_never_occurred_is_told_apart_from_no_conversion(self) -> None:
-        # A misspelled metric event used to return conversion_rate 0 with valid-looking baseline
-        # stats, and nothing in the answer said the event had never occurred.
+        # A misspelled metric event and a real event nobody converted on both give a conversion
+        # rate of 0, so only the volume tells them apart.
         self._seed()
 
         misspelled = get_candidate_metric(
@@ -690,20 +691,23 @@ class TestPostgresSections(APIBaseTest):
         assert archived.id in {experiment.id for experiment in previous.experiments}
 
     def test_a_shipped_flag_does_not_read_as_an_uneven_split(self) -> None:
-        # Shipping a variant rewrites the flag so that variant holds 100 and the rest hold 0, so
-        # reading the flag as it stands now reported every shipped experiment as an uneven split.
+        # Shipping a variant rewrites the flag so that variant holds 100 and the rest hold 0,
+        # which is not the split the experiment ran with. Shipping refuses a draft, so the same
+        # shape on a draft is a deliberate split.
         now = timezone.now()
         self._experiment("shipped", variants=[0, 100], start_date=now - timedelta(days=20), end_date=now)
+        self._experiment("draft-at-full", variants=[0, 100])
 
         previous = get_previous_experiments(Experiment.objects.filter(team_id=self.team.pk), limit=10)
 
-        listed = previous.experiments[0]
-        assert (listed.split_even, listed.serving_single_variant) == (None, "variant-1")
-        assert (previous.summary.using_uneven_split, previous.summary.serving_single_variant) == (0, 1)
+        by_name = {listed.name: listed for listed in previous.experiments}
+        assert (by_name["shipped"].split_even, by_name["shipped"].serving_single_variant) == (None, "variant-1")
+        assert (by_name["draft-at-full"].split_even, by_name["draft-at-full"].serving_single_variant) == (False, None)
+        assert (previous.summary.using_uneven_split, previous.summary.serving_single_variant) == (1, 1)
 
     def test_a_default_exposure_narrowed_by_properties_is_reported(self) -> None:
-        # The default-exposure check ignores properties, but the exposure query applies them to the
-        # default event too, so a homepage experiment read as having no custom exposure at all.
+        # The default-exposure check ignores properties, but the exposure query applies them to
+        # the default event too, so the filters are what narrows this experiment.
         pathname_filter = {"key": "$pathname", "type": "event", "operator": "exact", "value": ["/"]}
         self._experiment(
             "narrowed",
@@ -755,9 +759,28 @@ class TestPostgresSections(APIBaseTest):
         assert outcome.analyzed_exposures == 70
         assert outcome.result_data_through == now - timedelta(days=1)
 
+    def test_a_start_date_moved_earlier_keeps_the_outcome(self) -> None:
+        now = timezone.now()
+        experiment = self._experiment(
+            "edited-start", start_date=now - timedelta(days=10), metrics=[_mean_metric("inline-primary")]
+        )
+        ExperimentMetricResult.objects.create(
+            experiment=experiment,
+            metric_uuid="inline-primary",
+            query_from=now - timedelta(days=10),
+            query_to=now,
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result=_stored_result(40, [40], False),
+            completed_at=now,
+        )
+        Experiment.objects.filter(pk=experiment.pk).update(start_date=now - timedelta(days=12))
+
+        previous = get_previous_experiments(Experiment.objects.filter(team_id=self.team.pk), limit=10)
+
+        outcome = previous.experiments[0].outcome
+        assert outcome is not None and outcome.analyzed_exposures == 80
+
     def test_a_draft_does_not_crowd_out_a_launched_experiment(self) -> None:
-        # The list was the most recently created experiments, so a project with fresh drafts
-        # returned no launched precedent at all.
         self._experiment("fresh-draft", days_ago=0)
         self._experiment("older-launch", start_date=timezone.now() - timedelta(days=30), days_ago=10)
 

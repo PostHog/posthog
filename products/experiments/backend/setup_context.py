@@ -118,9 +118,8 @@ MOBILE_LIBS: Final[frozenset[str]] = frozenset({*MOBILE_SIDE_LIBS, "posthog-unit
 
 # The frontend uses this value when the team has no default minimum detectable effect.
 PRODUCT_DEFAULT_MINIMUM_DETECTABLE_EFFECT: Final = 30
-# What an experiment analyzes with when the team sets no default: `get_experiment_stats_method`
-# falls back to bayesian, and both engines carry 0.95 (`products/experiments/stats/*/method.py`,
-# as `ci_level` and as `1 - alpha`).
+# `get_experiment_stats_method` falls back to bayesian, and both engines carry 0.95 in
+# `products/experiments/stats/*/method.py`, as `ci_level` and as `1 - alpha`.
 PRODUCT_DEFAULT_STATS_METHOD: Final = "bayesian"
 PRODUCT_DEFAULT_CONFIDENCE_LEVEL: Final = 0.95
 
@@ -134,9 +133,8 @@ DEFAULT_LIST_LIMIT: Final = 10
 MAX_LIST_LIMIT: Final = 25
 MAX_PROPERTY_FILTERS: Final = 10
 
-# A stored result's sample count is the analyzed population only for these metric types. A
-# retention result counts units that did the start event, and ratio sample semantics differ too,
-# so neither can be read as exposures.
+# A retention result counts the units that did the start event, and ratio samples are not
+# exposures either, so a stored sample count is the analyzed population only for these types.
 EXPOSURE_SHAPED_METRIC_TYPES: Final[frozenset[str]] = frozenset({"funnel", "mean"})
 
 # Matching a saved metric against an event resolves its actions, so it can't run in the database.
@@ -170,8 +168,7 @@ def classify_lib(lib: str | None) -> SdkLibCategory:
 class SetupContextInputs:
     target_event: str | None = None
     target_url_contains: str | None = None
-    # Event and person property filters, as plain dicts `property_to_expr` accepts. Tuples so the
-    # frozen dataclass carries no shared mutable default.
+    # Tuples so the frozen dataclass carries no shared mutable default.
     target_properties: tuple[dict[str, Any], ...] = ()
     metric_event: str | None = None
     metric_properties: tuple[dict[str, Any], ...] = ()
@@ -253,6 +250,7 @@ class SdkProfile:
     flags_evaluated_on_server_and_web: int
     evaluated_on_server_and_web: bool
     libs_on_any_event: list[LibActivity] | None
+    libs_on_any_event_truncated: bool
 
 
 @frozen
@@ -318,7 +316,6 @@ class ExperimentOutcome:
     # None when the stored result carries no sample counts at all, which must not read as a zero:
     # "the experiment analyzed nobody" is the signal this section exists to surface.
     metric_samples: int | None
-    # The same number, but only where the metric type makes it the analyzed population.
     analyzed_exposures: int | None
     control_baseline_value: float | None
     any_variant_significant: bool
@@ -337,8 +334,6 @@ class PreviousExperiment:
     conclusion: str | None
     feature_flag_key: str
     variant_count: int
-    # None on a boolean flag, which has no variants to split, and on a flag that now serves one
-    # variant to everyone, whose split no longer says what the experiment ran with.
     split_even: bool | None
     serving_single_variant: str | None
     rollout_percentage: float | None
@@ -682,6 +677,8 @@ def _compute_sdk_profile(team: Team) -> SdkProfile:
         ) in lib_rows[:SDK_PROFILE_MAX_LIBS]
     ]
 
+    any_event_libs, any_event_libs_truncated = (None, False) if libs else _libs_on_any_event(team)
+
     return SdkProfile(
         window_days=SDK_PROFILE_WINDOW_DAYS,
         source_event=source_event,
@@ -691,16 +688,18 @@ def _compute_sdk_profile(team: Team) -> SdkProfile:
         flags_seen=int(flags_seen),
         flags_evaluated_on_server_and_web=int(server_and_web),
         evaluated_on_server_and_web=int(server_and_web) > 0,
-        libs_on_any_event=None if libs else _libs_on_any_event(team),
+        libs_on_any_event=any_event_libs,
+        libs_on_any_event_truncated=any_event_libs_truncated,
     )
 
 
-def _libs_on_any_event(team: Team) -> list[LibActivity] | None:
-    """Which SDKs the project sends anything from, for a project with no multivariate flag call.
+def _libs_on_any_event(team: Team) -> tuple[list[LibActivity] | None, bool]:
+    """Which SDKs the project sends anything from, and whether more were left out.
 
-    That project is the one creating its first experiment, so an empty flag profile would leave the
-    caller knowing nothing about the platform. It reads every event rather than flag calls only,
-    which is why the window is one day and a timeout costs this field alone.
+    A project with no multivariate flag call is the one creating its first experiment, so an empty
+    flag profile would leave the caller knowing nothing about the platform. It reads every event
+    rather than flag calls only, which is why the window is one day and a timeout costs this
+    field alone.
     """
     window = TimeWindow.ending_now(SDK_ANY_EVENT_WINDOW_DAYS)
     try:
@@ -722,11 +721,11 @@ def _libs_on_any_event(team: Team) -> list[LibActivity] | None:
         )
     except _CLICKHOUSE_TOO_EXPENSIVE:
         logger.warning("experiment_setup_context_any_event_libs_timed_out", extra={"team_id": team.pk})
-        return None
+        return None, False
     return [
         LibActivity(lib=lib, category=classify_lib(lib), events=int(events), distinct_ids=int(distinct_ids))
         for lib, events, distinct_ids in rows[:SDK_PROFILE_MAX_LIBS]
-    ]
+    ], len(rows) > SDK_PROFILE_MAX_LIBS
 
 
 def _escape_like(value: str) -> str:
@@ -792,8 +791,7 @@ def _compute_target_surface(team: Team, inputs: SetupContextInputs) -> TargetSur
     # once overall while still appearing under each of them.
     # Every property this query names itself resolves to a materialized or property-group column,
     # so adding one that resolves to neither puts the whole `properties` blob back in the scan.
-    # The comment in `_compute_sdk_profile` explains. A caller's `target_properties` can name any
-    # property, which is what MAX_PROPERTY_FILTERS and the section's timeout guard bound.
+    # A caller's `target_properties` can name any property, which MAX_PROPERTY_FILTERS bounds.
     rows = _run_query(
         team,
         "ExperimentSetupContextTargetSurface",
@@ -900,9 +898,8 @@ def _compute_candidate_metric(team: Team, inputs: SetupContextInputs) -> Candida
     metric_conditions = _metric_conditions(team, inputs)
 
     # Always run, so a metric event that never occurred is told apart from one that nobody
-    # converted on. It stays its own query: dropping the baseline query's HAVING to fold the two
-    # together would keep every person who only sent the metric event in the GROUP BY, which
-    # costs memory on a frequent metric event.
+    # converted on. Folding it into the baseline query would mean dropping that query's HAVING,
+    # which keeps every person who only sent the metric event in the GROUP BY.
     volume_rows = _run_query(
         team,
         "ExperimentSetupContextCandidateMetricVolume",
@@ -1100,13 +1097,14 @@ def _filters_test_accounts(exposure_criteria: dict[str, Any]) -> bool:
     return True if configured is None else bool(configured)
 
 
-def _serving_single_variant(variants: list[dict[str, Any]]) -> str | None:
+def _serving_single_variant(variants: list[dict[str, Any]], *, launched: bool) -> str | None:
     """The variant a flag now serves to everyone it matches, when it serves exactly one.
 
     `ExperimentService.ship_variant` rewrites the flag this way, so the split the experiment ran
-    with can no longer be read from it. The flag is read as it stands now.
+    with can no longer be read from it. The flag is read as it stands now. Shipping refuses a
+    draft, so a draft at 100/0 is a deliberate split rather than a shipped variant.
     """
-    if len(variants) < 2:
+    if not launched or len(variants) < 2:
         return None
     at_full = [variant for variant in variants if (variant.get("rollout_percentage") or 0) == 100]
     at_zero = [variant for variant in variants if (variant.get("rollout_percentage") or 0) == 0]
@@ -1143,17 +1141,17 @@ def _outcomes(outcome_metrics: dict[int, OutcomeMetric]) -> dict[int, Experiment
             experiment_id__in=outcome_metrics.keys(),
             metric_uuid__in={metric.uuid for metric in outcome_metrics.values()},
             status=ExperimentMetricResult.Status.COMPLETED,
-            # Both writers store the experiment's start date, so this identifies the current run.
-            # Reset and relaunch keeps the earlier run's rows, and a draft has no start date at all.
-            query_from=F("experiment__start_date"),
+            # Both writers store the experiment's start date, so a relaunch moves that date
+            # forward and leaves the earlier run's rows behind it. A draft has no start date, so
+            # nothing matches. `gte` rather than an exact match, so a start date edited to an
+            # earlier moment keeps its results instead of hiding them until every row is recomputed.
+            query_from__gte=F("experiment__start_date"),
         )
-        # The latest data rather than the latest write: a backfill stores a historical `query_to`
-        # with `completed_at` set to now, so ordering by the write time can pick an older day.
-        # The (experiment, metric_uuid, query_to) index covers this.
+        # A backfill stores a historical `query_to` with `completed_at` set to now, so ordering by
+        # the write time can pick an older day. The (experiment, metric_uuid, query_to) index covers this.
         .order_by("experiment_id", "metric_uuid", "-query_to", F("completed_at").desc(nulls_last=True))
         .distinct("experiment_id", "metric_uuid")
-        # Only the sample counts and the control baseline are read, so the stored query text in the
-        # result stays in Postgres.
+        # The stored query text in each result stays in Postgres.
         .values(
             "experiment_id",
             "metric_uuid",
@@ -1194,7 +1192,9 @@ def _outcomes(outcome_metrics: dict[int, OutcomeMetric]) -> dict[int, Experiment
     return outcomes
 
 
-def _control_baseline_value(baseline_sum: Any, baseline_samples: Any, exposure_shaped: bool) -> float | None:
+def _control_baseline_value(
+    baseline_sum: str | None, baseline_samples: str | None, exposure_shaped: bool
+) -> float | None:
     """What control measured: a conversion rate for a funnel, a per-unit average for a mean.
 
     Dilution shows up here rather than in the exposure count. A surface that converts well but is
@@ -1216,8 +1216,7 @@ def get_previous_experiments(experiments: QuerySet[Experiment], *, limit: int) -
                 queryset=ExperimentToSavedMetric.objects.select_related("saved_metric").order_by("id"),
             )
         )
-        # Launched experiments first, most recently launched first, then drafts. Ordering by
-        # creation alone lets drafts crowd out the precedent the caller needs.
+        # Ordering by creation alone lets fresh drafts crowd out the launched precedent.
         .order_by(F("start_date").desc(nulls_last=True), "-created_at", "-id")[:limit]
     )
 
@@ -1231,7 +1230,7 @@ def get_previous_experiments(experiments: QuerySet[Experiment], *, limit: int) -
         flag = experiment.feature_flag
         flag_filters = flag.filters or {}
         variant_rollouts = [variant.get("rollout_percentage") or 0 for variant in flag.variants]
-        serving_single_variant = _serving_single_variant(flag.variants)
+        serving_single_variant = _serving_single_variant(flag.variants, launched=experiment.start_date is not None)
         groups = flag_filters.get("groups") or []
         exposure_criteria = experiment.exposure_criteria if isinstance(experiment.exposure_criteria, dict) else {}
         custom_exposure = _custom_exposure(experiment, exposure_criteria)
@@ -1416,8 +1415,7 @@ def get_shared_metrics(
     queries = {
         saved_metric.id: saved_metric.query if isinstance(saved_metric.query, dict) else {} for saved_metric in listed
     }
-    # Only a matched metric needs its actions resolved, and every one of them resolves in a single
-    # query, so the roles cost at most one read for the whole list.
+    # Only a matched metric needs its actions resolved, and they all resolve in one query.
     matched_action_ids: set[int] = set()
     for metric_id in matching_ids & queries.keys():
         matched_action_ids |= collect_metric_events_and_action_ids([queries[metric_id]])[1]

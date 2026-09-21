@@ -9003,6 +9003,16 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
                 "target_properties",
             ),
             (
+                "an_operator_the_query_cannot_apply",
+                {
+                    "target_event": "$pageview",
+                    "target_properties": [
+                        {"key": "flag", "type": "event", "operator": "flag_evaluates_to", "value": ["true"]}
+                    ],
+                },
+                "target_properties",
+            ),
+            (
                 "more_filters_than_the_maximum",
                 {
                     "target_event": "$pageview",
