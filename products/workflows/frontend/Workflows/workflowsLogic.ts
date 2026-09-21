@@ -165,20 +165,10 @@ export interface workflowsLogicActions {
         errorObject?: any
     }
     loadWorkflowsSuccess: (
-        workflows: {
-            count: number
-            next?: string | null | undefined
-            previous?: string | null | undefined
-            results: HogFlow[]
-        },
+        workflows: CountedPaginatedResponse<HogFlow>,
         payload?: {}
     ) => {
-        workflows: {
-            count: number
-            next?: string | null | undefined
-            previous?: string | null | undefined
-            results: HogFlow[]
-        }
+        workflows: CountedPaginatedResponse<HogFlow>
         payload?: {}
     }
     restoreWorkflow: (workflow: HogFlow) => {

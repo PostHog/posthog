@@ -11,7 +11,6 @@ import { AnyPersonScopeFilter, AnyPropertyFilter } from '~/types'
 import { BroadcastEmailValue, BroadcastWizardLogicProps, broadcastWizardLogic } from './broadcastWizardLogic'
 import { EmailPreviewPerson, renderEmailPreview } from './emailPreview'
 
-/** How many of the audience to offer in the picker. Enough to find a representative person. */
 const PREVIEW_PERSON_LIMIT = 25
 
 export interface BroadcastPreviewPerson extends EmailPreviewPerson {
@@ -100,10 +99,6 @@ export type broadcastPreviewLogicType = MakeLogicType<
     broadcastPreviewLogicMeta
 >
 
-/**
- * Backs the review step's email preview: loads a sample of the audience, then renders the email
- * against whichever person is picked.
- */
 export const broadcastPreviewLogic = kea<broadcastPreviewLogicType>([
     path(['products', 'workflows', 'frontend', 'Broadcasts', 'broadcastPreviewLogic']),
     props({} as BroadcastWizardLogicProps),

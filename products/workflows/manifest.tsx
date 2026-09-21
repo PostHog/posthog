@@ -63,9 +63,6 @@ export const manifest: ProductManifest = {
     },
     urls: {
         workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
-        broadcasts: (): string => '/workflows/broadcasts',
-        broadcastNew: (): string => '/workflows/broadcasts/new',
-        broadcast: (id: string): string => `/workflows/broadcasts/${id}`,
         workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
         workflowNew: (): string => '/workflows/new/workflow',
         workflowsLibraryMessage: (id: string): string => `/workflows/library/messages/${id}`,
@@ -73,6 +70,9 @@ export const manifest: ProductManifest = {
         workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
         workflowsLibraryTemplateFromMessage: (id?: string): string =>
             `/workflows/library/templates/new?messageId=${id}`,
+        broadcasts: (): string => '/workflows/broadcasts',
+        broadcast: (id: string): string => `/workflows/broadcasts/${id}`,
+        broadcastNew: (): string => '/workflows/broadcasts/new',
     },
     fileSystemTypes: {
         workflows: {

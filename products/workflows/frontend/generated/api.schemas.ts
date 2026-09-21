@@ -1806,6 +1806,10 @@ export type HogFlowsListParams = {
      * Filter to workflows created by the user with this uuid.
      */
     created_by?: string
+    /**
+     * Drop workflows of this kind from the results, e.g. `broadcast` for a list that has its own surface.
+     */
+    exclude_kind?: HogFlowsListExcludeKind
     id?: string
     /**
      * * `broadcast` - Broadcast
@@ -1844,6 +1848,12 @@ export type HogFlowsListParams = {
     type?: HogFlowsListType
     updated_at?: string
 }
+
+export type HogFlowsListExcludeKind = (typeof HogFlowsListExcludeKind)[keyof typeof HogFlowsListExcludeKind]
+
+export const HogFlowsListExcludeKind = {
+    Broadcast: 'broadcast',
+} as const
 
 export type HogFlowsListKind = (typeof HogFlowsListKind)[keyof typeof HogFlowsListKind] | null
 

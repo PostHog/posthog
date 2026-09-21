@@ -38,14 +38,13 @@ export class LiquidRenderer {
         return this.liquid.parse(this.decode(template))
     }
 
-    /** Render a template the way the worker does at send time. Throws on an unparseable template. */
+    /** Mirrors what the worker renders at send time. Throws on an unparseable template. */
     public static render(template: string, context: Record<string, any>): string {
         return this.liquid.parseAndRenderSync(this.decode(template), context)
     }
 
     /**
-     * Whether an expression such as `person.properties.email` has a value in this context. Takes
-     * the expression as it appears in the template, so it decodes the editor's escaping first.
+     * Takes the expression as it appears in the template, so it decodes the editor's escaping first.
      */
     public static resolves(expression: string, context: Record<string, any>): boolean {
         try {
