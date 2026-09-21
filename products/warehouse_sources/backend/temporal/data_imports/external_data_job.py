@@ -173,6 +173,16 @@ Any_Source_Errors: dict[str, str | None] = {
     # misconfigured or wrong host/URL on the customer's side. Match the stable alert name, not the
     # volatile `_ssl.c:NNNN` suffix or per-request host.
     "SSLV3_ALERT_HANDSHAKE_FAILURE": "Could not complete a secure (TLS) connection to the source's server — the handshake was rejected. Please check the configured host/URL is correct and that the server supports a compatible TLS version.",
+    # The other deterministic TLS failure: the handshake completed but the server's certificate
+    # failed verification (expired, self-signed, or issued by an unknown CA). Raised in the shared
+    # HTTP transport for every REST-based source, and by the SQL drivers over TLS. The certificate
+    # is fixed until the customer replaces it, so every retry replays the identical failure. Match
+    # the stable OpenSSL alert name, not the per-request host the raw message carries.
+    "CERTIFICATE_VERIFY_FAILED": (
+        "Could not complete a secure (TLS) connection to the source's server because its "
+        "certificate could not be verified. Check that the server's TLS certificate is valid and "
+        "has not expired, then re-enable the sync."
+    ),
     # Raised by `get_incremental_field_value` when the configured incremental field isn't a column
     # in the extracted rows (e.g. a display label persisted instead of the real field name). The
     # config is wrong, so every retry replays the same failure — pause and tell the user to fix it.

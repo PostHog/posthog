@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
 from products.warehouse_sources.backend.temporal.data_imports.settings import import_data_activity_sync
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -712,6 +713,31 @@ async def test_update_external_job_activity_with_tls_handshake_failure_is_non_re
 def test_invalid_ssh_tunnel_auth_is_non_retryable_for_any_source(error_msg):
     is_non_retryable = any(pattern in error_msg for pattern in Any_Source_Errors.keys())
     assert is_non_retryable, f"Invalid SSH tunnel auth error should be non-retryable: {error_msg}"
+
+
+# An expired, self-signed, or unknown-CA certificate on the source's host. The raw text carries the
+# customer's hostname and an `_ssl.c:NNNN` suffix around the stable alert name.
+@pytest.mark.parametrize(
+    "error_msg",
+    [
+        (
+            "SSLError(MaxRetryError(\"HTTPSConnectionPool(host='analytics.example.com', port=443): "
+            "Max retries exceeded with url: /index.php (Caused by SSLError(SSLCertVerificationError(1, "
+            "'[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: certificate has expired "
+            "(_ssl.c:1020)')))\"))"
+        ),
+        (
+            "SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify "
+            "failed: self-signed certificate (_ssl.c:1020)'))"
+        ),
+    ],
+)
+def test_certificate_verification_failure_is_non_retryable_for_any_source(error_msg):
+    matched = [message for pattern, message in Any_Source_Errors.items() if error_message_matches(error_msg, [pattern])]
+    assert matched, f"Certificate verification failure should be non-retryable: {error_msg}"
+    assert matched[0] is not None
+    # The stored message replaces the raw text, so the customer's host must not survive into it.
+    assert "example.com" not in matched[0]
 
 
 @pytest.fixture
