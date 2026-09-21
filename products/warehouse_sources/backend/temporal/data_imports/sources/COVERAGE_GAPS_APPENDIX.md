@@ -1942,16 +1942,16 @@ Diffed against: <https://api.doc.concordnow.com/concord-openapi-bundled.yaml>
 
 Note: Bundled OpenAPI 3.1 spec (redoc spec-url from api.doc.concordnow.com). Top-level collections are well covered; every gap is a per-agreement sub-resource, so implementing them means fanning out over the agreements table.
 
-## ConfigCat — **thin**
+## ConfigCat — gaps
 
-Today (2): `organizations`, `products`
+Today (6): `configs`, `environments`, `organizations`, `products`, `setting_values`, `settings`
 
 Diffed against: <https://api.configcat.com/docs/v1/swagger.json>
 
-- [ ] `GET /v1/products/{productId}/configs` — config lookup table; every setting and value row is keyed by configId (high)
-- [ ] `GET /v1/products/{productId}/environments` — environment lookup table; flag values are per environment (high)
-- [ ] `GET /v1/configs/{configId}/settings` — the feature flag / setting catalog - the product's headline object (high)
-- [ ] `GET /v2/configs/{configId}/environments/{environmentId}/values` — flag values and targeting rules per environment; what is actually rolled out where (high)
+- [x] `GET /v1/products/{productId}/configs` — config lookup table; every setting and value row is keyed by configId (high)
+- [x] `GET /v1/products/{productId}/environments` — environment lookup table; flag values are per environment (high)
+- [x] `GET /v1/configs/{configId}/settings` — the feature flag / setting catalog - the product's headline object (high)
+- [x] `GET /v2/configs/{configId}/environments/{environmentId}/values` — flag values and targeting rules per environment; what is actually rolled out where (high)
 - [ ] `GET /v2/products/{productId}/auditlogs and /v2/organizations/{organizationId}/auditlogs` — change history - who flipped which flag when (high)
 - [ ] `GET /v1/products/{productId}/segments` — reusable targeting segments referenced by flag rules (medium)
 - [ ] `GET /v1/products/{productId}/tags (and /v1/tags/{tagId}/settings)` — tag lookup plus the tag->setting junction (medium)
@@ -1961,7 +1961,7 @@ Diffed against: <https://api.configcat.com/docs/v1/swagger.json>
 - [ ] `GET /v1/settings/{settingId}/code-references` — where each flag is referenced in source, for removal analysis (low)
 - [ ] `GET /v1/configs/{configId}/deleted-settings` — deleted flags, needed to keep historical joins from dangling (low)
 
-Note: Source exposes 2 static endpoints (settings.py CONFIGCAT_ENDPOINTS = products, organizations) with no dynamic discovery - confirmed in products/warehouse_sources/backend/temporal/data_imports/sources/configcat/source.py. The vendor spec has ~48 GET operations. The entire config/environment/setting model - i.e. what ConfigCat actually is - is unsynced. Note: I include feature-flag 'settings' despite the generic exclusion on feature flags, because here they are the vendor's core catalog object, not incidental plumbing.
+Note: Source exposes 6 static endpoints (settings.py CONFIGCAT_ENDPOINTS) with no dynamic discovery. The vendor spec has ~48 GET operations. The config/environment/setting model - i.e. what ConfigCat actually is - now syncs; the remaining gaps are audit logs, segments, tags, members and the cleanup reports. Note: I include feature-flag 'settings' despite the generic exclusion on feature flags, because here they are the vendor's core catalog object, not incidental plumbing.
 
 ## Confluence — gaps
 
