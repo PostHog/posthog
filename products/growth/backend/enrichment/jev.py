@@ -8,7 +8,7 @@ from requests import RequestException
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.egress.typesafe import TypeSafeEgressBudgetExhausted, typesafe_request
+from posthog.egress.typesafe.transport import TypeSafeEgressBudgetExhausted, typesafe_request
 
 from products.growth.backend.enrichment.tools import TRANSIENT_TOOL_ERRORS, ToolOutcome, run_tool
 
