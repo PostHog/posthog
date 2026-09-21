@@ -119,6 +119,31 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
         assert response["bytecode_error"] == "Select queries are not allowed in filters"
 
+    def test_filters_raise_on_a_global_the_runtime_does_not_have(self):
+        # $virt_is_bot exists in HogQL query context but not in the globals the filter path
+        # builds, so it compiles clean and then raises on every event the destination is offered.
+        response = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "$virt_is_bot"}]},
+            team=self.team,
+        )
+        assert "$virt_is_bot" in response["bytecode_error"]
+        assert response["bytecode"] is None
+
+    def test_filters_allow_a_global_the_runtime_does_have(self):
+        response = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "person.properties.email is not null"}]},
+            team=self.team,
+        )
+        assert "bytecode_error" not in response
+
+    def test_filters_allow_a_lambda_parameter(self):
+        # The parameter is a local, not a global. Reading the chain off the AST would reject this.
+        response = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "arrayExists(x -> x = 'a', elements_chain_texts)"}]},
+            team=self.team,
+        )
+        assert "bytecode_error" not in response
+
     def test_filters_events(self):
         bytecode = self.filters_to_bytecode(filters={"events": self.filters["events"]})
         assert bytecode == [
