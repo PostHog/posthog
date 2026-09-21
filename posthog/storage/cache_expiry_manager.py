@@ -29,11 +29,12 @@ class ExpiringTeamSelection:
 
     `limit_reached` is read from the sorted-set range and not from `len(teams)`. A range
     that comes back full of identifiers for deleted teams resolves to fewer Team rows
-    than it read, and the run is still leaving work behind.
+    than it read, and the run is still leaving work behind. It is None when the range
+    could not be read, because a run that never saw the queue cannot report on it.
     """
 
     teams: list[Team]
-    limit_reached: bool
+    limit_reached: bool | None
 
 
 def select_expiring_teams(
@@ -102,7 +103,7 @@ def select_expiring_teams(
     except Exception as e:
         logger.exception(f"Error finding expiring {config.log_prefix}", error=str(e))
         capture_exception(e)
-        return ExpiringTeamSelection(teams=[], limit_reached=False)
+        return ExpiringTeamSelection(teams=[], limit_reached=None)
 
 
 def get_teams_with_expiring_caches(
@@ -121,10 +122,12 @@ class ExpiryBacklogSample:
     exceed what one run processes, or it cannot tell a drained queue from a queue the
     sweep is falling behind on.
 
-    `oldest_seconds_to_expiry` is the survivor of the two. A count is inflated both by
-    refreshes that are already in flight and by members left behind for deleted teams,
-    while the lowest score in the set is neither. It answers the question the count has
-    only ever been a proxy for: is anything about to expire before the sweep reaches it.
+    `oldest_seconds_to_expiry` answers the question the count has only ever been a proxy
+    for: is anything about to expire before the sweep reaches it. Unlike the count it is
+    not inflated by refreshes already in flight. It is not immune to members left behind
+    for deleted teams, though: such a member is never re-scored, so it holds the set's
+    minimum and pins this reading until `cleanup_stale_expiry_tracking` removes it, and
+    that cleanup is a daily task where it is scheduled at all.
 
     Both are None when Redis does not answer, which pushes no series rather than a zero
     that reads as a drained queue.
@@ -230,7 +233,7 @@ class RefreshRun:
 
     backlog_before: ExpiryBacklogSample
     teams: list[Team]
-    limit_reached: bool
+    limit_reached: bool | None
 
 
 def start_refresh_run(

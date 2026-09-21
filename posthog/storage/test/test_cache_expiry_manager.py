@@ -165,7 +165,12 @@ class TestRefreshExpiringCaches(SimpleTestCase):
         ]
     )
     def test_the_oldest_entry_is_reported_as_seconds_until_its_expiry(self, _name, seconds_to_expiry):
-        self.mock_redis.zrange.return_value = [(b"7", time.time() + seconds_to_expiry)]
+        # The two reads are the before and after samples. Only the before one is pushed,
+        # so they have to differ or forwarding the wrong sample passes this test.
+        self.mock_redis.zrange.side_effect = [
+            [(b"7", time.time() + seconds_to_expiry)],
+            [(b"7", time.time() + 86400)],
+        ]
 
         refresh_expiring_caches(build_config())
 

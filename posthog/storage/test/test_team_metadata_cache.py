@@ -377,6 +377,16 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
         self.assertTrue(selection.limit_reached)
 
     @patch("posthog.storage.cache_expiry_manager.get_client")
+    def test_an_unreadable_range_reports_the_limit_as_unknown(self, mock_get_client):
+        mock_get_client.side_effect = RuntimeError("redis unreachable")
+
+        selection = select_expiring_teams(TEAM_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours=24)
+
+        # Reporting False here pushes a 0 that Pushgateway keeps serving, which states the
+        # queue was drained by a run that never read it.
+        self.assertIsNone(selection.limit_reached)
+
+    @patch("posthog.storage.cache_expiry_manager.get_client")
     def test_narrows_selected_columns_to_refresh_fields(self, mock_get_client):
         """The refresh SELECT is narrowed via .only(), so a Team column the read replica
         hasn't migrated yet can't turn the whole batch into an UndefinedColumn error.

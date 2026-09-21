@@ -264,7 +264,7 @@ class HyperCacheManagementConfig:
     repair_miss_during_grace_period: bool = False
 
     # Team columns the refresh/warm path reads off each Team object. When set,
-    # get_teams_with_expiring_caches narrows its SELECT to these columns via .only()
+    # select_expiring_teams narrows its SELECT to these columns via .only()
     # instead of fetching the whole row. This keeps the refresh working when a Team
     # column added by a migration the read replica hasn't applied yet would otherwise
     # make `SELECT *` raise UndefinedColumn (the replica lags on posthog_team DDL).
