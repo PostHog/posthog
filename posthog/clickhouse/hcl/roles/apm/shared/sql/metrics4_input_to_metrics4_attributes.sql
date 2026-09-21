@@ -22,7 +22,7 @@ FROM
       attribute.1 AS attribute_key,
       attribute.2 AS attribute_value,
       sumSimpleState(1) AS attribute_count
-    FROM posthog.metrics2_input
+    FROM posthog.metrics4_input
     WHERE has_labels
     GROUP BY
       team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes

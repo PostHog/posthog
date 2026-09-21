@@ -11,7 +11,7 @@ partition after a merge. This structure records when a series was active.
 `metrics4_names` and `metrics4_attributes` store hourly data for the name and
 attribute selectors.
 
-All tables use `original_expiry_timestamp` from `metrics2_input`. The Kafka view
+All tables use `original_expiry_timestamp` from `metrics4_input`. The Kafka view
 calculates this value from the sample timestamp. The default retention period is
 30 days.
 
@@ -24,16 +24,23 @@ An `ARRAY JOIN` operation fails if parallel arrays have different lengths.
 
 from django.conf import settings
 
-from posthog.clickhouse.table_engines import AggregatingMergeTree, ReplacingMergeTree, ReplicationScheme
+from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplacingMergeTree, ReplicationScheme
 
-from .metrics2 import METRICS2_INPUT_TABLE_NAME
+from .metrics2 import kafka_metrics_avro_mv_select, kafka_metrics_avro_table_sql, metrics_input_table_sql
 
+KAFKA_METRICS4_TABLE_NAME = "kafka_metrics_avro4"
+KAFKA_METRICS4_GROUP = "clickhouse-metrics-avro4"
+METRICS4_INPUT_TABLE_NAME = "metrics4_input"
 METRICS4_SAMPLES_TABLE_NAME = "metrics4_samples"
 METRICS4_SERIES_TABLE_NAME = "metrics4_series"
 METRICS4_NAMES_TABLE_NAME = "metrics4_names"
 METRICS4_ATTRIBUTES_TABLE_NAME = "metrics4_attributes"
+WRITABLE_METRICS4_SAMPLES_TABLE_NAME = "writable_metrics4_samples"
+WRITABLE_METRICS4_SERIES_TABLE_NAME = "writable_metrics4_series"
+WRITABLE_METRICS4_NAMES_TABLE_NAME = "writable_metrics4_names"
+WRITABLE_METRICS4_ATTRIBUTES_TABLE_NAME = "writable_metrics4_attributes"
 
-# Each tuple gives a metrics2 column and the element type for its metrics4 array.
+# Each tuple gives an input column and the element type for its metrics4 array.
 METRICS4_POINT_ARRAY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("timestamp", "DateTime64(6)"),
     ("observed_timestamp", "DateTime64(6)"),
@@ -62,6 +69,109 @@ _ARRAY_CODECS: dict[str, str] = {
 
 def _db() -> str:
     return settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+
+
+def KAFKA_METRICS_AVRO4_TABLE_SQL() -> str:
+    return kafka_metrics_avro_table_sql(KAFKA_METRICS4_TABLE_NAME, KAFKA_METRICS4_GROUP)
+
+
+def METRICS4_INPUT_TABLE_SQL() -> str:
+    return metrics_input_table_sql(METRICS4_INPUT_TABLE_NAME)
+
+
+def KAFKA_METRICS_AVRO4_MV() -> str:
+    db = _db()
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{KAFKA_METRICS4_TABLE_NAME}_mv TO {db}.{METRICS4_INPUT_TABLE_NAME}
+AS {kafka_metrics_avro_mv_select(KAFKA_METRICS4_TABLE_NAME)}
+"""
+
+
+def _writable_table_sql(table_name: str, data_table_name: str, columns: str) -> str:
+    return f"""
+CREATE TABLE IF NOT EXISTS {_db()}.{table_name}
+(
+{columns}
+)
+ENGINE = {Distributed(data_table=data_table_name, cluster=settings.CLICKHOUSE_LOGS_CLUSTER)}
+"""
+
+
+def WRITABLE_METRICS4_SAMPLES_TABLE_SQL() -> str:
+    arrays = ",\n".join(
+        f"    `{name}_arr` SimpleAggregateFunction(groupArrayArray, Array({element_type}))"
+        for name, element_type in METRICS4_POINT_ARRAY_COLUMNS
+    )
+    return _writable_table_sql(
+        WRITABLE_METRICS4_SAMPLES_TABLE_NAME,
+        METRICS4_SAMPLES_TABLE_NAME,
+        f"""    `team_id` Int32,
+    `metric_name` LowCardinality(String),
+    `time_bucket` DateTime,
+    `series_fingerprint` UInt64,
+    `original_expiry_date` Date32,
+    `resource_fingerprint` SimpleAggregateFunction(any, UInt64),
+    `service_name` SimpleAggregateFunction(any, LowCardinality(String)),
+    `metric_type` SimpleAggregateFunction(any, LowCardinality(String)),
+    `unit` SimpleAggregateFunction(any, LowCardinality(String)),
+    `aggregation_temporality` SimpleAggregateFunction(any, LowCardinality(String)),
+    `is_monotonic` SimpleAggregateFunction(max, UInt8),
+    `has_labels` SimpleAggregateFunction(max, UInt8),
+    `instrumentation_scope` SimpleAggregateFunction(any, String),
+    `histogram_bounds` SimpleAggregateFunction(anyLast, Array(Float64)),
+    `_topic` SimpleAggregateFunction(any, LowCardinality(String)),
+{arrays}""",
+    )
+
+
+def WRITABLE_METRICS4_SERIES_TABLE_SQL() -> str:
+    return _writable_table_sql(
+        WRITABLE_METRICS4_SERIES_TABLE_NAME,
+        METRICS4_SERIES_TABLE_NAME,
+        """    `team_id` Int32,
+    `metric_name` LowCardinality(String),
+    `series_fingerprint` UInt64,
+    `metric_type` LowCardinality(String),
+    `unit` LowCardinality(String),
+    `aggregation_temporality` LowCardinality(String),
+    `is_monotonic` Bool DEFAULT false,
+    `service_name` LowCardinality(String),
+    `instrumentation_scope` String,
+    `resource_attributes` Map(LowCardinality(String), String),
+    `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes),
+    `attributes` Map(LowCardinality(String), String),
+    `timestamp` DateTime64(6),
+    `time_bucket` DateTime MATERIALIZED toStartOfHour(timestamp),
+    `original_expiry_timestamp` DateTime64(6)""",
+    )
+
+
+def WRITABLE_METRICS4_NAMES_TABLE_SQL() -> str:
+    return _writable_table_sql(
+        WRITABLE_METRICS4_NAMES_TABLE_NAME,
+        METRICS4_NAMES_TABLE_NAME,
+        """    `team_id` Int32,
+    `metric_name` LowCardinality(String),
+    `time_bucket` DateTime64(0),
+    `original_expiry_time_bucket` DateTime64(0),
+    `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6))""",
+    )
+
+
+def WRITABLE_METRICS4_ATTRIBUTES_TABLE_SQL() -> str:
+    return _writable_table_sql(
+        WRITABLE_METRICS4_ATTRIBUTES_TABLE_NAME,
+        METRICS4_ATTRIBUTES_TABLE_NAME,
+        """    `team_id` Int32,
+    `metric_name` LowCardinality(String),
+    `time_bucket` DateTime64(0),
+    `original_expiry_time_bucket` DateTime64(0),
+    `service_name` LowCardinality(String),
+    `attribute_key` LowCardinality(String),
+    `attribute_value` String,
+    `attribute_type` LowCardinality(String),
+    `attribute_count` SimpleAggregateFunction(sum, UInt64)""",
+    )
 
 
 def METRICS4_SAMPLES_TABLE_SQL() -> str:
@@ -191,11 +301,11 @@ SETTINGS
 """
 
 
-def METRICS2_INPUT_TO_METRICS4_SAMPLES_MV() -> str:
+def METRICS4_INPUT_TO_METRICS4_SAMPLES_MV() -> str:
     db = _db()
     group_arrays = ",\n".join(f"    groupArray({name}) AS {name}_arr" for name, _ in METRICS4_POINT_ARRAY_COLUMNS)
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS2_INPUT_TABLE_NAME}_to_{METRICS4_SAMPLES_TABLE_NAME} TO {db}.{METRICS4_SAMPLES_TABLE_NAME}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{METRICS4_SAMPLES_TABLE_NAME} TO {db}.{WRITABLE_METRICS4_SAMPLES_TABLE_NAME}
 AS SELECT
     team_id,
     metric_name,
@@ -213,7 +323,7 @@ AS SELECT
     anyLast(histogram_bounds) AS histogram_bounds,
     any(_topic) AS _topic,
 {group_arrays}
-FROM {db}.{METRICS2_INPUT_TABLE_NAME}
+FROM {db}.{METRICS4_INPUT_TABLE_NAME}
 GROUP BY
     team_id,
     metric_name,
@@ -223,10 +333,10 @@ GROUP BY
 """
 
 
-def METRICS2_INPUT_TO_METRICS4_SERIES_MV() -> str:
+def METRICS4_INPUT_TO_METRICS4_SERIES_MV() -> str:
     db = _db()
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS2_INPUT_TABLE_NAME}_to_{METRICS4_SERIES_TABLE_NAME} TO {db}.{METRICS4_SERIES_TABLE_NAME}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{METRICS4_SERIES_TABLE_NAME} TO {db}.{WRITABLE_METRICS4_SERIES_TABLE_NAME}
 AS SELECT
     team_id,
     metric_name,
@@ -241,15 +351,15 @@ AS SELECT
     attributes,
     timestamp,
     original_expiry_timestamp
-FROM {db}.{METRICS2_INPUT_TABLE_NAME}
+FROM {db}.{METRICS4_INPUT_TABLE_NAME}
 WHERE has_labels
 """
 
 
-def METRICS2_INPUT_TO_METRICS4_NAMES_MV() -> str:
+def METRICS4_INPUT_TO_METRICS4_NAMES_MV() -> str:
     db = _db()
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS2_INPUT_TABLE_NAME}_to_{METRICS4_NAMES_TABLE_NAME} TO {db}.{METRICS4_NAMES_TABLE_NAME}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{METRICS4_NAMES_TABLE_NAME} TO {db}.{WRITABLE_METRICS4_NAMES_TABLE_NAME}
 (
     `team_id` Int32,
     `metric_name` LowCardinality(String),
@@ -263,7 +373,7 @@ AS SELECT
     toStartOfHour(timestamp) AS time_bucket,
     toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
     maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp
-FROM {db}.{METRICS2_INPUT_TABLE_NAME} AS input
+FROM {db}.{METRICS4_INPUT_TABLE_NAME} AS input
 WHERE has_labels
 GROUP BY team_id, time_bucket, metric_name, original_expiry_time_bucket
 """
@@ -277,7 +387,7 @@ def _metrics4_attributes_mv(view_suffix: str, source_map: str, attribute_type: s
         else source_map
     )
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS2_INPUT_TABLE_NAME}_to_{view_suffix} TO {db}.{METRICS4_ATTRIBUTES_TABLE_NAME}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{view_suffix} TO {db}.{WRITABLE_METRICS4_ATTRIBUTES_TABLE_NAME}
 (
     `team_id` Int32,
     `metric_name` LowCardinality(String),
@@ -313,7 +423,7 @@ FROM
         attribute.1 AS attribute_key,
         attribute.2 AS attribute_value,
         sumSimpleState(1) AS attribute_count
-    FROM {db}.{METRICS2_INPUT_TABLE_NAME}
+    FROM {db}.{METRICS4_INPUT_TABLE_NAME}
     WHERE has_labels
     GROUP BY
         team_id,
@@ -326,11 +436,11 @@ FROM
 """
 
 
-def METRICS2_INPUT_TO_METRICS4_ATTRIBUTES_MV() -> str:
+def METRICS4_INPUT_TO_METRICS4_ATTRIBUTES_MV() -> str:
     return _metrics4_attributes_mv(METRICS4_ATTRIBUTES_TABLE_NAME, "attributes", "metric", filter_long_pairs=True)
 
 
-def METRICS2_INPUT_TO_METRICS4_RESOURCE_ATTRIBUTES_MV() -> str:
+def METRICS4_INPUT_TO_METRICS4_RESOURCE_ATTRIBUTES_MV() -> str:
     return _metrics4_attributes_mv(
         "metrics4_resource_attributes", "resource_attributes", "resource", filter_long_pairs=False
     )

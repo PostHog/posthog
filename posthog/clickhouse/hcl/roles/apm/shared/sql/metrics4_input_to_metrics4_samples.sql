@@ -24,6 +24,6 @@ SELECT
   groupArray(trace_flags) AS trace_flags_arr,
   groupArray(_partition) AS _partition_arr,
   groupArray(_offset) AS _offset_arr
-FROM posthog.metrics2_input
+FROM posthog.metrics4_input
 GROUP BY
   team_id, metric_name, time_bucket, series_fingerprint, original_expiry_date

@@ -29,9 +29,9 @@ def _db() -> str:
     return settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 
 
-def KAFKA_METRICS_AVRO2_TABLE_SQL() -> str:
+def kafka_metrics_avro_table_sql(table_name: str, group: str) -> str:
     return f"""
-CREATE TABLE IF NOT EXISTS {_db()}.{KAFKA_TABLE_NAME}
+CREATE TABLE IF NOT EXISTS {_db()}.{table_name}
 (
     `uuid` String,
     `trace_id` String,
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{KAFKA_TABLE_NAME}
     `has_labels` Nullable(UInt8),
     `retention_days` Nullable(Int32)
 )
-ENGINE = {kafka_engine(topic=KAFKA_TOPIC, group=KAFKA_GROUP, serialization="Avro", named_collection=KAFKA_NAMED_COLLECTION)}
+ENGINE = {kafka_engine(topic=KAFKA_TOPIC, group=group, serialization="Avro", named_collection=KAFKA_NAMED_COLLECTION)}
 SETTINGS
     kafka_skip_broken_messages = 100,
     kafka_thread_per_consumer = 1,
@@ -67,9 +67,13 @@ SETTINGS
 """
 
 
-def METRICS2_INPUT_TABLE_SQL() -> str:
+def KAFKA_METRICS_AVRO2_TABLE_SQL() -> str:
+    return kafka_metrics_avro_table_sql(KAFKA_TABLE_NAME, KAFKA_GROUP)
+
+
+def metrics_input_table_sql(table_name: str) -> str:
     return f"""
-CREATE TABLE IF NOT EXISTS {_db()}.{METRICS2_INPUT_TABLE_NAME}
+CREATE TABLE IF NOT EXISTS {_db()}.{table_name}
 (
     `uuid` String,
     `team_id` Int32,
@@ -101,6 +105,10 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS2_INPUT_TABLE_NAME}
 )
 ENGINE = Null
 """
+
+
+def METRICS2_INPUT_TABLE_SQL() -> str:
+    return metrics_input_table_sql(METRICS2_INPUT_TABLE_NAME)
 
 
 def METRICS2_TABLE_SQL() -> str:
@@ -251,7 +259,7 @@ def METRIC_ATTRIBUTES2_DISTRIBUTED_TABLE_SQL() -> str:
     return _distributed_sql(METRIC_ATTRIBUTES_DISTRIBUTED_TABLE_NAME, METRIC_ATTRIBUTES2_TABLE_NAME)
 
 
-def KAFKA_METRICS_AVRO2_MV_SELECT() -> str:
+def kafka_metrics_avro_mv_select(table_name: str) -> str:
     db = _db()
     sorted_resource_attributes = "mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))"
     sorted_attributes = "mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes))"
@@ -287,11 +295,15 @@ def KAFKA_METRICS_AVRO2_MV_SELECT() -> str:
     _partition,
     _topic,
     _offset
-FROM {db}.{KAFKA_TABLE_NAME}
-WHERE {KAFKA_TABLE_NAME}.series_fingerprint IS NOT NULL
+FROM {db}.{table_name}
+WHERE {table_name}.series_fingerprint IS NOT NULL
 SETTINGS
     min_insert_block_size_rows = 0,
     min_insert_block_size_bytes = 0"""
+
+
+def KAFKA_METRICS_AVRO2_MV_SELECT() -> str:
+    return kafka_metrics_avro_mv_select(KAFKA_TABLE_NAME)
 
 
 def KAFKA_METRICS_AVRO2_MV() -> str:
