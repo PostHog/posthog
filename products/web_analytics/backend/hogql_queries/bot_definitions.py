@@ -951,6 +951,9 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "BenchRankBot": BotDefinition(
         "BenchRank", "seo_crawler", "Bot", "BenchRank", documentation_url="https://benchrank.app/bot"
     ),
+    "PathIntactResearch": BotDefinition(
+        "PathIntact Research", "seo_crawler", "Bot", "PathIntact", documentation_url="https://pathintact.com"
+    ),
     "QlyzeBot": BotDefinition("Qlyze", "seo_crawler", "Bot", "Qlyze", documentation_url="https://app.qlyze.io/bot"),
     "AutozellaBot": BotDefinition(
         "Autozella", "seo_crawler", "Bot", "Autozella", documentation_url="https://autozella.com"

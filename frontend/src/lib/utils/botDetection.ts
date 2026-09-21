@@ -795,6 +795,15 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         definition: { name: 'BenchRank', category: 'seo_crawler', trafficType: 'Bot', operator: 'BenchRank' },
     },
     {
+        pattern: 'PathIntactResearch',
+        definition: {
+            name: 'PathIntact Research',
+            category: 'seo_crawler',
+            trafficType: 'Bot',
+            operator: 'PathIntact',
+        },
+    },
+    {
         pattern: 'QlyzeBot',
         definition: { name: 'Qlyze', category: 'seo_crawler', trafficType: 'Bot', operator: 'Qlyze' },
     },
