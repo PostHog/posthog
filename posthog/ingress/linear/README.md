@@ -34,10 +34,17 @@ Configure the webhook URL and resource types on the Linear OAuth application, th
 
 There is no replay window.
 Linear's recommended replay check reads `webhookTimestamp` from the body in milliseconds, while the shared scheme's window expects a header timestamp in seconds.
+The window would also reject every retry, because Linear retries after one hour and after six hours.
 The replay risk is low because the body is signed and `Linear-Delivery` deduplicates a replayed delivery.
 
-The provider does not set `retry_status` because Linear does not redeliver on a non-2xx response.
-A non-2xx response would only lose the event.
+The provider sets `retry_status` to 500.
+Linear retries a delivery up to three times on a non-200 response, after one minute, one hour and six hours, so a delivery that no consumer accepted is worth asking for again.
+
+Linear gives the endpoint five seconds to answer, and it can disable a webhook that stays unresponsive.
+A consumer here must enqueue its work rather than do it in the request.
+
+Linear creates the webhook for an organization when that organization authorizes the OAuth application.
+An organization that authorized the application before the webhook settings existed has no webhook, and it must connect again.
 
 ## Consumers
 

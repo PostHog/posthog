@@ -30,7 +30,9 @@ def _linear_secret() -> str | None:
 class LinearProvider(WebhookProvider):
     provider = "linear"
     app = "default"
-    # Linear does not redeliver on a non-2xx response, so one would only lose the event.
+    # Linear retries a delivery up to three times on a non-200 response, after one minute, one hour
+    # and six hours, so a delivery no consumer accepted is worth asking for again.
+    retry_status = 500
 
     def __init__(self) -> None:
         self._scheme = HmacSha256(
