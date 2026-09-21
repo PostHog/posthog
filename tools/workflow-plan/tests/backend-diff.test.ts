@@ -134,6 +134,23 @@ function requiredGate(wf: Workflow, cwd: string, context: Context): SpawnSyncRet
 }
 
 describe('Backend CI comparison boundaries', () => {
+    it('keeps Depot credentials out of pull request workflows', () => {
+        const canonical = loadWorkflow(path.join(REPO_ROOT, '.github/workflows/ci-backend.yml'))
+        const shadow = loadWorkflow(path.join(REPO_ROOT, '.depot/workflows/ci-backend.yml'))
+        const privileged = loadWorkflow(path.join(REPO_ROOT, '.depot/workflows/ci-backend-privileged.yml'))
+        const retry = privileged.jobs['retry-failed-jobs']!
+        const retryStep = retry.steps!.find((candidate) => candidate.name === 'Retry the matching workflow')!
+
+        expect(JSON.stringify(canonical.jobs)).not.toContain('secrets.DEPOT_')
+        expect(JSON.stringify(shadow.jobs)).not.toContain('secrets.DEPOT_')
+        expect(privileged.on).toEqual({ workflow_run: { workflows: ['Backend CI'], types: ['in_progress'] } })
+        expect(retry.if).toContain('github.event.workflow_run.run_attempt > 1')
+        expect(retryStep.env).toMatchObject({ DEPOT_TOKEN: '${{ secrets.DEPOT_CI_CANCEL_TOKEN }}' })
+        expect(retry.steps!.map((candidate) => candidate.uses)).not.toContain(
+            expect.stringContaining('actions/checkout')
+        )
+    })
+
     it.each(WORKFLOWS)('%s selects a stack layer without counting newer trunk files', (file) => {
         const repo = createGraph()
         try {

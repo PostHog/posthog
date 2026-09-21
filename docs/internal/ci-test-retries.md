@@ -41,6 +41,17 @@ Confirm that it has both a failed and a passed attempt under the same identity.
 Check the existing Engineering analytics attempt counts and recovered-test outcomes.
 Track quarantine growth and CI failures after the change: more visible retry failures can produce more quarantine decisions.
 
+## Manual backend workflow reruns
+
+For a pull request routed to Depot CI, rerun failed `Backend CI` jobs in GitHub as usual.
+Attempt 2 and later trigger `.depot/workflows/ci-backend-privileged.yml` from `master`.
+That workflow retries only the failed or canceled jobs in the Depot workflow for the same pull request and head SHA.
+The GitHub `Django Tests Pass` job ignores the old Depot verdict and waits for a check that started during the new attempt.
+
+The privileged workflow does not check out pull request code.
+Its `DEPOT_CI_CANCEL_TOKEN` secret variant must select repository `PostHog/posthog`, branch `master`, and workflow `ci-backend-privileged.yml`.
+The ordinary `.github/workflows/ci-backend.yml` and `.depot/workflows/ci-backend.yml` workflows must not receive this token.
+
 ## Other test jobs
 
 This configuration covers the suites with Trunk upload gates.

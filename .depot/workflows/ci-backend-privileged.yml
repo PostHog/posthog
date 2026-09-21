@@ -1,0 +1,59 @@
+name: Privileged Depot backend controls
+
+# workflow_run reads this file from the default branch. Never check out or execute pull
+# request code here because this workflow receives an organization-scoped Depot token.
+on:
+    workflow_run:
+        workflows: [Backend CI]
+        types: [in_progress]
+
+concurrency:
+    group: privileged-depot-backend-retry-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+jobs:
+    retry-failed-jobs:
+        name: Retry failed Depot backend jobs
+        if: >
+            github.event.workflow_run.event == 'pull_request'
+            && github.event.workflow_run.run_attempt > 1
+            && github.event.workflow_run.head_repository.full_name == github.repository
+            && github.event.workflow_run.pull_requests[0].number != ''
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - name: Set up Depot CLI
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
+            - name: Retry the matching workflow
+              env:
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_CANCEL_TOKEN }}
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+                  PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+                  [ -n "$DEPOT_TOKEN" ] || { echo "::error::DEPOT_CI_CANCEL_TOKEN is not available to the trusted workflow"; exit 1; }
+
+                  workflow=$(timeout 30s depot ci workflow list --repo "$REPO" --pr "$PR_NUMBER" --sha "$HEAD_SHA" -o json \
+                      | jq -c '[.[] | select(.workflow_path == "ci-backend.yml")] | max_by(.created_at) // empty')
+                  if [ -z "$workflow" ]; then
+                      echo "Backend CI did not hand this pull request to Depot."
+                      exit 0
+                  fi
+
+                  run_id=$(jq -r '.run_id' <<< "$workflow")
+                  workflow_id=$(jq -r '.workflow_id' <<< "$workflow")
+                  if [ "$(jq -r '.head_sha' <<< "$workflow")" != "$HEAD_SHA" ]; then
+                      echo "::error::The matching Depot workflow belongs to another commit"
+                      exit 1
+                  fi
+                  if [ "$(jq -r '.job_counts.failed + .job_counts.cancelled' <<< "$workflow")" = 0 ]; then
+                      echo "The matching Depot workflow has no failed or canceled jobs to retry."
+                      exit 0
+                  fi
+
+                  timeout 30s depot ci retry "$run_id" --workflow "$workflow_id" --failed
