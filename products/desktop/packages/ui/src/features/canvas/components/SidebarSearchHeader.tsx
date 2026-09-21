@@ -1,5 +1,5 @@
 import { AutocompleteClear, AutocompleteInput, Kbd } from "@posthog/quill";
-import { useSidebarSearchStore } from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
+import { useSidebarSearchFocus } from "@posthog/ui/features/canvas/hooks/useSidebarSearchFocus";
 import {
   formatHotkey,
   SHORTCUTS,
@@ -10,7 +10,6 @@ import {
   type ReactElement,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
-  useEffect,
   useRef,
 } from "react";
 
@@ -24,14 +23,6 @@ interface SidebarSearchHeaderProps {
   onKeyDown?: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
 }
 
-function focusSearch(input: HTMLInputElement): void {
-  input.focus();
-  input.dispatchEvent(
-    new KeyboardEvent("keydown", { key: "Home", bubbles: true }),
-  );
-  input.select();
-}
-
 export function SidebarSearchHeader({
   title,
   actions,
@@ -42,17 +33,7 @@ export function SidebarSearchHeader({
   onKeyDown,
 }: SidebarSearchHeaderProps): ReactElement {
   const searchRef = useRef<HTMLInputElement | null>(null);
-  const focusRequest = useSidebarSearchStore((state) => state.focusRequest);
-
-  useEffect(() => {
-    if (focusRequest === 0) return;
-    const input = searchRef.current;
-    if (!input || input.closest("[inert]")) return;
-    // Claim after the inert guard so an offscreen header leaves the request for
-    // the visible one, and so each request focuses a single header once.
-    if (!useSidebarSearchStore.getState().claimFocus(focusRequest)) return;
-    focusSearch(input);
-  }, [focusRequest]);
+  useSidebarSearchFocus(searchRef);
 
   return (
     <>

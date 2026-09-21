@@ -48,9 +48,9 @@ import { useDashboardMutations } from "@posthog/ui/features/canvas/hooks/useDash
 import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
 import { useSpacePresence } from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
 import { useRecentWorkItems } from "@posthog/ui/features/canvas/hooks/useRecentWorkItems";
+import { useSidebarSearchFocus } from "@posthog/ui/features/canvas/hooks/useSidebarSearchFocus";
 import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadChannels";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
-import { useSidebarSearchStore } from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
 import { EditListItemAppearanceDialog } from "@posthog/ui/features/sidebar/components/EditListItemAppearanceDialog";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
@@ -70,7 +70,6 @@ import {
   type ReactNode,
   useCallback,
   useDeferredValue,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -200,15 +199,7 @@ export function WorkColumn() {
   const [recentOpen, setRecentOpen] = useState(true);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
-  const focusRequest = useSidebarSearchStore((state) => state.focusRequest);
-  useEffect(() => {
-    if (focusRequest === 0) return;
-    const input = searchRef.current;
-    if (!input || input.closest("[inert]")) return;
-    if (!useSidebarSearchStore.getState().claimFocus(focusRequest)) return;
-    input.focus();
-    input.select();
-  }, [focusRequest]);
+  useSidebarSearchFocus(searchRef);
   const [recentExpanded, setRecentExpanded] = useState(false);
   const [spacesExpanded, setSpacesExpanded] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);

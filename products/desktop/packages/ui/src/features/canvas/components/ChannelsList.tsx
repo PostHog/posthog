@@ -15,18 +15,11 @@ import {
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import type { ChannelPresence } from "@posthog/core/canvas/presence";
 import {
-  AlertDialogClose,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
   Autocomplete,
   AutocompleteItem,
   AutocompleteList,
   Button,
   ButtonGroup,
-  AlertDialog as ConfirmDialog,
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
@@ -61,8 +54,8 @@ import { CreateChannelModal } from "@posthog/ui/features/canvas/components/Creat
 import type { ChannelActionItem } from "@posthog/ui/features/canvas/components/channelActions";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { PresenceAvatars } from "@posthog/ui/features/canvas/components/PresenceAvatars";
-import { RenameChannelModal } from "@posthog/ui/features/canvas/components/RenameChannelModal";
 import { SidebarSearchHeader } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
+import { SpaceActionDialogs } from "@posthog/ui/features/canvas/components/SpaceActionDialogs";
 import type { SpacePreviewPayload } from "@posthog/ui/features/canvas/components/SpacePreview";
 import {
   TaskRowContextMenu,
@@ -1133,20 +1126,8 @@ const ChannelSection = memo(
     useEffect(() => () => clearTimeout(prefetchTimer.current), []);
     // Shared by the "..." dropdown and the right-click context menu so both offer
     // the same star / edit / rename / delete actions.
-    const {
-      actions,
-      autoArchiveOpen,
-      setAutoArchiveOpen,
-      saveAutoArchive,
-      isUpdatingAutoArchive,
-      renameOpen,
-      setRenameOpen,
-      confirmDeleteOpen,
-      setConfirmDeleteOpen,
-      confirmDelete,
-      isDeleting,
-    } = useChannelActions(channel);
-    const renameMounted = useMountedOnceOpened(renameOpen);
+    const channelActions = useChannelActions(channel);
+    const { actions } = channelActions;
 
     const newTask = () => {
       track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
@@ -1369,64 +1350,10 @@ const ChannelSection = memo(
               </ButtonGroup>
             </div>
           </SpaceHoverCard>
-          {/* One modal for both the dropdown and context-menu "Rename" actions. */}
-          {renameMounted && (
-            <RenameChannelModal
-              channel={channel}
-              open={renameOpen}
-              onOpenChange={setRenameOpen}
-            />
-          )}
-          {/* Destructive confirm for "Delete channel" — spells out what's removed. */}
-          <ConfirmDialog
-            open={confirmDeleteOpen}
-            onOpenChange={setConfirmDeleteOpen}
-          >
-            <AlertDialogContent className="max-w-md">
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete {channel.name}?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This permanently deletes the {noun} and can’t be undone.
-                  <ul className="list-disc ps-4">
-                    <li>
-                      The {noun} and its{" "}
-                      <span className="font-medium">CONTEXT.md</span> are
-                      deleted.
-                    </li>
-                    <li>
-                      Every canvas saved in this {noun} is permanently deleted.
-                    </li>
-                    <li>
-                      Filed tasks are removed from the {noun}, but the tasks
-                      themselves are not deleted.
-                    </li>
-                  </ul>
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogClose
-                  render={<Button variant="outline">Cancel</Button>}
-                />
-                <Button
-                  variant="primary"
-                  loading={isDeleting}
-                  onClick={() =>
-                    void confirmDelete().then((ok) => {
-                      if (ok) setConfirmDeleteOpen(false);
-                    })
-                  }
-                >
-                  Delete {noun}
-                </Button>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </ConfirmDialog>
-          <AutoArchiveSettingsDialog
+          <SpaceActionDialogs
             channel={channel}
-            open={autoArchiveOpen}
-            onOpenChange={setAutoArchiveOpen}
-            onSave={saveAutoArchive}
-            isSaving={isUpdatingAutoArchive}
+            noun={noun}
+            actions={channelActions}
           />
         </div>
         {expanded && (
