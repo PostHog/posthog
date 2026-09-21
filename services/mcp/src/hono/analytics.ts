@@ -43,6 +43,7 @@ function buildBaseProperties(
 
     const properties: Record<string, unknown> = {
         $ai_product: 'mcp',
+        is_impersonated: state.isImpersonated === true,
         // The same property `posthog/event_usage.py` stamps on product events, so an MCP call
         // and the API work it causes land in one breakdown. Distinct from `$mcp_source`, which
         // names the emitting SDK rather than the surface.

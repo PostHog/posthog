@@ -21,7 +21,7 @@ export const getPostHogClient = (): PostHogMCP => {
             enableExceptionAutocapture: false,
             captureModel: true,
             before_send: (event) => {
-                if (event?.event === '$mcp_tool_call' && event.properties?.is_impersonated === true) {
+                if (event?.properties?.is_impersonated === true) {
                     return null
                 }
                 return event
