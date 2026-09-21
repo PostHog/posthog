@@ -1461,6 +1461,7 @@ def ai_gateway_env_vars(
             if refusal:
                 AI_GATEWAY_TOKEN_MINTS.labels(result="skipped").inc()
                 # The deploy's log formatter drops `extra`, so the message carries the fields.
+                # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- logs product, team id and a refusal code, no credential present
                 logger.info(
                     "ai_gateway_token: mint skipped, run stays on the Python gateway (ai_product=%s team_id=%s reason=%s)",
                     ai_product,

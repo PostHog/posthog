@@ -321,6 +321,7 @@ def mint_scoped_token(*, ai_product: str, team_id: int, user: str | None = None)
 
     AI_GATEWAY_TOKEN_MINTS.labels(result="error").inc()
     # The deploy's log formatter drops `extra`, so the message carries the fields.
+    # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- logs product, team id and the mint error, never the token or mint key
     logger.warning(
         "ai_gateway_token: mint failed, run falls back to the Python gateway (ai_product=%s team_id=%s error=%s)",
         ai_product,
