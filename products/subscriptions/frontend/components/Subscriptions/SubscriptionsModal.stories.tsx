@@ -289,15 +289,6 @@ export const SubscriptionsNew: Story = {
     args: { isCreating: true, formScenario: 'default' },
 }
 
-export const SubscriptionWizardNew: Story = {
-    parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.SUBSCRIPTION_CREATION_WIZARD]: 'test',
-        },
-    },
-    args: { isCreating: true, formScenario: 'default' },
-}
-
 export const LongAiPrompt: Story = {
     parameters: {
         ...AI_PROMPT_PARAMETERS,
