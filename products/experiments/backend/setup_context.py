@@ -924,7 +924,12 @@ def _multiple_variant_handling(exposure_criteria: dict[str, Any]) -> str:
 
 
 def _outcomes(first_primary_uuids: dict[int, str]) -> dict[int, ExperimentOutcome]:
-    """Latest completed stored result of each experiment's first primary metric, in one query."""
+    """Latest completed stored result of each experiment's first primary metric, in one query.
+
+    A legacy Trends or Funnels metric has a uuid but never has a stored result, because both
+    writers of `ExperimentMetricResult` build the metric from its `metric_type`. Its experiment
+    correctly gets no outcome.
+    """
     if not first_primary_uuids:
         return {}
     rows = (
@@ -1066,8 +1071,10 @@ def get_shared_metrics(
 ) -> SharedMetrics:
     """Rank the team's shared metrics by how often the caller's own experiments reuse them.
 
-    `saved_metrics` and `experiments` must already be filtered to what the caller may see: reuse
-    counts name experiments the same way the list does, so both sides respect access.
+    `saved_metrics` and `experiments` must already be filtered to what the caller may see. The
+    counts are not project-wide on purpose: counting experiments the caller cannot open would
+    reveal that they use the metric. The saved-metric API filters its linked experiments the same
+    way.
     """
     # A link counts as reuse only when it points at an experiment the caller can see and that is
     # not deleted. `deleted` is nullable, so `exclude(deleted=True)` keeps the nulls.
