@@ -1360,21 +1360,10 @@ async fn tombstone_persons_by_ids_in_tx(
     ];
     let _chunk_timer = common_metrics::timing_guard(DB_QUERY_DURATION, &chunk_labels);
 
-    // Take the person and distinct-id row locks up front, in id order. The
-    // multi-row updates below lock in whatever order the plan visits rows,
-    // and the ingestion writer updates overlapping rows in sorted batches;
-    // sorted acquisition on both sides rules out a deadlock cycle.
-    sqlx::query!(
-        r#"
-        SELECT id FROM posthog_person
-        WHERE team_id = $1 AND id = ANY($2)
-        ORDER BY id FOR UPDATE
-        "#,
-        team_id as i32,
-        person_ids
-    )
-    .fetch_all(&mut **tx)
-    .await?;
+    // Take the distinct-id row locks up front, in id order. The multi-row
+    // updates below lock in whatever order the plan visits rows, and the
+    // ingestion writer updates overlapping rows in sorted batches; sorted
+    // acquisition on both sides rules out a deadlock cycle.
     sqlx::query!(
         r#"
         SELECT id FROM posthog_persondistinctid
