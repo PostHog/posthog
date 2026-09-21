@@ -7,9 +7,12 @@ import {
     DATA_COLLECTION_SETTLED_EVENT,
     dataNodeCollectionLogic,
 } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { pageCollectionId } from '~/queries/nodes/DataNode/pageCollections'
 import { initKeaTests } from '~/test/init'
 
 jest.mock('posthog-js')
+
+const PAGE_COLLECTION_KEY = pageCollectionId('test-collection')
 
 describe('dataNodeCollectionLogic', () => {
     let logic: ReturnType<typeof dataNodeCollectionLogic.build>
@@ -17,20 +20,19 @@ describe('dataNodeCollectionLogic', () => {
     beforeEach(() => {
         initKeaTests()
         ;(posthog.capture as jest.Mock).mockClear()
-        logic = dataNodeCollectionLogic({ key: 'test-collection' })
+        logic = dataNodeCollectionLogic({ key: PAGE_COLLECTION_KEY })
         logic.mount()
     })
 
     const capturedEvents = (event: string): Record<string, any>[] =>
         (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name === event).map(([, properties]) => properties)
 
-    const mountTile = (id: string, sharedCollection = true): void => {
+    const mountTile = (id: string): void => {
         logic.actions.mountDataNode(id, {
             id,
             loadData: jest.fn(),
             cancelQuery: jest.fn(),
             kind: 'TrendsQuery',
-            sharedCollection,
         })
     }
 
@@ -161,7 +163,6 @@ describe('dataNodeCollectionLogic', () => {
                 id: 'tile-a',
                 loadData: jest.fn(() => logic.actions.collectionNodeLoadData('tile-a')),
                 cancelQuery: jest.fn(),
-                sharedCollection: true,
             })
 
             logic.actions.collectionNodeLoadData('tile-a')
@@ -179,13 +180,16 @@ describe('dataNodeCollectionLogic', () => {
             ])
         })
 
-        it('stays silent for a collection no other node shares', () => {
-            mountTile('tile-a', false)
+        it('stays silent for a collection not registered as a page container', () => {
+            const privateLogic = dataNodeCollectionLogic({ key: 'a-trace-or-chart-id' })
+            privateLogic.mount()
+            privateLogic.actions.mountDataNode('tile-a', { id: 'tile-a', loadData: jest.fn(), cancelQuery: jest.fn() })
 
-            logic.actions.collectionNodeLoadData('tile-a')
-            logic.actions.collectionNodeLoadDataSuccess('tile-a')
+            privateLogic.actions.collectionNodeLoadData('tile-a')
+            privateLogic.actions.collectionNodeLoadDataSuccess('tile-a')
 
             expect(posthog.capture).not.toHaveBeenCalled()
+            privateLogic.unmount()
         })
 
         it('reports abandoned, not settled, when every loading tile unmounts', () => {

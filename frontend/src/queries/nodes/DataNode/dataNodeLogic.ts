@@ -2198,8 +2198,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             loadData: actions.loadData,
             cancelQuery: actions.cancelQuery,
             kind: props.query?.kind,
-            // Without an explicit collection id a node gets a private collection keyed by its own key.
-            sharedCollection: !!props.dataNodeCollectionId && props.dataNodeCollectionId !== props.key,
         })
 
         if (props.cachedResults) {

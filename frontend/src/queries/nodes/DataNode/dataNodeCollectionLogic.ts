@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import { sceneLogic } from 'scenes/sceneLogic'
 
+import { isPageCollection } from '~/queries/nodes/DataNode/pageCollections'
 import { RefreshType } from '~/queries/schema/schema-general'
 
 export interface DataNodeRegisteredProps {
@@ -10,8 +11,6 @@ export interface DataNodeRegisteredProps {
     loadData: (refresh?: RefreshType) => void
     cancelQuery: () => void
     kind?: string
-    /** Only a collection several nodes share is a real page-level container worth timing. */
-    sharedCollection?: boolean
 }
 
 export interface CollectionNodeLoadMeta {
@@ -57,7 +56,6 @@ interface DataCollectionLoadCycle {
 export interface dataNodeCollectionLogicValues {
     areAnyLoading: boolean
     collectionNodeStatus: DataNodeStatusMap
-    isSharedCollection: boolean
     mountedDataNodes: DataNodeRegisteredProps[]
 }
 
@@ -153,13 +151,6 @@ export const dataNodeCollectionLogic = kea<dataNodeCollectionLogicType>([
                 },
             },
         ],
-        isSharedCollection: [
-            false,
-            {
-                // Sticky, so an abandonment emitted after the last node unmounts still knows it was shared.
-                mountDataNode: (state, payload) => state || !!payload.props.sharedCollection,
-            },
-        ],
     }),
     selectors({
         areAnyLoading: [
@@ -174,7 +165,7 @@ export const dataNodeCollectionLogic = kea<dataNodeCollectionLogicType>([
     listeners(({ values, props, cache }) => {
         const capture = (event: string, properties: Record<string, unknown>): void => {
             // `posthog.capture` is absent inside the toolbar bundle.
-            if (values.isSharedCollection && posthog.capture) {
+            if (isPageCollection(props.key) && posthog.capture) {
                 posthog.capture(event, properties)
             }
         }
