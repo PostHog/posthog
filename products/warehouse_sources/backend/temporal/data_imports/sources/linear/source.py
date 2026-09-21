@@ -86,6 +86,20 @@ class LinearSource(ResumableSource[LinearSourceConfig, LinearResumeConfig], OAut
             "Linear app not configured": "The Linear app is not configured on this PostHog instance. Please contact support.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_execute_query` retries each of these with backoff and re-raises once its tenacity budget
+        # exhausts. Temporal then retries the activity, and the paginator resumes from the saved
+        # cursor, so the import recovers on its own. Log the exhaustion at warning instead of raising
+        # an error tracking issue. Match only the stable prefix — every message appends detail (the
+        # status code, the GraphQL text, the underlying network error).
+        return {
+            "Linear: server error",
+            "Linear: rate limited",
+            "Linear: incomplete JSON response",
+            "Linear: internal server error",
+            "Linear: transient network error",
+        }
+
     def _get_access_token(self, config: LinearSourceConfig, team_id: int) -> str:
         integration = self.get_oauth_integration(config.linear_integration_id, team_id)
 
