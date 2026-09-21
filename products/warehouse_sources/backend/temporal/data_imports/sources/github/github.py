@@ -140,9 +140,7 @@ class GithubRepositoryTooLargeError(Exception):
 
 
 class GithubGraphqlUnavailableError(Exception):
-    """GraphQL answered, and gave no data for a reason that holds until the connection changes: no
-    GraphQL grant on the token, SSO enforcement, a rejected query. Retrying can never succeed, so
-    the merge-commit enrichment logs it and leaves the column empty rather than failing the sync."""
+    """The connection cannot read the requested GitHub GraphQL resource."""
 
     pass
 
@@ -1317,6 +1315,7 @@ GITHUB_GRAPHQL_URL = f"{GITHUB_BASE_URL}/graphql"
 
 # One GraphQL call per REST page: the aliases cost one rate point each, far below the node cap.
 _MERGE_COMMIT_BATCH_SIZE = GITHUB_ENDPOINTS["pull_requests"].page_size
+_GRAPHQL_ACCESS_ERROR_TYPES = frozenset({"FORBIDDEN", "INSUFFICIENT_SCOPES", "NOT_FOUND", "UNAUTHENTICATED"})
 
 
 def _merge_commit_document(numbers: list[int]) -> str:
@@ -1324,6 +1323,26 @@ def _merge_commit_document(numbers: list[int]) -> str:
     # owner and name travel as variables.
     aliases = " ".join(f"pr{number}: pullRequest(number: {number}) {{ mergeCommit {{ oid }} }}" for number in numbers)
     return f"query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) {{ {aliases} }} }}"
+
+
+def _graphql_error_type(error: Any) -> str | None:
+    if not isinstance(error, dict):
+        return None
+
+    candidates = [error.get("type")]
+    extensions = error.get("extensions")
+    if isinstance(extensions, dict):
+        candidates.extend((extensions.get("type"), extensions.get("code"), extensions.get("classification")))
+
+    return next((candidate.upper() for candidate in candidates if isinstance(candidate, str)), None)
+
+
+def _has_only_graphql_access_errors(errors: Any) -> bool:
+    return (
+        isinstance(errors, list)
+        and bool(errors)
+        and all(_graphql_error_type(error) in _GRAPHQL_ACCESS_ERROR_TYPES for error in errors)
+    )
 
 
 def _raise_if_graphql_rate_limited(response: requests.Response, body: dict[str, Any]) -> None:
@@ -1354,6 +1373,57 @@ def _raise_if_graphql_rate_limited(response: requests.Response, body: dict[str, 
     )
 
 
+def _read_graphql_body(response: requests.Response) -> dict[str, Any]:
+    try:
+        body = response.json()
+    except requests.exceptions.JSONDecodeError as error:
+        raise GithubRetryableError("Github GraphQL returned invalid JSON") from error
+    if not isinstance(body, dict):
+        raise GithubRetryableError("Github GraphQL returned an invalid response body")
+    return body
+
+
+def _merge_commit_sha(pull_requests: dict[str, Any], number: int) -> str | None:
+    pull_request = pull_requests.get(f"pr{number}")
+    if pull_request is None:
+        return None
+    if not isinstance(pull_request, dict):
+        raise GithubRetryableError("Github GraphQL returned an invalid pull request")
+
+    merge_commit = pull_request.get("mergeCommit")
+    if merge_commit is None:
+        return None
+    if not isinstance(merge_commit, dict):
+        raise GithubRetryableError("Github GraphQL returned an invalid merge commit")
+
+    oid = merge_commit.get("oid")
+    if not isinstance(oid, str):
+        raise GithubRetryableError("Github GraphQL returned an invalid merge commit")
+    return oid
+
+
+def _parse_merge_commit_shas(
+    body: dict[str, Any], numbers: list[int], repository: str, logger: FilteringBoundLogger
+) -> dict[int, str]:
+    errors = body.get("errors")
+    data = body.get("data")
+    pull_requests = data.get("repository") if isinstance(data, dict) else None
+    if not isinstance(pull_requests, dict):
+        if _has_only_graphql_access_errors(errors):
+            raise GithubGraphqlUnavailableError(f"Github GraphQL returned no repository data: errors={errors}")
+        raise GithubRetryableError(f"Github GraphQL returned no repository data: errors={errors}")
+
+    if errors:
+        if not _has_only_graphql_access_errors(errors):
+            raise GithubRetryableError(f"Github GraphQL returned unresolved errors: errors={errors}")
+        logger.warning(
+            "Github: GraphQL denied part of the merge commit batch, so those pull requests keep "
+            f"an empty merge_commit_sha: repository={repository}, errors={errors}"
+        )
+
+    return {number: sha for number in numbers if (sha := _merge_commit_sha(pull_requests, number)) is not None}
+
+
 @retry(
     retry=retry_if_exception_type(_GITHUB_RETRYABLE_ERRORS),
     stop=stop_after_attempt(5),
@@ -1366,6 +1436,7 @@ def _fetch_merge_commit_shas(
     access_token: str,
     logger: FilteringBoundLogger,
     egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
 ) -> dict[int, str]:
     """Ask GraphQL for the merge commit of each pull request number, through the gated and recorded
     transport, budget pacing, and retry policy the REST walk uses. Returns only the numbers GraphQL
@@ -1381,7 +1452,7 @@ def _fetch_merge_commit_shas(
         GITHUB_GRAPHQL_URL,
         source="warehouse",
         endpoint="/graphql",
-        headers=_get_headers(access_token),
+        headers=_get_headers(access_token, api_version=api_version),
         installation_id=installation_id,
         priority=Priority.BATCH,
         timeout=60,
@@ -1395,36 +1466,13 @@ def _fetch_merge_commit_shas(
     if response.status_code >= 500:
         raise GithubRetryableError(f"Github GraphQL error (retryable): status={response.status_code}")
     raise_if_github_rate_limited(response)
+    if response.status_code in {401, 403, 404}:
+        raise GithubGraphqlUnavailableError(f"Github GraphQL access failed: status={response.status_code}")
     response.raise_for_status()
 
-    body = response.json()
+    body = _read_graphql_body(response)
     _raise_if_graphql_rate_limited(response, body)
-
-    pull_requests = (body.get("data") or {}).get("repository")
-    if pull_requests is None:
-        # GraphQL answers 200 with a null `data` and an `errors` array for the failures REST would
-        # have given a status code. Never read the empty body as "none of these pull requests has a
-        # merge commit". The rate limit, the one transient member of that set, is already mapped
-        # above, so what is left — no GraphQL grant, SSO enforcement, a rejected query — holds for
-        # this connection until someone changes it, and is not worth retrying.
-        raise GithubGraphqlUnavailableError(f"Github GraphQL returned no repository data: errors={body.get('errors')}")
-
-    errors = body.get("errors")
-    if errors:
-        # A resolver that fails for one alias nulls that alias and lets the rest of the batch answer.
-        # The null then looks exactly like a pull request that has no merge commit, so record the
-        # errors here. Without them an operator cannot tell the two apart, and the row keeps an empty
-        # merge_commit_sha with no record of why.
-        logger.warning(
-            "Github: GraphQL errored on part of the merge commit batch, so those pull requests keep "
-            f"an empty merge_commit_sha: repository={repository}, errors={errors}"
-        )
-
-    return {
-        number: pull_requests[f"pr{number}"]["mergeCommit"]["oid"]
-        for number in numbers
-        if (pull_requests.get(f"pr{number}") or {}).get("mergeCommit")
-    }
+    return _parse_merge_commit_shas(body, numbers, repository, logger)
 
 
 def _add_merge_commit_shas(
@@ -1433,13 +1481,14 @@ def _add_merge_commit_shas(
     access_token: str,
     logger: FilteringBoundLogger,
     egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
 ) -> bool:
     """Fill in `merge_commit_sha` on the merged pull requests of one page, in place. False says
     GraphQL is closed to this connection, so the caller can stop asking for the rest of the walk.
 
     A permanent denial does not fail the sync: the rest of the pull request row is good, and failing
-    would lose the whole table on every run for a connection that can never answer. A transient
-    failure is raised instead, for the reason on the handler below."""
+    would lose the whole table on every run for a connection that can never answer. Other failures
+    abort the walk so its incremental watermark cannot skip rows that still need enrichment."""
     # Land the column whatever happens. The curated engineering analytics views select
     # `merge_commit_sha` by name, so a page that resolves nothing must still carry an empty column
     # rather than drop it from the table and break the read.
@@ -1456,16 +1505,15 @@ def _add_merge_commit_shas(
 
     for batch in batched(pending, _MERGE_COMMIT_BATCH_SIZE, strict=False):
         try:
-            shas = _fetch_merge_commit_shas(repository, list(batch), access_token, logger, egress_identity)
-        except _GITHUB_RETRYABLE_ERRORS:
-            # Transient, and still failing after five attempts: a rate-limit window, our own egress
-            # budget, or the network. Fail the walk. `pull_requests` sorts newest-first, so the
-            # watermark advances to the newest row as soon as a walk completes, and a merged pull
-            # request rarely moves `updated_at` again — a SHA skipped here would need a full refresh
-            # to recover. Failing holds the watermark where it is, so the next sync reads the same
-            # rows. This is what the REST walk already does with the same errors.
-            raise
-        except Exception as error:
+            shas = _fetch_merge_commit_shas(
+                repository,
+                list(batch),
+                access_token,
+                logger,
+                egress_identity=egress_identity,
+                api_version=api_version,
+            )
+        except GithubGraphqlUnavailableError as error:
             logger.warning(
                 "Github: GraphQL is unavailable, so merged pull requests keep an empty merge_commit_sha: "
                 f"repository={repository}, error={error}"
@@ -1596,7 +1644,12 @@ def get_rows(
 
         if enrich_merge_commits:
             enrich_merge_commits = _add_merge_commit_shas(
-                data, repository, personal_access_token, logger, egress_identity
+                data,
+                repository,
+                personal_access_token,
+                logger,
+                egress_identity=egress_identity,
+                api_version=api_version,
             )
 
         next_url = _parse_next_url(response.headers.get("Link", ""))

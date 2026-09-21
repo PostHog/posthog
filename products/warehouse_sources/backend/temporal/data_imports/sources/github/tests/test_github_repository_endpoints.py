@@ -490,9 +490,10 @@ class TestMergeCommitSha:
         )
 
         with mock.patch.object(github, "github_request", return_value=graphql) as github_request:
-            rows, _calls = _run("pull_requests", {"api.github.com": page})
+            rows, _calls = _run("pull_requests", {"api.github.com": page}, api_version="2026-03-10")
 
         assert [row["merge_commit_sha"] for row in rows] == ["sha-seven", None, "sha-nine"]
+        assert github_request.call_args.kwargs["headers"]["X-GitHub-Api-Version"] == "2026-03-10"
         # Only the merged row that arrived without a SHA is asked for: an open pull request has no
         # merge commit, and a row that already carries one costs nothing.
         github_request.assert_called_once()
@@ -500,15 +501,15 @@ class TestMergeCommitSha:
         assert re.findall(r"pr(\d+): pullRequest", payload["query"]) == ["7"]
         assert payload["variables"] == {"owner": "acme", "name": "widgets"}
 
-    def test_an_alias_error_costs_only_its_own_pull_request(self) -> None:
-        # GraphQL nulls the alias whose resolver failed and still answers for the rest of the batch,
-        # so the good rows must survive a body that carries `errors` beside its data.
+    def test_a_permanent_alias_error_costs_only_its_own_pull_request(self) -> None:
         graphql = mock.Mock()
         graphql.status_code = 200
         graphql.headers = {}
         graphql.json.return_value = {
             "data": {"repository": {"pr7": {"mergeCommit": {"oid": "sha-seven"}}, "pr8": None}},
-            "errors": [{"message": "Something went wrong", "path": ["repository", "pr8"]}],
+            "errors": [
+                {"type": "NOT_FOUND", "message": "Could not resolve pull request", "path": ["repository", "pr8"]}
+            ],
         }
         page = _response([self._pull_request(7, merged=True), self._pull_request(8, merged=True)])
 
@@ -516,6 +517,25 @@ class TestMergeCommitSha:
             rows, _calls = _run("pull_requests", {"api.github.com": page})
 
         assert [row["merge_commit_sha"] for row in rows] == ["sha-seven", None]
+
+    def test_an_unknown_alias_error_fails_the_walk(self) -> None:
+        graphql = mock.Mock()
+        graphql.status_code = 200
+        graphql.headers = {}
+        graphql.json.return_value = {
+            "data": {"repository": {"pr7": None}},
+            "errors": [{"message": "Something went wrong", "path": ["repository", "pr7"]}],
+        }
+        page = _response([self._pull_request(7, merged=True)])
+
+        with (
+            mock.patch.object(github, "github_request", return_value=graphql) as github_request,
+            mock.patch.object(github, "_github_backoff_wait", return_value=0.0),
+            pytest.raises(github.GithubRetryableError),
+        ):
+            _run("pull_requests", {"api.github.com": page})
+
+        assert github_request.call_count == 5
 
     @parameterized.expand([("advertised reset", 900, 900), ("no reset header", None, 60)])
     def test_graphql_rate_limit_carries_a_wait_that_outlasts_the_window(
@@ -566,6 +586,32 @@ class TestMergeCommitSha:
         assert [(row["number"], row["merge_commit_sha"]) for row in rows] == [(7, None)]
         # Permanent, so it is not retried either.
         github_request.assert_called_once()
+
+    def test_graphql_is_disabled_after_a_permanent_failure(self) -> None:
+        denied = mock.Mock()
+        denied.status_code = 200
+        denied.headers = {}
+        denied.json.return_value = {"data": None, "errors": [{"type": "FORBIDDEN"}]}
+        second_page_url = "https://api.github.com/repos/acme/widgets/pulls?page=2"
+        first_page = _response([self._pull_request(7, merged=True)], next_url=second_page_url)
+        second_page = _response([self._pull_request(6, merged=True)])
+
+        with mock.patch.object(github, "github_request", return_value=denied) as github_request:
+            rows, calls = _run("pull_requests", {second_page_url: second_page, "api.github.com": first_page})
+
+        assert [(row["number"], row["merge_commit_sha"]) for row in rows] == [(7, None), (6, None)]
+        assert len(calls) == 2
+        assert calls[-1] == second_page_url
+        github_request.assert_called_once()
+
+    def test_an_unexpected_enrichment_failure_fails_the_walk(self) -> None:
+        page = _response([self._pull_request(7, merged=True)])
+
+        with (
+            mock.patch.object(github, "_fetch_merge_commit_shas", side_effect=KeyError("mergeCommit")),
+            pytest.raises(KeyError, match="mergeCommit"),
+        ):
+            _run("pull_requests", {"api.github.com": page})
 
     def test_a_transient_graphql_failure_fails_the_walk(self) -> None:
         # Merged pull requests rarely move `updated_at` again, and the newest-first watermark
