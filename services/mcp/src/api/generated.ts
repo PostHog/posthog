@@ -49059,16 +49059,6 @@ export namespace Schemas {
       session_id?: string | null;
     }
 
-    export type PersonSearchMatchFieldEnumApi = typeof PersonSearchMatchFieldEnumApi[keyof typeof PersonSearchMatchFieldEnumApi];
-
-
-    export const PersonSearchMatchFieldEnumApi = {
-      DistinctId: 'distinct_id',
-      Email: 'email',
-      Name: 'name',
-      Id: 'id',
-    } as const;
-
     export type PersonTypeProperties = { [key: string]: unknown };
 
     export interface PersonType {
@@ -49078,7 +49068,7 @@ export namespace Schemas {
       is_identified?: boolean | null;
       last_seen_at?: string | null;
       /** Only on a search result: the fields the search term was found in. */
-      matched_fields?: PersonSearchMatchFieldEnumApi[] | null;
+      matched_fields?: string[] | null;
       name?: string | null;
       properties: PersonTypeProperties;
       uuid?: string | null;
