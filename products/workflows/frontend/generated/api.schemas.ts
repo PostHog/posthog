@@ -238,11 +238,13 @@ export const HogFlowStateEnumApi = {
 
 /**
  * * `loops` - Loops
+ * * `broadcasts` - Broadcasts
  */
 export type HogFlowOriginProductEnumApi = (typeof HogFlowOriginProductEnumApi)[keyof typeof HogFlowOriginProductEnumApi]
 
 export const HogFlowOriginProductEnumApi = {
     Loops: 'loops',
+    Broadcasts: 'broadcasts',
 } as const
 
 /**
@@ -303,15 +305,6 @@ export interface UserBasicApi {
 }
 
 /**
- * * `broadcast` - Broadcast
- */
-export type HogFlowKindEnumApi = (typeof HogFlowKindEnumApi)[keyof typeof HogFlowKindEnumApi]
-
-export const HogFlowKindEnumApi = {
-    Broadcast: 'broadcast',
-} as const
-
-/**
  * Mixin for serializers to add user access control fields
  */
 export interface HogFlowMinimalApi {
@@ -325,7 +318,6 @@ export interface HogFlowMinimalApi {
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
-    readonly kind: HogFlowKindEnumApi | null
     readonly trigger: unknown
     readonly trigger_masking: unknown
     readonly conversion: unknown
@@ -605,15 +597,12 @@ export interface HogFlowApi {
     status?: HogFlowStateEnumApi
     /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
      *
-     * * `loops` - Loops */
+     * * `loops` - Loops
+     * * `broadcasts` - Broadcasts */
     origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
-    /** UX discriminator for workflows built by a purpose-built surface. 'broadcast' marks a one-time or scheduled email send (batch trigger + one email action) managed via the broadcasts UI; null for ordinary workflows. Doesn't affect execution. Filterable on the list endpoint via ?kind=broadcast.
-     *
-     * * `broadcast` - Broadcast */
-    kind?: HogFlowKindEnumApi | null
     readonly trigger: unknown
     /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
     trigger_masking?: HogFlowMaskingApi | null
@@ -707,15 +696,12 @@ export interface HogFlowUpdateApi {
     status?: HogFlowStateEnumApi
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
-     * * `loops` - Loops */
+     * * `loops` - Loops
+     * * `broadcasts` - Broadcasts */
     readonly origin_product: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
-    /** UX discriminator for workflows built by a purpose-built surface. 'broadcast' marks a one-time or scheduled email send (batch trigger + one email action) managed via the broadcasts UI; null for ordinary workflows. Doesn't affect execution. Filterable on the list endpoint via ?kind=broadcast.
-     *
-     * * `broadcast` - Broadcast */
-    kind?: HogFlowKindEnumApi | null
     readonly trigger: unknown
     /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
     trigger_masking?: HogFlowMaskingApi | null
@@ -809,15 +795,12 @@ export interface PatchedHogFlowUpdateApi {
     status?: HogFlowStateEnumApi
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
-     * * `loops` - Loops */
+     * * `loops` - Loops
+     * * `broadcasts` - Broadcasts */
     readonly origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
     readonly updated_at?: string
-    /** UX discriminator for workflows built by a purpose-built surface. 'broadcast' marks a one-time or scheduled email send (batch trigger + one email action) managed via the broadcasts UI; null for ordinary workflows. Doesn't affect execution. Filterable on the list endpoint via ?kind=broadcast.
-     *
-     * * `broadcast` - Broadcast */
-    kind?: HogFlowKindEnumApi | null
     readonly trigger?: unknown
     /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
     trigger_masking?: HogFlowMaskingApi | null
@@ -1803,15 +1786,10 @@ export type HogFlowsListParams = {
      */
     created_by?: string
     /**
-     * Drop workflows of this kind from the results, e.g. `broadcast` for a list that has its own surface.
+     * Drop workflows owned by this product surface, e.g. `broadcasts` for a list that has its own.
      */
-    exclude_kind?: HogFlowsListExcludeKind
+    exclude_origin_product?: HogFlowsListExcludeOriginProduct
     id?: string
-    /**
-     * * `broadcast` - Broadcast
-     * @nullable
-     */
-    kind?: HogFlowsListKind
     /**
      * Number of results to return per page.
      */
@@ -1845,21 +1823,18 @@ export type HogFlowsListParams = {
     updated_at?: string
 }
 
-export type HogFlowsListExcludeKind = (typeof HogFlowsListExcludeKind)[keyof typeof HogFlowsListExcludeKind]
+export type HogFlowsListExcludeOriginProduct =
+    (typeof HogFlowsListExcludeOriginProduct)[keyof typeof HogFlowsListExcludeOriginProduct]
 
-export const HogFlowsListExcludeKind = {
-    Broadcast: 'broadcast',
-} as const
-
-export type HogFlowsListKind = (typeof HogFlowsListKind)[keyof typeof HogFlowsListKind] | null
-
-export const HogFlowsListKind = {
-    Broadcast: 'broadcast',
+export const HogFlowsListExcludeOriginProduct = {
+    Broadcasts: 'broadcasts',
+    Loops: 'loops',
 } as const
 
 export type HogFlowsListOriginProduct = (typeof HogFlowsListOriginProduct)[keyof typeof HogFlowsListOriginProduct]
 
 export const HogFlowsListOriginProduct = {
+    Broadcasts: 'broadcasts',
     Loops: 'loops',
 } as const
 

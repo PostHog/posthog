@@ -32,9 +32,6 @@ const workflowsCreate = (): ToolBase<ReturnType<typeof WorkflowsCreateSchema>, W
             if (params.origin_product !== undefined) {
                 body['origin_product'] = params.origin_product
             }
-            if (params.kind !== undefined) {
-                body['kind'] = params.kind
-            }
             if (params.trigger_masking !== undefined) {
                 body['trigger_masking'] = params.trigger_masking
             }
@@ -187,9 +184,8 @@ const workflowsList = (): ToolBase<
                 query: {
                     created_at: params.created_at,
                     created_by: params.created_by,
-                    exclude_kind: params.exclude_kind,
+                    exclude_origin_product: params.exclude_origin_product,
                     id: params.id,
-                    kind: params.kind,
                     limit: params.limit,
                     offset: params.offset,
                     origin_product: params.origin_product,
@@ -484,9 +480,6 @@ const workflowsUpdate = (): ToolBase<ReturnType<typeof WorkflowsUpdateSchema>, W
             }
             if (params.description !== undefined) {
                 body['description'] = params.description
-            }
-            if (params.kind !== undefined) {
-                body['kind'] = params.kind
             }
             if (params.trigger_masking !== undefined) {
                 body['trigger_masking'] = params.trigger_masking

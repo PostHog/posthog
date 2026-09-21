@@ -2779,7 +2779,6 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "created_at",
             "created_by",
             "updated_at",
-            "kind",
             "trigger",
             "trigger_masking",
             "conversion",
@@ -2867,16 +2866,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         choices=HogFlow.State.choices,
         required=False,
         help_text="draft (no execution), active (live), archived (disabled).",
-    )
-    kind = serializers.ChoiceField(
-        choices=HogFlow.Kind.choices,
-        required=False,
-        allow_null=True,
-        help_text=(
-            "UX discriminator for workflows built by a purpose-built surface. 'broadcast' marks a one-time or "
-            "scheduled email send (batch trigger + one email action) managed via the broadcasts UI; null for "
-            "ordinary workflows. Doesn't affect execution. Filterable on the list endpoint via ?kind=broadcast."
-        ),
     )
     trigger_masking = HogFlowMaskingSerializer(
         required=False,
@@ -3114,7 +3103,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "created_at",
             "created_by",
             "updated_at",
-            "kind",
             "trigger",
             "trigger_masking",
             "conversion",
@@ -3763,7 +3751,7 @@ class HogFlowFilterSet(FilterSet):
         model = HogFlow
         # `created_by` is filtered by uuid in safely_get_queryset (the list UI's member picker keys on
         # uuid, not pk), so it's deliberately not an exact-match field here.
-        fields = ["id", "created_at", "updated_at", "status", "kind"]
+        fields = ["id", "created_at", "updated_at", "status", "origin_product"]
 
 
 class HogFlowPagination(LimitOffsetPagination):
@@ -3899,10 +3887,10 @@ WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogF
                 description="Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
             ),
             OpenApiParameter(
-                "exclude_kind",
+                "exclude_origin_product",
                 OpenApiTypes.STR,
-                enum=HogFlow.Kind.values,
-                description="Drop workflows of this kind from the results, e.g. `broadcast` for a list that has its own surface.",
+                enum=HogFlow.OriginProduct.values,
+                description="Drop workflows owned by this product surface, e.g. `broadcasts` for a list that has its own.",
             ),
             OpenApiParameter(
                 "trigger",
@@ -4057,13 +4045,13 @@ class HogFlowViewSet(
                         queryset.filter(messaging_q) if workflow_type == "messaging" else queryset.exclude(messaging_q)
                     )
 
-            exclude_kind = self.request.GET.get("exclude_kind")
-            if exclude_kind:
-                if exclude_kind not in HogFlow.Kind.values:
+            exclude_origin_product = self.request.GET.get("exclude_origin_product")
+            if exclude_origin_product:
+                if exclude_origin_product not in HogFlow.OriginProduct.values:
                     raise exceptions.ValidationError(
-                        {"exclude_kind": f"Must be one of: {', '.join(HogFlow.Kind.values)}"}
+                        {"exclude_origin_product": f"Must be one of: {', '.join(HogFlow.OriginProduct.values)}"}
                     )
-                queryset = queryset.exclude(kind=exclude_kind)
+                queryset = queryset.exclude(origin_product=exclude_origin_product)
 
             origin_product = self.request.GET.get("origin_product")
             if origin_product:

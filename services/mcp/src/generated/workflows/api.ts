@@ -19,18 +19,15 @@ export const HogFlowsListParams = () => zod.object({
 export const HogFlowsListQueryParams = () => zod.object({
     created_at: zod.iso.datetime({ offset: true }).optional(),
     created_by: zod.string().optional().describe('Filter to workflows created by the user with this uuid.'),
-    exclude_kind: zod
-        .enum(['broadcast'])
+    exclude_origin_product: zod
+        .enum(['broadcasts', 'loops'])
         .optional()
-        .describe(
-            'Drop workflows of this kind from the results, e.g. `broadcast` for a list that has its own surface.'
-        ),
+        .describe('Drop workflows owned by this product surface, e.g. `broadcasts` for a list that has its own.'),
     id: zod.string().optional(),
-    kind: zod.enum(['broadcast']).nullish().describe('\* `broadcast` - Broadcast'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     origin_product: zod
-        .enum(['loops'])
+        .enum(['broadcasts', 'loops'])
         .optional()
         .describe('Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.'),
     search: zod
@@ -99,16 +96,13 @@ export const HogFlowsCreateBody = () => zod
                 'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
             ),
         origin_product: zod
-            .union([zod.enum(['loops']).describe('\* `loops` - Loops'), zod.null()])
+            .union([
+                zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
+                zod.null(),
+            ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops'
-            ),
-        kind: zod
-            .union([zod.enum(['broadcast']).describe('\* `broadcast` - Broadcast'), zod.null()])
-            .optional()
-            .describe(
-                "UX discriminator for workflows built by a purpose-built surface. 'broadcast' marks a one-time or scheduled email send (batch trigger + one email action) managed via the broadcasts UI; null for ordinary workflows. Doesn't affect execution. Filterable on the list endpoint via ?kind=broadcast.\n\n\* `broadcast` - Broadcast"
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
             ),
         trigger_masking: zod
             .union([
@@ -511,12 +505,6 @@ export const HogFlowsPartialUpdateBody = () => zod
     .object({
         name: zod.string().max(hogFlowsPartialUpdateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().optional().describe('Optional description.'),
-        kind: zod
-            .union([zod.enum(['broadcast']).describe('\* `broadcast` - Broadcast'), zod.null()])
-            .optional()
-            .describe(
-                "UX discriminator for workflows built by a purpose-built surface. 'broadcast' marks a one-time or scheduled email send (batch trigger + one email action) managed via the broadcasts UI; null for ordinary workflows. Doesn't affect execution. Filterable on the list endpoint via ?kind=broadcast.\n\n\* `broadcast` - Broadcast"
-            ),
         trigger_masking: zod
             .union([
                 zod.object({

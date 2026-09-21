@@ -857,7 +857,7 @@ function buildBroadcastPayload(values: {
     emailRateLimit: HogFlowEmailSendingRateLimitApi | null
 }): Record<string, any> {
     return {
-        kind: 'broadcast',
+        origin_product: 'broadcasts',
         status: 'draft',
         name: values.name,
         exit_condition: 'exit_only_at_end',

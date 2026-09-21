@@ -431,29 +431,6 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?type=campaign")
         assert response.status_code == 400
 
-    def test_kind_is_writable_and_filterable(self):
-        hog_flow, _ = self._create_hog_flow_with_action(
-            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
-        )
-        hog_flow["kind"] = "broadcast"
-        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
-        assert create_response.status_code == 201, create_response.json()
-        assert create_response.json()["kind"] == "broadcast"
-        HogFlow.objects.create(team=self.team, name="Ordinary", created_by=self.user)
-
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?kind=broadcast")
-        assert response.status_code == 200, response.json()
-        assert [flow["kind"] for flow in response.json()["results"]] == ["broadcast"]
-
-        # The workflows list relies on this rather than dropping rows from the page, so the count has
-        # to come out excluding them too, or paging skips ordinary workflows.
-        excluded = self.client.get(f"/api/projects/{self.team.id}/hog_flows?exclude_kind=broadcast")
-        assert excluded.status_code == 200, excluded.json()
-        assert {flow["name"] for flow in excluded.json()["results"]} == {"Ordinary"}
-        assert excluded.json()["count"] == 1
-
-        assert self.client.get(f"/api/projects/{self.team.id}/hog_flows?exclude_kind=nope").status_code == 400
-
     def test_list_filter_by_origin_product(self):
         HogFlow.objects.create(team=self.team, name="Loop", created_by=self.user, origin_product="loops")
         HogFlow.objects.create(team=self.team, name="Hand built", created_by=self.user)
@@ -464,6 +441,15 @@ class TestHogFlowAPI(APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?origin_product=spreadsheets")
         assert response.status_code == 400
+
+        # The workflows list relies on the exclusion rather than dropping rows from the page, so the
+        # count has to come out excluding them too, or paging skips ordinary workflows.
+        excluded = self.client.get(f"/api/projects/{self.team.id}/hog_flows?exclude_origin_product=loops")
+        assert excluded.status_code == 200, excluded.json()
+        assert {flow["name"] for flow in excluded.json()["results"]} == {"Hand built"}
+        assert excluded.json()["count"] == 1
+
+        assert self.client.get(f"/api/projects/{self.team.id}/hog_flows?exclude_origin_product=nope").status_code == 400
 
     def test_origin_product_is_set_on_create_and_immutable(self):
         hog_flow, _ = self._create_hog_flow_with_action(
