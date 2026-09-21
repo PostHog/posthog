@@ -14,12 +14,15 @@ The session UUIDv7 timestamp selects the version:
 
 - Before the cutoff: v1 uses HMAC team and session IDs.
 - At or after the cutoff: v2 uses raw team and session IDs and encrypted payloads.
+- At or after **Monday, 2026-09-21 at 17:00 UTC** (18:00 in Europe/London): v3 keeps the v2 identifiers and keys, and stores its objects in the v3 buckets under `rrweb_3/` and the `/v3/` dataset paths.
 - The ML mirror drops a session if its ID is not UUIDv7 or its start year is beyond 9999.
 
 Event timestamps, arrival times, retries, and flushes do not change the version.
 Both versions can occur in one ingestion batch.
 Their replay blocks, images, and metadata use separate storage paths.
 The version applies to the whole session, including a session that crosses the cutoff.
+An image carries a session month and no session ID, so the image dataset moves to v3 at the first month boundary after the v3 cutoff: images of `2026-09` stay in v2 and images of `2026-10` onward are v3.
+The three lanes require `AI_RESEARCH_REPLAY_S3_BUCKET` at startup, because a v3 session or image has no other place to go.
 
 ## Consent
 
@@ -181,6 +184,9 @@ A session that crosses a month boundary stays in its start month, including late
 | Inline image indexes | `scrubbed-images/v2/<month>/<team>/index/`                  | Team and session month                   |
 | URL images           | `scrubbed-images/v2/<month>/<team>/url/<hash>`              | Team and session month                   |
 
+A v3 session uses the same layout in the v3 buckets: blocks under `rrweb_3/<month>/`, and the metadata catalog, the evaluation index and every image path with `/v3/` in place of `/v2/`.
+A reader finds the bucket of a block in its `block_url`, and resolves an image reference in the v3 images bucket when the reference's month is `2026-10` or later.
+
 Metadata catalogs expose raw `team_id`, `session_id`, `format_version`, and an encrypted `payload`.
 URLs, block locations, and replay indexes are inside that payload.
 Neither the catalog nor its encrypted payload includes a distinct-ID field.
@@ -209,8 +215,8 @@ Consumers reject malformed UUIDv7 session identifiers before reading DynamoDB.
 Oversized identifiers cannot fail a whole bulk key lookup.
 Inline images have an encrypted lookup for each reference, published after the shard and its index.
 Readers fetch that lookup directly; a missing image does not require a scan of the team's image history.
-The image scrubber writes the shards of one poll batch while it scrubs the next batch, and writes the shard groups of a batch concurrently.
-The offsets of a batch are stored after its writes complete, in batch order, so a failed write stops every later store and the pod replays from the last stored offset.
+The image scrubber hands the images it scrubbed to a write lane every 30 seconds or when its buffer is full, writes them while it scrubs the next batches, and writes the shard groups of one hand-off concurrently.
+The offsets of a hand-off are stored after its writes complete, in hand-off order, so a failed write stops every later store and the pod replays from the last stored offset.
 Source deduplication includes the session, so deleting one source session cannot suppress another session's copy.
 The v2 image-fetch frontier uses a separate, initially empty DynamoDB history table.
 Its URL history expires eight days after the end of the session's UTC month.
@@ -237,7 +243,7 @@ New key manager and v2 storage settings use the `AI_RESEARCH_REPLAY_*` prefix:
 - `ROW_CACHE_MAX` and `ROW_CACHE_LIFETIME_MS` bound the stored key row cache. The lifetime applies to a session key row and is capped; a team image key row is held for up to 48 hours. A value that is not a positive integer stops the consumer at startup and names the setting.
 - `IMAGE_FETCH_V2_DYNAMODB_TABLE` selects the fresh v2 frontier.
 - `S3_PREFIX` selects v2 replay storage and defaults to `rrweb_2`.
-- `S3_BUCKET` names the v3 bucket, which holds only AISR03 frames. It is empty until the cutover by session start timestamp selects it, and v2 keeps its own bucket.
+- `S3_BUCKET` names the v3 bucket, which holds only AISR03 frames. A session that started at or after the v3 cutoff writes there, and v2 keeps its own bucket. The mirror, the sink and the image scrubber stop at startup when it is empty.
 - `S3_V3_PREFIX` selects the block prefix inside the v3 bucket and defaults to `rrweb_3`. Each dataset version has its own prefix, so a bucket policy grants only the versions it holds.
 
 The v2 producer requires `AI_RESEARCH_REPLAY_KEY_TABLE` and `AI_RESEARCH_REPLAY_KMS_KEY_ARN` at startup.
