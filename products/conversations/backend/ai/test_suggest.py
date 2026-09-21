@@ -247,6 +247,54 @@ class TestBuildTicketContext(BaseTest):
         assert "SSO setup" in context
         assert "Use Google SSO." in context
 
+    @parameterized.expand(["everyone", "one member", "one role"])
+    def test_prior_tickets_skip_a_ticket_a_member_may_not_open(self, restricted_for: str) -> None:
+        # A rule on one ticket hides it from some agents, but the note quoting it is read by
+        # everyone who can open the ticket being answered. So a restricted ticket stays out.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        current = self._create_ticket(distinct_id="same-person")
+        restricted = self._create_ticket(
+            distinct_id="same-person", status=TicketStatus.RESOLVED, email_subject="Escalation"
+        )
+        restricted.created_at = _FIXED_NOW - timedelta(days=1)
+        restricted.save(update_fields=["created_at"])
+        self._comment(restricted, content="Their restricted workaround.", author_type="support")
+        open_to_all = self._create_ticket(
+            distinct_id="same-person", status=TicketStatus.RESOLVED, email_subject="Password reset"
+        )
+        open_to_all.created_at = _FIXED_NOW - timedelta(days=2)
+        open_to_all.save(update_fields=["created_at"])
+        self._comment(open_to_all, content="Use the reset link.", author_type="support")
+
+        # Control: with no rule both prior tickets reach the context.
+        control = self._context(current)
+        assert "Escalation" in control
+        assert "Password reset" in control
+
+        rule: dict = {
+            "team": self.team,
+            "resource": "ticket",
+            "resource_id": str(restricted.id),
+            "access_level": "none",
+        }
+        if restricted_for == "one member":
+            agent = User.objects.create_and_join(self.organization, "agent@example.com", "testtest")
+            rule["organization_member"] = OrganizationMembership.objects.get(user=agent, organization=self.organization)
+        elif restricted_for == "one role":
+            rule["role"] = Role.objects.create(organization=self.organization, name="Support")
+        AccessControl.objects.create(**rule)
+
+        context = self._context(current)
+        assert "Escalation" not in context
+        assert "Their restricted workaround." not in context
+        # The neighbour is untouched, so the rule withheld one ticket rather than the section.
+        assert "Password reset" in context
+        assert "Use the reset link." in context
+
     def test_keeps_last_three_resolved_tickets(self) -> None:
         current = self._create_ticket(distinct_id="repeat")
         for index, subject in enumerate(["Oldest", "Keep 1", "Keep 2", "Keep 3"], start=1):

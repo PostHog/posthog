@@ -17,7 +17,10 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 
-from products.access_control.backend.facade.api import every_member_has_resource_access
+from products.access_control.backend.facade.api import (
+    every_member_has_resource_access,
+    object_ids_restricted_from_any_member,
+)
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import OrganizationIdSource, TicketStatus
@@ -216,6 +219,24 @@ def org_identity_is_attested(ticket: Ticket) -> bool:
     return ticket.identity_verified is True
 
 
+def _restricted_prior_ticket_ids(team_id: int) -> list[UUID]:
+    """Tickets that a rule keeps from some member of the team.
+
+    Only object-level rules matter here. A resource-level one holds the reader back from the
+    ticket being answered too, so it already bounds who reads the note; a rule on one ticket
+    does not, and that is the ticket whose title and reply would otherwise leak into a note
+    its reader was not allowed to open.
+    """
+    ids: list[UUID] = []
+    for value in object_ids_restricted_from_any_member(team_id=team_id, resource="ticket", required_level="viewer"):
+        try:
+            ids.append(UUID(value))
+        except ValueError:
+            # resource_id is free-form, and a value that is not a ticket id matches no ticket.
+            continue
+    return ids
+
+
 def load_prior_tickets(ticket: Ticket) -> list[PriorTicket]:
     identity = Q()
     if ticket.distinct_id:
@@ -233,6 +254,8 @@ def load_prior_tickets(ticket: Ticket) -> list[PriorTicket]:
         Ticket.objects.filter(team_id=ticket.team_id, status=TicketStatus.RESOLVED)
         .filter(identity)
         .exclude(pk=ticket.pk)
+        # Before the limit, so a ticket nobody may read does not take one of the few slots.
+        .exclude(pk__in=_restricted_prior_ticket_ids(ticket.team_id))
         .filter(Exists(has_public_human_reply))
         .order_by("-created_at")[:MAX_PRIOR_TICKETS]
     )

@@ -230,6 +230,37 @@ def every_member_has_resource_access(
     return all(_grants_at_least(resource, row.access_level, required_level) for row in subject_rows)
 
 
+def object_ids_restricted_from_any_member(
+    *, team_id: int, resource: APIScopeObject, required_level: AccessControlLevel
+) -> set[str]:
+    """Ids of `resource` objects carrying a rule that gives somebody less than `required_level`.
+
+    The object-level counterpart of `every_member_has_resource_access`, for the same kind of
+    caller: one that builds something without a request user and hands it to many readers at
+    once. It cannot tell those readers apart, so it leaves out every object that any rule
+    withholds from any of them.
+
+    Conservative in the same way. One restricting rule on an object is enough to name it, even
+    where resolution would let a permissive rule outrank that one, so the answer does not change
+    when an organization moves to most-specific resolution.
+    """
+    team = Team.objects.select_related("organization").filter(id=team_id).first()
+    if team is None or not team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+        return set()
+
+    # Object rows are written against the resource itself, never its parent, so an inheriting
+    # resource is not mapped here the way a resource-scope lookup maps it.
+    satisfying = [
+        level for level in ordered_access_levels(resource) if _grants_at_least(resource, level, required_level)
+    ]
+    restricted = (
+        AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id__isnull=False)
+        .exclude(access_level__in=satisfying)
+        .values_list("resource_id", flat=True)
+    )
+    return {resource_id for resource_id in restricted if resource_id}
+
+
 # --- Write API ---
 
 
