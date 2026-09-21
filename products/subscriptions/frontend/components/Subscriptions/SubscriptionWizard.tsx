@@ -433,8 +433,9 @@ function SubscriptionDeliveryStep({
                     label="Microsoft Teams webhook URL"
                     help={
                         <>
-                            In Teams, open the channel for these reports. Select Workflows, then select Post to a
-                            channel when a webhook request is received. Copy the webhook URL and paste it here.
+                            In Teams, add the Workflows app to the channel for these reports. Select the template for
+                            posting to a channel when a webhook request is received. Paste the URL it gives you here.
+                            Anyone with that URL can post to the channel, so keep it private.
                         </>
                     }
                 >
@@ -735,7 +736,13 @@ function SubscriptionReviewStep({
                   },
               ]
             : []),
-        { label: 'Sends to', value: subscription.target_value },
+        {
+            label: 'Sends to',
+            value:
+                subscription.target_type === 'teams'
+                    ? 'Microsoft Teams webhook URL (not shown)'
+                    : subscription.target_value,
+        },
         { label: 'Runs', value: formatSubscriptionSchedule(subscription) },
         ...(dashboard
             ? [
