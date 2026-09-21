@@ -1008,6 +1008,9 @@ def test_cli_lint_reports_no_alias_conflict_the_resolver_does_not_see(tmp_path: 
     [
         ("docs", True),
         ("/web/docs", True),
+        ("/*/docs", True),
+        ("/web/d\\ocs", True),
+        ("/*/docs/", False),
         ("docs/", False),
         ("README.md", False),
         ("/web/docs/guide.md", False),

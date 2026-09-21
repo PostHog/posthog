@@ -6,6 +6,7 @@ directly. The ``owners`` console script groups the same commands without the pre
 
 from __future__ import annotations
 
+import re
 import sys
 import json
 from collections import defaultdict
@@ -250,23 +251,21 @@ def _live_scope(owners_by_file: dict[str, set[str]], paths: tuple[str, ...]) -> 
     return {owner for rel, owners in owners_by_file.items() if rel in wanted for owner in owners}
 
 
-def _bare_directory_match(
-    match: str, directory: str, tracked_dirs: set[str], dirs_by_name: dict[str, list[str]]
-) -> bool:
+def _bare_directory_match(match: str, directory: str, dirs_by_name: dict[str, list[str]]) -> bool:
     """Whether a rule spells a tracked directory without the trailing ``/``.
 
     A literal last segment matches a file of that name and everything below a directory of that
     name, so ``docs`` can quietly claim a file called ``docs`` too. ``docs/`` says which one is
-    meant.
+    meant. Only the last segment has to be literal, so ``packages/*/src`` counts as well.
     """
-    if match_is_glob(match) or match.endswith("/") or "\\" in match:
+    last = match.rsplit("/", 1)[-1]
+    if not last or match_is_glob(re.sub(r"\\.", "", last)):
         return False
-    name = match.lstrip("/")
+    matcher = compile_pattern(match)
     prefix = f"{directory}/" if directory else ""
-    if match.startswith("/") or "/" in name:
-        return f"{prefix}{name}" in tracked_dirs
-    # A pattern with no `/` matches at any depth below the file's directory.
-    return any(d.startswith(prefix) for d in dirs_by_name.get(name, ()))
+    # A directory the pattern matches by its full path has the literal last segment as its name.
+    candidates = dirs_by_name.get(re.sub(r"\\(.)", r"\1", last), ())
+    return any(d.startswith(prefix) and matcher.test(d[len(prefix) :]) for d in candidates)
 
 
 @click.command(name="owners:lint", help="Validate owners.yaml files, conflicts, dead globs, and coverage")
@@ -347,7 +346,7 @@ def cmd_lint(live: bool, org: str | None, repo_root: Path | None, paths: tuple[s
             matcher = compile_pattern(rule.match)
             if not any(matcher.test(rp) for rp in rel_paths):
                 warnings.append(f"{rel}: rule '{rule.match}' matches zero tracked files (dead glob)")
-            elif _bare_directory_match(rule.match, directory, tracked_dirs, dirs_by_name):
+            elif _bare_directory_match(rule.match, directory, dirs_by_name):
                 errors.append(f"{rel}: rule '{rule.match}' names a directory; write '{rule.match}/'")
 
     if live:
