@@ -674,7 +674,7 @@ export interface FlakyTestItemApi {
 }
 
 export interface FlakyTestListApi {
-    /** Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs. */
+    /** Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs. A CI setup break (a run attempt whose tests errored in 3 or more jobs or for 3 or more owning teams, or a job attempt with 100 or more distinct failed or errored tests) excludes every trial of that attempt, not only its failures. */
     items: FlakyTestItemApi[]
     /** True when more tests qualified than the cap; `items` is the highest-ranked `limit` rows. */
     truncated: boolean
@@ -1791,15 +1791,15 @@ export interface TeamCIHealthItemApi {
     regression_test_count: number
     /** Same count over the prior window. */
     regression_test_count_prior: number
-    /** CI runs (not spans) where an owned test's recorded outcome was failed or error. An absolute count, not a rate: fast passing runs are not emitted. */
+    /** Distinct CI runs where at least one owned test failed or errored. A run with many failing owned tests counts once. An absolute count, not a rate: fast passing runs are not emitted. */
     failed_run_count: number
     /** Same count over the prior window. */
     failed_run_count_prior: number
-    /** Runs where one commit both failed and passed an owned test: a re-run attempt went green, or an in-job retry recovered it. */
+    /** Distinct CI runs where one commit both failed and passed at least one owned test: a re-run attempt went green, or an in-job retry recovered it. */
     same_commit_recovery_run_count: number
     /** Same count over the prior window. */
     same_commit_recovery_run_count_prior: number
-    /** Runs where an owned test recorded a tolerated failure while quarantined: masked in CI, still failing. */
+    /** Distinct CI runs where at least one owned test recorded a tolerated failure while quarantined. */
     quarantined_failed_run_count: number
     /** Same count over the prior window. */
     quarantined_failed_run_count_prior: number
@@ -1831,7 +1831,7 @@ export interface TeamCIHealthItemApi {
 }
 
 export interface TeamCIHealthListApi {
-    /** Owning teams ranked by current flaky + failure signal, heaviest first, capped at `limit`. Teams are organizational owners of code surfaces; this never aggregates by author. */
+    /** Owning teams ranked by current flaky + failure signal, heaviest first, capped at `limit`. Teams are organizational owners of code surfaces; this never aggregates by author. A CI setup break (a run attempt whose tests errored in 3 or more jobs or for 3 or more owning teams, or a job attempt with 100 or more distinct failed or errored tests) excludes every trial of that attempt, not only its failures. */
     items: TeamCIHealthItemApi[]
     /** True when more teams had signal than the cap. */
     truncated: boolean

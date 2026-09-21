@@ -1956,7 +1956,7 @@ export const SignalsScoutEditReportBody = () => zod
     )
 
 /**
- * Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit with its `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, and the deterministic `source_id` that joins back to the underlying signal. Lets a team and its agents see *what* a run surfaced without parsing `emitted_finding_ids` or scanning the signal store. Strictly team-scoped — a run UUID belonging to another team returns 404.
+ * Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit with its `description` (the finding text as surfaced), `severity`, and the deterministic `source_id` that joins back to the underlying signal. Lets a team and its agents see *what* a run surfaced without parsing `emitted_finding_ids` or scanning the signal store. Strictly team-scoped — a run UUID belonging to another team returns 404.
  * @summary List a run's emitted findings
  */
 export const SignalsScoutRunsEmissionsParams = () => zod.object({
@@ -2342,7 +2342,8 @@ export const SignalsScoutEmitSignalBody = () => zod
             .number()
             .min(signalsScoutEmitSignalBodyConfidenceMin)
             .max(signalsScoutEmitSignalBodyConfidenceMax)
-            .describe("Agent's confidence the finding is real in [0, 1]. Persisted in `extra`."),
+            .nullish()
+            .describe('Deprecated and ignored. Nothing reads it; omit it. Still range-checked when supplied.'),
         evidence: zod
             .array(
                 zod
