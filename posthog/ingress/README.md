@@ -30,6 +30,10 @@ Adding a provider is another `<provider>/` folder, not a change to the mechanism
 5. **Handshake** — `provider.pre_dispatch_response(request, payload)`, for a challenge the protocol demands.
 6. **Dispatch** — `provider.deliveries(request, payload, facts)`, then ownership, the forward and the consumers, all inside one wall-clock budget.
 
+A provider raises `InvalidPayload` for a body it refuses, from either lane, and the view answers 400 with outcome `invalid_payload`.
+`parse` raises it for a body it cannot decode, and `deliveries` for one it decoded and will not accept: that is where a provider holds a body field to the claim that signs it, which needs the payload and the facts together.
+Neither reaches a consumer.
+
 Parse belongs to the provider because not every third party posts JSON: Slack's interactivity payloads and Mailgun's events are form-encoded.
 It stays **after** verification, and must: a `parse` that reads `request.POST` consumes the request stream under ASGI, which leaves the signature check without the raw bytes it signs over.
 
@@ -40,12 +44,15 @@ A provider whose verification is a local HMAC leaves it at `None`.
 
 A `Verification` carries the outcome and `facts`, a mapping of what the check proved on the way.
 A scheme that validates a signed token knows who sent the delivery before the body is read, and `facts` is how those claims reach `deliveries`, so an incarnation can cross-check the body against what was actually signed rather than trusting a field of the body that claims the same thing.
+`BearerJwt` puts the key that signed the token there too, under `SIGNING_KEY_FACT`, because a JWKS can say what one key is allowed to sign and the token cannot: Bot Framework endorses each key for a set of channels, and Teams holds the activity's `channelId` to that.
+A body that fails that cross-check is `InvalidPayload` rather than a delivery a consumer has to distrust, because the protocol, not the product, is what says the two must agree.
 An HMAC over raw bytes proves only the signature, so its `facts` are empty and `deliveries` ignores the argument.
 
 ## Schemes
 
-`verify/schemes.py` holds `HmacSha256` and `SnsSignature`; `verify/jwt.py` holds `BearerJwt`, for a provider that authenticates with a signed token instead of a shared secret.
+`verify/schemes.py` holds `HmacSignature` and `SnsSignature`; `verify/jwt.py` holds `BearerJwt`, for a provider that authenticates with a signed token instead of a shared secret.
 Each class docstring carries its own reasoning.
+`HmacSha256` is `HmacSignature` with the default digest, and it is the name to reach for. Only a provider that signs with something else sets `digest`, and everything else about the scheme, `rejects_headers` included, behaves the same whichever digest it carries.
 
 A scheme also answers `rejects_headers(headers)`, the part of the check that needs no body: `HmacSha256` refuses a missing or malformed signature header and a missing, malformed or stale timestamp header there, and `BearerJwt` refuses a request that carries no bearer token. The answer is the same INVALID the full check would reach, with the same status, log line and metric outcome, so an unauthenticated caller cannot make an endpoint read a body of up to the request limit for it. A scheme that cannot decide from headers alone answers `False`, which is what `SnsSignature` does, and so does an HMAC scheme whose secret is unset, so an unconfigured endpoint still answers NOT_CONFIGURED.
 
@@ -63,10 +70,12 @@ Three duties fall on the incarnation rather than on `BearerJwt`, and none is enf
 | `github`     | `/webhooks/stamphog/github`                             | `stamphog`                 | `stamphog_review`                                                                                                                           | `products/stamphog/backend/webhook_consumers.py`                        |
 | `slack`      | `/api/conversations/v1/slack/events`                    | `supporthog`               | `conversations_slack`                                                                                                                       | `products/conversations/backend/webhook_consumers.py`                   |
 | `slack`      | `/api/conversations/v1/slack/interactivity`             | `supporthog_interactivity` | `conversations_slack_interactivity`                                                                                                         | `products/conversations/backend/webhook_consumers.py`                   |
+| `teams`      | `/api/conversations/v1/teams/events`                    | `supporthog`               | `conversations_teams`                                                                                                                       | `products/conversations/backend/webhook_consumers.py`                   |
 | `pandadoc`   | `/api/legal_documents/pandadoc`                         | `default`                  | `legal_documents_signatures`                                                                                                                | `products/legal_documents/backend/webhook_consumers.py`                 |
 | `vapi`       | `/api/user_interviews/vapi_webhook/`                    | `default`                  | `user_interviews_vapi`                                                                                                                      | `products/user_interviews/backend/webhook_consumers.py`                 |
-| `mailgun`    | `/api/conversations/v1/email/inbound`                   | `inbound`                  | none yet, the endpoint still runs its own verifier                                                                                          | `products/conversations/backend/services/mailgun_events.py`             |
-| `mailgun`    | `/api/conversations/v1/email/outbound`                  | `outbound`                 | none yet, the endpoint still runs its own verifier                                                                                          | `products/conversations/backend/services/mailgun_events.py`             |
+| `mailgun`    | `/api/conversations/v1/email/inbound`                   | `inbound`                  | `conversations_email_inbound`                                                                                                               | `products/conversations/backend/webhook_consumers.py`                   |
+| `mailgun`    | `/api/conversations/v1/email/outbound`                  | `outbound`                 | `conversations_email_outbound`                                                                                                              | `products/conversations/backend/webhook_consumers.py`                   |
+| `mailgun`    | `/api/conversations/v1/email/capture`                   | `capture`                  | `conversations_email_capture`                                                                                                               | `products/conversations/backend/webhook_consumers.py`                   |
 | `sns`        | `/webhooks/workflows/ses-events`                        | `default`                  | `workflows_ses_events`                                                                                                                      | `products/workflows/backend/webhook_consumers.py`                       |
 | `customerio` | `/api/projects/<team_id>/messaging/customerio/webhook/` | none                       | none, it is the DRF adapter path                                                                                                            | `products/messaging/backend/api/customerio_webhook.py`                  |
 
@@ -75,8 +84,7 @@ The customer-facing GitHub App is shared across products, so its two endpoints a
 Every other endpoint is declared by the product that registered the App, in its own `routes.py`.
 The SES endpoint is the exception for now, because its view still lives in `backend/api/` rather than behind the ingress builders.
 
-The Vapi endpoint sits behind a per-IP throttle the product owns, from before ingress had a throttle lane.
-It moves onto `throttle_class` next.
+The Vapi endpoint is the only one that caps request volume: its provider sets `throttle_class` to a per-IP throttle, because the endpoint is public and Vapi's egress is shared across tenants.
 
 ## Non-goals
 
@@ -145,6 +153,9 @@ The registry finds these through `posthog.products.load_product_modules("webhook
 That is deliberate: eager loading would drag every product's webhook module onto the startup import path, which `posthog/test/repo_invariants/test_startup_import_budget.py` exists to keep clear.
 Keep the module itself cheap to import and defer the heavy work into the handler.
 
+The module may import its own product's `facade/` and nothing else of the product.
+An import-linter contract holds that for a sealed product, and `hogli product:lint` holds it by AST for every product that has a `webhook_consumers.py`, relative imports included.
+
 Registration is validated and fail-closed.
 A consumer that names a provider app nobody declares, reuses a name already taken for that provider, or registers for an event type the provider does not declare raises `RegistryError` at build, rather than sitting there looking registered and never running.
 
@@ -174,7 +185,9 @@ Ingress carries both as general controls, so the next endpoint gets them without
 
 ## Regional forwarding
 
-A third party holds one callback URL, which points at the primary region (EU), so a delivery about a resource the other region (US) owns still arrives here first.
+A third party holds one callback URL, which points at one region, so a delivery about a resource the other region owns still arrives there first.
+For every App registered today that URL is the primary region (EU) and the forward runs to the secondary one (US).
+A provider whose App was registered against the secondary region instead overrides `receiving_region_domain()`, and the forward runs the other way.
 Ingress owns the forward, because what is replayed is the signed body — a consumer only ever sees the parsed mapping.
 
 A consumer whose resources are split by region declares `ownership`, a callable that takes the delivery and answers a `DeliveryOwnership`:
@@ -188,7 +201,7 @@ A fourth value, `FAILED`, is the dispatcher's own: a consumer never answers it, 
 Every delivery in the request is assessed first, and the request is then forwarded **once**, when any consumer answered `ELSEWHERE`.
 One forward per request rather than per delivery, because the unit being replayed is the HTTP request.
 Local dispatch runs either way: a consumer that answered `ELSEWHERE` no-ops on its own, and the other consumers on the endpoint are unaffected.
-Only the primary region forwards; on the secondary region an `ELSEWHERE` answer is logged as `ingress_delivery_unowned_here`, because a local miss there is that consumer's unresolved routing rather than proof that no region owns the delivery.
+Only the receiving region forwards; on the region that receives forwards an `ELSEWHERE` answer is logged as `ingress_delivery_unowned_here`, because a local miss there is that consumer's unresolved routing rather than proof that no region owns the delivery.
 The replay carries the signed bytes and the provider's own headers, but never the headers that name the host this region answered on: `Host`, `X-Forwarded-Host`, `X-Forwarded-Port`, `X-Forwarded-Proto` and `Forwarded`.
 The receiving region reads which region it is off the connection it receives, so a forwarded host would make it forward the delivery on again.
 
@@ -220,6 +233,7 @@ Add a `<provider>/` subpackage with a `provider.py` holding three things (see `g
 - `SPECS` — one `ProviderSpec` per app, naming the event types the app is subscribed to. The registry validates consumers against these.
 - A `WebhookProvider` subclass — its `scheme()` (from `verify/`), its `deliveries()` (how to read event type, delivery id and context off the request), and any status codes its protocol fixes. The defaults are 403 on a bad signature, 500 when unconfigured, and 202 on success, with a short body naming the reason on the two rejections. An incarnation that answers 404 to withhold the endpoint's existence sets `explains_rejections = False` so the body stays empty as well. Three more attributes are optional: `parse()`, which decodes the body, `throttle_class`, which caps request volume, and `retry_status`, which a provider that redelivers on a non-2xx sets so an unaccepted delivery is not receipted. See [The lanes one request runs through](#the-lanes-one-request-runs-through).
 - A `build_<provider>_provider(...)` function returning that provider, which the URLconf hands to `build_webhook_view()`.
+  A builder that takes an `app` name checks it with `require_known_app(provider, app, SPECS)` before anything else, so a typo raises `UnknownApp` at import. Without that check the endpoint builds and serves: consumers register against the declared app names, so nothing matches and every delivery is receipted and dropped, or the app has no secret getter and every delivery answers `NOT_CONFIGURED`.
 
 Add the module to `_INCARNATION_MODULES` in `posthog/ingress/providers.py`, so the registry finds its specs and any core consumers.
 
@@ -263,7 +277,7 @@ The lease exists because a process that dies mid-run leaves its mark behind and 
 Its cost is that a redelivery arriving after the lease ran out can run beside a first attempt that overran the budget, which is the exposure a provider without dedup has on every retry.
 Because two runs can overlap, a second key (`<key>:holder`) names the run that holds the lease, and a run only deletes its own claim: a late failure from the first run cannot drop the second run's claim, nor the done mark a finished run wrote.
 The token lives in its own key so that the mark itself stays the plain value every deployed version reads as in flight, which keeps a rolling deploy from receipting a delivery the new worker can still fail.
-That fence reads the cache primary rather than a read replica, because a replica can still serve a token the primary already replaced.
+The marks live in the `ingress_dedup` cache alias rather than the default one, because the default alias is replica aware and a replica can still serve a token the primary already replaced, which would have a run delete a mark a newer run holds.
 Settling to done is not fenced that way, because a consumer that ran the delivery and returned makes the mark true whoever wrote the value it replaces; a run drops the mark only while it is still a lease, so a late failure cannot delete a mark another run settled.
 Keying per consumer rather than per delivery matters: one delivery legitimately fans out to several consumers, and a delivery-wide key would starve every consumer but the first.
 A cache error fails **open** — dropping deliveries during a cache outage is worse than running a consumer twice, and consumers carry their own idempotency underneath this.
