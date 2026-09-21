@@ -50,9 +50,9 @@ export interface broadcastPreviewLogicValues {
     personsFailed: boolean
     personsLoading: boolean
     previewHtml: string
-    previewText: string
     previewPerson: BroadcastPreviewPerson | null
     previewSubject: string
+    previewText: string
     previewTo: string
     selectedPersonId: string | null
 }
