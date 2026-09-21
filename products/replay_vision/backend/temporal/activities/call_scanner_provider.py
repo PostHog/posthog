@@ -55,8 +55,13 @@ from products.replay_vision.backend.temporal.events_tool import (
 )
 from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error, gemini_api_key
 from products.replay_vision.backend.temporal.metrics import (
+    record_events_tool_call,
     record_mission_pass,
+    record_network_state,
+    record_network_tool_call,
     record_provider_call,
+    record_tool_round,
+    record_unknown_tool_call,
     record_verification_outcome,
 )
 from products.replay_vision.backend.temporal.network_capture import SessionNetworkPayload
@@ -70,6 +75,7 @@ from products.replay_vision.backend.temporal.network_tool import (
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_CORE,
+    STEP_MEDIA,
     STEP_SIGNALS,
     TIMESTAMP_CITATION_RE,
     BaseScanner,
@@ -137,6 +143,7 @@ class _MissionOutcome:
     finalized: BaseScannerOutput
     signals: list[SignalFinding]
     verification: VerificationRecord | None = None
+    thumbnail_video_s: int | None = None
 
 
 @activity.defn
@@ -316,7 +323,22 @@ async def run_scan(
     duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
     finalized = _resolve_citations(outcome.finalized, scanner, duration_ms, video_clock)
     signals = [_signal_on_session_clock(signal, video_clock) for signal in outcome.signals]
-    return ScannerCallOutput(model_output=finalized, signals=signals, verification=outcome.verification)
+    return ScannerCallOutput(
+        model_output=finalized,
+        signals=signals,
+        verification=outcome.verification,
+        thumbnail_video_s=_clamp_thumbnail(outcome.thumbnail_video_s, video_clock, duration_ms),
+        # Read off `outcome.signals`, which is still on the video clock; `signals` above is not.
+        signal_video_spans=[(s.start_time, s.end_time) for s in outcome.signals],
+    )
+
+
+def _clamp_thumbnail(thumbnail_video_s: int | None, video_clock: VideoClock, duration_ms: int) -> int | None:
+    """Hold the model's pick inside the rendered video, which is shorter than the session wherever the render cut."""
+    if thumbnail_video_s is None:
+        return None
+    ceiling = video_clock.video_duration_s if video_clock.video_duration_s is not None else duration_ms / 1000
+    return max(0, min(thumbnail_video_s, int(ceiling)))
 
 
 def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:
@@ -540,6 +562,12 @@ async def _run_mission(
 
     # The network tool is offered only when the recording has requests to return. Otherwise every lookup
     # would be a dead call against the budget the events tool shares.
+    scanner_type = snapshot.scanner_type.value
+    record_network_state(scanner_type, network_index.state())
+    counters: dict[str, Callable[[str, str], None]] = {
+        GET_EVENTS_TOOL_NAME: record_events_tool_call,
+        GET_NETWORK_TOOL_NAME: record_network_tool_call,
+    }
     handlers: dict[str, Callable[[Any], dict[str, Any]]] = {
         GET_EVENTS_TOOL_NAME: lambda call: dispatch_events_tool(call, events_index),
     }
@@ -549,8 +577,10 @@ async def _run_mission(
         tools.append(network_tool())
 
     def dispatch(call: Any) -> dict[str, Any]:
-        name = getattr(call, "name", None)
-        handler = handlers.get(name) if isinstance(name, str) else None
+        raw_name = getattr(call, "name", None)
+        name = raw_name if isinstance(raw_name, str) else ""
+        counters.get(name, record_unknown_tool_call)(scanner_type, snapshot.model)
+        handler = handlers.get(name)
         if handler is None:
             # An unoffered or hallucinated name must not fall through to a lookup that returns
             # plausible data for a question the model did not ask.
@@ -572,6 +602,10 @@ async def _run_mission(
         else step
         for step in scanner.mission_steps()
     ]
+
+    def on_round(calls: int) -> None:
+        record_tool_round(scanner_type, snapshot.model, calls)
+
     run = functools.partial(
         _run_steps,
         client=client,
@@ -584,6 +618,7 @@ async def _run_mission(
         metric_labels=metric_labels,
         trace_id=trace_id,
         tools=tools,
+        on_round=on_round,
     )
     verification: VerificationRecord | None = None
     try:
@@ -611,7 +646,10 @@ async def _run_mission(
             await _delete_video_cache(cache_client, cache.name)
 
     finalized, signals = scanner.assemble(step_outputs)
-    return _MissionOutcome(finalized=finalized, signals=signals, verification=verification)
+    thumbnail_video_s = getattr(step_outputs.get(STEP_MEDIA), "thumbnail_t", None)
+    return _MissionOutcome(
+        finalized=finalized, signals=signals, verification=verification, thumbnail_video_s=thumbnail_video_s
+    )
 
 
 async def _verify_positive_verdict(
@@ -767,6 +805,7 @@ async def _run_steps(
     metric_labels: dict[str, str],
     trace_id: str,
     tools: list[types.Tool],
+    on_round: Callable[[int], None] | None = None,
 ) -> dict[str, BaseModel]:
     """Run the ordered steps over one growing conversation; return the validated output keyed by step name."""
     # The video + preamble lead the conversation inline unless they're already cached as the prefix.
@@ -775,20 +814,29 @@ async def _run_steps(
     for step in steps:
         checkpoint = len(convo)
         convo.append(types.Part(text=step.instruction))
-        result = await _run_step(
-            client=client,
-            model=model,
-            step=step,
-            convo=convo,
-            cache_name=cache_name,
-            video_part=video_part,
-            preamble_text=preamble_text,
-            dispatch=dispatch,
-            team_id=team_id,
-            tools=tools,
-            metric_labels=metric_labels,
-            trace_id=trace_id,
-        )
+        try:
+            result = await _run_step(
+                client=client,
+                model=model,
+                step=step,
+                convo=convo,
+                cache_name=cache_name,
+                video_part=video_part,
+                preamble_text=preamble_text,
+                dispatch=dispatch,
+                team_id=team_id,
+                tools=tools,
+                metric_labels=metric_labels,
+                trace_id=trace_id,
+                on_round=on_round,
+            )
+        except Exception as exc:
+            if step.required:
+                raise
+            # A provider error arrives here, not as an empty output, and must not sink a paid-for scan.
+            logger.warning("replay_vision.call_scanner_provider.optional_step_failed", step=step.name, error=str(exc))
+            del convo[checkpoint:]
+            continue
         if result.output is None:
             # Roll the failed step's half-finished exchange back so the next instruction follows the last good
             # model turn, not a dangling correction/tool call (which would leave two user turns in a row).
@@ -829,6 +877,7 @@ async def _run_step(
     metric_labels: dict[str, str],
     trace_id: str,
     tools: list[types.Tool],
+    on_round: Callable[[int], None] | None = None,
 ) -> "_StepResult":
     """Run one step's tool loop with one re-prompt on failure. Returns the validated output, or why it was exhausted.
 
@@ -860,7 +909,11 @@ async def _run_step(
         started = time.monotonic()
         try:
             response = await run_tool_loop(
-                generate=_generate, convo=convo, dispatch=dispatch, max_tool_iterations=_tool_budget(model)
+                generate=_generate,
+                convo=convo,
+                dispatch=dispatch,
+                max_tool_iterations=_tool_budget(model),
+                on_round=on_round,
             )
             if function_calls(response):
                 # Tool budget spent and the model still wants a lookup. Rather than hard-fail, complete the

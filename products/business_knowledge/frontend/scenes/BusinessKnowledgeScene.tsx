@@ -1,12 +1,15 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
-import { IconBook, IconPencil, IconPlusSmall, IconRefresh, IconTrash } from '@posthog/icons'
+import { IconBook, IconPlusSmall, IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -14,7 +17,6 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { BusinessKnowledgeTabs } from '../components/BusinessKnowledgeTabs'
 import { CreateKnowledgeSourceModal } from '../components/CreateKnowledgeSourceModal'
-import { EditKnowledgeSourceModal } from '../components/EditKnowledgeSourceModal'
 import { KnowledgeSourceNameCell } from '../components/KnowledgeSourceNameCell'
 import { RefreshStatusCell } from '../components/RefreshStatusCell'
 import { StatusTag } from '../components/StatusTag'
@@ -32,8 +34,9 @@ export function BusinessKnowledgeScene(): JSX.Element {
     const isEnabled = useFeatureFlag('PRODUCT_BUSINESS_KNOWLEDGE')
     const { sources, sourcesLoading, readyCount, totalChunks, refreshingIds, searchTerm, sourceTypeFilter } =
         useValues(businessKnowledgeLogic)
-    const { openCreateModal, openEditModal, deleteSource, refreshSource, setSearchTerm, setSourceTypeFilter } =
+    const { openCreateModal, deleteSource, refreshSource, setSearchTerm, setSourceTypeFilter } =
         useActions(businessKnowledgeLogic)
+    const { push } = useActions(router)
 
     if (!isEnabled) {
         return <NotFound object="Business knowledge" caption="This feature is not enabled for your project." />
@@ -84,10 +87,28 @@ export function BusinessKnowledgeScene(): JSX.Element {
                 loading={sourcesLoading}
                 pagination={{ pageSize: 20 }}
                 rowKey={(row) => row.id}
-                onRow={(row) => ({
-                    onClick: () => openEditModal(row),
-                    style: { cursor: 'pointer' },
-                })}
+                onRow={(row) => {
+                    const sourceUrl = urls.businessKnowledgeSource(row.id)
+                    return {
+                        style: { cursor: 'pointer' },
+                        onClick: (e: React.MouseEvent) => {
+                            if (e.metaKey || e.ctrlKey) {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                newInternalTab(sourceUrl)
+                            } else {
+                                push(sourceUrl)
+                            }
+                        },
+                        onAuxClick: (e: React.MouseEvent) => {
+                            if (e.button === 1) {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                newInternalTab(sourceUrl)
+                            }
+                        },
+                    }
+                }}
                 columns={[
                     {
                         title: 'Name',
@@ -130,7 +151,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
                         width: 0,
                         render: (_, row) => (
                             <div className="flex gap-1 justify-end">
-                                {row.source_type === 'url' && (
+                                {row.source_type === 'url' && !row.is_generated && (
                                     <LemonButton
                                         icon={<IconRefresh />}
                                         size="small"
@@ -142,15 +163,6 @@ export function BusinessKnowledgeScene(): JSX.Element {
                                         }}
                                     />
                                 )}
-                                <LemonButton
-                                    icon={<IconPencil />}
-                                    size="small"
-                                    tooltip="Edit"
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        openEditModal(row)
-                                    }}
-                                />
                                 <LemonButton
                                     icon={<IconTrash />}
                                     status="danger"
@@ -182,7 +194,6 @@ export function BusinessKnowledgeScene(): JSX.Element {
             />
 
             <CreateKnowledgeSourceModal refreshIntervalOptions={REFRESH_INTERVAL_OPTIONS} />
-            <EditKnowledgeSourceModal refreshIntervalOptions={REFRESH_INTERVAL_OPTIONS} />
         </SceneContent>
     )
 }

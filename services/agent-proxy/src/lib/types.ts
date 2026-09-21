@@ -17,6 +17,13 @@ export class TaskRunStreamError extends Error {
     }
 }
 
+export class TaskRunStreamCursorTrimmedError extends Error {
+    constructor(public readonly cursor: string) {
+        super(`Stream cursor ${cursor} was trimmed`)
+        this.name = 'TaskRunStreamCursorTrimmedError'
+    }
+}
+
 export class TaskRunStreamSequenceGap extends Error {
     constructor(
         public readonly expectedSequence: number,
@@ -127,6 +134,7 @@ export type StreamConnectionOutcome =
     | 'drained'
     | 'client_disconnect'
     | 'rotated'
+    | 'resync'
 
 export type DisconnectClassification = 'run_over' | 'idle' | 'mid_turn'
 
@@ -181,4 +189,5 @@ export interface ReadStreamEntriesOptions {
     // When provided, this connection is used for the blocking XREAD call instead
     // of the class-level shared client — isolates blocking reads from ingest writes.
     blockingRedis?: Redis
+    cursorRecheckAfterStallMs?: number
 }

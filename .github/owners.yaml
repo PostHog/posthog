@@ -13,7 +13,7 @@ rules:
           - '/workflows/ci-llm-gateway.yml'
           - '/workflows/llm-gateway-cd.yml'
           - '/workflows/update-ai-costs.yml'
-      owners: [team-devex, team-ai-gateway]
+      owners: [team-devex, team-agent-infrastructure]
     - match:
           - '/workflows/ci-agent-proxy.yml'
           - '/workflows/cd-agent-proxy-image.yml'

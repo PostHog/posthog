@@ -14,6 +14,7 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookListItemType } from 'scenes/notebooks/types'
 import { sceneLogic } from 'scenes/sceneLogic'
 
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
@@ -212,6 +213,9 @@ export interface maxContextLogicActions {
         filtersOverride: DashboardFilter | undefined
         variablesOverride: Record<string, HogQLVariable> | undefined
     }
+    openContextPicker: () => {
+        value: true
+    }
     removeContextAction: (id: number | string) => {
         id: number | string
     }
@@ -321,6 +325,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
             filtersOverride?: DashboardFilter,
             variablesOverride?: Record<string, HogQLVariable>
         ) => ({ data, filtersOverride, variablesOverride }),
+        openContextPicker: true,
         setSelectedContextOption: (value: string) => ({ value }),
         handleTaxonomicFilterChange: (
             value: string | number,
@@ -432,6 +437,10 @@ export const maxContextLogic = kea<maxContextLogicType>([
         ],
     }),
     listeners(({ actions, cache }) => ({
+        openContextPicker: () => {
+            dashboardsModel.mount()
+            dashboardsModel.actions.loadDashboardsIfNeeded()
+        },
         locationChanged: () => {
             // Don't reset context if the only change is the side panel opening/closing
             const currentLocation = router.values.location

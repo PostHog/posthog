@@ -11,6 +11,7 @@ from django.core.exceptions import PermissionDenied
 from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.admin.admins.organization_admin import OrganizationAdmin
@@ -158,8 +159,18 @@ class TestProjectAdminTriggerDeletion(BaseTest):
             response = self.admin.trigger_deletion_view(http_request, str(self.project.pk))
         return response, mock_start
 
+    @parameterized.expand(
+        [
+            ("with_ingested_data", True, timedelta(hours=48)),
+            ("without_ingested_data", False, None),
+        ]
+    )
     @time_machine.travel("2025-01-15 12:00:00", tick=False)
-    def test_post_starts_project_deletion_and_marks_pending(self):
+    def test_post_starts_project_deletion_and_marks_pending(self, _name, has_ingested_data, expected_delay):
+        if has_ingested_data:
+            self.team.ingested_event = True
+            self.team.save(update_fields=["ingested_event"])
+
         response, mock_start = self._call("POST")
 
         self.assertEqual(response.status_code, 302)
@@ -169,16 +180,11 @@ class TestProjectAdminTriggerDeletion(BaseTest):
         self.assertEqual(kwargs["team_ids"], [self.team.pk])
         self.assertEqual(kwargs["user_id"], self.user.pk)
         self.assertEqual(kwargs["project_name"], self.project.name)
-        self.assertGreater(kwargs["start_delay"], timedelta(hours=47))
-        self.assertLessEqual(kwargs["start_delay"], timedelta(hours=48))
+        self.assertEqual(kwargs["start_delay"], expected_delay)
         self.project.refresh_from_db()
         self.assertTrue(self.project.is_pending_deletion)
         assert self.project.deletion_scheduled_at is not None
-        self.assertAlmostEqual(
-            self.project.deletion_scheduled_at.timestamp(),
-            (timezone.now() + timedelta(hours=48)).timestamp(),
-            delta=5,
-        )
+        self.assertEqual(self.project.deletion_scheduled_at, timezone.now() + (expected_delay or timedelta()))
 
     def test_get_does_not_start_workflow(self):
         response, mock_start = self._call("GET")

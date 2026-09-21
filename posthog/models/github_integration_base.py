@@ -1159,6 +1159,7 @@ class GitHubIntegrationBase:
             "merged": pr.get("merged", False),
             "draft": pr.get("draft", False),
             "head_branch": head.get("ref"),
+            "head_repository": (head.get("repo") or {}).get("full_name"),
             "base_branch": base.get("ref"),
             "head_sha": head.get("sha"),
             "base_sha": base.get("sha"),
@@ -1384,6 +1385,37 @@ class GitHubIntegrationBase:
         ]
         return {"success": True, "paths": paths}
 
+    def was_ever_unassigned(self, repository: str, issue_number: int) -> dict[str, Any]:
+        """Whether anybody ever removed an assignee from an issue or pull request.
+
+        Reads every page of the issue events, so a failed page comes back as a failure rather than as
+        "never unassigned".
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        responses, complete = self._installation_authenticated_get_pages(
+            f"https://api.github.com/repos/{repo_path}/issues/{issue_number}/events",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/events",
+            params={"per_page": 100},
+        )
+        if not complete:
+            last = responses[-1] if responses else None
+            return {
+                "success": False,
+                "error": f"Failed to list issue events: {last.text if last is not None else 'network error'}",
+                "status_code": last.status_code if last is not None else None,
+            }
+        for response in responses:
+            try:
+                events = response.json()
+            except Exception:
+                return {"success": False, "error": "Failed to parse issue events JSON"}
+            if not isinstance(events, list):
+                return {"success": False, "error": "Issue events JSON is not a list"}
+            if any(isinstance(event, dict) and event.get("event") == "unassigned" for event in events):
+                return {"success": True, "unassigned": True}
+        return {"success": True, "unassigned": False}
+
     def list_team_members(self, org: str, team_slug: str) -> dict[str, Any]:
         """The logins of every member of a GitHub team, including members of its child teams.
 
@@ -1541,6 +1573,30 @@ class GitHubIntegrationBase:
             "commit_id": raw.get("commit_id") if is_review else None,
             "reactions": [],
         }
+
+    def has_pull_request_comment(self, repository: str, pr_number: int, marker: str) -> bool | None:
+        """Return None when an incomplete read cannot prove the marker is absent."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        responses, complete = self._installation_authenticated_get_pages(
+            f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/comments",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            params={"per_page": 100},
+        )
+        for response in responses:
+            if response.status_code != 200:
+                return None
+            try:
+                comments = response.json()
+            except ValueError:
+                return None
+            if not isinstance(comments, list):
+                return None
+            for comment in comments:
+                if not isinstance(comment, dict) or not isinstance(comment.get("body"), str):
+                    return None
+                if marker in comment["body"]:
+                    return True
+        return False if complete else None
 
     def get_pull_request_comments(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Fetch a PR's conversation comments and inline review comments, merged chronologically.

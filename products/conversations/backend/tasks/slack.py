@@ -63,6 +63,7 @@ from products.conversations.backend.slack import (
     get_bot_user_id,
     get_safe_ticket_emoji,
     get_slack_client,
+    handle_link_shared,
     handle_member_joined_channel,
     handle_member_left_channel,
     handle_support_mention,
@@ -125,6 +126,8 @@ def _handle_supporthog_event(event: dict[str, Any], team: Team, slack_team_id: s
         handle_support_message(event, team, slack_team_id)
     elif event_type == "app_mention":
         handle_support_mention(event, team, slack_team_id)
+    elif event_type == "link_shared":
+        handle_link_shared(event, team, slack_team_id)
     elif event_type == "reaction_added":
         handle_support_reaction(event, team, slack_team_id)
     elif event_type == "member_joined_channel":
