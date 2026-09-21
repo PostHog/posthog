@@ -15,7 +15,7 @@ from products.data_modeling.backend.facade import api as data_modeling_facade
 from products.warehouse_sources.backend.facade import api as warehouse_facade
 from products.warehouse_sources.backend.facade.contracts import WAREHOUSE_OBJECT_TABLE, WAREHOUSE_OBJECT_VIEW
 
-from ..facade.contracts import MetricSubject
+from ..facade.contracts import MetricSubject, SelectableSubject
 from ..facade.enums import SubjectType
 from .contracts import SubjectRef
 
@@ -33,6 +33,61 @@ def resolve_subject(team_id: int, subject_type: str, subject_uuid: str | UUID) -
     if kind is SubjectType.METRIC:
         return _resolve_metric(team_id, subject_uuid)
     return _resolve_view(team_id, subject_uuid)
+
+
+def unqueryable_table_ids(team_id: int) -> set[UUID]:
+    """The tables the normal HogQL database leaves out, so no check should name one.
+
+    A direct-access table is absent from the database build, so a check on it errors on every run.
+    A materialized view's backing table answers to the view's own name, so a check on it reports
+    against the wrong subject instead.
+    """
+    excluded = set(data_modeling_facade.backing_table_ids_by_saved_query(team_id))
+    excluded.update(warehouse_facade.direct_access_table_ids(team_id))
+    return excluded
+
+
+def selectable_subjects(team_id: int, kinds: Collection[SubjectType]) -> list[SelectableSubject]:
+    """Everything in this team a check can be authored on, of the kinds asked for.
+
+    The catalog, not the gate: narrowing it to what the caller may read is the caller's job.
+    """
+    subjects: list[SelectableSubject] = []
+    if SubjectType.TABLE in kinds:
+        excluded_table_ids = unqueryable_table_ids(team_id)
+        columns_by_id = warehouse_facade.all_queryable_table_columns(team_id)
+        subjects.extend(
+            SelectableSubject(
+                subject_type=SubjectType.TABLE,
+                id=str(table_id),
+                name=name,
+                columns=columns_by_id.get(table_id) or {},
+            )
+            for table_id, name in warehouse_facade.all_queryable_table_names(team_id).items()
+            if table_id not in excluded_table_ids
+        )
+    if SubjectType.VIEW in kinds:
+        columns_by_id = data_modeling_facade.all_saved_query_columns(team_id)
+        subjects.extend(
+            SelectableSubject(
+                subject_type=SubjectType.VIEW,
+                id=saved_query_id,
+                name=name,
+                columns=columns_by_id.get(saved_query_id) or {},
+            )
+            for saved_query_id, name in data_modeling_facade.all_saved_query_names(team_id).items()
+        )
+    if SubjectType.METRIC in kinds:
+        subjects.extend(
+            SelectableSubject(
+                subject_type=SubjectType.METRIC,
+                id=str(metric.id),
+                name=metric.name,
+                display_name=metric.display_name,
+            )
+            for metric in testable_metric_subjects(team_id)
+        )
+    return sorted(subjects, key=lambda subject: (subject.subject_type, subject.name))
 
 
 def testable_metric_subjects(team_id: int) -> list[MetricSubject]:
@@ -124,17 +179,11 @@ def subject_column_type(team_id: int, subject_type: str, subject_uuid: str | UUI
     if kind is SubjectType.METRIC:
         return None
     if kind is SubjectType.TABLE:
-        table = warehouse_facade.get_queryable_table(UUID(str(subject_uuid)), team_id)
-        columns = table.columns if table else {}
+        table_id = UUID(str(subject_uuid))
+        columns = warehouse_facade.all_queryable_table_columns(team_id, {table_id}).get(table_id, {})
     else:
         columns = data_modeling_facade.get_saved_query_columns(team_id, subject_uuid)
-    entry = (columns or {}).get(column_name)
-    # A table records either a bare type string (older rows) or a dict keyed "clickhouse", the same
-    # two shapes hogql_fields_and_structure_for_columns handles; the saved-query facade already
-    # unwrapped a view's entry to the string.
-    if isinstance(entry, dict):
-        entry = entry.get("clickhouse")
-    return entry if isinstance(entry, str) else None
+    return columns.get(column_name)
 
 
 def _missing(kind: SubjectType, subject_uuid: str | UUID) -> SubjectRef:
