@@ -18,4 +18,4 @@ Do not treat every dashboard change as a widget change.
 - Define each widget config in `backend/widget_specs/configs.py` before you change generated frontend config types.
 - Run `hogli build:openapi` after you change `widget_specs/`.
 - Use dashboard insight tiles for charts and trends. Do not create a widget type for them.
-- Read `manage-dashboard-widgets` when you add a widget type or change a shipped widget.
+- Read [`manage-dashboard-widgets`](../../.agents/skills/manage-dashboard-widgets/SKILL.md) when you add a widget type or change a shipped widget.
