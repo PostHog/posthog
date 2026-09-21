@@ -23,20 +23,8 @@ The local process configuration and Docker Compose configurations run `property-
 It uses `KAFKA_CONSUMER_TOPIC=clickhouse_ai_events_json` and `KAFKA_CONSUMER_GROUP=property-defs-ai`.
 Hosted installations must include the AI output in their definition-discovery input configuration too; deploying application code alone does not change that configuration.
 
-## Repair missing AI property definitions
-
 Enabling the AI input fixes discovery for subsequent events.
-For projects whose older events are outside Kafka retention, preview a bounded metadata repair:
-
-```bash
-python manage.py repair_ai_property_definitions --team-id 123
-```
-
-Add `--apply` to create missing definitions for the six supported heavy AI properties in that team's project.
-The command only operates on projects with an existing AI event definition, and repeated runs preserve existing IDs, types, and access rules.
-It does not read event payloads or create event-property associations: the existing metadata cannot prove which heavy fields each event carried.
-New definitions have no inferred value type; full-stream ingestion fills the observed types and event associations.
-Replay retained AI events through the definitions input when historical associations are required, using a separate bounded replay job rather than resetting the live consumer group.
+It does not backfill definitions from past events.
 
 ## Dependencies worth knowing about
 

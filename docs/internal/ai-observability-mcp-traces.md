@@ -32,7 +32,6 @@ MCP response compaction runs after the backend applies these rules.
 
 Configure these rules in **Data management > Properties**, then open the property and select **Edit > Access control**.
 Heavy AI properties need definition discovery to consume the full AI event stream, since the shared events stream no longer contains those values.
-For missing definitions from older events, see the [bounded metadata repair](../../rust/property-defs-rs/README.md#repair-missing-ai-property-definitions).
 
 Property access is separate from AI observability resource access.
 These rules restrict individual values and do not establish who may execute a trace query.
