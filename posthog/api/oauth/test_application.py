@@ -1,4 +1,8 @@
+from uuid import UUID
+
 from posthog.test.base import APIBaseTest
+
+from django.utils.timezone import now
 
 from parameterized import parameterized
 from rest_framework import status
@@ -96,3 +100,17 @@ class TestOrganizationOAuthApplicationViewSet(APIBaseTest):
         app = self._create_app(self.organization)
         response = self.client.get(f"/api/organizations/@current/oauth_applications/{app.id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_list_pages_stay_stable_when_created_timestamps_tie(self):
+        app_ids = [UUID(f"0190a000-0000-7000-8000-00000000000{index}") for index in range(1, 5)]
+        for index, app_id in enumerate(app_ids):
+            self._create_app(self.organization, name=f"App {index}", id=app_id)
+        OAuthApplication.objects.filter(id__in=app_ids).update(created=now())
+
+        paged_ids = []
+        for offset in (0, 2):
+            response = self.client.get(f"/api/organizations/@current/oauth_applications/?limit=2&offset={offset}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            paged_ids.extend(result["id"] for result in response.data["results"])
+
+        self.assertEqual(paged_ids, [str(app_id) for app_id in reversed(app_ids)])

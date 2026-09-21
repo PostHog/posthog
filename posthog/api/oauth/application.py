@@ -38,7 +38,8 @@ class OrganizationOAuthApplicationViewSet(
     """
 
     scope_object = "organization"
-    queryset = OAuthApplication.objects.order_by("-created")
+    # `created` is not unique, so `id` breaks ties and keeps limit-offset pages stable.
+    queryset = OAuthApplication.objects.order_by("-created", "-id")
     serializer_class = OrganizationOAuthApplicationSerializer
 
     def safely_get_queryset(self, queryset):
