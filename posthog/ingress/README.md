@@ -50,8 +50,9 @@ An HMAC over raw bytes proves only the signature, so its `facts` are empty and `
 
 ## Schemes
 
-`verify/schemes.py` holds `HmacSha256` and `SnsSignature`; `verify/jwt.py` holds `BearerJwt`, for a provider that authenticates with a signed token instead of a shared secret.
+`verify/schemes.py` holds `HmacSignature` and `SnsSignature`; `verify/jwt.py` holds `BearerJwt`, for a provider that authenticates with a signed token instead of a shared secret.
 Each class docstring carries its own reasoning.
+`HmacSha256` is `HmacSignature` with the default digest, and it is the name to reach for. Only a provider that signs with something else sets `digest`, and everything else about the scheme, `rejects_headers` included, behaves the same whichever digest it carries.
 
 A scheme also answers `rejects_headers(headers)`, the part of the check that needs no body: `HmacSha256` refuses a missing or malformed signature header and a missing, malformed or stale timestamp header there, and `BearerJwt` refuses a request that carries no bearer token. The answer is the same INVALID the full check would reach, with the same status, log line and metric outcome, so an unauthenticated caller cannot make an endpoint read a body of up to the request limit for it. A scheme that cannot decide from headers alone answers `False`, which is what `SnsSignature` does, and so does an HMAC scheme whose secret is unset, so an unconfigured endpoint still answers NOT_CONFIGURED.
 
