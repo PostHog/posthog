@@ -35,12 +35,18 @@ Trailing slashes are optional; paths are normalized before matching.
    The US `client_id` is handed back as the proxy `client_id`.
    The proxy's own `/oauth/callback/` is appended to the submitted `redirect_uris` so both regional servers accept it later.
 2. **Authorize.**
-   `/oauth/authorize` serves a static region picker.
+   `/oauth/authorize` resolves the region, by cookie when it can and by asking when it cannot.
+   Each region sets `ph_authenticated_us` or `ph_authenticated_eu` on the shared `posthog.com` domain while a session is live there, and clears it on logout.
+   Exactly one of them means the answer is unambiguous, so the worker redirects without rendering anything.
+   Both or neither is genuinely ambiguous, so it serves the static region picker instead, marking the region `ph_current_instance` names as last used.
    The page mirrors the app's login scene (`frontend/src/scenes/authentication/shared/authScene`): the same background, card, logo and buttons, restated in plain CSS because a Worker cannot import the app's tokens.
    It loads no third-party asset; the RoundHog faces it uses are bundled from `@posthog/brand` and served by this worker (see `src/handlers/fonts.ts`).
    The picker re-requests the same URL with `_region=us|eu` appended.
+
+   Those two cookies are `SameSite=Lax`. A browser withholds a `Strict` cookie on the cross-site top-level navigation an OAuth client arrives by, so `ph_current_instance` and the other `Strict` cookies never reach this worker. Only page JavaScript can read them.
    The worker stores the region choice in KV under the `client_id`, swaps in the regional `client_id`, replaces `redirect_uri` with the proxy callback, and redirects to the region.
    For clients with a stored `redirect_uris` list, it also generates a nonce, stores the client's original `redirect_uri` and `state` under it, and sends the regional server that nonce as `state` instead of the client's own.
+
 3. **Callback.**
    The regional server sends the user to `/oauth/callback` with the nonce from step 2 as `state`.
    The worker looks up and deletes the matching record, then forwards every query param to the client's original `redirect_uri`, restoring the client's own `state`.
