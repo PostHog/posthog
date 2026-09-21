@@ -501,7 +501,7 @@ describe('FeaturePreviewSceneGate', () => {
 
             render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
 
-            expect(screen.getByRole('button', { name: /Registered/ })).toHaveAttribute('aria-disabled', 'true')
+            expect(screen.getByText('Registered').closest('button')).toHaveAttribute('aria-disabled', 'true')
             expect(screen.queryByText(/Thanks, we'll email you when it's ready/)).not.toBeInTheDocument()
         })
 
