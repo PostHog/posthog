@@ -43,6 +43,10 @@ These are packaged runtime skills, not project skill-store entries. Do not use `
 - Exclusive rows: `input_tokens` excludes cache. Uncached input equals `input_tokens`. Total input adds `cache_read` and `cache_write` on top.
 - Inclusive rows: `input_tokens` includes cache. Uncached input equals `input_tokens` minus `cache_read`. Total input equals `input_tokens`.
 - Do not infer the convention from the model or provider name. It varies by SDK and SDK version.
+- The flag is null on rows where ingestion resolved no cost, and a wrong flag is possible on rows a caller set by hand. Check every row before you use it: a row is provably exclusive when `input_tokens` is below `cache_read` plus `cache_write`, because an inclusive count can never be smaller than the cache it contains.
+- Resolve a null flag per workflow, not per row. One SDK reports one way, so when any row in the workflow is provably exclusive, treat the whole workflow as exclusive. Otherwise treat it as inclusive.
+- A row whose flag says inclusive but is provably exclusive is inconsistent. Treat it as exclusive, and count these rows in the run summary.
+- Worked example: `input_tokens` 1,200, `cache_read` 40,000, `cache_write` 0, flag null. The inclusive reading gives uncached input of -38,800, so the row is exclusive: total input 41,200, uncached input 1,200, hit ratio 0.97.
 - For cost, add `input_cost_usd` and `output_cost_usd`. Do not trust `total_cost_usd`: it undercounts rows that report exclusively.
 
 ## The cache mistakes to hunt
