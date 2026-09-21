@@ -187,6 +187,7 @@ const workflowsList = (): ToolBase<
                 query: {
                     created_at: params.created_at,
                     created_by: params.created_by,
+                    exclude_kind: params.exclude_kind,
                     id: params.id,
                     kind: params.kind,
                     limit: params.limit,
