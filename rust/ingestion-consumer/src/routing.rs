@@ -1,7 +1,7 @@
-//! Worker selection strategies for unpinned routing keys.
+//! Worker selection strategies for routing keys.
 //!
-//! The dispatcher owns the stateful concerns (grouping, sticky pins, ref-counts,
-//! in-flight accounting). This module is the pure decision layer: given the set
+//! The dispatcher and scheduler own the stateful concerns (grouping, per-key
+//! queues, in-flight accounting). This module is the pure decision layer: given the set
 //! of healthy workers and their per-worker load, pick a target. Keeping it free
 //! of dispatcher state makes the algorithms trivially unit-testable and lets the
 //! routing policy evolve (P2C cost functions, subsetting) without touching the
@@ -15,8 +15,7 @@ use rand::{Rng, SeedableRng};
 
 use crate::worker_registry::WorkerId;
 
-/// How unpinned routing keys are assigned to workers. Pinned keys always go to
-/// their existing worker regardless of strategy.
+/// How routing keys are assigned to workers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum RoutingStrategy {
     /// Largest-first bin-packing onto the least-loaded worker. Accurate when one
@@ -28,7 +27,7 @@ pub enum RoutingStrategy {
     /// resistant when many consumers share a worker pool, because each consumer
     /// samples a different random pair instead of converging on one global best.
     P2c,
-    /// Deterministic aperture: each dispatcher routes unpinned keys only within
+    /// Deterministic aperture: each dispatcher routes fresh keys only within
     /// its slice of the worker ring (see [`crate::aperture`]), with P2C
     /// selection inside the slice. Consolidates small batches onto few workers
     /// while the fleet's slices still tile the whole pool. Requires peer

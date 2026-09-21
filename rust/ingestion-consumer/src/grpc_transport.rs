@@ -17,13 +17,12 @@
 //!
 //! **Failure fences the whole worker stream.** A nack, stream break, or connect
 //! failure resolves every queued and un-acked item, in enqueue order, with a
-//! [`SendError`] carrying the messages back — the callers' existing
-//! `defer_failed` path then stashes them, and the dispatcher's outstanding
-//! counts hold all newer work for those keys until the failed groups are
-//! retried (oldest first) and acked. Each fenced send also carries a
+//! [`SendError`] carrying the messages back — the failed settlement then
+//! requeues them, and the key table holds all newer work for those keys until
+//! the failed groups are retried (oldest first) and acked. Each fenced send also carries a
 //! [`FenceGuard`]; the worker stream keeps fencing every new arrival until all guards
 //! are dropped, which closes the gap between a send resolving and its
-//! caller stashing, where the consumer loop could otherwise enqueue a fenced
+//! caller requeueing, where the consumer loop could otherwise enqueue a fenced
 //! key's next group and the next stream would send it first. Nothing for a
 //! fenced key can leapfrog the failure, because everything for it was either
 //! in the ledger, the queue, or fenced on arrival.
@@ -104,7 +103,7 @@ impl PendingWorkerStreamSend {
                     messages.extend(std::mem::take(&mut err.messages));
                     match &mut failure {
                         // Keep the first failure's error; fold later guards
-                        // into it so the stream fences until all are stashed.
+                        // into it so the stream fences until all are requeued.
                         Some(first) => match (&mut first.fence_guard, err.fence_guard.take()) {
                             (Some(guard), Some(other)) => guard.merge(other),
                             (slot @ None, other) => *slot = other,
@@ -718,9 +717,9 @@ impl WorkerStreamRunner {
     /// Resolve everything outstanding as failed, **in enqueue order**: the
     /// un-acked ledger first, then anything still queued (which was enqueued
     /// after everything in the ledger). Order matters because the callers'
-    /// `defer_failed` stashes groups by batch sequence — resolving in order
-    /// keeps every fenced key's groups stashed oldest-first, so the retry
-    /// (oldest first) is the same request that failed.
+    /// failed settlement requeues each run at the front of its key's queue —
+    /// resolving in order keeps every fenced key's runs queued oldest-first,
+    /// so the retry is the same request that failed.
     fn fence(
         &self,
         pending_first: Option<WorkerStreamItem>,
@@ -769,7 +768,7 @@ impl WorkerStreamRunner {
 
 /// A fence in progress. Every fenced send carries a [`FenceGuard`]; until all
 /// of them are dropped the worker stream fails each new arrival too, so a send
-/// enqueued before the fenced messages are stashed cannot ride the next
+/// enqueued before the fenced messages are requeued cannot ride the next
 /// stream ahead of them.
 struct Fence {
     retriable: bool,
@@ -841,7 +840,7 @@ enum StreamEnd {
     /// The transport dropped the queue sender — worker removed or shutdown.
     QueueClosed,
     /// The stream broke; the fence holds what was resolved as failed and
-    /// keeps fencing until those callers have stashed their messages.
+    /// keeps fencing until those callers have requeued their messages.
     Failed(Fence),
     /// The stream ended cleanly with nothing outstanding.
     Idle,

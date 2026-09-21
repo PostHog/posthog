@@ -4,12 +4,12 @@
 //! **Per-key send order** ([`KeyOrderSentinel`]): for every routing key
 //! (the Kafka message key), messages must be handed to workers in Kafka offset
 //! order, and a message must never be re-sent after it was ACKed. Replays of
-//! un-ACKed messages on the retry paths ([`SendKind::Resend`]: send failure →
-//! deferred flush) are legal at-least-once behavior and are counted separately
+//! un-ACKed messages on the retry path ([`SendKind::Resend`]: send failure →
+//! parked retry) are legal at-least-once behavior and are counted separately
 //! (`ingestion_consumer_key_replays_total`) rather than flagged; the same
 //! regression on a fresh assignment is a `send_below_last_sent` violation.
 //! Checked in the dispatcher at assignment time — the
-//! point that defines the intended per-key order — under the pin-table lock.
+//! point that defines the intended per-key order — under the dispatcher lock.
 //! Only messages produced with a Kafka key participate: null-key production
 //! (e.g. overflow rerouting) spreads a routing key across partitions,
 //! deliberately forfeiting per-key order, so there is no invariant to check
@@ -88,7 +88,7 @@ pub enum SendKind {
     /// single partition, so their offsets must only move forward; a regression
     /// is a [`KeyOrderViolationKind::SendBelowLastSent`] violation.
     Fresh,
-    /// A deferred-flush retry that re-routes messages whose earlier send
+    /// A parked retry that re-routes messages whose earlier send
     /// failed — repeating un-ACKed offsets is expected at-least-once behavior,
     /// not a violation.
     Resend,
@@ -112,9 +112,10 @@ struct KeyState {
 }
 
 /// Tracks per-routing-key send/ACK progress and checks every assignment
-/// against it. State lives exactly as long as the key's pin: the dispatcher
-/// evicts it when the pin is evicted (all sends resolved, nothing deferred),
-/// so the map is bounded by in-flight work — the same bound as the pin table.
+/// against it. State lives exactly as long as the key's scheduler entry: the
+/// dispatcher evicts it when the scheduler evicts the key (all sends resolved,
+/// nothing queued), so the map is bounded by in-flight and queued work — the
+/// same bound as the key table.
 ///
 /// A key whose state was evicted rebaselines on its next send. That is sound
 /// within a process: the key's messages arrive from its single partition in
@@ -152,8 +153,8 @@ impl KeyOrderSentinel {
     /// Record that `messages` for `routing_key` are being handed to a worker.
     /// `kind` distinguishes a fresh assignment (offsets must only move
     /// forward) from a retry-path resend (repeating un-ACKed offsets is
-    /// legal). Call at assignment time, under the dispatcher's pin-table
-    /// lock, so the check order matches the intended per-key send order.
+    /// legal). Call at assignment time, under the dispatcher's lock, so the
+    /// check order matches the intended per-key send order.
     /// Null-key messages are skipped — they carry no per-key order promise
     /// (see module docs). Emits metrics and logs; returns violations for
     /// tests.
@@ -229,7 +230,7 @@ impl KeyOrderSentinel {
                     state.last_sent = state.last_sent.max(last.offset);
                 } else if kind == SendKind::Resend {
                     // Replay of a not-yet-ACKed range: the legal retry path
-                    // (send failure → defer → flush re-routes the same messages).
+                    // (send failure → requeue → parked retry re-routes the same messages).
                     counter!("ingestion_consumer_key_replays_total").increment(1);
                     state.last_sent = state.last_sent.max(last.offset);
                 } else {
@@ -283,8 +284,8 @@ impl KeyOrderSentinel {
         }
     }
 
-    /// Drop a key's state. Call when its pin is evicted — every send has
-    /// resolved and nothing is deferred, so there is nothing left to order
+    /// Drop a key's state. Call when the scheduler evicts the key — every send
+    /// has resolved and nothing is queued, so there is nothing left to order
     /// against and future offsets are necessarily higher.
     pub fn evict(&self, routing_key: &str) {
         if !self.enabled.load(Ordering::Relaxed) {
@@ -530,7 +531,7 @@ mod tests {
     fn replay_of_unacked_range_is_not_a_violation() {
         let sentinel = KeyOrderSentinel::new();
         sentinel.note_sent("t:a", &[msg_at(0, 1), msg_at(0, 2)], SendKind::Fresh);
-        // Send failed (no ACK) → deferred flush re-sends the same messages.
+        // Send failed (no ACK) → the parked retry re-sends the same messages.
         assert!(sentinel
             .note_sent("t:a", &[msg_at(0, 1), msg_at(0, 2)], SendKind::Resend)
             .is_empty());
@@ -565,9 +566,9 @@ mod tests {
 
     #[test]
     fn older_messages_after_acked_newer_ones_are_a_violation() {
-        // The exact race the deferral machinery exists to prevent: a key's
+        // The exact race the one-request-per-key rule exists to prevent: a key's
         // newer messages were sent and ACKed while its older ones were still
-        // deferred — flushing the older ones now is out-of-order processing.
+        // queued — retrying the older ones now is out-of-order processing.
         let sentinel = KeyOrderSentinel::new();
         sentinel.note_sent("t:a", &[msg_at(0, 4), msg_at(0, 5)], SendKind::Fresh);
         sentinel.note_acked("t:a", 5);
