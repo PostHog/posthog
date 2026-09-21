@@ -11,6 +11,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -41,6 +42,8 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     schema_validation_failed: 'Event rejected due to schema validation failure',
     invalid_heatmap_data: 'Invalid heatmap data',
     invalid_group_set: 'Discarded a $groupidentify event whose $group_set is not an object',
+    event_dropped_by_transformation: 'Discarded event that a transformation dropped',
+    event_dropped_too_old: 'Discarded event that was older than the project limit',
     // Emitted by the capture service when it drops events at validation time
     missing_event_name: 'Discarded event with no event name',
     event_name_too_long: 'Discarded event whose name exceeds the length limit',
@@ -71,7 +74,7 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
 // (e.g. set_on_exception's heading is "Invalid set operations on exception events"), which
 // would land the link at the top of the page instead of the relevant section. Types without
 // a documented section are omitted and fall back to the page root.
-export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
+const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
     cannot_merge_already_identified: 'refused-to-merge-an-already-identified-user',
     cannot_merge_with_illegal_distinct_id: 'refused-to-merge-with-an-illegal-distinct-id',
     merge_move_limit_exceeded: 'a-merge-exceeded-its-distinct-id-move-limit-and-was-dropped',
@@ -86,6 +89,20 @@ export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
     set_on_exception: 'invalid-set-operations-on-exception-events',
     invalid_heatmap_data: 'invalid-heatmap-data',
     high_volume_distinct_id: 'skipped-person-profile-processing-for-a-high-volume-distinct-id',
+}
+
+// Warning types documented outside the ingestion warnings page. The page has no section for
+// these, so the anchor map cannot reach them and the root fallback tells the reader nothing.
+const WARNING_TYPE_TO_DOCS_URL: Record<string, string> = {
+    event_dropped_by_transformation: 'https://posthog.com/docs/cdp/transformations',
+}
+
+export function warningTypeToDocsUrl(type: string): string {
+    const anchor = WARNING_TYPE_TO_DOCS_ANCHOR[type]
+    return (
+        WARNING_TYPE_TO_DOCS_URL[type] ??
+        `https://posthog.com/docs/data/ingestion-warnings${anchor ? `#${anchor}` : ''}`
+    )
 }
 
 export const WARNING_TYPE_RENDERER = {
@@ -341,6 +358,59 @@ export const WARNING_TYPE_RENDERER = {
             </>
         )
     },
+    event_dropped_by_transformation: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            eventUuid: string
+            event: string
+            distinctId: string
+            transformationId?: string
+            transformationName?: string
+        }
+        // A page-translation extension replaces every bare text node with a <font> element that
+        // React does not own, so removing one, or inserting a sibling before one, throws
+        // NotFoundError (react#11538). The outer span keeps the link swap away from the text of
+        // the sentence, and the fallback is an element so that the swap removes a node React owns.
+        return (
+            <>
+                Event <strong>{details.event}</strong> for distinct_id{' '}
+                <Link to={urls.personByDistinctId(details.distinctId)}>{details.distinctId}</Link> was dropped by{' '}
+                <span>
+                    {details.transformationId ? (
+                        <Link to={urls.hogFunction(details.transformationId)}>
+                            {details.transformationName || 'a transformation'}
+                        </Link>
+                    ) : (
+                        <span>a transformation</span>
+                    )}
+                </span>
+                , so it was never stored (event uuid: <code>{details.eventUuid}</code>). Edit or disable that
+                transformation to keep these events.
+            </>
+        )
+    },
+    event_dropped_too_old: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            eventUuid: string
+            event: string
+            distinctId: string
+            eventTimestamp: string
+            ageInSeconds: number
+            dropThresholdSeconds: number
+        }
+        // The durations opt out of page translation. A translated text node detaches from React,
+        // so a reused table row would keep showing the previous warning's durations
+        // (react#11538). A duration holds nothing worth translating.
+        return (
+            <>
+                Event <strong>{details.event}</strong> for distinct_id{' '}
+                <Link to={urls.personByDistinctId(details.distinctId)}>{details.distinctId}</Link> arrived{' '}
+                <span translate="no">{humanFriendlyDuration(details.ageInSeconds)}</span> after its timestamp, over this
+                project limit of <span translate="no">{humanFriendlyDuration(details.dropThresholdSeconds)}</span>, so
+                it was never stored (event timestamp: <TZLabel time={details.eventTimestamp} showSeconds />, event uuid:{' '}
+                <code>{details.eventUuid}</code>). Contact support to change the limit.
+            </>
+        )
+    },
     schema_validation_failed: function Render(warning: IngestionWarning): JSX.Element {
         const details = warning.details as {
             eventUuid: string
@@ -434,10 +504,7 @@ export function IngestionWarningsView(): JSX.Element {
                                         WARNING_TYPE_TO_DESCRIPTION[
                                             summary.type as keyof typeof WARNING_TYPE_TO_DESCRIPTION
                                         ] || summary.type
-                                    const docsAnchor = WARNING_TYPE_TO_DOCS_ANCHOR[summary.type]
-                                    const docsUrl = docsAnchor
-                                        ? `https://posthog.com/docs/data/ingestion-warnings#${docsAnchor}`
-                                        : 'https://posthog.com/docs/data/ingestion-warnings'
+                                    const docsUrl = warningTypeToDocsUrl(summary.type)
                                     return (
                                         <>
                                             {type} (<Link to={docsUrl}>docs)</Link>
