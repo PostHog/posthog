@@ -1,3 +1,7 @@
+from products.ai_observability.backend.model_breakdown import (
+    MODEL_BREAKDOWN_DESCRIPTION,
+    normalized_model_breakdown_filter,
+)
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 
@@ -147,7 +151,7 @@ def get_ai_observability_default_template() -> DashboardTemplate:
             {
                 "type": "INSIGHT",
                 "name": "Cost by model (USD)",
-                "description": "",
+                "description": MODEL_BREAKDOWN_DESCRIPTION,
                 "query": {
                     "kind": "InsightVizNode",
                     "source": {
@@ -161,10 +165,7 @@ def get_ai_observability_default_template() -> DashboardTemplate:
                                 "math_property": "$ai_total_cost_usd",
                             }
                         ],
-                        "breakdownFilter": {
-                            "breakdown_type": "event",
-                            "breakdown": "$ai_model",
-                        },
+                        "breakdownFilter": normalized_model_breakdown_filter(),
                         "trendsFilter": {
                             "aggregationAxisPrefix": "$",
                             "decimalPlaces": 2,
@@ -244,7 +245,7 @@ def get_ai_observability_default_template() -> DashboardTemplate:
             {
                 "type": "INSIGHT",
                 "name": "Generation latency by model (median)",
-                "description": "",
+                "description": MODEL_BREAKDOWN_DESCRIPTION,
                 "query": {
                     "kind": "InsightVizNode",
                     "source": {
@@ -258,10 +259,7 @@ def get_ai_observability_default_template() -> DashboardTemplate:
                                 "math_property": "$ai_latency",
                             }
                         ],
-                        "breakdownFilter": {
-                            "breakdown_type": "event",
-                            "breakdown": "$ai_model",
-                        },
+                        "breakdownFilter": normalized_model_breakdown_filter(),
                         "trendsFilter": {
                             "aggregationAxisPostfix": " s",
                             "decimalPlaces": 2,
