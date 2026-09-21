@@ -550,7 +550,7 @@ database "posthog" {
       type = "Array(String)"
     }
   }
-  table "_marketing_sessions_dimensional_preaggregated_columns" {
+  table "_web_sessions_dimensional_preaggregated_columns" {
     abstract = true
     column "team_id" {
       type = "Int64"
@@ -561,8 +561,8 @@ database "posthog" {
     column "period_bucket" {
       type = "DateTime"
     }
-    column "session_id" {
-      type = "String"
+    column "session_id_v7" {
+      type = "UInt128"
     }
     column "person_id" {
       type = "UUID"
@@ -1241,12 +1241,12 @@ database "posthog" {
       sharding_key    = "sipHash64(id)"
     }
   }
-  table "marketing_sessions_dimensional_preaggregated" {
-    extend = "_marketing_sessions_dimensional_preaggregated_columns"
+  table "web_sessions_dimensional_preaggregated" {
+    extend = "_web_sessions_dimensional_preaggregated_columns"
     engine "distributed" {
       cluster_name    = "aux"
       remote_database = "posthog"
-      remote_table    = "sharded_marketing_sessions_dimensional_preaggregated"
+      remote_table    = "sharded_web_sessions_dimensional_preaggregated"
       sharding_key    = "cityHash64(person_id)"
     }
   }

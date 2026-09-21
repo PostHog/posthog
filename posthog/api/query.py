@@ -191,6 +191,7 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     "ErrorTrackingFingerprintProjectionQuery": ["query:read", "error_tracking:read"],
     "ErrorTrackingReleasesQuery": ["query:read", "error_tracking:read"],
     "MetricsQuery": ["metrics:read"],
+    "MetricsHistogramQuery": ["metrics:read"],
     # Both scopes listed: this result replaces the view's default query:read
     # rather than adding to it, and a token must hold every listed scope.
     "MCPMissingCapabilitiesQuery": ["query:read", "mcp_analytics:read"],
@@ -313,12 +314,13 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 limit_context = None
 
             reset_request_query_cost()
+            is_query_service = get_query_tag_value("access_method") == "personal_api_key"
+            if is_query_service:
+                tag_queries(api_queries_budgeted=True)
             with tracer.start_as_current_span("posthog.query.process_query_model") as process_span:
                 process_span.set_attribute("team_id", self.team.pk)
                 process_span.set_attribute("query.kind", getattr(query, "kind", "Other"))
-                process_span.set_attribute(
-                    "query.is_query_service", get_query_tag_value("access_method") == "personal_api_key"
-                )
+                process_span.set_attribute("query.is_query_service", is_query_service)
                 if limit_context is not None:
                     process_span.set_attribute("query.limit_context", limit_context.value)
                 result = process_query_model(
@@ -327,7 +329,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     execution_mode=execution_mode,
                     query_id=client_query_id,
                     user=request.user,  # type: ignore[arg-type]
-                    is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+                    is_query_service=is_query_service,
                     limit_context=limit_context,
                     analytics_props=analytics_props,
                 )

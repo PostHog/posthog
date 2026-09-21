@@ -60,7 +60,9 @@ Query errors keep the Loki error format, so Grafana shows them inline.
 
 ## Rate limits
 
-The endpoint shares the [API rate limits](/docs/api#rate-limiting) of the project. Grafana dashboards with many panels count one request per panel per refresh.
+The endpoint uses the project's ClickHouse read-byte budget. Snuffle reports the bytes that ClickHouse read after each query, and that amount is taken from a Redis token bucket. The bucket refills continuously and has a capped balance.
+
+When the budget is empty, the next request returns `429` with `Retry-After`. Grafana dashboards with many panels can use different amounts because each panel is charged for its actual ClickHouse read volume, not one request.
 
 ## Self-hosted
 

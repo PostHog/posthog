@@ -464,17 +464,17 @@ database "posthog" {
       replica_name = "{replica}"
     }
   }
-  table "sharded_marketing_sessions_dimensional_preaggregated" {
-    order_by     = ["team_id", "job_id", "person_id", "start_timestamp", "session_id"]
+  table "sharded_web_sessions_dimensional_preaggregated" {
+    order_by     = ["team_id", "job_id", "person_id", "start_timestamp", "session_id_v7"]
     partition_by = "toYYYYMMDD(expires_at)"
-    ttl          = "toDateTime(expires_at) + toIntervalDay(1)"
+    ttl          = "toDateTime(expires_at)"
     settings = {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
     }
-    extend = "_marketing_sessions_dimensional_preaggregated_columns"
+    extend = "_web_sessions_dimensional_preaggregated_columns"
     engine "replicated_replacing_merge_tree" {
-      zoo_path       = "/clickhouse/tables/{shard}/posthog.marketing_sessions_dimensional_preaggregated"
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.web_sessions_dimensional_preaggregated"
       replica_name   = "{replica}"
       version_column = "computed_at"
     }
