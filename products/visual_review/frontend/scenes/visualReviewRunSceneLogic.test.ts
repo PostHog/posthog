@@ -20,16 +20,26 @@ const toleratedToday = (index: number): Record<string, unknown> => ({
 
 describe('visualReviewRunSceneLogic', () => {
     let logic: ReturnType<typeof visualReviewRunSceneLogic.build>
+    let releaseSlow: () => void = () => {}
 
     beforeEach(() => {
         useMocks({
             get: {
                 [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: [404, {}],
                 [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: [404, {}],
-                [TOLERATED_URL]: ({ request }) =>
-                    new URL(request.url).searchParams.get('identifier') === 'flaky'
-                        ? [200, { count: 3, next: null, previous: null, results: [0, 1, 2].map(toleratedToday) }]
-                        : [500, {}],
+                [TOLERATED_URL]: async ({ request }) => {
+                    const identifier = new URL(request.url).searchParams.get('identifier')
+                    if (identifier === 'other') {
+                        return [500, {}]
+                    }
+                    if (identifier === 'slow') {
+                        await new Promise<void>((resolve) => {
+                            releaseSlow = resolve
+                        })
+                    }
+                    const results = identifier === 'quiet' ? [] : [0, 1, 2].map(toleratedToday)
+                    return [200, { count: results.length, next: null, previous: null, results }]
+                },
             },
         })
         initKeaTests()
@@ -49,5 +59,16 @@ describe('visualReviewRunSceneLogic', () => {
         await expectLogic(logic, () => logic.actions.loadToleratedHashes('other'))
             .toDispatchActions(['loadToleratedHashesFailure'])
             .toMatchValues({ recentTolerations: { manual: 0, agent: 0, auto: 0 } })
+    })
+
+    it('ignores a slower response for a snapshot the reviewer already left', async () => {
+        logic.actions.loadToleratedHashes('slow')
+        await expectLogic(logic, () => logic.actions.loadToleratedHashes('quiet'))
+            .toDispatchActions(['loadToleratedHashesSuccess'])
+            .toMatchValues({ recentTolerations: { manual: 0, agent: 0, auto: 0 } })
+
+        releaseSlow()
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic).toMatchValues({ recentTolerations: { manual: 0, agent: 0, auto: 0 } })
     })
 })

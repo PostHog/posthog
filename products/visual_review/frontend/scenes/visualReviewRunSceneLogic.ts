@@ -371,12 +371,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         toleratedHashes: [
             [] as ToleratedHashEntryApi[],
             {
-                loadToleratedHashes: async (identifier: string) => {
+                loadToleratedHashes: async (identifier: string, breakpoint) => {
                     const response = await visualReviewRunsToleratedHashesList(
                         String(values.currentProjectId),
                         props.runId,
                         { identifier }
                     )
+                    // Drop a response that a newer selection overtook, so it can't land last.
+                    breakpoint()
                     return response.results
                 },
             },
