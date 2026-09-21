@@ -3,16 +3,24 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
 from products.alerts.backend.facade.contracts import SourceBatchEvaluation
 from products.alerts.backend.facade.platform_alerts import record_outcomes
+from products.alerts.backend.facade.temporal import SOURCE_EVALUATION_TIMEOUT
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
 from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
 from products.logs.backend.alert_source_cycle import BATCH_QUERY_BUDGET_SECONDS, MAX_QUERY_SECONDS, evaluate_logs_batch
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
+from products.logs.backend.temporal.alert_evaluate import (
+    EVALUATE_SCHEDULE_TO_CLOSE,
+    EVALUATE_START_TO_CLOSE,
+    EVALUATION_BUDGET,
+)
 
 _MODULE = "products.logs.backend.alert_source_cycle"
 _LOGS_OWNED_FIELDS = ("state", "consecutive_failures", "next_check_at", "last_notified_at", "snooze_until")
@@ -151,25 +159,19 @@ class TestLogsAlertEvaluation(APIBaseTest):
         ]
 
 
-def test_the_evaluation_timeout_ladder_holds() -> None:
-    """Every bound in the path, largest first, asserted in one place.
+class TestEvaluationTimeoutLadder(SimpleTestCase):
+    """Constants only, so this takes no database."""
 
-    Each of these has been wrong once. The activity sat under the query, and two activities
-    declared eighty seconds inside a forty-second workflow. A timeout cut short between deciding
-    and recording loses a batch that decided to fire, and nothing else in the tree notices.
-    """
-    from products.alerts.backend.facade.temporal import SOURCE_EVALUATION_TIMEOUT
-    from products.logs.backend.temporal.alert_evaluate import (
-        EVALUATE_SCHEDULE_TO_CLOSE,
-        EVALUATE_START_TO_CLOSE,
-        EVALUATION_BUDGET,
-    )
-
-    # ClickHouse ends a slow query, not the activity timing out with the query still running.
-    assert EVALUATE_START_TO_CLOSE.total_seconds() > BATCH_QUERY_BUDGET_SECONDS > MAX_QUERY_SECONDS
-    # Temporal bounds an attempt by whichever timeout expires first, so queue time must not be
-    # what shortens the run below the query budget.
-    assert EVALUATE_SCHEDULE_TO_CLOSE > EVALUATE_START_TO_CLOSE
-    assert (EVALUATE_SCHEDULE_TO_CLOSE - EVALUATE_START_TO_CLOSE).total_seconds() >= BATCH_QUERY_BUDGET_SECONDS / 2
-    # The platform's own timeout holds both activities and still leaves room for the deliveries.
-    assert SOURCE_EVALUATION_TIMEOUT > EVALUATION_BUDGET
+    def test_the_evaluation_timeout_ladder_holds(self) -> None:
+        # Each bound here has been wrong once. The activity sat under the query, and two
+        # activities declared eighty seconds inside a forty-second workflow. A timeout that
+        # lands between deciding and recording loses a batch that decided to fire, and nothing
+        # else in the tree notices.
+        # ClickHouse ends a slow query, not the activity timing out with the query still running.
+        assert EVALUATE_START_TO_CLOSE.total_seconds() > BATCH_QUERY_BUDGET_SECONDS > MAX_QUERY_SECONDS
+        # Temporal bounds an attempt by whichever timeout expires first, so queue time must not be
+        # what shortens the run below the query budget.
+        assert EVALUATE_SCHEDULE_TO_CLOSE > EVALUATE_START_TO_CLOSE
+        assert (EVALUATE_SCHEDULE_TO_CLOSE - EVALUATE_START_TO_CLOSE).total_seconds() >= BATCH_QUERY_BUDGET_SECONDS / 2
+        # The platform's own timeout holds both activities and still leaves room for the deliveries.
+        assert SOURCE_EVALUATION_TIMEOUT > EVALUATION_BUDGET
