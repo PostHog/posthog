@@ -41,7 +41,7 @@ class PrecountedLimitOffsetPagination(LimitOffsetPagination):
         self.count = count
 
     def _offset_is_past_the_end(self) -> bool:
-        return self.offset > (self.count or 0)
+        return (self.offset or 0) > (self.count or 0)
 
     def paginate_queryset(self, queryset, request, view=None) -> Optional[list[Any]]:
         if self.count is None:
@@ -81,10 +81,10 @@ class CappedCountLimitOffsetPagination(PrecountedLimitOffsetPagination):
 
     def get_next_link(self) -> Optional[str]:
         # The base class drops `next` once `offset + limit >= count`, which a capped count reaches early.
-        if self.count_is_capped and self.limit and self.page_size_returned >= self.limit:
+        if self.count_is_capped and self.limit and self.request and self.page_size_returned >= self.limit:
             url = self.request.build_absolute_uri()
             url = replace_query_param(url, self.limit_query_param, self.limit)
-            return replace_query_param(url, self.offset_query_param, self.offset + self.limit)
+            return replace_query_param(url, self.offset_query_param, (self.offset or 0) + self.limit)
         return super().get_next_link()
 
     def get_paginated_response(self, data: Any) -> Response:
