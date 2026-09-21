@@ -25,7 +25,9 @@ Only a `synced: true` entry has tables to read, and one repository can appear un
 Treat that flag as the signal to list from the raw table instead:
 
 ```sql
-SELECT number, toString(title) AS title, user.login AS author, user.type AS author_type,
+SELECT number, toString(title) AS title,
+       ifNull(JSONExtractString(user, 'login'), '') AS author,
+       ifNull(JSONExtractString(user, 'type'), '') AS author_type,
        merged_at, html_url
 FROM <prefix>github_pull_requests
 WHERE merged_at IS NOT NULL AND merged_at != ''
@@ -34,7 +36,7 @@ ORDER BY merged_at DESC
 LIMIT 500
 ```
 
-`title`, `body`, and `user` are JSON columns (`toString(title)`, `toString(body)`, `user.login`, `user.type = 'Bot'`), timestamps are strings, and `merge_commit_sha` can be null, so the merge SHA for the containment check still comes from the detail fetch below.
+`title` and `body` are JSON columns (`toString(title)`, `toString(body)`), `user` is a JSON-encoded string that only `JSONExtractString(user, 'login')` and `JSONExtractString(user, 'type') = 'Bot'` can read (a dotted `user.login` fails on this table, exactly when the tool listing was truncated), timestamps are strings, and `merge_commit_sha` can be null, so the merge SHA for the containment check still comes from the detail fetch below.
 Page with `OFFSET` to the window boundary.
 `pr-lifecycle` gives one PR's timeline.
 
@@ -72,7 +74,7 @@ Filter on listing metadata first (bots by author, `noise:` and terminal or not-y
 Hydrate a PR that lacks a body or file paths with `gh pr view <n> --repo <owner>/<repo> --json number,title,body,author,mergedAt,mergeCommit,labels,files,changedFiles,closingIssuesReferences,url`, or read the same fields from the pinned tree and the warehouse row where they exist, and keep the body and the file paths for the claim and side-effect steps.
 `files` stops at 100 paths: when `changedFiles` is larger than the paths returned, page `gh api 'repos/<owner>/<repo>/pulls/<n>/files?per_page=100&page=<k>'` until you hold every path, because a docs-only verdict or a side-effect sweep on a truncated list is wrong in both directions.
 On a pinned tree, `git -C <path> diff --name-only <merge_sha>^1 <merge_sha>` gives the complete list for a squash or a true merge commit (`show --name-only` prints nothing for a merge commit); for a rebase merge, where `mergeCommit` is only the last of several commits, it lists that commit alone and is incomplete, so page the REST endpoint instead.
-That endpoint itself stops at 3,000 files, so when paging ends with fewer paths than `changedFiles`, its list is incomplete too: take the pinned-tree diff when the PR is a squash or true merge, and when it is a rebase merge, or there is no pinned tree, no source can complete the paths.
+That endpoint itself stops at 3,000 files, so when paging ends with fewer paths than `changedFiles`, its list is incomplete too: take the pinned-tree diff, and treat it as complete only when its path count equals `changedFiles`, which is the one test that tells a squash or true merge (equal) from a rebase merge (short) without guessing the merge method; when it is short, or there is no pinned tree, no source can complete the paths.
 A PR with no complete path list never uses the partial one for the docs-only filter or a terminal sweep verdict: it takes the title-only handling below when its title names a concrete entity, and stays deferred as `no-scope` when it does not.
 Fetch file paths this way for every member of a batch you sweep, bots included; the body and linked issues below are for claim candidates only.
 `closingIssuesReferences` names issues without their text, and each reference carries its own repository, which can differ from the PR's: for each one, `gh issue view <issue> --repo <that issue's owner/repo> --json title,body` so the claim table reads the intent the author linked, not only the PR body, and never a same-numbered issue from the wrong repository.

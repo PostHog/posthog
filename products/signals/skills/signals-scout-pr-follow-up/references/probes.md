@@ -31,7 +31,7 @@ The second half of every claim is "and nothing else regressed".
 Scope it to the PR's blast radius, which is what makes a hit attributable:
 
 1. **New error issues** whose `first_seen` falls inside the deploy window (onset to the next onset, or to now) and whose stack frames, file paths, or messages name a file, function, endpoint, or component the PR changed (the fetched `files`).
-   `query-error-tracking-issues-list` defaults to the 25 highest-occurrence active issues, which is not the newest ones: pass `dateRange` from the onset, `orderBy: ["first_seen"]`, `orderDirection: "DESC"`, and page with `offset` until a page's oldest `first_seen` precedes the onset, then filter the touched paths with `filePath` or by reading each candidate's frames.
+   `query-error-tracking-issues-list` defaults to the 25 highest-occurrence active issues, which is not the newest ones: pass `dateRange` from the onset, `orderBy: "first_seen"` (a single field, not a list), `orderDirection: "DESC"`, and page with `offset` until a page's oldest `first_seen` precedes the onset, then filter the touched paths with `filePath` or by reading each candidate's frames.
    A new issue with no frame in a touched file is the error-tracking scout's, not yours, unless the deploy window contains exactly this PR.
 2. **Rate steps on the touched surface**: the service or operation the PR changed (`apm-spans-aggregate` error rate and p95 with `compare_to` the same window a week earlier), the log stream it writes to (`logs-count` by severity), the page it renders (`$web_vitals` p75 and `$pageview` volume), all against a steady denominator.
 3. **Alerts that fired** in the window on insights the touched surface feeds (`alerts-list`, then `alert-get` for the firing checks).

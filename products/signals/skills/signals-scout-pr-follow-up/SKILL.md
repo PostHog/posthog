@@ -95,8 +95,8 @@ That sweep takes one slot of the cap; a batch that has not reached its onset is 
 **Cap ~8 PRs per run**, and take the carried backlog before anything new.
 First the due rechecks: the `recheck:pr_follow_up:<owner/repo>` entry lists every PR judged non-terminal with the date its recheck is due (`#n@<due date>`), and a due one is hydrated by its number (`gh pr view <n>`, or the `pr:` entry's own record of its files and onset) whatever its merge date, because a PR marked `recheck` at day 12 is due after its merge has left the 14-day listing and would otherwise never be looked at again, its report left open with no one re-measuring it.
 Then the `deferred:pr_follow_up:<owner/repo>` entry, which lists every PR a past run listed but did not judge, oldest merge first; those go before new arrivals because a newest-first pick under sustained merge activity would keep them below the cap until they leave the window with no verdict.
-That holds while the repository merges fewer claim candidates a day than the cap.
-When it merges more (read the count off the listing, humans only), oldest-first can never catch up and every slot goes to stale merges: rank the whole window by claim strength instead, take the cap from the top, and let a `deferred:` entry leave when its merge passes the 14-day window, counted in the close-out as unjudged.
+That holds while the repository merges fewer claim candidates **per run interval** than the cap: measure arrivals against this scout's own schedule (an hourly scout sees a twelfth of a daily count, a monthly one thirty days' worth), or read the growth of `deferred:` between runs, never a per-day count against a per-run cap.
+When it merges more, oldest-first can never catch up and every slot goes to stale merges: rank the whole window by claim strength instead, take the cap from the top, and let a `deferred:` entry leave when its merge passes the 14-day window, counted in the close-out as unjudged.
 Record which posture the repository is on in `pattern:pr_follow_up:deploy-signal` next to its deploy rung.
 Within what remains, most valuable first: a PR whose title or body states a measurable claim (`fix`, `resolves #`, `should reduce`, `speeds up`, `stop`, `no longer`) before a feature PR, a feature PR that adds an event or flag before a refactor, a large production diff before a small one.
 A deferred PR is never judged claim-only to beat a clock: it is not cold, it waits its turn, and it gets the full probe and side-effect sweep when it is taken, because a terminal verdict without the sweep is the miss this scout exists to catch.
@@ -114,7 +114,8 @@ The soak proxy is the one exception, because it has no deployment to check: its 
 Record which rung this project supports in `pattern:pr_follow_up:deploy-signal` so later runs go straight to it.
 
 The deploy time is your **onset**: every probe compares a post-onset window against a pre-merge window of the same length, with `toDateTime('<ts>', 'UTC')` for timestamp literals.
-The post-onset window **ends at the next production deployment's onset** (the next batch's, from the same rung, or its proxy onset under the soak rule), or at now when nothing has shipped since: a regression that first appears after the next deploy belongs to that deploy's batch, and a sweep that runs to now would pin it on this PR.
+For **attribution**, the post-onset window ends at the next production deployment's onset (the next batch's, from the same rung, or its proxy onset under the soak rule), or at now when nothing has shipped since: a regression that first appears after the next deploy belongs to that deploy's batch, and a sweep that runs to now would pin it on this PR.
+A **claim probe** keeps accumulating past that boundary until it has the denominator its row needs (72h of flag calls, a week of vitals), because on a repository that deploys every few minutes the attribution window holds almost no traffic; only a later PR that touched the same entity closes a claim probe early, and then the verdict says which PR muddied it.
 
 ### What did it claim, and what else moved?
 
@@ -161,6 +162,7 @@ Encode the category in the key prefix; rewrite a key to update in place:
 - key `reviewer:pr_follow_up:<area>` — a resolved owner (bare lowercase GitHub login on the roster) for a code area, so a report routes to a human faster.
 
 Prune so the per-repository scan stays readable: `scout-scratchpad-forget` `pr:`, `noise:`, and `batch:` entries whose PR or deploy is more than ~21 days old and carries no open `recheck`; the `cursor:` already guarantees those PRs never come back.
+When you rewrite `deferred:`, drop its `no-scope` rows whose merge is more than ~21 days old too, counted in the close-out as unswept, or a repository whose paths stay unavailable fills the entry's cap with them and the cursor stops advancing.
 
 ### Decide
 
