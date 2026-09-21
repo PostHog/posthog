@@ -16,6 +16,7 @@ from posthog.hogql.cost.statistics import (
 )
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import QueryTags, get_query_tags, tags_context
 from posthog.models.usage_report_events_preagg.sql import (
     DISTRIBUTED_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL,
     SHARDED_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL,
@@ -108,6 +109,20 @@ class TestClickHouseStatisticsProvider(ClickhouseTestMixin, SimpleTestCase):
         assert volume is not None
         assert volume.total == expected_total
 
+    def test_property_ndv_counts_distinct_event_property_values_for_the_team(self):
+        sync_execute(
+            "INSERT INTO property_values (team_id, property_type, property_key, property_value, property_count) VALUES "
+            f"({self.team_id}, 'event', 'plan', 'free', 3), "
+            f"({self.team_id}, 'event', 'plan', 'free', 4), "
+            f"({self.team_id}, 'event', 'plan', 'paid', 1), "
+            f"({self.team_id}, 'person', 'plan', 'enterprise', 1), "
+            f"({self.team_id + 1}, 'event', 'plan', 'trial', 1)"
+        )
+        provider = ClickHouseStatisticsProvider(today=TODAY)
+
+        assert provider.property_ndv(self.team_id, "plan") == 2
+        assert provider.property_ndv(self.team_id, "never_sent") is None
+
     def test_team_without_data_yields_none(self):
         assert ClickHouseStatisticsProvider(today=TODAY).event_volume(self.team_id) is None
 
@@ -123,5 +138,21 @@ class TestClickHouseStatisticsProvider(ClickhouseTestMixin, SimpleTestCase):
         assert execute.call_count == 1
 
     def test_clickhouse_failure_degrades_to_none(self):
-        with patch("posthog.hogql.cost.statistics.sync_execute", side_effect=RuntimeError("boom")):
-            assert ClickHouseStatisticsProvider(today=TODAY).event_volume(self.team_id) is None
+        lookup_tags: QueryTags | None = None
+
+        def fail_lookup(*args: object, **kwargs: object) -> None:
+            nonlocal lookup_tags
+            lookup_tags = get_query_tags()
+            raise RuntimeError("boom")
+
+        with tags_context(plan_fingerprint="caller", estimated_rows=100, estimated_bytes=200):
+            with patch("posthog.hogql.cost.statistics.sync_execute", side_effect=fail_lookup):
+                assert ClickHouseStatisticsProvider(today=TODAY).event_volume(self.team_id) is None
+            tags = get_query_tags()
+            assert tags.plan_fingerprint == "caller"
+            assert tags.estimated_rows == 100
+            assert tags.estimated_bytes == 200
+        assert lookup_tags is not None
+        assert lookup_tags.plan_fingerprint is None
+        assert lookup_tags.estimated_rows is None
+        assert lookup_tags.estimated_bytes is None

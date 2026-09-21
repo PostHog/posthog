@@ -59,6 +59,25 @@ Regex matching uses RE2 syntax, so backreferences and lookaround are unsupported
 SQL LIKE and ILIKE patterns sent to ClickHouse are not subject to these VM limits.
 For non-nullable materialized columns, patterns above 16,384 characters skip the optional sentinel-based rewrite and use the normal property read.
 
+## Scan estimate accuracy
+
+ClickHouse execution records `estimated_rows` alongside `plan_fingerprint` in the query's `log_comment` when the events scan estimator supports the query and team statistics are available.
+This uses the same estimator as the SQL editor, independently of the editor's display flag.
+Missing statistics, unsupported queries, and estimator failures leave the estimate tag absent and do not prevent execution.
+The `events_scan_estimate` timing measures the added planning work.
+
+The estimate counts rows read, not rows returned, so a property filter lowers it only when a skip index can drop granules.
+An equality or `IN` filter on an event property with a bloom filter index is scaled by the share of granules expected to hold a match.
+That share comes from the number of distinct values recorded for the property in the `property_values` table.
+A filter with no usable index does not change the estimate, because the query reads every row either way.
+Any other indexed filter sets `upper_bound`, and the SQL editor then shows "Reads up to" instead of "Reads about".
+
+Use `posthog.hogql.cost.accuracy.cost_estimate_accuracy_hogql(days=7)` to generate a HogQL query over the team's archived `query_log`.
+It compares estimated rows with actual `read_rows` for successful initial queries, grouped by plan fingerprint.
+Both row counts must be positive.
+The report includes row-only estimates; byte accuracy uses only entries with positive byte estimates and reads, and returns `NULL` when none exist.
+Q-error measures the larger of estimate / actual and actual / estimate: 1 is exact, and 3 means a factor of three off.
+
 ## AST nodes
 
 If you want more control, you can build the AST nodes directly. The same query above can be written as:

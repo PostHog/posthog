@@ -24482,6 +24482,35 @@
             "required": ["columns", "hogql", "results", "types"],
             "type": "object"
         },
+        "EventsScanEstimate": {
+            "additionalProperties": false,
+            "description": "How many events a query is expected to read, estimated before it runs.",
+            "properties": {
+                "days": {
+                    "description": "Length of the timestamp range the estimate covers, in days.",
+                    "type": "number"
+                },
+                "events": {
+                    "description": "Event names the estimate was narrowed to. Empty when the query reads every event.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "rows": {
+                    "$ref": "#/definitions/integer"
+                },
+                "time_range": {
+                    "$ref": "#/definitions/ScanEstimateTimeRange"
+                },
+                "upper_bound": {
+                    "description": "True when an indexed filter may narrow the read by an amount the estimate does not model, so the query reads at most `rows`.",
+                    "type": "boolean"
+                }
+            },
+            "required": ["rows", "days", "events", "time_range", "upper_bound"],
+            "type": "object"
+        },
         "ExperimentActorsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -28787,6 +28816,10 @@
                         "$ref": "#/definitions/HogQLNotice"
                     },
                     "type": "array"
+                },
+                "events_scan_estimate": {
+                    "$ref": "#/definitions/EventsScanEstimate",
+                    "description": "Present when the query reads only the events table, directly or through subqueries, CTEs and UNIONs; absent for a join to any other table, or a team with no data."
                 },
                 "index_usage": {
                     "description": "One entry per property filter, in query order.",
@@ -40766,6 +40799,10 @@
                             },
                             "type": "array"
                         },
+                        "events_scan_estimate": {
+                            "$ref": "#/definitions/EventsScanEstimate",
+                            "description": "Present when the query reads only the events table, directly or through subqueries, CTEs and UNIONs; absent for a join to any other table, or a team with no data."
+                        },
                         "index_usage": {
                             "description": "One entry per property filter, in query order.",
                             "items": {
@@ -50277,6 +50314,10 @@
             },
             "required": ["kind", "shortId"],
             "type": "object"
+        },
+        "ScanEstimateTimeRange": {
+            "enum": ["bounded", "open"],
+            "type": "string"
         },
         "ScatterChartSettings": {
             "additionalProperties": false,
