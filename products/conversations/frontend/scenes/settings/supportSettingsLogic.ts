@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -247,6 +248,9 @@ export interface supportSettingsLogicActions {
         value: true
     }
     disconnectTeams: () => {
+        value: true
+    }
+    ensureAccountPropertyOptions: () => {
         value: true
     }
     generateNewToken: () => {
@@ -780,6 +784,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setAiContextAccountPropertyIds: (ids: string[]) => ({ ids }),
         setAiContextAccountPropertiesSaving: (saving: boolean) => ({ saving }),
         resetAccountPropertyOptions: true,
+        ensureAccountPropertyOptions: true,
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -1907,18 +1912,23 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             if (!values.playbook && !values.playbookLoading) {
                 actions.loadPlaybook()
             }
+            actions.ensureAccountPropertyOptions()
+        },
+        ensureAccountPropertyOptions: () => {
             const teamId = values.currentTeam?.id
-            if (
-                values.featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] &&
-                teamId &&
-                cache.accountPropertyOptionsTeamId !== teamId
-            ) {
-                // The options belong to one team, so drop the previous team's list rather than
-                // offering it until the new request lands.
-                cache.accountPropertyOptionsTeamId = teamId
-                actions.resetAccountPropertyOptions()
-                actions.loadAccountPropertyOptions({})
+            if (!values.featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] || !teamId) {
+                return
             }
+            // Idempotent, because mount, a team change and the feature flag arriving all reach
+            // this and any of them can come first.
+            if (cache.accountPropertyOptionsTeamId === teamId) {
+                return
+            }
+            // The options belong to one team, so drop the previous team's list rather than
+            // offering it until the new request lands.
+            cache.accountPropertyOptionsTeamId = teamId
+            actions.resetAccountPropertyOptions()
+            actions.loadAccountPropertyOptions({})
         },
         updateCurrentTeamSuccess: ({ payload }) => {
             if (payload && payload === cache.playbookPayload) {
@@ -1978,7 +1988,15 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             }
         },
     })),
-    afterMount(({ values, actions, cache }) => {
+    subscriptions(({ actions }) => ({
+        // posthog-js resolves flags after the scene mounts, so CUSTOMER_ANALYTICS can turn on
+        // once the picker is already on screen. Without this the picker would render the
+        // "no account properties yet" empty state for a team that has them.
+        featureFlags: () => {
+            actions.ensureAccountPropertyOptions()
+        },
+    })),
+    afterMount(({ values, actions }) => {
         if (values.slackConnected) {
             actions.loadSlackChannelsWithToken()
         }
@@ -2001,9 +2019,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             actions.loadGithubRepos()
         }
         actions.loadPlaybook()
-        if (values.featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]) {
-            cache.accountPropertyOptionsTeamId = values.currentTeam?.id
-            actions.loadAccountPropertyOptions({})
-        }
+        actions.ensureAccountPropertyOptions()
     }),
 ])

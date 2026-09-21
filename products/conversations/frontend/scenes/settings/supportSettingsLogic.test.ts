@@ -673,5 +673,31 @@ describe('supportSettingsLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.accountPropertyOptions).toEqual(TEAM_B_OPTIONS)
         })
+
+        it('loads the options when Customer analytics resolves after mount', async () => {
+            const OPTIONS = [{ id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', name: 'Plan' }]
+            useMocks({
+                get: {
+                    '/api/conversations/v1/email/status': { configs: [] },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
+                    '/api/projects/:team_id/conversations/ai_context_account_properties/': OPTIONS,
+                },
+            })
+            initKeaTests(true, {
+                ...MOCK_DEFAULT_TEAM,
+                conversations_settings: { ai_context_account_property_ids: [] },
+            } as unknown as TeamType)
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: false })
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners().toNotHaveDispatchedActions(['loadAccountPropertyOptions'])
+            expect(logic.values.accountPropertyOptions).toEqual([])
+
+            // posthog-js can resolve the flag after the scene is already on screen.
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true })
+            }).toDispatchActions(['loadAccountPropertyOptions', 'loadAccountPropertyOptionsSuccess'])
+            expect(logic.values.accountPropertyOptions).toEqual(OPTIONS)
+        })
     })
 })
