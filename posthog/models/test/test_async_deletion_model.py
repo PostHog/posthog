@@ -9,6 +9,7 @@ from posthog.test.base import (
     snapshot_clickhouse_alter_queries,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import AsyncDeletion, DeletionType, Team, User
@@ -446,7 +447,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             key=str(cohort_id) + "_0",
             created_by=self.user,
         )
-        sweep_cohort_deletions()
+        self._sweep_cohort_deletions()
 
         self.assertRowCount(0, "cohortpeople")
 
@@ -462,7 +463,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             key=str(cohort_id) + "_3",
             created_by=self.user,
         )
-        sweep_cohort_deletions()
+        self._sweep_cohort_deletions()
 
         self.assertRowCount(1, "cohortpeople")
 
@@ -475,7 +476,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         AsyncDeletion.objects.create(deletion_type=DeletionType.Cohort_stale, team_id=team.pk, key="11_2")
         AsyncDeletion.objects.create(deletion_type=DeletionType.Cohort_stale, team_id=team.pk, key="12_9")
 
-        sweep_cohort_deletions()
+        self._sweep_cohort_deletions()
 
         # Cohort 11 asked for versions below 2 and nothing is below 2, so it is done.
         assert AsyncDeletion.objects.get(key="11_2").delete_verified_at is not None
@@ -493,8 +494,12 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             deletion_type=DeletionType.Cohort_full, team_id=team.pk, key=f"13_0_{self.teams[1].pk}"
         )
 
-        assert sweep_cohort_deletions().failed == ()
+        assert self._sweep_cohort_deletions().failed == ()
         self.assertRowCount(0, "cohortpeople")
+
+    def _sweep_cohort_deletions(self):
+        with patch("posthog.models.async_deletion.delete_cohorts.COHORT_MUTATION_POLL_SECONDS", 0.01):
+            return sweep_cohort_deletions()
 
     def assertRowCount(self, expected, table="events"):
         result = sync_execute(f"SELECT count() FROM {table}")[0][0]
