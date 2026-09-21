@@ -116,7 +116,8 @@ export function SnapshotDiffViewer({
     const height = snapshot.current_artifact?.height || snapshot.baseline_artifact?.height
 
     const [highlightedClusterIndex, setHighlightedClusterIndex] = useState<number | null>(null)
-    const [isNudgedQuarantineOpen, setIsNudgedQuarantineOpen] = useState(false)
+    // The identifier the nudge opened for. Hotkeys can move to another snapshot while the dialog is open.
+    const [nudgedIdentifier, setNudgedIdentifier] = useState<string | null>(null)
 
     // When a single (post-merge) cluster covers most of the image, the
     // bbox overlay adds no information beyond the diff% tag — full
@@ -164,6 +165,7 @@ export function SnapshotDiffViewer({
     // plain confirm so the nudge never delays the click.
     const openTolerateDialog = (): void => {
         if (recentTolerations && onQuarantine && shouldSuggestQuarantine(recentTolerations)) {
+            const identifier = snapshot.identifier
             LemonDialog.open({
                 title: 'This snapshot keeps changing',
                 description:
@@ -171,7 +173,7 @@ export function SnapshotDiffViewer({
                     'If this change is unrelated to your PR, quarantine the snapshot. It stops blocking PRs until someone fixes it.',
                 primaryButton: {
                     children: 'Quarantine…',
-                    onClick: () => setIsNudgedQuarantineOpen(true),
+                    onClick: () => setNudgedIdentifier(identifier),
                     'data-attr': 'visual-review-tolerate-nudge-quarantine',
                 },
                 secondaryButton: {
@@ -557,18 +559,16 @@ export function SnapshotDiffViewer({
 
                     {/* Quarantine */}
                     {hasChanges && !isQuarantined && onQuarantine && (
-                        <>
-                            <QuarantineAction identifier={snapshot.identifier} onQuarantine={onQuarantine} />
-                            {isNudgedQuarantineOpen && (
-                                <QuarantineModal
-                                    isOpen
-                                    onClose={() => setIsNudgedQuarantineOpen(false)}
-                                    identifier={snapshot.identifier}
-                                    onQuarantine={onQuarantine}
-                                    initialReason="Keeps changing in unrelated PRs"
-                                />
-                            )}
-                        </>
+                        <QuarantineAction identifier={snapshot.identifier} onQuarantine={onQuarantine} />
+                    )}
+                    {nudgedIdentifier && onQuarantine && (
+                        <QuarantineModal
+                            isOpen
+                            onClose={() => setNudgedIdentifier(null)}
+                            identifier={nudgedIdentifier}
+                            onQuarantine={onQuarantine}
+                            initialReason="Keeps changing in unrelated PRs"
+                        />
                     )}
                     {isQuarantined && onUnquarantine && (
                         <div>

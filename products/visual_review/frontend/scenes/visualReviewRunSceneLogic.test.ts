@@ -32,10 +32,13 @@ describe('visualReviewRunSceneLogic', () => {
                     if (identifier === 'other') {
                         return [500, {}]
                     }
-                    if (identifier === 'slow') {
+                    if (identifier?.startsWith('slow')) {
                         await new Promise<void>((resolve) => {
                             releaseSlow = resolve
                         })
+                    }
+                    if (identifier === 'slow-failing') {
+                        return [500, {}]
                     }
                     const results = identifier === 'quiet' ? [] : [0, 1, 2].map(toleratedToday)
                     return [200, { count: results.length, next: null, previous: null, results }]
@@ -61,14 +64,17 @@ describe('visualReviewRunSceneLogic', () => {
             .toMatchValues({ recentTolerations: { manual: 0, agent: 0, auto: 0 } })
     })
 
-    it('ignores a slower response for a snapshot the reviewer already left', async () => {
-        logic.actions.loadToleratedHashes('slow')
-        await expectLogic(logic, () => logic.actions.loadToleratedHashes('quiet'))
+    it.each([
+        { slow: 'slow', fast: 'quiet', manual: 0 },
+        { slow: 'slow-failing', fast: 'flaky', manual: 3 },
+    ])('ignores a $slow response that lands after $fast', async ({ slow, fast, manual }) => {
+        logic.actions.loadToleratedHashes(slow)
+        await expectLogic(logic, () => logic.actions.loadToleratedHashes(fast))
             .toDispatchActions(['loadToleratedHashesSuccess'])
-            .toMatchValues({ recentTolerations: { manual: 0, agent: 0, auto: 0 } })
+            .toMatchValues({ recentTolerations: { manual, agent: 0, auto: 0 } })
 
         releaseSlow()
         await expectLogic(logic).toFinishAllListeners()
-        await expectLogic(logic).toMatchValues({ recentTolerations: { manual: 0, agent: 0, auto: 0 } })
+        await expectLogic(logic).toMatchValues({ recentTolerations: { manual, agent: 0, auto: 0 } })
     })
 })

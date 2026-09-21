@@ -281,11 +281,12 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
     }),
     reducers({
         // kea-loaders keeps the last success when a load fails, which would let the
-        // previous snapshot's tolerations drive the quarantine nudge.
+        // previous snapshot's tolerations drive the quarantine nudge. Clearing at the
+        // start, not on failure, also keeps an overtaken failure from wiping newer data.
         toleratedHashes: [
             [] as ToleratedHashEntryApi[],
             {
-                loadToleratedHashesFailure: () => [],
+                loadToleratedHashes: () => [],
             },
         ],
         selectedSnapshotId: [
