@@ -2,6 +2,7 @@ from collections.abc import Iterator
 from dataclasses import field
 from threading import Event
 from time import monotonic
+from typing import cast
 
 from unittest.mock import patch
 
@@ -9,10 +10,11 @@ from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from requests import Response
 
 from posthog.dataclasses import frozen
 from posthog.ownership.paths import UNOWNED_TEAM, resolve_path_owners
-from posthog.ownership.repo_files import _MAX_FILE_BYTES, GitHubRepoFiles, OwnershipUnavailable
+from posthog.ownership.repo_files import _MAX_FILE_BYTES, GitHubRepoFiles, OwnershipUnavailable, capped_text
 
 _ROOT_OWNERS = """version: 1
 owners: [team-root]
@@ -113,23 +115,16 @@ class TestGitHubRepoFiles(SimpleTestCase):
                 files.read("owners.yaml")
         assert not finished.is_set()
 
-    def test_a_file_that_arrives_too_slowly_is_refused(self) -> None:
+    def test_a_body_that_arrives_after_the_deadline_is_refused(self) -> None:
         # The per-request timeout starts again on each chunk, so the byte limit alone lets one read
         # run for minutes. Nothing waits for the fetch after the deadline, so nothing else stops it.
-        files = GitHubRepoFiles("PostHog/posthog")
-        response = _response(200)
-
-        def expires_mid_body(chunk_size: int) -> Iterator[bytes]:
-            yield b"x" * chunk_size
-            files._deadline = monotonic() - 1
-            yield b"x" * chunk_size
-
-        with (
-            patch("posthog.ownership.repo_files.github_request", return_value=response),
-            patch.object(response, "iter_content", expires_mid_body),
-        ):
-            with self.assertRaises(OwnershipUnavailable):
-                files.read("owners.yaml")
+        with self.assertRaises(OwnershipUnavailable):
+            capped_text(
+                cast(Response, _response(200, body=b"owners")),
+                description="owners.yaml",
+                limit=_MAX_FILE_BYTES,
+                deadline=monotonic() - 1,
+            )
 
     @parameterized.expand([("declared", True), ("streamed", False)])
     def test_an_oversized_file_is_refused(self, _name: str, declare_length: bool) -> None:

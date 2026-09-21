@@ -1,4 +1,5 @@
-from collections.abc import Callable
+import json
+from collections.abc import Callable, Iterator
 from threading import Event
 from time import monotonic
 from typing import Any
@@ -11,9 +12,17 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
-from posthog.ownership.github_files import _CHUNK_FILES, AuthenticatedRepoFiles, GitHubFilesFetcher, fetcher_for_team
+from posthog.ownership.github_files import (
+    _CACHE_PREFIX,
+    _CHUNK_FILES,
+    _MAX_RESPONSE_BYTES,
+    AuthenticatedRepoFiles,
+    GitHubFilesFetcher,
+    fetcher_for_team,
+)
 from posthog.ownership.repo_files import GitHubRepoFiles, OwnershipUnavailable
 
 _REPOSITORY = "PostHog/posthog"
@@ -22,20 +31,27 @@ _ROOT_OWNERS = "version: 1\nowners: [team-root]\n"
 
 
 class _Response:
-    def __init__(self, status: int, body: Any) -> None:
+    def __init__(self, status: int, body: Any, *, raw: bytes | None = None) -> None:
         self.status_code = status
-        self._body = body
+        self.headers: dict[str, str] = {}
+        self.encoding = "utf-8"
+        self._raw = raw if raw is not None else json.dumps(body).encode()
 
-    def json(self) -> Any:
-        if self._body is None:
-            raise ValueError("no body")
-        return self._body
+    def iter_content(self, chunk_size: int = 8192) -> Iterator[bytes]:
+        for start in range(0, len(self._raw), chunk_size):
+            yield self._raw[start : start + chunk_size]
+
+    def __enter__(self) -> "_Response":
+        return self
+
+    def __exit__(self, *_exc: Any) -> None:
+        return None
 
 
 class _FakeGitHub:
     """Answers the two queries this module sends, and counts what it was asked."""
 
-    def __init__(self, blobs: dict[str, str], *, sha: str = _SHA) -> None:
+    def __init__(self, blobs: dict[str, str], *, sha: str | None = _SHA) -> None:
         self.blobs = blobs
         self.sha = sha
         self.file_calls = 0
@@ -46,7 +62,9 @@ class _FakeGitHub:
         query, variables = payload["query"], payload["variables"]
         if "defaultBranchRef" in query:
             self.head_calls += 1
-            return _Response(200, {"data": {"repository": {"defaultBranchRef": {"target": {"oid": self.sha}}}}})
+            # A repository with no commits has no default branch, and GitHub says so with a null.
+            ref = {"target": {"oid": self.sha}} if self.sha is not None else None
+            return _Response(200, {"data": {"repository": {"defaultBranchRef": ref}}})
         self.file_calls += 1
         field: dict[str, Any] = {}
         for name, expression in variables.items():
@@ -92,6 +110,13 @@ class TestGitHubFilesFetcher(SimpleTestCase):
         assert read[present[0]] == _ROOT_OWNERS
         assert read["gone/owners.yaml"] != _ROOT_OWNERS
 
+    def test_a_repository_with_no_commits_names_no_head_instead_of_failing(self) -> None:
+        # An empty repository answers with a null defaultBranchRef and no error. Failing it would
+        # take down every other repository the same run reads.
+        github = _FakeGitHub({}, sha=None)
+        with patch("posthog.ownership.github_files.github_request", side_effect=github):
+            assert _fetcher().head_commit_sha(_REPOSITORY) is None
+
     def test_existence_is_answered_without_a_body(self) -> None:
         # Most probed paths are candidates a batch only wants to rule out, and one of them can be a
         # whole source file.
@@ -110,8 +135,17 @@ class TestGitHubFilesFetcher(SimpleTestCase):
                 "partial_errors",
                 lambda: _Response(200, {"data": {"repository": {"f0": None}}, "errors": [{"message": "TIMEOUT"}]}),
             ),
-            ("unparseable", lambda: _Response(200, None)),
+            ("unparseable", lambda: _Response(200, None, raw=b"<html>gateway</html>")),
             ("not_an_object", lambda: _Response(200, [{"message": "NOT_FOUND"}])),
+            # GitHub cuts a large blob's text short and still answers 200, so the prefix would parse
+            # as a complete file and cache a wrong answer for a week.
+            (
+                "truncated_blob",
+                lambda: _Response(200, {"data": {"repository": {"f0": {"text": "own", "isTruncated": True}}}}),
+            ),
+            # The per-file limit alone lets one chunk of a hundred near-limit blobs materialize a
+            # hundred megabytes, sixteen chunks at a time.
+            ("oversized_answer", lambda: _Response(200, None, raw=b"x" * (_MAX_RESPONSE_BYTES + 1))),
         ]
     )
     def test_an_unreadable_answer_raises_rather_than_reading_as_absent(
@@ -217,6 +251,20 @@ class TestAuthenticatedRepoFiles(SimpleTestCase):
         with patch("posthog.ownership.github_files.github_request", side_effect=working):
             assert self._files().read("owners.yaml") == _ROOT_OWNERS
 
+    def test_an_empty_repository_reads_as_absent_and_caches_no_absence(self) -> None:
+        # Every file of a repository with no commits is absent, and there is no commit to key that
+        # absence by, so caching it would hold for a week and outlive the first push.
+        github = _FakeGitHub({}, sha=None)
+        with patch("posthog.ownership.github_files.github_request", side_effect=github):
+            files = self._files()
+            assert files.read("owners.yaml") is None
+            assert files.exists_all(["owners.yaml"]) == {"owners.yaml": False}
+        assert github.file_calls == 0
+
+        github.sha, github.blobs = _SHA, {"owners.yaml": _ROOT_OWNERS}
+        with patch("posthog.ownership.github_files.github_request", side_effect=github):
+            assert self._files().read("owners.yaml") == _ROOT_OWNERS
+
     @parameterized.expand([("present", _ROOT_OWNERS), ("absent", None)])
     def test_a_commit_is_read_once_and_a_new_commit_is_read_again(self, _name: str, body: str | None) -> None:
         # The cache is keyed by commit, so a merge has to be visible once the head lookup expires,
@@ -262,3 +310,22 @@ class TestFetcherForTeam(BaseTest):
         expected = AuthenticatedRepoFiles if covered else GitHubRepoFiles
         assert isinstance(first, expected)
         assert isinstance(second, expected)
+
+    @parameterized.expand(
+        [
+            ("our_budget", GitHubEgressBudgetExhausted("shed")),
+            ("githubs_limit", GitHubRateLimitError("429")),
+        ]
+    )
+    def test_a_spent_budget_degrades_to_the_anonymous_reader_without_a_cached_decision(
+        self, _name: str, error: Exception
+    ) -> None:
+        # Callers evaluate this before their own unavailable-ownership handler runs, so a raise here
+        # turns optional enrichment into a 500. The decision must not be cached either, or the
+        # anonymous reader would outlive the exhausted budget by the cache's whole window.
+        with patch(
+            "posthog.ownership.github_files.GitHubIntegration.first_for_team_repository", side_effect=error
+        ) as spent:
+            assert isinstance(fetcher_for_team(self.team.pk, _REPOSITORY, priority=Priority.NORMAL), GitHubRepoFiles)
+        assert spent.call_count == 1
+        assert cache.get(f"{_CACHE_PREFIX}:integration:{self.team.pk}:{_REPOSITORY.casefold()}") is None

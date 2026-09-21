@@ -82,8 +82,33 @@ def _fetch_all(fetch: Callable[[_K], _T], keys: Iterable[_K], deadline: float) -
     finally:
         # Not a `with` block: its exit waits for every running fetch, which holds the request thread
         # past the deadline. A lost batch drops the queued fetches and leaves the running ones to
-        # stop at the same deadline on their own, which the read in _capped_text enforces.
+        # stop at the same deadline on their own, which the read in capped_text enforces.
         pool.shutdown(wait=False, cancel_futures=True)
+
+
+def capped_text(response: requests.Response, *, description: str, limit: int, deadline: float | None = None) -> str:
+    """A streamed response body as text, refused past ``limit`` bytes.
+
+    The body belongs to the connected repository, so an unbounded read would put its bytes in a
+    worker's memory and in Redis. ``description`` names what is being read, for the failure.
+    """
+    too_large = f"{description} exceeds the {limit}-byte limit"
+    # Content-Length can be absent or wrong, so the streamed read below is the actual ceiling.
+    declared = response.headers.get("Content-Length")
+    if declared is not None and declared.isdigit() and int(declared) > limit:
+        raise OwnershipUnavailable(too_large)
+    body = bytearray()
+    for chunk in response.iter_content(chunk_size=8192):
+        # The request timeout starts again on every chunk received, so a host that sends the body
+        # slowly enough holds this read for as long as the byte limit allows. _fetch_all stops
+        # waiting for a fetch at the deadline, so the fetch stops at the first chunk after it,
+        # which the request timeout puts within _TIMEOUT_SECONDS of the deadline.
+        if deadline is not None and monotonic() > deadline:
+            raise OwnershipUnavailable(f"reading {description} passed the resolution budget")
+        body.extend(chunk)
+        if len(body) > limit:
+            raise OwnershipUnavailable(too_large)
+    return body.decode(response.encoding or "utf-8", errors="replace")
 
 
 def pooled_session(host: str) -> requests.Session:
@@ -176,7 +201,12 @@ class GitHubRepoFiles(CachedRepoFiles):
         with self._response("GET", path, stream=True) as response:
             if response.status_code == HTTPStatus.NOT_FOUND:
                 return _ABSENT
-            return self._capped_text(response, path)
+            return capped_text(
+                response,
+                description=f"{path} in {self.repository}",
+                limit=_MAX_FILE_BYTES,
+                deadline=self._deadline,
+            )
 
     def _head(self, path: str) -> bool:
         with self._response("HEAD", path) as response:
@@ -204,22 +234,3 @@ class GitHubRepoFiles(CachedRepoFiles):
         if response.status_code not in (HTTPStatus.OK, HTTPStatus.NOT_FOUND):
             raise OwnershipUnavailable(f"{self.repository} answered {response.status_code} for {path}")
         return response
-
-    def _capped_text(self, response: requests.Response, path: str) -> str:
-        too_large = f"{path} in {self.repository} exceeds the {_MAX_FILE_BYTES}-byte limit"
-        # Content-Length can be absent or wrong, so the streamed read below is the actual ceiling.
-        declared = response.headers.get("Content-Length")
-        if declared is not None and declared.isdigit() and int(declared) > _MAX_FILE_BYTES:
-            raise OwnershipUnavailable(too_large)
-        body = bytearray()
-        for chunk in response.iter_content(chunk_size=8192):
-            # The request timeout starts again on every chunk received, so a host that sends the body
-            # slowly enough holds this read for as long as the byte limit allows. _fetch_all stops
-            # waiting for a fetch at the deadline, so the fetch stops at the first chunk after it,
-            # which the request timeout puts within _TIMEOUT_SECONDS of the deadline.
-            if monotonic() > self._deadline:
-                raise OwnershipUnavailable(f"reading {path} from {self.repository} passed the resolution budget")
-            body.extend(chunk)
-            if len(body) > _MAX_FILE_BYTES:
-                raise OwnershipUnavailable(too_large)
-        return body.decode(response.encoding or "utf-8", errors="replace")

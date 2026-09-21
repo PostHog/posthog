@@ -1833,6 +1833,33 @@ def test_registry_of_one_connected_repo_routes_an_audience_from_a_repo_without_o
     assert (run.slack_channel_id, run.resolution_source) == ("C-STANDUP", ChannelResolutionSource.OWNERS_CONTACT)
 
 
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_repository_with_no_commits_does_not_block_the_teams_other_digests(
+    team, stamphog_chain: StamphogChain
+) -> None:
+    # A repository with no commits has no default branch, so its head lookup answers with a null.
+    # Treating that as an unreadable routing file took the whole team's run down, which meant one
+    # freshly connected repo silenced every other repo's morning digest.
+    _repo_config(team.id, repository="acme/charts")
+    _repo_config(team.id, repository="acme/widgets")
+    Integration.objects.create(
+        team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
+    )
+    stamphog_chain.recorder.empty_repositories.add("acme/charts")
+    stamphog_chain.recorder.repo_files[("acme/widgets", "owners.yaml")] = _STANDUP_REGISTRY
+    _merged_pr_with_audience(
+        team.id,
+        StamphogRepoConfig.objects.for_team(team.id).get(repository="acme/widgets"),
+        number=101,
+        audience_key="team-devex",
+    )
+    fakes.FakeSlackIntegration.reset(channels=_DEVEX_WORKSPACE)
+
+    send_daily_digests()
+
+    assert DigestRun.objects.for_team(team.id).get(audience_key="team-devex").slack_channel_id == "C-STANDUP"
+
+
 @pytest.mark.parametrize(
     "audience_repository,expected_channel",
     [("acme/aardvark", "C-STANDUP"), ("acme/widgets", "C-DEVEX")],

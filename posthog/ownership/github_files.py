@@ -10,6 +10,7 @@ expires. The raw host cannot name a commit, so it keeps its own cache and its ow
 window.
 """
 
+import json
 from collections.abc import Callable, Sequence
 from functools import partial
 from http import HTTPStatus
@@ -18,10 +19,12 @@ from typing import Any
 from django.core.cache import cache
 
 import requests
+import structlog
 
-from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
+from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.observability.observability import scope_fingerprint
+from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.integration.github import _is_safe_github_repo_path
@@ -32,8 +35,11 @@ from posthog.ownership.repo_files import (
     GitHubRepoFiles,
     OwnershipUnavailable,
     _fetch_all,
+    capped_text,
     pooled_session,
 )
+
+logger = structlog.get_logger(__name__)
 
 _API_HOST = "https://api.github.com"
 _GRAPHQL_URL = f"{_API_HOST}/graphql"
@@ -63,6 +69,11 @@ _HEAD_CACHE_TTL_SECONDS = 120
 _INTEGRATION_CACHE_TTL_SECONDS = 120
 # No integration covers the repository. A row id is never 0, so the negative needs no second key.
 _NO_COVERING_INTEGRATION = 0
+# One answer carries up to _CHUNK_FILES blobs, and the per-file limit alone would let a chunk of
+# near-limit files materialize a hundred megabytes in a worker and in the cache. A real ownership
+# file is a few kilobytes, so a whole chunk of them is tens of kilobytes; this leaves that room many
+# times over and still bounds what one answer can cost.
+_MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 
 _HEAD_QUERY = """
 query($owner: String!, $name: String!) {
@@ -73,8 +84,9 @@ query($owner: String!, $name: String!) {
 """
 
 # Each file is one aliased `object` lookup. The path rides in a variable rather than in the query
-# text, so a path can never change the shape of the query.
-_TEXT_SELECTION = "... on Blob { text }"
+# text, so a path can never change the shape of the query. `isTruncated` comes along because GitHub
+# cuts a large blob's `text` short without saying so anywhere else in the answer.
+_TEXT_SELECTION = "... on Blob { text isTruncated }"
 _EXISTS_SELECTION = "__typename"
 
 
@@ -177,10 +189,18 @@ class GitHubFilesFetcher:
         self._priority = priority
         self._session = pooled_session(_API_HOST)
 
-    def head_commit_sha(self, repository: str) -> str:
-        """The commit at the head of the repository's default branch."""
+    def head_commit_sha(self, repository: str) -> str | None:
+        """The commit at the head of the repository's default branch, or None when there is none.
+
+        A repository with no commits has no default branch, and GitHub answers that with a null
+        ``defaultBranchRef`` and no error. It holds no file, so that is a normal answer rather than
+        an unreadable one: a caller that fails it instead would take down every repository it reads
+        beside this one.
+        """
         field = self._graphql(repository, _HEAD_QUERY, {}, endpoint=_HEAD_ENDPOINT)
         ref = field.get("defaultBranchRef")
+        if ref is None:
+            return None
         target = ref.get("target") if isinstance(ref, dict) else None
         sha = target.get("oid") if isinstance(target, dict) else None
         if not isinstance(sha, str) or not sha:
@@ -199,6 +219,10 @@ class GitHubFilesFetcher:
     def _text(self, path: str, entry: dict[str, Any] | None) -> str:
         if entry is None:
             return _ABSENT
+        if entry.get("isTruncated"):
+            # GitHub cuts a large blob's text short and still answers 200. Parsing the prefix would
+            # read as a complete file and cache a wrong ownership answer for a week.
+            raise OwnershipUnavailable(f"{path} came back truncated")
         text = entry.get("text")
         if not isinstance(text, str):
             # GitHub answers with no text for a binary or oversized blob, and an ownership file is
@@ -220,7 +244,7 @@ class GitHubFilesFetcher:
         def read_chunk(chunk: tuple[str, ...]) -> dict[str, Any]:
             query = _files_query(len(chunk), selection)
             variables = {f"p{index}": f"{sha}:{path}" for index, path in enumerate(chunk)}
-            field = self._graphql(repository, query, variables, endpoint=_FILES_ENDPOINT)
+            field = self._graphql(repository, query, variables, endpoint=_FILES_ENDPOINT, deadline=deadline)
             return {path: parse(path, _entry(field, index)) for index, path in enumerate(chunk)}
 
         results: dict[str, Any] = {}
@@ -228,7 +252,15 @@ class GitHubFilesFetcher:
             results.update(chunk)
         return results
 
-    def _graphql(self, repository: str, query: str, variables: dict[str, str], *, endpoint: str) -> dict[str, Any]:
+    def _graphql(
+        self,
+        repository: str,
+        query: str,
+        variables: dict[str, str],
+        *,
+        endpoint: str,
+        deadline: float | None = None,
+    ) -> dict[str, Any]:
         """The ``repository`` object of one GraphQL answer.
 
         Anything else raises rather than reading as an empty repository, because a repository the
@@ -240,18 +272,14 @@ class GitHubFilesFetcher:
             raise OwnershipUnavailable(f"unsafe repository path: {repository!r}")
         owner, name = repository.split("/", 1)
         payload = {"query": query, "variables": {"owner": owner, "name": name, **variables}}
-        response = self._post(repository, payload, endpoint=endpoint)
-        if response.status_code == HTTPStatus.UNAUTHORIZED and self._refresh is not None:
+        status, body = self._answer(repository, payload, endpoint=endpoint, deadline=deadline)
+        if status == HTTPStatus.UNAUTHORIZED and self._refresh is not None:
             # The token was revoked or rotated under the batch, and it stays memoized, so every
             # later read would fail with it too. A 401 means nothing ran, so the retry is safe.
             self._refresh_token(repository)
-            response = self._post(repository, payload, endpoint=endpoint)
-        if response.status_code != HTTPStatus.OK:
-            raise OwnershipUnavailable(f"{repository} answered {response.status_code} for {endpoint}")
-        try:
-            body = response.json()
-        except ValueError as e:
-            raise OwnershipUnavailable(f"{repository} answered with no JSON for {endpoint}") from e
+            status, body = self._answer(repository, payload, endpoint=endpoint, deadline=deadline)
+        if status != HTTPStatus.OK:
+            raise OwnershipUnavailable(f"{repository} answered {status} for {endpoint}")
         errors = body.get("errors") if isinstance(body, dict) else None
         if errors:
             # GitHub reports a path the commit does not hold as a null alias and no error at all, so
@@ -264,6 +292,25 @@ class GitHubFilesFetcher:
         if not isinstance(field, dict):
             raise OwnershipUnavailable(f"{repository} is unreadable for {endpoint}")
         return field
+
+    def _answer(
+        self, repository: str, payload: dict[str, Any], *, endpoint: str, deadline: float | None
+    ) -> tuple[int, Any]:
+        """One POST's status and decoded body, read under the response cap and closed before it
+        returns."""
+        with self._post(repository, payload, endpoint=endpoint) as response:
+            if response.status_code != HTTPStatus.OK:
+                return response.status_code, None
+            text = capped_text(
+                response,
+                description=f"the {endpoint} answer for {repository}",
+                limit=_MAX_RESPONSE_BYTES,
+                deadline=deadline,
+            )
+        try:
+            return HTTPStatus.OK, json.loads(text)
+        except ValueError as e:
+            raise OwnershipUnavailable(f"{repository} answered with no JSON for {endpoint}") from e
 
     def _post(self, repository: str, payload: dict[str, Any], *, endpoint: str) -> requests.Response:
         try:
@@ -278,6 +325,8 @@ class GitHubFilesFetcher:
                 json=payload,
                 timeout=_TIMEOUT_SECONDS,
                 session=self._session,
+                # The body is read under a cap in _answer, so it must not be buffered whole first.
+                stream=True,
             )
             # A rate limit answers 403 or 429, which would otherwise read as a plain refusal. It is
             # still fail-closed, but the failure says which of the two it was.
@@ -313,7 +362,7 @@ class AuthenticatedRepoFiles(CachedRepoFiles):
         self._fetcher = fetcher
         self._sha: str | None = None
 
-    def _head_commit_sha(self) -> str:
+    def _head_commit_sha(self) -> str | None:
         if self._sha is None:
             key = f"{_CACHE_PREFIX}:head:{self._fetcher.audience}:{self.repository}"
             cached = cache.get(key)
@@ -321,20 +370,40 @@ class AuthenticatedRepoFiles(CachedRepoFiles):
                 self._sha = cached
             else:
                 self._sha = self._fetcher.head_commit_sha(self.repository)
-                cache.set(key, self._sha, _HEAD_CACHE_TTL_SECONDS)
+                if self._sha is not None:
+                    cache.set(key, self._sha, _HEAD_CACHE_TTL_SECONDS)
         return self._sha
 
+    def _commit(self) -> str:
+        sha = self._head_commit_sha()
+        if sha is None:
+            raise OwnershipUnavailable(f"{self.repository} has no commits")
+        return sha
+
     def _cache_key(self, kind: str, path: str) -> str:
-        return f"{_CACHE_PREFIX}:{kind}:{self._fetcher.audience}:{self.repository}:{self._head_commit_sha()}:{path}"
+        return f"{_CACHE_PREFIX}:{kind}:{self._fetcher.audience}:{self.repository}:{self._commit()}:{path}"
 
     def _cache_ttl(self) -> int:
         return _BLOB_CACHE_TTL_SECONDS
 
     def _read_missing(self, paths: list[str]) -> dict[str, str]:
-        return self._fetcher.read_files(self.repository, self._head_commit_sha(), paths, self._deadline)
+        return self._fetcher.read_files(self.repository, self._commit(), paths, self._deadline)
 
     def _probe_missing(self, paths: list[str]) -> dict[str, bool]:
-        return self._fetcher.files_exist(self.repository, self._head_commit_sha(), paths, self._deadline)
+        return self._fetcher.files_exist(self.repository, self._commit(), paths, self._deadline)
+
+    def read_all(self, paths: list[str]) -> None:
+        if self._head_commit_sha() is None:
+            # A repository with no commits holds no file. There is no commit to key a cache entry
+            # by, so the absence is answered per batch rather than written for a week.
+            self._bodies.update({path: _ABSENT for path in paths if path not in self._bodies})
+            return
+        super().read_all(paths)
+
+    def exists_all(self, paths: list[str]) -> dict[str, bool]:
+        if self._head_commit_sha() is None:
+            return dict.fromkeys(paths, False)
+        return super().exists_all(paths)
 
 
 def _covering_integration(team_id: int, repository: str, *, priority: Priority) -> GitHubIntegration | None:
@@ -371,7 +440,14 @@ def fetcher_for_team(
     works for a private repository. Every other team falls back to the anonymous raw host, which
     answers for a public repository only.
     """
-    integration = _covering_integration(team_id, repository, priority=priority)
+    try:
+        integration = _covering_integration(team_id, repository, priority=priority)
+    except (EgressBudgetExhausted, GitHubRateLimitError):
+        # The probe is optional enrichment for a caller that already handles an unresolved answer,
+        # so a spent budget must degrade rather than raise past it. Nothing is cached: the next
+        # call has to probe again once the budget refills.
+        logger.warning("ownership_covering_integration_budget_exhausted", team_id=team_id, repository=repository)
+        return GitHubRepoFiles(repository)
     if integration is None:
         return GitHubRepoFiles(repository)
     return AuthenticatedRepoFiles(repository, GitHubFilesFetcher.from_integration(integration, priority=priority))
