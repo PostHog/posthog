@@ -22,9 +22,9 @@ class TicketPatternSerializer(serializers.Serializer):
     )
     ticket_ids = serializers.ListField(
         child=serializers.CharField(),
-        help_text="IDs of the tickets in this spike that the requesting user can open.",
+        help_text="IDs of the tickets in this spike.",
     )
-    ticket_count = serializers.IntegerField(help_text="How many of the spike's tickets the user can open.")
+    ticket_count = serializers.IntegerField(help_text="How many tickets the spike covers.")
     requester_count = serializers.IntegerField(help_text="How many distinct customers reported it.")
     detected_at = serializers.DateTimeField(help_text="When detection reported this spike.")
     dismissed_by = serializers.CharField(
@@ -52,9 +52,8 @@ class TicketPatternViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     the `$conversation_ticket_pattern_detected` event, so an empty list means "nothing recent or
     nothing cached", never "this never happened".
 
-    A spike is made of ticket text, so it is scoped as ticket data: the response carries only the
-    tickets the requesting user could open directly, and a user who can open none of a spike's
-    tickets never learns it exists.
+    A spike is made of ticket text, so it is scoped as ticket data: a user sees a spike only when
+    they can open every ticket in it, and never learns that the others exist.
     """
 
     scope_object = "ticket"
@@ -83,7 +82,14 @@ class TicketPatternViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         return is_master_flag_enabled(self.team)
 
     def _visible_spikes(self) -> list[dict]:
-        """The cached spikes, each narrowed to the tickets this user can open."""
+        """The cached spikes this user may see, whole.
+
+        A spike is all-or-nothing rather than narrowed to the readable tickets, because its topic
+        and summary are written from every ticket in the cluster. Trimming the id list would still
+        hand over text derived from tickets the user cannot open, and there is no way to redact
+        that without asking the model again. Whole-spike visibility also makes the project-wide
+        dismissal defensible: anyone who can dismiss a spike can already read all of it.
+        """
         spikes = recent_spikes(self.team_id)
         if not spikes:
             return []
@@ -91,13 +97,20 @@ class TicketPatternViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # Only well-formed ids reach the query: this list is a cache blob, and an id the Ticket
         # model cannot parse raises rather than returning nothing, which would fail the inbox
         # scene the banner sits on instead of just dropping the banner.
-        every_id = set()
-        for spike in spikes:
+        parsed: dict[int, list[str]] = {}
+        for index, spike in enumerate(spikes):
+            ids = []
             for ticket_id in spike.get("ticket_ids", []):
                 try:
-                    every_id.add(str(UUID(str(ticket_id))))
+                    ids.append(str(UUID(str(ticket_id))))
                 except (ValueError, AttributeError, TypeError):
-                    continue
+                    # A spike is only shown whole, so an unparseable id means it cannot be shown.
+                    ids = []
+                    break
+            if ids:
+                parsed[index] = ids
+
+        every_id = {ticket_id for ids in parsed.values() for ticket_id in ids}
         if not every_id:
             return []
 
@@ -107,22 +120,7 @@ class TicketPatternViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             queryset = uac.filter_queryset_by_access_level(queryset)
         readable = {str(ticket_id) for ticket_id in queryset.values_list("id", flat=True)}
 
-        visible: list[dict] = []
-        for spike in spikes:
-            ticket_ids = [t for t in spike.get("ticket_ids", []) if t in readable]
-            if not ticket_ids:
-                continue
-            visible.append(
-                {
-                    **spike,
-                    "ticket_ids": ticket_ids,
-                    "ticket_count": len(ticket_ids),
-                    # Never describe more customers than the tickets this user can open could
-                    # account for, so a narrowed spike cannot report the full blast radius.
-                    "requester_count": min(spike.get("requester_count", 0), len(ticket_ids)),
-                }
-            )
-        return visible
+        return [spikes[index] for index, ids in parsed.items() if readable.issuperset(ids)]
 
     @extend_schema(
         responses={200: TicketPatternSerializer(many=True)},

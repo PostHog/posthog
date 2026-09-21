@@ -1880,8 +1880,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 continue
             if not isinstance(threshold, int) or isinstance(threshold, bool) or not low <= threshold <= high:
                 raise serializers.ValidationError({threshold_key: f"Must be a whole number from {low} to {high}."})
-        if "ticket_patterns_enabled" in value and not isinstance(value["ticket_patterns_enabled"], bool):
-            raise serializers.ValidationError({"ticket_patterns_enabled": "Must be true or false."})
+        for switch_key in ("ticket_patterns_enabled", "ticket_patterns_banner_enabled"):
+            if switch_key in value and not isinstance(value[switch_key], bool):
+                raise serializers.ValidationError({switch_key: "Must be true or false."})
         return value
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:

@@ -30,11 +30,20 @@ MAX_TEAMS_SCANNED_PER_RUN = 150
 # The task queue is shared, so a tick takes a slice of a worker's activity slots, not all of them.
 MAX_CONCURRENT_DETECTIONS = 10
 
-# The schedule kills a run that outlives its interval (see schedule.py), so the batches have to
-# fit inside that budget: run out of it part-way and the teams in the later batches are skipped
-# with nothing to say so. One batch gets an equal share, retries included.
+# The schedule kills a run that outlives its interval (see schedule.py), so everything the run
+# does has to fit inside that budget: overrun it and the teams in the later batches are skipped
+# with nothing to say so. Collecting the teams happens first and takes its own share, so
+# detection gets what is left rather than the whole budget.
+RUN_BUDGET_SECONDS = (COORDINATOR_INTERVAL_MINUTES - 1) * 60
+COLLECTION_BUDGET_SECONDS = 120
+# Slack for the workflow's own overhead between activities, so the last batch finishes inside
+# the budget instead of being killed part-way through.
+RUN_OVERHEAD_SECONDS = 60
+
 DETECTION_BATCHES_PER_RUN = math.ceil(MAX_TEAMS_PER_RUN / MAX_CONCURRENT_DETECTIONS)
-DETECTION_BATCH_BUDGET_SECONDS = ((COORDINATOR_INTERVAL_MINUTES - 1) * 60) // DETECTION_BATCHES_PER_RUN
+DETECTION_BATCH_BUDGET_SECONDS = (
+    RUN_BUDGET_SECONDS - COLLECTION_BUDGET_SECONDS - RUN_OVERHEAD_SECONDS
+) // DETECTION_BATCHES_PER_RUN
 MAX_TICKETS_PER_TEAM = 150
 MAX_MESSAGE_CHARS = 500
 MAX_CLUSTERS_PER_RUN = 5

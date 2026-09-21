@@ -19,6 +19,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.heartbeat import Heartbeater
 
     from products.conversations.backend.temporal.ticket_patterns.constants import (
+        COLLECTION_BUDGET_SECONDS,
         COORDINATOR_INTERVAL_MINUTES,
         DEFAULT_LOOKBACK_MINUTES,
         DEFAULT_MIN_REQUESTERS,
@@ -152,7 +153,9 @@ class TicketPatternsCoordinatorWorkflow:
         collected = await workflow.execute_activity(
             ticket_patterns_collect_eligible_teams_activity,
             _input,
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=timedelta(seconds=COLLECTION_BUDGET_SECONDS),
+            # Retries included, so a slow collection cannot eat the time the batches need.
+            schedule_to_close_timeout=timedelta(seconds=COLLECTION_BUDGET_SECONDS),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         if not collected.teams:

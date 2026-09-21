@@ -53,6 +53,14 @@ class TestTicketPatternsAPI(APIBaseTest):
         )
         return f"{TOPIC}:{detected_at}"
 
+    def _only_these_tickets_readable(self, tickets: list[Ticket]):
+        ids = [t.id for t in tickets]
+        return patch.multiple(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl",
+            has_resource_access=lambda *a, **kw: False,
+            filter_queryset_by_access_level=lambda self, qs, *a, **kw: qs.filter(id__in=ids),
+        )
+
     def _list(self) -> list[dict]:
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/ticket_patterns/")
         assert response.status_code == 200, response.content
@@ -72,42 +80,27 @@ class TestTicketPatternsAPI(APIBaseTest):
 
         assert self._list() == []
 
-    def test_a_spike_carries_only_the_tickets_the_user_can_open(self):
-        # The point of scoping this endpoint as ticket data: a spike must not hand someone the ids
-        # and blast radius of tickets they cannot open.
+    def test_a_spike_is_hidden_unless_every_one_of_its_tickets_is_readable(self):
+        # The topic and summary are written from the whole cluster, so narrowing the id list would
+        # still hand over text derived from tickets the user cannot open.
         self._record(self.tickets)
-        readable = self.tickets[:1]
 
-        with (
-            patch(
-                "products.access_control.backend.facade.user_access_control.UserAccessControl.has_resource_access",
-                return_value=False,
-            ),
-            patch(
-                "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-                side_effect=lambda qs, *a, **kw: qs.filter(id__in=[t.id for t in readable]),
-            ),
-        ):
+        with self._only_these_tickets_readable(self.tickets[:1]):
+            assert self._list() == []
+
+    def test_a_spike_is_listed_whole_when_every_ticket_is_readable(self):
+        self._record(self.tickets)
+
+        with self._only_these_tickets_readable(self.tickets):
             listed = self._list()
 
         assert len(listed) == 1
-        assert listed[0]["ticket_ids"] == [str(readable[0].id)]
-        assert listed[0]["ticket_count"] == 1
-        assert listed[0]["requester_count"] == 1
+        assert listed[0]["ticket_count"] == 3
 
     def test_a_spike_whose_tickets_are_all_hidden_is_not_listed(self):
         self._record(self.tickets)
 
-        with (
-            patch(
-                "products.access_control.backend.facade.user_access_control.UserAccessControl.has_resource_access",
-                return_value=False,
-            ),
-            patch(
-                "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-                side_effect=lambda qs, *a, **kw: qs.none(),
-            ),
-        ):
+        with self._only_these_tickets_readable([]):
             assert self._list() == []
 
     def test_dismissal_hides_the_spike_for_everyone(self):
@@ -134,19 +127,12 @@ class TestTicketPatternsAPI(APIBaseTest):
 
         assert response.status_code == 404, response.content
 
-    def test_a_user_who_cannot_see_the_spike_cannot_dismiss_it(self):
+    def test_partial_ticket_access_cannot_dismiss_for_the_whole_project(self):
+        # Dismissing hides the spike for everyone, so someone who can read only part of it must
+        # not be able to clear the warning for the teammates who can read all of it.
         key = self._record(self.tickets)
 
-        with (
-            patch(
-                "products.access_control.backend.facade.user_access_control.UserAccessControl.has_resource_access",
-                return_value=False,
-            ),
-            patch(
-                "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-                side_effect=lambda qs, *a, **kw: qs.none(),
-            ),
-        ):
+        with self._only_these_tickets_readable(self.tickets[:1]):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/conversations/ticket_patterns/dismiss/", {"key": key}
             )

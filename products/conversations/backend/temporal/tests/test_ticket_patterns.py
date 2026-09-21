@@ -20,8 +20,13 @@ from posthog.models.comment import Comment
 
 from products.conversations.backend.models.ticket import Status, Ticket
 from products.conversations.backend.temporal.ticket_patterns.constants import (
+    COLLECTION_BUDGET_SECONDS,
     COORDINATOR_INTERVAL_MINUTES,
+    DETECTION_BATCH_BUDGET_SECONDS,
+    DETECTION_BATCHES_PER_RUN,
     MAX_MESSAGE_CHARS,
+    RUN_BUDGET_SECONDS,
+    RUN_OVERHEAD_SECONDS,
 )
 from products.conversations.backend.temporal.ticket_patterns.coordinator import _collect_eligible_teams
 from products.conversations.backend.temporal.ticket_patterns.detect import (
@@ -81,6 +86,16 @@ def _settings(min_tickets: int = 3, min_requesters: int = 3) -> DetectionSetting
 
 def _requesters(*pairs: tuple[str, str]) -> dict[str, str]:
     return dict(pairs)
+
+
+def test_everything_a_run_does_fits_inside_its_execution_timeout() -> None:
+    # The schedule kills the run at the timeout. Sizing the batches to fill it and then adding
+    # collection on top overruns silently, skipping the teams in the later batches.
+    worst_case = (
+        COLLECTION_BUDGET_SECONDS + DETECTION_BATCHES_PER_RUN * DETECTION_BATCH_BUDGET_SECONDS + RUN_OVERHEAD_SECONDS
+    )
+
+    assert worst_case <= RUN_BUDGET_SECONDS
 
 
 @pytest.mark.asyncio
