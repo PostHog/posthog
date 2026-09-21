@@ -10,15 +10,15 @@ export type MlWireVersion = '1' | '2'
 
 export interface MlSessionIdentity {
     teamId: number
-    organizationId: string
     sessionId: string
 }
 
 export interface MlKeyIdentity {
     teamId: number
-    organizationId: string
     sessionId?: string
     sessionMonth?: string
+    /** Only on keys wrapped while the organization was part of the KMS context. A team can change organization mid-session, so new keys leave it out, and a stored key carries the one it was wrapped under. */
+    organizationId?: string
 }
 
 export interface TableKey {
@@ -34,12 +34,15 @@ export function sessionShard(sessionId: string): number {
     return Number.parseInt(identityDigest(sessionId).slice(0, 8), 16) % ML_KEY_SHARDS
 }
 
+const SESSION_KEY_PREFIX = 'session:'
+const IMAGE_KEY_PREFIX = 'image:'
+
 export function sessionKeyId(teamId: number, sessionId: string): TableKey {
-    return { pk: `team:${teamId}:shard:${sessionShard(sessionId)}`, sk: `session:${sessionId}` }
+    return { pk: `team:${teamId}:shard:${sessionShard(sessionId)}`, sk: `${SESSION_KEY_PREFIX}${sessionId}` }
 }
 
 export function imageKeyId(teamId: number, sessionMonth: string): TableKey {
-    return { pk: `team:${teamId}`, sk: `image:${sessionMonth}` }
+    return { pk: `team:${teamId}`, sk: `${IMAGE_KEY_PREFIX}${sessionMonth}` }
 }
 
 export function keySessionMonth(identity: MlKeyIdentity): string {
@@ -57,8 +60,13 @@ export function monthKeyIndexId(identity: MlKeyIdentity, key: TableKey): TableKe
     return { pk: `month:${keySessionMonth(identity)}:shard:${sessionShard(id)}`, sk: `key:${id}` }
 }
 
-export function teamBlockId(teamId: number): TableKey {
-    return { pk: `team:${teamId}`, sk: 'deleted' }
+// The only update to a stored key row is the deletion tombstone, so a cache of one is stale only for a deletion, and its lifetime is what bounds how late that tombstone is seen.
+export function holdsCacheableRow(key: TableKey): boolean {
+    return key.sk.startsWith(SESSION_KEY_PREFIX) || key.sk.startsWith(IMAGE_KEY_PREFIX)
+}
+
+export function storedSessionId(sortKey: string): string | undefined {
+    return sortKey.startsWith(SESSION_KEY_PREFIX) ? sortKey.slice(SESSION_KEY_PREFIX.length) : undefined
 }
 
 export function tableKeyString(key: TableKey): string {
@@ -69,7 +77,7 @@ export function wrappingContext(identity: MlKeyIdentity): Record<string, string>
     return {
         purpose: identity.sessionId ? 'ai-research-session' : 'ai-research-image',
         team_id: String(identity.teamId),
-        organization_id: identity.organizationId,
+        ...(identity.organizationId ? { organization_id: identity.organizationId } : {}),
         ...(identity.sessionId ? { session_id: identity.sessionId } : {}),
         ...(identity.sessionMonth ? { session_month: identity.sessionMonth } : {}),
     }

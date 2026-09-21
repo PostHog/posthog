@@ -62,6 +62,9 @@ def _get_actor_distinct_id(
     return ticket.distinct_id or ticket.channel_source or "unknown"
 
 
+# A resolved ``$groups`` describes the customer, never us: these events are captured into the
+# support team's own project, so its uuid as the `project` group mis-attributes every ticket.
+
 # Channels whose customer email is tied to a provider-verified identity and is therefore safe
 # to use for organization attribution.
 _EMAIL_FALLBACK_CHANNELS = frozenset({Channel.EMAIL.value, Channel.SLACK.value, Channel.TEAMS.value})
@@ -73,11 +76,12 @@ _EMAIL_FALLBACK_CHANNELS = frozenset({Channel.EMAIL.value, Channel.SLACK.value, 
 # newer SDKs only re-emit it for newly-seen groups. A $groupidentify filter would therefore
 # silently miss exactly the cross-region customers this fallback exists for — those whose apps
 # don't pass group properties, or whose last group identify predates the 30-day window.
-# {org_col}/{customer_select} are interpolated from this project's own group-type indexes (see
-# _resolve_groups_from_analytics); column names can't be HogQL placeholders.
+# {org_col}/{project_col}/{customer_select} are interpolated from this project's own group-type indexes
+# (see _resolve_groups_from_analytics); column names can't be HogQL placeholders. One argMax over both
+# group columns pairs an organization with the project it was seen with, never with an older one.
 GROUPS_FROM_EVENTS_QUERY = """
 SELECT
-    argMax({org_col}, timestamp),
+    argMax(tuple({org_col}, {project_col}), timestamp),
     {customer_select}
 FROM events
 WHERE distinct_id IN {{distinct_ids}}
@@ -97,8 +101,9 @@ def _resolve_groups_from_analytics(team: Team, distinct_ids: list[str]) -> dict 
 
     Event-supplied groups are captured with the project's public token and are
     therefore spoofable — fine for analytics enrichment (same trust level as
-    ``$identify``), never for authorization. ``instance``/``project`` are rebuilt
-    server-side so fallback-path events match ``build_groups()`` output.
+    ``$identify``), never for authorization. ``instance`` is rebuilt server-side;
+    ``project`` is the customer's own project group, read from the same event as the
+    organization.
     """
     if not distinct_ids:
         return None
@@ -118,6 +123,7 @@ def _resolve_groups_from_analytics(team: Team, distinct_ids: list[str]) -> dict 
         set_cached_resolved_groups(team.id, distinct_ids, None)
         return None
     customer_index = group_type_index.get("customer")
+    project_index = group_type_index.get("project")
 
     # Indexes are trusted ints (0-4) from the project's own mapping; safe to interpolate.
     org_col = f"`$group_{org_index}`"
@@ -126,7 +132,8 @@ def _resolve_groups_from_analytics(team: Team, distinct_ids: list[str]) -> dict 
         if customer_index is not None
         else "''"
     )
-    query = GROUPS_FROM_EVENTS_QUERY.format(org_col=org_col, customer_select=customer_select)
+    project_col = f"`$group_{project_index}`" if project_index is not None else "''"
+    query = GROUPS_FROM_EVENTS_QUERY.format(org_col=org_col, project_col=project_col, customer_select=customer_select)
 
     # Deferred: hogql.query pulls the whole query-runner layer, and this module loads
     # at django.setup() via the conversations signal wiring.
@@ -143,11 +150,13 @@ def _resolve_groups_from_analytics(team: Team, distinct_ids: list[str]) -> dict 
 
     groups: dict | None = None
     if response.results:
-        org_key, customer_key = response.results[0]
+        (org_key, project_key), customer_key = response.results[0]
         if org_key:
-            groups = {"instance": SITE_URL, "project": str(team.uuid), "organization": org_key}
+            groups = {"instance": SITE_URL, "organization": org_key}
             if customer_key:
                 groups["customer"] = customer_key
+            if project_key:
+                groups["project"] = project_key
 
     set_cached_resolved_groups(team.id, distinct_ids, groups)
     return groups
@@ -182,7 +191,24 @@ def _resolve_groups_from_person_properties(team: Team, person: Person) -> dict |
     if not get_groups_by_identifiers(team.id, org_index, [org_id]):
         return None
 
-    return {"instance": SITE_URL, "project": str(team.uuid), "organization": org_id}
+    return {"instance": SITE_URL, "organization": org_id}
+
+
+def _requester_project(membership: OrganizationMembership) -> Team | None:
+    """The requester's own project for the ``project`` group, or ``None`` when it can't be named.
+
+    ``current_team`` follows the project switcher, so it names the project the requester worked
+    in last — usually the one they filed the ticket from. Read the field directly rather than
+    ``user.team``, which backfills and saves a project for users who have none.
+
+    A multi-org requester can have a current project outside the organization this membership
+    resolved, and an organization and a project from two different organizations would enrich
+    the event with a contradiction. Leave ``project`` unset in that case.
+    """
+    current_team = membership.user.current_team
+    if current_team is None or current_team.organization_id != membership.organization_id:
+        return None
+    return current_team
 
 
 def _org_groups_for_person(ticket: Ticket, team: Team, person: Person, distinct_ids: list[str]) -> dict | None:
@@ -197,12 +223,12 @@ def _org_groups_for_person(ticket: Ticket, team: Team, person: Person, distinct_
     if distinct_ids:
         try:
             membership = (
-                OrganizationMembership.objects.select_related("organization")
+                OrganizationMembership.objects.select_related("organization", "user__current_team")
                 .filter(user__distinct_id__in=distinct_ids)
                 .first()
             )
             if membership:
-                return build_groups(membership.organization, team)
+                return build_groups(membership.organization, _requester_project(membership))
         except Exception:
             logger.exception("ticket_org_membership_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
         # Membership rows are region-local: accounts registered in another region
@@ -315,7 +341,7 @@ def _resolve_groups_from_slack_channel(team: Team, slack_channel_id: str) -> dic
     if account is None or not account.external_id:
         return None
 
-    return {"instance": SITE_URL, "project": str(team.uuid), group_type_name: account.external_id}
+    return {"instance": SITE_URL, group_type_name: account.external_id}
 
 
 def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None, str | None]:
@@ -345,9 +371,9 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None, 
     return process_person, None, None
 
 
-def _groups_from_org_id(team: Team, organization_id: str) -> dict:
+def _groups_from_org_id(organization_id: str) -> dict:
     """Rebuild minimal $groups from a stored org id, skipping the expensive resolver."""
-    return {"instance": SITE_URL, "project": str(team.uuid), "organization": organization_id}
+    return {"instance": SITE_URL, "organization": organization_id}
 
 
 def _get_ticket_base_properties(ticket: Ticket) -> dict:
@@ -589,7 +615,7 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
     process_person = False
     try:
         if ticket.organization_id:
-            properties["$groups"] = _groups_from_org_id(team, ticket.organization_id)
+            properties["$groups"] = _groups_from_org_id(ticket.organization_id)
             # Only a person-resolved org attests the sender (legacy rows without a source
             # were person-resolved); a channel-inferred org says nothing about them, so
             # don't create a person profile for it. Allowlist rather than blocklist so a

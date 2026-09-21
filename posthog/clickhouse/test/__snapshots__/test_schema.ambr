@@ -327,7 +327,18 @@
       inserted_at DateTime64(6, 'UTC')
   )
   ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_flag_evaluations_test', kafka_group_name = 'clickhouse_flag_evaluations', kafka_format = 'JSONEachRow')
-  SETTINGS kafka_skip_broken_messages = 100
+  -- The block and batch sizes are an order of magnitude below the precalculated
+  -- Kafka tables on this role: each row carries the full event-properties JSON, so
+  -- large blocks cost far more memory. The 10s poll timeout is deliberate: it is
+  -- in the range the other WarpStream consumers use, not the 1s the precalculated
+  -- tables set.
+  SETTINGS
+      kafka_max_block_size = 10000,
+      kafka_poll_max_batch_size = 10000,
+      kafka_poll_timeout_ms = 10000,
+      kafka_flush_interval_ms = 7500,
+      kafka_num_consumers = 1,
+      kafka_skip_broken_messages = 100
   
   '''
 # ---
@@ -2628,7 +2639,18 @@
       inserted_at DateTime64(6, 'UTC')
   )
   ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_flag_evaluations_test', kafka_group_name = 'clickhouse_flag_evaluations', kafka_format = 'JSONEachRow')
-  SETTINGS kafka_skip_broken_messages = 100
+  -- The block and batch sizes are an order of magnitude below the precalculated
+  -- Kafka tables on this role: each row carries the full event-properties JSON, so
+  -- large blocks cost far more memory. The 10s poll timeout is deliberate: it is
+  -- in the range the other WarpStream consumers use, not the 1s the precalculated
+  -- tables set.
+  SETTINGS
+      kafka_max_block_size = 10000,
+      kafka_poll_max_batch_size = 10000,
+      kafka_poll_timeout_ms = 10000,
+      kafka_flush_interval_ms = 7500,
+      kafka_num_consumers = 1,
+      kafka_skip_broken_messages = 100
   
   '''
 # ---
@@ -4413,6 +4435,7 @@
       INDEX idx_trace_id_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
+      INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
       PROJECTION projection_series_activity
       (
           SELECT
@@ -6180,8 +6203,9 @@
       page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
       has_autocapture SimpleAggregateFunction(max, Boolean),
   
-      -- Flags - store every seen value for each flag
-      flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+      -- Flags - store every seen 'key=value' pair per flag. A flat array instead of a
+      -- groupUniqArrayMap state because per-key sub-aggregators made merges ~8-37x more expensive.
+      flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
       flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
@@ -6393,7 +6417,7 @@
       event = '$autocapture' as has_autocapture,
   
       -- flags
-      initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values,
+      arrayMap((k, v) -> concat(k, '=', v), mapKeys(properties_group_feature_flags), mapValues(properties_group_feature_flags)) as flag_key_values,
       mapKeys(properties_group_feature_flags) as flag_keys,
   
       -- event names
@@ -6492,7 +6516,7 @@
       false as has_autocapture,
   
       -- flags
-      initializeAggregation('groupUniqArrayMapState', CAST(map(), 'Map(String, String)')) as flag_values,
+      CAST([], 'Array(String)') as flag_key_values,
       CAST([], 'Array(String)') as flag_keys,
   
       -- event names
@@ -8324,8 +8348,9 @@
       page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
       has_autocapture SimpleAggregateFunction(max, Boolean),
   
-      -- Flags - store every seen value for each flag
-      flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+      -- Flags - store every seen 'key=value' pair per flag. A flat array instead of a
+      -- groupUniqArrayMap state because per-key sub-aggregators made merges ~8-37x more expensive.
+      flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
       flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
@@ -8343,6 +8368,7 @@
   
       -- Indexes
       INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
+      INDEX flag_key_values_bloom_filter flag_key_values TYPE bloom_filter() GRANULARITY 1,
       INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1,
       INDEX hosts_bloom_filter hosts TYPE bloom_filter() GRANULARITY 1,
       INDEX emails_bloom_filter emails TYPE bloom_filter() GRANULARITY 1
@@ -10442,8 +10468,9 @@
       page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
       has_autocapture SimpleAggregateFunction(max, Boolean),
   
-      -- Flags - store every seen value for each flag
-      flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+      -- Flags - store every seen 'key=value' pair per flag. A flat array instead of a
+      -- groupUniqArrayMap state because per-key sub-aggregators made merges ~8-37x more expensive.
+      flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
       flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
@@ -11701,6 +11728,7 @@
       INDEX idx_trace_id_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
+      INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
       PROJECTION projection_series_activity
       (
           SELECT
@@ -13637,8 +13665,9 @@
       page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
       has_autocapture SimpleAggregateFunction(max, Boolean),
   
-      -- Flags - store every seen value for each flag
-      flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+      -- Flags - store every seen 'key=value' pair per flag. A flat array instead of a
+      -- groupUniqArrayMap state because per-key sub-aggregators made merges ~8-37x more expensive.
+      flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
       flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
@@ -13656,6 +13685,7 @@
   
       -- Indexes
       INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
+      INDEX flag_key_values_bloom_filter flag_key_values TYPE bloom_filter() GRANULARITY 1,
       INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1,
       INDEX hosts_bloom_filter hosts TYPE bloom_filter() GRANULARITY 1,
       INDEX emails_bloom_filter emails TYPE bloom_filter() GRANULARITY 1

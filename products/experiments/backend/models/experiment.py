@@ -11,6 +11,7 @@ from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import RootTeamMixin, UUIDModel
 
 from products.feature_flags.backend.facade.filters import (
@@ -46,7 +47,7 @@ ExposureFreezeBlocker = (
 )
 
 
-class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
+class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
     class ExperimentType(models.TextChoices):
         WEB = "web", "web"
         PRODUCT = "product", "product"
@@ -412,7 +413,7 @@ class ExperimentHoldout(ModelActivityMixin, RootTeamMixin, models.Model):
         return self.filters[0]["rollout_percentage"] if self.filters else None
 
 
-class ExperimentSavedMetric(ModelActivityMixin, RootTeamMixin, models.Model):
+class ExperimentSavedMetric(Taggable, ModelActivityMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400)
     description = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")

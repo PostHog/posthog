@@ -419,6 +419,33 @@ describe('trendsChartTransforms', () => {
             }
         )
 
+        it.each([
+            { name: 'leaves axes visible by default', hideAxes: undefined, expectedHide: undefined },
+            { name: 'hides axes while preserving their configuration', hideAxes: true, expectedHide: true },
+        ])('$name', ({ hideAxes, expectedHide }) => {
+            const tickFormatter = (value: string): string => `tick:${value}`
+            const config = buildTrendsLineTimeSeriesConfig({
+                ...baseOpts,
+                hideAxes,
+                interval: 'week',
+                timezone: 'UTC',
+                allDays: ['2024-01-01', '2024-01-08'],
+                xAxisLabel: 'Signup date',
+                yAxisLabel: 'Unique users',
+                xAxisTickFormatter: tickFormatter,
+            })
+
+            expect(config.xAxis).toMatchObject({
+                label: 'Signup date',
+                timezone: 'UTC',
+                interval: 'week',
+                allDays: ['2024-01-01', '2024-01-08'],
+                tickFormatter,
+                hide: expectedHide,
+            })
+            expect(config.yAxis).toMatchObject({ label: 'Unique users', showGrid: true, hide: expectedHide })
+        })
+
         it('passes xAxisTickFormatter through to the x-axis', () => {
             const tickFormatter = (value: string): string => `tick:${value}`
             const config = buildTrendsLineTimeSeriesConfig({ ...baseOpts, xAxisTickFormatter: tickFormatter })

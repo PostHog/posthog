@@ -36,13 +36,14 @@ from products.data_modeling.backend.models.datawarehouse_saved_query_column_anno
 )
 from products.data_modeling.backend.models.datawarehouse_saved_query_draft import DataWarehouseSavedQueryDraft
 from products.data_modeling.backend.models.edge import Edge
-from products.data_modeling.backend.models.node import Node, NodeType
+from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, LineageIssueKind, Node, NodeType
 
 __all__ = [
     "DAG",
     "DEFAULT_DAG_NAME",
     "RESERVED_DAG_NAMES",
     "REVENUE_ANALYTICS_DAG_NAME",
+    "SAVED_QUERY_NODE_TYPES",
     "DataModelingJob",
     "DataModelingJobEngine",
     "DataModelingJobStatus",
@@ -52,6 +53,7 @@ __all__ = [
     "DataWarehouseSavedQueryDraft",
     "Edge",
     "Graph",
+    "LineageIssueKind",
     "Node",
     "NodeType",
     "aget_saved_query_by_id",

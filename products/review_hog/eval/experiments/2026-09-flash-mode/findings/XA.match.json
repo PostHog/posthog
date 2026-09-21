@@ -1,0 +1,112 @@
+{
+    "XA1": {
+        "cluster": 75,
+        "confidence": "high",
+        "reason": "The webhook carve-out accepts any GitHub bot instead of the expected PostHog Code bot, exactly cluster 75's overly broad bot-identity predicate."
+    },
+    "XA2": {
+        "cluster": 6,
+        "confidence": "high",
+        "reason": "Pipeline relaxes bot and draft gates solely from self_driving without verifying the current bot-author shape, matching cluster 6 rather than cluster 35's inaccurate draft prompt sentence."
+    },
+    "XA3": {
+        "cluster": 18,
+        "confidence": "high",
+        "reason": "The primary claim is has_reviewable_repo_config omitting provider=github while the worker requires it, exactly cluster 18, with replica lag added as a separate secondary mechanism."
+    },
+    "XA4": {
+        "cluster": 4,
+        "confidence": "high",
+        "reason": "Self-driving prompts still render populated author familiarity as assurance, exactly cluster 4's missing self_driving guard on familiarity computation or rendering."
+    },
+    "XA5": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "The receiver swallows a failed initial broker publish without a durable retry, matching cluster 58 rather than cluster 54's claim that publication errors escape into the caller."
+    },
+    "XA6": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster claims a repository-disable race between configuration resolution and run creation; cluster 31 concerns a reviewer's toggle, and cluster 72 concerns missing documentation about the enabled gate."
+    },
+    "XA7": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "The initial receiver path allegedly stamps inbox provenance from caller identifiers without verifying the TaskRun-to-PR link, exactly cluster 2 despite the documentation anchor."
+    },
+    "XA8": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "The claim that the normal webhook bot pre-filter misses a User named posthog-bot is distinct from cluster 75's carve-out accepting too many Bot identities, and no cluster covers this missing machine-user match."
+    },
+    "XA9": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "process_inbox_pr_review allegedly treats supplied task identifiers and PR output as sufficient provenance without linkage, author, or head-repository verification, exactly cluster 2."
+    },
+    "XA10": {
+        "cluster": 31,
+        "confidence": "high",
+        "reason": "The initial Celery task does not recheck the acting reviewer's opt-in after queueing or retrying, exactly cluster 31's execution-time toggle validation gap."
+    },
+    "XA11": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "This finding says the receiver's internal-task guard prevents initial dispatch, whereas cluster 1 identifies a separate internal-task rejection in find_signal_implementation_run on the webhook path."
+    },
+    "XA12": {
+        "cluster": 39,
+        "confidence": "high",
+        "reason": "An unscoped find_task_run result wins ordering before team and implementation checks reject it, matching cluster 39's post-selection tenant validation root cause."
+    },
+    "XA13": {
+        "cluster": 2,
+        "confidence": "medium",
+        "reason": "The concrete claim is that the initial receiver stamps the carve-out marker for a PR without checking its task linkage, author, or native head, matching cluster 2; strict boolean parsing is a secondary recommendation and does not address that stated provenance gap, despite cluster 3 sharing the cited parser anchor."
+    },
+    "XA14": {
+        "cluster": 9,
+        "confidence": "high",
+        "reason": "Repeated TaskRun output saves publish jobs that fetch GitHub before deduplication, exactly cluster 9's redundant pre-deduplication get_pr work."
+    },
+    "XA15": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster claims replica lag in has_reviewable_repo_config; cluster 76 concerns ReviewUserSettings reads, cluster 15 concerns TaskRun reads, and cluster 65 concerns missing frontend revalidation."
+    },
+    "XA16": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster claims _supersede_prior_runs routes its locking query to a replica; cluster 15 concerns a different TaskRun lookup, and cluster 42 concerns concurrent deduplication rather than database routing."
+    },
+    "XA17": {
+        "cluster": 36,
+        "confidence": "high",
+        "reason": "The webhook supersedes a receiver-created run and creates another review for the same head, exactly cluster 36 rather than cluster 42's race between concurrent receiver jobs."
+    },
+    "XA18": {
+        "cluster": 58,
+        "confidence": "medium",
+        "reason": "Temporal handoff failures can exhaust the initial task's three retries without reconciliation, matching cluster 58's recovery gap rather than cluster 32's distinct assertion that on_commit callbacks run after task return."
+    },
+    "XA19": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster identifies review_local.run missing the pending-migration short circuit before LLM review, and the registry's other review_local findings concern unrelated provenance or trust signals."
+    },
+    "XA20": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "The claim that the initial asynchronous task must reject PRs that became ready is distinct from cluster 35's draft-provenance wording and cluster 6's engine-side bot-author invariant."
+    },
+    "XA21": {
+        "cluster": 76,
+        "confidence": "high",
+        "reason": "ReviewUserSettings.load allegedly reads a lagging replica and needs writer pinning before toggle-controlled review side effects, exactly cluster 76."
+    },
+    "XA22": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster claims early Celery acknowledgments prevent redelivery after worker loss; cluster 58 concerns broker publication failure or retry exhaustion, which are different failure mechanisms."
+    }
+}

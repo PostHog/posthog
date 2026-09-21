@@ -147,6 +147,106 @@ const inboxReportArtefactsUpdate = (): ToolBase<
     },
 })
 
+const InboxReportChecksCreateSchema = () => {
+    const SignalsScoutReportCheckCreateBody = orvalSchemas.SignalsScoutReportCheckCreateBody()
+    const SignalsScoutReportCheckCreateParams = orvalSchemas.SignalsScoutReportCheckCreateParams()
+    return SignalsScoutReportCheckCreateParams.omit({ project_id: true }).extend(
+        SignalsScoutReportCheckCreateBody.shape
+    )
+}
+
+const inboxReportChecksCreate = (): ToolBase<
+    ReturnType<typeof InboxReportChecksCreateSchema>,
+    Schemas.ScoutCheckSummary
+> => ({
+    name: 'inbox-report-checks-create',
+    schema: InboxReportChecksCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportChecksCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.rationale !== undefined) {
+            body['rationale'] = params.rationale
+        }
+        if (params.kind !== undefined) {
+            body['kind'] = params.kind
+        }
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
+        if (params.next_run_at !== undefined) {
+            body['next_run_at'] = params.next_run_at
+        }
+        if (params.run_interval_minutes !== undefined) {
+            body['run_interval_minutes'] = params.run_interval_minutes
+        }
+        if (params.runs_remaining !== undefined) {
+            body['runs_remaining'] = params.runs_remaining
+        }
+        if (params.expires_at !== undefined) {
+            body['expires_at'] = params.expires_at
+        }
+        if (params.report_id !== undefined) {
+            body['report_id'] = params.report_id
+        }
+        const result = await context.api.request<Schemas.ScoutCheckSummary>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/report-check-create/`,
+            body,
+        })
+        return result
+    },
+})
+
+const InboxReportChecksListSchema = () => {
+    const SignalsReportChecksListParams = orvalSchemas.SignalsReportChecksListParams()
+    const SignalsReportChecksListQueryParams = orvalSchemas.SignalsReportChecksListQueryParams()
+    return SignalsReportChecksListParams.omit({ project_id: true }).extend(SignalsReportChecksListQueryParams.shape)
+}
+
+const inboxReportChecksList = (): ToolBase<
+    ReturnType<typeof InboxReportChecksListSchema>,
+    WithPostHogUrl<Schemas.PaginatedSignalReportCheckList>
+> => ({
+    name: 'inbox-report-checks-list',
+    schema: InboxReportChecksListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportChecksListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedSignalReportCheckList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/checks/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/inbox')
+    },
+})
+
+const InboxReportChecksRetrieveSchema = () => {
+    const SignalsReportChecksRetrieveParams = orvalSchemas.SignalsReportChecksRetrieveParams()
+    return SignalsReportChecksRetrieveParams.omit({ project_id: true })
+}
+
+const inboxReportChecksRetrieve = (): ToolBase<
+    ReturnType<typeof InboxReportChecksRetrieveSchema>,
+    WithPostHogUrl<Schemas.SignalReportCheck>
+> => ({
+    name: 'inbox-report-checks-retrieve',
+    schema: InboxReportChecksRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportChecksRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalReportCheck>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/checks/${encodeURIComponent(String(params.id))}/`,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${params.report_id}`)
+    },
+})
+
 const InboxReportsBulkSetStateSchema = () => {
     const SignalsReportsBulkStateCreateBody = orvalSchemas.SignalsReportsBulkStateCreateBody()
     return SignalsReportsBulkStateCreateBody
@@ -588,6 +688,44 @@ const inboxSourceConfigsUpdate = (): ToolBase<
     },
 })
 
+const ScoutCheckRecordResultSchema = () => {
+    const SignalsScoutRecordCheckResultBody = orvalSchemas.SignalsScoutRecordCheckResultBody()
+    const SignalsScoutRecordCheckResultParams = orvalSchemas.SignalsScoutRecordCheckResultParams()
+    return SignalsScoutRecordCheckResultParams.omit({ project_id: true }).extend(
+        SignalsScoutRecordCheckResultBody.shape
+    )
+}
+
+const scoutCheckRecordResult = (): ToolBase<
+    ReturnType<typeof ScoutCheckRecordResultSchema>,
+    Schemas.RecordCheckResultResponse
+> => ({
+    name: 'scout-check-record-result',
+    schema: ScoutCheckRecordResultSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutCheckRecordResultSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.check_id !== undefined) {
+            body['check_id'] = params.check_id
+        }
+        if (params.outcome !== undefined) {
+            body['outcome'] = params.outcome
+        }
+        if (params.explanation !== undefined) {
+            body['explanation'] = params.explanation
+        }
+        if (params.observed_value !== undefined) {
+            body['observed_value'] = params.observed_value
+        }
+        const result = await context.api.request<Schemas.RecordCheckResultResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/check-result/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ScoutConfigCreateSchema = () => {
     const SignalsScoutConfigCreateBody = orvalSchemas.SignalsScoutConfigCreateBody()
     return SignalsScoutConfigCreateBody
@@ -638,6 +776,9 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
+        }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
         }
@@ -685,6 +826,7 @@ const scoutConfigList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
             query: {
+                search: params.search,
                 tags: params.tags,
             },
         })
@@ -793,6 +935,9 @@ const scoutCreate = (): ToolBase<ReturnType<typeof ScoutCreateSchema>, Schemas.S
     handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
+        }
         if (params.name !== undefined) {
             body['name'] = params.name
         }
@@ -841,6 +986,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         if (params.append_note !== undefined) {
             body['append_note'] = params.append_note
         }
+        if (params.corroboration_only !== undefined) {
+            body['corroboration_only'] = params.corroboration_only
+        }
         if (params.append_evidence !== undefined) {
             body['append_evidence'] = params.append_evidence
         }
@@ -858,6 +1006,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
+        }
+        if (params.supersedes_implementation !== undefined) {
+            body['supersedes_implementation'] = params.supersedes_implementation
         }
         const result = await context.api.request<Schemas.EditReportResponse>({
             method: 'POST',
@@ -976,6 +1127,36 @@ const scoutEmitSignal = (): ToolBase<ReturnType<typeof ScoutEmitSignalSchema>, S
         const result = await context.api.request<Schemas.EmitFindingResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/emit-signal/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ScoutLighthouseAuditSchema = () => {
+    const SignalsScoutLighthouseAuditBody = orvalSchemas.SignalsScoutLighthouseAuditBody()
+    const SignalsScoutLighthouseAuditParams = orvalSchemas.SignalsScoutLighthouseAuditParams()
+    return SignalsScoutLighthouseAuditParams.omit({ project_id: true }).extend(SignalsScoutLighthouseAuditBody.shape)
+}
+
+const scoutLighthouseAudit = (): ToolBase<
+    ReturnType<typeof ScoutLighthouseAuditSchema>,
+    Schemas.LighthouseAuditResponse
+> => ({
+    name: 'scout-lighthouse-audit',
+    schema: ScoutLighthouseAuditSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutLighthouseAuditSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.url !== undefined) {
+            body['url'] = params.url
+        }
+        if (params.form_factor !== undefined) {
+            body['form_factor'] = params.form_factor
+        }
+        const result = await context.api.request<Schemas.LighthouseAuditResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/lighthouse-audit/`,
             body,
         })
         return result
@@ -1120,6 +1301,7 @@ const scoutProjectProfileGet = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/project_profile/current/`,
             query: {
                 force_refresh: params.force_refresh,
+                run_id: params.run_id,
                 summary_only: params.summary_only,
             },
         })
@@ -1149,6 +1331,142 @@ const scoutRecordOutput = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/record-output/`,
             body,
+        })
+        return result
+    },
+})
+
+const ScoutReportCheckCancelSchema = () => {
+    const SignalsScoutReportCheckCancelBody = orvalSchemas.SignalsScoutReportCheckCancelBody()
+    const SignalsScoutReportCheckCancelParams = orvalSchemas.SignalsScoutReportCheckCancelParams()
+    return SignalsScoutReportCheckCancelParams.omit({ project_id: true }).extend(
+        SignalsScoutReportCheckCancelBody.shape
+    )
+}
+
+const scoutReportCheckCancel = (): ToolBase<
+    ReturnType<typeof ScoutReportCheckCancelSchema>,
+    Schemas.ScoutCheckSummary
+> => ({
+    name: 'scout-report-check-cancel',
+    schema: ScoutReportCheckCancelSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutReportCheckCancelSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.check_id !== undefined) {
+            body['check_id'] = params.check_id
+        }
+        const result = await context.api.request<Schemas.ScoutCheckSummary>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/report-check-cancel/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ScoutReportCheckCreateSchema = () => {
+    const SignalsScoutReportCheckCreateBody = orvalSchemas.SignalsScoutReportCheckCreateBody()
+    const SignalsScoutReportCheckCreateParams = orvalSchemas.SignalsScoutReportCheckCreateParams()
+    return SignalsScoutReportCheckCreateParams.omit({ project_id: true }).extend(
+        SignalsScoutReportCheckCreateBody.shape
+    )
+}
+
+const scoutReportCheckCreate = (): ToolBase<
+    ReturnType<typeof ScoutReportCheckCreateSchema>,
+    Schemas.ScoutCheckSummary
+> => ({
+    name: 'scout-report-check-create',
+    schema: ScoutReportCheckCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutReportCheckCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.rationale !== undefined) {
+            body['rationale'] = params.rationale
+        }
+        if (params.kind !== undefined) {
+            body['kind'] = params.kind
+        }
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
+        if (params.next_run_at !== undefined) {
+            body['next_run_at'] = params.next_run_at
+        }
+        if (params.run_interval_minutes !== undefined) {
+            body['run_interval_minutes'] = params.run_interval_minutes
+        }
+        if (params.runs_remaining !== undefined) {
+            body['runs_remaining'] = params.runs_remaining
+        }
+        if (params.expires_at !== undefined) {
+            body['expires_at'] = params.expires_at
+        }
+        if (params.report_id !== undefined) {
+            body['report_id'] = params.report_id
+        }
+        const result = await context.api.request<Schemas.ScoutCheckSummary>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/report-check-create/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ScoutReportCheckListSchema = () => {
+    const SignalsScoutReportChecksListParams = orvalSchemas.SignalsScoutReportChecksListParams()
+    const SignalsScoutReportChecksListQueryParams = orvalSchemas.SignalsScoutReportChecksListQueryParams()
+    return SignalsScoutReportChecksListParams.omit({ project_id: true }).extend(
+        SignalsScoutReportChecksListQueryParams.shape
+    )
+}
+
+const scoutReportCheckList = (): ToolBase<
+    ReturnType<typeof ScoutReportCheckListSchema>,
+    Schemas.ScoutCheckSummary[]
+> => ({
+    name: 'scout-report-check-list',
+    schema: ScoutReportCheckListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutReportCheckListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScoutCheckSummary[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/report-checks/`,
+            query: {
+                report_id: params.report_id,
+            },
+        })
+        return result
+    },
+})
+
+const ScoutReportChecksListSchema = () => {
+    const SignalsScoutReportChecksListParams = orvalSchemas.SignalsScoutReportChecksListParams()
+    const SignalsScoutReportChecksListQueryParams = orvalSchemas.SignalsScoutReportChecksListQueryParams()
+    return SignalsScoutReportChecksListParams.omit({ project_id: true }).extend(
+        SignalsScoutReportChecksListQueryParams.shape
+    )
+}
+
+const scoutReportChecksList = (): ToolBase<
+    ReturnType<typeof ScoutReportChecksListSchema>,
+    Schemas.ScoutCheckSummary[]
+> => ({
+    name: 'scout-report-checks-list',
+    schema: ScoutReportChecksListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutReportChecksListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScoutCheckSummary[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/report-checks/`,
+            query: {
+                report_id: params.report_id,
+            },
         })
         return result
     },
@@ -1437,6 +1755,9 @@ const signalsScoutConfigCreate = (): ToolBase<
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
+        }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
         }
@@ -1484,6 +1805,7 @@ const signalsScoutConfigList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
             query: {
+                search: params.search,
                 tags: params.tags,
             },
         })
@@ -1608,6 +1930,9 @@ const signalsScoutEditReport = (): ToolBase<
         if (params.append_note !== undefined) {
             body['append_note'] = params.append_note
         }
+        if (params.corroboration_only !== undefined) {
+            body['corroboration_only'] = params.corroboration_only
+        }
         if (params.append_evidence !== undefined) {
             body['append_evidence'] = params.append_evidence
         }
@@ -1625,6 +1950,9 @@ const signalsScoutEditReport = (): ToolBase<
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
+        }
+        if (params.supersedes_implementation !== undefined) {
+            body['supersedes_implementation'] = params.supersedes_implementation
         }
         const result = await context.api.request<Schemas.EditReportResponse>({
             method: 'POST',
@@ -1797,6 +2125,7 @@ const signalsScoutProjectProfileGet = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/project_profile/current/`,
             query: {
                 force_refresh: params.force_refresh,
+                run_id: params.run_id,
                 summary_only: params.summary_only,
             },
         })
@@ -2046,6 +2375,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-artefacts-list': inboxReportArtefactsList,
     'inbox-report-artefacts-retrieve': inboxReportArtefactsRetrieve,
     'inbox-report-artefacts-update': inboxReportArtefactsUpdate,
+    'inbox-report-checks-create': inboxReportChecksCreate,
+    'inbox-report-checks-list': inboxReportChecksList,
+    'inbox-report-checks-retrieve': inboxReportChecksRetrieve,
     'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
     'inbox-reports-claim': inboxReportsClaim,
     'inbox-reports-list': inboxReportsList,
@@ -2057,6 +2389,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-partial-update': inboxSourceConfigsPartialUpdate,
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
     'inbox-source-configs-update': inboxSourceConfigsUpdate,
+    'scout-check-record-result': scoutCheckRecordResult,
     'scout-config-create': scoutConfigCreate,
     'scout-config-delete': scoutConfigDelete,
     'scout-config-list': scoutConfigList,
@@ -2066,6 +2399,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-edit-report': scoutEditReport,
     'scout-emit-report': scoutEmitReport,
     'scout-emit-signal': scoutEmitSignal,
+    'scout-lighthouse-audit': scoutLighthouseAudit,
     'scout-members-list': scoutMembersList,
     'scout-metadata-get': scoutMetadataGet,
     'scout-notes-create': scoutNotesCreate,
@@ -2073,6 +2407,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-notes-list': scoutNotesList,
     'scout-project-profile-get': scoutProjectProfileGet,
     'scout-record-output': scoutRecordOutput,
+    'scout-report-check-cancel': scoutReportCheckCancel,
+    'scout-report-check-create': scoutReportCheckCreate,
+    'scout-report-check-list': scoutReportCheckList,
+    'scout-report-checks-list': scoutReportChecksList,
     'scout-run-now': scoutRunNow,
     'scout-runs-emission-reports': scoutRunsEmissionReports,
     'scout-runs-emissions-list': scoutRunsEmissionsList,

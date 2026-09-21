@@ -104,6 +104,6 @@ Example PR for non-sharded table: https://github.com/PostHog/posthog/pull/38890/
 Our main cluster (`posthog`) nodes were overwhelmed with ingestion and sometimes the query load
 was interfering with ingestion. This was causing delays and at the end incidents.
 
-We added new nodes that are not part of our regular cluster setup, we run them on Kubernetes.
+We added new nodes that are not part of our regular cluster setup.
 
 ClickHouse cluster as defined in it is a logical concept and one may add nodes that are running in different places, this is how we created a new cluster that has all workers and our new ingestion nodes.

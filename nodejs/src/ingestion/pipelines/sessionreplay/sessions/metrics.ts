@@ -32,6 +32,15 @@ export class SessionBatchMetrics {
         recordSessionsDroppedMissingRetention(count)
     }
 
+    private static readonly messagesDroppedSessionKeyMismatch = new Counter({
+        name: 'recording_blob_ingestion_v2_messages_dropped_session_key_mismatch_total',
+        help: 'Messages refused because the session key differs from the key the open block was started with. The offset still advances, so a non-zero rate means recording data is discarded',
+    })
+
+    public static incrementMessagesDroppedSessionKeyMismatch(count: number = 1): void {
+        this.messagesDroppedSessionKeyMismatch.inc(count)
+    }
+
     private static readonly sessionsFlushed = new Counter({
         name: 'recording_blob_ingestion_v2_sessions_flushed_total',
         help: 'Number of individual sessions that have been flushed',

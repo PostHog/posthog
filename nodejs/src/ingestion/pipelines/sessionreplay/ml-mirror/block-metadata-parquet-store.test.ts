@@ -7,8 +7,8 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
 import { MlBlockMetadataRow } from './block-metadata-row'
-import { MlDataKey, decryptEnvelope } from './keys/crypto'
-import { TrainingEncryptionVector } from './keys/test-vectors'
+import { MlDataKey } from './keys/crypto'
+import { TrainingEncryptionVector, decryptEnvelope } from './keys/envelope-testing'
 import { encryptReplayIndex, replayIndexPartitions } from './replay-index'
 
 const row = (sessionId: string, teamId: string): MlBlockMetadataRow => ({

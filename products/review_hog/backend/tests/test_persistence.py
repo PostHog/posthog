@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import replace
 from typing import TypeVar
 
 from posthog.test.base import BaseTest
@@ -14,7 +15,15 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ValidationVerdict,
     parse_artefact_content,
 )
-from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM, REVIEW_ARMS_BY_TIER, ReviewTier
+from products.review_hog.backend.reviewer.constants import (
+    DEFAULT_REVIEW_ARM,
+    DEFAULT_VALIDATION_ARM,
+    FLASH_ARM,
+    REVIEW_ARMS_BY_TIER,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
+    ReviewTier,
+)
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
@@ -37,12 +46,14 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_pr_snapshot,
     persist_verdict,
     persist_verdicts,
+    replace_deduplicated_findings,
     upsert_review_report,
 )
 from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_LABEL, TRIGGER_UI
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Commit
 from products.signals.backend.enums import ReportPriority
+from products.tasks.backend.facade.run_config import ReasoningEffort
 
 _ContentT = TypeVar("_ContentT")
 
@@ -514,7 +525,20 @@ class TestPersistResults(BaseTest):
         )
         assert rows.count() == 1
 
-    def test_load_run_issues_round_trips_persisted_findings_by_id(self) -> None:
+    @parameterized.expand(
+        [
+            ("same_context", True),
+            ("changed_claim", False),
+            ("ordinal_collision", False),
+            ("changed_reviewer", False),
+            ("changed_validator", False),
+            ("changed_effort", False),
+            ("changed_mode", False),
+            ("changed_head", False),
+            ("empty", False),
+        ]
+    )
+    def test_load_run_issues_round_trips_persisted_findings_by_id(self, change: str, reuses_verdict: bool) -> None:
         # Validate + body-build reload issues from the finding rows by id (only ids cross Temporal
         # payloads): a drift between _to_finding/_from_finding, or a broken id reconstruction from
         # issue_key, would silently feed validation wrong or missing issues.
@@ -538,12 +562,60 @@ class TestPersistResults(BaseTest):
             source_perspective="review-hog-blind-spots-general",
         )
         report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
-        persisted = persist_findings(team_id=self.team.id, report_id=report_id, issues=[a, b], run_index=1)
+        head_sha = "sha-1"
+        review_mode = REVIEW_MODE_FLASH
+        review_arm = FLASH_ARM
+        validation_arm = FLASH_ARM
+
+        def replace_snapshot(issues: list[Issue]) -> list[str]:
+            return replace_deduplicated_findings(
+                team_id=self.team.id,
+                report_id=report_id,
+                issues=issues,
+                run_index=1,
+                head_sha=head_sha,
+                review_mode=review_mode,
+                review_arm=review_arm,
+                validation_arm=validation_arm,
+            )
+
+        persisted = replace_snapshot([a, b])
         assert persisted == ["1-2-1", "1000-2-1"]
 
         assert load_run_issues(team_id=self.team.id, report_id=report_id, run_index=1, issue_ids=persisted) == [a, b]
         # The id filter scopes to the requested subset (a chunk's slice of the survivors).
         assert load_run_issues(team_id=self.team.id, report_id=report_id, run_index=1, issue_ids=["1000-2-1"]) == [b]
+        persist_verdicts(
+            team_id=self.team.id,
+            report_id=report_id,
+            issues=[a, b],
+            run_index=1,
+            validations={issue.id: IssueValidation(is_valid=True, argumentation="real") for issue in (a, b)},
+        )
+
+        current = [a]
+        if change == "changed_claim":
+            current = [a.model_copy(update={"issue": "A different claim at the same anchor"})]
+        elif change == "ordinal_collision":
+            current = [a.model_copy(update={"file": "another.py"})]
+        elif change == "changed_reviewer":
+            review_arm = DEFAULT_REVIEW_ARM
+        elif change == "changed_validator":
+            validation_arm = DEFAULT_VALIDATION_ARM
+        elif change == "changed_effort":
+            validation_arm = replace(FLASH_ARM, reasoning_effort=ReasoningEffort.HIGH)
+        elif change == "changed_mode":
+            review_mode = REVIEW_MODE_FULL
+        elif change == "changed_head":
+            head_sha = "sha-2"
+        elif change == "empty":
+            current = []
+
+        assert replace_snapshot(current) == [issue.id for issue in current]
+        assert load_run_issues(team_id=self.team.id, report_id=report_id, run_index=1, issue_ids=persisted) == current
+        validations = load_run_validations(team_id=self.team.id, report_id=report_id, run_index=1, issues=[a, b])
+        assert set(validations) == ({a.id} if reuses_verdict else set())
+        assert len(load_valid_findings(team_id=self.team.id, report_id=report_id, run_index=1)) == int(reuses_verdict)
 
 
 class TestLoadValidFindings(BaseTest):
@@ -612,8 +684,34 @@ class TestLoadValidFindings(BaseTest):
             validation=IssueValidation(is_valid=True, argumentation="real"),
             run_index=1,
         )
+        finalize_review_report(
+            team_id=self.team.id, report_id=report_id, body_markdown="stored review", run_index=1, head_sha="sha-1"
+        )
+        prior_rows = list(
+            ReviewReportArtefact.objects.for_team(self.team.id).filter(report_id=report_id).values_list("id", "content")
+        )
+        with self.assertRaisesMessage(ValueError, "Cannot replace findings from a completed review turn"):
+            replace_deduplicated_findings(
+                team_id=self.team.id,
+                report_id=report_id,
+                issues=[],
+                run_index=1,
+                head_sha="sha-1",
+                review_mode=REVIEW_MODE_FLASH,
+                review_arm=FLASH_ARM,
+                validation_arm=FLASH_ARM,
+            )
         new = _issue("1-1-1", file="b.py", title="run-2 finding", issue="real")
-        persist_findings(team_id=self.team.id, report_id=report_id, issues=[new], run_index=2)
+        replace_deduplicated_findings(
+            team_id=self.team.id,
+            report_id=report_id,
+            issues=[new],
+            run_index=2,
+            head_sha="sha-2",
+            review_mode=REVIEW_MODE_FULL,
+            review_arm=DEFAULT_REVIEW_ARM,
+            validation_arm=DEFAULT_VALIDATION_ARM,
+        )
         persist_verdict(
             team_id=self.team.id,
             report_id=report_id,
@@ -628,6 +726,14 @@ class TestLoadValidFindings(BaseTest):
         assert [f.title for f, _ in load_valid_findings(team_id=self.team.id, report_id=report_id, run_index=1)] == [
             "run-1 finding"
         ]
+        assert (
+            list(
+                ReviewReportArtefact.objects.for_team(self.team.id)
+                .filter(report_id=report_id, id__in=[row_id for row_id, _ in prior_rows])
+                .values_list("id", "content")
+            )
+            == prior_rows
+        )
 
 
 class TestLoadRunValidations(BaseTest):
@@ -780,16 +886,33 @@ class TestWorkingState(BaseTest):
 
         assert load_chunk_set(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa") is None
 
-    def test_perspective_results_round_trip_keyed_by_pass_and_chunk(self) -> None:
+    def test_perspective_results_round_trip_keyed_by_pass_chunk_and_model(self) -> None:
         results = {
             (1, 1): IssuesReview(issues=[_issue("1-1-1")]),
             (2, 1): IssuesReview(issues=[_issue("2-1-1")]),
         }
-        persist_perspective_results(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", results=results)
-        loaded = load_perspective_results(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa")
+        persist_perspective_results(
+            team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", results=results, review_model="sol"
+        )
+        loaded = load_perspective_results(
+            team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", review_model="sol"
+        )
         assert set(loaded.keys()) == {(1, 1), (2, 1)}
         assert loaded[(1, 1)].issues[0].id == "1-1-1"
-        assert load_perspective_results(team_id=self.team.id, report_id=self.report_id, head_sha="sha-bbb") == {}
+        assert (
+            load_perspective_results(
+                team_id=self.team.id, report_id=self.report_id, head_sha="sha-bbb", review_model="sol"
+            )
+            == {}
+        )
+        # A flash turn and a full turn can share a commit: the full turn must not resume the flash
+        # turn's rows (it would skip its own reviewer entirely), and the reverse holds too.
+        assert (
+            load_perspective_results(
+                team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", review_model="glm"
+            )
+            == {}
+        )
 
 
 class TestPersistCommitSnapshot(BaseTest):

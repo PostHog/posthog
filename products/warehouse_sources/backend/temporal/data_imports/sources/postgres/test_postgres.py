@@ -536,18 +536,42 @@ class TestPostgresSourceNonRetryableErrors:
         assert "re-enable the sync" in matches[0].lower()
         assert "db.example.com" not in matches[0]
 
-    def test_plan_limit_restriction_surfaces_actionable_message(self, source):
-        # A proxy plan-limit refusal must stop retrying and explain how to lift the restriction,
-        # rather than storing the raw provider text. Mirror the finalizer's first-match selection.
-        error_msg = "Your account has restrictions: planLimitReached. Please contact your provider to resolve account restrictions."
+    @pytest.mark.parametrize(
+        ("error_msg", "reason_code", "expected_word"),
+        [
+            (
+                "Your account has restrictions: planLimitReached. Please contact your provider to resolve account restrictions.",
+                "planLimitReached",
+                "plan",
+            ),
+            # The billing reason code, carrying the libpq connect prefix the proxy's refusal arrives
+            # with. Host and port are invented, not real values.
+            (
+                'connection failed: connection to server at "203.0.113.7", port 5432 failed: Failed to identify your database: Your account has restrictions: unpaidPlanInvoice. Please contact your provider to resolve account restrictions.',
+                "unpaidPlanInvoice",
+                "invoice",
+            ),
+            # A reason code we don't recognise yet must still stop retrying and say who to contact.
+            ("Your account has restrictions: someFutureReason.", "someFutureReason", "restricted"),
+        ],
+    )
+    def test_account_restriction_surfaces_actionable_message(self, source, error_msg, reason_code, expected_word):
+        # A proxy account-restriction refusal must stop retrying and explain how to lift the
+        # restriction, rather than storing the raw provider text (which libpq prefixes with the
+        # customer's host and port). Mirror the finalizer's first-match selection so a reorder that
+        # shadows a specific reason code with the catch-all is caught.
         matches = [
             friendly
             for pattern, friendly in source.get_non_retryable_errors().items()
             if error_message_matches(error_msg, [pattern])
         ]
-        assert matches, "plan-limit restriction must be classified non-retryable"
-        assert matches[0] is not None, "plan-limit restriction must surface an actionable message, not raw driver text"
-        assert "plan" in matches[0].lower()
+        assert matches, f"an account restriction must be classified non-retryable: {error_msg}"
+        assert matches[0] is not None, (
+            "an account restriction must surface an actionable message, not raw provider text"
+        )
+        assert expected_word in matches[0].lower()
+        assert reason_code not in matches[0], "the provider's reason code must stay out of the customer-facing message"
+        assert "203.0.113.7" not in matches[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -764,25 +788,35 @@ class TestPostgresSourceNonRetryableErrors:
         assert "pg_hba.conf" in friendly[0]
 
     @pytest.mark.parametrize(
-        "error_msg",
+        "error_msg,expected_fragment",
         [
             # Neon suspends compute when the plan's compute-time quota is exhausted; the handshake
             # fails with this provider message. The host/IP and port are volatile and excluded.
-            'connection failed: connection to server at "44.198.216.75", port 5432 failed: ERROR:  Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.',
-            "OperationalError: Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.",
+            (
+                'connection failed: connection to server at "44.198.216.75", port 5432 failed: ERROR:  Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.',
+                "compute-time quota",
+            ),
+            (
+                "OperationalError: Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.",
+                "compute-time quota",
+            ),
+            # The same provider family blocks the handshake once the project's data-transfer
+            # allowance is spent, so it needs the same classification as the compute-time quota.
+            (
+                'connection failed: connection to server at "203.0.113.10", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.',
+                "data transfer quota",
+            ),
+            (
+                "OperationalError: Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.",
+                "data transfer quota",
+            ),
         ],
     )
-    def test_exceeded_compute_time_quota_is_non_retryable(self, source, error_msg):
+    def test_exceeded_provider_quota_is_non_retryable_with_friendly_message(self, source, error_msg, expected_fragment):
         non_retryable = source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"Exceeded compute-time quota error should be non-retryable: {error_msg}"
-
-    def test_exceeded_compute_time_quota_returns_friendly_message(self, source):
-        non_retryable = source.get_non_retryable_errors()
-        error_msg = "Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits."
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
-        assert friendly, "Exceeded compute-time quota error should surface an actionable message"
-        assert "compute-time quota" in friendly[0]
+        assert friendly, f"Exceeded provider quota error should surface an actionable message: {error_msg}"
+        assert expected_fragment in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1651,6 +1685,29 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Exhausted recovery-conflict abort should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            "cannot access temporary or unlogged relations during recovery",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "FeatureNotSupported: cannot access temporary or unlogged relations during recovery",
+        ],
+    )
+    def test_unlogged_table_on_read_replica_is_non_retryable(self, source, error_msg):
+        # An unlogged table is never replicated to a standby, so every retry re-hits the same
+        # SQLSTATE 0A000 wall — must not keep retrying.
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unlogged-table-on-standby error should be non-retryable: {error_msg}"
+
+    def test_unlogged_table_on_read_replica_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "cannot access temporary or unlogged relations during recovery"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Unlogged-table-on-standby error should surface an actionable message"
+        assert "unlogged" in friendly[0]
 
 
 class TestPostgresSourceRetryableErrors:
@@ -4881,6 +4938,55 @@ class TestValidateCredentialsErrorMapping:
         assert valid is False
         assert host not in (error or "")
         assert "port field" in (error or "")
+
+    def test_railway_private_host_named_as_such_instead_of_a_spelling_error(self, source):
+        config = source.parse_config(
+            {
+                "host": "postgres.railway.internal",
+                "port": 5432,
+                "database": "railway",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "public",
+            }
+        )
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", side_effect=AssertionError("should not resolve")),
+            mock.patch.object(source, "get_schemas", side_effect=AssertionError("should not connect")),
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert "private network" in (error or "")
+        # The host is spelled correctly, so the generic DNS guidance would send the user in circles.
+        assert "spelled correctly" not in (error or "")
+
+    def test_railway_private_host_still_allowed_through_an_ssh_tunnel(self, source):
+        config = source.parse_config(
+            {
+                "host": "postgres.railway.internal",
+                "port": 5432,
+                "database": "railway",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "public",
+                "ssh_tunnel": {
+                    "enabled": True,
+                    "host": "bastion.example.com",
+                    "port": "22",
+                    "auth": {"selection": "password", "username": "tunnel", "password": "tunnel"},
+                },
+            }
+        )
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
+            mock.patch.object(source, "get_schemas", return_value=[]),
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert (valid, error) == (True, None)
 
 
 class TestPostgresSchemaDiscovery:
@@ -9004,6 +9110,26 @@ class TestRlsActiveFromConnErrorHandling:
             result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
         assert result == {}
         capture_mock.assert_called_once()
+
+    def test_pooler_login_cooldown_error_is_not_captured(self):
+        # A Postgres-wire-compatible source backed by DuckDB's `postgres_query()` (e.g. DuckLake's
+        # duckgres bridge) can surface a transient PgBouncer server_login_retry cooldown wrapped in
+        # an unrelated exception class (observed as SyntaxErrorOrAccessRuleViolation), so this must
+        # be caught by message rather than type. It self-heals: degrade quietly like the other
+        # expected shapes here instead of flooding error tracking.
+        conn = self._conn_raising(
+            psycopg.errors.SyntaxErrorOrAccessRuleViolation(
+                'Unable to connect to Postgres at "host=... dbname=...": connection to server at '
+                '"..." failed: FATAL:  server login has been failing, cached error: connect failed '
+                "(server_login_retry)"
+            )
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
 
     def test_failed_sql_transaction_is_not_captured(self):
         # This lookup shares a connection with earlier best-effort metadata queries (PK + index

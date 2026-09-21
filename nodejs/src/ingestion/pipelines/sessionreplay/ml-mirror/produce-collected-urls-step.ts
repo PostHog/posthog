@@ -10,8 +10,8 @@ import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-ima
 import { ML_IMAGE_FETCH_OUTPUT, MlImageFetchOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
-import { MlKeyBatchController } from './keys/batch-controller'
-import { encryptedKafkaValue, mlWireVersion, validateImageOwner } from './keys/transport'
+import { MlSessionKeys } from './keys/key-store'
+import { mlKafkaRecord, mlWireVersion, validateImageOwner } from './keys/transport'
 import { MlMirrorMetrics } from './metrics'
 import { CollectedUrl } from './parse-and-anonymize-step'
 import { usesRawSessionIdentifiers } from './session-identifier-format'
@@ -62,7 +62,6 @@ export interface CollectedUrlsMessage {
 }
 
 export interface ProduceCollectedUrlsOptions {
-    keyManager?: MlKeyBatchController
     producedRefCacheMax?: number
     producedRefCacheWindowMs?: number
     crawlHistory?: Pick<CrawlHistoryStore, 'read'>
@@ -145,6 +144,7 @@ export function createProduceCollectedUrlsStep<
         headers?: { session_id: string }
         collectedUrls?: CollectedUrl[]
         message: { timestamp?: number }
+        mlKeys?: MlSessionKeys
     },
 >(
     outputs: IngestionOutputs<MlImageFetchOutput>,
@@ -169,10 +169,7 @@ export function createProduceCollectedUrlsStep<
 
     return async function produceCollectedUrlsStep(input) {
         const sessionId = input.headers?.session_id
-        const key =
-            sessionId && usesRawSessionIdentifiers(sessionId) && input.team
-                ? options.keyManager?.keys(input.team.teamId, sessionId)?.session
-                : undefined
+        const key = sessionId && usesRawSessionIdentifiers(sessionId) ? input.mlKeys?.session : undefined
         const collected = input.collectedUrls
         if (!collected?.length) {
             return ok(input)
@@ -252,6 +249,7 @@ export function createProduceCollectedUrlsStep<
         for (const { entry } of publishable) {
             const group = byDomain.get(entry.domain)
             const record: FrontierJob = {
+                ...(key ? { sessionId } : {}),
                 originalRef: entry.ref,
                 currentUrl: entry.url,
                 remainingHops: 10,
@@ -279,7 +277,7 @@ export function createProduceCollectedUrlsStep<
                     } satisfies CollectedUrlsMessage)
                 )
                 MlMirrorMetrics.observeMlUrlRecord(slice.length, value.length)
-                return { key: domain, ...encryptedKafkaValue(key, 'image-frontier', value) }
+                return { key: domain, ...mlKafkaRecord(mlWireVersion(key), value) }
             })
         )
 
