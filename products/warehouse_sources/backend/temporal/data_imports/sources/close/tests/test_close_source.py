@@ -6,7 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.close.sett
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.source import CloseSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.close import CloseSourceConfig
 
-INCREMENTAL_ENDPOINTS = {"Leads", "Contacts", "Opportunities", "Activities", "Tasks"}
+INCREMENTAL_ENDPOINTS = {"Leads", "Contacts", "Opportunities", "Activities", "Tasks", "Events"}
 
 
 class TestCloseSource:

@@ -870,7 +870,7 @@ class TestPropertyTypes(BaseTest):
         with materialized("events", "$exception_values"):
             printed = self._print_select(f"select uuid from events where {expr}")
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            assert f"{fn_name}(accurateCast(ifNull(events.properties.`$exception_values`," in printed
+            assert f"{fn_name}(ifNull(accurateCastOrNull(events.properties.`$exception_values`," in printed
             assert "mat_$exception_values" not in printed
             return
         # The membership function receives the property extracted to an array, not the bare String column.
@@ -1073,13 +1073,13 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         assert "JSONExtractKeysAndValuesRaw" not in printed, printed
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_new_events_schema_jsonextract_array_casts_native_subcolumn(self):
+    def test_new_events_schema_jsonextract_array_casts_native_subcolumn_safely(self):
         printed = self._print_select(
             "select JSONExtract(ifNull(properties.arr_field, '[]'), 'Array(String)') from events"
         )
 
         assert "events_json" in printed, printed
-        assert "accurateCast(ifNull(events.properties.arr_field," in printed, printed
+        assert "ifNull(accurateCastOrNull(events.properties.arr_field," in printed, printed
         assert "toJSONString" not in printed, printed
         assert "JSONExtract" not in printed, printed
 

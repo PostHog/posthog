@@ -2,12 +2,15 @@ from types import SimpleNamespace
 from typing import cast
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.test import override_settings
 
 from parameterized import parameterized
+from rest_framework import serializers
 
 from posthog.hogql import ast
+from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import Organization, PropertyDefinition, Team
@@ -142,6 +145,30 @@ class TestSerializeHogQLQueryToBatchExportSchema(BaseTest):
         # The alias must be wrapped in backticks, keeping the malicious string as a single identifier
         assert field["alias"] == "`x, (SELECT query FROM another_table LIMIT 100) AS leaked`"
         assert field["expression"] == "events.uuid"
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    @patch("products.batch_exports.backend.api.batch_export.get_restricted_properties_with_group_type_index_for_team")
+    @patch("posthog.models.event.new_events_schema.use_new_events_schema", return_value=True)
+    def test_restricted_property_query_is_not_recompiled_without_user(
+        self, _use_new_events_schema, get_restricted_properties
+    ):
+        get_restricted_properties.return_value = {
+            RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)
+        }
+        query = prepare_query("SELECT properties.secret AS secret FROM events", self.team.pk)
+        serializer = BatchExportSerializer(
+            context={"team_id": self.team.pk, "request": SimpleNamespace(user=self.user)}
+        )
+
+        schema = serializer.serialize_hogql_query_to_batch_export_schema(query)
+
+        assert schema["fields"] == [{"expression": "NULL", "alias": "secret"}]
+        assert "hogql_query" not in schema
+
+        with self.assertRaises(serializers.ValidationError):
+            serializer.serialize_hogql_query_to_batch_export_schema(
+                prepare_query("SELECT properties FROM events", self.team.pk)
+            )
 
 
 class TestBatchExportDestinationSerializerTeamScoping(BaseTest):

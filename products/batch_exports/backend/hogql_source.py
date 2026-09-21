@@ -9,13 +9,15 @@ import typing
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.visitor import CloningVisitor
+
+from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
 
 if typing.TYPE_CHECKING:
     from posthog.models import Team
@@ -117,23 +119,57 @@ def validate_hogql_query_for_batch_export(hogql_query: str, team: "Team") -> Non
 
 
 class SerializedExportProperties(CloningVisitor):
-    def __init__(self, table_alias: str) -> None:
+    """Rebind event fields while preserving property access restrictions."""
+
+    def __init__(self, table_alias: str, context: HogQLContext) -> None:
         super().__init__()
         self.table_alias = table_alias
+        from products.event_definitions.backend.models.property_definition import PropertyDefinition  # noqa: PLC0415
 
-    def visit_field(self, node: ast.Field) -> ast.Field:
+        restrictions = context.restricted_properties or set()
+        self.event_restrictions = {
+            restriction.name
+            for restriction in restrictions
+            if restriction.property_type == PropertyDefinition.Type.EVENT
+        }
+        self.person_restrictions = {
+            restriction.name
+            for restriction in restrictions
+            if restriction.property_type == PropertyDefinition.Type.PERSON
+        }
+        if restrictions and context.uses_new_events_schema():
+            self.event_restrictions.add(UNPARSEABLE_PROPERTIES_KEY)
+            self.person_restrictions.add(UNPARSEABLE_PROPERTIES_KEY)
+
+    def visit_field(self, node: ast.Field) -> ast.Expr:
         node = super().visit_field(node)
         if node.chain[0] == self.table_alias:
             node.chain[0] = "events"
         index = 1 if node.chain[0] == "events" else 0
+        if len(node.chain) <= index:
+            return node
         if node.chain[index : index + 2] in (["person", "properties"], ["poe", "properties"]):
             node.chain[index : index + 2] = ["person_properties"]
+        restrictions = {
+            "properties": self.event_restrictions,
+            "person_properties": self.person_restrictions,
+        }.get(str(node.chain[index]))
+        if restrictions:
+            property_path = ".".join(str(part) for part in node.chain[index + 1 :])
+            if not property_path:
+                raise QueryError("Batch export queries cannot select a restricted properties object")
+            if any(
+                property_path == key or property_path.startswith(key + ".") or key.startswith(property_path + ".")
+                for key in restrictions
+            ):
+                return ast.Constant(value=None)
         return node
 
 
 def prepare_serialized_export_query(query: ast.SelectQuery, context: HogQLContext) -> ast.SelectQuery:
+    """Resolve a HogQL query against the serialized native-events projection."""
     assert query.select_from is not None
-    query = SerializedExportProperties(query.select_from.alias or "events").visit(query)
+    query = SerializedExportProperties(query.select_from.alias or "events", context).visit(query)
     assert query.select_from is not None
     query.select_from.table = parse_select(
         "SELECT event, team_id, timestamp, distinct_id, uuid, created_at, elements_chain, person_id, "
@@ -144,6 +180,7 @@ def prepare_serialized_export_query(query: ast.SelectQuery, context: HogQLContex
 
 
 def serialize_batch_export_query(query: ast.SelectQuery, context: HogQLContext) -> "BatchExportSchema":
+    """Compile a HogQL query into stable ClickHouse expressions and aliases."""
     if context.uses_new_events_schema():
         hogql = print_prepared_ast(query, context=context, dialect="hogql")
         query = prepare_serialized_export_query(typing.cast(ast.SelectQuery, parse_select(hogql)), context)

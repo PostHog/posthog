@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-09-15 20:02:05 UTC
+// Generated at: 2026-09-18 20:02:33 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -50,6 +50,7 @@ export type CanonicalProvider =
     | 'coreweave-fp4'
     | 'coreweave-fp8'
     | 'coreweave-int4'
+    | 'coreweave-nvfp4'
     | 'crusoe-bf16'
     | 'crusoe-fp4'
     | 'crusoe-fp8'
@@ -100,6 +101,7 @@ export type CanonicalProvider =
     | 'inceptron-fp4'
     | 'inceptron-int4'
     | 'inference-net'
+    | 'inference-net-fp4'
     | 'io-net-fp16'
     | 'io-net-fp8'
     | 'ionstream'
@@ -116,6 +118,7 @@ export type CanonicalProvider =
     | 'minimax-highspeed'
     | 'mistral'
     | 'mistral-eu'
+    | 'mistral-nvfp4'
     | 'mistral-zdr'
     | 'modal'
     | 'modal-fp8'
@@ -128,6 +131,7 @@ export type CanonicalProvider =
     | 'morph-bf16'
     | 'morph-fast'
     | 'morph-fp8'
+    | 'near-ai-fp8'
     | 'nebius-fp4'
     | 'nebius-fp8'
     | 'nex-agi-bf16'
@@ -168,6 +172,7 @@ export type CanonicalProvider =
     | 'relace-fp8'
     | 'sail-research-fp4'
     | 'sail-research-fp8'
+    | 'sail-research-us'
     | 'sakana'
     | 'sambanova'
     | 'sambanova-fp8'
@@ -181,6 +186,7 @@ export type CanonicalProvider =
     | 'tencent-fp8'
     | 'thinkingmachines-nvfp4'
     | 'together'
+    | 'unbiased'
     | 'upstage'
     | 'upstage-zdr'
     | 'venice'

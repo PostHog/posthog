@@ -28,7 +28,11 @@ from itertools import pairwise
 
 from posthog.dataclasses import frozen
 
-from products.engineering_analytics.backend.facade.contracts import PRTimelineSegment, PRTimelineSegmentKind
+from products.engineering_analytics.backend.facade.contracts import (
+    PRTimelinePush,
+    PRTimelineSegment,
+    PRTimelineSegmentKind,
+)
 from products.engineering_analytics.backend.logic.queries.master_failures import strip_shard_suffix
 from products.engineering_analytics.backend.logic.views.reviews import APPROVED_STATE, CHANGES_REQUESTED_STATE
 
@@ -170,6 +174,9 @@ class PRTimelineBuilder:
             started_at=queue_from,
             ended_at=max(gate.completed_at for gate in after_last_push if gate.completed_at is not None),
         )
+
+    def pushes(self) -> list[PRTimelinePush]:
+        return [PRTimelinePush(head_sha=push.head_sha, pushed_at=push.pushed_at) for push in self._pushes]
 
     def build(self) -> list[PRTimelineSegment]:
         start, end = self._pr.started_at, self._pr.ended_at

@@ -495,9 +495,11 @@ FROM {database}.{kafka_table}
     )
 
 
-def _clean_properties(column: str, cleaner: str) -> str:
+def _clean_properties(column: str, cleaner: str, json_type: str) -> str:
     fallback = f"concat('{{\"{UNPARSEABLE_PROPERTIES_KEY}\":', toJSONString({column}), '}}')"
-    return f"if(isValidJSON({column}) AND startsWith(trimLeft({column}), '{{'), {cleaner}({column}), {fallback})"
+    cleaned = f"if(isValidJSON({column}) AND startsWith(trimLeft({column}), '{{'), {cleaner}({column}), {fallback})"
+    escaped_type = escape_clickhouse_string(json_type)
+    return f"ifNull(accurateCastOrNull({cleaned}, {escaped_type}), CAST({fallback}, {escaped_type}))"
 
 
 def EVENTS_JSON_TABLE_MV_SQL(
@@ -563,8 +565,12 @@ FROM {database}.{kafka_table} AS source
         target_table=target_table,
         on_cluster_clause=f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'" if on_cluster else "",
         database=settings.CLICKHOUSE_DATABASE,
-        properties_expr=_clean_properties("source.properties", "JSONCleanPostHogEventProperties"),
-        person_properties_expr=_clean_properties("source.person_properties", "JSONCleanPostHogPersonProperties"),
+        properties_expr=_clean_properties(
+            "source.properties", "JSONCleanPostHogEventProperties", EVENTS_PROPERTIES_JSON_TYPE()
+        ),
+        person_properties_expr=_clean_properties(
+            "source.person_properties", "JSONCleanPostHogPersonProperties", PERSON_PROPERTIES_JSON_TYPE()
+        ),
     )
 
 

@@ -618,7 +618,7 @@ async def _get_query(
         if query_template is EXPORT_TO_S3_FROM_EVENTS_BACKFILL and await database_sync_to_async(use_new_events_schema)(
             team_id
         ):
-            query = native_events_export_query(query_fields, filters_str, is_backfill=True, s3_function=s3_function)
+            query = native_events_export_query(query_fields, filters_str, s3_function=s3_function)
         else:
             if filters_str:
                 filters_str = f"AND {filters_str}"

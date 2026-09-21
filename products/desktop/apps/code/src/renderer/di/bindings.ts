@@ -158,6 +158,10 @@ import {
   type IDiskCacheImages,
 } from "@posthog/platform/disk-cache";
 import {
+  FEEDBACK_CONTEXT_SERVICE,
+  type IFeedbackContext,
+} from "@posthog/platform/feedback-context";
+import {
   HOST_CAPABILITIES,
   type HostCapabilities,
 } from "@posthog/platform/host-capabilities";
@@ -165,6 +169,10 @@ import {
   type INotifications,
   NOTIFICATIONS_SERVICE,
 } from "@posthog/platform/notifications";
+import type {
+  ISettingsBackupFiles,
+  SETTINGS_BACKUP_FILES,
+} from "@posthog/platform/settings-backup-files";
 import { type ISpeech, SPEECH_SERVICE } from "@posthog/platform/speech";
 import {
   AUTH_SIDE_EFFECTS,
@@ -295,10 +303,12 @@ import { TASK_SERVICE as RENDERER_TASK_SERVICE, TRPC_CLIENT } from "./tokens";
  * ContainerModules without typing their internal bindings).
  */
 export interface RendererBindings {
+  [SETTINGS_BACKUP_FILES]: ISettingsBackupFiles;
   // --- di/container.ts ---
   [HOST_LOGGER]: HostLogger;
   [TRPC_CLIENT]: TRPCClient<TrpcRouter>;
   [HOST_TRPC_CLIENT]: HostTrpcClient;
+  [FEEDBACK_CONTEXT_SERVICE]: IFeedbackContext;
   [UPDATES_CLIENT]: UpdatesClient;
   [DEV_MODE_CLIENT]: DevModeClient;
   [CONNECTIVITY_CLIENT]: ConnectivityClient;

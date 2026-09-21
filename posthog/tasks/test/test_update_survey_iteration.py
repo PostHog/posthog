@@ -39,6 +39,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
             type="popover",
             questions=[{"type": "open", "question": "What's a survey?"}],
             start_date=datetime.now() - timedelta(days=61),
+            schedule=Survey.Schedule.RECURRING,
             iteration_count=3,
             iteration_frequency_days=self.iteration_frequency_days,
         )
@@ -65,6 +66,14 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.recurring_survey.refresh_from_db()
         self.assertIsNotNone(self.recurring_survey.end_date)
         self.assertEqual(self.recurring_survey.current_iteration, 1)
+
+    def test_survey_with_once_schedule_is_not_ended_by_stale_iteration_fields(self) -> None:
+        self.recurring_survey.schedule = Survey.Schedule.ONCE
+        self.recurring_survey.start_date = now() - timedelta(days=self.iteration_frequency_days * 3 + 1)
+        self.recurring_survey.save()
+        update_survey_iteration()
+        self.recurring_survey.refresh_from_db()
+        self.assertIsNone(self.recurring_survey.end_date)
 
     def test_survey_end_after_final_iteration_is_logged_as_system_activity(self) -> None:
         self.recurring_survey.start_date = now() - timedelta(days=self.iteration_frequency_days * 3 + 1)

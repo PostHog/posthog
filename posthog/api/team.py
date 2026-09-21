@@ -45,7 +45,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action, validate_authorized_url_wildcards
 from posthog.auth import SessionAuthentication
-from posthog.constants import LOGS_RETENTION_FEATURES_BY_DAYS, AvailableFeature
+from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
@@ -76,6 +76,12 @@ from posthog.models.product_intent.product_intent import (
 )
 from posthog.models.project import Project
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.logs_retention import (
+    LOGS_CUSTOM_RETENTION_FLAG,
+    LOGS_RETENTION_BASE_TIERS_DAYS,
+    logs_retention_days_error,
+    required_logs_retention_feature,
+)
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.models.team.team_caching import set_team_in_cache
@@ -91,6 +97,7 @@ from posthog.permissions import (
     UserCanCreateProjectPermission,
     get_authenticator_scoped_organization_ids,
     get_authenticator_scoped_team_ids,
+    posthog_feature_flag_enabled,
 )
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.session_recordings.data_retention import (
@@ -987,6 +994,16 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
             "account_group_type_index",
         ]
 
+    def update(
+        self, instance: TeamCustomerAnalyticsConfig, validated_data: dict[str, Any]
+    ) -> TeamCustomerAnalyticsConfig:
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        # The account track rules on this row are written by their own path, so a settings save must
+        # not carry a stale copy of them back to the database.
+        instance.save(update_fields=list(validated_data))
+        return instance
+
     @staticmethod
     def validate_account_group_type_index(value):
         return validate_group_type_index("account_group_type_index", value)
@@ -1177,6 +1194,13 @@ def get_or_mint_live_events_token(team: Team, user_id: int | None) -> str:
     return token
 
 
+def heatmaps_screenshot_secret_for_reader(team: Team, user_permissions: UserPermissions) -> str | None:
+    level = user_permissions.team(team).effective_membership_level
+    if level is None or level < OrganizationMembership.Level.ADMIN:
+        return None
+    return team.heatmaps_screenshot_secret
+
+
 def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerializer) -> Organization | None:
     if serializer.instance is not None:
         team = (
@@ -1191,6 +1215,20 @@ def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerial
         return cast(Organization | None, get_organization())
 
     return None
+
+
+def _custom_logs_retention_enabled(serializer: serializers.BaseSerializer, team: Team | None) -> bool:
+    organization = _get_organization_for_logs_settings_check(serializer)
+    request = serializer.context.get("request")
+    user = getattr(request, "user", None)
+    if organization is None or user is None or not user.is_authenticated:
+        return False
+    return posthog_feature_flag_enabled(
+        LOGS_CUSTOM_RETENTION_FLAG,
+        str(user.distinct_id),
+        organization_id=organization.id,
+        team_id=team.id if team is not None else None,
+    )
 
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
@@ -1211,6 +1249,14 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
 
+    heatmaps_screenshot_secret = serializers.SerializerMethodField(
+        help_text=(
+            "Value this project's heatmap screenshots send as a cookie scoped to your domain, "
+            "so bot protection can allow them. Only project admins can read it; null for "
+            "everyone else and when none has been generated."
+        ),
+    )
+
     class Meta:
         model = Team
         fields = (
@@ -1223,6 +1269,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "api_token",
             "secret_api_token",
             "secret_api_token_backup",
+            "heatmaps_screenshot_secret",
             "created_at",
             "updated_at",
             "ingested_event",
@@ -1299,6 +1346,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         request = self.context.get("request")
         user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
         return get_or_mint_live_events_token(team, user_id)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_heatmaps_screenshot_secret(self, team: Team) -> str | None:
+        return heatmaps_screenshot_secret_for_reader(team, self.user_permissions)
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     @tracer.start_as_current_span("team_serializer.product_intents")
@@ -1834,6 +1885,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 value["ai_reply_modes"] = cleaned_modes
             else:
                 raise serializers.ValidationError({"ai_reply_modes": "Must be an object or null."})
+        from products.conversations.backend.api.ai_reply_playbook import validate_playbook_conversations_settings
+
+        existing = getattr(self.instance, "conversations_settings", None) if self.instance is not None else None
+        validate_playbook_conversations_settings(value, existing=existing if isinstance(existing, dict) else None)
         return value
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
@@ -1858,8 +1913,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return value
 
-    VALID_RETENTION_DAYS = {14, 30}
-
     def validate_logs_settings(self, value: dict | None) -> dict | None:
         if value is None:
             return value
@@ -1878,22 +1931,31 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 )
             value["json_parse_logs_attribute_key"] = attribute_key.strip()
 
-        new_retention = value.get("retention_days")
-        if new_retention is not None and new_retention not in TeamSerializer.VALID_RETENTION_DAYS:
-            raise exceptions.ValidationError(
-                f"retention_days must be one of {sorted(TeamSerializer.VALID_RETENTION_DAYS)}"
-            )
-
         team = (
             self.instance.passthrough_team
             if self.instance is not None and hasattr(self.instance, "passthrough_team")
             else self.instance
         )
+
         logs_settings = team.logs_settings if team is not None else None
         old_retention = logs_settings.get("retention_days") if logs_settings else None
 
+        new_retention = value.get("retention_days")
+        if new_retention is not None and (isinstance(new_retention, bool) or not isinstance(new_retention, int)):
+            raise exceptions.ValidationError("retention_days must be an integer")
+
+        # Only a changed period is checked against the flag and the entitlement. Unrelated settings
+        # updates send the stored period back, and must not fail when the flag is turned off later.
         if new_retention is not None and old_retention != new_retention:
-            required_feature = LOGS_RETENTION_FEATURES_BY_DAYS.get(new_retention)
+            # Only evaluate the flag for values outside the base tiers, so the common path makes no flag call.
+            custom_enabled = new_retention not in LOGS_RETENTION_BASE_TIERS_DAYS and _custom_logs_retention_enabled(
+                self, team
+            )
+            error = logs_retention_days_error(new_retention, custom_retention_enabled=custom_enabled)
+            if error:
+                raise exceptions.ValidationError(error)
+
+            required_feature = required_logs_retention_feature(new_retention)
             if required_feature:
                 organization = _get_organization_for_logs_settings_check(self)
                 if organization is None or not organization.is_feature_available(required_feature):
@@ -2621,6 +2683,20 @@ class TeamViewSet(
         team = self.get_object()
         validate_secret_token_generation(team, cast(User, request.user))
         team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+
+    @extend_schema(request=None, responses=TeamSerializer)
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def rotate_heatmaps_screenshot_secret(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        team = self.get_object()
+        team.rotate_heatmaps_screenshot_secret_and_save(
+            user=request.user, is_impersonated_session=is_impersonated(request)
+        )
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(

@@ -4,11 +4,11 @@ from uuid import UUID
 def task_comment_target_is_accessible(
     *, team_id: int, user_id: int | None, task_id: str | UUID, scope: str, item_id: str | None
 ) -> bool:
-    from products.tasks.backend.facade.api import (
-        task_comment_target_is_accessible as task_target_is_accessible,  # noqa: PLC0415  # Import lazily because generic comment imports must not load product models.
-    )
-
     if scope != "desktop_canvas":
+        from products.tasks.backend.facade.api import (
+            task_comment_target_is_accessible as task_target_is_accessible,  # noqa: PLC0415  # Import lazily because generic comment imports must not load product models.
+        )
+
         return task_target_is_accessible(
             team_id=team_id,
             user_id=user_id,
@@ -16,14 +16,6 @@ def task_comment_target_is_accessible(
             scope=scope,
             item_id=item_id,
         )
-    if not task_target_is_accessible(
-        team_id=team_id,
-        user_id=user_id,
-        task_id=task_id,
-        scope="task",
-        item_id=str(task_id),
-    ):
-        return False
 
     try:
         parsed_task_id = UUID(str(task_id))

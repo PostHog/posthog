@@ -35,6 +35,12 @@ from products.batch_exports.backend.temporal.utils import handle_non_retryable_e
 
 NON_RETRYABLE_ERROR_TYPES = ("NonRetryableResponseError", "InvalidDestinationURLError")
 LOGGER = get_logger(__name__)
+_NATIVE_MUTATION_PROPERTIES = {
+    "$set": "set",
+    "$set_once": "set_once",
+    "$unset": "unset",
+    "$group_set": "group_set",
+}
 
 
 class RetryableResponseError(Exception):
@@ -75,9 +81,9 @@ async def raise_for_status(response: aiohttp.ClientResponse):
             raise NonRetryableResponseError(response.status, text)
 
 
-def http_default_fields() -> list[BatchExportField]:
+def http_default_fields(use_native_schema: bool = False) -> list[BatchExportField]:
     """Return default fields used in HTTP batch export, currently supporting only migrations."""
-    return [
+    fields = [
         BatchExportField(expression="uuid", alias="uuid"),
         BatchExportField(expression="timestamp", alias="timestamp"),
         BatchExportField(expression="_inserted_at", alias="_inserted_at"),
@@ -86,6 +92,9 @@ def http_default_fields() -> list[BatchExportField]:
         BatchExportField(expression="distinct_id", alias="distinct_id"),
         BatchExportField(expression="elements_chain", alias="elements_chain"),
     ]
+    if use_native_schema:
+        fields.extend(BatchExportField(expression=alias, alias=alias) for alias in _NATIVE_MUTATION_PROPERTIES.values())
+    return fields
 
 
 class HeartbeatDetails:
@@ -201,7 +210,8 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
             if inputs.batch_export_model.schema is not None:
                 raise NotImplementedError("HTTP export does not support schemas")
 
-        fields = http_default_fields()
+        use_native_schema = await database_sync_to_async(use_new_events_schema)(inputs.team_id)
+        fields = http_default_fields(use_native_schema)
         columns = [field["alias"] for field in fields]
 
         interval_start = await maybe_resume_from_heartbeat(inputs)
@@ -217,7 +227,6 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
             filters_str = ""
             extra_query_parameters = None
 
-        use_native_schema = await database_sync_to_async(use_new_events_schema)(inputs.team_id)
         record_iterator = iter_records(
             use_new_events_schema=use_native_schema,
             client=client,
@@ -304,6 +313,9 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
 
                         properties = row["properties"]
                         properties = json.loads(properties) if properties else {}
+                        for property_name, column in _NATIVE_MUTATION_PROPERTIES.items():
+                            if value := row.get(column):
+                                properties[property_name] = json.loads(value)
                         properties["$geoip_disable"] = True
 
                         if row["event"] == "$autocapture" and row["elements_chain"] is not None:

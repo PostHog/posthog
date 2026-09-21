@@ -10,6 +10,10 @@ LEGACY_MAX_ATTEMPTS = 5
 DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH = "defer-knowledge-gaps-until-resolution-2026-09"
 # Histories without this marker must retain the LEGACY_MAX_ATTEMPTS SCORE_THRESHOLD loop.
 BLOCKER_AWARE_LOOP_PATCH = "blocker-aware-loop-2026-09"
+# Histories without this marker treat blocked_on_customer as findings, not a clarifying question.
+TIERED_CLARIFY_PATCH = "tiered-clarify-2026-09"
+MAX_CLARIFICATION_ROUNDS = 1
+MAX_CLARIFYING_QUESTION_CHARS = 500
 
 # Stable namespace for deterministic per-ticket trace ids (uuid5).
 AI_REPLY_TRACE_NAMESPACE = UUID("a1b2c3d4-5678-4e9f-ab12-cd34ef567890")
@@ -24,7 +28,13 @@ SUGGEST_THRESHOLD = 0.5
 
 DRAFT_VERDICTS = ("answerable", "blocked_on_customer", "blocked_on_knowledge", "out_of_scope")
 VALIDATE_BLOCKERS = ("none", "customer_info", "knowledge", "contradiction")
-RERANK_TOP_K = 5
+RERANK_TOP_K = 8
+# Marks a chunk the team never wrote: a past ticket resolution the learning run kept. Both the
+# retrieved-chunk list and the always-on block use it, so the model reads one vocabulary.
+LEARNED_CHUNK_LABEL = "[learned from support]"
+LEARNED_CHUNK_NOTE = (
+    f"Learned chunks ({LEARNED_CHUNK_LABEL}) reflect how the team resolved a past ticket. Treat them as team practice."
+)
 # Ticket types whose replies may ever be published to the (untrusted) ticket author.
 # diagnostic/account_billing draw on project data and must stay private regardless of settings.
 PUBLISHABLE_TICKET_TYPES = {"how_to"}

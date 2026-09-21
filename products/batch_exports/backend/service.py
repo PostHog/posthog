@@ -39,6 +39,7 @@ from posthog.temporal.common.schedule import (
     update_schedule,
 )
 
+from products.batch_exports.backend.facade.contracts import AWSCredentials
 from products.batch_exports.backend.models.batch_export import (
     BatchExport,
     BatchExportBackfill,
@@ -283,6 +284,10 @@ class S3BatchExportInputs(BaseBatchExportInputs):
         kms_key_id: KMS key id to use when `encryption == "aws:kms"`, or None. AWS-only.
         use_virtual_style_addressing: Whether to use virtual-hosted-style
             addressing rather than path-style. None for AWS.
+        legacy_parquet_extension: Whether Parquet files keep the compression codec in their
+            extension, e.g. `.parquet.zst` rather than `.parquet`. Defaults to True because a
+            schedule created before this field existed has no value for it, so the missing field
+            decodes to this default and the export keeps the names it already writes.
     """
 
     bucket_name: str
@@ -294,6 +299,7 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     encryption: str | None = None
     kms_key_id: str | None = None
     use_virtual_style_addressing: bool = False
+    legacy_parquet_extension: bool = True
 
 
 @dataclass(frozen=False, kw_only=True)
@@ -311,6 +317,7 @@ class S3FamilyBaseInputs(BaseBatchExportInputs):
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
+    legacy_parquet_extension: bool = True
 
 
 @dataclass(kw_only=True)
@@ -359,21 +366,14 @@ class FileDownloadBatchExportInputs(BaseBatchExportInputs):
 class SnowflakeBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Snowflake export workflow.
 
-    account, user, authentication_type and the credential fields are optional here:
-    integration-backed exports resolve them from the linked Integration at run time (see
-    `integration_id`), while legacy exports carry them inline.
+    Credentials are never carried here: the activity resolves them from the linked Integration at
+    run time (see `integration_id`).
     """
 
     database: str
     warehouse: str
     schema: str
-    account: str | None = None
-    user: str | None = None
     table_name: str = "events"
-    authentication_type: str = "password"
-    password: str | None = field(default=None, repr=False)
-    private_key: str | None = field(default=None, repr=False)
-    private_key_passphrase: str | None = field(default=None, repr=False)
     role: str | None = None
 
 
@@ -394,21 +394,6 @@ class PostgresBatchExportInputs(BaseBatchExportInputs):
 
 IAMRole = str
 IntegrationID = int
-
-
-@dataclass(frozen=False)
-class AWSCredentials:
-    aws_access_key_id: str
-    aws_secret_access_key: str = field(repr=False)
-    aws_session_token: str | None = field(default=None, repr=False)
-    expiration: dt.datetime | None = field(default=None)
-
-    @property
-    def expiry_time(self) -> str | None:
-        """ISO-8601 expiration time for temporary credentials, if available."""
-        if self.expiration is None:
-            return None
-        return self.expiration.isoformat()
 
 
 @frozen
@@ -519,7 +504,7 @@ class DatabricksBatchExportInputs(BaseBatchExportInputs):
     use_automatic_schema_evolution: bool = True
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class AzureBlobBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Azure Blob Storage export workflow.
 
@@ -532,6 +517,7 @@ class AzureBlobBatchExportInputs(BaseBatchExportInputs):
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
+    legacy_parquet_extension: bool = True
 
 
 @dataclass(kw_only=True)

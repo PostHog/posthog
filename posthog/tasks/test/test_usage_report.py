@@ -3423,23 +3423,25 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
         assert org_1_report["organization_name"] == "Org 1"
 
-        # Test org-level workflow metrics (sum of both teams)
+        # Test org-level workflow metrics (sum of both teams).
+        # Push bills as a destination for now, so it counts toward workflow_billable_invocations
+        # while still reporting separately under workflow_push_sent.
         assert org_1_report["workflow_emails_sent_in_period"] == 25  # 10 + 15
         assert org_1_report["workflow_push_sent_in_period"] == 12  # 5 + 7
         assert org_1_report["workflow_sms_sent_in_period"] == 5  # 3 + 2
-        assert org_1_report["workflow_billable_invocations_in_period"] == 20  # 8 + 12
+        assert org_1_report["workflow_billable_invocations_in_period"] == 32  # fetch 8 + 12, push 5 + 7
 
         # Test team 1 workflow metrics
         assert org_1_report["teams"]["3"]["workflow_emails_sent_in_period"] == 10
         assert org_1_report["teams"]["3"]["workflow_push_sent_in_period"] == 5
         assert org_1_report["teams"]["3"]["workflow_sms_sent_in_period"] == 3
-        assert org_1_report["teams"]["3"]["workflow_billable_invocations_in_period"] == 8
+        assert org_1_report["teams"]["3"]["workflow_billable_invocations_in_period"] == 13  # fetch 8, push 5
 
         # Test team 2 workflow metrics
         assert org_1_report["teams"]["4"]["workflow_emails_sent_in_period"] == 15
         assert org_1_report["teams"]["4"]["workflow_push_sent_in_period"] == 7
         assert org_1_report["teams"]["4"]["workflow_sms_sent_in_period"] == 2
-        assert org_1_report["teams"]["4"]["workflow_billable_invocations_in_period"] == 12
+        assert org_1_report["teams"]["4"]["workflow_billable_invocations_in_period"] == 19  # fetch 12, push 7
 
     @parameterized.expand(
         [

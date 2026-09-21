@@ -86,6 +86,18 @@ def file_format(request) -> str:
         return f"JSONLines"
 
 
+@pytest.fixture
+def legacy_parquet_extension(request) -> bool:
+    """Whether Parquet files keep the compression codec in their extension.
+
+    Defaults to True to match an export whose Temporal schedule predates the setting.
+    """
+    try:
+        return request.param
+    except AttributeError:
+        return True
+
+
 @pytest_asyncio.fixture
 async def object_storage_client(bucket_name):
     """Manage an S3 client to interact with a local object storage bucket.
@@ -132,6 +144,7 @@ async def s3_compatible_batch_export(
     exclude_events,
     temporal_client,
     file_format,
+    legacy_parquet_extension,
     s3_compatible_integration,
 ):
     destination_data = {
@@ -145,6 +158,7 @@ async def s3_compatible_batch_export(
             "compression": compression,
             "exclude_events": exclude_events,
             "file_format": file_format,
+            "legacy_parquet_extension": legacy_parquet_extension,
         },
     }
 

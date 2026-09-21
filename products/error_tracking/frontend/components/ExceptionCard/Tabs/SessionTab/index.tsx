@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { P, match } from 'ts-pattern'
 
-import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
@@ -26,6 +26,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { TabsContent } from 'lib/ui/quill'
 
 import { exceptionCardLogic } from '../../exceptionCardLogic'
+import { TabSpinner } from '../TabSpinner'
 import { SessionRecordingTab } from './SessionRecordingTab'
 import { sessionTabLogic } from './sessionTabLogic'
 
@@ -42,14 +43,10 @@ export function SessionTab({ timestamp, eventMarkerColor }: SessionTabProps): JS
         .with([true, P.any], () => (
             <>
                 <TabsContent value="timeline" className="min-h-0 min-w-0 flex-1 overflow-hidden text-sm">
-                    <div className="flex justify-center items-center h-[300px]">
-                        <Spinner />
-                    </div>
+                    <TabSpinner />
                 </TabsContent>
                 <TabsContent value="recording" className="min-h-0 min-w-0 flex-1 overflow-hidden">
-                    <div className="flex justify-center items-center h-[300px]">
-                        <Spinner />
-                    </div>
+                    <TabSpinner />
                 </TabsContent>
             </>
         ))

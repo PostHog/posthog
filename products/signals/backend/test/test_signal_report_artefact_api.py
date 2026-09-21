@@ -206,6 +206,34 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert [r["github_login"] for r in stored] == ["bob", "carol"]
         assert all(r["relevant_commits"] == [] for r in stored)
 
+    def test_put_keeps_legacy_reviewer_with_oversized_reasons(self):
+        report = self._create_report()
+        artefact = self._create_artefact(
+            report,
+            content=[
+                {
+                    "github_login": "alice",
+                    "reason": "x" * 501,
+                    "relevant_commits": [
+                        {"sha": "abc123f", "url": "https://example.com/c/abc123f", "reason": "y" * 501}
+                    ],
+                }
+            ],
+        )
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"github_login": "alice"}]}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        reviewer = self._latest_reviewers(report)[0]
+        assert reviewer["reason"] is None
+        assert reviewer["relevant_commits"] == [
+            {"sha": "abc123f", "url": "https://example.com/c/abc123f", "reason": ""}
+        ]
+
     def test_put_appends_new_status_row_keeping_history(self):
         report = self._create_report()
         original = self._create_artefact(
@@ -1428,6 +1456,71 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         response = self.client.delete(self._detail_url(str(report.id), str(artefact.id)))
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert SignalReportArtefact.objects.filter(id=artefact.id).exists()
+
+    @parameterized.expand(
+        [
+            (
+                "implementation_decision",
+                {"supersede": True, "reason": "the root cause moved"},
+                {"supersede": False, "reason": "a client rewrote this"},
+            ),
+            (
+                "implementation_replacement",
+                {
+                    "decision_id": str(uuid.UUID(int=1)),
+                    "run_id": str(uuid.UUID(int=2)),
+                    "decision": {"supersede": True, "reason": "the root cause moved"},
+                },
+                {
+                    "decision_id": str(uuid.UUID(int=3)),
+                    "run_id": str(uuid.UUID(int=4)),
+                    "decision": {"supersede": False, "reason": "a client rewrote this"},
+                },
+            ),
+            (
+                "implementation_handover",
+                {"replacement_id": str(uuid.UUID(int=1)), "status": "completed"},
+                {"replacement_id": str(uuid.UUID(int=2)), "status": "failed"},
+            ),
+            (
+                "implementation_dispatch",
+                {"decision_id": str(uuid.UUID(int=1)), "status": "pending"},
+                {"decision_id": str(uuid.UUID(int=2)), "status": "started"},
+            ),
+        ]
+    )
+    def test_implementation_lifecycle_artefacts_cannot_be_forged_or_removed(
+        self, artefact_type: str, content: dict, edited: dict
+    ) -> None:
+        report = self._create_report()
+        artefact = SignalReportArtefact.objects.create(
+            team_id=self.team.id,
+            report=report,
+            type=artefact_type,
+            content=json.dumps(content),
+            actor_kind="system",
+        )
+        stored = artefact.content
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": artefact_type, "content": content}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # `edited` is valid for the type, so the refusal is what keeps the row as it was rather than
+        # the payload being unusable. A rejected write must leave no trace: the status code alone
+        # would still pass if a guard moved below the save.
+        response = self.client.patch(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": edited}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        response = self.client.delete(self._detail_url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        artefact.refresh_from_db()
+        assert artefact.content == stored
+        assert SignalReportArtefact.objects.filter(report=report, type=artefact_type).count() == 1
 
     def test_delete_latest_status_artefact_reverts_canonical_to_previous(self):
         report = self._create_report()

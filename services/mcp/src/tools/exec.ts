@@ -29,9 +29,11 @@ import {
     type ZodObjectAny,
 } from './types'
 
-/** Upper bound on a `search` regex pattern — keeps a pathological pattern from
- *  forcing catastrophic backtracking against tool metadata. */
-const MAX_SEARCH_PATTERN_LENGTH = 400
+/** Upper bound on the size of a `search` regex — wide enough for an anchored
+ *  alternation of a whole toolset, the longest pattern an agent composes.
+ *  Length is all it bounds: matching cost rides on the pattern's shape, and a
+ *  dozen characters are enough to backtrack catastrophically. */
+const MAX_SEARCH_PATTERN_LENGTH = 800
 
 /** Advertised on `tools/list` and on the runtime Tool. OpenAI's plugin verifier
  *  requires these three hints (plus idempotent) to be present, not just defined
@@ -215,7 +217,7 @@ export interface ExecToolOptions {
 const CALL_USAGE = 'Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>'
 
 const SKILLS_GATE_MESSAGE =
-    'No skills loaded this session. Run `learn -s "<task keywords>"` and load the matching skills first — they carry the thresholds, schemas, and query patterns this task needs. If no skill applies, re-run this exact command as `call --no-skills ...`.'
+    'No skills loaded this session. Run `learn -s "<task keywords>"`, then load a result with `learn posthog:<skill>` or `learn project:<skill>` using its exact qualified name. Searching alone does not load a skill. `skill-get` and `skill-list` do not satisfy this gate. After loading, retry the original call. If no skill applies, re-run this exact command as `call --no-skills ...`.'
 
 /**
  * Plain errors out of the learn catalog are agent mistakes — unknown names, bad
@@ -296,6 +298,85 @@ function parseCommand(input: string): { verb: string; rest: string } {
         return { verb: trimmed, rest: '' }
     }
     return { verb: trimmed.slice(0, idx), rest: trimmed.slice(idx + 1).trim() }
+}
+
+/** A later line opening with one of these is what separates a batched request
+ *  from a legitimately multi-line argument. */
+const EXEC_VERBS = new Set(['learn', 'tools', 'search', 'info', 'schema', 'call'])
+
+/** Bounds on the rejection message, so a long batch or a large JSON body does
+ *  not come back as a wall of text. */
+const MAX_LISTED_BATCH_COMMANDS = 5
+const MAX_LISTED_BATCH_COMMAND_LENGTH = 200
+
+function firstToken(line: string): string {
+    const trimmed = line.trim()
+    const idx = trimmed.search(/\s/)
+    return idx === -1 ? trimmed : trimmed.slice(0, idx)
+}
+
+/** Only `call` carries a body that may span lines, so it ends once that body is
+ *  complete JSON. That keeps a pretty-printed payload from reading as a batch. */
+function isCompleteCommand(command: string): boolean {
+    const { verb, rest } = parseCommand(command)
+    if (verb !== 'call') {
+        return true
+    }
+    const { rest: jsonBody } = parseCommand(parseCallFlags(rest).rest)
+    if (!jsonBody) {
+        return true
+    }
+    try {
+        JSON.parse(jsonBody)
+        return true
+    } catch {
+        return false
+    }
+}
+
+/** Returns undefined for a single command, so only a genuine batch is rejected. */
+function splitBatchedCommands(command: string): string[] | undefined {
+    const lines = command.split('\n')
+    if (lines.length < 2 || !EXEC_VERBS.has(firstToken(lines[0] ?? ''))) {
+        return undefined
+    }
+
+    const commands: string[] = []
+    let current = lines[0] ?? ''
+    for (const line of lines.slice(1)) {
+        if (EXEC_VERBS.has(firstToken(line)) && isCompleteCommand(current)) {
+            commands.push(current.trim())
+            current = line
+            continue
+        }
+        current = `${current}\n${line}`
+    }
+    if (commands.length === 0) {
+        return undefined
+    }
+    commands.push(current.trim())
+    return commands
+}
+
+function batchedCommandMessage(commands: string[]): string {
+    const listed = commands.slice(0, MAX_LISTED_BATCH_COMMANDS)
+    const more = commands.length - listed.length
+    const lines = listed.map((entry) => {
+        const flattened = entry.replace(/\s+/g, ' ')
+        const shown =
+            flattened.length > MAX_LISTED_BATCH_COMMAND_LENGTH
+                ? `${flattened.slice(0, MAX_LISTED_BATCH_COMMAND_LENGTH)}...`
+                : flattened
+        return `- ${shown}`
+    })
+    if (more > 0) {
+        lines.push(`- ...and ${more} more`)
+    }
+    return [
+        `exec runs one command per request, and this request held ${commands.length}.`,
+        'Send each one as its own exec call. You can issue them in parallel. Commands found:',
+        ...lines,
+    ].join('\n')
 }
 
 function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; noSkills: boolean; rest: string } {
@@ -1382,6 +1463,13 @@ export function createExecTool(
             // Reported up front so a command that throws (unknown tool, bad regex) still
             // records what was attempted — those are the failures worth counting.
             options.trackCommand?.({ exec_verb: verb })
+
+            // Without this the trailing commands ride along as part of the first one's
+            // argument and come back as an unknown tool name, which explains nothing.
+            const batched = splitBatchedCommands(params.command)
+            if (batched) {
+                throw new ExecCommandError(batchedCommandMessage(batched), 'batched_command')
+            }
 
             let gatewayTools: Tool<ZodObjectAny>[] | undefined
             /** PostHog's tools plus any third-party tools the caller has connected.

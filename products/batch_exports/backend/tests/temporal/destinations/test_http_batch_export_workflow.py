@@ -10,6 +10,7 @@ import unittest.mock
 from django.conf import settings
 from django.test import override_settings
 
+import pyarrow as pa
 import pytest_asyncio
 from aioresponses import aioresponses
 from temporalio import activity
@@ -233,6 +234,63 @@ async def test_insert_into_http_activity_inserts_data_into_http_endpoint(
         exclude_events=exclude_events,
         backfill_details=insert_inputs.backfill_details,
     )
+
+
+async def test_native_http_migration_preserves_mutation_properties(activity_environment, http_config):
+    interval_end = dt.datetime(2026, 1, 2, tzinfo=dt.UTC)
+    event_time = interval_end - dt.timedelta(hours=1)
+    record_batch = pa.RecordBatch.from_pylist(
+        [
+            {
+                "uuid": str(uuid4()),
+                "timestamp": event_time,
+                "_inserted_at": event_time,
+                "event": "$pageview",
+                "properties": "{}",
+                "distinct_id": "person-1",
+                "elements_chain": None,
+                "set": '{"email":"person@example.com"}',
+                "set_once": '{"first_seen":"2026-01-01"}',
+                "unset": '["old_property"]',
+                "group_set": '{"company":{"name":"Example"}}',
+            }
+        ]
+    )
+    insert_inputs = HttpInsertInputs(
+        team_id=randint(1, 1000000),
+        data_interval_start=None,
+        data_interval_end=interval_end.isoformat(),
+        batch_export_schema=None,
+        backfill_details=BackfillDetails(
+            backfill_id=None,
+            start_at=None,
+            end_at=interval_end.isoformat(),
+        ),
+        **http_config,
+    )
+    mock_server = MockServer()
+
+    with (
+        unittest.mock.patch(
+            "products.batch_exports.backend.temporal.destinations.http_batch_export.use_new_events_schema",
+            return_value=True,
+        ),
+        unittest.mock.patch(
+            "products.batch_exports.backend.temporal.destinations.http_batch_export.iter_records",
+            return_value=iter([record_batch]),
+        ),
+        aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as responses,
+    ):
+        responses.post(TEST_URL, status=200, callback=mock_server.post, repeat=True)
+        await activity_environment.run(insert_into_http_activity, insert_inputs)
+
+    assert mock_server.records[0]["properties"] == {
+        "$geoip_disable": True,
+        "$set": {"email": "person@example.com"},
+        "$set_once": {"first_seen": "2026-01-01"},
+        "$unset": ["old_property"],
+        "$group_set": {"company": {"name": "Example"}},
+    }
 
 
 async def test_insert_into_http_activity_throws_on_bad_http_status(

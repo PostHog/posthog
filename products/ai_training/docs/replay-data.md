@@ -34,32 +34,67 @@ There is no separate consent model, DynamoDB consent entry, consent timestamp, o
 ## Keys and batch processing
 
 The independent DynamoDB table stores session keys, team image keys, deletion markers, and monthly key indexes.
+A team image key is wrapped by KMS.
+A session key is sealed under the team image key of its month, so KMS holds one key per team per month, not one key per session.
+A session key stored before this change carries its own KMS blob, and every reader opens both shapes.
+HKDF-SHA256 makes the key that seals session keys from the stored team image key, which still seals image data itself.
+The `recording_blob_ingestion_v2_ml_key_scheme_total` metric counts session keys by scheme and leaves team image keys out, so v2 reaches zero when no session key predates v3.
 ML outputs omit distinct IDs, including their hashes and pseudonyms.
 The metadata consumer projects supported fields before storage, including for messages already in Kafka.
 A session has one data key.
 A team has one image key per session start month.
-KMS wraps each data key with an encryption context that binds its owner and purpose.
+KMS wraps each key it holds with an encryption context that binds the team, the session or month, and the purpose.
+A sealed session key authenticates the same context.
+A team can change organization while a session is open, so the organization is not part of that context; keys wrapped before this change carry the organization they were wrapped under on their row, and the mirror unwraps them under it.
 Payload encryption uses XSalsa20-Poly1305.
 The authenticated payload also binds the dataset kind and, for images, the object or reference being encrypted.
 The envelope seals the raw payload with AES-256-GCM.
 Its additional authenticated data is the JSON of `{"v": 3, "context": ...}` with sorted keys and no whitespace, so every reader rebuilds the same bytes.
 The envelope is JSON with `v`, `context`, `nonce` (12 bytes, base64) and `ciphertext` (the sealed bytes followed by the 16-byte tag, base64).
+A sealed session key row carries `sealed_key` and `key_nonce`, and carries no `wrapped_key`.
+HKDF-SHA256 makes its 32-byte wrapping key from the stored team image key, with an empty salt and the info string `ml-session-key-wrap`.
+AES-256-GCM then seals the session key under that wrapping key.
+`key_nonce` holds the 12-byte nonce, and `sealed_key` holds the sealed bytes followed by the 16-byte tag.
+Its additional authenticated data is the JSON of `{"purpose": "ai-research-session", "team_id": ..., "session_id": ...}` with sorted keys and no whitespace, so every reader rebuilds the same bytes.
+The `seal` block in `nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector.json` pins one seal, so a reader in another language can check its own bytes.
 
 Ingestion processes key state in batches:
 
-1. Bulk-read session keys, team blocks, and image keys.
+1. Bulk-read session keys and image keys in one pass. A session's start month names its image key, so the batch knows every row before it reads.
 2. Resolve keys in memory while processing the batch.
 3. Write each new key's month index entry, then the key with a conditional put.
-4. Re-read the batch, adopt a competing writer's keys, drop sessions or teams blocked during the batch, then publish replay blocks or image messages.
+4. Adopt the key a competing writer stored, which the refused put returns, then publish replay blocks or image messages.
 
 A conditional put refuses to recreate a shredded session key.
-A team blocked during a batch is dropped by the batch re-read and refused by every reader, and the deletion worker sweeps the team once more after the reader lease, so a key stored after the block is shredded.
+A shredded team image key stops its team month for good, and this is the reason the table holds no team block row.
+The shred sets the tombstone and removes the key material in one update.
+A batch that meets a tombstoned image row does not add that month key to its keys, so it never writes the row again, and a conditional put would refuse it in any case because the row exists.
+A session in that month then finds no month key, so the batch mints no session key and stores none, and it counts the session as `month_key_unavailable`.
+Every reader drops the same sessions, because the seal only opens under a month key that no longer exists.
+The deletion worker sweeps the team once, and that sweep removes rows to save cost. A key stored after the sweep passes a shard is sealed under a month key the deletion already tombstoned, so a second sweep finds nothing that is readable.
+A team deletion also closes the previous month, the current one and the next one, because a sweep reaches only an image key that already exists. Ingestion admits a session up to `ML_SESSION_MAX_AGE_DAYS` old, so those three are every month a later session can still open.
+Consent stops collection after that, not deletion: a team that keeps its opt-in and keeps sending opens a later month again.
 Kafka offsets advance only after the required writes and publication succeed.
-Bulk reads use batches of at most 100 keys; each new key is one conditional put, so no commit in the fleet waits on another.
-Reads use strongly consistent `BatchGetItem` requests with bounded retries for unprocessed keys.
+Bulk reads use batches of at most 100 keys. Each new key is one conditional put, so no commit in the fleet waits on another, and the month index entries it needs go in together, at most 25 to a request.
+Batches overlap, so a session first seen in one batch and also present in the next costs a second conditional put, which loses and settles on the stored key.
+Reads use strongly consistent `BatchGetItem` requests with bounded retries for unprocessed keys and for a throttled request.
+A retry stops when the caller's deadline expires.
 
-KMS plaintext caches reduce repeated decrypt calls.
-A cache hit does not bypass live key and deletion checks.
+The mirror runs each Kafka batch through three stages that each hold one batch at a time, in batch order: prepare (steps 1 and 2, with session tracking), anonymize (the scrub), and commit (steps 3 and 4, then offset tracking and any flush).
+Neighboring batches overlap across stages, so one batch waits on DynamoDB, KMS, Kafka or S3 while another scrubs.
+The anonymize stage does not admit a batch while an earlier batch is in it.
+The record step writes to the recorder that is current at commit time, not the one that was current when the batch was read from Kafka, so a flush between those two moments does not lose the batch.
+
+Ingestion holds a usable session key row and image key row in the process, and a KMS plaintext cache reduces repeated decrypt calls.
+A row with no wrapped key is never held, so a repaired row is seen at once.
+A tombstone is held, because a shred only ever sets one and a conditional put cannot overwrite a row that exists, so a deleted session stops costing a read and a refused write on every batch.
+A session key deleted out of band stays usable in a process that already read it, until that entry expires.
+`ROW_CACHE_LIFETIME_MS` therefore sets how soon ingestion observes a session deletion.
+A sealed session key keeps that same bound, because its seal lives on the session row and nothing else holds it.
+The team image key stays cached far longer, but it opens no session on its own.
+A team image key is held for an hour, because it is one row per team per month and a longer lifetime costs far fewer reads. A shred removes the durable key, so a process that runs on a held row of either kind writes data that no reader can open.
+Data written under such a key stays unreadable, because the envelope stores no key, and the stored row is a tombstone with no wrapped key, no seal, and no nonce.
+Training readers do not use this cache.
 Each process limits KMS concurrency and request rate; deployment capacity must account for the sum across replicas.
 Readers check live state before each batch and permit key use for at most five minutes from the start of that read.
 An expired read must obtain permission again.
@@ -67,7 +102,7 @@ An expired read must obtain permission again.
 The key table has no TTL or point-in-time recovery.
 Its resource policy denies backups, exports, and enabling continuous backups or Kinesis copies.
 Do not copy wrapped keys into object storage, logs, workflow payloads, or another persistent cache.
-Restoring a deleted wrapped key would defeat deletion.
+A restored key defeats deletion, whether KMS wrapped it or a team image key sealed it.
 
 ## Deletion
 
@@ -82,11 +117,11 @@ Consent changes do not enqueue deletion requests.
 The outbox survives removal of the source team or organization.
 Its team IDs refer to the original environment, without resolving a child environment to its parent.
 
-| Scope   | Effect                                                                              |
-| ------- | ----------------------------------------------------------------------------------- |
-| Session | Remove its wrapped key and permanently block that session ID.                       |
-| Person  | Resolve its session IDs through replay, then apply session deletion to each result. |
-| Team    | Permanently block the team and remove its session and image keys.                   |
+| Scope   | Effect                                                                                    |
+| ------- | ----------------------------------------------------------------------------------------- |
+| Session | Remove its wrapped key, its seal, and its nonce, then permanently block that session ID.  |
+| Person  | Resolve its session IDs through replay, then apply session deletion to each result.       |
+| Team    | Remove its session keys and its image keys, and close the current month and the next one. |
 
 The person lookup matches any available replay row for the requested IDs, then deduplicates and paginates sessions.
 It does not filter out recordings marked deleted or past their replay retention date while their index rows remain.
@@ -118,7 +153,7 @@ Neither side reads a shared block item for the month, because every commit in th
 The command uses strongly consistent queries and bounded writes.
 Rerun the command after an interrupted run; it safely repeats completed pages.
 Rerun it once for any month that an earlier version of the command deleted, because readers no longer honor the month block that version wrote.
-Existing read leases expire within five minutes.
+A reader that already cached a key can still use it.
 The matching monthly S3 folders can then be removed from each dataset.
 Deleting a month does not affect another month's image keys.
 
@@ -177,7 +212,7 @@ Retries and dead-letter replay preserve this header and the record bytes.
 Consumers drop records that still use the sealed envelope shape from before cleartext records, and count them in `recording_blob_ingestion_v2_ml_legacy_envelopes_dropped_total`.
 Headerless queued messages mean v1.
 Unknown versions are rejected, and so is an image reference whose version does not match the header.
-The metadata sink resolves each row's session key from the row's own team and session identifiers before it seals the row for Parquet; a row whose key is deleted or blocked is dropped.
+The metadata sink resolves each row's session key from the row's own team and session identifiers before it seals the row for Parquet; a row whose key is deleted is dropped.
 
 Legacy image references and paths remain available for v1 sessions.
 Their HMAC key must remain stable while that data is in use.
@@ -187,7 +222,8 @@ Their HMAC key must remain stable while that data is in use.
 New key manager and v2 storage settings use the `AI_RESEARCH_REPLAY_*` prefix:
 
 - `KEY_TABLE`, `KMS_KEY_ARN`, and `AWS_REGION` select the key store and wrapping key.
-- `KEY_CACHE_MAX`, `KEY_CACHE_LIFETIME_MS`, and `KMS_REQUESTS_PER_SECOND` bound ingestion key caching and KMS traffic.
+- `KEY_CACHE_MAX`, `KEY_CACHE_LIFETIME_MS`, and `KMS_REQUESTS_PER_SECOND` bound the KMS plaintext cache and KMS traffic.
+- `ROW_CACHE_MAX` and `ROW_CACHE_LIFETIME_MS` bound the stored key row cache. The lifetime applies to a session key row and is capped; a team image key row is held for up to 48 hours. A value that is not a positive integer stops the consumer at startup and names the setting.
 - `IMAGE_FETCH_V2_DYNAMODB_TABLE` selects the fresh v2 frontier.
 - `S3_PREFIX` selects v2 replay storage and defaults to `rrweb_2`.
 

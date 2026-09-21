@@ -297,9 +297,7 @@ def iter_records(
         base_query_parameters["lookback_days"] = lookback_days
 
     if query is SELECT_FROM_EVENTS_VIEW_BACKFILL and use_new_events_schema:
-        query_str = native_events_export_query(
-            query_fields, filters_str or "", is_backfill=True, order="ORDER BY _inserted_at, event"
-        )
+        query_str = native_events_export_query(query_fields, filters_str or "", order="ORDER BY _inserted_at, event")
     else:
         if filters_str:
             filters_str = f"AND {filters_str}"

@@ -9,6 +9,8 @@ import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { identifierToHuman } from 'lib/utils/strings'
 
+import { organizationsProjectsCancelDeletionCreate } from '~/generated/core/api'
+import { tagsModel } from '~/models/tagsModel'
 import { ProjectType } from '~/types'
 
 import type { OrganizationBasicType } from '../types'
@@ -48,6 +50,21 @@ export interface projectLogicActions {
         destination: string | undefined
         organizationId: string
     } // userLogic
+    cancelProjectDeletion: () => any
+    cancelProjectDeletionFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    cancelProjectDeletionSuccess: (
+        currentProject: ProjectType,
+        payload?: any
+    ) => {
+        currentProject: ProjectType
+        payload?: any
+    }
     createProject: ({ name }: { name: string }) => {
         name: string
     }
@@ -216,6 +233,9 @@ export const projectLogic = kea<projectLogicType>([
                         `api/projects/${values.currentProject.id}`,
                         payload
                     )
+                    if ('tags' in payload) {
+                        tagsModel.findMounted()?.actions.refreshTags()
+                    }
                     breakpoint()
 
                     // We need to reload current org (which lists its projects) in organizationLogic AND in userLogic
@@ -242,6 +262,15 @@ export const projectLogic = kea<projectLogicType>([
                     // error toast and clears the loading state, and createProjectSuccess never fires — so we
                     // don't switch into a project that wasn't created or leave the modal stuck open.
                     return await api.create('api/projects/', { name })
+                },
+                cancelProjectDeletion: async () => {
+                    if (!values.currentProject) {
+                        throw new Error('Current project has not been loaded yet, so it cannot be restored!')
+                    }
+                    return (await organizationsProjectsCancelDeletionCreate(
+                        values.currentProject.organization_id,
+                        values.currentProject.id
+                    )) as unknown as ProjectType
                 },
             },
         ],
@@ -306,9 +335,13 @@ export const projectLogic = kea<projectLogicType>([
             }
         },
         deleteProjectSuccess: () => {
-            lemonToast.success('Project deletion has been initiated')
+            lemonToast.success('Project deletion has been scheduled')
             // Full reload so the bootstrap context carries is_pending_deletion and lands on the lockout screen
             window.location.href = urls.projectPendingDeletion()
+        },
+        cancelProjectDeletionSuccess: () => {
+            lemonToast.success('Project deletion has been canceled')
+            actions.loadCurrentProject()
         },
         createProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
