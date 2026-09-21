@@ -720,7 +720,6 @@ export interface ScoutEmission {
   finding_id: string;
   description: string;
   weight: number;
-  confidence: number;
   severity: string | null;
   /** Slug tags the scout attached to this finding (lowercase kebab-case, e.g. `cost-spike`). */
   tags?: string[];
@@ -3234,6 +3233,25 @@ export class PostHogAPIClient {
     );
 
     return normalizeTaskResponse(data, { teamId });
+  }
+
+  async createSignalReportTask(options: {
+    reportId: string;
+    relationship: "implementation" | "discussion";
+    description: string;
+    title?: string;
+    question?: string;
+  }): Promise<Task> {
+    return this.createTask({
+      description: options.description,
+      title: options.title,
+      origin_product: "signal_report",
+      signal_report: options.reportId,
+      signal_report_task_relationship: options.relationship,
+      ...(options.relationship === "discussion"
+        ? { signal_report_discussion_question: options.question?.trim() ?? "" }
+        : {}),
+    });
   }
 
   async updateTask(

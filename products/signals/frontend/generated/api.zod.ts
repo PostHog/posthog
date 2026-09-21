@@ -1815,7 +1815,8 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
             .number()
             .min(signalsScoutEmitSignalBodyConfidenceMin)
             .max(signalsScoutEmitSignalBodyConfidenceMax)
-            .describe("Agent's confidence the finding is real in [0, 1]. Persisted in `extra`."),
+            .nullish()
+            .describe('Deprecated and ignored. Nothing reads it; omit it. Still range-checked when supplied.'),
         evidence: zod
             .array(
                 zod

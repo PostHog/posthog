@@ -583,8 +583,14 @@ class _ProjectRouteReply(BaseModel):
     project_id: int | None = None
 
 
-def classify_slack_app_project_route(event_text: str, projects: list[Integration]) -> Integration | None:
+def classify_slack_app_project_route(
+    event_text: str, projects: list[Integration], default: Integration | None = None
+) -> Integration | None:
     """Read the project a mention asked to be answered from, out of its text.
+
+    ``default`` is the project the run is already on. It heads the list the model is
+    shown and is marked there, so that staying put is a visible choice rather than the
+    absence of one.
 
     Returns ``None`` when the author named none, which is the overwhelming majority of
     mentions, and on a reply this cannot parse.
@@ -599,9 +605,14 @@ def classify_slack_app_project_route(event_text: str, projects: list[Integration
     where the answer has to come from, because that is where the data lives. Quality on
     that is measured by ``products/slack_app/evals/eval_project_classifier.py``.
     """
+    # Named to the model by id rather than by a marker on its line: a team may be called
+    # anything, including whatever that marker would have been.
+    if default is not None and not any(p.id == default.id for p in projects):
+        default = None
     prompt = prompts.render(
         "project_route",
-        projects=format_project_candidate_list(projects),
+        projects=format_project_candidate_list(projects, first=default),
+        default_id=default.team_id if default is not None else None,
         event_text=event_text,
     )
 
@@ -667,7 +678,7 @@ def classify_slack_app_project_route_activity(input: SlackAppProjectRouteInput) 
         return None
 
     try:
-        chosen = classify_slack_app_project_route(input.event_text, projects)
+        chosen = classify_slack_app_project_route(input.event_text, projects, default=integration)
     except Exception:
         # The fallback boundary: a mention we cannot classify stays on the project
         # routing already resolved, which is what it would have done anyway.

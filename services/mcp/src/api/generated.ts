@@ -30386,6 +30386,20 @@ export namespace Schemas {
       VisitingPostHogWeb: 'Visiting PostHog web',
     } as const;
 
+    /**
+     * * `bug` - Bug
+     * * `feature` - Feature
+     * * `general` - General
+     */
+    export type DesktopFeedbackTypeEnum = typeof DesktopFeedbackTypeEnum[keyof typeof DesktopFeedbackTypeEnum];
+
+
+    export const DesktopFeedbackTypeEnum = {
+      Bug: 'bug',
+      Feature: 'feature',
+      General: 'general',
+    } as const;
+
     export interface DesktopFeedbackRequest {
       /**
          * Feedback text entered by the user.
@@ -30402,6 +30416,12 @@ export namespace Schemas {
          * @maxLength 100
          */
       feedback_view: string;
+      /** Feedback type selected by the user: bug, feature, or general.
+       *
+       * * `bug` - Bug
+       * * `feature` - Feature
+       * * `general` - General */
+      feedback_type?: DesktopFeedbackTypeEnum;
       /**
          * Task that was active when the feedback form opened.
          * @maxLength 100
@@ -33441,11 +33461,12 @@ export namespace Schemas {
          */
       description: string;
       /**
-         * Agent's confidence the finding is real in [0, 1]. Persisted in `extra`.
+         * Deprecated and ignored. Nothing reads it; omit it. Still range-checked when supplied.
          * @minimum 0
          * @maximum 1
+         * @nullable
          */
-      confidence: number;
+      confidence?: number | null;
       /**
          * Citations supporting the finding. Capped at 20 entries.
          * @maxItems 20
@@ -82521,7 +82542,7 @@ export namespace Schemas {
       finding_id: string;
       skill_name: string;
       skill_version: number;
-      confidence: number;
+      confidence?: number | null;
       severity?: ReportPriority | null;
       hypothesis?: string | null;
       evidence: SignalsScoutEvidenceEntry[];
@@ -85986,11 +86007,12 @@ export namespace Schemas {
       /** The emitted finding prose — the signal's `description` as surfaced to the inbox. */
       description: string;
       /**
-         * Agent's confidence the finding is real in [0, 1].
+         * Deprecated and no longer set on new findings. Null unless the run supplied one.
          * @minimum 0
          * @maximum 1
+         * @nullable
          */
-      confidence: number;
+      confidence: number | null;
       /** Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.
        *
        * * `P0` - P0
