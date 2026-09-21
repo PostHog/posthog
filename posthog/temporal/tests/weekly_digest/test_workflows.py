@@ -1,21 +1,38 @@
+from __future__ import annotations
+
 import uuid
 import asyncio
+import logging
+import itertools
 from collections import Counter
 from datetime import UTC, datetime, timedelta
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 import pytest
 from unittest import mock
 
 import temporalio.worker
 from parameterized import parameterized
-from temporalio import activity, workflow
+from temporalio import activity, common, workflow
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import Worker
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.weekly_digest.activities import (
     count_organizations,
+    generate_dashboard_lookup,
+    generate_error_issue_lookup,
+    generate_event_definition_lookup,
+    generate_experiment_completed_lookup,
+    generate_experiment_launched_lookup,
+    generate_external_data_source_lookup,
+    generate_feature_flag_lookup,
+    generate_filter_lookup,
     generate_organization_digest_batch,
+    generate_product_suggestion_lookup,
+    generate_recording_lookup,
+    generate_survey_lookup,
+    generate_usage_trends_lookup,
+    generate_user_notification_lookup,
     list_team_id_ranges,
 )
 from posthog.temporal.weekly_digest.types import (
@@ -35,6 +52,9 @@ from posthog.temporal.weekly_digest.workflows import (
     SendWeeklyDigestWorkflow,
     WeeklyDigestWorkflow,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 
 class _TestState(TypedDict):
@@ -60,6 +80,75 @@ class MockSendWeeklyDigestWorkflow:
     async def run(self, input: SendWeeklyDigestInput) -> None:
         _test_state["send_called"] = True
         _test_state["captured_digest_key"] = input.digest.key
+
+
+@workflow.defn(name="generate-digest-data")
+class LegacyGenerateDigestDataWorkflow:
+    @workflow.run
+    async def run(self, input: GenerateDigestDataInput) -> None:
+        team_id_ranges = await workflow.execute_activity(
+            list_team_id_ranges,
+            input.common,
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=common.RetryPolicy(maximum_attempts=2, initial_interval=timedelta(minutes=1)),
+            heartbeat_timeout=timedelta(minutes=1),
+        )
+        generators = [
+            generate_dashboard_lookup,
+            generate_event_definition_lookup,
+            generate_experiment_completed_lookup,
+            generate_experiment_launched_lookup,
+            generate_external_data_source_lookup,
+            generate_survey_lookup,
+            generate_feature_flag_lookup,
+            generate_user_notification_lookup,
+            generate_filter_lookup,
+            generate_recording_lookup,
+            generate_product_suggestion_lookup,
+            generate_error_issue_lookup,
+            generate_usage_trends_lookup,
+        ]
+
+        await asyncio.gather(
+            *(
+                workflow.execute_activity(
+                    generator,
+                    GenerateDigestDataBatchInput(
+                        team_id_range=team_id_range,
+                        digest=input.digest,
+                        common=input.common,
+                    ),
+                    start_to_close_timeout=timedelta(hours=1),
+                    retry_policy=common.RetryPolicy(maximum_attempts=2, initial_interval=timedelta(minutes=1)),
+                    heartbeat_timeout=timedelta(minutes=2),
+                )
+                for team_id_range, generator in itertools.product(team_id_ranges, generators)
+            )
+        )
+        organization_count = await workflow.execute_activity(
+            count_organizations,
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=common.RetryPolicy(maximum_attempts=2, initial_interval=timedelta(minutes=1)),
+            heartbeat_timeout=timedelta(minutes=1),
+        )
+        batch_size = input.common.batch_size
+        org_batches = [(start, start + batch_size) for start in range(0, organization_count, batch_size)]
+        await asyncio.gather(
+            *(
+                workflow.execute_activity(
+                    generate_organization_digest_batch,
+                    GenerateOrganizationDigestInput(
+                        batch=batch,
+                        digest=input.digest,
+                        common=input.common,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=30),
+                    retry_policy=common.RetryPolicy(maximum_attempts=2, initial_interval=timedelta(minutes=1)),
+                    heartbeat_timeout=timedelta(minutes=2),
+                )
+                for batch in org_batches
+            )
+        )
 
 
 @pytest.mark.asyncio
@@ -168,6 +257,104 @@ async def test_generate_digest_data_bounds_pending_activities(patched: bool) -> 
         assert peak_pending <= MAX_CONCURRENT_GENERATION_ACTIVITIES < 2000
     else:
         assert peak_pending == 13 * len(team_ranges)
+
+
+@pytest.mark.asyncio
+async def test_generate_digest_data_replays_pre_patch_history(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="temporalio.activity")
+    caplog.set_level(logging.INFO, logger="temporalio.workflow")
+    team_ranges = [TeamIdRange(start=i, end=i + 1) for i in range(8)]
+    generator_names = [
+        "generate-dashboard-lookup",
+        "generate-event-definition-lookup",
+        "generate-experiment-completed-lookup",
+        "generate-experiment-launched-lookup",
+        "generate-external-data-source-lookup",
+        "generate-survey-lookup",
+        "generate-feature-flag-lookup",
+        "generate-user-notification-lookup",
+        "generate-filter-lookup",
+        "generate-recording-lookup",
+        "generate-product-suggestion-lookup",
+        "generate-error-issue-lookup",
+        "generate-usage-trends-lookup",
+    ]
+
+    @activity.defn(name="list-team-id-ranges")
+    async def list_team_id_ranges_mocked(_input: CommonInput) -> list[TeamIdRange]:
+        return team_ranges
+
+    @activity.defn(name="count-organizations")
+    async def count_organizations_mocked() -> int:
+        return 3
+
+    @activity.defn(name="generate-organization-digest-batch")
+    async def generate_organization_digest_batch_mocked(_input: GenerateOrganizationDigestInput) -> None:
+        return None
+
+    def make_generator(name: str) -> Callable[[GenerateDigestDataBatchInput], Awaitable[None]]:
+        @activity.defn(name=name)
+        async def generator(_input: GenerateDigestDataBatchInput) -> None:
+            return None
+
+        return generator
+
+    activities = [
+        list_team_id_ranges_mocked,
+        count_organizations_mocked,
+        generate_organization_digest_batch_mocked,
+        *(make_generator(name) for name in generator_names),
+    ]
+    task_queue_name = str(uuid.uuid4())
+    period_end = datetime.now(UTC)
+    digest_input = GenerateDigestDataInput(
+        digest=Digest(key="replay-test", period_start=period_end - timedelta(days=7), period_end=period_end),
+        common=CommonInput(batch_size=2, redis_host="localhost", redis_port=6379),
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[LegacyGenerateDigestDataWorkflow],
+            activities=activities,
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            handle = await env.client.start_workflow(
+                LegacyGenerateDigestDataWorkflow.run,
+                digest_input,
+                id=str(uuid.uuid4()),
+                task_queue=task_queue_name,
+                execution_timeout=timedelta(seconds=30),
+            )
+            await handle.result()
+            pre_patch_history = await handle.fetch_history()
+
+    scheduled_generator_events = [
+        event
+        for event in pre_patch_history.events
+        if event.HasField("activity_task_scheduled_event_attributes")
+        and event.activity_task_scheduled_event_attributes.activity_type.name in generator_names
+    ]
+    assert (
+        len(scheduled_generator_events)
+        == len(team_ranges) * len(generator_names)
+        > MAX_CONCURRENT_GENERATION_ACTIVITIES
+    )
+    assert (
+        len(
+            {
+                event.activity_task_scheduled_event_attributes.workflow_task_completed_event_id
+                for event in scheduled_generator_events
+            }
+        )
+        == 1
+    )
+    assert not any(event.HasField("marker_recorded_event_attributes") for event in pre_patch_history.events)
+    await Replayer(
+        workflows=[GenerateDigestDataWorkflow],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ).replay_workflow(pre_patch_history)
 
 
 @pytest.mark.asyncio
