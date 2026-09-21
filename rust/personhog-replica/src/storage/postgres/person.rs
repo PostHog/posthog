@@ -1243,7 +1243,8 @@ async fn tombstone_persons_by_uuids(
     // ingestion writer and the tombstone drain take their locks in.
     let rows = sqlx::query!(
         r#"
-        SELECT id::bigint as "id!", is_deleted as "is_deleted!"
+        SELECT id::bigint as "id!", uuid as "uuid!",
+               COALESCE(version, 0)::bigint as "version!", is_deleted as "is_deleted!"
         FROM posthog_person
         WHERE team_id = $1 AND uuid = ANY($2)
         ORDER BY id FOR UPDATE
@@ -1253,17 +1254,17 @@ async fn tombstone_persons_by_uuids(
     )
     .fetch_all(&mut *tx)
     .await?;
-    let mut already: Vec<i64> = Vec::new();
+    let mut tombstones: Vec<TombstonedPerson> = Vec::with_capacity(rows.len());
+    let mut already: Vec<(i64, Uuid, i64)> = Vec::new();
     let mut live: Vec<i64> = Vec::new();
-    for row in &rows {
+    for row in rows {
         if row.is_deleted {
-            already.push(row.id);
+            already.push((row.id, row.uuid, row.version));
         } else {
             live.push(row.id);
         }
     }
 
-    let mut tombstones: Vec<TombstonedPerson> = Vec::with_capacity(rows.len());
     let chunks: Vec<Vec<i64>> = live
         .chunks(storage.bulk_chunk_size)
         .map(|c| c.to_vec())
@@ -1281,17 +1282,7 @@ async fn tombstone_persons_by_uuids(
     let deleted = tombstones.len() as i64;
 
     if !already.is_empty() {
-        let persons = sqlx::query!(
-            r#"
-            SELECT id::bigint as "id!", uuid as "uuid!", COALESCE(version, 0)::bigint as "version!"
-            FROM posthog_person
-            WHERE team_id = $1 AND id = ANY($2)
-            "#,
-            team_id as i32,
-            &already
-        )
-        .fetch_all(&mut *tx)
-        .await?;
+        let already_ids: Vec<i64> = already.iter().map(|(id, _, _)| *id).collect();
         let dids = sqlx::query!(
             r#"
             SELECT person_id as "person_id!", distinct_id as "distinct_id!",
@@ -1300,7 +1291,7 @@ async fn tombstone_persons_by_uuids(
             WHERE team_id = $1 AND person_id = ANY($2) AND is_deleted = true
             "#,
             team_id as i32,
-            &already
+            &already_ids
         )
         .fetch_all(&mut *tx)
         .await?;
@@ -1314,12 +1305,12 @@ async fn tombstone_persons_by_uuids(
                     version: row.version,
                 });
         }
-        tombstones.extend(persons.into_iter().map(|row| {
-            let mut distinct_ids = dids_by_person.remove(&row.id).unwrap_or_default();
+        tombstones.extend(already.into_iter().map(|(id, uuid, version)| {
+            let mut distinct_ids = dids_by_person.remove(&id).unwrap_or_default();
             distinct_ids.sort_by(|a, b| a.distinct_id.cmp(&b.distinct_id));
             TombstonedPerson {
-                uuid: row.uuid,
-                version: row.version,
+                uuid,
+                version,
                 distinct_ids,
             }
         }));
