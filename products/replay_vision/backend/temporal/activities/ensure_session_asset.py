@@ -1,5 +1,3 @@
-from collections.abc import Collection
-
 from django.db.models import QuerySet
 from django.utils.timezone import now
 
@@ -16,25 +14,15 @@ _RECORDING_FPS = 3
 _SHOW_METADATA_FOOTER = True
 _MOUSE_TAIL = False
 
-_RENDER_SETTINGS: dict[str, object] = {
-    "playback_speed": _PLAYBACK_SPEED,
-    "recording_fps": _RECORDING_FPS,
-    "show_metadata_footer": _SHOW_METADATA_FOOTER,
-    "mouse_tail": _MOUSE_TAIL,
-}
-
 
 def analysis_export_context(session_id: str) -> dict[str, object]:
     """The render settings the scan reads back off its analysis video."""
-    return {"session_recording_id": session_id, **_RENDER_SETTINGS}
-
-
-def _analysis_asset_filters() -> dict[str, object]:
-    """What makes an MP4 the analysis video, minus which session it belongs to."""
     return {
-        "export_format": _EXPORT_FORMAT,
-        "is_system": True,
-        **{f"export_context__{key}": value for key, value in _RENDER_SETTINGS.items()},
+        "session_recording_id": session_id,
+        "playback_speed": _PLAYBACK_SPEED,
+        "recording_fps": _RECORDING_FPS,
+        "show_metadata_footer": _SHOW_METADATA_FOOTER,
+        "mouse_tail": _MOUSE_TAIL,
     }
 
 
@@ -43,19 +31,12 @@ def analysis_assets(team_id: int, session_id: str) -> "QuerySet[ExportedAsset]":
 
     Shared so a caller that only needs to find one cannot drift from the render parameters.
     """
+    context = analysis_export_context(session_id)
     return ExportedAsset.objects.filter(
         team_id=team_id,
-        export_context__session_recording_id=session_id,
-        **_analysis_asset_filters(),
-    )
-
-
-def analysis_assets_for_sessions(team_ids: Collection[int], session_ids: Collection[str]) -> "QuerySet[ExportedAsset]":
-    """The same assets for many sessions at once, so a sweep reads them in one query."""
-    return ExportedAsset.objects.filter(
-        team_id__in=list(team_ids),
-        export_context__session_recording_id__in=list(session_ids),
-        **_analysis_asset_filters(),
+        export_format=_EXPORT_FORMAT,
+        is_system=True,
+        **{f"export_context__{key}": value for key, value in context.items()},
     )
 
 
