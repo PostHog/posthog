@@ -34,6 +34,10 @@ _GITHUB_REF_RE = re.compile(r"^[A-Za-z0-9._\-/]+$")
 
 _GITHUB_COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
+# GitHub's own login rule: alphanumerics and single hyphens, never leading or trailing. Keeps a
+# crafted login out of the collaborator-permission URL path.
+_GITHUB_LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$")
+
 # Upper bound on the diff text we return, to keep a pathological diff (generated/vendored
 # files) from bloating the JSON response and worker memory. ~1 MB of text.
 _MAX_DIFF_CHARS = 1_000_000
@@ -415,6 +419,32 @@ class GitHubIntegration(GitHubIntegrationBase):
                 f"GitHubIntegration: failed to close issue {repo_path}#{number}: {response.text[:300]}",
                 status_code=response.status_code,
             )
+
+    def get_collaborator_permission(self, repository: str, username: str) -> str:
+        """The user's effective permission on the repo: ``admin``, ``write``, ``read`` or ``none``.
+
+        GitHub's legacy ``permission`` field folds ``maintain`` into ``write`` and ``triage`` into
+        ``read``, which is the granularity a "can this person change the repo" gate needs. A 404
+        means no access at all. Every other non-200 raises, so a caller can fail closed rather than
+        read a blank response as a denial.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        if not _is_safe_github_repo_path(repo_path) or not _GITHUB_LOGIN_RE.fullmatch(username):
+            raise GitHubIntegrationError(f"GitHubIntegration: unsafe collaborator lookup for {repo_path}")
+
+        response = self.api_request(
+            "GET",
+            f"/repos/{repo_path}/collaborators/{username}/permission",
+            endpoint="/repos/{owner}/{repo}/collaborators/{username}/permission",
+        )
+        if response.status_code == 404:
+            return "none"
+        if response.status_code != 200:
+            raise GitHubIntegrationError(
+                f"GitHubIntegration: failed to read {username} permission on {repo_path}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+        return response.json().get("permission") or "none"
 
     def _get_issue_by_number(self, repo_path: str, repository_name: str, issue_number: int) -> dict[str, Any] | None:
         response = self.api_request(

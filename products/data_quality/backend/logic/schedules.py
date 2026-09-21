@@ -11,7 +11,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.temporal.common.client import async_connect
 
 from ..facade.enums import ScheduleInterval, SubjectType
-from .metric_schedules import MetricScheduleKey, MetricSchedules, label_from_interval
+from .subject_schedules import SCHEDULE_TYPES, SubjectScheduleKey, SubjectSchedules, label_from_interval
 
 logger = structlog.get_logger(__name__)
 SCHEDULE_REQUEST_TIMEOUT_SECONDS = 10
@@ -22,7 +22,7 @@ class ScheduleUnavailableError(Exception):
 
 
 @frozen
-class MetricCheckSchedule:
+class CheckSchedule:
     id: UUID
     interval: ScheduleInterval
     enabled: bool
@@ -33,20 +33,23 @@ class MetricCheckSchedule:
 
 @frozen
 class ScheduleUpdateResult:
-    before: MetricCheckSchedule
-    after: MetricCheckSchedule
+    before: CheckSchedule
+    after: CheckSchedule
 
 
-def schedule_key(team_id: int, subject_type: str, subject_uuid: str | UUID) -> MetricScheduleKey:
-    if subject_type != SubjectType.METRIC:
-        raise ValueError("Only metrics support recurring check schedules")
-    return MetricScheduleKey(team_id=resolve_effective_team_id(team_id), metric_id=UUID(str(subject_uuid)))
+def schedule_key(team_id: int, subject_type: str, subject_uuid: str | UUID) -> SubjectScheduleKey:
+    kind = SubjectType(subject_type)
+    if kind not in SCHEDULE_TYPES:
+        raise ValueError(f"A {kind} has no recurring check schedule")
+    return SubjectScheduleKey(
+        team_id=resolve_effective_team_id(team_id), subject_type=kind, subject_uuid=UUID(str(subject_uuid))
+    )
 
 
-def schedule_snapshot(key: MetricScheduleKey, description: ScheduleDescription) -> MetricCheckSchedule:
+def schedule_snapshot(key: SubjectScheduleKey, description: ScheduleDescription) -> CheckSchedule:
     schedule = description.schedule
     upcoming = description.info.next_action_times
-    return MetricCheckSchedule(
+    return CheckSchedule(
         id=key.id,
         interval=label_from_interval(schedule.spec.intervals[0].every),
         enabled=not schedule.state.paused,
@@ -54,7 +57,7 @@ def schedule_snapshot(key: MetricScheduleKey, description: ScheduleDescription) 
     )
 
 
-async def _describe_schedule(schedules: MetricSchedules, key: MetricScheduleKey) -> MetricCheckSchedule | None:
+async def _describe_schedule(schedules: SubjectSchedules, key: SubjectScheduleKey) -> CheckSchedule | None:
     async with asyncio.timeout(SCHEDULE_REQUEST_TIMEOUT_SECONDS):
         description = await schedules.describe(key)
     return schedule_snapshot(key, description) if description is not None else None
@@ -71,7 +74,7 @@ async def _update_schedule_with_snapshots(
     key = await sync_to_async(schedule_key)(team_id, subject_type, subject_uuid)
     try:
         async with asyncio.timeout(SCHEDULE_REQUEST_TIMEOUT_SECONDS):
-            schedules = MetricSchedules(await async_connect())
+            schedules = SubjectSchedules(await async_connect())
         before = await _describe_schedule(schedules, key)
         if before is None:
             raise ScheduleUnavailableError()
@@ -88,21 +91,26 @@ async def _update_schedule_with_snapshots(
 
 
 @async_to_sync
-async def provision_metric_schedule(team_id: int, metric_id: str) -> None:
-    key = await sync_to_async(schedule_key)(team_id, SubjectType.METRIC, metric_id)
-    try:
-        async with asyncio.timeout(SCHEDULE_REQUEST_TIMEOUT_SECONDS):
-            await MetricSchedules(await async_connect()).ensure(key)
-    except Exception:
-        logger.exception("data_quality_schedule_provision_failed", team_id=key.team_id, metric_id=str(key.metric_id))
-
-
-@async_to_sync
-async def get_schedule(team_id: int, subject_type: str, subject_uuid: str | UUID) -> MetricCheckSchedule | None:
+async def provision_schedule(team_id: int, subject_type: str, subject_uuid: str) -> None:
     key = await sync_to_async(schedule_key)(team_id, subject_type, subject_uuid)
     try:
         async with asyncio.timeout(SCHEDULE_REQUEST_TIMEOUT_SECONDS):
-            description = await MetricSchedules(await async_connect()).describe(key)
+            await SubjectSchedules(await async_connect()).ensure(key)
+    except Exception:
+        logger.exception(
+            "data_quality_schedule_provision_failed",
+            team_id=key.team_id,
+            subject_type=str(key.subject_type),
+            subject_uuid=str(key.subject_uuid),
+        )
+
+
+@async_to_sync
+async def get_schedule(team_id: int, subject_type: str, subject_uuid: str | UUID) -> CheckSchedule | None:
+    key = await sync_to_async(schedule_key)(team_id, subject_type, subject_uuid)
+    try:
+        async with asyncio.timeout(SCHEDULE_REQUEST_TIMEOUT_SECONDS):
+            description = await SubjectSchedules(await async_connect()).describe(key)
         return schedule_snapshot(key, description) if description is not None else None
     except Exception as error:
         raise ScheduleUnavailableError() from error
@@ -120,7 +128,7 @@ async def set_schedule(
     key = await sync_to_async(schedule_key)(team_id, subject_type, subject_uuid)
     try:
         async with asyncio.timeout(SCHEDULE_REQUEST_TIMEOUT_SECONDS):
-            await MetricSchedules(await async_connect()).update(key, interval=interval, enabled=enabled)
+            await SubjectSchedules(await async_connect()).update(key, interval=interval, enabled=enabled)
     except Exception as error:
         raise ScheduleUnavailableError() from error
 
