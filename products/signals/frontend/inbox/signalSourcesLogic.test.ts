@@ -12,7 +12,7 @@ import { AccessControlLevel, ExternalDataJobStatus, ExternalDataSource, External
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
 import { signalSourcesLogic } from './signalSourcesLogic'
-import { SignalSourceProduct, SignalSourceType } from './types'
+import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from './types'
 
 const githubSchema = (id: string, name: string): ExternalDataSourceSchema => ({
     id,
@@ -51,7 +51,7 @@ const githubSource: ExternalDataSource = {
     user_access_level: AccessControlLevel.Manager,
 }
 
-const githubIssuesConfig = {
+const githubIssuesConfig: SignalSourceConfig = {
     id: 'config-1',
     source_product: SignalSourceProduct.Github,
     source_type: SignalSourceType.Issue,
@@ -73,7 +73,7 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 describe('signalSourcesLogic', () => {
     let logic: ReturnType<typeof signalSourcesLogic.build>
     let warehouseSources: ExternalDataSource[]
-    let storedSourceConfigs: any[]
+    let storedSourceConfigs: SignalSourceConfig[]
 
     beforeEach(() => {
         warehouseSources = []
