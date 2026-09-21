@@ -170,7 +170,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                     />
                     <WindowComparisonCard
                         title="Failed runs"
-                        tooltip="CI runs where an owned test failed or errored. Absolute counts, not rates: passing runs are mostly not recorded."
+                        tooltip="CI runs where at least one test this team owns failed or errored. A run counts once, however many tests failed. Absolute counts, not rates: passing runs are mostly not recorded."
                         value={healthRow?.failedRunCount}
                         previousValue={healthRow?.failedRunCountPrior}
                         formatValue={humanFriendlyNumber}
