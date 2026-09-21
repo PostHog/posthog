@@ -43,7 +43,7 @@ jobs:
     # Determine if we should run based on changed files or preview label
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         # trunk-merge/** heads are skipped: merge-queue PRs are ephemeral and every
         # constituent PR already ran this in full.

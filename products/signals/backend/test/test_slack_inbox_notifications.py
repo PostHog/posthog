@@ -423,8 +423,17 @@ def test_dispatch_falls_back_to_team_channel_without_suggested_reviewers(org_and
 
 
 @pytest.mark.django_db
-def test_reviewer_resolution_uses_only_the_latest_reviewer_row(org_and_team):
+@pytest.mark.parametrize("has_project_access", [True, False])
+def test_reviewer_resolution_uses_only_the_latest_reviewer_row(
+    org_and_team: tuple[Organization, Team], has_project_access: bool
+) -> None:
     org, team = org_and_team
+    if not has_project_access:
+        org.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        org.save()
+        AccessControl.objects.create(team=team, resource="project", resource_id=str(team.id), access_level="none")
     old_reviewer = _make_reviewer_user(org, "old@example.com", "old-reviewer")
     current_reviewer = _make_reviewer_user(org, "current@example.com", "current-reviewer")
     report = _make_ready_report(team, priority=AutonomyPriority.P1)
@@ -441,7 +450,7 @@ def test_reviewer_resolution_uses_only_the_latest_reviewer_row(org_and_team):
         content=json.dumps([{"user_uuid": str(current_reviewer.uuid)}]),
     )
 
-    assert _resolve_suggested_reviewer_user_ids(report) == {current_reviewer.id}
+    assert _resolve_suggested_reviewer_user_ids(report) == ({current_reviewer.id} if has_project_access else set())
 
 
 @pytest.mark.django_db
@@ -890,6 +899,62 @@ def test_build_signal_thread_blocks_renders_header_content_and_github_details() 
     assert fallback.startswith("GitHub · Issue:")
 
 
+@pytest.mark.parametrize(
+    ("source_product", "extra", "expected_detail"),
+    [
+        (
+            "zendesk",
+            {"priority": "urgent", "status": "pending", "url": "https://support.example.com/tickets/7"},
+            "Priority: urgent  ·  Status: pending  ·  <https://support.example.com/tickets/7|Open ticket>",
+        ),
+        (
+            "llm_analytics",
+            {"model": "claude-opus-5", "provider": "anthropic", "trace_id": "0123456789abcdefghij"},
+            "Model: claude-opus-5  ·  Provider: anthropic  ·  Trace: `0123456789ab…`",
+        ),
+        ("session_replay", {"problem_type": "rage_click_loop"}, "Problem: rage click loop"),
+    ],
+)
+def test_build_signal_thread_blocks_renders_source_specific_details(
+    source_product: str, extra: dict, expected_detail: str
+) -> None:
+    signal = {"source_product": source_product, "source_type": "ticket", "content": "body", "extra": extra}
+    blocks, _ = _build_signal_thread_blocks(signal)
+    assert blocks[2]["elements"][0]["text"] == expected_detail
+
+
+@pytest.mark.parametrize(
+    ("source_product", "extra"),
+    [
+        ("zendesk", {}),
+        ("llm_analytics", {}),
+        ("session_replay", {}),
+        ("logs", {"service": "ingestion"}),
+    ],
+)
+def test_build_signal_thread_blocks_omits_empty_detail_block(source_product: str, extra: dict) -> None:
+    signal = {"source_product": source_product, "source_type": "ticket", "content": "body", "extra": extra}
+    blocks, _ = _build_signal_thread_blocks(signal)
+    assert [block["type"] for block in blocks] == ["context", "markdown"]
+
+
+def test_build_signal_thread_blocks_escapes_mrkdwn_in_source_specific_details() -> None:
+    # Detail values come from the source payload, so they must not carry a live mention into Slack.
+    signal = {
+        "source_product": "llm_analytics",
+        "source_type": "evaluation",
+        "content": "body",
+        "extra": {"model": "<@U42>", "provider": "<!channel>"},
+    }
+    blocks, _ = _build_signal_thread_blocks(signal)
+    detail = blocks[2]["elements"][0]["text"]
+    assert "<@U42>" not in detail
+    assert "<!channel>" not in detail
+    # Both values must survive as escaped text, so dropping a field outright also fails.
+    assert "Model: &lt;@U42&gt;" in detail
+    assert "Provider: &lt;!channel&gt;" in detail
+
+
 def test_build_signal_thread_blocks_escapes_content_to_block_mention_injection() -> None:
     signal = {
         "source_product": "logs",
@@ -1116,7 +1181,13 @@ def test_reviewer_added_notifies_added_reviewer_on_own_channel(org_and_team):
 
 
 @pytest.mark.django_db
-def test_reviewer_added_skips_org_member_without_project_access(org_and_team):
+@pytest.mark.parametrize(
+    ("report_ready", "team_channel", "expected_sent"),
+    [(False, None, 0), (True, None, 0), (True, "CTEAM", 1)],
+)
+def test_notification_respects_project_access(
+    org_and_team: tuple[Organization, Team], report_ready: bool, team_channel: str | None, expected_sent: int
+) -> None:
     # Org membership alone must not leak a private project's report into Slack: a member
     # locked out of the project (project marked private, no explicit access) gets no ping.
     org, team = org_and_team
@@ -1131,13 +1202,23 @@ def test_reviewer_added_skips_org_member_without_project_access(org_and_team):
         slack_notification_integration=integration,
         slack_notification_channel="C123|#inbox",
     )
-    report = _make_ready_report(team, priority=AutonomyPriority.P1)
+    report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["no-access-bot"])
+    if team_channel:
+        _set_team_channel(team, team_channel)
 
     with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
-        sent = dispatch_reviewer_added_notifications(str(report.id), team.id, ["no-access-bot"])
+        if report_ready:
+            sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+        else:
+            sent = dispatch_reviewer_added_notifications(str(report.id), team.id, ["no-access-bot"])
 
-    assert sent == 0
-    assert slack_cls.call_count == 0
+    assert sent == expected_sent
+    assert slack_cls.call_count == expected_sent
+    if expected_sent:
+        post_message = slack_cls.return_value.client.chat_postMessage
+        post_message.assert_called_once()
+        assert post_message.call_args.kwargs["channel"] == team_channel
+        assert "Suggested reviewers" not in json.dumps(post_message.call_args.kwargs["blocks"])
 
 
 @pytest.mark.django_db

@@ -22,7 +22,7 @@ type Document struct {
 type Statement struct {
 	expr               clickhouse.Expr
 	schema             *catalog.PreparedCatalog
-	originalTableNames map[string]string
+	originalTableNames map[int]string
 	budget             *projectionBudget
 	scopes             []*queryScope
 	tables             []TableReference
@@ -105,13 +105,13 @@ func (s *Statement) analyze() {
 		if scope == nil {
 			return true
 		}
+		if original, exists := s.originalTableNames[start]; exists {
+			name = original
+			implicitAlias = strings.ReplaceAll(original, ".", "__")
+		}
 		if cte := resolveCTE(scope, name, start); cte != nil {
 			addBinding(scope, name, alias, Relation{name: cte.name, cte: cte}, start, end)
 			return true
-		}
-		if original, exists := s.originalTableNames[strings.ToLower(name)]; exists {
-			name = original
-			implicitAlias = strings.ReplaceAll(original, ".", "__")
 		}
 		table, exists := s.schema.Table(name)
 		s.tables = append(s.tables, TableReference{Name: name, Start: start, End: end, Known: exists})
@@ -197,12 +197,11 @@ func (b Bindings) CTENames(prefix string) iter.Seq[catalog.Entry] {
 				if !scope.budget.lookup(len(name) + 1) {
 					return
 				}
-				folded := foldedFieldName(name)
-				if seen[folded] {
+				if seen[name] {
 					continue
 				}
-				seen[folded] = true
-				if strings.HasPrefix(folded, prefix) && !yield(catalog.Entry{Name: name, Type: "CTE"}) {
+				seen[name] = true
+				if strings.HasPrefix(foldedFieldName(name), prefix) && !yield(catalog.Entry{Name: name, Type: "CTE"}) {
 					return
 				}
 			}
@@ -211,7 +210,7 @@ func (b Bindings) CTENames(prefix string) iter.Seq[catalog.Entry] {
 }
 
 func (b Bindings) Relation(name string) (Relation, bool) {
-	relation, ok := b.relations[strings.ToLower(name)]
+	relation, ok := b.relations[name]
 	return relation, ok
 }
 
@@ -268,14 +267,16 @@ func (b Bindings) PropertyNamespace(parts []string) (string, bool) {
 		}
 	}
 	if len(parts) > 2 {
-		if _, bound := b.Relation(parts[0]); !bound && resolveCTE(b.scope, parts[0], b.position) != nil {
-			return "", false
+		if _, bound := b.Relation(parts[0]); !bound {
+			if resolveCTE(b.scope, parts[0], b.position) != nil || len(parts) > 3 {
+				return "", false
+			}
 		}
 	}
 	names := make(map[string]string, len(b.relations))
 	for name, relation := range b.relations {
 		if relation.cte != nil {
-			if len(parts) > 2 && strings.EqualFold(parts[0], name) {
+			if len(parts) > 2 && parts[0] == name {
 				return "", false
 			}
 			if len(parts) == 2 {
@@ -285,7 +286,7 @@ func (b Bindings) PropertyNamespace(parts []string) (string, bool) {
 			}
 			continue
 		}
-		names[name] = relation.name
+		names[name] = relation.table.Name
 	}
 	return propertyresolver.Resolve(parts, names)
 }

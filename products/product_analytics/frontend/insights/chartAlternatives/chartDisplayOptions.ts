@@ -1,4 +1,6 @@
-import type { BreakdownFilter } from '~/queries/schema/schema-general'
+import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+
+import type { BreakdownFilter, TrendsFilter, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 export type ChartDisplayIcon =
@@ -41,8 +43,46 @@ export interface ChartDisplayOptionEligibility {
 
 const COUNTRY_PROPERTIES = new Set(['$geoip_country_code', '$geoip_country_name'])
 
-function isCountryProperty(value: unknown): boolean {
+export function isCountryProperty(value: unknown): boolean {
     return typeof value === 'string' && COUNTRY_PROPERTIES.has(value)
+}
+
+// Trends writes breakdowns as a list; older queries carry a single breakdown. Both count.
+export function breakdownProperties(breakdownFilter?: BreakdownFilter | null): (string | number)[] {
+    if (breakdownFilter?.breakdowns?.length) {
+        return breakdownFilter.breakdowns.map((entry) => entry.property)
+    }
+    const single = breakdownFilter?.breakdown
+    if (single == null) {
+        return []
+    }
+    return Array.isArray(single) ? single : [single]
+}
+
+export function hasTrendsFormula(trendsFilter?: TrendsFilter | null): boolean {
+    return !!trendsFilter?.formula || !!trendsFilter?.formulas?.length || !!trendsFilter?.formulaNodes?.length
+}
+
+function worldMapBreakdownFilter(query: TrendsQuery): BreakdownFilter {
+    const math = query.series?.[0]?.math ?? ''
+    return {
+        breakdown: '$geoip_country_code',
+        breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math) ? 'person' : 'event',
+    }
+}
+
+export function applyChartDisplay(query: TrendsQuery, display: ChartDisplayType): TrendsQuery {
+    const next: TrendsQuery = { ...query, trendsFilter: { ...query.trendsFilter, display } }
+    if (NON_BREAKDOWN_DISPLAY_TYPES.includes(display)) {
+        next.breakdownFilter = undefined
+    }
+    if (display === ChartDisplayType.BoxPlot) {
+        next.trendsFilter = { ...next.trendsFilter, formula: undefined, formulas: undefined, formulaNodes: [] }
+    }
+    if (display === ChartDisplayType.WorldMap) {
+        next.breakdownFilter = worldMapBreakdownFilter(query)
+    }
+    return next
 }
 
 export function getChartDisplayOptions({
@@ -54,9 +94,9 @@ export function getChartDisplayOptions({
     breakdown,
     breakdowns,
 }: ChartDisplayOptionEligibility): ChartDisplayOptionGroup[] {
-    const singleBreakdownProperty = breakdowns?.length === 1 ? breakdowns[0].property : breakdown
-    const hasSupportedCountryBreakdown =
-        (breakdowns?.length ?? 0) <= 1 && (!singleBreakdownProperty || isCountryProperty(singleBreakdownProperty))
+    const breakdownProps = breakdownProperties({ breakdown, breakdowns })
+    const worldMapBreakdownDisabled =
+        breakdownProps.length > 1 || breakdownProps.some((property) => !isCountryProperty(property))
     const trendsOnlyDisabledReason = !isTrends ? 'This type is only available in Trends.' : undefined
     const singleSeriesOnlyDisabledReason = !hasSingleSeriesOutput
         ? 'This type currently only supports insights with one series, and this insight has multiple series.'
@@ -184,9 +224,9 @@ export function getChartDisplayOptions({
                         trendsOnlyDisabledReason ||
                         (hasTrendsFormula
                             ? "This type isn't available, because it doesn't support formulas."
-                            : hasSupportedCountryBreakdown
-                              ? undefined
-                              : "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."),
+                            : worldMapBreakdownDisabled
+                              ? "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."
+                              : undefined),
                 },
                 {
                     display: ChartDisplayType.CalendarHeatmap,

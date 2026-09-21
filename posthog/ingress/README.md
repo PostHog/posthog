@@ -25,9 +25,14 @@ Adding a provider is another `<provider>/` folder, not a change to the mechanism
 1. **Method** — anything but `POST` is 405, before any secret is read.
 2. **Throttle** — `provider.throttle_class`, when the provider sets one. A refusal is 429 with a `Retry-After`.
 3. **Verify** — `provider.verify(request)` over the raw body, answering a `Verification`. A bad signature never reaches a consumer.
+   It asks `scheme.rejects_headers(request.headers)` first, so a signature header that is missing or the wrong shape is refused before `request.body` is read.
 4. **Parse** — `provider.parse(request)`, which decodes the verified body. The default is JSON; an `InvalidPayload` is 400.
 5. **Handshake** — `provider.pre_dispatch_response(request, payload)`, for a challenge the protocol demands.
 6. **Dispatch** — `provider.deliveries(request, payload, facts)`, then ownership, the forward and the consumers, all inside one wall-clock budget.
+
+A provider raises `InvalidPayload` for a body it refuses, from either lane, and the view answers 400 with outcome `invalid_payload`.
+`parse` raises it for a body it cannot decode, and `deliveries` for one it decoded and will not accept: that is where a provider holds a body field to the claim that signs it, which needs the payload and the facts together.
+Neither reaches a consumer.
 
 Parse belongs to the provider because not every third party posts JSON: Slack's interactivity payloads and Mailgun's events are form-encoded.
 It stays **after** verification, and must: a `parse` that reads `request.POST` consumes the request stream under ASGI, which leaves the signature check without the raw bytes it signs over.
@@ -39,12 +44,16 @@ A provider whose verification is a local HMAC leaves it at `None`.
 
 A `Verification` carries the outcome and `facts`, a mapping of what the check proved on the way.
 A scheme that validates a signed token knows who sent the delivery before the body is read, and `facts` is how those claims reach `deliveries`, so an incarnation can cross-check the body against what was actually signed rather than trusting a field of the body that claims the same thing.
+`BearerJwt` puts the key that signed the token there too, under `SIGNING_KEY_FACT`, because a JWKS can say what one key is allowed to sign and the token cannot: Bot Framework endorses each key for a set of channels, and Teams holds the activity's `channelId` to that.
+A body that fails that cross-check is `InvalidPayload` rather than a delivery a consumer has to distrust, because the protocol, not the product, is what says the two must agree.
 An HMAC over raw bytes proves only the signature, so its `facts` are empty and `deliveries` ignores the argument.
 
 ## Schemes
 
 `verify/schemes.py` holds `HmacSha256` and `SnsSignature`; `verify/jwt.py` holds `BearerJwt`, for a provider that authenticates with a signed token instead of a shared secret.
 Each class docstring carries its own reasoning.
+
+A scheme also answers `rejects_headers(headers)`, the part of the check that needs no body: `HmacSha256` refuses a missing or malformed signature header and a missing, malformed or stale timestamp header there, and `BearerJwt` refuses a request that carries no bearer token. The answer is the same INVALID the full check would reach, with the same status, log line and metric outcome, so an unauthenticated caller cannot make an endpoint read a body of up to the request limit for it. A scheme that cannot decide from headers alone answers `False`, which is what `SnsSignature` does, and so does an HMAC scheme whose secret is unset, so an unconfigured endpoint still answers NOT_CONFIGURED.
 
 Three duties fall on the incarnation rather than on `BearerJwt`, and none is enforced:
 
@@ -54,17 +63,19 @@ Three duties fall on the incarnation rather than on `BearerJwt`, and none is enf
 
 ## Endpoints
 
-| Provider     | Path                                                    | App          | Consumers                                                                                                                                   | Product code                                                            |
-| ------------ | ------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `github`     | `/webhooks/github`, `/webhooks/github/pr`               | `posthog`    | `installation_lifecycle`, `installation_repositories` (core), `conversations`, `loops`, `tasks_pr_backstop`, `tasks_pr_review`, `workflows` | `products/{tasks,conversations,workflows}/backend/webhook_consumers.py` |
-| `github`     | `/webhooks/stamphog/github`                             | `stamphog`   | `stamphog_review`                                                                                                                           | `products/stamphog/backend/webhook_consumers.py`                        |
-| `slack`      | `/api/conversations/v1/slack/events`                    | `supporthog` | `conversations_slack`                                                                                                                       | `products/conversations/backend/webhook_consumers.py`                   |
-| `pandadoc`   | `/api/legal_documents/pandadoc`                         | `default`    | `legal_documents_signatures`                                                                                                                | `products/legal_documents/backend/webhook_consumers.py`                 |
-| `vapi`       | `/api/user_interviews/vapi_webhook/`                    | `default`    | `user_interviews_vapi`                                                                                                                      | `products/user_interviews/backend/webhook_consumers.py`                 |
-| `mailgun`    | `/api/conversations/v1/email/inbound`                   | `inbound`    | none yet, the endpoint still runs its own verifier                                                                                          | `products/conversations/backend/api/email_events.py`                    |
-| `mailgun`    | `/api/conversations/v1/email/outbound`                  | `outbound`   | none yet, the endpoint still runs its own verifier                                                                                          | `products/conversations/backend/api/email_events.py`                    |
-| `sns`        | `/webhooks/workflows/ses-events`                        | `default`    | `workflows_ses_events`                                                                                                                      | `products/workflows/backend/webhook_consumers.py`                       |
-| `customerio` | `/api/projects/<team_id>/messaging/customerio/webhook/` | none         | none, it is the DRF adapter path                                                                                                            | `products/messaging/backend/api/customerio_webhook.py`                  |
+| Provider     | Path                                                    | App                        | Consumers                                                                                                                                   | Product code                                                            |
+| ------------ | ------------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `github`     | `/webhooks/github`, `/webhooks/github/pr`               | `posthog`                  | `installation_lifecycle`, `installation_repositories` (core), `conversations`, `loops`, `tasks_pr_backstop`, `tasks_pr_review`, `workflows` | `products/{tasks,conversations,workflows}/backend/webhook_consumers.py` |
+| `github`     | `/webhooks/stamphog/github`                             | `stamphog`                 | `stamphog_review`                                                                                                                           | `products/stamphog/backend/webhook_consumers.py`                        |
+| `slack`      | `/api/conversations/v1/slack/events`                    | `supporthog`               | `conversations_slack`                                                                                                                       | `products/conversations/backend/webhook_consumers.py`                   |
+| `slack`      | `/api/conversations/v1/slack/interactivity`             | `supporthog_interactivity` | `conversations_slack_interactivity`                                                                                                         | `products/conversations/backend/webhook_consumers.py`                   |
+| `teams`      | `/api/conversations/v1/teams/events`                    | `supporthog`               | `conversations_teams`                                                                                                                       | `products/conversations/backend/webhook_consumers.py`                   |
+| `pandadoc`   | `/api/legal_documents/pandadoc`                         | `default`                  | `legal_documents_signatures`                                                                                                                | `products/legal_documents/backend/webhook_consumers.py`                 |
+| `vapi`       | `/api/user_interviews/vapi_webhook/`                    | `default`                  | `user_interviews_vapi`                                                                                                                      | `products/user_interviews/backend/webhook_consumers.py`                 |
+| `mailgun`    | `/api/conversations/v1/email/inbound`                   | `inbound`                  | none yet, the endpoint still runs its own verifier                                                                                          | `products/conversations/backend/services/mailgun_events.py`             |
+| `mailgun`    | `/api/conversations/v1/email/outbound`                  | `outbound`                 | none yet, the endpoint still runs its own verifier                                                                                          | `products/conversations/backend/services/mailgun_events.py`             |
+| `sns`        | `/webhooks/workflows/ses-events`                        | `default`                  | `workflows_ses_events`                                                                                                                      | `products/workflows/backend/webhook_consumers.py`                       |
+| `customerio` | `/api/projects/<team_id>/messaging/customerio/webhook/` | none                       | none, it is the DRF adapter path                                                                                                            | `products/messaging/backend/api/customerio_webhook.py`                  |
 
 The owner of the third-party App registration owns the route.
 The customer-facing GitHub App is shared across products, so its two endpoints are declared in `posthog/urls.py`.
@@ -242,7 +253,7 @@ Last, write `<provider>/README.md` with the fixed sections every provider README
 
 Two shapes that already exist and are worth copying rather than re-deriving:
 
-- **Several apps on one provider.** One incarnation can serve several apps, each with its own secret getter, its own subscribed event types, and its own consumer set. Consumers register against the app name. `github/` is the case.
+- **Several apps on one provider.** One incarnation can serve several apps, each with its own secret getter, its own subscribed event types, and its own consumer set. Consumers register against the app name. `github/` is the case. An app is one endpoint's consumer surface rather than one registration with the third party: Slack's events and interactivity endpoints are two apps on one Slack app registration, sharing a secret, so each endpoint validates its consumers against only the types it receives.
 - **A provider that signs the form rather than the body.** The incarnation overrides both `verify()` and `parse()` to read `request.POST`, assembles the signed input from the form fields, and hands it to `HmacSha256` as if it came from headers. `mailgun/` is the case.
 - **The DRF adapter path.** An endpoint that genuinely needs DRF's team scoping keeps its view, and the incarnation contributes a scheme only, declaring no spec, because nothing dispatches there. `customerio/` is the case. The view verifies through `posthog.auth.WebhookSignatureAuthentication`.
   That base class computes its digest with `hmac_sha256_signature()` and compares with `signatures_match()` from `verify/schemes.py`, so the adapter path and the dispatched path share one implementation of HMAC-SHA256.
@@ -250,10 +261,17 @@ Two shapes that already exist and are worth copying rather than re-deriving:
 
 ## Dedup
 
-Dedup is per `(provider, consumer, delivery_id)` in the Django cache, for 24 hours.
+Dedup is per `(provider, consumer, delivery_id)` in the Django cache.
 The mark is set before the consumer runs and released when it raises, so a failure does not burn the delivery for a day.
 Because it is set before the work finishes, it carries a state rather than a bare flag: a claim answers `CLAIMED`, `IN_PROGRESS` or `DONE`, and the consumer settles it to done when it returns.
 Only `DONE` counts as accepted, so a delivery that meets a run still in flight is skipped with outcome `in_flight` and is not receipted, and a provider with `retry_status` sends it again once the first run settled rather than trusting a run that can still fail.
+A settled mark therefore lives for 24 hours, but an unsettled one is a lease and lives for the request's delivery budget plus a minute.
+The lease exists because a process that dies mid-run leaves its mark behind and nothing settles it afterwards: a mark that outlived its run would answer every redelivery `in_flight` until the provider gave up, and the delivery would be lost.
+Its cost is that a redelivery arriving after the lease ran out can run beside a first attempt that overran the budget, which is the exposure a provider without dedup has on every retry.
+Because two runs can overlap, a second key (`<key>:holder`) names the run that holds the lease, and a run only deletes its own claim: a late failure from the first run cannot drop the second run's claim, nor the done mark a finished run wrote.
+The token lives in its own key so that the mark itself stays the plain value every deployed version reads as in flight, which keeps a rolling deploy from receipting a delivery the new worker can still fail.
+That fence reads the cache primary rather than a read replica, because a replica can still serve a token the primary already replaced.
+Settling to done is not fenced that way, because a consumer that ran the delivery and returned makes the mark true whoever wrote the value it replaces; a run drops the mark only while it is still a lease, so a late failure cannot delete a mark another run settled.
 Keying per consumer rather than per delivery matters: one delivery legitimately fans out to several consumers, and a delivery-wide key would starve every consumer but the first.
 A cache error fails **open** — dropping deliveries during a cache outage is worse than running a consumer twice, and consumers carry their own idempotency underneath this.
 

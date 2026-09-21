@@ -88,7 +88,7 @@ export interface tracingSceneLogicValues {
     sparklineWindowMs: OverlayWindow // tracingFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
-        date_to: string | null | undefined
+        date_to: string
     } // tracingFiltersLogic
     canLoadMoreTraceSpans: boolean // tracingViewerLogic
     compareFlameServiceName: string | null // tracingViewerLogic
@@ -158,8 +158,12 @@ export interface tracingSceneLogicActions {
     setComparison: (comparison: TimeComparison | null) => {
         comparison: TimeComparison | null
     } // tracingFiltersLogic
-    setDateRange: (dateRange: DateRange) => {
+    setDateRange: (
+        dateRange: DateRange,
+        source?: import('./sparklineSelection').TracingDateRangeSource | undefined
+    ) => {
         dateRange: DateRange
+        source: import('./sparklineSelection').TracingDateRangeSource | undefined
     } // tracingFiltersLogic
     setFilterGroup: (
         filterGroup: UniversalFiltersGroup,

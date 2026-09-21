@@ -177,7 +177,7 @@ jobs:
                         - 'frontend/src/mocks/fixtures/**'
     build:
         name: Build Package
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
         needs: changes
         # Not on master push — master coverage comes from the hourly run (see `schedule`).
@@ -256,7 +256,7 @@ jobs:
 
     unit-tests:
         name: Unit Tests
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
         needs: changes
         # Not on master push — master coverage comes from the hourly run (see `schedule`).
@@ -785,7 +785,7 @@ jobs:
 
     handle-snapshots:
         name: Commit snapshot changes
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         needs: [changes, unit-tests]
         # A status function is required to commit regenerated snapshots even when unit-tests
@@ -856,7 +856,7 @@ jobs:
     mcp_tests:
         needs: [changes, build, unit-tests, integration-tests, handle-snapshots]
         name: MCP Tests Pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:

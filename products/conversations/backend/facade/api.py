@@ -122,16 +122,44 @@ def accept_slack_event(delivery: WebhookDelivery) -> None:
     slack_events.accept_slack_event(delivery)
 
 
+def accept_slack_interactivity(delivery: WebhookDelivery) -> None:
+    """The inbound SupportHog Slack click enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import slack_events  # noqa: PLC0415
+
+    slack_events.accept_slack_interactivity(delivery)
+
+
 def slack_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
     """Whether this region holds the team the delivery's Slack workspace is connected to.
 
-    Ingress asks before it dispatches, and forwards the signed request to the other region when
-    the answer is elsewhere.
+    Both Slack endpoints ask through here. Ingress asks before it dispatches, and forwards the
+    signed request to the other region when the answer is elsewhere.
     """
     # Deferred to keep the Celery task module off the facade import path.
     from products.conversations.backend.services import slack_events  # noqa: PLC0415
 
     return slack_events.slack_delivery_ownership(delivery)
+
+
+def accept_teams_event(delivery: WebhookDelivery) -> None:
+    """The inbound SupportHog Teams webhook enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import teams_events  # noqa: PLC0415
+
+    teams_events.accept_teams_event(delivery)
+
+
+def teams_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the team the delivery's Teams tenant is connected to.
+
+    Ingress asks before it dispatches, and forwards the signed request to the other region when
+    the answer is elsewhere.
+    """
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import teams_events  # noqa: PLC0415
+
+    return teams_events.teams_delivery_ownership(delivery)
 
 
 def sync_google_account_email(integration_id: int, team_id: int) -> None:

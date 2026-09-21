@@ -267,6 +267,7 @@ describe('hog-function-filtering', () => {
             // Test with an event that doesn't match any specific event names
             mockFilterGlobals.event = '$pageview'
             const result = await filterFunctionInstrumented({
+                caller: 'build_hog_function_invocations',
                 fn: mockHogFunction,
                 filters: mockHogFunction.filters,
                 filterGlobals: mockFilterGlobals,
@@ -292,6 +293,7 @@ describe('hog-function-filtering', () => {
             // Test with an event that matches one of the specific events
             mockFilterGlobals.event = 'change_order_generated'
             const result = await filterFunctionInstrumented({
+                caller: 'build_hog_function_invocations',
                 fn: mockHogFunction,
                 filters: mockHogFunction.filters,
                 filterGlobals: mockFilterGlobals,
@@ -316,6 +318,7 @@ describe('hog-function-filtering', () => {
 
             mockFilterGlobals.event = 'change_order_generated'
             const result = await filterFunctionInstrumented({
+                caller: 'build_hog_function_invocations',
                 fn: mockHogFunction,
                 filters: mockHogFunction.filters,
                 filterGlobals: mockFilterGlobals,
@@ -330,6 +333,7 @@ describe('hog-function-filtering', () => {
             }
 
             const result = await filterFunctionInstrumented({
+                caller: 'build_hog_function_invocations',
                 fn: mockHogFunction,
                 filters: mockHogFunction.filters,
                 filterGlobals: mockFilterGlobals,
@@ -349,6 +353,7 @@ describe('hog-function-filtering', () => {
             }
 
             const result = await filterFunctionInstrumented({
+                caller: 'build_hog_function_invocations',
                 fn: mockHogFunction,
                 filters: mockHogFunction.filters,
                 filterGlobals: mockFilterGlobals,
@@ -390,6 +395,7 @@ describe('hog-function-filtering', () => {
                 mockFilterGlobals.timestamp = timestamp
 
                 const result = await filterFunctionInstrumented({
+                    caller: 'build_hog_function_invocations',
                     fn: mockHogFunction,
                     filters: mockHogFunction.filters,
                     filterGlobals: mockFilterGlobals,

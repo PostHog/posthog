@@ -70,15 +70,24 @@ export function mcpDateSearchParams(dateFilter: DateFilter, interval?: IntervalT
     return params
 }
 
+function mcpToolNavigationParams(dateFilter: DateFilter, interval?: IntervalType | null): Record<string, any> {
+    const { properties, filter_test_accounts } = router.values.currentLocation.searchParams
+    return {
+        ...mcpDateSearchParams(dateFilter, interval),
+        ...(properties !== undefined ? { properties } : {}),
+        ...(filter_test_accounts !== undefined ? { filter_test_accounts } : {}),
+    }
+}
+
 // Link from the Tool quality tab to an individual tool's report, keeping the date filter and pinned
 // interval so the tool page opens on the same window and granularity.
 export function mcpToolReportUrl(tool: string, dateFilter: DateFilter, interval?: IntervalType | null): string {
-    return combineUrl(urls.mcpAnalyticsTool(tool), mcpDateSearchParams(dateFilter, interval)).url
+    return combineUrl(urls.mcpAnalyticsTool(tool), mcpToolNavigationParams(dateFilter, interval)).url
 }
 
 // Link back from a tool report to the Tool quality tab, restoring the date filter and interval.
 export function mcpToolQualityUrlWithDates(dateFilter: DateFilter, interval?: IntervalType | null): string {
-    return combineUrl(urls.mcpAnalyticsToolQuality(), mcpDateSearchParams(dateFilter, interval)).url
+    return combineUrl(urls.mcpAnalyticsToolQuality(), mcpToolNavigationParams(dateFilter, interval)).url
 }
 
 export type ToolQualityRow = MCPToolQualityRowItem
