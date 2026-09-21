@@ -46,13 +46,15 @@ class Command(BaseCommand):
         # needed. Matching on the message would miss the compile failures that are not about
         # cohorts.
         # `__isnull=True` on a JSON key means the key is absent, which is a different row from one
-        # holding a JSON null, so both spellings are matched.
+        # holding a JSON null, so both spellings are matched on each key. A JSON-null bytecode_error
+        # is not an error, and --disable must not switch a destination off for one.
         # Destinations only. Transformations, source webhooks and internal destinations compile
         # bytecode too and can carry the same error, but the email names a destination and links to
         # the destinations page, and an internal destination is ours rather than the customer's.
         queryset = (
             HogFunction.objects.filter(deleted=False, enabled=True, type=HogFunctionType.DESTINATION)
             .exclude(filters__bytecode_error__isnull=True)
+            .exclude(filters__bytecode_error=Value(None, JSONField()))
             .filter(Q(filters__bytecode__isnull=True) | Q(filters__bytecode=Value(None, JSONField())))
         )
         team_id = options["team_id"]

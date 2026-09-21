@@ -131,6 +131,12 @@ class TestNotifyUncompilableHogFunctionFilters(BaseTest):
         HogFunction.objects.filter(id=kept.id).update(
             filters={"bytecode": ["_H", 1], "bytecode_error": "Cohort membership can't be evaluated"}
         )
+        # A JSON-null error is not an error. Excluding only the absent key would leave this one in
+        # scope, and --disable would switch it off.
+        no_error = HogFunction.objects.create(
+            team=self.team, name="Null error", enabled=True, type=HogFunctionType.DESTINATION
+        )
+        HogFunction.objects.filter(id=no_error.id).update(filters={"bytecode": None, "bytecode_error": None})
         out = StringIO()
 
         with patch(TASK) as task:
