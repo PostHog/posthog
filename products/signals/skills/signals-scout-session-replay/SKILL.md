@@ -95,9 +95,18 @@ LEFT JOIN (
 ORDER BY t.traffic_day
 ```
 
-Traffic drives the join: a zero-recording day — the exact cliff this scout exists to catch — must show `capture_ratio` 0, and an inner join would silently drop it. `$pageview` is the cheap denominator; if absent, substitute the project's top web event. Each side names its day column distinctly (`traffic_day`, `recording_day`) and the `ORDER BY` stays qualified. Two subqueries that both expose a column called `day` make every unqualified `day` after the join ambiguous, and the query then fails instead of returning the series. Keep the distinct names when you adapt the query.
+Traffic drives the join: a zero-recording day — the exact cliff this scout exists to catch — must show `capture_ratio` 0, and an inner join would silently drop it.
+`$pageview` is the cheap denominator; if absent, substitute the project's top web event.
+Each side names its day column distinctly (`traffic_day`, `recording_day`) and the `ORDER BY` stays qualified.
+Two subqueries that both expose a column called `day` make every unqualified `day` after the join ambiguous, and the query then fails instead of returning the series.
+Keep the distinct names when you adapt the query.
 
-**Check `ratio_impossible` before you read the series: more recorded sessions than event sessions means the query is wrong, not that capture is high.** The two sides count different session populations. The numerator counts every recorded session, the denominator only sessions that fired a `$pageview`, so mobile SDK recordings and recordings of pageview-less sessions inflate the ratio. Read the flag, not `capture_ratio`: the displayed ratio rounds to four decimals, so a real 1.00004 prints as `1.0000` and hides the overshoot, while the flag compares the two raw counts. One flagged day discredits the whole series: the same mismatch distorts the days that stay under 1, and it can fake a drop as easily as a spike. Discard the series and rerun with the fallback below.
+**Check `ratio_impossible` before you read the series: more recorded sessions than event sessions means the query is wrong, not that capture is high.**
+The two sides count different session populations.
+The numerator counts every recorded session, the denominator only sessions that fired a `$pageview`, so mobile SDK recordings and recordings of pageview-less sessions inflate the ratio.
+Read the flag, not `capture_ratio`: the displayed ratio rounds to four decimals, so a real 1.00004 prints as `1.0000` and hides the overshoot, while the flag compares the two raw counts.
+One flagged day discredits the whole series: the same mismatch distorts the days that stay under 1, and it can fake a drop as easily as a spike.
+Discard the series and rerun with the fallback below.
 
 The fallback counts both sides over one population — every session the event stream saw, marked by whether a recording exists for it — so the ratio is bounded by construction:
 
@@ -125,7 +134,10 @@ GROUP BY day
 ORDER BY day
 ```
 
-The recording window runs one day wider than the traffic window, so a session that starts late in a day still matches its recording. This read costs more, so keep it for the fallback. It sees only sessions the event stream knows about, so a recording with no events falls outside it — that is the price of a bounded ratio, and the ratio's _change_ is the signal either way. Its level answers a different question than the primary query's, with no ordering guaranteed in either direction — the two differ in both session population and day attribution — so baseline it under its own `pattern:` key and never compare one query's ratio against the other's.
+The recording window runs one day wider than the traffic window, so a session that starts late in a day still matches its recording.
+This read costs more, so keep it for the fallback.
+It sees only sessions the event stream knows about, so a recording with no events falls outside it — that is the price of a bounded ratio, and the ratio's _change_ is the signal either way.
+Its level answers a different question than the primary query's, with no ordering guaranteed in either direction — the two differ in both session population and day attribution — so baseline it under its own `pattern:` key and never compare one query's ratio against the other's.
 
 Friction side — where rage clicks concentrate, last day vs the prior two weeks. Group by host plus an **ID-normalized path**, never the raw URL: full `$current_url` values carry query strings, fragments, and entity IDs that shatter one hot surface into dozens of single-count rows:
 
