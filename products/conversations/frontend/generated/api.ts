@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AIContextAccountPropertyApi,
     AIReplyPlaybookApi,
     AiFeedbackRequestApi,
     BulkUpdateStatusRequestApi,
@@ -52,6 +53,23 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getConversationsAiContextAccountPropertiesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/ai_context_account_properties/`
+}
+
+/**
+ * Account-target Customer analytics properties that can be included in AI reply context.
+ */
+export const conversationsAiContextAccountPropertiesList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AIContextAccountPropertyApi[]> => {
+    return apiMutator<AIContextAccountPropertyApi[]>(getConversationsAiContextAccountPropertiesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getConversationsAiReplyPlaybookRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/conversations/ai_reply_playbook/`

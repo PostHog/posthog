@@ -13,9 +13,11 @@ import { SlackChannelType, UserBasicType } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
-import { conversationsAiReplyPlaybookRetrieve } from '../../generated/api'
-import type { AIReplyPlaybookApi } from '../../generated/api.schemas'
+import { conversationsAiContextAccountPropertiesList, conversationsAiReplyPlaybookRetrieve } from '../../generated/api'
+import type { AIContextAccountPropertyApi, AIReplyPlaybookApi } from '../../generated/api.schemas'
 import { TicketChannel } from '../../types'
+
+export const MAX_AI_CONTEXT_ACCOUNT_PROPERTY_IDS = 10
 
 const BASE_AI_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack']
 
@@ -64,8 +66,12 @@ export interface supportSettingsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamLoading: boolean // teamLogic
+    accountPropertyOptions: AIContextAccountPropertyApi[]
+    accountPropertyOptionsLoading: boolean
     addEmailFormVisible: boolean
     aiAllChannels: TicketChannel[]
+    aiContextAccountPropertiesSaving: boolean
+    aiContextAccountPropertyIds: string[]
     aiDiagnosticsEnabled: boolean
     aiDiagnosticsLoading: boolean
     aiEnabledChannels: TicketChannel[]
@@ -303,6 +309,21 @@ export interface supportSettingsLogicActions {
             value: true
         }
     }
+    loadAccountPropertyOptions: () => any
+    loadAccountPropertyOptionsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadAccountPropertyOptionsSuccess: (
+        accountPropertyOptions: AIContextAccountPropertyApi[],
+        payload?: any
+    ) => {
+        accountPropertyOptions: AIContextAccountPropertyApi[]
+        payload?: any
+    }
     loadPlaybook: () => any
     loadPlaybookFailure: (
         error: string,
@@ -449,6 +470,12 @@ export interface supportSettingsLogicActions {
     }
     setAiDiagnosticsLoading: (loading: boolean) => {
         loading: boolean
+    }
+    setAiContextAccountPropertyIds: (ids: string[]) => {
+        ids: string[]
+    }
+    setAiContextAccountPropertiesSaving: (saving: boolean) => {
+        saving: boolean
     }
     setAiReplyMode: (
         channel: string,
@@ -606,6 +633,7 @@ export interface supportSettingsLogicMeta {
         githubSelectedRepos: (currentTeam: TeamPublicType | TeamType | null) => string[]
         aiSuggestionsEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
         aiDiagnosticsEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        aiContextAccountPropertyIds: (currentTeam: TeamPublicType | TeamType | null) => string[]
         aiEnabledChannels: (
             currentTeam: TeamPublicType | TeamType | null,
             emailConfigs: EmailConfigStatus[]
@@ -746,6 +774,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         savePlaybookInstructions: (instructions: string | null) => ({ instructions }),
         savePlaybook: true,
         resetPlaybook: true,
+        setAiContextAccountPropertyIds: (ids: string[]) => ({ ids }),
+        setAiContextAccountPropertiesSaving: (saving: boolean) => ({ saving }),
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -963,6 +993,12 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                     "Couldn't load the support playbook. Refresh the page, and if it keeps happening contact support.",
             },
         ],
+        aiContextAccountPropertiesSaving: [
+            false,
+            {
+                setAiContextAccountPropertiesSaving: (_, { saving }) => saving,
+            },
+        ],
         slackTicketEmojiValue: [
             null as string | null,
             {
@@ -1025,6 +1061,25 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                         return null
                     }
                     return await conversationsAiReplyPlaybookRetrieve(String(teamId))
+                },
+            },
+        ],
+        accountPropertyOptions: [
+            [] as AIContextAccountPropertyApi[],
+            {
+                loadAccountPropertyOptions: async () => {
+                    const teamId = values.currentTeam?.id
+                    if (!teamId) {
+                        return []
+                    }
+                    try {
+                        return await conversationsAiContextAccountPropertiesList(String(teamId))
+                    } catch {
+                        lemonToast.error(
+                            "Couldn't load account properties. Refresh the page, and if it keeps happening contact support."
+                        )
+                        return values.accountPropertyOptions
+                    }
                 },
             },
         ],
@@ -1233,6 +1288,18 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (s) => [s.currentTeam],
             (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
                 !!currentTeam?.conversations_settings?.ai_diagnostics_enabled,
+        ],
+        aiContextAccountPropertyIds: [
+            (s) => [s.currentTeam],
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): string[] => {
+                const raw = currentTeam?.conversations_settings?.ai_context_account_property_ids
+                if (!Array.isArray(raw)) {
+                    return []
+                }
+                return raw
+                    .filter((id): id is string => typeof id === 'string')
+                    .slice(0, MAX_AI_CONTEXT_ACCOUNT_PROPERTY_IDS)
+            },
         ],
         aiEnabledChannels: [
             (s) => [s.currentTeam, s.emailConfigs],
@@ -1769,6 +1836,27 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 actions.setPlaybookSaving(false)
             }
         },
+        setAiContextAccountPropertyIds: async ({ ids }) => {
+            if (values.aiContextAccountPropertiesSaving) {
+                return
+            }
+            const next = [...new Set(ids)].slice(0, MAX_AI_CONTEXT_ACCOUNT_PROPERTY_IDS)
+            const current = values.aiContextAccountPropertyIds
+            if (next.length === current.length && next.every((id, index) => id === current[index])) {
+                return
+            }
+            actions.setAiContextAccountPropertiesSaving(true)
+            try {
+                await teamLogic.asyncActions.updateCurrentTeam({
+                    conversations_settings: {
+                        ...values.currentTeam?.conversations_settings,
+                        ai_context_account_property_ids: next,
+                    },
+                })
+            } finally {
+                actions.setAiContextAccountPropertiesSaving(false)
+            }
+        },
         connectGithub: async ({ integrationId }) => {
             try {
                 // nosemgrep: prefer-codegen-api
@@ -1804,6 +1892,13 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             // navigation). Backfill once the team arrives so the editor doesn't stay empty.
             if (!values.playbook && !values.playbookLoading) {
                 actions.loadPlaybook()
+            }
+            if (
+                values.featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] &&
+                values.accountPropertyOptions.length === 0 &&
+                !values.accountPropertyOptionsLoading
+            ) {
+                actions.loadAccountPropertyOptions()
             }
         },
         updateCurrentTeamSuccess: ({ payload }) => {
@@ -1887,5 +1982,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             actions.loadGithubRepos()
         }
         actions.loadPlaybook()
+        if (values.featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]) {
+            actions.loadAccountPropertyOptions()
+        }
     }),
 ])
