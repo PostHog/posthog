@@ -134,6 +134,19 @@ function requiredGate(wf: Workflow, cwd: string, context: Context): SpawnSyncRet
 }
 
 describe('Backend CI comparison boundaries', () => {
+    it('keeps the Depot cancellation credential behind a trusted trigger', () => {
+        const backend = readFileSync(path.join(REPO_ROOT, '.depot/workflows/ci-backend.yml'), 'utf8')
+        const privileged = readFileSync(
+            path.join(REPO_ROOT, '.depot/workflows/ci-backend-privileged.yml'),
+            'utf8'
+        )
+
+        expect(backend).not.toContain('DEPOT_CI_CANCEL_TOKEN')
+        expect(privileged).toContain('pull_request_target:')
+        expect(privileged).toContain('DEPOT_CI_CANCEL_TOKEN')
+        expect(privileged).not.toContain('actions/checkout')
+    })
+
     it.each(WORKFLOWS)('%s selects a stack layer without counting newer trunk files', (file) => {
         const repo = createGraph()
         try {

@@ -62,14 +62,11 @@
 #   failure to a placeholder before posting the SQL preview comment. The shadow strips
 #   comment side effects (above) and runs no sqlmigrate loop, so those changes need no
 #   depot bump.
-# - Deterministic-failure self-cancel: the cancel jobs call `depot ci cancel --workflow`, not
-#   `gh run cancel`, with an organization API token from the DEPOT_CI_CANCEL_TOKEN Depot
-#   secret, because the `depot ci` API rejects the DEPOT_TOKEN that Depot injects. They look
-#   the workflow up by pull request and head SHA, so they also cancel any other running copy
-#   for that commit, which fails the same way. Without the secret they only post the notice.
-#   Depot check runs carry no annotations, so canonical's `Django Tests Pass` reads the cancel
-#   jobs' check runs to name the root cause. The gate's hand-off `&&` is safe only while its
-#   status remains optional.
+# - Deterministic-failure self-cancel: these jobs publish trusted signals without secrets.
+#   The pull_request_target workflow in ci-backend-privileged.yml reads those signals and
+#   cancels the matching run from the base branch context. Depot check runs carry no
+#   annotations, so canonical's `Django Tests Pass` reads the signal jobs to name the root
+#   cause. The gate's hand-off `&&` is safe only while its status remains optional.
 # - Workflow-name expressions remain literal, so the role cannot switch names through a
 #   variable; the cutover renames the workflow in a plain edit.
 # - events_json variants: gated on the test-new-events-schema label only; canonical also
@@ -1597,7 +1594,7 @@ jobs:
               if: failure() && steps.setup-complete.outcome == 'success'
               run: echo "deterministic_failure=true" >> "$GITHUB_OUTPUT"
 
-    # Canonical's `Django Tests Pass` reads this job's check run by name, so keep the name in sync.
+    # Canonical and the trusted cancellation workflow read this job's check run by name.
     cancel-backend-on-repo-check-failure:
         needs: [repo-checks]
         if: >
@@ -1611,24 +1608,8 @@ jobs:
         name: Cancel Backend CI after repo check failure
         runs-on: depot-ubuntu-24.04
         steps:
-            - name: Set up Depot CLI
-              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
-            - name: Cancel run
-              env:
-                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_CANCEL_TOKEN }}
-                  REPO: ${{ github.repository }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-              run: |
-                  set -euo pipefail
-                  echo "::notice title=Repo checks failed deterministically::A retry cannot fix this failure; push a fix to start a new run."
-                  [ -n "$DEPOT_TOKEN" ] || { echo "DEPOT_CI_CANCEL_TOKEN is not set, so the remaining Backend CI jobs keep running."; exit 0; }
-                  depot ci workflow list --repo "$REPO" --pr "$PR_NUMBER" --sha "$HEAD_SHA" --status running -o json \
-                      | jq -r '.[] | select(.workflow_path == "ci-backend.yml") | "\(.run_id) \(.workflow_id)"' > "$RUNNER_TEMP/workflows"
-                  [ -s "$RUNNER_TEMP/workflows" ] || echo "::warning::No running Backend CI workflow on Depot for $HEAD_SHA"
-                  while read -r run workflow; do
-                      depot ci cancel "$run" --workflow "$workflow"
-                  done < "$RUNNER_TEMP/workflows"
+            - name: Signal deterministic repo-check failure
+              run: echo "::notice title=Repo checks failed deterministically::A retry cannot fix this failure; push a fix to start a new run."
 
     validate-product-yamls:
         needs: [changes]
@@ -2137,7 +2118,7 @@ jobs:
               if: failure() && steps.openapi-check.outcome == 'failure'
               run: echo "deterministic_failure=true" >> "$GITHUB_OUTPUT"
 
-    # Mirrors cancel-backend-on-repo-check-failure, including the check-run name sync.
+    # Mirrors cancel-backend-on-repo-check-failure, including its signal contract.
     cancel-backend-on-openapi-check-failure:
         needs: [check-openapi-types]
         if: >
@@ -2151,24 +2132,8 @@ jobs:
         name: Cancel Backend CI after OpenAPI check failure
         runs-on: depot-ubuntu-24.04
         steps:
-            - name: Set up Depot CLI
-              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
-            - name: Cancel run
-              env:
-                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_CANCEL_TOKEN }}
-                  REPO: ${{ github.repository }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-              run: |
-                  set -euo pipefail
-                  echo "::notice title=OpenAPI check failed deterministically::A retry cannot fix this failure; push a fix to start a new run."
-                  [ -n "$DEPOT_TOKEN" ] || { echo "DEPOT_CI_CANCEL_TOKEN is not set, so the remaining Backend CI jobs keep running."; exit 0; }
-                  depot ci workflow list --repo "$REPO" --pr "$PR_NUMBER" --sha "$HEAD_SHA" --status running -o json \
-                      | jq -r '.[] | select(.workflow_path == "ci-backend.yml") | "\(.run_id) \(.workflow_id)"' > "$RUNNER_TEMP/workflows"
-                  [ -s "$RUNNER_TEMP/workflows" ] || echo "::warning::No running Backend CI workflow on Depot for $HEAD_SHA"
-                  while read -r run workflow; do
-                      depot ci cancel "$run" --workflow "$workflow"
-                  done < "$RUNNER_TEMP/workflows"
+            - name: Signal deterministic OpenAPI failure
+              run: echo "::notice title=OpenAPI check failed deterministically::A retry cannot fix this failure; push a fix to start a new run."
 
     build_django_matrix:
         name: Build Django matrix

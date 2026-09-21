@@ -1,0 +1,107 @@
+name: Privileged Depot backend controls
+
+# This trigger uses the default branch version of the workflow. Never check out or execute
+# pull request code here because this workflow receives an organization-scoped Depot token.
+# nosemgrep: semgrep.rules.github-actions-pull-request-target
+on:
+    pull_request_target:
+        types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+    group: privileged-depot-backend-controls-${{ github.event.pull_request.number }}
+    cancel-in-progress: true
+
+permissions:
+    checks: read
+    contents: read
+
+jobs:
+    cancel-deterministic-failure:
+        name: Cancel deterministic Depot backend failure
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 60
+        steps:
+            - name: Wait for a deterministic failure signal
+              id: signal
+              env:
+                  DEPOT_APP_ID: '219785'
+                  EVENT_AT: ${{ github.event.pull_request.updated_at }}
+                  GH_TOKEN: ${{ github.token }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+
+                  check_state() {
+                      local name=$1
+                      local app_id=${2:-}
+                      local args=(-X GET "repos/$REPO/commits/$HEAD_SHA/check-runs" -f check_name="$name" -f per_page=100)
+                      if [ -n "$app_id" ]; then
+                          args+=(-f app_id="$app_id")
+                      fi
+                      gh api "${args[@]}" | jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" \
+                          '[.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))] | max_by(.id) | if . == null then "" elif .status == "completed" then .conclusion // "" else .status end'
+                  }
+
+                  deadline=$((SECONDS + 3300))
+                  while [ "$SECONDS" -lt "$deadline" ]; do
+                      handoff=$(check_state "Hand off backend tests to Depot CI")
+                      case "$handoff" in
+                          success) ;;
+                          ""|queued|in_progress|pending|waiting|requested)
+                              sleep 15
+                              continue
+                              ;;
+                          *)
+                              echo "Backend CI stayed on GitHub Actions (handoff: $handoff)."
+                              exit 0
+                              ;;
+                      esac
+
+                      repo_signal=$(check_state "Cancel Backend CI after repo check failure" "$DEPOT_APP_ID")
+                      openapi_signal=$(check_state "Cancel Backend CI after OpenAPI check failure" "$DEPOT_APP_ID")
+                      if [ "$repo_signal" = success ]; then
+                          echo "reason=repo" >> "$GITHUB_OUTPUT"
+                          exit 0
+                      fi
+                      if [ "$openapi_signal" = success ]; then
+                          echo "reason=openapi" >> "$GITHUB_OUTPUT"
+                          exit 0
+                      fi
+
+                      gate=$(check_state "Django Tests Pass on Depot" "$DEPOT_APP_ID")
+                      case "$gate" in
+                          success|failure|cancelled|skipped)
+                              echo "Depot finished without a deterministic-failure signal (gate: $gate)."
+                              exit 0
+                              ;;
+                      esac
+                      sleep 15
+                  done
+                  echo "::warning::No terminal Depot backend signal for $HEAD_SHA within 55 minutes"
+
+            - name: Set up Depot CLI
+              if: steps.signal.outputs.reason != ''
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
+            - name: Cancel the matching workflow
+              if: steps.signal.outputs.reason != ''
+              env:
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_CANCEL_TOKEN }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+                  [ -n "$DEPOT_TOKEN" ] || { echo "::error::DEPOT_CI_CANCEL_TOKEN is not available to the trusted workflow"; exit 1; }
+                  depot ci workflow list --repo "$REPO" --pr "$PR_NUMBER" --sha "$HEAD_SHA" --status running -o json \
+                      | jq -r '.[] | select(.workflow_path == "ci-backend.yml") | "\(.run_id) \(.workflow_id)"' > "$RUNNER_TEMP/workflows"
+                  if [ ! -s "$RUNNER_TEMP/workflows" ]; then
+                      echo "The matching Backend CI workflow already reached a terminal state."
+                      exit 0
+                  fi
+                  while read -r run workflow; do
+                      depot ci cancel "$run" --workflow "$workflow" || echo "::warning::Workflow $workflow reached a terminal state before cancellation"
+                  done < "$RUNNER_TEMP/workflows"
