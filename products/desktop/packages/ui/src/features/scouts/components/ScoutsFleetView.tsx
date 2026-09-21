@@ -201,7 +201,7 @@ export function ScoutsFleetView({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-5">
+    <div className="flex h-full flex-col gap-5">
       {isError || runsQuery.isError || outputQuery.isError ? (
         <output className="text-(--amber-11) text-[12.5px]">
           Some agent data could not refresh. Available data remains visible.{" "}
@@ -378,7 +378,9 @@ export function ScoutsFleetView({
         </Button>
       </div>
 
-      <div className="min-h-0 flex-1">
+      {/* A floor on the height, so many suggestion cards cannot squash the
+          table into a row or two. The page scrolls when the floor does not fit. */}
+      <div className="min-h-80 flex-1">
         <ScoutTable
           configs={visibleConfigs}
           rollups={rollups}
