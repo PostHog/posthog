@@ -30,8 +30,9 @@ export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?
     usePeriodicRerender(15000) // Re-render every 15 seconds for up-to-date `insightRefreshButtonDisabledReason`
 
     const hasResult = !!response && !!((response as any).result || (response as any).results)
+    const refreshLabel = insightDataLoading ? 'Refreshing' : 'Refresh'
     const refreshDisabledReason = insightDataLoading
-        ? 'Refreshing'
+        ? refreshLabel
         : canBypassRefreshDisabled
           ? undefined
           : disabledReason || undefined
@@ -69,7 +70,7 @@ export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?
                             : undefined
                     }
                 >
-                    {insightDataLoading ? 'Refreshing' : 'Refresh'}
+                    {refreshLabel}
                 </LemonButton>
             )}
         </div>

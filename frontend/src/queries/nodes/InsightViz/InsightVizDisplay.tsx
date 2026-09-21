@@ -398,6 +398,8 @@ export function InsightVizDisplay({
         return null
     })()
 
+    const hasBlockingEmptyState = !!BlockingEmptyState
+
     // A chart that draws its own legend inside the plot opts out of the side-legend column, so we
     // don't render two legends. The slope graph always does; trends/stickiness/lifecycle charts
     // (including pie) do when the quill in-chart legend is on (`usesInChartLegend`).
@@ -553,7 +555,7 @@ export function InsightVizDisplay({
             inSharedMode,
             hasQuerySource: !!querySource,
             insightDataLoading,
-            hasBlockingEmptyState: !!BlockingEmptyState,
+            hasBlockingEmptyState,
             hasResults: hasResultRows(insightData),
         }) ? (
             <InsightAIAnalysis />
@@ -606,7 +608,7 @@ export function InsightVizDisplay({
                             hasFunnelResults,
                             isPaths,
                             showComputationMetadata,
-                            hasBlockingEmptyState: !!BlockingEmptyState,
+                            hasBlockingEmptyState,
                             queryFailed,
                         }) && (
                             <div className="flex items-center justify-between gap-2 p-2 flex-wrap-reverse border-b">
