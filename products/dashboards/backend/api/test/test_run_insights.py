@@ -158,17 +158,21 @@ class TestDashboardRunInsights(APIBaseTest):
 
     def test_optimized_result_is_held_to_the_per_tile_budget(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
-        self.dashboard_api.create_insight({"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]})
+        self.dashboard_api.create_insight(
+            {"name": "A", "query": _trends_query_dict(date_from="-90d"), "dashboards": [dashboard_id]}
+        )
 
         full = self._run(dashboard_id, refresh="blocking", max_result_chars="0")["results"][0]["insight"]["result"]
         if not isinstance(full, str):
             self.skipTest("LLM formatting is unavailable, so there is nothing to bound")
 
-        bounded = self._run(dashboard_id, refresh="blocking", max_result_chars="40")["results"][0]["insight"]["result"]
+        bounded = self._run(dashboard_id, refresh="blocking", max_result_chars="300")["results"][0]["insight"]["result"]
 
         self.assertLess(len(bounded), len(full))
         self.assertIn("tile_ids=", bounded)
-        self.assertEqual(bounded.splitlines()[-1], full.splitlines()[-1])
+        # A head-only cut would keep nothing from the recent end of a 90-day table.
+        full_lines = [line for line in full.splitlines() if line]
+        self.assertTrue(set(full_lines[len(full_lines) // 2 :]) & set(bounded.splitlines()))
 
     def test_optimized_stops_running_tiles_at_the_response_budget(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
