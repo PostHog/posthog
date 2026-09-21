@@ -1,9 +1,9 @@
 import { useValues } from 'kea'
 
 import { IconCopy, IconExternal, IconGitLab, IconGithub } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
 
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -72,11 +72,11 @@ export function SourceDataLink({ sourceData }: { sourceData: SourceData }): JSX.
     const ProviderIcon = sourceData.provider ? PROVIDER_ICON_MAP[sourceData.provider] : null
     const Icon = ProviderIcon || IconExternal
     return (
-        <DropdownMenuItem>
-            <Link to={sourceData.url} target="_blank" className="inline-flex items-center">
-                <Icon className="w-3.5 h-3.5" />
+        <DropdownMenuItem asChild>
+            <LinkPrimitive to={sourceData.url} target="_blank" className={buttonPrimitiveVariants({ menuItem: true })}>
+                <Icon />
                 Open in {PROVIDER_NAME_MAP[sourceData.provider] ?? sourceData.provider}
-            </Link>
+            </LinkPrimitive>
         </DropdownMenuItem>
     )
 }

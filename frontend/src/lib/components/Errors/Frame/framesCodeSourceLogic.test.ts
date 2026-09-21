@@ -16,7 +16,7 @@ describe('framesCodeSourceLogic', () => {
         useMocks({
             post: {
                 '/api/projects/:team_id/error_tracking/git-provider-file-links/resolve/': async ({ request }) => {
-                    requests.push(await request.json())
+                    requests.push((await request.json()) as { release_id: string; raw_ids: string[] })
                     return [
                         200,
                         {
