@@ -204,6 +204,22 @@ Models that invalidate the flags cache:
 
 Remote config uses a different caching strategy than local evaluation. It prioritizes zero-overhead cache hits by using Redis-only caching for serving, with HyperCache used only for background sync operations.
 
+The remote-config response includes `sdkDiagnosticsEnabled`, a boolean that is true only when all three conditions hold:
+
+- The internal `SDK_DIAGNOSTICS_ENABLED` environment setting is `true` (default: `false`).
+- The organization's `sdk_diagnostics_opt_out` is `false` (default).
+- The project's `sdk_diagnostics_opt_out` is `false` (default).
+
+Organization admins can set `sdk_diagnostics_opt_out` through `PATCH /api/organizations/{id}/` to disable SDK diagnostics for every project.
+Project admins can set it through `PATCH /api/projects/{id}/` to disable diagnostics for one project.
+No settings-page controls are exposed.
+Neither preference overrides a disable at a higher level.
+Organization changes enqueue remote-config updates for all projects in that organization after the transaction commits; project changes use the existing team-save refresh.
+
+Changing the global setting requires restarting the config-building workers and running `sync_all_remote_configs` to rebuild and sync existing remote configs.
+Changes take effect after the cache update and the SDK's next remote-config fetch, not immediately.
+SDKs must consume `sdkDiagnosticsEnabled` to apply this control; returning it does not implement diagnostic reporting in an SDK.
+
 ### Cache lookup flow
 
 ```python

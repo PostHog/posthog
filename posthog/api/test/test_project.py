@@ -37,6 +37,18 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
     client_class = EnvironmentToProjectRewriteClient
 
+    def test_admin_can_toggle_sdk_diagnostics_opt_out(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        for opt_out in (True, False):
+            with self.subTest(opt_out=opt_out):
+                response = self.client.patch(f"/api/projects/{self.project.id}/", {"sdk_diagnostics_opt_out": opt_out})
+                assert response.status_code == status.HTTP_200_OK
+                assert response.json()["sdk_diagnostics_opt_out"] is opt_out
+                self.team.refresh_from_db()
+                assert self.team.sdk_diagnostics_opt_out is opt_out
+
     def test_projects_outside_personal_api_key_scoped_organizations_not_listed(self):
         other_org, _, team_in_other_org = Organization.objects.bootstrap(self.user)
         personal_api_key = generate_random_token_personal()

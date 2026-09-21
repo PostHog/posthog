@@ -179,6 +179,22 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.name, "QWERTY")
 
+    @parameterized.expand([(OrganizationMembership.Level.ADMIN, 200), (OrganizationMembership.Level.MEMBER, 403)])
+    def test_update_sdk_diagnostics_opt_out(self, membership_level: int, expected_status: int) -> None:
+        self.organization_membership.level = membership_level
+        self.organization_membership.save()
+
+        for opt_out in (True, False):
+            with self.subTest(opt_out=opt_out):
+                response = self.client.patch(
+                    f"/api/organizations/{self.organization.id}/", {"sdk_diagnostics_opt_out": opt_out}
+                )
+                assert response.status_code == expected_status
+                self.organization.refresh_from_db()
+                assert self.organization.sdk_diagnostics_opt_out is (opt_out if expected_status == 200 else False)
+                if expected_status == 200:
+                    assert response.json()["sdk_diagnostics_opt_out"] is opt_out
+
     def test_cannot_update_organization_if_not_owner_or_admin(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()

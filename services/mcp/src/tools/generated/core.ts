@@ -135,6 +135,7 @@ const ProjectCreateSchema = () => {
         data_attributes: true,
         person_display_name_properties: true,
         correlation_config: true,
+        sdk_diagnostics_opt_out: true,
         autocapture_opt_out: true,
         autocapture_exceptions_opt_in: true,
         autocapture_web_vitals_opt_in: true,
@@ -324,6 +325,9 @@ const projectSettingsUpdate = (): ToolBase<
         }
         if (params.correlation_config !== undefined) {
             body['correlation_config'] = params.correlation_config
+        }
+        if (params.sdk_diagnostics_opt_out !== undefined) {
+            body['sdk_diagnostics_opt_out'] = params.sdk_diagnostics_opt_out
         }
         if (params.autocapture_opt_out !== undefined) {
             body['autocapture_opt_out'] = params.autocapture_opt_out

@@ -246,6 +246,13 @@ class Organization(ModelActivityMixin, UUIDTModel):
     is_member_join_email_enabled = models.BooleanField(
         default=True
     )  # DEPRECATED in favor of User.partial_notification_settings
+    sdk_diagnostics_opt_out = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Disables SDK diagnostics for every project in this organization when true.",
+    )
+    _sdk_diagnostics_opt_out_changed: bool = False
+
     is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=True)
     is_ai_training_opted_in = models.BooleanField(
         default=True,

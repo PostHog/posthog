@@ -515,6 +515,7 @@ TEAM_CONFIG_FIELDS = (
     "data_attributes",
     "person_display_name_properties",
     "correlation_config",
+    "sdk_diagnostics_opt_out",
     "autocapture_opt_out",
     "autocapture_exceptions_opt_in",
     "autocapture_web_vitals_opt_in",

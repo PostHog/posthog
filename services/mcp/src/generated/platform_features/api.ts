@@ -54,6 +54,10 @@ export const PartialUpdateBody = () => zod.object({
         .describe(
             "When True, requests through the PostHog MCP server can read but not change this organization's data."
         ),
+    sdk_diagnostics_opt_out: zod
+        .boolean()
+        .optional()
+        .describe('Disables SDK diagnostics for every project in this organization when true.'),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()

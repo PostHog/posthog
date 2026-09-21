@@ -106,6 +106,8 @@ export interface OrganizationApi {
      */
     read_only_mcp_access?: boolean | null
     readonly member_count: number
+    /** Disables SDK diagnostics for every project in this organization when true. */
+    sdk_diagnostics_opt_out?: boolean
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
     /**
@@ -219,6 +221,8 @@ export interface PatchedOrganizationApi {
      */
     read_only_mcp_access?: boolean | null
     readonly member_count?: number
+    /** Disables SDK diagnostics for every project in this organization when true. */
+    sdk_diagnostics_opt_out?: boolean
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
     /**

@@ -137,6 +137,7 @@ post_save:posthog.models.remote_config.site_app_saved
 post_save:posthog.models.remote_config.site_function_changed
 post_save:posthog.models.remote_config.survey_saved
 post_save:posthog.models.remote_config.team_saved
+post_save:posthog.models.remote_config.update_remote_config_for_organization
 post_save:posthog.models.team.extensions.register_team_extension_signal.<locals>.receiver_func
 post_save:posthog.models.team.team.put_team_in_cache_on_save
 post_save:posthog.models.team.team.reevaluate_authorized_urls_health
@@ -260,6 +261,7 @@ pre_save:posthog.models.organization.organization_about_to_be_created
 pre_save:posthog.models.organization.organization_membership_saved
 pre_save:posthog.models.organization.remember_organization_is_active_change
 pre_save:posthog.models.product_intent.product_intent._capture_original_team_id
+pre_save:posthog.models.remote_config.remember_organization_sdk_diagnostics_change
 pre_save:posthog.models.user._pause_loops_on_user_deactivation
 pre_save:posthog.models.user._revoke_sessions_on_user_deactivation
 pre_save:posthog.storage.gateway_credential_signal_handlers._capture_old_membership_level_if_deferred

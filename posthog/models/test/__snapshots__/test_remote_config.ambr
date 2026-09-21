@@ -30,6 +30,7 @@
       'appIds': list([
       ]),
     }),
+    'sdkDiagnosticsEnabled': False,
     'sessionRecording': dict({
       'canvasFps': None,
       'canvasQuality': None,

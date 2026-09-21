@@ -467,6 +467,15 @@ class Team(UUIDTClassicModel):
     capture_dead_clicks = field_access_control(
         models.BooleanField(null=True, blank=True, default=False), "project", "admin"
     )
+    sdk_diagnostics_opt_out = field_access_control(
+        models.BooleanField(
+            default=False,
+            db_default=False,
+            help_text="Disables SDK diagnostics for this project when true.",
+        ),
+        "project",
+        "admin",
+    )
     autocapture_opt_out = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
     autocapture_web_vitals_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
     autocapture_web_vitals_allowed_metrics = field_access_control(

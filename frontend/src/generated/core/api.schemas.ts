@@ -2536,6 +2536,8 @@ export interface ProjectBackwardCompatApi {
      */
     person_display_name_properties?: string[] | null
     correlation_config?: unknown
+    /** Disables SDK diagnostics for this project when true. */
+    sdk_diagnostics_opt_out?: boolean
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable
@@ -3403,6 +3405,8 @@ export interface PatchedProjectBackwardCompatApi {
      */
     person_display_name_properties?: string[] | null
     correlation_config?: unknown
+    /** Disables SDK diagnostics for this project when true. */
+    sdk_diagnostics_opt_out?: boolean
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable
@@ -4412,6 +4416,8 @@ export interface OrganizationApi {
      */
     read_only_mcp_access?: boolean | null
     readonly member_count: number
+    /** Disables SDK diagnostics for every project in this organization when true. */
+    sdk_diagnostics_opt_out?: boolean
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
     /**

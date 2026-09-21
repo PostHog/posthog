@@ -36,6 +36,18 @@ def update_team_remote_config(team_id: int, bypass_recordings_quota_cache: bool 
     remote_config.sync(bypass_recordings_quota_cache=bypass_recordings_quota_cache)
 
 
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.DEFAULT.value,
+    soft_time_limit=300,
+    time_limit=360,
+)
+@skip_team_scope_audit
+def update_organization_remote_configs(organization_id: str) -> None:
+    for team_id in Team.objects.filter(organization_id=organization_id).values_list("id", flat=True).iterator():
+        update_team_remote_config.delay(team_id)
+
+
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 @skip_team_scope_audit
 def sync_all_remote_configs() -> None:
