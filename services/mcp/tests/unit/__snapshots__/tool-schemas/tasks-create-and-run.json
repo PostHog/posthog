@@ -26,7 +26,7 @@
         },
         "reasoning_effort": {
             "description": "Optional effort supported by the selected model. Requires model. See tasks-models-retrieve.",
-            "minLength": 1,
+            "enum": ["low", "medium", "high", "xhigh", "max", "ultracode"],
             "type": "string"
         },
         "repository": {

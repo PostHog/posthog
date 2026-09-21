@@ -93,6 +93,18 @@ describe('Generated task tools', () => {
         }
     )
 
+    it.each(['tasks-create-and-run', 'tasks-run-create'])('%s rejects a run option the API rejects', (name) => {
+        const schema = GENERATED_TOOL_MAP[name]!().schema
+        const base = { id: '00000000-0000-4000-8000-000000000001', description: 'Check the result' }
+
+        expect(() => schema.parse({ ...base, model: 'gpt-5.3-codex', reasoning_effort: 'very-high' })).toThrow()
+        expect(() => schema.parse({ ...base, reasoning_effort: 'high' })).toThrow()
+        expect(schema.parse({ ...base, model: 'gpt-5.3-codex', reasoning_effort: 'high' })).toMatchObject({
+            model: 'gpt-5.3-codex',
+            reasoning_effort: 'high',
+        })
+    })
+
     it.each(['2026-09-19T12:00:00Z', '2026-09-19T14:00:00+02:00', '2026-09-19T12:00:00'])(
         'accepts scheduled time %s',
         (scheduled_at) => {

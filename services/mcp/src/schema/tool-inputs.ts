@@ -689,11 +689,27 @@ const taskAgentRunOptions = {
         .describe(
             'Omit to use saved defaults, or the prior model on resume. For an explicit choice, first call tasks-models-retrieve. The server derives the runtime adapter and saves the choice now.'
         ),
+    // Mirrors the run serializer's choices, unlike the deliberately loose `model`, so the tool
+    // cannot offer a depth the API rejects.
     reasoning_effort: z
-        .string()
-        .min(1)
+        .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
         .optional()
         .describe('Optional effort supported by the selected model. Requires model. See tasks-models-retrieve.'),
+}
+
+// Mirrors the run serializer's runtime-selection rule. Its 400 also names runtime_adapter, which
+// these tools do not expose, so fail here naming only the field the caller can set.
+function validateTaskAgentRunOptions(
+    data: { model?: string | undefined; reasoning_effort?: string | undefined },
+    ctx: z.RefinementCtx
+): void {
+    if (data.reasoning_effort && !data.model) {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['model'],
+            message: 'Required when reasoning_effort is set. Call tasks-models-retrieve to choose a model.',
+        })
+    }
 }
 
 export const TaskAgentCreateSchema = z
@@ -704,6 +720,7 @@ export const TaskAgentCreateSchema = z
         branch: z.string().min(1).max(255).nullish().describe('Base branch for the run.'),
         ...taskAgentRunOptions,
     })
+    .superRefine(validateTaskAgentRunOptions)
     .transform((input) => ({ ...input, start_run: true as const }))
 
 export const TaskAgentRunCreateSchema = z
@@ -714,6 +731,7 @@ export const TaskAgentRunCreateSchema = z
         pending_user_message: z.string().optional().describe('Initial or follow-up message for the run.'),
         ...taskAgentRunOptions,
     })
+    .superRefine(validateTaskAgentRunOptions)
     .transform((input) => ({ ...input, mode: 'background' as const, run_source: 'agent' as const }))
 
 // Debug MCP UI Apps
