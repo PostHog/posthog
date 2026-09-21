@@ -29,7 +29,6 @@ from products.tasks.backend.storage_errors import TaskRunLogAppendUnserialized a
 
 
 class DesktopAccessReason(StrEnum):
-    STARTUP_PLAN = "startup_plan"
     PREPAID_CREDITS = "prepaid_credits"
 
 

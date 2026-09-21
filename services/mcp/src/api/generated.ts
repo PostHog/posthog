@@ -30334,14 +30334,12 @@ export namespace Schemas {
     }
 
     /**
-     * * `startup_plan` - startup_plan
      * * `prepaid_credits` - prepaid_credits
      */
     export type DesktopAccessReasonEnum = typeof DesktopAccessReasonEnum[keyof typeof DesktopAccessReasonEnum];
 
 
     export const DesktopAccessReasonEnum = {
-      StartupPlan: 'startup_plan',
       PrepaidCredits: 'prepaid_credits',
     } as const;
 
@@ -30350,7 +30348,6 @@ export namespace Schemas {
       allowed: boolean;
       /** Why Desktop access is blocked, or null when access is allowed.
        *
-       * * `startup_plan` - startup_plan
        * * `prepaid_credits` - prepaid_credits */
       reason: DesktopAccessReasonEnum | null;
     }
@@ -93631,7 +93628,6 @@ export namespace Schemas {
       retry_token?: string;
       /** Why PostHog Desktop access was denied, when applicable.
        *
-       * * `startup_plan` - startup_plan
        * * `prepaid_credits` - prepaid_credits */
       reason?: DesktopAccessReasonEnum;
       /** Request field associated with the error */

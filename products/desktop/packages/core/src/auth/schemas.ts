@@ -65,6 +65,8 @@ export function pickInitialProjectId(args: {
   return allProjectIds[0] ?? null;
 }
 
+// "startup_plan" is no longer sent — the backend lets Startup and YC organizations in and caps
+// their spend instead. A client that updates before the backend deploys still has to parse it.
 const desktopAccessReasonSchema = z.enum(["startup_plan", "prepaid_credits"]);
 export const desktopAccessResponseSchema = z.union([
   z.object({ allowed: z.literal(true), reason: z.null() }),
