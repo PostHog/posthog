@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -11,6 +12,7 @@ import type {
     AwsTenantReputationHealthEnumApi,
     EmailSendingAllowanceApi,
     EmailSendingRatesApi,
+    EmailSendingTierLimitsApi,
     IspSendingHealthApi,
     WorkflowEmailSendingRatesApi,
 } from 'products/workflows/frontend/generated/api.schemas'
@@ -414,6 +416,49 @@ function TeamRatesCard({
     )
 }
 
+const SENDING_TIER_DOCS_URL = 'https://posthog.com/docs/workflows/sending-reputation#sending-allowance-tiers'
+
+function SendingTierTable({
+    tiers,
+    currentTier,
+}: {
+    tiers: readonly EmailSendingTierLimitsApi[]
+    currentTier: number
+}): JSX.Element {
+    return (
+        <div className="space-y-1">
+            <div className="font-semibold">Sending tiers</div>
+            <table className="text-xs" data-attr="workflows-sending-tier-table">
+                <thead>
+                    <tr className="text-left">
+                        <th className="pr-3 font-normal">Tier</th>
+                        <th className="pr-3 font-normal text-right">Per hour</th>
+                        <th className="pr-3 font-normal text-right">Per day</th>
+                        <th className="font-normal text-right">Batch audience</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {tiers.map((limits) => {
+                        const isCurrent = limits.tier === currentTier
+                        return (
+                            <tr key={limits.tier} className={isCurrent ? 'font-semibold' : undefined}>
+                                <td className="pr-3">
+                                    {limits.tier}
+                                    {isCurrent ? ' (you)' : ''}
+                                </td>
+                                <td className="pr-3 text-right">{humanFriendlyNumber(limits.per_hour)}</td>
+                                <td className="pr-3 text-right">{humanFriendlyNumber(limits.per_day)}</td>
+                                <td className="text-right">{humanFriendlyNumber(limits.max_batch_audience)}</td>
+                            </tr>
+                        )
+                    })}
+                </tbody>
+            </table>
+            <div>A project moves up one tier at a time by sending with low bounce and complaint rates.</div>
+        </div>
+    )
+}
+
 function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceApi }): JSX.Element {
     const hourlyPercent = Math.min(100, (allowance.emails_sent_last_hour / allowance.emails_per_hour) * 100)
     const dailyPercent = Math.min(100, (allowance.emails_sent_last_day / allowance.emails_per_day) * 100)
@@ -426,15 +471,21 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                         Tier {allowance.tier} of {allowance.max_tier}
                     </LemonTag>
                 </Tooltip>
+                <Tooltip
+                    title={<SendingTierTable tiers={allowance.tiers} currentTier={allowance.tier} />}
+                    docLink={SENDING_TIER_DOCS_URL}
+                    containerClassName="max-w-md"
+                >
+                    <IconInfo
+                        className="text-base text-secondary cursor-help"
+                        data-attr="workflows-sending-tier-info"
+                    />
+                </Tooltip>
             </div>
             <p className="text-secondary mt-2 mb-0">
                 Your allowance grows as your workflows keep sending with low bounce and spam complaint rates. Emails
                 above the allowance are not dropped, they are sent later.{' '}
-                <Link
-                    to="https://posthog.com/docs/workflows/sending-reputation#sending-allowance-tiers"
-                    target="_blank"
-                    data-attr="workflows-sending-allowance-docs-link"
-                >
+                <Link to={SENDING_TIER_DOCS_URL} target="_blank" data-attr="workflows-sending-allowance-docs-link">
                     See what each tier allows and how to move up
                 </Link>
             </p>

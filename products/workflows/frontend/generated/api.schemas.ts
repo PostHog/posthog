@@ -1639,6 +1639,20 @@ export interface IspSendingHealthApi {
 }
 
 /**
+ * The caps one sending tier grants.
+ */
+export interface EmailSendingTierLimitsApi {
+    /** The tier these caps belong to, starting at 0. */
+    readonly tier: number
+    /** How many emails this tier allows per hour. */
+    readonly per_hour: number
+    /** How many emails this tier allows per day. */
+    readonly per_day: number
+    /** The largest audience this tier allows for a single batch send. */
+    readonly max_batch_audience: number
+}
+
+/**
  * How much workflow email this project may send, and how much of that it has used.
  */
 export interface EmailSendingAllowanceApi {
@@ -1658,6 +1672,8 @@ export interface EmailSendingAllowanceApi {
     readonly emails_sent_last_day: number
     /** True when these allowances are applied to sends. False while they are only being measured. */
     readonly enforced: boolean
+    /** The caps of every tier, lowest tier first, so a project can see what the next tier unlocks. */
+    readonly tiers: readonly EmailSendingTierLimitsApi[]
 }
 
 export interface TeamEmailReputationResponseApi {

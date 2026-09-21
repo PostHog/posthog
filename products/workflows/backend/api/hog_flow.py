@@ -195,7 +195,12 @@ from products.workflows.backend.utils.durations import (
     is_duration,
     is_signed_duration,
 )
-from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
+from products.workflows.backend.utils.email_sending_tiers import (
+    EmailSendingTierLimits,
+    get_email_sending_tier_limits,
+    max_email_sending_tier,
+    resolve_team_email_sending_tier,
+)
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 logger = structlog.get_logger(__name__)
@@ -2207,6 +2212,8 @@ class EmailSendingAllowance:
     emails_sent_last_hour: int
     emails_sent_last_day: int
     enforced: bool
+    # Every tier's caps, lowest first, so the UI can show what the next tier unlocks.
+    tiers: tuple[EmailSendingTierLimits, ...]
 
 
 def _team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
@@ -2231,6 +2238,7 @@ def _team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
         emails_sent_last_hour=_team_email_sends_since(team_id, now - timedelta(hours=1)),
         emails_sent_last_day=_team_email_sends_since(team_id, now - timedelta(days=1)),
         enforced=resolved.enforced,
+        tiers=tuple(get_email_sending_tier_limits(tier) for tier in range(max_email_sending_tier() + 1)),
     )
     cache.set(cache_key, allowance, SENDING_ALLOWANCE_CACHE_SECONDS)
     return allowance
@@ -2611,6 +2619,17 @@ class IspSendingHealthSerializer(serializers.Serializer):
     )
 
 
+class EmailSendingTierLimitsSerializer(serializers.Serializer):
+    """The caps one sending tier grants."""
+
+    tier = serializers.IntegerField(read_only=True, help_text="The tier these caps belong to, starting at 0.")
+    per_hour = serializers.IntegerField(read_only=True, help_text="How many emails this tier allows per hour.")
+    per_day = serializers.IntegerField(read_only=True, help_text="How many emails this tier allows per day.")
+    max_batch_audience = serializers.IntegerField(
+        read_only=True, help_text="The largest audience this tier allows for a single batch send."
+    )
+
+
 class EmailSendingAllowanceSerializer(serializers.Serializer):
     """How much workflow email this project may send, and how much of that it has used."""
 
@@ -2635,6 +2654,11 @@ class EmailSendingAllowanceSerializer(serializers.Serializer):
     enforced = serializers.BooleanField(
         read_only=True,
         help_text="True when these allowances are applied to sends. False while they are only being measured.",
+    )
+    tiers = EmailSendingTierLimitsSerializer(
+        many=True,
+        read_only=True,
+        help_text="The caps of every tier, lowest tier first, so a project can see what the next tier unlocks.",
     )
 
 

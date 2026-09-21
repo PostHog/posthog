@@ -79,6 +79,14 @@ class TestEmailReputationAPI(APIBaseTest):
         assert allowance["enforced"] is False
         assert allowance["emails_sent_last_hour"] == 0
         assert allowance["emails_sent_last_day"] == 0
+        tiers = allowance["tiers"]
+        assert [entry["tier"] for entry in tiers] == list(range(allowance["max_tier"] + 1))
+        assert tiers[allowance["tier"]] == {
+            "tier": allowance["tier"],
+            "per_hour": allowance["emails_per_hour"],
+            "per_day": allowance["emails_per_day"],
+            "max_batch_audience": allowance["max_batch_audience"],
+        }
         assert data == {
             "aws": None,
             "reputation": None,

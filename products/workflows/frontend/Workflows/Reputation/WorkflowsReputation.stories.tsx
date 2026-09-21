@@ -102,6 +102,13 @@ const baseResponse: TeamEmailReputationResponseApi = {
         emails_sent_last_hour: 1200,
         emails_sent_last_day: 18400,
         enforced: true,
+        tiers: [
+            { tier: 0, per_hour: 50, per_day: 100, max_batch_audience: 100 },
+            { tier: 1, per_hour: 500, per_day: 5000, max_batch_audience: 2500 },
+            { tier: 2, per_hour: 5000, per_day: 50000, max_batch_audience: 25000 },
+            { tier: 3, per_hour: 20000, per_day: 200000, max_batch_audience: 100000 },
+            { tier: 4, per_hour: 60000, per_day: 600000, max_batch_audience: 300000 },
+        ],
     },
     email_sending_suspended: false,
     email_sending_suspended_at: null,
