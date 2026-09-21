@@ -44,6 +44,7 @@ async def delete_property_definitions_from_postgres(
 
         # Select a batch of matching property names to coordinate deletes across tables
         batch_names = list(
+            # nosemgrep: taxonomy-scope-uses-project-key -- team-scoped delete on purpose
             PropertyDefinition.objects.filter(
                 team_id=input.team_id,
                 type=input.property_type,
@@ -54,12 +55,14 @@ async def delete_property_definitions_from_postgres(
             return {"property_definitions_deleted": 0, "event_properties_deleted": 0}
 
         with transaction.atomic():
+            # nosemgrep: taxonomy-scope-uses-project-key -- team-scoped delete on purpose
             property_definitions_deleted, _ = PropertyDefinition.objects.filter(
                 team_id=input.team_id,
                 type=input.property_type,
                 name__in=batch_names,
             ).delete()
 
+            # nosemgrep: taxonomy-scope-uses-project-key -- team-scoped delete on purpose
             event_properties_deleted, _ = EventProperty.objects.filter(
                 team_id=input.team_id,
                 property__in=batch_names,
@@ -130,6 +133,7 @@ async def preview_property_definitions(input: PreviewPropertyDefinitionsInput) -
         if not Team.objects.filter(id=input.team_id).exists():
             raise CleanupPropertyDefinitionsError(f"Team {input.team_id} not found")
 
+        # nosemgrep: taxonomy-scope-uses-project-key -- team-scoped delete on purpose
         queryset = PropertyDefinition.objects.filter(
             team_id=input.team_id,
             type=input.property_type,

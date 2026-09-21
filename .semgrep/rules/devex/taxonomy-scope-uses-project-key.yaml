@@ -47,12 +47,12 @@ rules:
                           regex: ^(Enterprise)?(EventDefinition|PropertyDefinition|EventProperty)$
       paths:
           include:
-              - common/**/*.py
-              - ee/**/*.py
-              - posthog/**/*.py
-              - products/**/*.py
+              - /common/**/*.py
+              - /ee/**/*.py
+              - /posthog/**/*.py
+              - /products/**/*.py
               # Test fixture lives here — must be in include so `semgrep --test` exercises the rule.
-              - .semgrep/rules/devex/
+              - /.semgrep/rules/devex/
           exclude:
               - '**/test/**'
               - '**/tests/**'
