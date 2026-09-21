@@ -730,7 +730,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             state_updated_at=now(),
         )
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(1):
             recent_states = load_recent_issue_states(self.team.pk)
 
         self.assertEqual(
@@ -749,7 +749,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         ErrorTrackingIssue.objects.create(
             team=self.team, status=ErrorTrackingIssue.Status.RESOLVED, state_updated_at=now()
         )
-        # Over the bound the rows are never read, so the id probe is the only query.
         with self.assertNumQueries(1):
             self.assertEqual(load_recent_issue_states(self.team.pk), [])
 

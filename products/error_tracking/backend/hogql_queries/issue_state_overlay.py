@@ -8,7 +8,7 @@ from prometheus_client import Counter, Histogram
 
 from posthog.dataclasses import frozen
 
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueAssignment
+from products.error_tracking.backend.models import ErrorTrackingIssue
 
 RECENT_ISSUE_STATE_WINDOW = datetime.timedelta(seconds=60)
 
@@ -68,56 +68,36 @@ def latest_issue_state_watermark(team_id: int) -> datetime.datetime | None:
 
 def load_recent_issue_states(team_id: int, *, current_time: datetime.datetime | None = None) -> list[RecentIssueState]:
     threshold = (current_time or timezone.now()) - RECENT_ISSUE_STATE_WINDOW
-    recent_issue_ids = list(
+    # One bounded read on the (team, state_updated_at) index. The assignment columns come from the
+    # same row, so the overlay never pays a second round trip to hydrate what the index scan found.
+    rows = list(
         ErrorTrackingIssue.objects.using(DEFAULT_DB_ALIAS)
         .filter(team_id=team_id, state_updated_at__gte=threshold)
-        .values_list("id", flat=True)[: MAX_RECENT_ISSUE_STATES + 1]
-    )
-
-    RECENT_ISSUE_STATE_ROW_COUNT.observe(len(recent_issue_ids))
-    # Stop before the row read, which costs an assignment probe plus the unbounded name and
-    # description columns per row — all of it discarded once the bound skips the overlay.
-    if len(recent_issue_ids) > MAX_RECENT_ISSUE_STATES:
-        return []
-
-    issues = (
-        ErrorTrackingIssue.objects.using(DEFAULT_DB_ALIAS)
-        .filter(team_id=team_id, id__in=recent_issue_ids)
-        .select_related("assignment")
-        .only(
+        .values(
             "id",
-            "team_id",
             "status",
             "severity",
             "name",
             "description",
             "assignment__user_id",
             "assignment__role_id",
-        )
+        )[: MAX_RECENT_ISSUE_STATES + 1]
     )
 
-    recent_states: list[RecentIssueState] = []
-    for issue in issues:
-        try:
-            assignment = issue.assignment
-        except ErrorTrackingIssueAssignment.DoesNotExist:
-            assigned_user_id = None
-            assigned_role_id = None
-        else:
-            assigned_user_id = assignment.user_id
-            assigned_role_id = assignment.role_id
+    RECENT_ISSUE_STATE_ROW_COUNT.observe(len(rows))
+    if len(rows) > MAX_RECENT_ISSUE_STATES:
+        return []
 
-        recent_states.append(
-            RecentIssueState(
-                team_id=issue.team_id,
-                issue_id=issue.id,
-                issue_status=issue.status,
-                issue_severity=issue.severity,
-                issue_name=issue.name,
-                issue_description=issue.description,
-                assigned_user_id=assigned_user_id,
-                assigned_role_id=assigned_role_id,
-            )
+    return [
+        RecentIssueState(
+            team_id=team_id,
+            issue_id=row["id"],
+            issue_status=row["status"],
+            issue_severity=row["severity"],
+            issue_name=row["name"],
+            issue_description=row["description"],
+            assigned_user_id=row["assignment__user_id"],
+            assigned_role_id=row["assignment__role_id"],
         )
-
-    return recent_states
+        for row in rows
+    ]
