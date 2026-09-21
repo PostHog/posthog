@@ -1,4 +1,16 @@
-import { LogicWrapper, MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import {
+    LogicWrapper,
+    MakeLogicType,
+    actions,
+    afterMount,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ApiError } from 'lib/api'
@@ -8,7 +20,14 @@ import type { DataQualityCheckScheduleApi, PatchedDataQualityCheckScheduleUpdate
 
 const SCHEDULE_REFRESH_INTERVAL_MS = 30_000
 
-export type DataQualityScheduleLogicProps = DataQualitySubjectRef
+export interface DataQualityScheduleLogicProps extends DataQualitySubjectRef {
+    initialSchedule?: DataQualityCheckScheduleApi | null
+    poll?: boolean
+}
+
+function surfaceStillLoading(initialSchedule: DataQualityCheckScheduleApi | null | undefined): boolean {
+    return initialSchedule === null
+}
 
 export interface DataQualityScheduleError {
     message: string
@@ -144,8 +163,24 @@ export const dataQualityScheduleLogic: LogicWrapper<dataQualityScheduleLogicType
             }
         },
     })),
-    afterMount(({ actions, cache }) => {
-        actions.loadSchedule()
+    propsChanged(({ actions, props, values }, oldProps) => {
+        if (props.initialSchedule && props.initialSchedule !== oldProps.initialSchedule && !values.scheduleLoading) {
+            actions.refreshScheduleSuccess(props.initialSchedule)
+            return
+        }
+        if (surfaceStillLoading(oldProps.initialSchedule) && props.initialSchedule === undefined && !values.schedule) {
+            actions.loadSchedule()
+        }
+    }),
+    afterMount(({ actions, props, cache }) => {
+        if (props.initialSchedule) {
+            actions.refreshScheduleSuccess(props.initialSchedule)
+        } else if (!surfaceStillLoading(props.initialSchedule)) {
+            actions.loadSchedule()
+        }
+        if (props.poll === false) {
+            return
+        }
         cache.disposables.add(() => {
             const refreshTimer = window.setInterval(actions.refreshSchedule, SCHEDULE_REFRESH_INTERVAL_MS)
             return () => window.clearInterval(refreshTimer)
