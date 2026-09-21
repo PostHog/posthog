@@ -1004,7 +1004,7 @@ tools:
         title: List a scout run's emitted findings
         description: >
             Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit with its
-            `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, `tags`, and the
+            `description` (the finding text as surfaced), `confidence`, `severity`, `tags`, and the
             deterministic `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal.
             Use this to see *what* a run actually surfaced, not just how many (`emitted_count`) or which ids
             (`emitted_finding_ids`). Strictly team-scoped — a run UUID belonging to another team returns 404.
@@ -1049,7 +1049,7 @@ tools:
         description: >
             Return the team's recently emitted scout findings across *every* `SignalScoutRun`, newest first — the
             cross-run counterpart to `scout-runs-emissions-list` (which is scoped to one run). Each row carries its
-            `run_id`, `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, `tags`, and the
+            `run_id`, `description` (the finding text as surfaced), `confidence`, `severity`, `tags`, and the
             deterministic `source_id` (`run:<run_id>:finding:<finding_id>`). Use this to answer "what has the fleet
             surfaced lately?" in one call instead of listing runs and fanning out an emissions request per run. Pass
             `skill_name` to scope to a single scout, and `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive
