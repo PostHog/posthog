@@ -1704,33 +1704,33 @@ Note: Headless API (https://api.coassemble.com/api/v1/headless). Docs sections a
 
 ## Coda — gaps
 
-Today (3): `docs`, `rows`, `tables`
+Today (7): `columns`, `doc_analytics`, `docs`, `folders`, `page_analytics`, `rows`, `tables`
 
 Diffed against: <https://coda.io/apis/v1/openapi.json>
 
-- [ ] `/docs/{docId}/tables/{tableIdOrName}/columns` — Column definitions (name, type, formula) that resolve the column IDs used as keys in every synced row - without it rows are unreadable (high)
-- [ ] `/analytics/docs and /analytics/docs/summary` — Per-doc usage analytics (views, active users) - the headline metric for measuring doc adoption across a workspace (high)
+- [x] `/docs/{docId}/tables/{tableIdOrName}/columns` — Column definitions (name, type, formula) that resolve the column IDs used as keys in every synced row - without it rows are unreadable (high)
+- [x] `/analytics/docs` — Per-doc usage analytics (views, active users) - the headline metric for measuring doc adoption across a workspace (high). `/analytics/docs/summary` skipped: it returns a single scalar (`totalSessions`) with no id or grain, not a table.
 - [ ] `/workspaces/{workspaceId}/users` — Workspace member lookup that resolves the owner/creator IDs on docs (medium)
 - [ ] `/docs/{docId}/pages` — Page hierarchy per doc - the structural dimension for content inventory and for joining page analytics (medium)
-- [ ] `/analytics/docs/{docId}/pages` — Page-level view analytics, one grain below doc analytics (medium)
-- [ ] `/folders` — Folder lookup resolving the folder reference each doc carries (medium)
+- [x] `/analytics/docs/{docId}/pages` — Page-level view analytics, one grain below doc analytics (medium)
+- [x] `/folders` — Folder lookup resolving the folder reference each doc carries (medium)
 - [ ] `/docs/{docId}/acl/permissions` — Who a doc is shared with - needed for access and governance reporting over the docs table (low)
 - [ ] `/workspaces/{workspaceId}/roles` — Role lookup that segments workspace users by license/role type (low)
 - [ ] `/docs/{docId}/controls and /docs/{docId}/formulas` — Remaining doc object types, completing the content inventory alongside tables and pages (low)
 - [ ] `/analytics/packs and /analytics/packs/summary` — Pack install and usage analytics, relevant only to workspaces that publish packs (low)
 
-Note: Coda has been rebranded to Superhuman Docs, but the OpenAPI spec is still served at https://coda.io/apis/v1/openapi.json (v1.6.0). The synced rows table returns cells keyed by column ID, which makes the missing columns endpoint a hard blocker rather than a nicety.
+Note: Coda has been rebranded to Superhuman Docs, but the OpenAPI spec is still served at https://coda.io/apis/v1/openapi.json (v1.6.0). The synced rows table returns cells keyed by column ID; the columns table now resolves those ids to names, types, and formulas.
 
 ## Codacy — **thin**
 
-Today (6): `commits`, `files`, `issues`, `organizations`, `pull_requests`, `repositories`
+Today (11): `commit_delta_issues`, `commits`, `files`, `issues`, `metrics_timerange`, `organizations`, `people`, `pull_requests`, `repositories`, `tool_patterns`, `tools`
 
 Diffed against: <https://api.codacy.com/api/api-docs/swagger.yaml>
 
-- [ ] `/organizations/{provider}/{org}/people` — Org member lookup resolving the author identities attached to the commits and pull requests already synced (high)
-- [ ] `/tools and /tools/{toolUuid}/patterns` — Lookup that resolves the toolUuid and patternId every synced issue carries - without it issues cannot be grouped by rule or linter (high)
-- [ ] `/analysis/organizations/{provider}/{org}/repositories/{repo}/commits/{commitUuid}/deltaStatistics and /commits/{srcCommitUuid}/deltaIssues` — New vs fixed issues introduced by each commit - the change-over-time signal the flat issues table cannot produce (high)
-- [ ] `/organizations/{provider}/{org}/metrics/{metricName}/period, /period-grouped, /timerange` — Org-level quality metric time series (Codacy's dashboard numbers) precomputed per period (high)
+- [x] `/organizations/{provider}/{org}/people` — Org member lookup resolving the author identities attached to the commits and pull requests already synced (high)
+- [x] `/tools and /tools/{toolUuid}/patterns` — Lookup that resolves the toolUuid and patternId every synced issue carries - without it issues cannot be grouped by rule or linter (high)
+- [x] `/analysis/organizations/{provider}/{org}/repositories/{repo}/commits/{commitUuid}/deltaStatistics and /commits/{srcCommitUuid}/deltaIssues` — New vs fixed issues introduced by each commit - the change-over-time signal the flat issues table cannot produce (high) — `deltaIssues` synced as `commit_delta_issues`; `deltaStatistics` skipped, its counts are already on `commits` under `quality`
+- [x] `/organizations/{provider}/{org}/metrics/{metricName}/period, /period-grouped, /timerange` — Org-level quality metric time series (Codacy's dashboard numbers) precomputed per period (high) — `/timerange` synced as `metrics_timerange`; `/period` and `/period-grouped` skipped, they return a single period's value that `/timerange` already covers
 - [ ] `/organizations/{provider}/{org}/security/items and /security/items/search` — Security issues (SRM) with severity and SLA state - an entire product area with no synced table (high)
 - [ ] `/analysis/organizations/{provider}/{org}/repositories/{repo}/commit-statistics` — Per-repo commit statistics over time, giving repo health a trend rather than a snapshot (medium)
 - [ ] `/analysis/organizations/{provider}/{org}/repositories/{repo}/category-overviews and /issues/overview` — Issue counts broken down by category and severity - the standard reporting breakdown dimensions (medium)
@@ -1740,7 +1740,7 @@ Diffed against: <https://api.codacy.com/api/api-docs/swagger.yaml>
 - [ ] `/organizations/{provider}/{org}/repositories/{repo}/files/{fileId}/coverage and /files/{fileId}/duplication` — File-level coverage and duplication metrics that enrich the files table already synced (medium)
 - [ ] `/organizations/{provider}/{org}/audit` — Audit log of org and repo configuration changes, useful for correlating quality shifts with settings changes (low)
 
-Note: Codacy API v3 swagger is served at https://api.codacy.com/api/api-docs/swagger.yaml (~250 paths). Six static endpoints in codacy/settings.py, no dynamic discovery. Whole product domains are unrepresented: security/SRM, SBOM, org metrics time series, and coverage. Excluded config surfaces (coding-standards, gate-policies, settings/\*, tokens, integrations).
+Note: Codacy API v3 swagger is served at https://api.codacy.com/api/api-docs/swagger.yaml (~250 paths). Eleven static endpoints in codacy/settings.py, no dynamic discovery. Whole product domains are still unrepresented: security/SRM, SBOM, and coverage. Excluded config surfaces (coding-standards, gate-policies, settings/\*, tokens, integrations).
 
 ## Codecov — gaps
 
@@ -1861,29 +1861,29 @@ Note: docs.coinapi.io is behind a Cloudflare interstitial and returns 403 to cur
 
 ## CoinGecko — gaps
 
-Today (12): `asset_platforms`, `coins_categories`, `coins_categories_list`, `coins_list`, `coins_market_chart`, `coins_markets`, `coins_ohlc`, `coins_tickers`, `exchanges`, `exchanges_list`, `global_market_data`, `insights`
+Today (17): `asset_platforms`, `coins_categories`, `coins_categories_list`, `coins_list`, `coins_market_chart`, `coins_markets`, `coins_ohlc`, `coins_tickers`, `derivatives_exchanges`, `derivatives_tickers`, `exchange_rates`, `exchanges`, `exchanges_list`, `global_market_cap_chart`, `global_market_data`, `insights`, `nfts_markets`
 
 Diffed against: <https://docs.coingecko.com/llms.txt>
 
 - [x] `/coins/{id}/market_chart/range` — historical price, market cap and volume timeseries - the headline series; today only a current-price snapshot is synced (high)
 - [x] `/coins/{id}/ohlc/range` — OHLC candles per coin over an arbitrary range, needed for any price analysis (high)
 - [x] `/global` — total crypto market cap, active coins and BTC dominance - CoinGecko's flagship market-wide metric (high)
-- [ ] `/global/market_cap_chart` — historical global market cap and volume, the time series behind the above (high)
+- [x] `/global/market_cap_chart` — historical global market cap and volume, the time series behind the above (high)
 - [x] `/coins/{id}/tickers` — market pairs per coin on CEX and DEX - the join that resolves coins_list against exchanges_list, which we sync but cannot currently link (high)
 - [ ] `/exchanges/{id}/tickers` — trading pairs per exchange; the other half of the coin-to-exchange lookup (medium)
 - [ ] `/exchanges/{id}/volume_chart/range` — historical exchange volume for ranking exchanges over time (medium)
 - [ ] `/simple/supported_vs_currencies` — lookup of valid vs_currency codes that coins_markets is parameterised by (currently hardcoded to usd) (medium)
 - [ ] `/coins/{id}/history` — single-day historical snapshot per coin, cheap way to build a daily fact table (medium)
-- [ ] `/exchange_rates` — BTC-to-currency rates, the standard normaliser for cross-currency reporting (medium)
-- [ ] `/derivatives/exchanges and /derivatives/tickers` — derivatives venues and open interest, entirely absent from current coverage (medium)
-- [ ] `/nfts/markets` — NFT collections with floor price, market cap and volume - a whole product surface with no table today (medium)
+- [x] `/exchange_rates` — BTC-to-currency rates, the standard normaliser for cross-currency reporting (medium)
+- [x] `/derivatives/exchanges and /derivatives/tickers` — derivatives venues and open interest, entirely absent from current coverage (medium)
+- [x] `/nfts/markets` — NFT collections with floor price, market cap and volume - a whole product surface with no table today (medium)
 - [ ] `/coins/{id}/supply_breakdown` — per-coin circulating/non-circulating supply split with non-circulating wallet detail (Pro, Analyst plan and above); fans out per coin over the configured coin list, like the chart tables (medium)
 
 Note: docs.coingecko.com/reference/\* pages are client-rendered and unparseable by curl, but llms.txt enumerates every reference page (Demo and Pro) with descriptions, and any single page can be fetched by appending .md. The onchain/GeckoTerminal family (networks, dexes, pools, token holders, pool trades) is a further ~35 endpoints with zero coverage; treated as a separate product rather than listed individually here.
 
 ## CoinMarketCap — gaps
 
-Today (9): `categories`, `cryptocurrency_info`, `cryptocurrency_map`, `exchange_map`, `fiat_map`, `global_metrics_quotes_historical`, `listings_latest`, `ohlcv_historical`, `quotes_historical`
+Today (13): `categories`, `cryptocurrency_info`, `cryptocurrency_map`, `exchange_info`, `exchange_listings_latest`, `exchange_map`, `exchange_quotes_historical`, `fiat_map`, `global_metrics_quotes_historical`, `listings_historical`, `listings_latest`, `ohlcv_historical`, `quotes_historical`
 
 Diffed against: <https://pro.coinmarketcap.com/api/documentation/pro-api-reference/cryptocurrency.md>
 
@@ -1891,29 +1891,29 @@ Diffed against: <https://pro.coinmarketcap.com/api/documentation/pro-api-referen
 - [x] `GET /v2/cryptocurrency/ohlcv/historical` — daily OHLCV candles, required for any price or return analysis (high)
 - [x] `GET /v1/global-metrics/quotes/historical` — total market cap, BTC dominance and altcoin market cap over time - CMC's headline market metric (high)
 - [x] `GET /v2/cryptocurrency/info` — coin metadata (tags, platform, category, urls) that resolves the ids in the cryptocurrency_map we already sync (high)
-- [ ] `GET /v1/exchange/listings/latest` — ranked exchanges with volume and liquidity; exchange_map alone carries no metrics (high)
-- [ ] `GET /v1/exchange/info` — exchange metadata lookup resolving the ids in the synced exchange_map (medium)
-- [ ] `GET /v1/cryptocurrency/listings/historical` — historical ranked snapshots, letting you reconstruct rank changes without polling listings/latest (medium)
+- [x] `GET /v1/exchange/listings/latest` — ranked exchanges with volume and liquidity; exchange_map alone carries no metrics (high)
+- [x] `GET /v1/exchange/info` — exchange metadata lookup resolving the ids in the synced exchange_map (medium)
+- [x] `GET /v1/cryptocurrency/listings/historical` — historical ranked snapshots, letting you reconstruct rank changes without polling listings/latest (medium)
 - [ ] `GET /v2/cryptocurrency/market-pairs/latest` — per-coin market pairs and where volume actually trades (medium)
 - [ ] `GET /v1/exchange/market-pairs/latest` — per-exchange market pairs; joins exchanges to cryptocurrencies (medium)
-- [ ] `GET /v1/exchange/quotes/historical` — historical exchange volume for venue share analysis (medium)
+- [x] `GET /v1/exchange/quotes/historical` — historical exchange volume for venue share analysis (medium)
 - [ ] `GET /v1/cryptocurrency/category` — coin membership per category - the categories table we sync lists categories but not their constituents (medium)
 - [ ] `GET /v3/fear-and-greed/historical` — CMC's proprietary sentiment index over time, a commonly requested signal (medium)
 
-Note: coinmarketcap.com/api/documentation is a client-rendered zudoku app, but every page is served as markdown by appending .md, and pro.coinmarketcap.com/llms.txt indexes the whole reference by family (Cryptocurrency 19, Exchange 7, Global Metrics 6, DEX/Token 16, Holder 5, Derivatives 3, RWA 7, CMC Index 4...). The cryptocurrency and global-metrics historical families are now covered; the exchange historical family is not. The DEX (Token/Pool/Holder/OHLCV) and Real World Assets families are also entirely uncovered but are treated as separate products rather than enumerated here.
+Note: coinmarketcap.com/api/documentation is a client-rendered zudoku app, but every page is served as markdown by appending .md, and pro.coinmarketcap.com/llms.txt indexes the whole reference by family (Cryptocurrency 19, Exchange 7, Global Metrics 6, DEX/Token 16, Holder 5, Derivatives 3, RWA 7, CMC Index 4...). The cryptocurrency and global-metrics historical families are now covered, as is the exchange family apart from market pairs, assets and proof-of-reserves. The DEX (Token/Pool/Holder/OHLCV) and Real World Assets families are also entirely uncovered but are treated as separate products rather than enumerated here.
 
 ## Commercetools — gaps
 
-Today (8): `carts`, `categories`, `customers`, `discount_codes`, `inventory`, `orders`, `payments`, `product_projections`
+Today (12): `carts`, `categories`, `channels`, `customer_groups`, `customers`, `discount_codes`, `inventory`, `orders`, `payments`, `product_projections`, `states`, `stores`
 
 Diffed against: <https://raw.githubusercontent.com/commercetools/commercetools-api-reference/main/oas/api/openapi.yaml>
 
 - [ ] `/{projectKey}/messages` — the change-event stream (OrderStateChanged, PaymentStatusChanged, CustomerCreated...) - state and transition history for everything we already sync (high)
 - [ ] `/{projectKey}/product-types` — lookup resolving the productType id carried on every synced product projection (high)
-- [ ] `/{projectKey}/states` — lookup resolving the state ids on orders, payments, products and reviews; without it order state is an opaque uuid (high)
-- [ ] `/{projectKey}/customer-groups` — lookup resolving customerGroup on customers, carts and orders - the standard segmentation dimension (high)
-- [ ] `/{projectKey}/channels` — lookup resolving supplyChannel and distributionChannel ids on the inventory and orders we sync (high)
-- [ ] `/{projectKey}/stores` — lookup resolving the store on orders and carts; required for any per-store revenue breakdown (high)
+- [x] `/{projectKey}/states` — lookup resolving the state ids on orders, payments, products and reviews; without it order state is an opaque uuid (high)
+- [x] `/{projectKey}/customer-groups` — lookup resolving customerGroup on customers, carts and orders - the standard segmentation dimension (high)
+- [x] `/{projectKey}/channels` — lookup resolving supplyChannel and distributionChannel ids on the inventory and orders we sync (high)
+- [x] `/{projectKey}/stores` — lookup resolving the store on orders and carts; required for any per-store revenue breakdown (high)
 - [ ] `/{projectKey}/shipping-methods` — lookup resolving the shipping method id on orders, plus its zone and rate structure (medium)
 - [ ] `/{projectKey}/products` — full product master data including staged versus current, which product-projections flattens away (medium)
 - [ ] `/{projectKey}/cart-discounts` — resolves the discount ids applied to synced carts and orders; discount_codes alone does not explain the discount (medium)
@@ -2030,10 +2030,10 @@ Today (11): `companies`, `contact_types`, `customer_sources`, `leads`, `loss_rea
 
 Diffed against: <https://developer.copper.com/index.html>
 
-- [ ] `POST /v1/activities/search` — the CRM interaction log (calls, emails, notes, status changes) - the main analytical event stream, entirely unsynced (high)
-- [ ] `GET /v1/pipeline_stages (and /v1/pipelines/{id}/stages)` — stage lookup; opportunities carry pipeline_stage_id and pipelines is already synced, so funnel analysis is blocked on this one table (high)
-- [ ] `GET /v1/lead_statuses` — status lookup; every lead row carries status_id with nothing to resolve it against (high)
-- [ ] `GET /v1/activity_types (and /v1/custom_activity_types)` — lookup resolving activity_type on activity rows; also needed to separate user activity from system activity (high)
+- [x] `POST /v1/activities/search` — the CRM interaction log (calls, emails, notes, status changes) - the main analytical event stream, entirely unsynced (high)
+- [x] `GET /v1/pipeline_stages (and /v1/pipelines/{id}/stages)` — stage lookup; opportunities carry pipeline_stage_id and pipelines is already synced, so funnel analysis is blocked on this one table (high)
+- [x] `GET /v1/lead_statuses` — status lookup; every lead row carries status_id with nothing to resolve it against (high)
+- [x] `GET /v1/activity_types (and /v1/custom_activity_types)` — lookup resolving activity_type on activity rows; also needed to separate user activity from system activity (high)
 - [ ] `GET /v1/custom_field_definitions` — resolves custom_field_definition_id, which appears on companies, people, leads, opportunities and projects (high)
 - [ ] `GET /v1/tags` — tag lookup for segmenting every record type (medium)
 - [ ] `GET /v1/related_items (view all records related to an entity)` — cross-object relationship junction linking companies, people, opportunities and projects (medium)
