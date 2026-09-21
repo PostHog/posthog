@@ -66,7 +66,7 @@ SOURCE_DISPATCH_HEADROOM = dt.timedelta(seconds=1)
 # batch that decided something and recorded nothing. Evaluations are abandoned rather than
 # awaited, so this does not have to fit inside the tick. It does hold the key for its duration,
 # which is what blocks a slow evaluation's own re-dispatch.
-SOURCE_EVALUATION_TIMEOUT = dt.timedelta(seconds=60)
+SOURCE_EVALUATION_TIMEOUT = dt.timedelta(seconds=75)
 
 
 @frozen

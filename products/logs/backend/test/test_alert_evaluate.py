@@ -75,14 +75,10 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
 
-    def test_clickhouse_ends_a_slow_cohort_query_before_the_activity_does(self) -> None:
-        from products.logs.backend.temporal.alert_evaluate import EVALUATE_START_TO_CLOSE
-
+    def test_a_cohort_query_is_capped_below_the_batch_budget(self) -> None:
         _, query = self._run(self._configuration())
 
-        # With the activity below the query, the activity times out while ClickHouse is still
-        # running it, and the retry starts a second copy of the same query.
-        assert EVALUATE_START_TO_CLOSE.total_seconds() > BATCH_QUERY_BUDGET_SECONDS > MAX_QUERY_SECONDS
+        # An uncapped query runs to the class default, which is above the whole batch's budget.
         capped = query.call_args.kwargs["max_execution_time"]
         assert 0 < capped <= MAX_QUERY_SECONDS
 
@@ -153,3 +149,27 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert [p.evaluation_key for p in evaluation.previews] == [
             f"{configuration.id}:window:{self.cutoff.isoformat()}"
         ]
+
+
+def test_the_evaluation_timeout_ladder_holds() -> None:
+    """Every bound in the path, largest first, asserted in one place.
+
+    Each of these has been wrong once. The activity sat under the query, and two activities
+    declared eighty seconds inside a forty-second workflow. A timeout cut short between deciding
+    and recording loses a batch that decided to fire, and nothing else in the tree notices.
+    """
+    from products.alerts.backend.temporal.workflows import SOURCE_EVALUATION_TIMEOUT
+    from products.logs.backend.temporal.alert_evaluate import (
+        EVALUATE_SCHEDULE_TO_CLOSE,
+        EVALUATE_START_TO_CLOSE,
+        EVALUATION_BUDGET,
+    )
+
+    # ClickHouse ends a slow query, not the activity timing out with the query still running.
+    assert EVALUATE_START_TO_CLOSE.total_seconds() > BATCH_QUERY_BUDGET_SECONDS > MAX_QUERY_SECONDS
+    # Temporal bounds an attempt by whichever timeout expires first, so queue time must not be
+    # what shortens the run below the query budget.
+    assert EVALUATE_SCHEDULE_TO_CLOSE > EVALUATE_START_TO_CLOSE
+    assert (EVALUATE_SCHEDULE_TO_CLOSE - EVALUATE_START_TO_CLOSE).total_seconds() >= BATCH_QUERY_BUDGET_SECONDS / 2
+    # The platform's own timeout holds both activities and still leaves room for the deliveries.
+    assert SOURCE_EVALUATION_TIMEOUT > EVALUATION_BUDGET

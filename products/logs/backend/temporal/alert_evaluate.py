@@ -32,11 +32,19 @@ WORKFLOW_NAME = "logs-alert-evaluate"
 # attempt's thread stays on it, and the retry starts an identical query alongside. The ordering is
 # asserted by `test_clickhouse_ends_a_slow_cohort_query_before_the_activity_does`.
 EVALUATE_START_TO_CLOSE = dt.timedelta(seconds=30)
+# How long the activity may wait for a free slot. Temporal bounds an attempt by whichever of the
+# two timeouts expires first, so schedule-to-close is derived rather than set: a literal close to
+# start-to-close would let queue time shorten the run below the query budget, which is the
+# inversion above arriving by another route on exactly the load that causes queueing.
+EVALUATE_QUEUE_TOLERANCE = dt.timedelta(seconds=20)
+EVALUATE_SCHEDULE_TO_CLOSE = EVALUATE_START_TO_CLOSE + EVALUATE_QUEUE_TOLERANCE
 # One attempt. A second is another full query budget spent on a batch whose keys are still due, so
 # the next tick reaches it anyway, and holding the key meanwhile blocks its own re-dispatch.
-EVALUATE_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=34)
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
+# What the source needs from the platform's `SOURCE_EVALUATION_TIMEOUT`, which has to hold both
+# activities and still leave room to start the delivery children.
+EVALUATION_BUDGET = EVALUATE_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE
 
 
 @activity.defn
