@@ -21,7 +21,7 @@ from celery.signals import (
 from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
 from opentelemetry import trace
-from prometheus_client import Counter, Histogram, start_http_server
+from prometheus_client import CollectorRegistry, Counter, Histogram, start_http_server
 
 from posthog.celery_task_names import LIVENESS_ALERTED_TASK_NAMES
 from posthog.prometheus_multiproc import LockedMultiProcessCollector, PrometheusMultiprocDir
@@ -235,8 +235,6 @@ def on_worker_start(**kwargs) -> None:
     port = int(os.getenv("CELERY_METRICS_PORT", "8001"))
     try:
         if _PROMETHEUS_MULTIPROC is not None:
-            from prometheus_client import CollectorRegistry
-
             registry = CollectorRegistry()
             registry.register(LockedMultiProcessCollector(_PROMETHEUS_MULTIPROC))
             start_http_server(port, registry=registry)
@@ -255,7 +253,7 @@ _ANALYTICS_METRICS_FLUSH_TIMEOUT_SECONDS = 5.0
 
 @worker_process_shutdown.connect
 def on_worker_process_shutdown(**kwargs) -> None:
-    """Remove metric files for this child so recycled workers don't leak stale data."""
+    """Archive this child's samples and remove its files, so recycled workers don't leak disk."""
     if _PROMETHEUS_MULTIPROC is not None:
         retired = _PROMETHEUS_MULTIPROC.retire_pids([os.getpid()])
         logger.info("prometheus_multiproc_child_cleanup_done", retired=retired)
