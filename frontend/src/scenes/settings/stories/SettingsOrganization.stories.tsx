@@ -1,9 +1,9 @@
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 
-import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
+import { OrganizationMembershipLevel, STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -188,4 +188,27 @@ export const SettingsOrganizationStartupProgram: Story = { args: { sectionId: 'o
 
 export const SettingsOrganizationCimdVerificationTokens: Story = {
     args: { sectionId: 'organization-cimd-verification-tokens' },
+}
+
+// The access resolution preview is reachable by deep link only, so both of its closed gates are
+// states a reader can land on.
+export const SettingsOrganizationAccessResolutionNotEnabled: Story = {
+    args: { sectionId: 'organization-access-resolution' },
+    parameters: { featureFlags: [] },
+}
+
+export const SettingsOrganizationAccessResolutionAdminOnly: Story = {
+    args: { sectionId: 'organization-access-resolution' },
+    parameters: {
+        msw: {
+            mocks: {
+                get: {
+                    '/api/organizations/@current/': {
+                        ...MOCK_DEFAULT_ORGANIZATION,
+                        membership_level: OrganizationMembershipLevel.Member,
+                    },
+                },
+            },
+        },
+    },
 }
