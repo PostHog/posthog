@@ -157,7 +157,7 @@ class TestEnrichmentCorePhases(BaseTest):
                 "icp_score": 12,
                 "icp_score_version": "clay-parity-2",
                 "icp_fit_status": "scored",
-                "icp_fit_version": "v0.6",
+                "icp_fit_version": "v0.7",
                 "icp_fit_lists_version": "test-lists-1",
                 "icp_fit_evaluation_kind": "initial",
                 "icp_fit_score": 100,
@@ -195,7 +195,7 @@ class TestEnrichmentCorePhases(BaseTest):
                         "icp_score": 12,
                         "icp_score_version": "clay-parity-2",
                         "icp_fit_score": 100,
-                        "icp_fit_version": "v0.6",
+                        "icp_fit_version": "v0.7",
                         "icp_fit_status": "scored",
                     },
                 )
@@ -206,7 +206,7 @@ class TestEnrichmentCorePhases(BaseTest):
             [
                 call(
                     distinct_id="d1",
-                    properties={"icp_fit_score": 100, "icp_fit_version": "v0.6", "icp_fit_status": "scored"},
+                    properties={"icp_fit_score": 100, "icp_fit_version": "v0.7", "icp_fit_status": "scored"},
                 )
             ],
         )
@@ -269,7 +269,7 @@ class TestEnrichmentCorePhases(BaseTest):
                 "icp_score": 12,
                 "icp_score_version": "clay-parity-2",
                 "icp_fit_status": "scored",
-                "icp_fit_version": "v0.6",
+                "icp_fit_version": "v0.7",
                 "icp_fit_lists_version": "test-lists-1",
                 "icp_fit_evaluation_kind": "recheck",
                 "icp_fit_score": 100,
@@ -313,7 +313,7 @@ class TestEnrichmentCorePhases(BaseTest):
                         "icp_score": 12,
                         "icp_score_version": "clay-parity-2",
                         "icp_fit_score": 100,
-                        "icp_fit_version": "v0.6",
+                        "icp_fit_version": "v0.7",
                         "icp_fit_status": "scored",
                     },
                 )
@@ -325,7 +325,7 @@ class TestEnrichmentCorePhases(BaseTest):
                 call(distinct_id="d1", properties={"icp_score": 12, "icp_score_version": "clay-parity-2"}),
                 call(
                     distinct_id="d1",
-                    properties={"icp_fit_score": 100, "icp_fit_version": "v0.6", "icp_fit_status": "scored"},
+                    properties={"icp_fit_score": 100, "icp_fit_version": "v0.7", "icp_fit_status": "scored"},
                 ),
             ],
         )
@@ -370,7 +370,7 @@ class TestEnrichmentCorePhases(BaseTest):
                 "icp_score": 0,
                 "icp_score_version": "clay-parity-2",
                 "icp_fit_status": "scored",
-                "icp_fit_version": "v0.6",
+                "icp_fit_version": "v0.7",
                 "icp_fit_lists_version": "test-lists-1",
                 "icp_fit_evaluation_kind": "recheck",
                 "icp_fit_score": 100,
@@ -409,7 +409,7 @@ class TestEnrichmentCorePhases(BaseTest):
                         "icp_score": 0,
                         "icp_score_version": "clay-parity-2",
                         "icp_fit_score": 100,
-                        "icp_fit_version": "v0.6",
+                        "icp_fit_version": "v0.7",
                         "icp_fit_status": "scored",
                     },
                 )
@@ -421,7 +421,7 @@ class TestEnrichmentCorePhases(BaseTest):
                 call(distinct_id="d2", properties={"icp_score": 0, "icp_score_version": "clay-parity-2"}),
                 call(
                     distinct_id="d2",
-                    properties={"icp_fit_score": 100, "icp_fit_version": "v0.6", "icp_fit_status": "scored"},
+                    properties={"icp_fit_score": 100, "icp_fit_version": "v0.7", "icp_fit_status": "scored"},
                 ),
             ],
         )

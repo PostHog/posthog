@@ -1,10 +1,15 @@
 import json
 import hashlib
+from typing import Any
 
-from django.db import models
+from django.core.exceptions import ValidationError
+from django.db import models, transaction
 from django.db.models import Q
 
 from posthog.models.utils import UpdatedMetaFields, UUIDModel
+
+from products.growth.backend.enrichment.icp_lists import clear_lists_cache
+from products.growth.backend.enrichment.scoring_rules import validate_scoring_rules
 
 
 class ProductPushCampaign(UUIDModel, UpdatedMetaFields):
@@ -212,8 +217,8 @@ class EnrichmentPromptConfig(UUIDModel):
 class EnrichmentLabelResult(UUIDModel):
     """One classifier verdict for one org under one prompt version, computed from one archived fetch.
 
-    Shadow-only in v0: nothing consumes these rows (no group/person properties, no events);
-    they are queryable in Postgres/warehouse only. Keying on the fetch means a re-enriched org
+    Configured labels with supported AI evidence contribute to the ICP fit score.
+    Other labels remain available for inspection. Keying on the fetch means a re-enriched org
     naturally gets recomputed under the same version instead of being frozen — which matters
     most for `unknown` verdicts from empty payloads, which would otherwise be permanent.
     """
@@ -267,20 +272,7 @@ class EnrichmentLabelResult(UUIDModel):
 
 
 class IcpScoringConfig(UUIDModel):
-    """A versioned snapshot of the RevOps-curated lists behind the ICP fit score.
-
-    Rails are code; brains are rows (the EnrichmentPromptConfig precedent): the scoring
-    formula and weights live in code (the fit scorer, landing separately), but the curated
-    tag buckets and quality-investor names it matches against live here, so RevOps'
-    quarterly review lands without a deploy — and the internal sheets never get committed
-    to this public repo. A list change is always a new row (new version) activated
-    explicitly, never an in-place edit; scores stamp the row's version as
-    `icp_fit_lists_version`, so a list update is distinguishable from a formula change
-    (`icp_fit_version`) in every stored score.
-
-    Rows are written by the `sync_icp_scoring_lists` management command from the RevOps
-    sheet exports; see enrichment/icp_lists.py for the row shapes and the loader.
-    """
+    """An immutable scoring policy and curated lists, activated as one version."""
 
     # Human-readable list version, e.g. "2026-08-13".
     version = models.CharField(max_length=128, unique=True)
@@ -290,6 +282,7 @@ class IcpScoringConfig(UUIDModel):
     tags = models.JSONField(default=list)
     # Quality investor rows: [{"investor", "aliases": [...], "notes"}].
     quality_investors = models.JSONField(default=list)
+    scoring_rules = models.JSONField(default=dict, db_default={}, blank=True, validators=[validate_scoring_rules])
     # The row the scorer loads; at most one active row (enforced below).
     is_active = models.BooleanField(default=False)
     created_by = models.ForeignKey(
@@ -305,7 +298,30 @@ class IcpScoringConfig(UUIDModel):
         ]
 
     def __str__(self) -> str:
-        return f"icp lists {self.version}{' (active)' if self.is_active else ''}"
+        return f"icp scoring {self.version}{' (active)' if self.is_active else ''}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        validate_scoring_rules(self.scoring_rules)
+        with transaction.atomic():
+            saved = type(self).objects.select_for_update().filter(pk=self.pk).first()
+            if saved is not None:
+                immutable = ("version", "tags", "quality_investors", "scoring_rules", "created_by_id", "created_at")
+                if any(getattr(saved, field) != getattr(self, field) for field in immutable):
+                    raise ValidationError("Saved scoring versions cannot be edited. Clone this version instead.")
+                if saved.is_active != self.is_active:
+                    raise ValidationError("Use the activation action to change the active scoring version.")
+            super().save(*args, **kwargs)
+
+    def activate(self) -> None:
+        with transaction.atomic():
+            list(type(self).objects.select_for_update().order_by("pk").values_list("pk", flat=True))
+            saved = type(self).objects.get(pk=self.pk)
+            validate_scoring_rules(saved.scoring_rules)
+            type(self).objects.filter(is_active=True).exclude(pk=self.pk).update(is_active=False)
+            type(self).objects.filter(pk=self.pk).update(is_active=True)
+            self.is_active = True
+            clear_lists_cache()
+            transaction.on_commit(clear_lists_cache)
 
 
 class EnrichmentSignupSnapshot(UUIDModel):

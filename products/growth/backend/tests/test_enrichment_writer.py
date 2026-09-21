@@ -13,7 +13,7 @@ from products.growth.backend.enrichment.context import (
     FIT_EVALUATION_KIND_SWEEP,
 )
 from products.growth.backend.enrichment.fields import EnrichmentFields
-from products.growth.backend.enrichment.fit_score import IcpFitResult
+from products.growth.backend.enrichment.fit_score import AiPilledEvidence, IcpFitResult
 from products.growth.backend.enrichment.writer import (
     record_signup_work_email,
     write_harmonic_enrichment_status,
@@ -115,7 +115,7 @@ class TestEnrichmentWriter(BaseTest):
         # The two families never share a key.
         assert record.data["icp_score"] == 9
         assert record.data["icp_fit_score"] == 72
-        assert record.data["icp_fit_version"] == "v0.6"
+        assert record.data["icp_fit_version"] == "v0.7"
         assert record.data["icp_fit_status"] == "scored"
         assert record.data["icp_fit_lists_version"] == "lists-1"
         assert record.data["icp_fit_evaluation_kind"] == "initial"
@@ -131,27 +131,72 @@ class TestEnrichmentWriter(BaseTest):
         properties = pha_client.group_identify.call_args.kwargs["properties"]
         assert properties["icp_score"] == 9
         assert properties["icp_fit_score"] == 72
-        assert properties["icp_fit_version"] == "v0.6"
+        assert properties["icp_fit_version"] == "v0.7"
         assert properties["icp_fit_status"] == "scored"
         assert "icp_fit_evaluated_at" not in properties
         assert "icp_fit_evaluation_kind" not in properties
 
-    def test_fit_flags_record_wizard_evidence_and_ai_pilled_source(self):
+    @parameterized.expand([("wizard", False, "both"), ("wizard_and_llm", True, "harmonic+wizard+llm")])
+    def test_fit_flags_record_ai_evidence_and_clear_retired_labels(
+        self, _name: str, has_label: bool, expected_source: str
+    ) -> None:
+        label = {
+            "result_id": "example-result",
+            "fetch_id": "example-fetch",
+            "prompt_version": "example-prompt-v1",
+            "prompt_hash": "example-prompt-hash",
+            "evidence_type": "ai_product",
+            "evidence_url": "https://example.com/product",
+        }
+        evidence = (
+            AiPilledEvidence(
+                result_id=label["result_id"],
+                fetch_id=label["fetch_id"],
+                prompt_version=label["prompt_version"],
+                prompt_hash=label["prompt_hash"],
+                evidence_type="ai_product",
+                evidence_url=label["evidence_url"],
+            )
+            if has_label
+            else None
+        )
         pha_client = MagicMock()
         write_organization_enrichment(
             organization_id=str(self.organization.id),
             fields=None,
             pha_client=pha_client,
-            fit=_fit(wizard_ai_sdk=True, ai_pilled_source="both"),
+            fit=_fit(
+                wizard_ai_sdk=True,
+                ai_pilled_source=expected_source,
+                ai_pilled_evidence=evidence,
+                ai_pilled_label_result_id="example-result",
+            ),
             fit_evaluation_kind=FIT_EVALUATION_KIND_INITIAL,
+            fit_mirror_distinct_id="signer",
         )
 
         record = OrganizationEnrichment.objects.get(organization=self.organization)
         assert record.data["icp_fit_flags"]["wizard_ai_sdk"] is True
+        assert record.data["icp_fit_flags"]["ai_pilled_source"] == expected_source
+        assert record.data["icp_fit_flags"].get("ai_pilled_label") == (label if has_label else None)
+        assert record.data["icp_fit_ai_label_result_id"] == "example-result"
+        expected_projection = {"icp_fit_score": 72, "icp_fit_version": "v0.7", "icp_fit_status": "scored"}
+        assert pha_client.group_identify.call_args.kwargs["properties"] == expected_projection
+        assert pha_client.set.call_args.kwargs["properties"] == expected_projection
+
+        write_organization_enrichment(
+            organization_id=str(self.organization.id),
+            fields=None,
+            pha_client=pha_client,
+            fit=_fit(wizard_ai_sdk=True, ai_pilled_source="both"),
+            fit_evaluation_kind=FIT_EVALUATION_KIND_RECHECK,
+        )
+
+        record.refresh_from_db()
+        assert record.data["icp_fit_flags"]["wizard_ai_sdk"] is True
         assert record.data["icp_fit_flags"]["ai_pilled_source"] == "both"
-        properties = pha_client.group_identify.call_args.kwargs["properties"]
-        assert "wizard_ai_sdk" not in properties
-        assert "ai_pilled_source" not in properties
+        assert "ai_pilled_label" not in record.data["icp_fit_flags"]
+        assert "icp_fit_ai_label_result_id" not in record.data
 
     def test_fit_only_write_carries_no_field_or_clay_keys(self):
         # The fit backfill passes fields=None and no clay score: only icp_fit_* keys move.
@@ -188,7 +233,9 @@ class TestEnrichmentWriter(BaseTest):
                 organization_id=str(self.organization.id),
                 fields=None,
                 pha_client=pha_client,
-                fit=IcpFitResult(status="insufficient_data", lists_version="lists-1"),
+                fit=IcpFitResult(
+                    status="insufficient_data", lists_version="lists-1", ai_pilled_label_result_id="example-result"
+                ),
                 fit_evaluation_kind=FIT_EVALUATION_KIND_SWEEP,
             )
 
@@ -197,10 +244,11 @@ class TestEnrichmentWriter(BaseTest):
             "work_email": True,
             "icp_score": 6,
             "icp_fit_status": "insufficient_data",
-            "icp_fit_version": "v0.6",
+            "icp_fit_version": "v0.7",
             "icp_fit_lists_version": "lists-1",
             "icp_fit_evaluated_at": "2026-09-01T12:00:00+00:00",
             "icp_fit_evaluation_kind": "sweep",
+            "icp_fit_ai_label_result_id": "example-result",
         }
         # Group properties cannot be deleted, so only the status key is projected: pairing
         # the fresh version with the group's stale numeric score would misattribute it.
@@ -266,7 +314,7 @@ class TestEnrichmentWriter(BaseTest):
         )
         pha_client.set.assert_called_once_with(
             distinct_id="signer",
-            properties={"icp_fit_score": 55, "icp_fit_version": "v0.6", "icp_fit_status": "scored"},
+            properties={"icp_fit_score": 55, "icp_fit_version": "v0.7", "icp_fit_status": "scored"},
         )
 
         pha_client.reset_mock()

@@ -6,8 +6,8 @@ tractionMetrics time series. Harmonic's REST API — which the V0.5 rules were v
 against — precomputes horizon blocks (`90d_ago.percent_change` etc.) that the GraphQL
 schema does not expose, so this module derives them from the archived series instead.
 
-Kept separate from the scorer so the scorer stays a line-for-line port of the validated
-reference, and separate from transform.py because the scorer needs payload fields
+Kept separate from the scorer to normalize every configurable growth horizon,
+and separate from transform.py because the scorer needs payload fields
 (description, per-tag types, the series) that deliberately never became EnrichmentFields.
 
 As-of semantics for growth, matching the validated backtest derivation: the value at a
@@ -17,10 +17,9 @@ series too sparse to cover the horizon yields None (unknown), never 0.
 """
 
 import datetime as dt
-from typing import Any, Optional
+from typing import Any, Optional, get_args
 
-WEB_TRAFFIC_GROWTH_DAYS = 90
-HEADCOUNT_GROWTH_DAYS = 180
+from products.growth.backend.enrichment.scoring_rules import Horizon
 
 
 def _dict(value: Any) -> dict[str, Any]:
@@ -77,12 +76,14 @@ def _latest(metric_block: dict[str, Any]) -> Optional[int]:
     return int(value) if isinstance(value, (int, float)) else None
 
 
-def _traction_metric(traction: dict[str, Any], graphql_name: str, growth_days: Optional[int]) -> dict[str, Any]:
+def _traction_metric(traction: dict[str, Any], graphql_name: str, *, include_growth: bool) -> dict[str, Any]:
     block = _dict(traction.get(graphql_name))
     normalized: dict[str, Any] = {"latest_metric_value": _latest(block)}
-    if growth_days is not None:
-        percent_change, change = _growth(_parse_series(block), growth_days)
-        normalized[f"{growth_days}d_ago"] = {"percent_change": percent_change, "change": change}
+    if include_growth:
+        points = _parse_series(block)
+        for horizon in get_args(Horizon):
+            percent_change, change = _growth(points, int(horizon.removesuffix("d_ago")))
+            normalized[horizon] = {"percent_change": percent_change, "change": change}
     return normalized
 
 
@@ -129,8 +130,8 @@ def normalize_graphql_company(payload: Optional[dict[str, Any]]) -> Optional[dic
         "funding_attribute_null_status": payload.get("fundingAttributeNullStatus"),
         "tags_v2": _tags_v2(payload.get("tagsV2")),
         "traction_metrics": {
-            "web_traffic": _traction_metric(traction, "webTraffic", WEB_TRAFFIC_GROWTH_DAYS),
-            "headcount": _traction_metric(traction, "headcount", HEADCOUNT_GROWTH_DAYS),
-            "headcount_engineering": _traction_metric(traction, "headcountEngineering", None),
+            "web_traffic": _traction_metric(traction, "webTraffic", include_growth=True),
+            "headcount": _traction_metric(traction, "headcount", include_growth=True),
+            "headcount_engineering": _traction_metric(traction, "headcountEngineering", include_growth=False),
         },
     }

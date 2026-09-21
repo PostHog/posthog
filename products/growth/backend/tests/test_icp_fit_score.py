@@ -8,6 +8,7 @@ from products.growth.backend.enrichment.fit_score import (
     STATUS_INSUFFICIENT_DATA,
     STATUS_NOT_FOUND,
     STATUS_SCORED,
+    AiPilledEvidence,
     is_quality_investor,
     score_company,
 )
@@ -19,6 +20,15 @@ LISTS = CuratedLists(
     ai_positive=frozenset({"artificial intelligence", "ai grant batch 1"}),
     software_positive=frozenset({"developer tools"}),
     quality_investors=frozenset({norm("Y Combinator"), norm("Sequoia Capital"), norm("GV")}),
+)
+
+AI_PILLED_EVIDENCE = AiPilledEvidence(
+    result_id="example-result",
+    fetch_id="example-fetch",
+    prompt_version="example-prompt-v1",
+    prompt_hash="example-prompt-hash",
+    evidence_type="developer_tools",
+    evidence_url="https://example.com/engineering",
 )
 
 
@@ -59,23 +69,27 @@ def _traction(
 
 
 def test_version_is_stamped():
-    assert SCORE_VERSION == "v0.6"
+    assert SCORE_VERSION == "v0.7"
     result = score_company(_payload(), lists=LISTS)
-    assert result.version == "v0.6"
+    assert result.version == "v0.7"
     assert result.lists_version == "test-lists"
 
 
 # ---------- statuses ----------
 
 
-def test_student_role_disqualifies_before_the_payload_is_consulted():
-    result = score_company(None, lists=LISTS, role="Student")
+@parameterized.expand([(None,), (AI_PILLED_EVIDENCE,)])
+def test_student_role_disqualifies_before_the_payload_is_consulted(ai_pilled_evidence: AiPilledEvidence | None) -> None:
+    result = score_company(None, lists=LISTS, role="Student", ai_pilled_evidence=ai_pilled_evidence)
     assert (result.status, result.score, result.dq_reason) == (STATUS_DISQUALIFIED, 0, "role=student")
+    assert result.ai_pilled_evidence is None
 
 
-def test_school_company_type_disqualifies():
-    result = score_company(_payload(company_type="SCHOOL"), lists=LISTS)
+@parameterized.expand([(None,), (AI_PILLED_EVIDENCE,)])
+def test_school_company_type_disqualifies(ai_pilled_evidence: AiPilledEvidence | None) -> None:
+    result = score_company(_payload(company_type="SCHOOL"), lists=LISTS, ai_pilled_evidence=ai_pilled_evidence)
     assert (result.status, result.score, result.dq_reason) == (STATUS_DISQUALIFIED, 0, "company_type=SCHOOL")
+    assert result.ai_pilled_evidence is None
 
 
 def test_school_market_tags_do_not_disqualify_a_startup():
@@ -84,15 +98,21 @@ def test_school_market_tags_do_not_disqualify_a_startup():
     assert result.status == STATUS_SCORED
 
 
-def test_missing_payload_is_not_found():
-    assert score_company(None, lists=LISTS).status == STATUS_NOT_FOUND
+@parameterized.expand([(None,), (AI_PILLED_EVIDENCE,)])
+def test_missing_payload_is_not_found(ai_pilled_evidence: AiPilledEvidence | None) -> None:
+    result = score_company(None, lists=LISTS, ai_pilled_evidence=ai_pilled_evidence)
+    assert result.status == STATUS_NOT_FOUND
+    assert result.score is None
+    assert result.ai_pilled_evidence is None
 
 
-def test_empty_shell_profile_is_insufficient_data_not_a_low_score():
+@parameterized.expand([(None,), (AI_PILLED_EVIDENCE,)])
+def test_empty_shell_profile_is_insufficient_data_not_a_low_score(ai_pilled_evidence: AiPilledEvidence | None) -> None:
     payload = _payload(tags_v2=[])
-    result = score_company(payload, lists=LISTS)
+    result = score_company(payload, lists=LISTS, ai_pilled_evidence=ai_pilled_evidence)
     assert result.status == STATUS_INSUFFICIENT_DATA
     assert result.score is None
+    assert result.ai_pilled_evidence is None
 
 
 @parameterized.expand(
@@ -254,24 +274,37 @@ def test_wizard_evidence_alone_earns_the_ai_pilled_points():
 
 @parameterized.expand(
     [
-        ("harmonic_only", [{"display_value": "Artificial Intelligence", "type": "MARKET"}], False, "harmonic", 15),
-        ("wizard_only", None, True, "wizard", 15),
-        ("both", [{"display_value": "Artificial Intelligence", "type": "MARKET"}], True, "both", 15),
-        ("neither", None, False, None, 0),
+        ("harmonic_only", True, False, False, "harmonic", 15),
+        ("wizard_only", False, True, False, "wizard", 15),
+        ("both", True, True, False, "both", 15),
+        ("neither", False, False, False, None, 0),
+        ("llm_only", False, False, True, "llm", 15),
+        ("harmonic_and_llm", True, False, True, "harmonic+llm", 15),
+        ("wizard_and_llm", False, True, True, "wizard+llm", 15),
+        ("all_three", True, True, True, "harmonic+wizard+llm", 15),
     ]
 )
 def test_ai_pilled_source_records_which_evidence_was_present(
-    _name, tags, wizard_ai_sdk, expected_source, expected_score
-):
+    _name: str,
+    harmonic_ai: bool,
+    wizard_ai_sdk: bool,
+    llm_ai: bool,
+    expected_source: str | None,
+    expected_score: int,
+) -> None:
     payload = _payload(description="We sell shoes")
-    if tags:
-        payload["tags_v2"] = tags
-    result = score_company(payload, lists=LISTS, domain="acme.com", wizard_ai_sdk=wizard_ai_sdk)
+    if harmonic_ai:
+        payload["tags_v2"] = [{"display_value": "Artificial Intelligence", "type": "MARKET"}]
+    evidence = AI_PILLED_EVIDENCE if llm_ai else None
+    result = score_company(
+        payload, lists=LISTS, domain="example.com", wizard_ai_sdk=wizard_ai_sdk, ai_pilled_evidence=evidence
+    )
 
     assert result.ai_pilled_source == expected_source
     assert result.wizard_ai_sdk is wizard_ai_sdk
-    # "both" sources still cap at 15, never stack to 30.
+    assert result.ai_pilled_evidence == evidence
     assert (result.components or {}).get("ai_pilled") == expected_score
+    assert result.score == expected_score
 
 
 # ---------- headcount growth (10) ----------
@@ -382,3 +415,78 @@ def test_norm_based_matching(_name, observed, expected):
 
 def test_norm_folds_and_to_ampersand():
     assert norm("Management and Strategy Consulting") == "management & strategy consulting"
+
+
+@parameterized.expand(
+    [
+        (["llm"], "llm", True),
+        (["wizard"], "wizard", False),
+        (["harmonic"], "harmonic", False),
+        ([], None, False),
+    ]
+)
+def test_editable_ai_sources_control_points_and_provenance(sources, expected_source, keeps_evidence):
+    from dataclasses import replace
+
+    from products.growth.backend.enrichment.scoring_rules import parse_scoring_rules
+
+    rules = parse_scoring_rules({"ai_points": 12, "ai_sources": sources})
+    result = score_company(
+        _payload(description="AI platform"),
+        lists=replace(LISTS, rules=rules),
+        wizard_ai_sdk=True,
+        ai_pilled_evidence=AI_PILLED_EVIDENCE,
+    )
+    assert result.components is not None
+    assert result.components["ai_pilled"] == (12 if sources else 0)
+    assert result.ai_pilled_source == expected_source
+    assert (result.ai_pilled_evidence is not None) == keeps_evidence
+
+
+def test_editable_policy_changes_horizons_thresholds_and_component_points():
+    from dataclasses import replace
+
+    from products.growth.backend.enrichment.scoring_rules import parse_scoring_rules
+
+    rules = parse_scoring_rules(
+        {
+            "traction": {
+                "traffic_levels": [{"minimum": 100, "points": 2}],
+                "growth_horizon": "365d_ago",
+                "minimum_traffic_for_growth": 100,
+                "growth_levels": [{"minimum": 50, "points": 9}],
+                "positive_growth_points": 1,
+            },
+            "capital": {
+                "funding_levels": [{"minimum": 100, "points": 3}],
+                "funded_points": 1,
+                "quality_bonus": 2,
+                "cap": 5,
+            },
+            "headcount_growth": {
+                "horizon": "90d_ago",
+                "levels": [{"minimum": 100, "points": 4}],
+                "minimum_hires": 1,
+                "hires_points": 2,
+                "positive_growth_points": 1,
+            },
+            "software_relevance": {"engineering_minimum": 2, "engineering_points": 4, "other_points": 2},
+            "coverage": {"headcount_minimum": 10, "traffic_minimum": 1000, "low_confidence_maximum": 2},
+        }
+    )
+    metrics = _traction(web_traffic=200, traffic_growth=0, headcount=4, headcount_growth=0, eng=3)
+    metrics["web_traffic"]["365d_ago"] = {"percent_change": 50}
+    metrics["headcount"]["90d_ago"] = {"percent_change": 100, "change": 1}
+    payload = _payload(traction_metrics=metrics, funding={"funding_total": 100, "investors": [{"name": "GV"}]})
+    result = score_company(payload, lists=replace(LISTS, version="changed-policy", rules=rules))
+    assert result.components == {
+        "traction": 11,
+        "capital": 5,
+        "ai_pilled": 0,
+        "headcount_growth": 4,
+        "software_relevance": 4,
+    }
+    assert result.score == 24
+    assert result.data_coverage == 2
+    assert result.low_confidence is True
+    assert result.lists_version == "changed-policy"

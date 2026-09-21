@@ -41,11 +41,11 @@ from products.growth.backend.enrichment import (
     gates,
     icp_lists as icp_lists_module,
 )
+from products.growth.backend.enrichment.ai_pilled import normalize_fit_payload
 from products.growth.backend.enrichment.bridge import read_organization_bridge_inputs
 from products.growth.backend.enrichment.context import FIT_EVALUATION_KIND_BACKFILL
-from products.growth.backend.enrichment.core import latest_matched_payload
+from products.growth.backend.enrichment.fit_recomputation import latest_fetch, score_archived_fit
 from products.growth.backend.enrichment.fit_score import IcpFitResult, score_company
-from products.growth.backend.enrichment.harmonic_adapter import normalize_graphql_company
 from products.growth.backend.enrichment.icp_lists import (
     CuratedLists,
     load_active_lists,
@@ -54,10 +54,14 @@ from products.growth.backend.enrichment.icp_lists import (
     parse_tags_csv_rows,
 )
 from products.growth.backend.enrichment.labels import recent_latest_fetches_qs, signup_domain_for_organization
-from products.growth.backend.enrichment.writer import write_organization_enrichment
-from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch
+from products.growth.backend.enrichment.writer import (
+    lock_organization_enrichment,
+    project_organization_enrichment,
+    write_organization_enrichment,
+)
+from products.growth.backend.models import IcpScoringConfig, OrganizationEnrichment, OrganizationEnrichmentFetch
 
-_BackfillOutcome = Literal["written", "skipped_org_gone", "skipped_wizard_unavailable"]
+_BackfillOutcome = Literal["written", "skipped_org_gone", "skipped_wizard_unavailable", "skipped_stale_fetch"]
 
 
 class _Stats:
@@ -83,16 +87,6 @@ class _Stats:
                 f">=40 {share(40):.1%} | >=50 {share(50):.1%} | >=60 {share(60):.1%} | >=70 {share(70):.1%}"
             )
         return "\n".join(lines)
-
-
-def _normalize_any_payload(payload: Any) -> Optional[dict[str, Any]]:
-    """Accept either archive/GraphQL shape (normalized) or REST shape (passed through)."""
-    if not isinstance(payload, dict) or not payload:
-        return None
-    if "traction_metrics" in payload or "tags_v2" in payload or "id" in payload:
-        # REST shape: matched-ness is the `id` key, per the validation reference.
-        return payload if payload.get("id") else None
-    return normalize_graphql_company(payload)
 
 
 def _lists_from_csvs(tags_csv: str, investors_csv: str) -> CuratedLists:
@@ -133,26 +127,13 @@ def _wizard_ai_sdk_for_backfill(*, organization_id: str, record: Optional[Organi
 
 
 def _score_backfill_fetch(
-    *, fetch: OrganizationEnrichmentFetch, organization: Organization, lists: CuratedLists
-) -> Optional[IcpFitResult]:
+    *, fetch: OrganizationEnrichmentFetch, organization: Organization, lists: CuratedLists, wizard_ai_sdk: bool
+) -> IcpFitResult:
     domain = signup_domain_for_organization(organization)
     record = OrganizationEnrichment.objects.filter(organization_id=fetch.organization_id).first()
     role = record.data.get("signup_role") if record else None
 
-    payload = _normalize_any_payload(fetch.payload)
-    if payload is None:
-        payload = _normalize_any_payload(latest_matched_payload(str(fetch.organization_id)))
-
-    wizard_ai_sdk = _wizard_ai_sdk_for_backfill(organization_id=str(fetch.organization_id), record=record)
-    if wizard_ai_sdk is None:
-        return None
-    return score_company(
-        payload,
-        lists=lists,
-        role=role,
-        domain=domain,
-        wizard_ai_sdk=wizard_ai_sdk,
-    )
+    return score_archived_fit(fetch, lists=lists, role=role, domain=domain, wizard_ai_sdk=wizard_ai_sdk)
 
 
 def _iter_parity_payloads(path: str):
@@ -223,6 +204,7 @@ class Command(BaseCommand):
         pha_client: Client,
         dry_run: bool,
         delay: float,
+        require_active_config: bool,
     ) -> _BackfillOutcome:
         try:
             organization = fetch.organization
@@ -231,21 +213,40 @@ class Command(BaseCommand):
         if organization is None:
             return "skipped_org_gone"
 
-        result = _score_backfill_fetch(fetch=fetch, organization=organization, lists=lists)
-        if result is None:
+        record = OrganizationEnrichment.objects.filter(organization_id=fetch.organization_id).first()
+        wizard_ai_sdk = _wizard_ai_sdk_for_backfill(organization_id=str(fetch.organization_id), record=record)
+        if wizard_ai_sdk is None:
             return "skipped_wizard_unavailable"
-        stats.add(result)
+        with lock_organization_enrichment(str(fetch.organization_id)):
+            current_fetch = latest_fetch(str(fetch.organization_id))
+            if current_fetch is None or current_fetch.id != fetch.id:
+                return "skipped_stale_fetch"
+            result = _score_backfill_fetch(
+                fetch=fetch, organization=organization, lists=lists, wizard_ai_sdk=wizard_ai_sdk
+            )
+            stats.add(result)
 
-        if dry_run:
-            self.stdout.write(f"would write {fetch.organization_id}: {result.status} score={result.score}")
-            return "written"
+            if dry_run:
+                self.stdout.write(f"would write {fetch.organization_id}: {result.status} score={result.score}")
+                return "written"
 
-        write_organization_enrichment(
-            organization_id=str(fetch.organization_id),
-            fields=None,
-            pha_client=pha_client,
-            fit=result,
-            fit_evaluation_kind=FIT_EVALUATION_KIND_BACKFILL,
+            if (
+                require_active_config
+                and not IcpScoringConfig.objects.select_for_update()
+                .filter(version=lists.version, is_active=True)
+                .exists()
+            ):
+                raise CommandError("Active ICP scoring configuration changed during backfill; restart the command.")
+            write_organization_enrichment(
+                organization_id=str(fetch.organization_id),
+                fields=None,
+                pha_client=pha_client,
+                fit=result,
+                fit_evaluation_kind=FIT_EVALUATION_KIND_BACKFILL,
+                project=False,
+            )
+        project_organization_enrichment(
+            organization_id=str(fetch.organization_id), fields=None, pha_client=pha_client, fit=result
         )
         self.stdout.write(f"wrote {fetch.organization_id}: {result.status} score={result.score}")
         if delay:
@@ -278,6 +279,7 @@ class Command(BaseCommand):
             "written": 0,
             "skipped_org_gone": 0,
             "skipped_wizard_unavailable": 0,
+            "skipped_stale_fetch": 0,
         }
         try:
             considered = 0
@@ -290,6 +292,7 @@ class Command(BaseCommand):
                     pha_client=pha_client,
                     dry_run=dry_run,
                     delay=delay,
+                    require_active_config=not (options.get("tags_csv") or options.get("investors_csv")),
                 )
                 outcomes[outcome] += 1
         finally:
@@ -300,7 +303,8 @@ class Command(BaseCommand):
             self.style.SUCCESS(
                 f"considered {considered}, {verb} {outcomes['written']}, "
                 f"skipped_org_gone {outcomes['skipped_org_gone']}, "
-                f"skipped_wizard_unavailable {outcomes['skipped_wizard_unavailable']}"
+                f"skipped_wizard_unavailable {outcomes['skipped_wizard_unavailable']}, "
+                f"skipped_stale_fetch {outcomes['skipped_stale_fetch']}"
             )
         )
         if options["stats"]:
@@ -325,7 +329,7 @@ class Command(BaseCommand):
         mismatches = 0
         compared = 0
         for domain, raw_payload in _iter_parity_payloads(options["payloads"]):
-            payload = _normalize_any_payload(raw_payload)
+            payload = normalize_fit_payload(raw_payload)
             result = score_company(payload, lists=lists, domain=domain)
             stats.add(result)
             want = expected.get(domain)

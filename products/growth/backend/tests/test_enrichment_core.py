@@ -411,7 +411,7 @@ class TestEnrichmentCore(BaseTest):
         assert outcome.fit is not None and outcome.fit.score == 100
         record = OrganizationEnrichment.objects.get(organization=self.organization)
         assert record.data["icp_fit_score"] == 100
-        assert record.data["icp_fit_version"] == "v0.6"
+        assert record.data["icp_fit_version"] == "v0.7"
         assert record.data["icp_fit_status"] == "scored"
         assert record.data["icp_fit_lists_version"] == "test-lists-1"
         assert record.data["icp_fit_components"] == {
@@ -454,7 +454,7 @@ class TestEnrichmentCore(BaseTest):
         person_mock.assert_not_called()
         pha_client.set.assert_called_once_with(
             distinct_id="signer-distinct-id",
-            properties={"icp_fit_score": 100, "icp_fit_version": "v0.6", "icp_fit_status": "scored"},
+            properties={"icp_fit_score": 100, "icp_fit_version": "v0.7", "icp_fit_status": "scored"},
         )
 
     def test_student_role_disqualifies_fit_regardless_of_the_payload(self):
@@ -525,7 +525,7 @@ class TestEnrichmentCore(BaseTest):
         data = {k: v for k, v in record.data.items() if not k.startswith("icp_fit_eval")}
         assert data == {
             "icp_fit_status": "not_found",
-            "icp_fit_version": "v0.6",
+            "icp_fit_version": "v0.7",
             "icp_fit_lists_version": "test-lists-1",
         }
 
@@ -578,7 +578,7 @@ class TestEnrichmentCore(BaseTest):
         fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
         with (
             patch(
-                "products.growth.backend.enrichment.core.score_company",
+                "products.growth.backend.enrichment.ai_pilled.score_company",
                 side_effect=RuntimeError("scorer exploded"),
             ),
             patch("products.growth.backend.enrichment.core.capture_exception") as capture_mock,
@@ -685,7 +685,7 @@ class TestEnrichmentCore(BaseTest):
             data={
                 "icp_fit_score": 15,
                 "icp_fit_flags": {"wizard_ai_sdk": True, "ai_pilled_source": "wizard"},
-                "icp_fit_version": "v0.6",
+                "icp_fit_version": "v0.7",
             },
         )
         fields = EnrichmentFields(company_type="STARTUP", headcount=12)

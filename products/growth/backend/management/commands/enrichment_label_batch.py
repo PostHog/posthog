@@ -2,8 +2,8 @@
 
 Idempotent and resumable — a killed or re-run pass skips any (org, label, version, fetch)
 already computed, so partial progress is never redone and a re-enriched org naturally
-recomputes under the same version. Nothing here is consumed downstream; results are
-queryable in Postgres only.
+recomputes under the same version. Configured AI labels also update the ICP fit
+score; stored results remain available for retry when score projection fails.
 """
 
 import time
@@ -25,6 +25,9 @@ from posthog.llm.gateway_client import get_llm_client
 from posthog.ph_client import ph_scoped_capture
 from posthog.utils import get_instance_region
 
+from products.growth.backend.enrichment import gates
+from products.growth.backend.enrichment.fit_recomputation import ai_label_needs_application, apply_ai_pilled_label
+from products.growth.backend.enrichment.icp_lists import load_active_lists
 from products.growth.backend.enrichment.labels import (
     PromptConfigError,
     TransientToolError,
@@ -66,6 +69,9 @@ def _report_batch_run(*, label: str, version: str, counts: dict[str, int]) -> No
                     "failed": counts["failed"],
                     "tool_calls": counts["tool_calls"],
                     "tools_deferred": counts["tools_deferred"],
+                    "scores_projected": counts["scores_projected"],
+                    "score_failures": counts["score_failures"],
+                    "score_attempted": counts["score_attempted"],
                 },
             )
     except Exception as e:
@@ -178,6 +184,9 @@ class Command(BaseCommand):
             "completion_tokens": 0,
             "tool_calls": 0,
             "tools_deferred": 0,
+            "scores_projected": 0,
+            "score_failures": 0,
+            "score_attempted": 0,
             # Enumerated (counted into "attempted") but never processed because the circuit
             # breaker had already tripped — excluded from success_rate's denominator below so an
             # aborted run's ratio reflects what was actually tried, not what was merely queued.
@@ -192,15 +201,46 @@ class Command(BaseCommand):
         }
         counts_lock = threading.Lock()
         failure_streak = 0
+        score_failure_streak = 0
         circuit_open = threading.Event()
 
-        def _result_exists(fetch: OrganizationEnrichmentFetch, label_name: str) -> bool:
+        def _existing_result(fetch: OrganizationEnrichmentFetch, label_name: str) -> EnrichmentLabelResult | None:
             return EnrichmentLabelResult.objects.filter(
                 organization_id=fetch.organization_id,
                 label_name=label_name,
                 prompt_version=config.version,
                 fetch=fetch,
-            ).exists()
+            ).first()
+
+        def _apply_score(result: EnrichmentLabelResult) -> None:
+            nonlocal score_failure_streak
+            lists = load_active_lists()
+            if (
+                lists is None
+                or result.label_name not in lists.rules.ai_labels
+                or not gates.region_allowed()
+                or not gates.enrichment_enabled()
+                or not ai_label_needs_application(result)
+            ):
+                return
+            with counts_lock:
+                if circuit_open.is_set() or (limit is not None and counts["score_attempted"] >= limit):
+                    return
+                counts["score_attempted"] += 1
+            try:
+                applied = apply_ai_pilled_label(result)
+            except Exception as error:
+                capture_exception(error, {"label_result_id": str(result.id), "path": "ai_pilled_score"})
+                with counts_lock:
+                    counts["score_failures"] += 1
+                    score_failure_streak += 1
+                    if score_failure_streak >= max_failures:
+                        circuit_open.set()
+            else:
+                with counts_lock:
+                    counts["scores_projected"] += int(applied)
+                    if applied:
+                        score_failure_streak = 0
 
         def _live_label_name() -> str:
             # A rename leaves content_hash alone, so the mid-run config check can't catch it. The
@@ -229,7 +269,9 @@ class Command(BaseCommand):
                 # Re-check right before spending: another run may have computed this since the
                 # target was enumerated.
                 live_label = _live_label_name()
-                if _result_exists(fetch, live_label):
+                existing = _existing_result(fetch, live_label)
+                if existing is not None:
+                    _apply_score(existing)
                     with counts_lock:
                         counts["skipped_existing"] += 1
                     return
@@ -249,7 +291,7 @@ class Command(BaseCommand):
                 with transaction.atomic():
                     # Re-read: a rename can land while the LLM call is in flight, and stamping the
                     # name captured before it would strand this verdict under a retired label.
-                    EnrichmentLabelResult.objects.get_or_create(
+                    result, _ = EnrichmentLabelResult.objects.get_or_create(
                         organization_id=fetch.organization_id,
                         fetch=fetch,
                         label_name=_live_label_name(),
@@ -261,6 +303,7 @@ class Command(BaseCommand):
                             "inputs": inputs,
                         },
                     )
+                _apply_score(result)
             except TransientToolError:
                 with counts_lock:
                     counts["tools_deferred"] += 1
@@ -325,9 +368,11 @@ class Command(BaseCommand):
                     id__in=[fetch_id for fetch_id, _ in page]
                 ).select_related("organization")
                 for fetch in fetches:
-                    if circuit_open.is_set():
+                    if circuit_open.is_set() or (limit is not None and counts["score_attempted"] >= limit):
                         return
-                    if _result_exists(fetch, label):
+                    existing = _existing_result(fetch, label)
+                    if existing is not None:
+                        _apply_score(existing)
                         with counts_lock:
                             counts["skipped_existing"] += 1
                         continue
@@ -389,6 +434,8 @@ class Command(BaseCommand):
             f"skipped_no_ai_consent {counts['skipped_no_ai_consent']}, unknown {counts['unknown']}, "
             f"failed {counts['failed']}, aborted {counts['aborted']}, "
             f"tool_calls {counts['tool_calls']}, tools_deferred {counts['tools_deferred']}, "
+            f"scores_projected {counts['scores_projected']}, score_failures {counts['score_failures']}, "
+            f"score_attempted {counts['score_attempted']}, "
             f"prompt_tokens {counts['prompt_tokens']}, completion_tokens {counts['completion_tokens']}, "
             f"elapsed_seconds {elapsed_seconds:.1f}"
         )
@@ -406,6 +453,8 @@ class Command(BaseCommand):
         # Written unconditionally, before any failure decision below: a wrapper parsing stdout
         # for these counts needs them most on the run that fails, not just on a clean one.
         self.stdout.write(summary)
+        if counts["score_failures"]:
+            raise CommandError(f"failed to apply {counts['score_failures']} stored AI labels ({summary})")
         if circuit_open.is_set():
             raise CommandError(f"aborted after {max_failures} consecutive failures ({summary})")
         if tried > 0 and counts["succeeded"] == 0:

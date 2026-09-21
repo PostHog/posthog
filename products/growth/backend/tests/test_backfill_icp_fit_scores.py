@@ -2,11 +2,14 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
 
 from parameterized import parameterized
 
 from products.growth.backend.enrichment.bridge import OrganizationBridgeInputs, WizardBridgeInputs
-from products.growth.backend.enrichment.icp_lists import clear_lists_cache
+from products.growth.backend.enrichment.fit_score import score_company
+from products.growth.backend.enrichment.icp_lists import build_curated_lists, clear_lists_cache
+from products.growth.backend.enrichment.writer import write_organization_enrichment
 from products.growth.backend.models import IcpScoringConfig, OrganizationEnrichment, OrganizationEnrichmentFetch
 
 _COMMAND_MODULE = "products.growth.backend.management.commands.backfill_icp_fit_scores"
@@ -120,3 +123,35 @@ class TestBackfillIcpFitScores(BaseTest):
         record.refresh_from_db()
         assert record.data["icp_fit_evaluation_kind"] == "backfill"
         assert record.data["icp_fit_evaluated_at"]
+
+    def test_policy_change_stops_an_old_backfill_before_it_overwrites_a_new_score(self):
+        record = self._record({})
+        next_config = IcpScoringConfig.objects.create(version="test-lists-2", scoring_rules={"ai_sources": []})
+        old_client, current_client = MagicMock(), MagicMock()
+
+        def activate_and_score_new_policy(**kwargs):
+            with patch("products.growth.backend.models.clear_lists_cache"):
+                next_config.activate()
+            fit = score_company(_PAYLOAD, lists=build_curated_lists(next_config), wizard_ai_sdk=True)
+            write_organization_enrichment(
+                organization_id=str(self.organization.id),
+                fields=None,
+                pha_client=current_client,
+                fit=fit,
+                fit_evaluation_kind="backfill",
+            )
+            return OrganizationBridgeInputs(wizard=WizardBridgeInputs(ai_sdk_detected=True))
+
+        with (
+            patch(f"{_GATES_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_COMMAND_MODULE}.get_regional_ph_client", return_value=old_client),
+            patch(f"{_COMMAND_MODULE}.read_organization_bridge_inputs", side_effect=activate_and_score_new_policy),
+        ):
+            with self.assertRaisesRegex(CommandError, "scoring configuration changed"):
+                call_command("backfill_icp_fit_scores", delay=0)
+
+        record.refresh_from_db()
+        assert record.data["icp_fit_lists_version"] == next_config.version
+        assert record.data["icp_fit_score"] == 0
+        assert current_client.group_identify.call_args.kwargs["properties"]["icp_fit_score"] == 0
+        old_client.group_identify.assert_not_called()

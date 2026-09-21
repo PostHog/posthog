@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -5,12 +6,18 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.management.base import CommandError
+from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models.organization import Organization
 
-from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
+from products.growth.backend.models import (
+    EnrichmentLabelResult,
+    EnrichmentPromptConfig,
+    OrganizationEnrichment,
+    OrganizationEnrichmentFetch,
+)
 from products.growth.dags import ai_enrichment
 from products.growth.dags.ai_enrichment import ai_enrichment_job, count_pending_candidates, is_ai_enrichment_registered
 
@@ -244,6 +251,43 @@ class TestAiEnrichmentJob(_EnrichmentDagTestCase):
         assert result.success
         assert EnrichmentLabelResult.objects.count() == 1
 
+    @parameterized.expand([("successful_repair", False), ("command_error_after_repair", True)])
+    def test_stored_label_repair_counts_as_progress(self, _name: str, command_error: bool) -> None:
+        config = self._config(name="ai_pilled")
+        self._fetch()
+        repair_org = Organization.objects.create(name="Example repair organization")
+        stored_result = EnrichmentLabelResult.objects.create(
+            organization=repair_org,
+            fetch=self._fetch(organization=repair_org),
+            label_name=config.name,
+            prompt_version=config.version,
+            prompt_hash=config.content_hash,
+            model=config.model,
+        )
+
+        def repair_score(_name: str, **kwargs: Any) -> None:
+            OrganizationEnrichment.objects.create(
+                organization=repair_org,
+                data={
+                    "icp_fit_evaluation_kind": "ai_label",
+                    "icp_fit_evaluated_at": timezone.now().isoformat(),
+                    "icp_fit_ai_label_result_id": str(stored_result.id),
+                    "icp_fit_ai_label_projected_result_id": str(stored_result.id),
+                },
+            )
+            if command_error:
+                raise CommandError("Example command failure after score repair")
+
+        with patch(f"{_MODULE}.call_command", side_effect=repair_score):
+            result = ai_enrichment_job.execute_in_process(raise_on_error=False)
+
+        label_runs = result.output_for_node("classify_pending_organizations_op")
+        assert label_runs[0].candidates == 1
+        assert label_runs[0].created == 0
+        assert label_runs[0].projected == 1
+        assert result.success is not command_error
+        assert EnrichmentLabelResult.objects.count() == 1
+
     def test_one_labels_absence_failure_does_not_stop_another_label_from_running(self):
         self._config(name="silent_label")
         self._fetch()
@@ -276,6 +320,72 @@ class TestAiEnrichmentJob(_EnrichmentDagTestCase):
         tags = ai_enrichment_job.tags
         assert tags["owner"] == "team-growth"
         assert "dagster/max_runtime" in tags
+
+
+class TestCountProjectedScores(_EnrichmentDagTestCase):
+    @parameterized.expand(
+        [
+            ("older_evaluation",),
+            ("other_evaluation_kind",),
+            ("missing_projection",),
+            ("mismatched_projection",),
+            ("null_markers",),
+            ("other_label",),
+            ("other_version",),
+            ("inactive_config",),
+            ("changed_prompt",),
+            ("other_organization",),
+        ]
+    )
+    def test_only_completed_current_label_projections_count(self, invalidation: str) -> None:
+        config = self._config(name="ai_pilled")
+        result = EnrichmentLabelResult.objects.create(
+            organization=self.organization,
+            fetch=self._fetch(),
+            label_name=config.name,
+            prompt_version=config.version,
+            prompt_hash=config.content_hash,
+            model=config.model,
+        )
+        started_at = timezone.now()
+        record = OrganizationEnrichment.objects.create(
+            organization=self.organization,
+            data={
+                "icp_fit_evaluation_kind": "ai_label",
+                "icp_fit_evaluated_at": started_at.isoformat(),
+                "icp_fit_ai_label_result_id": str(result.id),
+                "icp_fit_ai_label_projected_result_id": str(result.id),
+            },
+        )
+
+        assert ai_enrichment.count_projected_scores(config.name, config.version, started_at) == 1
+
+        if invalidation == "older_evaluation":
+            record.data["icp_fit_evaluated_at"] = (started_at - timedelta(microseconds=1)).isoformat()
+        elif invalidation == "other_evaluation_kind":
+            record.data["icp_fit_evaluation_kind"] = "backfill"
+        elif invalidation == "missing_projection":
+            record.data.pop("icp_fit_ai_label_projected_result_id")
+        elif invalidation == "mismatched_projection":
+            record.data["icp_fit_ai_label_projected_result_id"] = "example-other-result"
+        elif invalidation == "null_markers":
+            record.data["icp_fit_ai_label_result_id"] = None
+            record.data["icp_fit_ai_label_projected_result_id"] = None
+        elif invalidation == "other_label":
+            result.label_name = "example_other_label"
+        elif invalidation == "other_version":
+            result.prompt_version = "example_retired_version"
+        elif invalidation == "inactive_config":
+            config.is_active = False
+        elif invalidation == "changed_prompt":
+            config.prompt_text = "Example changed prompt"
+        elif invalidation == "other_organization":
+            result.organization = Organization.objects.create(name="Example other organization")
+        record.save()
+        result.save()
+        config.save()
+
+        assert ai_enrichment.count_projected_scores(config.name, config.version, started_at) == 0
 
 
 @parameterized.expand(

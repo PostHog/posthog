@@ -41,8 +41,9 @@ class TestEnrichmentGates(BaseTest):
 
         assert resolve_signup_identity(str(organization.id)) == SignupIdentitySkip(reason="signup_user_left")
 
-    def test_resolve_signup_identity_with_a_generic_email_is_unusable(self):
-        organization = self._org_with_member("founder@gmail.com")
+    @parameterized.expand([("gmail.com",), ("bk.ru",)])
+    def test_resolve_signup_identity_with_a_generic_email_is_unusable(self, domain):
+        organization = self._org_with_member(f"invented-founder@{domain}")
 
         assert resolve_signup_identity(str(organization.id)) == SignupIdentitySkip(reason="no_usable_member")
 

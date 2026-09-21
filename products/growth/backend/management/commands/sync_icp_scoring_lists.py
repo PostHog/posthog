@@ -7,6 +7,7 @@ A list change is always a new row; rows are never edited in place, so every stam
 """
 
 import csv
+from copy import deepcopy
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
@@ -15,7 +16,6 @@ from django.db import transaction
 from products.growth.backend.enrichment.icp_lists import (
     TAG_BUCKETS,
     build_curated_lists,
-    clear_lists_cache,
     parse_investors_csv_rows,
     parse_tags_csv_rows,
     unrecognized_recommendation_tokens,
@@ -43,7 +43,7 @@ class Command(BaseCommand):
     help = (
         "Create a new versioned IcpScoringConfig row from the RevOps sheet exports "
         "(tags + quality investors). Never edits an existing row; --activate atomically "
-        "moves the active flag to the new row."
+        "moves the active flag to the new row. Preserves the active scoring rules."
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -78,15 +78,16 @@ class Command(BaseCommand):
             )
 
         with transaction.atomic():
-            if options["activate"]:
-                IcpScoringConfig.objects.filter(is_active=True).update(is_active=False)
+            configs = list(IcpScoringConfig.objects.select_for_update().order_by("pk"))
+            active = next((config for config in configs if config.is_active), None)
             config = IcpScoringConfig.objects.create(
                 version=version,
                 tags=tags,
                 quality_investors=investors,
-                is_active=options["activate"],
+                scoring_rules=deepcopy(active.scoring_rules) if active else {},
             )
-        clear_lists_cache()
+            if options["activate"]:
+                config.activate()
 
         investors_with_aliases = sum(1 for investor in investors if investor["aliases"])
         state = "active" if config.is_active else "inactive (activate via admin or --activate)"

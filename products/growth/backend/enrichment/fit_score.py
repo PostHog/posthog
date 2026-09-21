@@ -1,13 +1,13 @@
 """The ICP fit score — encodes the Aug 2026 "who we build for" definition.
 
-Definitional score, not an MRR predictor: components are Traction (35), Capital (30),
+Definitional score, not an MRR predictor: default components are Traction (35), Capital (30),
 AIPilled (15), HeadcountGrowth (10), SoftwareRelevance (10), summing to 100. AIPilled
-awards its 15 points on the Harmonic AI signal OR a detected wizard AI SDK stamp. Spec:
+awards its 15 points on a Harmonic AI signal, a detected wizard AI SDK stamp, or a
+validated AI label. Spec:
 https://posthog.com/handbook/growth/revops/icp-scoring. Weights and rules are owned by
 RevOps and validated against a 382-company exemplar/customer set plus a 9.7k-signup
-cohort. The curated tag and investor lists ride in versioned DB rows (see icp_lists.py);
-a list update bumps the stamped `lists_version`, never SCORE_VERSION — only a formula
-change bumps SCORE_VERSION.
+cohort. The scoring policy, curated tags, and investors live in versioned DB rows (see icp_lists.py).
+Policy changes stamp a new `lists_version`; changes to the scoring engine bump SCORE_VERSION.
 
 Written to its own `icp_fit_*` key family, deliberately NOT the legacy `icp_score` keys:
 the live consumers of `icp_score` are threshold-tuned to the clay formula's -5..21 scale,
@@ -26,12 +26,14 @@ investor scores capital 18 instead of falling out as insufficient_data.
 
 import re
 import dataclasses
-from typing import Any, Optional
+from typing import Any, Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.growth.backend.enrichment.icp_lists import CuratedLists, norm
+from products.growth.backend.enrichment.scoring_rules import points_for
 
-SCORE_VERSION = "v0.6"
-AI_PILLED_POINTS = 15
+SCORE_VERSION = "v0.7"
 
 STATUS_SCORED = "scored"
 STATUS_INSUFFICIENT_DATA = "insufficient_data"
@@ -60,6 +62,16 @@ NONPROFIT_TAGS = frozenset({"non-profit & community organizations"})
 QUALITY_INVESTOR_SUBSTRING_MIN_CHARS = 8
 
 
+@frozen
+class AiPilledEvidence:
+    result_id: str
+    fetch_id: str
+    prompt_version: str
+    prompt_hash: str
+    evidence_type: Literal["developer_tools", "ai_product"]
+    evidence_url: str
+
+
 @dataclasses.dataclass(frozen=True)
 class IcpFitResult:
     """One org's fit evaluation. score is None unless status is scored/disqualified."""
@@ -75,15 +87,19 @@ class IcpFitResult:
     nonprofit_flag: Optional[bool] = None
     wizard_ai_sdk: Optional[bool] = None
     ai_pilled_source: Optional[str] = None
+    ai_pilled_evidence: AiPilledEvidence | None = None
+    ai_pilled_label_result_id: str | None = None
     version: str = SCORE_VERSION
     lists_version: Optional[str] = None
 
 
-def is_quality_investor(observed_name: str, quality_names: frozenset[str]) -> bool:
+def is_quality_investor(
+    observed_name: str, quality_names: frozenset[str], substring_min_chars: int = QUALITY_INVESTOR_SUBSTRING_MIN_CHARS
+) -> bool:
     observed = norm(observed_name)
     if observed in quality_names:
         return True
-    return any(name in observed for name in quality_names if len(name) >= QUALITY_INVESTOR_SUBSTRING_MIN_CHARS)
+    return any(name in observed for name in quality_names if len(name) >= substring_min_chars)
 
 
 def _metric(payload: dict[str, Any], name: str, horizon: Optional[str] = None, field: str = "percent_change") -> Any:
@@ -103,6 +119,7 @@ def score_company(
     role: Optional[str] = None,
     domain: Optional[str] = None,
     wizard_ai_sdk: bool = False,
+    ai_pilled_evidence: AiPilledEvidence | None = None,
 ) -> IcpFitResult:
     """Score one company payload (REST shape — see module docstring) against the fit rules.
 
@@ -115,9 +132,6 @@ def score_company(
     matched but empty-shell profile is insufficient_data (no numeric score — "no data yet"
     must never read as "evaluated and low"); everything else is scored 0–100.
 
-    `wizard_ai_sdk` earns AIPilled's 15 points on its own, same as the Harmonic signal:
-    either one fires the full award, and `ai_pilled_source` records "harmonic" / "wizard" /
-    "both" so which source fired stays visible.
     """
     if (role or "").strip().lower() == "student":
         return IcpFitResult(status=STATUS_DISQUALIFIED, score=0, dq_reason="role=student", lists_version=lists.version)
@@ -147,91 +161,86 @@ def score_company(
     ):
         return IcpFitResult(status=STATUS_INSUFFICIENT_DATA, lists_version=lists.version)
 
-    # Momentum horizons (validated 2026-08-13): traffic 90d (best discriminator; 365d is
-    # ~random), headcount 180d (90d is ±1-hire noise on small teams; 365d misses
-    # inflections). Thresholds are rescaled per horizon.
-    traffic_growth_90d = _metric(payload, "web_traffic", "90d_ago")
-    headcount_growth_180d = _metric(payload, "headcount", "180d_ago")
-    headcount_adds_180d = _metric(payload, "headcount", "180d_ago", "change")
+    rules = lists.rules
+    traffic_change = _metric(payload, "web_traffic", rules.traction.growth_horizon)
+    headcount_change = _metric(payload, "headcount", rules.headcount_growth.horizon)
+    headcount_adds = _metric(payload, "headcount", rules.headcount_growth.horizon, "change")
     engineering_headcount = _metric(payload, "headcount_engineering", None)
     investors = [
         investor.get("name") or "" for investor in (funding.get("investors") or []) if isinstance(investor, dict)
     ]
     funding_total = funding.get("funding_total") or 0
 
-    traffic_level = (
-        15
-        if (web_traffic or 0) >= 100_000
-        else 10
-        if (web_traffic or 0) >= 10_000
-        else 5
-        if (web_traffic or 0) >= 1_000
-        else 0
-    )
+    traffic_level = points_for(web_traffic or 0, rules.traction.traffic_levels)
     traffic_growth = 0
-    if (web_traffic or 0) >= 5_000:  # growth only counted above a minimum base: small-base %s invert the signal
-        traffic_growth = (
-            20
-            if (traffic_growth_90d or 0) >= 40
-            else 12
-            if (traffic_growth_90d or 0) >= 15
-            else 5
-            if (traffic_growth_90d or 0) > 0
-            else 0
+    if (web_traffic or 0) >= rules.traction.minimum_traffic_for_growth:
+        traffic_growth = points_for(
+            traffic_change or 0,
+            rules.traction.growth_levels,
+            rules.traction.positive_growth_points
+            if (traffic_change or 0) > rules.traction.positive_growth_minimum
+            else 0,
         )
     traction = traffic_level + traffic_growth
 
     quality = (
         "YC_BATCH" in tag_types  # matched on tag type so future batches qualify without a list update
         or bool(tags & lists.capital_quality)
-        or any(is_quality_investor(investor, lists.quality_investors) for investor in investors)
+        or any(
+            is_quality_investor(investor, lists.quality_investors, rules.capital.investor_substring_min_chars)
+            for investor in investors
+        )
     )
     # EXISTS_BUT_UNDISCLOSED implies some funding exists -> base capital tier.
     undisclosed = payload.get("funding_attribute_null_status") == "EXISTS_BUT_UNDISCLOSED"
-    capital = (
-        20
-        if funding_total >= 10_000_000
-        else 14
-        if funding_total >= 2_000_000
-        else 8
-        if (funding_total > 0 or undisclosed)
-        else 0
+    capital = points_for(
+        funding_total,
+        rules.capital.funding_levels,
+        rules.capital.funded_points if (funding_total > rules.capital.funded_minimum or undisclosed) else 0,
     )
-    capital = min(30, capital + (10 if quality else 0))
+    capital = min(rules.capital.cap, capital + (rules.capital.quality_bonus if quality else 0))
 
     description = payload.get("description") or payload.get("short_description") or ""
     has_ai_tag = bool(tags & lists.ai_positive)
     has_ai_description = bool(description and AI_DESC.search(description))
     has_ai_domain = (domain or "").endswith(".ai")
     harmonic_ai = has_ai_tag or has_ai_description or has_ai_domain
-    ai_pilled = AI_PILLED_POINTS if (harmonic_ai or wizard_ai_sdk) else 0
-    ai_pilled_source = (
-        "both" if harmonic_ai and wizard_ai_sdk else "harmonic" if harmonic_ai else "wizard" if wizard_ai_sdk else None
-    )
+    ai_sources = [
+        source
+        for source, present in (
+            ("harmonic", harmonic_ai),
+            ("wizard", wizard_ai_sdk),
+            ("llm", ai_pilled_evidence is not None),
+        )
+        if present and source in rules.ai_sources
+    ]
+    ai_pilled = rules.ai_points if ai_sources else 0
+    ai_pilled_source = "both" if ai_sources == ["harmonic", "wizard"] else "+".join(ai_sources) or None
 
-    headcount_growth = (
-        10
-        if (headcount_growth_180d or 0) >= 15
-        else 6
-        if ((headcount_growth_180d or 0) >= 5 or (headcount_adds_180d or 0) >= 3)
-        else 3
-        if (headcount_growth_180d or 0) > 0
-        else 0
+    headcount_growth = max(
+        points_for(
+            headcount_change or 0,
+            rules.headcount_growth.levels,
+            rules.headcount_growth.positive_growth_points
+            if (headcount_change or 0) > rules.headcount_growth.positive_growth_minimum
+            else 0,
+        ),
+        rules.headcount_growth.hires_points if (headcount_adds or 0) >= rules.headcount_growth.minimum_hires else 0,
     )
 
     software_relevance = (
-        10
-        if (engineering_headcount or 0) > 0
-        else 7
+        rules.software_relevance.engineering_points
+        if (engineering_headcount or 0) > rules.software_relevance.engineering_minimum
+        else rules.software_relevance.other_points
         if (tags & lists.software_positive or SW_DESC.search(description))
         else 0
     )
 
     coverage = sum(
         [
-            bool(headcount and headcount >= 1),
-            bool((web_traffic or 0) >= 100),
-            bool(funding_total > 0 or investors),
+            bool(headcount and headcount >= rules.coverage.headcount_minimum),
+            bool((web_traffic or 0) >= rules.coverage.traffic_minimum),
+            bool(funding_total > rules.coverage.funding_minimum or investors),
             bool(payload.get("tags_v2")),
         ]
     )
@@ -248,10 +257,11 @@ def score_company(
         },
         quality_investor=quality,
         data_coverage=coverage,
-        low_confidence=coverage <= 1,
+        low_confidence=coverage <= rules.coverage.low_confidence_maximum,
         agency_flag=bool(tags & AGENCY_TAGS),
         nonprofit_flag=bool(tags & NONPROFIT_TAGS),
         wizard_ai_sdk=wizard_ai_sdk,
         ai_pilled_source=ai_pilled_source,
+        ai_pilled_evidence=ai_pilled_evidence if "llm" in ai_sources else None,
         lists_version=lists.version,
     )

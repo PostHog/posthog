@@ -66,6 +66,14 @@ User-facing features with their own backend (Django app) and frontend (React). E
 
 See [products/README.md](/products/README.md) for how to create products. For new isolated products, see [products/architecture.md](/products/architecture.md) for design principles (DTOs, facades, isolation rules).
 
+Growth's company enrichment and ICP fit scoring live in `products/growth/backend/enrichment/`.
+The backend validates company identity, AI consent and fetched evidence, then saves and publishes the score.
+`EnrichmentPromptConfig` holds versioned labeler prompts; `IcpScoringConfig` holds immutable versions of the curated lists and scoring rules.
+Operators can clone a scoring configuration in Django admin, change points, thresholds or accepted AI labels, and save an inactive version.
+Preview that version against archived company data with `preview_icp_scoring_config` before using the separate activation action.
+Scores record the configuration version in `icp_fit_lists_version`; activation affects subsequent evaluations, and `backfill_icp_fit_scores` reapplies the rules to archived data.
+Failed label-driven score updates retry the stored label without another model request.
+
 One exception to the Django-plus-React shape: `products/desktop/` is the PostHog desktop app (Electron, plus mobile and web hosts), imported from the PostHog/code repo. It is a nested standalone pnpm workspace with its own lockfile, Node version and Biome toolchain, deliberately excluded from the root pnpm workspace, with its own `desktop-*` CI. Its `AGENTS.md` covers the architecture. Day to day, drive it through `hogli desktop:*` commands, or `cd products/desktop` and use pnpm directly.
 
 #### What a product can own

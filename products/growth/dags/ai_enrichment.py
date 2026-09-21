@@ -18,11 +18,10 @@ add a lock with nothing to protect.
 Spend bound: `--limit` (this module's `DEFAULT_LABEL_LIMIT`) caps attempted orgs per label
 per run — see the PR description for the worst-case dollar arithmetic behind the default.
 
-Absence-of-output check: a run that finds pending candidates but persists zero verdicts is
-indistinguishable, from the command's own exit code, from a quiet day with nothing to do — a
-zero-output pass through a working gateway looks identical to one where every call to it is
-silently swallowed. `check_enrichment_run_op` re-counts candidates and verdicts itself and
-raises if that happened, so the failure reaches #alerts-growth instead of going unnoticed.
+Absence-of-output check: a command can return successfully without creating a verdict
+or completing a score projection. When candidates exist, that outcome can mean failures
+were silently swallowed. `check_enrichment_run_op` fails such runs so the failure reaches
+#alerts-growth instead of going unnoticed.
 
 Version pinning: a label's active version is resolved fresh inside `_run_one_label`, right
 before counting and calling the command — never once for every label at op start. The op runs
@@ -39,9 +38,14 @@ Environment: sends organization signup data to an external LLM gateway, so — l
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from django.conf import settings
 from django.core.management import call_command
+from django.db.models import CharField, DateTimeField, Exists, F, OuterRef
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Cast
+from django.utils import timezone
 
 import dagster
 import pydantic
@@ -50,7 +54,7 @@ from posthog.dags.common import JobOwners, skip_if_already_running
 from posthog.exceptions_capture import capture_exception
 
 from products.growth.backend.enrichment.labels import get_active_config, latest_fetches_qs
-from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig
+from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichment
 
 # Roughly a day of signups plus headroom. This is the run's spend cap: see the PR description
 # for the worst-case dollars-per-run arithmetic at this value.
@@ -85,11 +89,12 @@ class AiEnrichmentConfig(dagster.Config):
 class LabelRunResult:
     label: str
     # None only when the label was active when listed but had no active config left by the time
-    # _run_one_label got to it (deactivated, not merely bumped) — candidates/created are 0 in
+    # _run_one_label got to it (deactivated, not merely bumped). All counts are 0 in
     # that case and the command's own CommandError carries the failure.
     prompt_version: str | None
     candidates: int
     created: int
+    projected: int
     error: str | None
 
 
@@ -116,6 +121,38 @@ def count_pending_candidates(label: str, prompt_version: str) -> int:
     )
 
 
+def count_projected_scores(label: str, prompt_version: str, started_at: datetime) -> int:
+    config = get_active_config(label)
+    if config is None or config.version != prompt_version:
+        return 0
+
+    matching_results = (
+        EnrichmentLabelResult.objects.filter(
+            organization_id=OuterRef("organization_id"),
+            label_name=label,
+            prompt_version=prompt_version,
+            prompt_hash=config.content_hash,
+        )
+        .alias(result_id=Cast("id", CharField()))
+        .filter(result_id=OuterRef("applied_result_id"))
+    )
+    return (
+        OrganizationEnrichment.objects.filter(updated_at__gte=started_at, data__icp_fit_evaluation_kind="ai_label")
+        .alias(
+            evaluated_at=Cast(KeyTextTransform("icp_fit_evaluated_at", "data"), DateTimeField()),
+            applied_result_id=KeyTextTransform("icp_fit_ai_label_result_id", "data"),
+            projected_result_id=KeyTextTransform("icp_fit_ai_label_projected_result_id", "data"),
+        )
+        .filter(
+            evaluated_at__gte=started_at,
+            applied_result_id__isnull=False,
+            projected_result_id=F("applied_result_id"),
+        )
+        .filter(Exists(matching_results))
+        .count()
+    )
+
+
 def _run_one_label(context: dagster.OpExecutionContext, *, label: str, limit: int, workers: int) -> LabelRunResult:
     """Resolves the label's active version itself, right here — not from a snapshot taken once
     for every label at op start. See the module docstring for why that distinction matters."""
@@ -129,6 +166,7 @@ def _run_one_label(context: dagster.OpExecutionContext, *, label: str, limit: in
         else 0
     )
 
+    started_at = timezone.now()
     error: str | None = None
     try:
         # expected_version=None when we couldn't resolve one either — the command's own
@@ -146,9 +184,17 @@ def _run_one_label(context: dagster.OpExecutionContext, *, label: str, limit: in
         if prompt_version is not None
         else 0
     )
-    context.log.info(f"label {label!r} ({prompt_version}): {candidates} candidates, {created} verdicts created")
+    projected = count_projected_scores(label, prompt_version, started_at) if prompt_version is not None else 0
+    context.log.info(
+        f"label {label!r} ({prompt_version}): {candidates} candidates, {created} verdicts created, {projected} scores projected"
+    )
     return LabelRunResult(
-        label=label, prompt_version=prompt_version, candidates=candidates, created=created, error=error
+        label=label,
+        prompt_version=prompt_version,
+        candidates=candidates,
+        created=created,
+        projected=projected,
+        error=error,
     )
 
 
@@ -172,6 +218,7 @@ def classify_pending_organizations_op(
             "labels_processed": dagster.MetadataValue.int(len(results)),
             "total_candidates": dagster.MetadataValue.int(sum(r.candidates for r in results)),
             "total_created": dagster.MetadataValue.int(sum(r.created for r in results)),
+            "total_projected": dagster.MetadataValue.int(sum(r.projected for r in results)),
         }
     )
     return results
@@ -180,17 +227,21 @@ def classify_pending_organizations_op(
 @dagster.op
 def check_enrichment_run_op(context: dagster.OpExecutionContext, results: list[LabelRunResult]) -> None:
     """Fail the run — and with it the job, routing to #alerts-growth — on either a command
-    failure or a label that had pending candidates but produced no verdicts at all. A run that
+    failure or a label that had pending candidates but produced no verdicts or score projections. A run that
     merely succeeds while classifying nothing raises nothing on its own; this is what makes
     that case loud instead of silent."""
     command_failures = [r for r in results if r.error is not None]
-    silent_failures = [r for r in results if r.error is None and r.candidates > 0 and r.created == 0]
+    silent_failures = [
+        r for r in results if r.error is None and r.candidates > 0 and r.created == 0 and r.projected == 0
+    ]
     if not command_failures and not silent_failures:
         context.log.info(f"ai_enrichment run OK: {len(results)} label(s) processed")
         return
 
     problems = [f"{r.label}: command failed ({r.error})" for r in command_failures]
-    problems += [f"{r.label}: {r.candidates} candidates but 0 verdicts created" for r in silent_failures]
+    problems += [
+        f"{r.label}: {r.candidates} candidates but 0 verdicts created and 0 scores projected" for r in silent_failures
+    ]
     raise dagster.Failure("ai_enrichment run had problems: " + "; ".join(problems))
 
 
