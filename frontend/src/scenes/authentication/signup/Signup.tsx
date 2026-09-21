@@ -143,7 +143,7 @@ function SignupEmailPanel(): JSX.Element {
                         Trying to join an existing organization?
                     </button>
                     {showJoinOrg && (
-                        <p className="AuthScene__note mt-3 py-3 px-3.5 text-xs leading-relaxed text-secondary text-left bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
+                        <p className="AuthScene__note mt-3 py-3 px-3.5 text-xs leading-relaxed text-secondary text-left border border-dashed rounded">
                             You'll need your invite link. When a teammate invites you, we email you a personal link.
                             Didn't get one? Check spam, or ask them to resend it from their members settings.
                         </p>
@@ -257,7 +257,7 @@ function SignupAuthPanel(): JSX.Element {
                 </div>
             )}
             {passkeyRegistered ? (
-                <div className="AuthScene__note text-center py-3 px-3.5 text-xs leading-relaxed text-secondary bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
+                <div className="AuthScene__note text-center py-3 px-3.5 text-xs leading-relaxed text-secondary border border-dashed rounded">
                     Passkey registered. Continue below.
                 </div>
             ) : (

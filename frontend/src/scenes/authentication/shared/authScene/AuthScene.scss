@@ -21,6 +21,8 @@
     --auth-scene-card-shadow: rgb(20 44 72 / 18%);
     --auth-scene-card-ink: #111;
     --auth-scene-card-ink-muted: rgb(17 17 17 / 58%);
+    --auth-scene-note-bg: #fbfbf9;
+    --auth-scene-note-border: #c5c6bd;
 
     background-color: var(--auth-scene-backdrop-mid);
     background-image:
@@ -76,6 +78,8 @@
     --auth-scene-card-shadow: rgb(0 0 0 / 45%);
     --auth-scene-card-ink: var(--color-text-primary);
     --auth-scene-card-ink-muted: var(--color-text-secondary);
+    --auth-scene-note-bg: var(--color-bg-fill-primary);
+    --auth-scene-note-border: var(--color-border-primary);
 }
 
 // Reads as the same green the website showed, dimmed for a dark room. It has to follow the block
@@ -145,8 +149,12 @@
     }
 }
 
-// Note callout — bold inside it is darker
+// Note callout. Its sheet has to repaint for dark mode, because the text inside it uses the app
+// tokens, which turn light.
 .AuthScene__note {
+    background: var(--auth-scene-note-bg, #fbfbf9);
+    border-color: var(--auth-scene-note-border, #c5c6bd);
+
     b {
         color: var(--auth-scene-card-ink, #111);
     }
