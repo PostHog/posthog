@@ -10,7 +10,7 @@ from django.test import SimpleTestCase
 import posthoganalytics
 from parameterized import parameterized
 from posthoganalytics.client import Client
-from prometheus_client import REGISTRY, generate_latest
+from prometheus_client import REGISTRY, CollectorRegistry, generate_latest
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -85,7 +85,9 @@ class TestLanguageServiceRouting(SimpleTestCase):
         assert REGISTRY.get_sample_value("hogql_editor_assist_responses_total", labels) == before + 1
         assert (
             b'hogql_editor_assist_responses_total{backend="python",operation="metadata",reason="service_error"}'
-            in generate_latest(REGISTRY.restricted_registry(["hogql_editor_assist_responses_total"]))
+            in generate_latest(
+                cast(CollectorRegistry, REGISTRY.restricted_registry(["hogql_editor_assist_responses_total"]))
+            )
         )
 
     def test_hogql_metadata_with_index_usage_is_language_service_eligible(self) -> None:
@@ -94,9 +96,16 @@ class TestLanguageServiceRouting(SimpleTestCase):
         assert _language_service_eligible(query)
 
     @patch("posthog.api.services.query._build_database_schema_query", side_effect=DatabaseSchemaUnavailable())
+    @patch("posthog.hogql.language_service.get_client")
     @patch("posthog.api.services.query.LanguageServiceClient")
-    def test_schema_refresh_failure_falls_back(self, client_class: MagicMock, _build_schema: MagicMock) -> None:
-        client_class.return_value.validate.side_effect = CatalogMissing("missing")
+    def test_schema_refresh_failure_falls_back(
+        self, client_class: MagicMock, get_redis_client: MagicMock, _build_schema: MagicMock
+    ) -> None:
+        client = client_class.return_value
+        client.base_url = "http://language-service:8091"
+        client.validate.side_effect = CatalogMissing("missing")
+        get_redis_client.return_value.get.return_value = None
+        get_redis_client.return_value.lock.return_value.acquire.return_value = True
 
         route = _language_service_call(
             cast(Team, SimpleNamespace(pk=12)),
