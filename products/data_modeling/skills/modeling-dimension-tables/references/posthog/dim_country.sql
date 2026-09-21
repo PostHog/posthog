@@ -10,7 +10,7 @@ FROM (
     SELECT
         upper(properties.$geoip_country_code)      AS country_code
     FROM events
-    -- HogQL keeps a row whose property is missing when you only compare it to '',
+    -- HogQL keeps a row whose property is missing when the filter only tests != '',
     -- so the null check is what stops NULL from becoming a country_code of its own.
     WHERE isNotNull(properties.$geoip_country_code)
       AND properties.$geoip_country_code != ''
