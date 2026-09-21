@@ -21,7 +21,7 @@ Event timestamps, arrival times, retries, and flushes do not change the version.
 Both versions can occur in one ingestion batch.
 Their replay blocks, images, and metadata use separate storage paths.
 The version applies to the whole session, including a session that crosses the cutoff.
-An image carries a session month and no session ID, so the image dataset moves to v3 at the first month boundary after the v3 cutoff: images of `2026-09` stay in v2 and images of `2026-10` onward are v3.
+An image reference carries the dataset version of the session that collected it, so a v3 session's images are v3 whatever their month, and the image lanes never read a session ID.
 The three lanes require `AI_RESEARCH_REPLAY_S3_BUCKET` at startup, because a v3 session or image has no other place to go.
 
 ## Consent
@@ -185,7 +185,7 @@ A session that crosses a month boundary stays in its start month, including late
 | URL images           | `scrubbed-images/v2/<month>/<team>/url/<hash>`              | Team and session month                   |
 
 A v3 session uses the same layout in the v3 buckets: blocks under `rrweb_3/<month>/`, and the metadata catalog, the evaluation index and every image path with `/v3/` in place of `/v2/`.
-A reader finds the bucket of a block in its `block_url`, and resolves an image reference in the v3 images bucket when the reference's month is `2026-10` or later.
+A reader finds the bucket of a block in its `block_url`, and resolves an `image:v3:` or `imageurl:v3:` reference in the v3 images bucket under the `/v3/` paths.
 
 Metadata catalogs expose raw `team_id`, `session_id`, `format_version`, and an encrypted `payload`.
 URLs, block locations, and replay indexes are inside that payload.
@@ -208,7 +208,7 @@ Resolve image references before training because they contain team IDs.
 
 ## Images and Kafka
 
-V2 references are `image:v2:<team>:<month>:<hash>` and `imageurl:v2:<team>:<month>:<hash>`.
+A reference names its dataset version: `image:v2:<team>:<month>:<hash>` and `imageurl:v2:<team>:<month>:<hash>` for a v2 session, `image:v3:...` and `imageurl:v3:...` for a v3 session. The version is part of the reference, so the fetch frontier and every dedup cache treat a v3 reference as new even when a v2 session already stored the same image, and the v3 dataset gets its own copy.
 Images do not deduplicate across teams or session months.
 Kafka records between the ML lanes travel in cleartext; only objects in S3 are sealed, and stored scrubbed images use team image keys.
 Consumers reject malformed UUIDv7 session identifiers before reading DynamoDB.
