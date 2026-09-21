@@ -254,7 +254,7 @@ def _get_account_search_q(team_id: int, query: str, user_access_control: "UserAc
 
 
 def _account_tags(account: Account) -> list[str]:
-    return sorted(TaggedItem.objects.filter(account=account).values_list("tag__name", flat=True))
+    return sorted(TaggedItem.objects.for_object(account).values_list("tag__name", flat=True))
 
 
 def _account_notes(account: Account) -> list[contracts.AccountNote]:
@@ -3088,8 +3088,9 @@ def _apply_account_table_sort(
             queryset = queryset.annotate(_account_table_sort=KeyTextTransform(sort.account_field.value, "_properties"))
     elif sort.kind == contracts.AccountTableSortKind.TAGS:
         tag_values = (
-            TaggedItem.objects.filter(account_id=OuterRef("pk"), tag__team_id=team_id)
-            .values("account_id")
+            TaggedItem.objects.matching_outer(Account)
+            .filter(tag__team_id=team_id)
+            .values("object_key")
             .annotate(value=ArrayAgg("tag__name", order_by="tag__name"))
             .values("value")
         )
@@ -3296,9 +3297,9 @@ def query_accounts_table(
     tags_by_account: dict[UUID, list[str]] = {account_id: [] for account_id in account_ids}
     if selection.include_tags:
         for account_id, tag_name in (
-            TaggedItem.objects.filter(account_id__in=account_ids)
+            TaggedItem.objects.for_objects(Account, account_ids)
             .order_by("tag__name")
-            .values_list("account_id", "tag__name")
+            .values_list("object_key", "tag__name")
         ):
             tags_by_account[account_id].append(tag_name)
 
