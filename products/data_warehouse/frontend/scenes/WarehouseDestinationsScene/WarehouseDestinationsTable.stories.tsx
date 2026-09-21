@@ -32,6 +32,10 @@ const meta: Meta<typeof WarehouseDestinationsTable> = {
     title: 'Data Warehouse/WarehouseDestinationsTable',
     component: WarehouseDestinationsTable,
     tags: ['autodocs'],
+    parameters: {
+        // The updated column shows relative time, so the snapshot changes with the clock unless the date is pinned.
+        mockDate: '2026-09-01',
+    },
 }
 export default meta
 
