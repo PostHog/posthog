@@ -114,7 +114,7 @@ function SeriesBands(): JSX.Element {
                 {seriesBands.series.some((series) =>
                     series.buckets.some((bucket) => bucket.lower !== null && bucket.upper !== null)
                 )
-                    ? 'Expected ranges target 99% coverage when traffic patterns stay stable. Marked points fall outside the range and need investigation.'
+                    ? 'Expected ranges target 99% coverage for individual buckets when traffic patterns stay stable. Marked points fall outside the range and need investigation.'
                     : 'Expected ranges need at least four weeks of sustained traffic before this window. Try a more recent window, or check back as history builds.'}{' '}
                 Click a bucket to read its logs.
             </div>
