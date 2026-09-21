@@ -837,6 +837,10 @@ class TestValidateEmitInputs:
         with pytest.raises(InvalidEmitError, match="confidence"):
             _validate_inputs("ok", confidence, [], None)
 
+    def test_omitted_confidence_passes(self) -> None:
+        # The field is retired, so an emit that sends nothing must not trip the range check.
+        _validate_inputs("ok", None, [], None)
+
     def test_too_many_evidence_entries_raises(self) -> None:
         many = [EvidenceEntry(source_product="logs", summary=f"e{i}") for i in range(MAX_EVIDENCE_ENTRIES + 1)]
         with pytest.raises(InvalidEmitError, match="evidence"):
@@ -941,6 +945,26 @@ class TestBuildEmitExtra:
         # but rejects unexpected keys, so omission is the right shape.
         for opt in ("task_id", "hypothesis", "severity", "dedupe_keys", "time_range", "mcp_trace_id", "tags"):
             assert opt not in extra
+
+    def test_extra_omits_confidence_when_not_supplied(self) -> None:
+        # Retired field: absent from `extra` rather than a null the pydantic contract would carry.
+        extra = _build_extra(
+            run_id="run-uuid",
+            task_run_id="task-run-uuid",
+            task_id=None,
+            finding_id="finding-uuid",
+            skill_name="signals-scout-errors",
+            skill_version=2,
+            confidence=None,
+            evidence=[EvidenceEntry(source_product="error_tracking", summary="500s on /checkout")],
+            hypothesis=None,
+            severity=None,
+            dedupe_keys=None,
+            time_range=None,
+            mcp_trace_id=None,
+            tags=None,
+        )
+        assert "confidence" not in extra
 
     def test_skill_version_cast_to_float(self) -> None:
         extra = self._minimal()
