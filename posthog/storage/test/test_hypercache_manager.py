@@ -500,7 +500,8 @@ class TestPushHypercacheTeamsProcessedMetrics(BaseTest):
         # whether the queue drains.
         assert registry.get_sample_value("posthog_hypercache_expiry_backlog_last_run", base) == 7000
         # The before sample is what the after sample is read against: 11000 - 7000 is what
-        # the run drained, and the next run's before sample against 7000 is the arrival rate.
+        # the run drained, and the next run's before sample against 7000 is the net change
+        # between runs.
         assert registry.get_sample_value("posthog_hypercache_expiry_backlog_before_run", base) == 11000
         assert registry.get_sample_value("posthog_hypercache_expiry_oldest_before_run_seconds", base) == -1800.0
         assert registry.get_sample_value("posthog_hypercache_refresh_limit_reached_last_run", base) == 1

@@ -279,10 +279,13 @@ def push_refresh_metrics(
     in remote_config_cache. One function so the next field added reaches both without
     anyone having to remember the fork exists.
 
-    Both ends of the run are pushed. The before sample is the clean number, the after
-    sample minus it is what the run drained, and one run's before sample minus the
-    previous run's after sample is the arrival rate. A single sample answers none of
-    those, which is why the run carries its own starting reading here.
+    Both ends of the run are pushed. The before sample is the clean number, taken
+    before the run touches a team. The before sample minus the after sample is what the
+    run drained, because a refresh re-scores its cache out of the due window. One run's
+    before sample minus the previous run's after sample is the net change between runs,
+    not an arrival rate. Rebuilds that complete in the gap re-score out of the window as
+    well, routed ones included, so they cancel part of the arrivals. A single sample
+    answers none of those, which is why the run carries its own starting reading here.
 
     An empty run pushes too. Pushgateway keeps serving the last value pushed, so
     skipping it would latch a drained backlog at whatever the last busy run saw.
