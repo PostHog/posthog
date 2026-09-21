@@ -229,8 +229,8 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     # Who ran it. Kernels are per user, so this is the second half of a KernelRuntime's scope —
     # the callback needs it to file the frame snapshot without a user-blind lookup by id.
     # db_constraint=False: a real FK to the hot posthog_user table locks it on deploy.
-    # db_index=False: nothing queries runs by user — it is only ever read off a run we already
-    # hold. DO_NOTHING keeps that true: SET_NULL would have Django's collector issue an
+    # db_index=False: user-scoped lookups also filter by the indexed notebook and node.
+    # DO_NOTHING avoids having Django's collector issue an
     # `UPDATE … WHERE user_id = …` against this unindexed column on every user delete, on the
     # table that grows fastest. Nothing enforces referential integrity here anyway
     # (db_constraint=False), and a dangling id already reads back as None.

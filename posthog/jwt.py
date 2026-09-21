@@ -24,6 +24,7 @@ class PosthogJwtAudience(Enum):
     WORKFLOWS_RESCHEDULE_PARKED = "posthog:workflows:reschedule_parked"
     WORKFLOWS_CANCEL_INVOCATIONS = "posthog:workflows:cancel_invocations"
     WORKFLOWS_CANCEL_BATCH = "posthog:workflows:cancel_batch"
+    WORKFLOWS_STEP_RESUME = "posthog:workflows:step_resume"
     INTEGRATION_SERVICE = "posthog:integration_service"
     TASKS_CREATE = "posthog:tasks:create"
     CUSTOMER_TASKS_CREATE = "posthog:customer-tasks:create"

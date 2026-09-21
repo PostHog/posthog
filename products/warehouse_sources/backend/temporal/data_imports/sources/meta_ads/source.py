@@ -1,9 +1,10 @@
 from datetime import date
 from typing import cast
 
-from posthog.schema import (
+from posthog.models.integration import Integration
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -14,9 +15,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
     SuggestedTable,
 )
-
-from posthog.models.integration import Integration
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
@@ -45,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     META_ADS_API_VERSION_V25,
     META_ADS_API_VERSION_V26,
     META_AUTH_ERROR_MESSAGE,
+    META_INVALID_CURSOR_ERROR_MESSAGE,
     META_RATE_LIMIT_ERROR_MESSAGE,
     SHRINK_EXHAUSTED_ERROR_MESSAGE,
     MetaAdsAuthError,
@@ -134,6 +133,13 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                 "required to read your ads data. Please reconnect the Meta Ads integration and grant "
                 "all requested permissions."
             ),
+            # Graph API code 100: "Missing perms" — the shorter, generic sibling of the message
+            # above for the same missing-permission condition on a specific field or endpoint.
+            "Missing perms": (
+                "Meta blocked this request because the connected account is missing a permission "
+                "required to read your ads data. Please reconnect the Meta Ads integration and grant "
+                "all requested permissions."
+            ),
             # Graph API code 200: "Requires business_management permission to manage the object."
             # Distinct from the generic re-authorize message above — re-authorizing can never grant
             # this scope, since the Meta OAuth consent only requests `ads_read` (see
@@ -169,6 +175,12 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                 "Meta couldn't return this data even at the smallest request size. Lower the sync "
                 "history for insights in your Meta Ads source settings, then run the sync again."
             ),
+            # Graph API code 2642: the pagination cursor was rejected as invalid. The resumable
+            # source manager would resume this exact job with the same saved cursor and fail the
+            # same way every time, so retrying is pointless — only a fresh sync run (a new job,
+            # with a fresh cursor) can recover. `meta_ads._raise_meta_api_error` raises this
+            # message for that code.
+            META_INVALID_CURSOR_ERROR_MESSAGE: META_INVALID_CURSOR_ERROR_MESSAGE,
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -221,7 +233,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.META_ADS,
+            name=ExternalDataSourceType.METAADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             featured=True,
             keywords=[

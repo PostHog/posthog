@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
 
 import { DestinationList } from 'products/data_warehouse/frontend/shared/components/DestinationList'
 import { DestinationModal } from 'products/data_warehouse/frontend/shared/components/DestinationModal'
@@ -41,7 +43,11 @@ export function DestinationsTab({ id }: DestinationsTabProps): JSX.Element {
             <div className="flex gap-2 items-start justify-between">
                 <p className="max-w-prose">
                     Every table on this source syncs to the destinations turned on here. A table with its own
-                    destinations ignores this list.
+                    destinations ignores this list. To rename or delete a destination, go to{' '}
+                    <Link to={urls.warehouseDestinations()} data-attr="warehouse-destinations-manage-link">
+                        Warehouse destinations
+                    </Link>
+                    .
                 </p>
                 <LemonButton
                     type="secondary"

@@ -440,6 +440,11 @@ async function expectStoryToMatchSnapshot(
     await page.evaluate((layout: string) => {
         // Stop all animations for consistent snapshots, and adjust other styles
         document.body.classList.add('storybook-test-runner')
+        document.body.classList.remove(
+            'storybook-test-runner--fullscreen',
+            'storybook-test-runner--padded',
+            'storybook-test-runner--centered'
+        )
         document.body.classList.add(`storybook-test-runner--${layout}`)
 
         // Force all content-visibility:auto elements to render fully for deterministic snapshots.
@@ -536,11 +541,25 @@ async function takeSnapshotWithTheme(
     // check if all images have width, unless purposefully skipped
     if (!allowImagesWithoutWidth) {
         await page.waitForFunction(() => {
-            const allImages = Array.from(document.images)
-            const areAllImagesLoaded = allImages.every(
+            // Declared inside the callback because this whole body is serialized into the browser.
+            function isImageAccountedFor(i: HTMLImageElement): boolean {
+                if (i.naturalWidth) {
+                    return true
+                }
                 // ProseMirror-separator isn't an actual image of any sort, so we ignore those
-                (i: HTMLImageElement) => !!i.naturalWidth || i.classList.contains('ProseMirror-separator')
-            )
+                if (i.classList.contains('ProseMirror-separator')) {
+                    return true
+                }
+                // A `loading="lazy"` image with no layout box has nothing to intersect, so the
+                // browser can leave it unfetched and this wait can only time out. It is safe to
+                // skip because such an image cannot appear in the screenshot either.
+                // getClientRects() is empty only for display:none, so this still waits for a
+                // visible image that is downloading.
+                return i.getClientRects().length === 0
+            }
+
+            const allImages = Array.from(document.images)
+            const areAllImagesLoaded = allImages.every(isImageAccountedFor)
             if (areAllImagesLoaded) {
                 // Hide gifs to prevent their animations causing flakiness
                 for (const image of allImages) {

@@ -4,13 +4,13 @@ import { IconCheckCircle } from '@posthog/icons'
 import { LemonBanner, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
 import { CADENCE_LABELS } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
 import { urls } from 'scenes/urls'
 
 import { BehindScheduleModel } from 'products/data_modeling/frontend/freshness'
+import { ModelNameLink } from 'products/data_modeling/frontend/ModelNameLink'
 import { ModelsOverviewTable } from 'products/data_modeling/frontend/ModelsOverviewTable'
 import { checkDisplayName } from 'products/data_quality/frontend/checksConstants'
 import { CheckStatusCell } from 'products/data_quality/frontend/CheckStatusCell'
@@ -69,7 +69,7 @@ const ATTENTION_COLUMNS: LemonTableColumns<AttentionModel> = [
     {
         title: 'Model',
         key: 'name',
-        render: (_, row) => <LemonTableLink to={urls.nodeDetail(row.node.id)} title={row.node.name} />,
+        render: (_, row) => <ModelNameLink node={row.node} />,
     },
     {
         title: 'Problem',
@@ -105,7 +105,7 @@ const BEHIND_COLUMNS: LemonTableColumns<BehindScheduleModel> = [
     {
         title: 'Model',
         key: 'name',
-        render: (_, row) => <LemonTableLink to={urls.nodeDetail(row.node.id)} title={row.node.name} />,
+        render: (_, row) => <ModelNameLink node={row.node} />,
     },
     {
         title: 'Behind by',

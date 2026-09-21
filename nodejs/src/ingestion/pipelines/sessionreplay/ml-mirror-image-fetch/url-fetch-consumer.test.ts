@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 import { register } from 'prom-client'
 
-import { INGESTION_VERSION_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/schema'
+import { INGESTION_VERSION_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
 import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/tophog'
 
 import { FetchCandidate, MAX_HOPS, serializeFrontierRecord } from './collected-urls-record'
@@ -133,10 +133,10 @@ describe('UrlFetchConsumer', () => {
         expect(harness.run.mock.calls[0][0].map((item) => item.originalRef)).toEqual([candidate('b').originalRef])
     })
 
-    it('fails on v2 without privacy configuration instead of dead-lettering the record', async () => {
+    it('fails on v2 without key manager configuration instead of dead-lettering the record', async () => {
         const harness = build()
         const v2 = { ...message([candidate('a')]), headers: [{ [INGESTION_VERSION_HEADER]: Buffer.from('2') }] }
-        await expect(harness.consumer.handleBatch([v2], NOW_MS)).rejects.toThrow('requires privacy configuration')
+        await expect(harness.consumer.handleBatch([v2], NOW_MS)).rejects.toThrow('requires key manager configuration')
         expect(harness.park).not.toHaveBeenCalled()
     })
 

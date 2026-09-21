@@ -29,9 +29,10 @@ The secret is the Django setting `PANDADOC_WEBHOOK_SECRET`.
 
 PandaDoc batches several events into one body, so one request becomes one delivery per event, and all of them draw from the one request budget.
 A bad signature answers 404 instead of 403, so a prober cannot tell a wrong secret from an unknown route.
+A missing secret answers 404 too, and neither rejection carries a body, because the reason would hand back what the status code withholds.
 
 ## Consumers
 
-No product registers a PandaDoc consumer yet.
-The legal documents endpoint moves to ingress in its own PR.
+`legal_documents_signatures`, declared in `products/legal_documents/backend/webhook_consumers.py`.
+It records signatures for the document signing flow.
 See the [Endpoints table](../README.md#endpoints).

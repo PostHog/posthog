@@ -1,9 +1,9 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 
 tone_instructions: >-
-    Always be direct and concise. State the issue, impact, and required fix with no
-    preamble, praise, repetition, or unnecessary explanation. Omit nonessential
-    commentary and keep each response as short as clarity allows.
+    Be direct and concise. State the issue, impact, and fix with no preamble, praise,
+    or repetition. In pull request conversations, never reply with agreement alone or
+    restate the author's explanation. Reply only to add actionable information.
 
 reviews:
     # Surface only the highest-signal feedback.

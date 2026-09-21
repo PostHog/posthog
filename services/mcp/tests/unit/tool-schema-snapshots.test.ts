@@ -96,6 +96,7 @@ describe('Tool schema snapshots', () => {
         const featureFlags = {
             tracing: true,
             tasks: true,
+            'tasks-mcp-agent-run-start': true,
             loops: true,
             'dashboard-widgets': true,
             'agent-platform': true,

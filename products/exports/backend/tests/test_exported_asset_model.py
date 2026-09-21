@@ -12,7 +12,7 @@ from posthog.storage.object_storage import ObjectStorageError
 from products.exports.backend.models.exported_asset import (
     SEVEN_DAYS,
     SIX_MONTHS,
-    TWELVE_MONTHS,
+    THIRTY_DAYS,
     ExportedAsset,
     get_content_response,
     save_content_from_file,
@@ -74,6 +74,92 @@ class TestExportedAssetModel(APIBaseTest):
             assert list(ExportedAsset.objects.filter(id=asset.id)) == []
             assert list(ExportedAsset.objects_including_ttl_deleted.filter(id=asset.id)) == [asset]
 
+    def test_delete_expired_assets_removes_the_stored_object_first(self) -> None:
+        # A row deleted without its file strands the file in the bucket permanently.
+        expired = ExportedAsset.objects_including_ttl_deleted.create(
+            team=self.team,
+            created_by=self.user,
+            content_location="exports/mp4/team-1/task-1.mp4",
+            expires_after=datetime.now() - timedelta(days=1),
+        )
+        ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            content_location="exports/mp4/team-1/task-2.mp4",
+            expires_after=datetime.now() + timedelta(days=1),
+        )
+
+        with patch("posthog.storage.object_storage.delete_objects", return_value=[]) as mock_delete:
+            ExportedAsset.delete_expired_assets()
+
+        mock_delete.assert_called_once_with(["exports/mp4/team-1/task-1.mp4"])
+        assert not ExportedAsset.objects_including_ttl_deleted.filter(id=expired.id).exists()
+
+    def test_delete_expired_assets_skips_past_a_failing_object(self) -> None:
+        # One unreachable key must not stall the rest of the sweep behind it.
+        stuck = ExportedAsset.objects_including_ttl_deleted.create(
+            team=self.team,
+            created_by=self.user,
+            content_location="exports/mp4/team-1/stuck.mp4",
+            expires_after=datetime.now() - timedelta(days=1),
+        )
+        following = ExportedAsset.objects_including_ttl_deleted.create(
+            team=self.team,
+            created_by=self.user,
+            content_location="exports/mp4/team-1/following.mp4",
+            expires_after=datetime.now() - timedelta(days=1),
+        )
+
+        with (
+            patch("products.exports.backend.models.exported_asset._EXPIRY_DELETE_BATCH", 1),
+            patch(
+                "posthog.storage.object_storage.delete_objects",
+                side_effect=lambda keys: [k for k in keys if k.endswith("stuck.mp4")],
+            ),
+        ):
+            ExportedAsset.delete_expired_assets()
+
+        assert ExportedAsset.objects_including_ttl_deleted.filter(id=stuck.id).exists()
+        assert not ExportedAsset.objects_including_ttl_deleted.filter(id=following.id).exists()
+
+    def test_delete_expired_assets_keeps_a_row_repointed_after_the_snapshot(self) -> None:
+        # A render finishing mid-sweep repoints the row at a new object; dropping the row here would
+        # strand it.
+        expired = ExportedAsset.objects_including_ttl_deleted.create(
+            team=self.team,
+            created_by=self.user,
+            content_location="exports/mp4/team-1/old.mp4",
+            expires_after=datetime.now() - timedelta(days=1),
+        )
+
+        def repoint(keys: list[str]) -> list[str]:
+            ExportedAsset.objects_including_ttl_deleted.filter(id=expired.id).update(
+                content_location="exports/mp4/team-1/new.mp4"
+            )
+            return []
+
+        with patch("posthog.storage.object_storage.delete_objects", side_effect=repoint):
+            ExportedAsset.delete_expired_assets()
+
+        assert ExportedAsset.objects_including_ttl_deleted.filter(id=expired.id).exists()
+
+    def test_delete_expired_assets_keeps_the_row_when_the_object_delete_fails(self) -> None:
+        # Losing the row here would leave the file unreachable, so the row waits for the next run.
+        expired = ExportedAsset.objects_including_ttl_deleted.create(
+            team=self.team,
+            created_by=self.user,
+            content_location="exports/mp4/team-1/task-3.mp4",
+            expires_after=datetime.now() - timedelta(days=1),
+        )
+
+        with patch(
+            "posthog.storage.object_storage.delete_objects",
+            return_value=["exports/mp4/team-1/task-3.mp4"],
+        ):
+            ExportedAsset.delete_expired_assets()
+
+        assert ExportedAsset.objects_including_ttl_deleted.filter(id=expired.id).exists()
+
     def test_delete_expired_assets(self) -> None:
         assert ExportedAsset.objects.count() == 0
 
@@ -117,9 +203,9 @@ class TestExportedAssetExpiresAfter(APIBaseTest):
             (ExportedAsset.ExportFormat.PDF, SIX_MONTHS),
             (ExportedAsset.ExportFormat.CSV, SEVEN_DAYS),
             (ExportedAsset.ExportFormat.XLSX, SEVEN_DAYS),
-            (ExportedAsset.ExportFormat.MP4, TWELVE_MONTHS),
-            (ExportedAsset.ExportFormat.WEBM, TWELVE_MONTHS),
-            (ExportedAsset.ExportFormat.GIF, TWELVE_MONTHS),
+            (ExportedAsset.ExportFormat.MP4, THIRTY_DAYS),
+            (ExportedAsset.ExportFormat.WEBM, THIRTY_DAYS),
+            (ExportedAsset.ExportFormat.GIF, THIRTY_DAYS),
             (ExportedAsset.ExportFormat.JSON, SIX_MONTHS),
             (ExportedAsset.ExportFormat.JSONL, SEVEN_DAYS),
         ]
@@ -131,7 +217,7 @@ class TestExportedAssetExpiresAfter(APIBaseTest):
             export_format=export_format,
         )
 
-        expected_expiry = (datetime(2024, 6, 15, tzinfo=UTC) + expected_delta).replace(
+        expected_expiry = (datetime(2024, 6, 15, tzinfo=UTC) + expected_delta + timedelta(days=1)).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
         assert asset.expires_after == expected_expiry

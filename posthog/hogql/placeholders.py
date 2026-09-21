@@ -31,6 +31,9 @@ class FindPlaceholders(TraversingVisitor):
     def __init__(self):
         super().__init__()
         self.has_filters = False  # Legacy fallback: treat filters as before
+        # The filters forms that expand into a predicate, so a date range can bound the query
+        # through them. The dotted call forms substitute a value and cannot add one.
+        self.has_date_filters = False
         self.placeholder_fields: list[list[str | int]] = []  # Did we find simple fields
         self.placeholder_expressions: list[ast.Expr] = []  # Did we find complex expressions
 
@@ -41,12 +44,14 @@ class FindPlaceholders(TraversingVisitor):
         if chain := node.chain:
             if chain[0] == "filters":
                 self.has_filters = True
+                self.has_date_filters = True
             else:
                 self.placeholder_fields.append(chain)
         elif isinstance(node.expr, ast.Call) and node.expr.name == "filters":
             # The column-bound form {filters(expr AS key, ...)} is resolved by replace_filters;
             # classifying it as a generic expression placeholder would send it to the Hog VM instead.
             self.has_filters = True
+            self.has_date_filters = True
         elif (
             isinstance(node.expr, ast.ExprCall)
             and isinstance(node.expr.expr, ast.Field)

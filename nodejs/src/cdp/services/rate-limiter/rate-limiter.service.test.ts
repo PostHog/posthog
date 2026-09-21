@@ -11,7 +11,7 @@ import { RateLimiterService } from './rate-limiter.service'
 const KEY = `@posthog-test/ses-rate-limiter/${randomUUID()}/bucket`
 
 describe('RateLimiterService', () => {
-    jest.retryTimes(3)
+    jest.retryTimes(3, { logErrorsBeforeRetry: true })
 
     let hub: Hub
     let redis: RedisV2

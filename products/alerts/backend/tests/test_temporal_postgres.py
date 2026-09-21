@@ -18,7 +18,7 @@ from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.testing import ActivityEnvironment
 
 from products.alerts.backend.temporal import postgres
-from products.alerts.backend.temporal.workflows import POSTGRES_PROBE_FAILURE, alerts_product_check_due_activity
+from products.alerts.backend.temporal.workflows import POSTGRES_PROBE_FAILURE, alerts_product_probe_postgres_activity
 
 if TYPE_CHECKING:
     from pytest_django.fixtures import Settings
@@ -62,11 +62,11 @@ async def test_probe_uses_database_thread_and_sanitizes_only_expected_errors(
     ):
         environment = ActivityEnvironment()
         if error is None:
-            await environment.run(alerts_product_check_due_activity)
+            await environment.run(alerts_product_probe_postgres_activity)
             cursor.fetchone.assert_called_once_with()
         elif isinstance(error, (OperationalError, InterfaceError)):
             with pytest.raises(ApplicationError) as caught:
-                await environment.run(alerts_product_check_due_activity)
+                await environment.run(alerts_product_probe_postgres_activity)
             assert caught.value.type == POSTGRES_PROBE_FAILURE
             failure = Failure()
             DefaultFailureConverter().to_failure(caught.value, DefaultPayloadConverter(), failure)
@@ -74,7 +74,7 @@ async def test_probe_uses_database_thread_and_sanitizes_only_expected_errors(
             assert "sensitive" not in str(failure)
         else:
             with pytest.raises(type(error)) as caught_unrelated:
-                await environment.run(alerts_product_check_due_activity)
+                await environment.run(alerts_product_probe_postgres_activity)
             assert caught_unrelated.value is error
 
     cursor.execute.assert_called_once_with("SELECT 1")
@@ -114,10 +114,10 @@ async def test_probe_cancellation_and_concurrent_activity_cleanup(settings: Sett
         patch.object(postgres, "execute_with_timeout", execute_with_timeout),
         patch("django.db.connections.all", return_value=[connection]),
     ):
-        task = asyncio.create_task(ActivityEnvironment().run(alerts_product_check_due_activity))
+        task = asyncio.create_task(ActivityEnvironment().run(alerts_product_probe_postgres_activity))
         try:
             await asyncio.wait_for(entered.wait(), timeout=5)
-            await asyncio.wait_for(ActivityEnvironment().run(alerts_product_check_due_activity), timeout=5)
+            await asyncio.wait_for(ActivityEnvironment().run(alerts_product_probe_postgres_activity), timeout=5)
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await task

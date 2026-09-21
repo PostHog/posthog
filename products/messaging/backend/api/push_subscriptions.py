@@ -404,6 +404,15 @@ def push_subscriptions(request: Request):
                     "distinct_id": distinct_id,
                     "stored": False,
                     "push_enabled": False,
+                    # The status code cannot say this: a 4xx would make every SDK retry on every app
+                    # open. Without a reason in the body, a developer whose token goes nowhere sees a
+                    # success and has no way to tell the difference from a working registration.
+                    "reason": "no_push_channel_for_app_id",
+                    "detail": (
+                        f"This project has no push channel for app_id '{app_id}'. The device token was "
+                        "not stored. Add a push channel whose Firebase project id or APNs bundle id "
+                        "matches this app_id, and check the project the SDK is sending to."
+                    ),
                 },
                 status=status.HTTP_200_OK,
             ),

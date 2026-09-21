@@ -95,6 +95,38 @@ class TestPostGithubReview:
         assert payload["commit_id"] == "deadbeef"
         assert payload["comments"] == comments
 
+    def test_message_prefix_opens_the_promo_the_body_and_every_inline_comment(
+        self, mock_request: MagicMock, mock_paginated: MagicMock
+    ) -> None:
+        # A flash review is labeled on every message it writes. A prefix applied to the body alone
+        # would leave inline comments indistinguishable from a full review's, and one applied after
+        # redaction would bypass the credential scrub on the prefixed text.
+        _wire_readbacks(mock_paginated)
+        comments: list[ReviewComment] = [
+            {"path": "a.py", "body": "first", "side": "RIGHT", "line": 1},
+            {"path": "b.py", "body": "second", "side": "RIGHT", "line": 2},
+        ]
+
+        _post_github_review(
+            "o",
+            "r",
+            1,
+            "body",
+            comments,
+            token="t",
+            head_sha="",
+            post_promo=True,
+            marker="m",
+            promo_marker="pm",
+            message_prefix="FLASH MODE\n",
+        )
+
+        (promo,) = _promo_posts(mock_request)
+        assert promo["body"].startswith("FLASH MODE\nPostHog Review alpha")
+        (payload,) = _review_posts(mock_request)
+        assert payload["body"] == "FLASH MODE\nbody"
+        assert [c["body"] for c in payload["comments"]] == ["FLASH MODE\nfirst", "FLASH MODE\nsecond"]
+
     def test_credential_shapes_are_scrubbed_before_posting(
         self, mock_request: MagicMock, mock_paginated: MagicMock
     ) -> None:

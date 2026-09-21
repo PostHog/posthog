@@ -1,14 +1,19 @@
+import os
 import json
 import uuid
+import ipaddress
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 import httpx
 from parameterized import parameterized
+
+from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
 from products.mcp_store.backend.tools import (
@@ -20,6 +25,8 @@ from products.mcp_store.backend.tools import (
     fetch_upstream_tools,
     sync_installation_tools,
 )
+
+ALLOWED_VERDICT = PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set())
 
 
 def _build_response(
@@ -74,8 +81,8 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
         defaults.update(overrides)
         return MCPServerInstallation.objects.create(**defaults)
 
-    @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.tools.httpx.Client")
+    @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
+    @patch("products.mcp_store.backend.tools.pinned_client")
     def test_fetch_upstream_tools_uses_handshake_timeout(self, mock_client_cls, _allow):
         # The handshake must not inherit the proxy's 180s budget — that would let a
         # slow upstream hold a Django worker for minutes.
@@ -88,8 +95,8 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
         assert mock_client_cls.call_args.kwargs["timeout"] == HANDSHAKE_TIMEOUT
         assert HANDSHAKE_TIMEOUT <= 30  # guard against accidental regression
 
-    @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.tools.httpx.Client")
+    @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
+    @patch("products.mcp_store.backend.tools.pinned_client")
     def test_fetch_upstream_tools_parses_result(self, mock_client_cls, _allow):
         installation = self._installation()
         tools_body = json.dumps(
@@ -125,8 +132,8 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
         assert client.delete.call_args.kwargs["headers"]["Mcp-Session-Id"] == "sess-1"
 
     @patch("products.mcp_store.backend.proxy.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.tools.httpx.Client")
+    @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
+    @patch("products.mcp_store.backend.tools.pinned_client")
     def test_fetch_upstream_tools_follows_same_origin_initialize_redirect(
         self, mock_client_cls, _allow_tools, _allow_proxy
     ):
@@ -155,8 +162,8 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
         assert client.post.call_args_list[3].args[0] == "https://mcp.example.com/mcp/"
         assert client.delete.call_args.args[0] == "https://mcp.example.com/mcp/"
 
-    @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.tools.httpx.Client")
+    @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
+    @patch("products.mcp_store.backend.tools.pinned_client")
     def test_fetch_upstream_tools_parses_sse_tools_list(self, mock_client_cls, _allow):
         # Some MCP servers reply to tools/list over SSE even though initialize
         # came back as JSON. Make sure we still extract the tool array.
@@ -170,8 +177,8 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
         tools = fetch_upstream_tools(installation)
         assert [t["name"] for t in tools] == ["alpha"]
 
-    @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.tools.httpx.Client")
+    @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
+    @patch("products.mcp_store.backend.tools.pinned_client")
     def test_fetch_upstream_tools_works_without_session_id(self, mock_client_cls, _allow):
         # Servers that don't require a session simply omit Mcp-Session-Id on the
         # initialize response. We should still complete the handshake and not
@@ -193,14 +200,84 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
         assert [t["name"] for t in tools] == ["alpha"]
         assert not client.delete.called
 
-    @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(False, "Private IP"))
+    @parameterized.expand(
+        [
+            ("direct", "fetch"),
+            ("trusted", "fetch"),
+            ("untrusted", "fetch"),
+            ("untrusted", "call"),
+            ("denied", "fetch"),
+            ("denied", "call"),
+        ]
+    )
+    @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips")
+    def test_fetch_upstream_tools_connects_to_the_validated_address(
+        self, route: str, operation: str, mock_validate: MagicMock
+    ) -> None:
+        mock_validate.return_value = PinnedUrlVerdict(
+            allowed=True, reason=None, pinned_ips={ipaddress.ip_address("93.184.216.34")}
+        )
+        installation = self._installation(url="https://mcp.example.com/mcp")
+        seen: list[httpx.Request] = []
+
+        def handle_request(_transport: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
+            if route == "denied":
+                raise httpx.ProxyError("403 Forbidden")
+            seen.append(
+                httpx.Request(request.method, request.url, headers=request.headers, extensions=request.extensions)
+            )
+            if request.method == "DELETE":
+                return httpx.Response(200)
+            request_id = json.loads(request.content).get("id")
+            if request_id == 1:
+                return httpx.Response(
+                    200,
+                    json={"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05"}},
+                    headers={"mcp-session-id": "sess-1", "Set-Cookie": "mcp_session=fake-session; Path=/; Secure"},
+                )
+            if request_id == 2:
+                return httpx.Response(200, json={"jsonrpc": "2.0", "id": 2, "result": {"tools": [{"name": "alpha"}]}})
+            return httpx.Response(202)
+
+        no_proxies = {key: "" for key in os.environ if key.lower().endswith("_proxy")}
+        environment = {} if route == "direct" else {"HTTPS_PROXY": "http://egress.example:3128"}
+        trusted_proxies = ["http://egress.example:3128"] if route in {"trusted", "denied"} else []
+        with (
+            override_settings(SSRF_TRUSTED_PROXY_URLS=trusted_proxies),
+            patch.dict(os.environ, {**no_proxies, **environment}),
+            patch.object(httpx.HTTPTransport, "handle_request", handle_request),
+        ):
+            if route in {"untrusted", "denied"}:
+                error_type = ToolsFetchError if operation == "fetch" else ToolCallError
+                with pytest.raises(error_type, match="outbound proxy configuration"):
+                    if operation == "fetch":
+                        fetch_upstream_tools(installation)
+                    else:
+                        call_upstream_tool(installation, "alpha", {})
+                assert seen == []
+                return
+            tools = fetch_upstream_tools(installation)
+
+        assert [tool["name"] for tool in tools] == ["alpha"]
+        assert len(seen) == 4
+        assert {request.headers.get("Cookie") for request in seen[1:]} == {"mcp_session=fake-session"}
+        assert {request.url.host for request in seen} == {"93.184.216.34" if route == "direct" else "mcp.example.com"}
+        assert {request.headers["Host"] for request in seen} == {"mcp.example.com"}
+        assert {request.extensions.get("sni_hostname") for request in seen} == {
+            "mcp.example.com" if route == "direct" else None
+        }
+
+    @patch(
+        "products.mcp_store.backend.url_policy.validate_url_and_pin_ips",
+        return_value=PinnedUrlVerdict(allowed=False, reason="Private IP", pinned_ips=set()),
+    )
     def test_fetch_upstream_tools_raises_on_blocked_url(self, _allow):
         installation = self._installation()
         with pytest.raises(ToolsFetchError, match="URL not allowed"):
             fetch_upstream_tools(installation)
 
-    @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.tools.httpx.Client")
+    @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
+    @patch("products.mcp_store.backend.tools.pinned_client")
     def test_fetch_upstream_tools_raises_on_connect_error(self, mock_client_cls, _allow):
         installation = self._installation()
         client = MagicMock()
@@ -210,8 +287,8 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
         with pytest.raises(ToolsFetchError, match="unreachable"):
             fetch_upstream_tools(installation)
 
-    @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.tools.httpx.Client")
+    @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
+    @patch("products.mcp_store.backend.tools.pinned_client")
     def test_fetch_upstream_tools_raises_on_initialize_error(self, mock_client_cls, _allow):
         installation = self._installation()
         client = MagicMock()
@@ -221,8 +298,8 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
         with pytest.raises(ToolsFetchError, match="initialize returned status 401"):
             fetch_upstream_tools(installation)
 
-    @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.tools.httpx.Client")
+    @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
+    @patch("products.mcp_store.backend.tools.pinned_client")
     def test_fetch_upstream_tools_raises_when_result_missing(self, mock_client_cls, _allow):
         installation = self._installation()
         tools_body = json.dumps({"jsonrpc": "2.0", "id": 2, "result": {}})
@@ -243,8 +320,8 @@ class TestCallUpstreamTool(ClickhouseTestMixin, APIBaseTest):
             sensitive_configuration={"api_key": "sk-test"},
         )
 
-    @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.tools.httpx.Client")
+    @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
+    @patch("products.mcp_store.backend.tools.pinned_client")
     def test_call_carries_the_session_from_initialize(self, mock_client_cls, _allow):
         # Most servers reject tools/call without the Mcp-Session-Id they handed out on
         # initialize, so losing the session header would break every real call while
@@ -282,8 +359,8 @@ class TestCallUpstreamTool(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.tools.httpx.Client")
+    @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
+    @patch("products.mcp_store.backend.tools.pinned_client")
     def test_call_parses_both_response_framings(self, _name, body, content_type, mock_client_cls, _allow):
         installation = self._installation()
         _install_handshake_mock(
@@ -292,8 +369,8 @@ class TestCallUpstreamTool(ClickhouseTestMixin, APIBaseTest):
 
         assert call_upstream_tool(installation, "create_issue", {})["content"] == [{"type": "text", "text": "ok"}]
 
-    @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.tools.httpx.Client")
+    @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
+    @patch("products.mcp_store.backend.tools.pinned_client")
     def test_call_returns_tool_reported_errors_instead_of_raising(self, mock_client_cls, _allow):
         # `isError` is the tool telling the model it failed (bad arguments, not found).
         # Raising here would hide the reason the agent needs in order to retry.
@@ -322,8 +399,8 @@ class TestCallUpstreamTool(ClickhouseTestMixin, APIBaseTest):
             ("missing_result", json.dumps({"jsonrpc": "2.0", "id": 3}), "missing 'result'"),
         ]
     )
-    @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.tools.httpx.Client")
+    @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
+    @patch("products.mcp_store.backend.tools.pinned_client")
     def test_call_raises_on_protocol_failures(self, _name, body, expected_message, mock_client_cls, _allow):
         installation = self._installation()
         _install_handshake_mock(mock_client_cls, tools_list_response=_build_response(body=body))
@@ -331,7 +408,10 @@ class TestCallUpstreamTool(ClickhouseTestMixin, APIBaseTest):
         with pytest.raises(ToolCallError, match=expected_message):
             call_upstream_tool(installation, "create_issue", {})
 
-    @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(False, "Private IP"))
+    @patch(
+        "products.mcp_store.backend.url_policy.validate_url_and_pin_ips",
+        return_value=PinnedUrlVerdict(allowed=False, reason="Private IP", pinned_ips=set()),
+    )
     def test_call_refuses_a_blocked_url(self, _allow):
         installation = self._installation()
         with pytest.raises(ToolCallError, match="URL not allowed"):

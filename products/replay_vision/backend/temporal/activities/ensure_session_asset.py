@@ -1,5 +1,3 @@
-import datetime as dt
-
 from django.utils.timezone import now
 
 from temporalio import activity
@@ -14,7 +12,6 @@ _PLAYBACK_SPEED = 8
 _RECORDING_FPS = 3
 _SHOW_METADATA_FOOTER = True
 _MOUSE_TAIL = False
-_ASSET_EXPIRES_AFTER_DAYS = 90
 
 
 @activity.defn
@@ -51,7 +48,6 @@ async def ensure_session_asset_activity(inputs: EnsureSessionAssetInputs) -> Ens
             "mouse_tail": _MOUSE_TAIL,
         },
         created_at=created_at,
-        expires_after=created_at + dt.timedelta(days=_ASSET_EXPIRES_AFTER_DAYS),
         is_system=True,
     )
     return EnsureSessionAssetOutput(asset_id=asset.id)

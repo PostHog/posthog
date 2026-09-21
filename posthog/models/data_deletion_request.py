@@ -978,6 +978,32 @@ def count_remaining_for_request(request: "DataDeletionRequest") -> int | None:
     return None
 
 
+def count_pending_hogql_event_removals(request: "DataDeletionRequest") -> int:
+    from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
+    from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.client.connection import ClickHouseUser
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+    from posthog.clickhouse.workload import Workload
+
+    with tags_context(
+        product=Product.INTERNAL,
+        feature=Feature.DATA_DELETION,
+        team_id=request.team_id,
+        workload=Workload.OFFLINE,
+        query_type="data_deletion_request_verify_queued",
+    ):
+        result = sync_execute(
+            f"SELECT count() FROM {ADHOC_EVENTS_DELETION_TABLE} FINAL "
+            "WHERE team_id = %(team_id)s AND data_deletion_request_id = %(request_id)s AND is_deleted = 0",
+            {"team_id": request.team_id, "request_id": str(request.pk)},
+            team_id=request.team_id,
+            readonly=True,
+            workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.META,
+        )
+    return int(result[0][0]) if result else 0
+
+
 @dataclass
 class VerifyOutcome:
     remaining: int
@@ -994,11 +1020,15 @@ VERIFIABLE_STATUSES = (RequestStatus.QUEUED, RequestStatus.FAILED)
 def verify_queued_request(request: "DataDeletionRequest") -> VerifyOutcome:
     """Verify an event-removal request and promote it to COMPLETED when its events are gone.
 
-    Counts events still matching the request in ClickHouse. When zero remain and the request is in a
-    verifiable status (QUEUED or FAILED), atomically promotes it to COMPLETED via a status-guarded
-    update. Idempotent; safe to call from both the Dagster sweep job and the Django admin button.
+    Counts matching events for criteria-backed requests and pending queue rows for query-backed
+    requests. When zero remain and the request is in a verifiable status (QUEUED or FAILED),
+    atomically promotes it to COMPLETED via a status-guarded update. Idempotent; safe to call from
+    both the Dagster sweep job and the Django admin button.
     """
-    remaining = count_remaining_matching_events(request)
+    if request.request_type == RequestType.HOGQL_EVENT_REMOVAL:
+        remaining = count_pending_hogql_event_removals(request)
+    else:
+        remaining = count_remaining_matching_events(request)
     if remaining > 0 or request.status not in VERIFIABLE_STATUSES:
         return VerifyOutcome(remaining=remaining, promoted=False)
     promoted = DataDeletionRequest.objects.filter(pk=request.pk, status__in=VERIFIABLE_STATUSES).update(

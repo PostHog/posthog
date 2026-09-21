@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -21,6 +19,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     OpenAIAdsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.openai_ads import (
+    INVALID_CREDENTIALS_ERROR,
+    NO_ACCESS_ERROR,
     OpenAIAdsResumeConfig,
     openai_ads_source,
     validate_credentials as validate_openai_ads_credentials,
@@ -46,7 +46,7 @@ class OpenAIAdsSource(ResumableSource[OpenAIAdsSourceConfig, OpenAIAdsResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.OPEN_AI_ADS,
+            name=ExternalDataSourceType.OPENAIADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="OpenAI Ads",
             releaseStatus=ReleaseStatus.BETA,
@@ -80,8 +80,8 @@ Create an API key in the Settings tab of [OpenAI Ads Manager](https://ads.openai
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error: Unauthorized for url: https://api.ads.openai.com": "Your OpenAI Ads API key is invalid or has been revoked. Create a new API key in the Settings tab of OpenAI Ads Manager, then reconnect.",
-            "403 Client Error: Forbidden for url: https://api.ads.openai.com": "Your OpenAI Ads API key does not have access to this ad account. Create a key for this ad account in the Settings tab of OpenAI Ads Manager, then reconnect.",
+            "401 Client Error: Unauthorized for url: https://api.ads.openai.com": INVALID_CREDENTIALS_ERROR,
+            "403 Client Error: Forbidden for url: https://api.ads.openai.com": NO_ACCESS_ERROR,
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -137,10 +137,7 @@ Create an API key in the Settings tab of [OpenAI Ads Manager](https://ads.openai
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_openai_ads_credentials(config.api_key):
-            return True, None
-
-        return False, "Invalid OpenAI Ads API key"
+        return validate_openai_ads_credentials(config.api_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[OpenAIAdsResumeConfig]:
         return ResumableSourceManager[OpenAIAdsResumeConfig](inputs, OpenAIAdsResumeConfig)

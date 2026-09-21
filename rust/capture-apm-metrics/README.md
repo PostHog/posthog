@@ -2,6 +2,8 @@
 
 Receives OTLP metrics (`/i/v1/metrics`) and Prometheus remote-write (`/i/v1/prometheus/write`) and writes them to Kafka.
 
+The remote-write route accepts two body encodings. `Content-Encoding: snappy` (or no header) is the Prometheus remote-write v1 protocol. `Content-Encoding: zstd` is the VictoriaMetrics remote-write protocol, which `vmagent` sends by default. Both carry the same protobuf and produce the same rows.
+
 This binary is the metrics half of [`capture-logs`](../capture-logs/README.md). It links the `capture-logs` library for parsing, authentication, and the Kafka sink, so metrics traffic can scale and deploy on its own. The base configuration, authentication, and response codes are the ones documented for `capture-logs`. The settings below are specific to this service.
 
 ## Configuration

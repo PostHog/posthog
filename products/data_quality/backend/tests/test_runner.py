@@ -29,6 +29,7 @@ from products.data_quality.backend.models import DataQualityCheck, DataQualityCh
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 RUNNER_QUERY = "products.data_quality.backend.logic.runner.execute_hogql_query"
+CREATE_NOTIFICATION = "products.data_quality.backend.logic.notifications.create_notification"
 
 
 class _Response:
@@ -314,6 +315,24 @@ class TestCheckRunner(BaseTest):
         assert query.call_args.kwargs["bypass_warehouse_access_control"] is False
         assert query.call_args.kwargs["user"] == self.user
 
+    def test_an_automated_posthog_table_check_runs_as_its_author(self) -> None:
+        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger=SuiteRunTrigger.SCHEDULED
+        )
+        check = self._check(
+            subject_type=SubjectType.POSTHOG_TABLE,
+            saved_query_id=None,
+            posthog_table="events",
+            subject_name="events",
+            column_name="properties.$browser",
+            created_by=self.user,
+        )
+        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [0, 0])) as query:
+            run_check(check, suite_run, self.team)
+
+        assert query.call_args.kwargs["bypass_warehouse_access_control"] is False
+        assert query.call_args.kwargs["user"] == self.user
+
     @parameterized.expand([("custom_sql", CheckType.CUSTOM_SQL), ("relationships", CheckType.RELATIONSHIPS)])
     def test_a_manual_referencing_check_without_an_initiator_never_reaches_the_warehouse(
         self, _name, check_type: CheckType
@@ -497,33 +516,14 @@ class TestCheckRunner(BaseTest):
         query.assert_not_called()
         assert outcome.status == CheckRunStatus.ERRORED
 
-    @parameterized.expand(
-        [
-            ("first_failure", "", CheckSeverity.ERROR, True),
-            ("still_failing", CheckRunStatus.FAILED, CheckSeverity.ERROR, False),
-            ("warn_severity", "", CheckSeverity.WARN, False),
-            ("recovered_then_failed_again", CheckRunStatus.PASSED, CheckSeverity.ERROR, True),
-        ]
-    )
-    def test_became_failing_marks_only_error_severity_transitions(
-        self, _name, previous_status: str, severity: CheckSeverity, expected: bool
-    ) -> None:
-        check = self._check(last_status=previous_status, severity=severity)
-        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [3, 3])):
-            outcome = run_check(check, self.suite_run, self.team)
+    def test_a_failing_run_records_the_outcome_without_notifying(self) -> None:
+        check = self._check(last_status=CheckRunStatus.PASSED, severity=CheckSeverity.ERROR)
 
-        assert outcome.became_failing is expected
+        with patch(CREATE_NOTIFICATION) as create_notification:
+            with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [3, 3])):
+                outcome = run_check(check, self.suite_run, self.team)
+
+        create_notification.assert_not_called()
+        assert outcome.status == CheckRunStatus.FAILED
         check.refresh_from_db()
         assert check.last_status == CheckRunStatus.FAILED
-
-    def test_an_overlapping_run_does_not_claim_the_same_failing_transition(self) -> None:
-        # Stands in for a manual run racing the scheduled one: this run still holds the passing
-        # status it loaded, but the row already moved to failing, so it must not notify a second time.
-        check = self._check(last_status=CheckRunStatus.PASSED, severity=CheckSeverity.ERROR)
-        DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(last_status=CheckRunStatus.FAILED)
-
-        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [3, 3])):
-            outcome = run_check(check, self.suite_run, self.team)
-
-        assert outcome.status == CheckRunStatus.FAILED
-        assert outcome.became_failing is False

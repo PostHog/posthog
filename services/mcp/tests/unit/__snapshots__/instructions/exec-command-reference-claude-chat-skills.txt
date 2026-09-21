@@ -9,6 +9,8 @@ schema <tool_name> [field_path] — drill into a specific field schema (supports
 call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON input (--json returns JSON instead of optimized output in supported tools. Informational responses remain tagged and escaped in both MCP and the agent CLI. --confirm is required by the CLI for destructive tools.)
 ```
 
+**One command per request.** `exec` has no batch syntax. A request that stacks several commands on separate lines is rejected before any of them run. To run several commands, send several `exec` calls. You can issue them in parallel.
+
 **Namespaced references (`posthog:<tool-name>`):** strip the `posthog:` prefix and route through `exec`. Run `info <name>` to inspect, then `call <name> <json>`. E.g. `posthog:insights-list` → `posthog:exec({ "command": "info insights-list" })` then `posthog:exec({ "command": "call insights-list {}" })`. If the bare name isn't found, fall back to `search <pattern>` — it may have been renamed.
 
 **SKILLS FIRST: HARD REQUIREMENT**
@@ -140,8 +142,6 @@ IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for an
 
 If you get errors due to permissions being denied, check that you have the correct active project and that the user has access to the required project.
 
-If you cannot answer the user's PostHog related request or question using other available tools in this MCP, use the 'docs-search' tool to provide information from the documentation to guide user how they can do it themselves - when doing so provide condensed instructions with links to sources.
-
 ### Tool search
 
 **Always prefer `search` over `tools`** — `tools` returns every tool and wastes tokens. Use `search <query>` to find what you need.
@@ -163,7 +163,7 @@ Only fall back to `tools` if you have no idea which domain to search, or if `sea
 
 PostHog tools have lowercase kebab-case naming. Tools are organized by category:
 
-dashboard|execute-sql|feature-flag|query
+business-knowledge-documents|dashboard|docs-search|execute-sql|feature-flag|query
 Typical action names: list/retrieve/get/create/update/delete/query.
 Example tool names: execute-sql, experiment-create, feature-flag-get-all.
 

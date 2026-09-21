@@ -438,6 +438,9 @@ _PATCH_ID_DEV_STACK_PREVIEW = "tasks-dev-stack-preview"
 # Django model imports.
 _ONBOARDING_ORIGIN_PRODUCT = "onboarding"
 
+# `Task.OriginProduct.WORKFLOW`, mirrored for the same reason.
+_WORKFLOW_ORIGIN_PRODUCT = "workflow"
+
 
 def _deprecate_ci_follow_up_pr_context_patch() -> None:
     workflow.deprecate_patch(_PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT)
@@ -1519,7 +1522,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 # A run that outlived the hard cap is a failure, not a completion, and the
                 # state marker carries the reason so error_message stays empty.
                 await self._update_task_run_status("failed", timeout_marker=TIMED_OUT_WALL_CLOCK_STATE_KEY)
-            elif timeout_event is not None and self._agent_lost_mid_turn():
+            elif timeout_event is not None and self._agent_lost_exit_is_failure():
                 await self._update_task_run_status(
                     "failed", error_message=AGENT_LOST_ERROR_MESSAGE, timed_out_inactivity=True
                 )
@@ -2790,10 +2793,23 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         """
         return self._end_of_turn_received is False and self._agent_active is not False
 
+    def _agent_lost_exit_is_failure(self) -> bool:
+        """Whether a lost agent should terminalize the run as FAILED.
+
+        Workflow-origin runs only. A workflow step waits on the run's terminal status, so a turn
+        that never finished has to read as a failure or the step continues on work that never
+        happened. Every other origin ends this way routinely: an attended run answers its user and
+        then idles out with the turn still open, and a background one leaves the stopped run as the
+        snapshot its resume flow picks up. Failing those reports breakage to the person reading the
+        task list when nothing broke.
+        """
+        return self.context.origin_product == _WORKFLOW_ORIGIN_PRODUCT and self._agent_lost_mid_turn()
+
     def _mark_sandbox_gone(self) -> None:
-        # A sandbox that vanished mid-turn took the agent's work with it. Mid-setup it is a failed
-        # setup for onboarding; see _onboarding_exit_is_failure for the open-PR exemption.
-        agent_lost = self._agent_lost_mid_turn()
+        # A sandbox that vanished mid-turn took the agent's work with it, which only a workflow step
+        # needs told; see _agent_lost_exit_is_failure. Mid-setup it is a failed setup for
+        # onboarding; see _onboarding_exit_is_failure for the open-PR exemption.
+        agent_lost = self._agent_lost_exit_is_failure()
         self._completion_status = "failed" if agent_lost or self._onboarding_exit_is_failure() else "completed"
         self._completion_error = SANDBOX_GONE_ERROR_MESSAGE
         self._completion_timeout_marker = SANDBOX_GONE_STATE_KEY

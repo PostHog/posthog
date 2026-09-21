@@ -48,6 +48,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     query: HogQLQuery
     cached_response: CachedHogQLQueryResponse
     settings: Optional[HogQLGlobalSettings]
+    # p95 duration of a query service HogQL query is 2.78sec
+    QUERY_SERVICE_MAX_EXECUTION_TIME = 10
 
     def __init__(
         self,
@@ -222,18 +224,29 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self.to_query()
 
-    def _calculate(self) -> HogQLQueryResponse:
-        tag_contains_user_hogql()
-        if (
+    def single_flight_variant(self) -> str:
+        # The query service cap and custom settings change the execution time without reaching the cache key.
+        max_execution_time: Optional[int] = (
+            self.QUERY_SERVICE_MAX_EXECUTION_TIME
+            if self._capped_for_query_service()
+            else (self.settings.max_execution_time if self.settings else None)
+        )
+        return f"{super().single_flight_variant()}:max_execution_time={max_execution_time}"
+
+    def _capped_for_query_service(self) -> bool:
+        return bool(
             self.is_query_service
             and app_settings.API_QUERIES_LEGACY_TEAM_LIST
             and self.team.pk not in app_settings.API_QUERIES_LEGACY_TEAM_LIST
-        ):
+        )
+
+    def _calculate(self) -> HogQLQueryResponse:
+        tag_contains_user_hogql()
+        if self._capped_for_query_service():
             assert self.settings is not None
             # p95 threads is 102, limiting to 60 (below global max_threads of 64)
             self.settings.max_threads = 60
-            # p95 duration of HogQL query is 2.78sec
-            self.settings.max_execution_time = 10
+            self.settings.max_execution_time = self.QUERY_SERVICE_MAX_EXECUTION_TIME
 
         self._validate_direct_connection()
 

@@ -124,6 +124,26 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             </>
         )
 
+    const tabLink = (url: string, tab: string): string => {
+        const params = { ...searchParams }
+        if (tab !== activeTab && (tab === 'tasks' || activeTab === 'tasks')) {
+            for (const key of [
+                'search',
+                'status',
+                'assignee',
+                'archive',
+                'due',
+                'account',
+                'sort',
+                'page',
+                'task_id',
+                'source',
+            ]) {
+                delete params[key]
+            }
+        }
+        return combineUrl(url, params).url
+    }
     const tabs: LemonTab<string>[] = []
 
     if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
@@ -131,25 +151,25 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             key: 'feed',
             label: 'Feed',
             content: <FeedTabContent />,
-            link: combineUrl(urls.customerAnalyticsFeed(), searchParams).url,
+            link: tabLink(urls.customerAnalyticsFeed(), 'feed'),
         })
         tabs.push({
             key: 'accounts',
             label: 'Accounts',
             content: <AccountsTabContent />,
-            link: combineUrl(urls.customerAnalyticsAccounts(), searchParams).url,
+            link: tabLink(urls.customerAnalyticsAccounts(), 'accounts'),
         })
         tabs.push({
             key: 'notes',
             label: 'Notes',
             content: <AccountNotesTabContent />,
-            link: combineUrl(urls.customerAnalyticsNotes(), searchParams).url,
+            link: tabLink(urls.customerAnalyticsNotes(), 'notes'),
         })
         tabs.push({
             key: 'announcements',
             label: 'Announcements',
             content: <AnnouncementsTabContent />,
-            link: combineUrl(urls.customerAnalyticsAnnouncements(), searchParams).url,
+            link: tabLink(urls.customerAnalyticsAnnouncements(), 'announcements'),
         })
     }
 
@@ -158,7 +178,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             key: 'feature_requests',
             label: 'Feature requests',
             content: <FeatureRequestsTabContent />,
-            link: combineUrl(urls.customerAnalyticsFeatureRequests(), searchParams).url,
+            link: tabLink(urls.customerAnalyticsFeatureRequests(), 'feature_requests'),
         })
     }
 
@@ -167,7 +187,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             key: 'tasks',
             label: 'Tasks',
             content: <CustomerTasksInbox canCreate={canCreateCustomerTasks} canViewAll={canViewAllCustomerTasks} />,
-            link: combineUrl(urls.customerAnalyticsTasks(), searchParams).url,
+            link: tabLink(urls.customerAnalyticsTasks(), 'tasks'),
         })
     }
 
@@ -175,7 +195,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         key: 'dashboard',
         label: 'Dashboard',
         content: dashboardContent,
-        link: combineUrl(urls.customerAnalyticsDashboard(), searchParams).url,
+        link: tabLink(urls.customerAnalyticsDashboard(), 'dashboard'),
     })
 
     if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS]) {
@@ -183,7 +203,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             key: 'journeys',
             label: 'Customer journeys',
             content: <CustomerJourneys />,
-            link: combineUrl(urls.customerAnalyticsJourneys(), searchParams).url,
+            link: tabLink(urls.customerAnalyticsJourneys(), 'journeys'),
         })
     }
 

@@ -1,5 +1,4 @@
-// Lead time to deploy for one scope (an author or a team) against the repository: one scope-vs-repo box
-// plot per stage. No DORA band edge here: a band on one person's or one team's lead time reads as a grade.
+// No DORA band edge: a band on one person's or one team's lead time reads as a grade.
 
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
@@ -30,7 +29,6 @@ export function LeadTimeComparisonCard({
     loading,
 }: {
     leadTime: DeliveryLeadTimeApi | null | undefined
-    /** The box label for the scope, e.g. "This author" or "This team". */
     scopeLabel: string
     loading: boolean
 }): JSX.Element {
@@ -62,7 +60,8 @@ export function LeadTimeComparisonCard({
                             </div>
                             <div>
                                 Box: the middle half of the pull requests. Line: median. Dot: mean. Whiskers: 5th to
-                                95th percentile.
+                                95th percentile. The time axis is logarithmic, so a few very slow pull requests don't
+                                squash the rest.
                             </div>
                             <div>
                                 Deploy failure share and recovery are not shown: one deploy ships many pull requests, so
@@ -114,6 +113,9 @@ export function LeadTimeComparisonCard({
                                         ]}
                                         formatSeconds={compactAgeLabel}
                                         excludeOutliers
+                                        horizontal
+                                        logScale
+                                        className="h-28"
                                         dataAttr={`engineering-analytics-delivery-${stage.key}`}
                                     />
                                 </div>
