@@ -16,6 +16,10 @@ def slack_dev_mcp_ui_enabled(*, user: User, team: Team) -> bool:
             organization_id=team.organization_id,
             team_id=team.id,
             person_properties={"email": user.email} if user.email else {},
+            # Local evaluation only: both call sites sit in a request path, and the SDK's remote
+            # fallback blocks for up to its request timeout. The email-suffix rollout still
+            # resolves locally because `person_properties` supplies the address.
+            only_evaluate_locally=True,
         )
     except Exception:
         logger.warning("mcp_store.slack_dev_flag_check_failed", exc_info=True)

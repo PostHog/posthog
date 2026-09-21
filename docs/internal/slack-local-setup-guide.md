@@ -274,6 +274,8 @@ It does not move bot events to production or change the production Slack app's c
    Adding the settings in this repository does not configure production.
 4. Enable the `mcp-slack-dev` feature flag for PostHog users.
    Target users whose email ends with `@posthog.com`.
+   Use that email condition, not a cohort or an early access list.
+   The check evaluates the flag locally and treats targeting it cannot resolve as off.
    For local testing, add `mcp-slack-dev` to `POSTHOG_FEATURE_FLAGS_FORCE_ENABLED` and restart Django.
 5. Run `python manage.py sync_mcp_server_templates` in that environment.
    The existing Slack MCP entry becomes **Slack via PostHog (dev)** and uses the separate credentials.

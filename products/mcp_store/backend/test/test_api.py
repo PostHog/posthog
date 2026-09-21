@@ -217,6 +217,7 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert (str(template.id) in {entry["id"] for entry in response.json()["results"]}) is expected
         if allowed:
             assert feature_enabled.call_args.kwargs["person_properties"] == {"email": self.user.email}
+            assert feature_enabled.call_args.kwargs["only_evaluate_locally"] is True
             assert feature_enabled.call_args.kwargs["groups"] == {
                 "organization": str(self.organization.id),
                 "project": str(self.team.id),
