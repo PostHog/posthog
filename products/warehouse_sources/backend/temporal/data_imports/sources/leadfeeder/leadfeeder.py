@@ -17,8 +17,8 @@ dispatches between them on the resolved API-version pin:
   "work in progress") and warrant live verification before the source leaves alpha.
 """
 
-import logging
 import dataclasses
+import logging
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
