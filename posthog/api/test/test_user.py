@@ -392,6 +392,7 @@ class TestUserAPI(APIBaseTest):
         response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {token.token}"})
         assert response.status_code == 200
         assert response.json()["requires_credential_review"] is False
+        assert response.json()["is_impersonated"] is False
 
     def test_requires_credential_review_unverified_passkey(self):
         # Unverified passkeys are the realistic pre-claim attack artifact - a partner
