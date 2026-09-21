@@ -1197,8 +1197,8 @@ def property_to_expr(
         try:
             return parse_expr(property.key, cache_origin=CacheOrigin.USER)
         except BaseHogQLError as error:
-            # Filters saved before save-time parsing can still hold an expression that doesn't parse.
-            # Name the filter, so the failure is traceable to it rather than to the query that ran.
+            # A filter saved before save-time validation can still fail to parse here. Raising
+            # beats dropping it, because dropping widens the query to include test accounts.
             raise QueryError(f"Invalid HogQL property filter: {property.key}. {error}") from error
     elif property.type == "behavioral":
         if not team:
