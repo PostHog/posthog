@@ -20,7 +20,11 @@ def normalize_fit_payload(payload: Any) -> dict[str, Any] | None:
 
 
 def current_ai_pilled_label(
-    fetch: OrganizationEnrichmentFetch, domain: str | None, *, lists: CuratedLists | None = None
+    fetch: OrganizationEnrichmentFetch,
+    domain: str | None,
+    *,
+    lists: CuratedLists | None = None,
+    lock_prompt_config: bool = True,
 ) -> EnrichmentLabelResult | None:
     if not domain or not ai_processing_approved(fetch.organization_id):
         return None
@@ -30,11 +34,9 @@ def current_ai_pilled_label(
     lists = lists if lists is not None else load_active_lists()
     if lists is None or "llm" not in lists.rules.ai_sources:
         return None
-    configs = (
-        EnrichmentPromptConfig.objects.select_for_update()
-        .filter(name__in=lists.rules.ai_labels, is_active=True)
-        .order_by("name")
-    )
+    configs = EnrichmentPromptConfig.objects.filter(name__in=lists.rules.ai_labels, is_active=True).order_by("name")
+    if lock_prompt_config:
+        configs = configs.select_for_update()
     versions = Q(pk__in=[])
     for config in configs:
         versions |= Q(label_name=config.name, prompt_version=config.version, prompt_hash=config.content_hash)
@@ -74,10 +76,11 @@ def score_with_ai_pilled_label(
     domain: str | None,
     role: str | None = None,
     wizard_ai_sdk: bool = False,
+    lock_prompt_config: bool = True,
 ) -> IcpFitResult:
     label = None
     if fetch is not None and normalize_fit_payload(fetch.payload) == payload:
-        label = current_ai_pilled_label(fetch, domain, lists=lists)
+        label = current_ai_pilled_label(fetch, domain, lists=lists, lock_prompt_config=lock_prompt_config)
     positive_label = positive_ai_pilled_label(label) if label is not None else None
     result = score_company(
         payload,

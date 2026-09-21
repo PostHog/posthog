@@ -9,14 +9,22 @@ from unittest.mock import patch
 from django.contrib.admin import AdminSite
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
+from django.db import connection
 from django.test import RequestFactory
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
 from products.growth.backend.admin import IcpScoringConfigAdmin
 from products.growth.backend.enrichment.icp_lists import clear_lists_cache, load_active_lists
 from products.growth.backend.enrichment.scoring_rules import default_scoring_rules
-from products.growth.backend.models import IcpScoringConfig, OrganizationEnrichment, OrganizationEnrichmentFetch
+from products.growth.backend.models import (
+    EnrichmentLabelResult,
+    EnrichmentPromptConfig,
+    IcpScoringConfig,
+    OrganizationEnrichment,
+    OrganizationEnrichmentFetch,
+)
 
 
 class TestIcpScoringConfigLifecycle(BaseTest):
@@ -115,13 +123,47 @@ class TestIcpScoringConfigLifecycle(BaseTest):
         assert copied.scoring_rules == self.config.scoring_rules
         assert copied.is_active is False
 
-    def test_preview_compares_rules_without_changing_scores_or_contacting_providers(self) -> None:
-        candidate = IcpScoringConfig.objects.create(version="include-harmonic", scoring_rules={})
+    @parameterized.expand([("harmonic", False), ("llm", True)])
+    def test_preview_compares_rules_without_changing_scores_or_contacting_providers(
+        self, _name: str, use_label: bool
+    ) -> None:
+        candidate = IcpScoringConfig.objects.create(
+            version="candidate", scoring_rules={"ai_sources": ["llm"]} if use_label else {}
+        )
         fetch = OrganizationEnrichmentFetch.objects.create(
             organization=self.organization,
             provider="harmonic",
-            payload={"companyFound": True, "headcount": 8, "description": "AI assistant for stocktaking."},
+            payload={
+                "companyFound": True,
+                "headcount": 8,
+                "description": "Inventory tools." if use_label else "AI assistant for stocktaking.",
+            },
         )
+        if use_label:
+            self.user.email = "engineer@inventory.example.com"
+            self.user.save(update_fields=["email"])
+            self.organization.is_ai_data_processing_approved = True
+            self.organization.save(update_fields=["is_ai_data_processing_approved"])
+            EnrichmentPromptConfig.objects.filter(name="ai_pilled").update(is_active=False)
+            config = EnrichmentPromptConfig.objects.create(
+                name="ai_pilled",
+                version="label-v1",
+                prompt_text="Classify the company at {email}.",
+                model="gpt-5-mini",
+                input_fields=["description"],
+                output_fields=[{"key": "ai_pilled", "type": "boolean"}],
+                is_active=True,
+            )
+            EnrichmentLabelResult.objects.create(
+                organization=self.organization,
+                fetch=fetch,
+                label_name=config.name,
+                prompt_version=config.version,
+                prompt_hash=config.content_hash,
+                model=config.model,
+                output={"ai_pilled": True},
+                inputs={"signup_domain": "inventory.example.com"},
+            )
         record = OrganizationEnrichment.objects.create(
             organization=self.organization, data={"signup_role": "engineering", "icp_fit_score": 4}
         )
@@ -130,8 +172,10 @@ class TestIcpScoringConfigLifecycle(BaseTest):
             patch("products.growth.backend.enrichment.labels._complete") as complete,
             patch("products.growth.backend.enrichment.tools.run_tool") as web_tool,
             patch("products.growth.backend.enrichment.bridge.read_organization_bridge_inputs") as bridge,
+            CaptureQueriesContext(connection) as queries,
         ):
             call_command("preview_icp_scoring_config", config_version=candidate.version, limit=1, stdout=output)
+        assert not any("FOR UPDATE" in query["sql"] for query in queries)
         preview = json.loads(output.getvalue())
         assert preview["samples"][0]["fetch_id"] == str(fetch.id)
         assert preview["samples"][0]["active"]["score"] == 0

@@ -60,12 +60,19 @@ def score_archived_fit(
     domain: str | None,
     role: str | None,
     wizard_ai_sdk: bool,
+    lock_prompt_config: bool = True,
 ) -> IcpFitResult:
     payload = normalize_fit_payload(fetch.payload)
     if payload is None:
         payload = normalize_fit_payload(latest_matched_payload(str(fetch.organization_id)))
     return score_with_ai_pilled_label(
-        payload, fetch=fetch, lists=lists, domain=domain, role=role, wizard_ai_sdk=wizard_ai_sdk
+        payload,
+        fetch=fetch,
+        lists=lists,
+        domain=domain,
+        role=role,
+        wizard_ai_sdk=wizard_ai_sdk,
+        lock_prompt_config=lock_prompt_config,
     )
 
 

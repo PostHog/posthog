@@ -2,7 +2,6 @@ import json
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
-from django.db import transaction
 from django.db.models import OuterRef, Subquery
 
 from products.growth.backend.enrichment import gates
@@ -51,23 +50,23 @@ class Command(BaseCommand):
         fetches = OrganizationEnrichmentFetch.objects.filter(pk=Subquery(latest)).order_by("-fetched_at", "-id")[:limit]
         samples = []
         for fetch in fetches:
-            with transaction.atomic():
-                record = OrganizationEnrichment.objects.filter(organization_id=fetch.organization_id).first()
-                data = record.data if record and isinstance(record.data, dict) else {}
-                identity = gates.resolve_signup_identity(str(fetch.organization_id))
-                domain = identity.domain if isinstance(identity, gates.SignupIdentity) else None
-                flags = data.get("icp_fit_flags")
-                wizard = isinstance(flags, dict) and flags.get("wizard_ai_sdk") is True
-                results = [
-                    score_archived_fit(
-                        fetch,
-                        lists=lists,
-                        domain=domain,
-                        role=data.get("signup_role"),
-                        wizard_ai_sdk=wizard,
-                    )
-                    for lists in (active_lists, candidate_lists)
-                ]
+            record = OrganizationEnrichment.objects.filter(organization_id=fetch.organization_id).first()
+            data = record.data if record and isinstance(record.data, dict) else {}
+            identity = gates.resolve_signup_identity(str(fetch.organization_id))
+            domain = identity.domain if isinstance(identity, gates.SignupIdentity) else None
+            flags = data.get("icp_fit_flags")
+            wizard = isinstance(flags, dict) and flags.get("wizard_ai_sdk") is True
+            results = [
+                score_archived_fit(
+                    fetch,
+                    lists=lists,
+                    domain=domain,
+                    role=data.get("signup_role"),
+                    wizard_ai_sdk=wizard,
+                    lock_prompt_config=False,
+                )
+                for lists in (active_lists, candidate_lists)
+            ]
             before, after = results
             before_components, after_components = before.components or {}, after.components or {}
             samples.append(
