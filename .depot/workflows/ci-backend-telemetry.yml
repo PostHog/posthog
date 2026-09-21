@@ -81,8 +81,6 @@ jobs:
               env:
                   DEPOT_TOKEN: ${{ secrets.DEPOT_CI_TELEMETRY_TOKEN }}
                   EVENT_AT: ${{ env.SOURCE_EVENT_AT }}
-                  GITHUB_RUN_FINISHED_AT: ${{ env.SOURCE_GITHUB_RUN_FINISHED_AT }}
-                  GITHUB_RUN_STARTED_AT: ${{ env.SOURCE_GITHUB_RUN_STARTED_AT }}
                   HEAD_SHA: ${{ env.SOURCE_HEAD_SHA }}
                   PR_NUMBER: ${{ env.SOURCE_PR_NUMBER }}
                   REPO: ${{ github.repository }}
@@ -100,23 +98,10 @@ jobs:
                           workflow=$(jq -c '.workflows[]? | select(.workflow_path == "ci-backend.yml")' <<< "$status")
                           workflow_status=$(jq -r '.status // empty' <<< "$workflow")
                           if [[ "$workflow_status" =~ ^(finished|failed|cancelled)$ ]]; then
-                              if [[ -n "$GITHUB_RUN_STARTED_AT" ]]; then
-                                  run_attempt=$(jq -r --arg started "$GITHUB_RUN_STARTED_AT" --arg finished "$GITHUB_RUN_FINISHED_AT" \
-                                      '[.jobs[].attempts[]? | select((.created_at // .started_at // "") >= $started and (.created_at // .started_at // "") <= $finished) | .attempt] | max // empty' \
-                                      <<< "$workflow")
-                                  if [[ -z "$run_attempt" ]]; then
-                                      echo "::notice::The GitHub rerun did not retry a Depot job; no new test telemetry to report"
-                                      echo "matched=false" >> "$GITHUB_OUTPUT"
-                                      exit 0
-                                  fi
-                              else
-                                  run_attempt=1
-                              fi
                               {
                                   echo "run_id=$run_id"
                                   echo "org_id=$(jq -r '.org_id' <<< "$status")"
                                   echo "workflow_id=$(jq -r '.workflow_id' <<< "$workflow")"
-                                  echo "run_attempt=$run_attempt"
                                   echo "matched=true"
                               } >> "$GITHUB_OUTPUT"
                               exit 0
@@ -134,25 +119,32 @@ jobs:
               env:
                   BACKEND_RUN_ID: ${{ steps.backend.outputs.run_id }}
                   BACKEND_WORKFLOW_ID: ${{ steps.backend.outputs.workflow_id }}
-                  BACKEND_RUN_ATTEMPT: ${{ steps.backend.outputs.run_attempt }}
                   DEPOT_TOKEN: ${{ secrets.DEPOT_CI_TELEMETRY_TOKEN }}
                   HEAD_REF: ${{ env.SOURCE_HEAD_REF }}
                   HEAD_SHA: ${{ env.SOURCE_HEAD_SHA }}
                   ORG_ID: ${{ steps.backend.outputs.org_id }}
                   PR_NUMBER: ${{ env.SOURCE_PR_NUMBER }}
+                  ATTEMPT_STARTED_AT: ${{ env.SOURCE_GITHUB_RUN_STARTED_AT }}
+                  ATTEMPT_FINISHED_AT: ${{ env.SOURCE_GITHUB_RUN_FINISHED_AT }}
               run: |
-                  python3 .github/scripts/collect_depot_backend_telemetry.py \
-                      --run-id "$BACKEND_RUN_ID" \
-                      --workflow-id "$BACKEND_WORKFLOW_ID" \
-                      --org "$ORG_ID" \
-                      --pr-number "$PR_NUMBER" \
-                      --head-sha "$HEAD_SHA" \
-                      --head-ref "$HEAD_REF" \
-                      --run-attempt "$BACKEND_RUN_ATTEMPT" \
+                  args=(
+                      --run-id "$BACKEND_RUN_ID"
+                      --workflow-id "$BACKEND_WORKFLOW_ID"
+                      --org "$ORG_ID"
+                      --pr-number "$PR_NUMBER"
+                      --head-sha "$HEAD_SHA"
+                      --head-ref "$HEAD_REF"
                       --junit-dir ./junit-artifacts
+                  )
+                  if [[ -n "$ATTEMPT_STARTED_AT" ]]; then
+                      args+=(--attempt-started-at "$ATTEMPT_STARTED_AT" --attempt-finished-at "$ATTEMPT_FINISHED_AT")
+                  else
+                      args+=(--run-attempt 1)
+                  fi
+                  python3 .github/scripts/collect_depot_backend_telemetry.py "${args[@]}"
 
             - name: Capture running time to PostHog and DevEx PostHog
-              if: steps.backend.outcome == 'success' && steps.backend.outputs.run_attempt == '1'
+              if: steps.backend.outcome == 'success' && github.event_name == 'pull_request_target'
               continue-on-error: true
               env:
                   GH_TOKEN: ${{ github.token }}
@@ -164,7 +156,7 @@ jobs:
                   CI_SOURCE_REF: refs/pull/${{ env.SOURCE_PR_NUMBER }}/head
                   CI_SOURCE_WORKFLOW: Backend CI on Depot
                   CI_SOURCE_RUN_ID: ${{ steps.backend.outputs.run_id }}
-                  CI_SOURCE_RUN_ATTEMPT: ${{ steps.backend.outputs.run_attempt }}
+                  CI_SOURCE_RUN_ATTEMPT: '1'
                   CI_SOURCE_ACTOR: ${{ env.SOURCE_ACTOR }}
                   CI_SOURCE_EVENT_NAME: pull_request
                   POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
@@ -172,7 +164,7 @@ jobs:
               run: python3 .github/scripts/capture_depot_running_time.py
 
             - name: Capture test selection to DevEx PostHog
-              if: steps.inputs.outputs.has_selection == 'true' && steps.backend.outputs.run_attempt == '1'
+              if: steps.inputs.outputs.has_selection == 'true' && github.event_name == 'pull_request_target'
               continue-on-error: true
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:

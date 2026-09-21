@@ -12,6 +12,7 @@ import argparse
 import tempfile
 import subprocess
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 
 JUNIT_NAME = re.compile(r"^(?:junit-results-backend|product-junit-results)-[A-Za-z0-9._-]+$")
@@ -28,6 +29,7 @@ class Artifact:
     name: str
     size_bytes: int
     attempt: int
+    created_at: datetime
 
 
 def _required_string(value: object, field: str) -> str:
@@ -40,6 +42,18 @@ def _required_int(value: object, field: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise ValueError(f"artifact {field} must be a non-negative integer")
     return value
+
+
+def _required_timestamp(value: object, field: str) -> datetime:
+    if not isinstance(value, str):
+        raise ValueError(f"artifact {field} must be a timestamp")
+    try:
+        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError(f"artifact {field} must be a timestamp") from error
+    if timestamp.tzinfo is None:
+        raise ValueError(f"artifact {field} must include a timezone")
+    return timestamp
 
 
 def parse_artifacts(payload: object, run_id: str, workflow_id: str) -> list[Artifact]:
@@ -62,6 +76,7 @@ def parse_artifacts(payload: object, run_id: str, workflow_id: str) -> list[Arti
                 name=name,
                 size_bytes=_required_int(raw.get("size_bytes"), "size"),
                 attempt=_required_int(raw.get("attempt"), "attempt"),
+                created_at=_required_timestamp(raw.get("created_at"), "created_at"),
             )
         )
     if len(parsed) > MAX_ARTIFACTS:
@@ -71,6 +86,32 @@ def parse_artifacts(payload: object, run_id: str, workflow_id: str) -> list[Arti
     if sum(artifact.size_bytes for artifact in parsed) > MAX_TOTAL_BYTES:
         raise ValueError("artifacts exceed the total size limit")
     return parsed
+
+
+def select_attempt(
+    artifacts: list[Artifact],
+    *,
+    run_attempt: int | None,
+    attempt_started_at: str | None,
+    attempt_finished_at: str | None,
+) -> tuple[int | None, list[Artifact]]:
+    if run_attempt is not None:
+        return run_attempt, [artifact for artifact in artifacts if artifact.attempt == run_attempt]
+    if attempt_started_at is None or attempt_finished_at is None:
+        raise ValueError("retry telemetry requires both attempt timestamps")
+    started = _required_timestamp(attempt_started_at, "attempt start")
+    finished = _required_timestamp(attempt_finished_at, "attempt finish")
+    if finished < started:
+        raise ValueError("retry telemetry has an invalid attempt window")
+    candidates = [
+        artifact
+        for artifact in artifacts
+        if JUNIT_NAME.fullmatch(artifact.name) and artifact.attempt > 1 and started <= artifact.created_at <= finished
+    ]
+    if not candidates:
+        return None, []
+    selected_attempt = max(artifact.attempt for artifact in candidates)
+    return selected_attempt, [artifact for artifact in candidates if artifact.attempt == selected_attempt]
 
 
 def safe_extract(archive: Path, destination: Path) -> None:
@@ -180,11 +221,17 @@ def main() -> int:
     parser.add_argument("--pr-number", required=True, type=int)
     parser.add_argument("--head-sha", required=True)
     parser.add_argument("--head-ref", required=True)
-    parser.add_argument("--run-attempt", required=True, type=int)
+    parser.add_argument("--run-attempt", type=int)
+    parser.add_argument("--attempt-started-at")
+    parser.add_argument("--attempt-finished-at")
     parser.add_argument("--junit-dir", required=True, type=Path)
     args = parser.parse_args()
-    if args.run_attempt < 1:
+    if args.run_attempt is not None and args.run_attempt < 1:
         parser.error("--run-attempt must be positive")
+    if args.run_attempt is not None and (args.attempt_started_at or args.attempt_finished_at):
+        parser.error("--run-attempt cannot be combined with an attempt window")
+    if args.run_attempt is None and not (args.attempt_started_at and args.attempt_finished_at):
+        parser.error("provide --run-attempt or both attempt window timestamps")
 
     listed = subprocess.run(
         [
@@ -205,17 +252,28 @@ def main() -> int:
         text=True,
     )
     artifacts = parse_artifacts(json.loads(listed.stdout), args.run_id, args.workflow_id)
-    junit = [artifact for artifact in artifacts if JUNIT_NAME.fullmatch(artifact.name)]
+    run_attempt, attempt_artifacts = select_attempt(
+        artifacts,
+        run_attempt=args.run_attempt,
+        attempt_started_at=args.attempt_started_at,
+        attempt_finished_at=args.attempt_finished_at,
+    )
+    if run_attempt is None:
+        append_output("run_attempt", "0")
+        append_output("has_junit", "false")
+        append_output("has_selection", "false")
+        return 0
+    junit = [artifact for artifact in attempt_artifacts if JUNIT_NAME.fullmatch(artifact.name)]
     selection = [
         artifact
-        for artifact in artifacts
+        for artifact in attempt_artifacts
         if (match := SELECTION_NAME.fullmatch(artifact.name)) and int(match.group("pr")) == args.pr_number
     ]
     args.junit_dir.mkdir(parents=True, exist_ok=True)
     for artifact in junit:
         _download(artifact, args.org, args.junit_dir / artifact.name)
 
-    append_output("run_attempt", str(args.run_attempt))
+    append_output("run_attempt", str(run_attempt))
     append_output("has_junit", str(bool(junit)).lower())
     if selection:
         chosen = max(selection, key=lambda artifact: (artifact.attempt, artifact.artifact_id))

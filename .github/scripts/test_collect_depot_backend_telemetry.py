@@ -1,6 +1,7 @@
 import sys
 import zipfile
 import importlib.util
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,7 @@ def test_parse_artifacts_keeps_only_expected_inputs() -> None:
                 "name": "junit-results-backend-core-1",
                 "size_bytes": 100,
                 "attempt": 1,
+                "created_at": "2026-09-21T16:20:54Z",
             },
             {
                 "artifact_id": "a2",
@@ -33,6 +35,7 @@ def test_parse_artifacts_keeps_only_expected_inputs() -> None:
                 "name": "coverage-core-1",
                 "size_bytes": 100,
                 "attempt": 1,
+                "created_at": "2026-09-21T16:20:54Z",
             },
         ]
     }
@@ -40,6 +43,40 @@ def test_parse_artifacts_keeps_only_expected_inputs() -> None:
     assert [artifact.name for artifact in collector.parse_artifacts(payload, "run1", "wf1")] == [
         "junit-results-backend-core-1"
     ]
+
+
+def test_select_attempt_uses_artifacts_created_during_the_github_rerun() -> None:
+    artifacts = [
+        collector.Artifact("a1", "junit-results-backend-core-1", 100, 1, datetime(2026, 9, 21, 16, tzinfo=UTC)),
+        collector.Artifact("a2", "junit-results-backend-core-1", 100, 2, datetime(2026, 9, 21, 17, 5, tzinfo=UTC)),
+        collector.Artifact("a3", "junit-results-backend-core-2", 100, 3, datetime(2026, 9, 21, 18, tzinfo=UTC)),
+    ]
+
+    attempt, selected = collector.select_attempt(
+        artifacts,
+        run_attempt=None,
+        attempt_started_at="2026-09-21T17:00:00Z",
+        attempt_finished_at="2026-09-21T17:10:00Z",
+    )
+
+    assert attempt == 2
+    assert [artifact.artifact_id for artifact in selected] == ["a2"]
+
+
+def test_select_attempt_does_not_reemit_initial_artifacts_during_a_rerun() -> None:
+    artifacts = [
+        collector.Artifact("a1", "junit-results-backend-core-1", 100, 1, datetime(2026, 9, 21, 17, 5, tzinfo=UTC))
+    ]
+
+    attempt, selected = collector.select_attempt(
+        artifacts,
+        run_attempt=None,
+        attempt_started_at="2026-09-21T17:00:00Z",
+        attempt_finished_at="2026-09-21T17:10:00Z",
+    )
+
+    assert attempt is None
+    assert selected == []
 
 
 def test_safe_extract_rejects_parent_traversal(tmp_path: Path) -> None:
