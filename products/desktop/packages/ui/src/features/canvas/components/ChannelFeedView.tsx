@@ -1283,7 +1283,7 @@ const CanvasFeedRow = memo(function CanvasFeedRow({
       type="button"
       onClick={open}
       title={canvas.name}
-      className="group relative flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors hover:bg-fill-hover"
+      className="group relative flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors hover:bg-fill-selected"
     >
       <span className="flex size-3.5 shrink-0 items-center justify-center">
         {iconForTemplate(canvas.templateId, {
@@ -1369,7 +1369,7 @@ const FeedLogRow = memo(function FeedLogRow({
         ref={ref}
         role="button"
         tabIndex={0}
-        className="group relative flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-[13px] transition-colors hover:bg-fill-hover"
+        className="group relative flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-[13px] transition-colors hover:bg-fill-selected"
         onClick={(event) => {
           if (
             event.target instanceof Element &&
@@ -1818,11 +1818,10 @@ export function ChannelFeedView({
   }, [latestPendingId]);
 
   const listRows = rowStyle ? rowStyle === "list" : compact;
-  const columnClass = "w-full";
   const composerBlock = composer && (
     <div
       className={cn(
-        columnClass,
+        "w-full",
         compact ? "mb-1 border-border border-b pb-4" : "mb-2",
       )}
     >
@@ -1836,8 +1835,7 @@ export function ChannelFeedView({
   const kindFilterBlock = reports !== undefined && showKindFilter && (
     <div
       className={cn(
-        "flex items-center gap-1",
-        columnClass,
+        "flex w-full items-center gap-1",
         compact ? "mt-4 border-border border-t pt-2" : "pt-1",
       )}
     >
@@ -1910,7 +1908,7 @@ export function ChannelFeedView({
               "min-w-0 flex-1",
               "mx-auto w-full",
               compact
-                ? "max-w-[948px] px-6 pt-5 pb-10"
+                ? "max-w-[calc(70ch+3rem)] px-6 pt-5 pb-10"
                 : "max-w-[692px] px-4 pt-4 pb-10",
             )}
           >
@@ -1944,7 +1942,7 @@ export function ChannelFeedView({
             "w-full",
             "mx-auto w-full",
             compact
-              ? "max-w-[948px] px-6 pt-5 pb-10"
+              ? "max-w-[calc(70ch+3rem)] px-6 pt-5 pb-10"
               : "max-w-[692px] px-4 pt-4 pb-10",
           )}
         >
@@ -2017,8 +2015,10 @@ export function ChannelFeedView({
         />,
       );
     }
+    let striped = false;
+    const lastEntry = section.entries[section.entries.length - 1];
     for (const entry of section.entries) {
-      rows.push(
+      const row =
         entry.kind === "task" ? (
           listRows ? (
             <FeedLogRow
@@ -2060,8 +2060,24 @@ export function ChannelFeedView({
           />
         ) : (
           <SystemFeedRow key={entry.id} message={entry.message} />
-        ),
+        );
+      if (!listRows || entry.kind === "system") {
+        rows.push(row);
+        continue;
+      }
+      rows.push(
+        <div
+          key={`stripe-${entry.id}`}
+          className={cn(
+            entry !== lastEntry && "border-border/60 border-b",
+            striped &&
+              "bg-[color-mix(in_oklab,var(--foreground)_2%,transparent)]",
+          )}
+        >
+          {row}
+        </div>,
       );
+      striped = !striped;
     }
   }
 
@@ -2073,7 +2089,7 @@ export function ChannelFeedView({
             "min-w-0 flex-1",
             "mx-auto w-full",
             compact
-              ? "max-w-[948px] px-6 pt-5 pb-10"
+              ? "max-w-[calc(70ch+3rem)] px-6 pt-5 pb-10"
               : "max-w-[692px] px-4 pt-4 pb-10",
           )}
         >
