@@ -92,10 +92,10 @@ export interface scoutNotesLogicActions {
     }
     loadNotesSuccess: (
         notes: ScoutNoteApi[],
-        payload?: any
+        payload?: void
     ) => {
         notes: ScoutNoteApi[]
-        payload?: any
+        payload?: void
     }
 }
 
