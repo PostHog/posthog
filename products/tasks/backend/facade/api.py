@@ -232,6 +232,7 @@ __all__ = [
     "claim_and_fail_stale_run",
     "delete_sandbox_custom_image",
     "delete_sandbox_environment",
+    "deliver_task_run_user_message",
     "ensure_personal_channel_id",
     "ensure_sandbox_custom_image_builder_task",
     "edit_task_run_living_artifact",
@@ -2513,6 +2514,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # is_interactive_signals_run reads it the same way, so forging it would move the run off
         # the interactive budget and out of its per-run spend ceiling.
         "ai_stage",
+        "signals_takeover",
+        "signals_takeover_from_run_id",
         # A removed stamp lets a model change leave the token's pin, and the gateway denies every turn.
         GATEWAY_PRODUCT_STATE_KEY,
         # Names the agent (scout, custom agent, workflow) the run executes, lifted onto its
@@ -4481,11 +4484,16 @@ def signal_task_run_user_message(
     (completed or evicted — a terminal outcome), ``None`` when the run isn't
     found. Transient signalling failures propagate so a calling Temporal
     activity retries rather than reporting a dead end to the user.
+
+    Raises ``PipelineRunNotSteerable`` for a live pipeline-started Signals run — the single
+    place that decision is made, so every caller fails closed rather than spending a person's
+    turn against the pipeline's budget. ``deliver_task_run_user_message`` catches it and forks.
     """
     from temporalio.service import RPCError, RPCStatusCode  # noqa: PLC0415 — keep temporalio off the api import path
 
     from products.tasks.backend.exceptions import (
         ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
+        PipelineRunNotSteerable,
         SandboxNotFoundError,
     )
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
@@ -4499,6 +4507,8 @@ def signal_task_run_user_message(
         "claude_subscription_user_id"
     ) != actor_user_id:
         raise PermissionDenied("Only the user who started this run can use its Claude plan.")
+    if (run.state or {}).get("signals_takeover"):
+        raise PipelineRunNotSteerable(f"Task run {run.id} has a Signals takeover")
     if run.is_terminal or (run.state or {}).get("cancel_requested_at"):
         if not run.is_terminal:
             raise RuntimeError("Task run is still stopping. Try again shortly.")
@@ -4512,9 +4522,13 @@ def signal_task_run_user_message(
                 pass
         return False
     from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason  # noqa: PLC0415
+    from products.tasks.backend.temporal.oauth import is_pipeline_started_signals_run  # noqa: PLC0415
 
     if reason := get_compute_quota_denial_reason(run.task):
         raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)}, reason)
+    # After the quota check so an over-quota team is told that, not offered a fork it can't run.
+    if not run.is_terminal and is_pipeline_started_signals_run(run.task, run.state):
+        raise PipelineRunNotSteerable(f"Task run {run.id} was started by the Signals pipeline")
     accepted_at = django_timezone.now()
     try:
         context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
@@ -4541,6 +4555,155 @@ def signal_task_run_user_message(
         except Exception:
             logger.warning("Failed to record pending follow-up message for task run %s", run.id, exc_info=True)
     return True
+
+
+def deliver_task_run_user_message(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    content: str | None,
+    artifact_ids: list[str],
+    actor_user_id: int | None = None,
+    message_id: str | None = None,
+    steer: bool = False,
+) -> tuple[str, contracts.TaskRunDetailDTO | None]:
+    """Deliver a person's message to a run, forking it when steering in place isn't allowed.
+
+    Outcomes: ``"queued"`` (signalled, run unchanged), ``"forked"`` (a successor run carries
+    the message, DTO set), ``"not_found"``, ``"workflow_gone"``, ``"attachments_not_forkable"``,
+    ``"takeover_pending"``, ``"takeover_failed"``, or ``"nothing_to_deliver"``. The signalling decision itself stays in
+    ``signal_task_run_user_message``; this only handles the fork it refuses.
+    """
+    from products.tasks.backend.exceptions import PipelineRunNotSteerable  # noqa: PLC0415
+
+    try:
+        signal_result = signal_task_run_user_message(
+            run_id,
+            task_id,
+            team_id,
+            content=content,
+            artifact_ids=artifact_ids,
+            actor_user_id=actor_user_id,
+            message_id=message_id,
+            steer=steer,
+        )
+    except PipelineRunNotSteerable:
+        return _fork_pipeline_run_for_takeover(
+            run_id,
+            task_id,
+            team_id,
+            actor_user_id=actor_user_id,
+            content=content,
+            artifact_ids=artifact_ids,
+            message_id=message_id,
+        )
+    if signal_result is None:
+        return "not_found", None
+    return ("queued", None) if signal_result else ("workflow_gone", None)
+
+
+def _fork_pipeline_run_for_takeover(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    actor_user_id: int | None,
+    content: str | None,
+    artifact_ids: list[str],
+    message_id: str | None,
+) -> tuple[str, contracts.TaskRunDetailDTO | None]:
+    """Claim one successor before cancellation, without holding a row lock during dispatch.
+
+    A failed or interrupted takeover retains its claim so a retry cannot create another run.
+    The successor's protected provenance selects the interactive budget even for scout tasks.
+    Cancellation is asynchronous, so the predecessor can still be stopping when dispatch starts.
+    """
+    if artifact_ids:
+        # Run artifacts belong to the run they were uploaded against, and the successor's
+        # prompt takes task-scoped staged artifacts instead — a different namespace. Refusing
+        # beats silently dropping someone's attachment.
+        return "attachments_not_forkable", None
+    if not (content or "").strip():
+        # Forking stops work in flight, so a malformed empty message must not trigger one.
+        return "nothing_to_deliver", None
+
+    from products.tasks.backend.facade.cancellation import cancel_task_run  # noqa: PLC0415
+    from products.tasks.backend.temporal.oauth import is_pipeline_started_signals_run  # noqa: PLC0415
+
+    request_key = f"{actor_user_id}:{message_id or hashlib.sha256((content or '').encode()).hexdigest()}"
+    with transaction.atomic():
+        predecessor = (
+            TaskRun.objects.select_for_update(of=("self",))
+            .select_related("task")
+            .filter(id=run_id, task_id=task_id, team_id=team_id)
+            .first()
+        )
+        if predecessor is None or not predecessor.matches_task_ownership(predecessor.task):
+            return "not_found", None
+        takeover = (predecessor.state or {}).get("signals_takeover")
+        if takeover:
+            if takeover.get("request_key") != request_key:
+                return "takeover_pending", None
+            if takeover.get("status") == "failed":
+                return "takeover_failed", None
+            successor_id = takeover.get("run_id")
+            if successor_id:
+                successor = _get_visible_run(successor_id, task_id, team_id)
+                if successor is not None:
+                    return "forked", _task_run_detail_to_dto(successor)
+                return "takeover_failed", None
+            return "takeover_pending", None
+        if (
+            predecessor.is_terminal
+            or (predecessor.state or {}).get("cancel_requested_at")
+            or not is_pipeline_started_signals_run(predecessor.task, predecessor.state)
+        ):
+            return "workflow_gone", None
+        predecessor.state = {
+            **(predecessor.state or {}),
+            "signals_takeover": {"request_key": request_key, "status": "pending"},
+        }
+        predecessor.save(update_fields=["state", "updated_at"])
+
+    takeover_state = {"request_key": request_key, "status": "failed"}
+    try:
+        cancel_outcome, _ = cancel_task_run(
+            run_id,
+            task_id,
+            team_id,
+            reason="Superseded by a new run after someone took over",
+            source="takeover_fork",
+            requested_by_user_id=actor_user_id,
+        )
+        if cancel_outcome not in ("accepted", "already_terminal"):
+            logger.warning("Could not stop pipeline run %s before forking it (outcome %s)", run_id, cancel_outcome)
+            return "takeover_failed", None
+        result = run_task(
+            task_id,
+            team_id,
+            actor_user_id,
+            validated_data={
+                "mode": "interactive",
+                "resume_from_run_id": str(run_id),
+                "pending_user_message": content,
+                "pending_user_artifact_ids": [],
+            },
+            signals_takeover_from_run_id=UUID(str(run_id)),
+        )
+        if result is None or result.task is None or result.error is not None or result.run_error is not None:
+            logger.warning("Stopped pipeline run %s but its replacement was rejected", run_id)
+            return "takeover_failed", None
+        successor = TaskRun.objects.get(
+            task_id=task_id, team_id=team_id, state__signals_takeover_from_run_id=str(run_id)
+        )
+        takeover_state.update(status="forked", run_id=str(successor.id))
+        return "forked", _task_run_detail_to_dto(successor)
+    except Exception:
+        logger.exception("Pipeline run %s takeover failed", run_id)
+        return "takeover_failed", None
+    finally:
+        TaskRun.update_state_atomic(run_id, updates={"signals_takeover": takeover_state})
 
 
 # --- Agent peer messaging (docs: logic/services/peer_messages.py) ---
@@ -7843,6 +8006,7 @@ def run_task(
     *,
     validated_data: dict,
     warm_retry_token: str | None = None,
+    signals_takeover_from_run_id: UUID | None = None,
 ) -> contracts.TaskRunResult | None:
     """Create a run for a task and kick off its workflow, mirroring ``TaskViewSet.run``.
 
@@ -7967,7 +8131,11 @@ def run_task(
     if claude_model_access is None and previous_state is not None:
         claude_model_access = previous_state.claude_model_access
 
-    warm_run = None if run_source == RunSource.AGENT else _idling_warm_run_for_task(task)
+    warm_run = (
+        None
+        if run_source == RunSource.AGENT or signals_takeover_from_run_id is not None
+        else _idling_warm_run_for_task(task)
+    )
     if warm_run is not None and claude_model_access == "own-subscription":
         warm_run = None
     if warm_run is not None:
@@ -8091,6 +8259,8 @@ def run_task(
     extra_state: dict | None = None
     if pending_user_message is not None and not is_pi_task:
         extra_state = {"pending_user_message": pending_user_message}
+    if signals_takeover_from_run_id is not None:
+        extra_state = {**(extra_state or {}), "signals_takeover_from_run_id": str(signals_takeover_from_run_id)}
     if pending_user_artifact_ids and not is_pi_task:
         extra_state = extra_state or {}
         extra_state["pending_user_artifact_ids"] = pending_user_artifact_ids
@@ -10461,22 +10631,42 @@ def _canvas_fix_denial_outcome(reason: str) -> str:
 
 
 def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting_user_id: int | None) -> str:
-    """Wake a task's agent to fix a canvas: signal the live run, else seed a fresh run with ``prompt``.
+    """Deliver a creator's canvas request without holding a task lock across external calls.
 
-    Creator-only, like every run-driving surface (``forward_thread_message``,
-    ``task_control_q``): the dispatched run executes with the task creator's
-    credentials, so nobody else may start or steer it. The task row is locked
-    for the duration so overlapping fix requests serialize instead of each
-    creating a paid run. The fresh-run path creates the run inside the
-    transaction and dispatches its processing workflow on commit with
-    ``skip_user_check``.
-    Returns ``signaled`` / ``new_run`` / ``already_queued`` / ``not_found`` /
-    ``forbidden`` / ``quota_exhausted`` / ``organization_deactivated``.
+    Fresh-run creation is serialized and dispatches on commit. A pipeline takeover uses
+    its own one-time claim, so a failed takeover must not fall through to another run.
     """
     from products.tasks.backend.exceptions import (
         ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
     )
     from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason  # noqa: PLC0415
+
+    task = Task.objects.select_related("team", "created_by").filter(id=task_id, team_id=team_id).first()
+    if task is None:
+        return "not_found"
+    if acting_user_id is None or task.created_by_id != acting_user_id:
+        return "forbidden"
+    if reason := get_compute_quota_denial_reason(task):
+        return _canvas_fix_denial_outcome(reason)
+    run = task.latest_run
+    if run is not None and (not run.is_terminal or (run.state or {}).get("signals_takeover")):
+        try:
+            outcome, _ = deliver_task_run_user_message(
+                run.id, task.id, team_id, content=prompt, artifact_ids=[], actor_user_id=acting_user_id
+            )
+        except ComputeBillingLimitError as error:
+            return _canvas_fix_denial_outcome(error.reason)
+        if outcome == "queued":
+            return "signaled"
+        if outcome == "forked":
+            return "new_run"
+        if outcome == "takeover_pending":
+            return "takeover_pending"
+        run.refresh_from_db(fields=["state", "status"])
+        if (run.state or {}).get("signals_takeover"):
+            return "takeover_failed"
+        if run.status == TaskRun.Status.QUEUED and (run.state or {}).get("pending_user_message"):
+            return "already_queued"
 
     with transaction.atomic():
         # of=("self",): FOR UPDATE cannot span the nullable created_by join.
@@ -10492,22 +10682,9 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
             return "forbidden"
         if reason := get_compute_quota_denial_reason(task):
             return _canvas_fix_denial_outcome(reason)
-        run = task.latest_run
-        if run is not None and not run.is_terminal:
-            try:
-                if signal_task_run_user_message(
-                    run.id, task.id, team_id, content=prompt, artifact_ids=[], actor_user_id=acting_user_id
-                ):
-                    return "signaled"
-            except ComputeBillingLimitError as error:
-                return _canvas_fix_denial_outcome(error.reason)
-            if run.status == TaskRun.Status.QUEUED and (run.state or {}).get("pending_user_message"):
-                # A queued, prompt-seeded run whose workflow hasn't registered yet
-                # is a fix run a just-committed request dispatched (creation is
-                # serialized on this row lock). Another run would double-bill.
-                return "already_queued"
-            # The workflow is gone despite the non-terminal row (evicted or stale); fall
-            # through to a fresh run rather than reporting a dead end.
+        latest_run = task.latest_run
+        if latest_run is not None and (run is None or latest_run.id != run.id) and not latest_run.is_terminal:
+            return "already_queued"
         task_run = task.create_run(mode="background", extra_state={"pending_user_message": prompt})
         from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
             WorkflowDispatchOptions,

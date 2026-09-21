@@ -366,6 +366,7 @@ _PATCH_ID_EXCLUDE_WIZARD_FROM_BOOT_TOTAL = "tasks-exclude-wizard-from-boot-total
 # Multi-repo histories before this patch release the agent only after every clone completes.
 # Preserve that command order on replay while new runs can release it after the primary clone.
 _PATCH_ID_AGENT_READY_AFTER_PRIMARY_CLONE = "tasks-agent-ready-after-primary-clone"
+_PATCH_ID_PIPELINE_TAKEOVER_CHECKOUT = "tasks-pipeline-takeover-checkout"
 
 # Desktop preparation links a large workspace and writes compiled package outputs. Give
 # that non-idempotent work one attempt with a budget larger than its inner 10-minute cap.
@@ -2180,8 +2181,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
         state = self.context.state or {}
         is_resume = bool(state.get("resume_from_run_id") or is_same_run_resume_state(state))
+        # A restored resume snapshot already carries the working tree on its branch, and a handed-off
+        # run gets its tree from the git checkpoint the agent server applies. Every other resume
+        # just cloned (see `repositories_to_clone` above) and still needs the checkout — skipping
+        # it there left the run on the repository's default branch. Background runs never take
+        # resume snapshots, so a resume of one always lands here.
+        skip_checkout = is_resume
+        if workflow.patched(_PATCH_ID_PIPELINE_TAKEOVER_CHECKOUT):
+            skip_checkout = (used_snapshot and is_resume) or is_same_run_resume_state(state)
         checkout_ms: int | None = None
-        if will_checkout and checkout_repository not in failed_repositories and not is_resume:
+        if will_checkout and checkout_repository not in failed_repositories and not skip_checkout:
             assert checkout_repository is not None
             assert prepared.branch is not None
             prepares_repository_desktop = prepares_desktop(checkout_repository)

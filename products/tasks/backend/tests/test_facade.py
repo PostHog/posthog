@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
-from django.db import close_old_connections
+from django.db import close_old_connections, connection
 from django.test import TestCase, TransactionTestCase
 from django.utils import timezone as django_timezone
 
@@ -20,6 +20,7 @@ from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalTeamConfig
+from products.tasks.backend.exceptions import PipelineRunNotSteerable
 from products.tasks.backend.facade import (
     api as facade,
     contracts,
@@ -79,6 +80,73 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
             origin_product=Task.OriginProduct.USER_CREATED,
             created_by=self.owner,
         )
+
+    def test_concurrent_pipeline_takeovers_create_one_successor(self) -> None:
+        self.task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+        self.task.internal = True
+        self.task.save(update_fields=["origin_product", "internal"])
+        predecessor = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"ai_stage": "implementation"},
+        )
+        callers_ready = threading.Barrier(2)
+        outcomes: list[str] = []
+        errors: list[BaseException] = []
+
+        def refuse_in_place(*args: object, **kwargs: object) -> None:
+            callers_ready.wait(timeout=10)
+            raise PipelineRunNotSteerable("Pipeline run")
+
+        def create_successor(*args: object, **kwargs: object) -> MagicMock:
+            self.assertFalse(connection.in_atomic_block)
+            TaskRun.objects.create(
+                task=self.task,
+                team=self.team,
+                state={"signals_takeover_from_run_id": str(predecessor.id)},
+            )
+            return MagicMock(task=True, error=None, run_error=None)
+
+        def deliver() -> None:
+            close_old_connections()
+            try:
+                outcome, _ = facade.deliver_task_run_user_message(
+                    predecessor.id,
+                    self.task.id,
+                    self.team.id,
+                    content="Check the patch",
+                    artifact_ids=[],
+                    actor_user_id=self.owner.id,
+                    message_id="takeover-request",
+                )
+                outcomes.append(outcome)
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                close_old_connections()
+
+        with (
+            patch.object(facade, "signal_task_run_user_message", side_effect=refuse_in_place),
+            patch.object(facade, "run_task", side_effect=create_successor) as start,
+            patch(
+                "products.tasks.backend.facade.cancellation.cancel_task_run", return_value=("accepted", None)
+            ) as cancel,
+        ):
+            threads = [threading.Thread(target=deliver) for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=15)
+            self.assertFalse(any(thread.is_alive() for thread in threads))
+
+        self.assertEqual(errors, [])
+        self.assertEqual(len(outcomes), 2)
+        self.assertIn("forked", outcomes)
+        self.assertTrue(set(outcomes) <= {"forked", "takeover_pending"})
+        self.assertEqual(self.task.runs.count(), 2)
+        start.assert_called_once()
+        cancel.assert_called_once()
 
     def test_delayed_bootstrap_cannot_create_run_after_handoff(self) -> None:
         create_reached = threading.Event()
@@ -1230,6 +1298,41 @@ class TestFacadeReadsAndMappers(TestCase):
         assert result is not None and result.error is None
         new_run = task.runs.exclude(id=previous_run.id).get()
         self.assertNotIn("ai_stage", new_run.state)
+
+    @parameterized.expand(
+        [
+            # Run artifacts belong to the run they were uploaded against, so the successor can't
+            # carry them. Refusing beats dropping the attachment on the floor.
+            ("attachments", "Take a look at this", ["artifact-1"], "attachments_not_forkable"),
+            # A malformed empty message must not be reason enough to stop work in flight.
+            ("empty_message", "   ", [], "nothing_to_deliver"),
+        ]
+    )
+    def test_pipeline_run_is_left_running_when_its_takeover_cannot_be_forked(
+        self, _name, content, artifact_ids, expected_outcome
+    ):
+        task = self._make_task(origin_product=Task.OriginProduct.SIGNAL_REPORT, internal=True)
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"ai_stage": "implementation"},
+        )
+
+        with patch("products.tasks.backend.facade.cancellation.cancel_task_run") as mock_cancel:
+            outcome, successor = facade.deliver_task_run_user_message(
+                run.id,
+                task.id,
+                self.team.id,
+                content=content,
+                artifact_ids=artifact_ids,
+                actor_user_id=self.user.id,
+            )
+
+        self.assertEqual(outcome, expected_outcome)
+        self.assertIsNone(successor)
+        mock_cancel.assert_not_called()
+        self.assertFalse(task.runs.exclude(id=run.id).exists())
 
     @parameterized.expand(
         [

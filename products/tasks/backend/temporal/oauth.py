@@ -99,10 +99,29 @@ def is_interactive_signals_run(task: Task, state: dict[str, Any] | None) -> bool
     already trust a pipeline stage as proof a run is self-driving. An interactive stage, or
     none at all, keeps the interactive budget and its per-run ceiling as the fail-closed default.
     """
+    if task.origin_product in SIGNALS_ORIGIN_PRODUCTS and (state or {}).get("signals_takeover_from_run_id"):
+        return True
     if task.origin_product not in INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS:
         return False
     stage = (state or {}).get("ai_stage")
     return not stage or stage in INTERACTIVE_SIGNALS_AI_STAGES
+
+
+def is_pipeline_started_signals_run(task: Task, state: dict[str, Any] | None) -> bool:
+    """Whether the pipeline started this run, which makes it unsafe to steer in place.
+
+    Reads `ai_stage` the same way `is_interactive_signals_run` does, but across every signals
+    origin rather than only the hand-driven ones, because a scheduled scout has the same
+    problem: its sandbox holds a token minted for the pipeline's budget, and a person's
+    message spends against that budget instead of the interactive ceiling.
+
+    The token cannot be swapped for a live run — the agent server reads it once at boot and
+    never re-reads it — so the only way a person's turn lands on the right budget is a new run
+    with a new mint. Callers refuse the in-place follow-up and fork instead.
+    """
+    if task.origin_product not in SIGNALS_ORIGIN_PRODUCTS:
+        return False
+    return bool((state or {}).get("ai_stage")) and not is_interactive_signals_run(task, state)
 
 
 def _scopes_for_loop_fired_run(scopes: PosthogMcpScopes) -> list[str]:
