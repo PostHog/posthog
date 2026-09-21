@@ -137,7 +137,8 @@ ORDER BY day
 The recording window runs one day wider than the traffic window, so a session that starts late in a day still matches its recording.
 This read costs more, so keep it for the fallback.
 It sees only sessions the event stream knows about, so a recording with no events falls outside it — that is the price of a bounded ratio, and the ratio's _change_ is the signal either way.
-Its level answers a different question than the primary query's, with no ordering guaranteed in either direction — the two differ in both session population and day attribution — so baseline it under its own `pattern:` key and never compare one query's ratio against the other's.
+Its level answers a different question than the primary query's, because the two differ in both session population and day attribution.
+Neither ratio is reliably the higher of the two, so baseline this one under its own `pattern:` key and never compare one query's ratio against the other's.
 
 Friction side — where rage clicks concentrate, last day vs the prior two weeks. Group by host plus an **ID-normalized path**, never the raw URL: full `$current_url` values carry query strings, fragments, and entity IDs that shatter one hot surface into dozens of single-count rows:
 
