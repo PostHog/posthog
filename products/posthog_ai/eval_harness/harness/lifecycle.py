@@ -267,6 +267,7 @@ class SandboxedEvalHarness:
                     self._live_server.url,
                     skill_archive_url,
                     exec_skills_enabled=self.options.skill_delivery == "exec",
+                    enabled_flags=self.options.mcp_flags,
                 )
             )
 
@@ -391,6 +392,7 @@ class SandboxedEvalHarness:
             agent_model=self.options.agent_model,
             agent_runtime=self.options.agent_runtime,
             skill_delivery=self.options.skill_delivery,
+            mcp_flags=self.options.mcp_flags,
             reasoning_effort=self.options.reasoning_effort,
             case_filter=self.options.case_filter,
             demo_data=self._demo_data,

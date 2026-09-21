@@ -104,6 +104,7 @@ def start_mcp_server(
     skill_archive_url: str | None,
     *,
     exec_skills_enabled: bool,
+    enabled_flags: tuple[str, ...] = (),
 ) -> Callable[[], None]:
     """Start the MCP server as a subprocess for the eval session.
 
@@ -144,9 +145,14 @@ def start_mcp_server(
         # legacy notebooks-create / notebooks-retrieve pair, which the two surfaces
         # being mutually exclusive makes unavoidable — an eval of the legacy tools
         # needs its own lever, not this one. mcp-exec-skills follows the run's
-        # skill delivery mode.
+        # skill delivery mode. --mcp-flag adds the rest, so a run can compare a
+        # flag-gated tool against the same run without it.
         "FEATURE_FLAG_OVERRIDES": json.dumps(
-            {"revamped-py-notebooks": True, MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled}
+            {
+                "revamped-py-notebooks": True,
+                **dict.fromkeys(enabled_flags, True),
+                MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled,
+            }
         ),
     }
 
@@ -156,10 +162,11 @@ def start_mcp_server(
         env["POSTHOG_MCP_SKILLS_URL"] = skill_archive_url
 
     logger.info(
-        "Starting MCP server (Hono runtime) on port %d (API: %s, exec skills: %s)",
+        "Starting MCP server (Hono runtime) on port %d (API: %s, exec skills: %s, flags on: %s)",
         MCP_PORT,
         api_url,
         exec_skills_enabled,
+        list(enabled_flags),
     )
     _, stop = LONG_LIVED_SUBPROCESSES.start(
         name="MCP server",
