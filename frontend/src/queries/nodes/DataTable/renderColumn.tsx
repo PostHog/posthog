@@ -357,15 +357,20 @@ export function renderColumn(
 
         return <PersonDisplay {...displayProps} />
     } else if (key === 'person_display_name') {
-        // Hide the popover on people list only
-        const noPopover = isActorsQuery(query.source)
+        // The column coalesces the display-name properties down to the distinct ID, so a name of its own
+        // is the only evidence the row reached a person profile. An event captured without person
+        // processing carries a placeholder person ID that links to "Person not found", and a `properties`
+        // key is what makes PersonDisplay render that link. The popover stays on either way, because it
+        // looks the person up by distinct ID and so still finds a profile created after the event.
+        const nameCameFromProfile = value.display_name !== value.distinct_id
         const displayProps: PersonDisplayProps = {
             withIcon: true,
-            // `properties: {}` marks this row as an identified profile so PersonDisplay still renders the link;
-            // the server-side `person_display_name` column omits `properties` even though these rows are profiled.
-            person: { id: value.id, distinct_id: value.distinct_id, properties: {} },
+            person: nameCameFromProfile
+                ? { id: value.id, distinct_id: value.distinct_id, properties: {} }
+                : { id: value.id, distinct_id: value.distinct_id },
             displayName: value.display_name,
-            noPopover,
+            // Hide the popover on people list only
+            noPopover: isActorsQuery(query.source),
         }
         return <PersonDisplay {...displayProps} />
     } else if (key === 'group' && typeof value === 'object') {
