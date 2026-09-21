@@ -806,15 +806,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.aiObservabilityDashboard(),
                             tooltipDocLink: 'https://posthog.com/docs/ai-observability/dashboard',
                         },
-                        featureFlags[FEATURE_FLAGS.MCP_ANALYTICS]
-                            ? {
-                                  identifier: 'MCPAnalytics',
-                                  label: 'MCP analytics',
-                                  icon: <IconLlmAnalytics />,
-                                  to: urls.mcpAnalytics(),
-                                  tooltipDocLink: 'https://posthog.com/docs/mcp-analytics/installation',
-                              }
-                            : null,
+                        {
+                            identifier: 'MCPAnalytics',
+                            label: 'MCP analytics',
+                            icon: <IconLlmAnalytics />,
+                            to: urls.mcpAnalytics(),
+                            tooltipDocLink: 'https://posthog.com/docs/mcp-analytics/installation',
+                        },
                         {
                             identifier: Scene.Logs,
                             label: 'Logs',

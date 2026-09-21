@@ -19,7 +19,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 
-from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.mcp_analytics.backend.hogql_queries.tool_quality_tables import (
     MCPToolCategoriesQueryRunner,
     MCPToolCategoryCountsQueryRunner,
@@ -244,9 +244,9 @@ class TestMCPToolCategoryMapQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
 
 
 class TestMCPToolQualityGate(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
-    # The whole point of the migration: each kind gates on `mcp-analytics`, so the generic /query/
-    # endpoint can't reach it without the flag. Every other test here calls calculate() with the flag
-    # already on, so a runner that lost its validate_query_runner_access override would stay green.
+    # Each kind gates on the "mcp_analytics" RBAC resource, so the generic /query/ endpoint can't
+    # reach it without that permission. Every other test here calls calculate() as a user who has
+    # it, so a runner that lost its validate_query_runner_access override would stay green.
     @parameterized.expand(
         [
             (MCPToolQualityRowsQueryRunner, MCPToolQualityRowsQuery()),
@@ -256,11 +256,11 @@ class TestMCPToolQualityGate(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMix
             (MCPToolCategoryMapQueryRunner, MCPToolCategoryMapQuery()),
         ]
     )
-    def test_runner_gates_on_mcp_analytics_flag(self, runner_cls: Any, query: Any) -> None:
+    def test_runner_gates_on_mcp_analytics_access(self, runner_cls: Any, query: Any) -> None:
         runner = runner_cls(query=query, team=self.team, user=self.user)
 
         assert runner.validate_query_runner_access(self.user) is True
 
-        with patch("posthoganalytics.feature_enabled", return_value=False):
+        with patch.object(UserAccessControl, "check_access_level_for_resource", return_value=False):
             with self.assertRaises(UserAccessControlError):
                 runner.validate_query_runner_access(self.user)

@@ -9,7 +9,7 @@ from parameterized import parameterized
 
 from posthog.schema import DateRange, MCPMissingCapabilitiesItem, MCPMissingCapabilitiesQuery
 
-from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.mcp_analytics.backend.hogql_queries.missing_capabilities import MCPMissingCapabilitiesQueryRunner
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
@@ -121,8 +121,8 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
         assert '"email":"a@b.com"' in person_properties.replace(" ", "")
         assert "enterprise" not in person_properties
 
-    def test_blocks_access_when_flag_disabled(self) -> None:
+    def test_blocks_access_without_mcp_analytics_permission(self) -> None:
         runner = MCPMissingCapabilitiesQueryRunner(query=MCPMissingCapabilitiesQuery(), team=self.team, user=self.user)
-        with patch("posthoganalytics.feature_enabled", return_value=False):
+        with patch.object(UserAccessControl, "check_access_level_for_resource", return_value=False):
             with self.assertRaises(UserAccessControlError):
                 runner.validate_query_runner_access(self.user)
