@@ -10,6 +10,11 @@
             "description": "Filter to workflows created by the user with this uuid.",
             "type": "string"
         },
+        "exclude_kind": {
+            "description": "Drop workflows of this kind from the results, e.g. `broadcast` for a list that has its own surface.",
+            "enum": ["broadcast"],
+            "type": "string"
+        },
         "id": {
             "type": "string"
         },

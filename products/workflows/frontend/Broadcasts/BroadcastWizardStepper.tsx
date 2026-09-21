@@ -28,7 +28,6 @@ export function BroadcastWizardStepper({
     const currentStepHasErrors = (stepErrors[currentStep]?.length ?? 0) > 0
 
     const handleStepClick = (step: BroadcastWizardStep): void => {
-        // Block forward navigation while the current step has errors; going back is always fine.
         const targetOrder = BROADCAST_WIZARD_STEPS.indexOf(step)
         if (currentStepHasErrors && targetOrder > currentOrder) {
             return

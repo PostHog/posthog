@@ -4,10 +4,6 @@ import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal } from '@p
 
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 
-/**
- * Sends the broadcast to one address so the author can read it in a real inbox before the audience
- * does. The audience is untouched by this.
- */
 export function SendTestBroadcastModal(): JSX.Element {
     const {
         isModalOpen,

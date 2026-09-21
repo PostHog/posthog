@@ -1649,15 +1649,15 @@ export const productUrls = {
     heatmap: (id: string | number): string => `/heatmaps/${id}`,
     wizardRuns: (): string => '/wizard/runs',
     workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
-    broadcasts: (): string => '/workflows/broadcasts',
-    broadcastNew: (): string => '/workflows/broadcasts/new',
-    broadcast: (id: string): string => `/workflows/broadcasts/${id}`,
     workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
     workflowNew: (): string => '/workflows/new/workflow',
     workflowsLibraryMessage: (id: string): string => `/workflows/library/messages/${id}`,
     workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
     workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
     workflowsLibraryTemplateFromMessage: (id?: string): string => `/workflows/library/templates/new?messageId=${id}`,
+    broadcasts: (): string => '/workflows/broadcasts',
+    broadcast: (id: string): string => `/workflows/broadcasts/${id}`,
+    broadcastNew: (): string => '/workflows/broadcasts/new',
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -2073,6 +2073,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'broadcasts',
         iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
         sceneKey: 'Broadcast',
+        tags: ['beta'],
         sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcast'],
     },
     {
