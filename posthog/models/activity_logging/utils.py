@@ -48,11 +48,6 @@ def client_from_header(value: str) -> Optional[str]:
     return client
 
 
-def intent_from_header(value: str) -> Optional[str]:
-    """The intent to store for a self-reported header, or None when there is nothing to store."""
-    return value.strip()[:ACTIVITY_LOG_INTENT_MAX_LENGTH] or None
-
-
 def record_agent_intent(request: Any) -> None:
     """Store the reason an authenticated caller states for the writes it is about to make.
 
@@ -61,11 +56,9 @@ def record_agent_intent(request: Any) -> None:
     must not fail the request.
     """
     try:
-        # Only write when a request owns the cleanup, otherwise the thread-local leaks past the
-        # request and later activity carries a stale intent.
         if not activity_storage.is_request_scoped():
             return
-        intent = intent_from_header(request.headers.get(ACTIVITY_LOG_INTENT_HEADER, ""))
+        intent = request.headers.get(ACTIVITY_LOG_INTENT_HEADER, "").strip()[:ACTIVITY_LOG_INTENT_MAX_LENGTH]
         if intent:
             activity_storage.set_agent_intent(intent)
     except Exception:
