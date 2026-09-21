@@ -130,7 +130,9 @@ class SerializedExportProperties(CloningVisitor):
         )
 
         restrictions = context.restricted_properties or set()
-        self.event_restrictions, self.person_restrictions = split_restricted_property_names(restrictions)
+        restricted_names = split_restricted_property_names(restrictions)
+        self.event_restrictions = set(restricted_names.event)
+        self.person_restrictions = set(restricted_names.person)
         if restrictions and context.uses_new_events_schema():
             self.event_restrictions.add(UNPARSEABLE_PROPERTIES_KEY)
             self.person_restrictions.add(UNPARSEABLE_PROPERTIES_KEY)

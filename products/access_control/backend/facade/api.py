@@ -102,15 +102,20 @@ def get_restricted_properties_with_group_type_index_for_team(
     return _get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
 
 
-def split_restricted_property_names(restrictions: set[RestrictedProperty]) -> tuple[set[str], set[str]]:
+def split_restricted_property_names(restrictions: set[RestrictedProperty]) -> contracts.RestrictedPropertyNames:
     """Return restricted event and person property names."""
-    event_names = {
-        restriction.name for restriction in restrictions if restriction.property_type == PropertyDefinition.Type.EVENT
-    }
-    person_names = {
-        restriction.name for restriction in restrictions if restriction.property_type == PropertyDefinition.Type.PERSON
-    }
-    return event_names, person_names
+    return contracts.RestrictedPropertyNames(
+        event=frozenset(
+            restriction.name
+            for restriction in restrictions
+            if restriction.property_type == PropertyDefinition.Type.EVENT
+        ),
+        person=frozenset(
+            restriction.name
+            for restriction in restrictions
+            if restriction.property_type == PropertyDefinition.Type.PERSON
+        ),
+    )
 
 
 def get_property_access_state(
