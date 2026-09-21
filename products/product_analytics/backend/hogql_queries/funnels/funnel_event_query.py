@@ -47,6 +47,7 @@ from products.product_analytics.backend.hogql_queries.funnels.utils import (
     data_warehouse_config_key,
     entity_config_mismatch,
     get_breakdown_expr,
+    to_breakdown_string,
 )
 
 
@@ -437,6 +438,11 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         return ast.Or(exprs=step_conditions)
 
     def _get_breakdown_expr(self) -> ast.Expr:
+        """Build the per-event breakdown value.
+
+        Every branch except cohort must return string-typed values, because the step query
+        replaces values past the breakdown limit with the string `Other`.
+        """
         breakdown, breakdownType, breakdownFilter = (
             self.context.breakdown,
             self.context.breakdownType,
@@ -478,14 +484,16 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             return get_breakdown_expr(breakdown, "session")
         elif breakdownType == "element":
             assert isinstance(breakdown, list)
-            return ast.Array(exprs=[element_property_key_to_breakdown_expr(str(value)) for value in breakdown])
+            return ast.Array(
+                exprs=[to_breakdown_string(element_property_key_to_breakdown_expr(str(value))) for value in breakdown]
+            )
         elif breakdownType == "hogql" or breakdownType == "event_metadata":
             assert isinstance(breakdown, list)
-            exprs = [strip_user_aliases(parse_expr(str(value))) for value in breakdown]
+            exprs = [to_breakdown_string(strip_user_aliases(parse_expr(str(value)))) for value in breakdown]
             return ast.Alias(alias="value", expr=ast.Array(exprs=exprs))
         elif breakdownType == "data_warehouse_person_property":
             assert isinstance(breakdown, str)
-            return ast.Field(chain=["person", *breakdown.split(".")])
+            return to_breakdown_string(ast.Field(chain=["person", *breakdown.split(".")]))
         elif breakdownType == "data_warehouse":
             return get_breakdown_expr(breakdown, None)
         else:
