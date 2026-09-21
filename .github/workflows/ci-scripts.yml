@@ -35,7 +35,7 @@ permissions:
 jobs:
     script-tests:
         name: .github/scripts unit tests
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         steps:
             # The tests take seconds, so a full checkout of the monorepo dominated

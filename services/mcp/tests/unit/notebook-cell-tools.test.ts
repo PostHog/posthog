@@ -313,18 +313,18 @@ describe('notebook cell tools', () => {
             cell_type: 'markdown',
             markdown: 'Some **notes**.',
         })
-        await addCellHandler(context, {
+        const second = await addCellHandler(context, {
             notebook_id: 'aBcD1234',
             cell_type: 'markdown',
             markdown: 'More notes.',
         })
 
-        expect(result).toEqual({})
         expect(state.runBodies).toHaveLength(0)
         // Each cell is a node of its own: one blank line would fold consecutive prose cells
-        // into a single card in the editor, two keeps them separate.
+        // into a single card in the editor, two keeps them separate. The anchor above each one
+        // gives the block an id that survives a later edit to its text.
         expect(state.saveBodies[1].content.content[0].attrs.markdown).toBe(
-            '# Doc\n\n\nSome **notes**.\n\n\nMore notes.\n'
+            `# Doc\n\n\n<!--ph:${result.node_id}-->\nSome **notes**.\n\n\n<!--ph:${second.node_id}-->\nMore notes.\n`
         )
     })
 
@@ -665,6 +665,177 @@ describe('notebook cell tools', () => {
             ],
         })
     })
+    describe('markdown block anchors', () => {
+        const DOC = '# Doc\n\n\nFirst paragraph.\n\n\nSecond paragraph.\n'
+        // Span of "First paragraph." in DOC, as the backend's block walk reports it.
+        const FIRST = { node_id: 'mdp-abc-0', cell_type: 'markdown', code: 'First paragraph.', start: 8, end: 24 }
+
+        it('places a cell directly after the addressed paragraph', async () => {
+            const state = makeState(DOC)
+            state.stateCells = [FIRST]
+            state.runStatusResponses.push(DONE_STATUS)
+            const context = createMockContext(state)
+
+            const result = await addCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                cell_type: 'sql',
+                code: 'select 1',
+                after_node_id: FIRST.node_id,
+            })
+
+            const inserted = state.saveBodies[0].content.content[0].attrs.markdown
+            expect(inserted.indexOf('<SQLV2 ')).toBeGreaterThan(inserted.indexOf('First paragraph.'))
+            expect(inserted.indexOf('<SQLV2 ')).toBeLessThan(inserted.indexOf('Second paragraph.'))
+            expect(inserted).toContain(`nodeId="${result.node_id}"`)
+        })
+
+        it.each([
+            { label: 'LF', doc: DOC },
+            { label: 'CRLF', doc: DOC.replaceAll('\n', '\r\n') },
+        ])('re-locates the paragraph by its text in a $label document', async ({ doc }) => {
+            const state = makeState(doc)
+            // An edit above the anchor shifts every later span, so the offsets the caller read
+            // point into the wrong place while the block itself is untouched.
+            state.stateCells = [{ ...FIRST, start: FIRST.start + 12, end: FIRST.end + 12 }]
+            const context = createMockContext(state)
+
+            const result = await addCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                cell_type: 'markdown',
+                markdown: 'Inserted note.',
+                after_node_id: FIRST.node_id,
+            })
+
+            const inserted = state.saveBodies[0].content.content[0].attrs.markdown
+            const [before, after] = doc.split(/(?<=First paragraph\.)[\r\n]+/)
+            expect(inserted).toBe(`${before}\n\n\n<!--ph:${result.node_id}-->\nInserted note.\n\n\n${after}`)
+        })
+
+        it.each([
+            {
+                label: 'an id that names no block',
+                cells: [],
+                params: { after_node_id: 'mdp-missing-0' },
+                expected: /No block with node_id mdp-missing-0/,
+            },
+            {
+                label: 'an id that names two blocks that read the same',
+                cells: [FIRST, { ...FIRST, start: 27, end: 43 }],
+                params: { after_node_id: FIRST.node_id },
+                expected: /names 2 blocks/,
+            },
+        ])('refuses $label and writes nothing', async ({ cells, params, expected }) => {
+            const state = makeState(DOC)
+            state.stateCells = cells
+            const context = createMockContext(state)
+
+            await expect(
+                addCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    cell_type: 'markdown',
+                    markdown: 'Inserted note.',
+                    ...params,
+                })
+            ).rejects.toThrow(expected)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+
+        const FENCE = '```python\nx = 1\n\ny = 2\n```'
+
+        // Every row carries offsets from before an edit above the block, so the lookup cannot take
+        // them and must find the block by its stored id.
+        it.each([
+            {
+                label: 'identical prose sits nearby',
+                doc: '<!--ph:phb-one-->\nShared text.\n\n\nShared text.\n',
+                cell: { node_id: 'phb-one', cell_type: 'markdown', code: 'Shared text.', start: 32, end: 44 },
+                expected: (id: string) =>
+                    `<!--ph:phb-one-->\nShared text.\n\n\n<!--ph:${id}-->\nInserted note.\n\n\nShared text.\n`,
+            },
+            {
+                label: 'the document uses CRLF',
+                doc: '<!--ph:phb-one-->\r\nShared text.\r\n\r\n\r\nTail.\r\n',
+                cell: { node_id: 'phb-one', cell_type: 'markdown', code: 'Shared text.', start: 2, end: 14 },
+                expected: (id: string) =>
+                    `<!--ph:phb-one-->\r\nShared text.\n\n\n<!--ph:${id}-->\nInserted note.\n\n\nTail.\r\n`,
+            },
+            {
+                label: 'the block is a fence that holds a blank line',
+                doc: `<!--ph:phb-one-->\n${FENCE}\n\n\nTail.\n`,
+                cell: { node_id: 'phb-one', cell_type: 'markdown', code: FENCE, start: 2, end: 2 + FENCE.length },
+                expected: (id: string) =>
+                    `<!--ph:phb-one-->\n${FENCE}\n\n\n<!--ph:${id}-->\nInserted note.\n\n\nTail.\n`,
+            },
+        ])('places a cell after a stored id when $label', async ({ doc, cell, expected }) => {
+            const state = makeState(doc)
+            state.stateCells = [cell]
+            const context = createMockContext(state)
+
+            const result = await addCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                cell_type: 'markdown',
+                markdown: 'Inserted note.',
+                after_node_id: 'phb-one',
+            })
+
+            expect(state.saveBodies[0].content.content[0].attrs.markdown).toBe(expected(result.node_id!))
+        })
+
+        it.each([
+            {
+                label: 'a derived id',
+                doc: '# Doc\n\n\nUpdated First paragraph. Now longer.\n',
+                cell: FIRST,
+                expected: /no longer a block of its own/,
+            },
+            {
+                // The text grew on the same line after the state read, so the old span still
+                // slices back to the source. Only the notebook version shows that it is stale.
+                label: 'a derived id at the same offsets',
+                doc: '# Doc\n\n\nFirst paragraph. Now longer.\n',
+                cell: FIRST,
+                expected: /no longer a block of its own/,
+            },
+            {
+                label: 'a stored id',
+                doc: '# Doc\n\n\n<!--ph:phb-one-->\nFirst paragraph. Now longer.\n',
+                cell: { ...FIRST, node_id: 'phb-one' },
+                expected: /changed since it was read/,
+            },
+        ])('refuses $label whose block outgrew the text that was read', async ({ doc, cell, expected }) => {
+            const state = makeState(doc)
+            state.stateCells = [cell]
+            state.stateVersion = state.version - 1
+            const context = createMockContext(state)
+
+            await expect(
+                addCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    cell_type: 'markdown',
+                    markdown: 'Inserted note.',
+                    after_node_id: cell.node_id,
+                })
+            ).rejects.toThrow(expected)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+
+        it('refuses a paragraph that vanished between the read and the write', async () => {
+            const state = makeState('# Doc\n\n\nSecond paragraph.\n')
+            state.stateCells = [FIRST]
+            const context = createMockContext(state)
+
+            await expect(
+                addCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    cell_type: 'markdown',
+                    markdown: 'Inserted note.',
+                    after_node_id: FIRST.node_id,
+                })
+            ).rejects.toThrow(/no longer a block of its own/)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+    })
+
     describe('markdown cells', () => {
         const DOC = ['# Title', '', 'First paragraph.', '', 'Second paragraph.'].join('\n')
         // Spans of "First paragraph." in DOC, as the backend reports them.
@@ -759,6 +930,22 @@ describe('notebook cell tools', () => {
                 })
             ).rejects.toThrow(/leave a code fence open/)
             expect(state.saveBodies).toHaveLength(0)
+        })
+
+        // The prefix only hints at the cell type. A tag holding an id that reads like a markdown
+        // block id still owns that id, so a code update must reach the tag.
+        it('updates a cell tag whose own nodeId reads like a markdown block id', async () => {
+            const state = makeState('<SQLV2 nodeId="phb-tagged" code="select 1" returnVariable="df" />')
+            state.runStatusResponses.push(DONE_STATUS)
+            const context = createMockContext(state)
+
+            await updateCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                node_id: 'phb-tagged',
+                code: 'select 2',
+            })
+
+            expect(state.saveBodies[0].content.content[0].attrs.markdown).toContain('code="select 2"')
         })
 
         it('refuses a node_id that names more than one block', async () => {

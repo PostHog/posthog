@@ -10,17 +10,18 @@ from django.test import SimpleTestCase
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
+from jwt.algorithms import RSAAlgorithm
 from parameterized import parameterized
 
-from posthog.ingress.verify.jwt import _JWKS_CLIENTS, BearerJwt, _jwks_client
-from posthog.ingress.verify.schemes import HmacSha256, SnsSignature, Verification, VerificationOutcome
+from posthog.ingress.verify.jwt import _JWKS_CLIENTS, SIGNING_KEY_FACT, BearerJwt, _jwks_client
+from posthog.ingress.verify.schemes import HmacSha256, HmacSignature, SnsSignature, Verification, VerificationOutcome
 
 SECRET = "s3cret"
 BODY = b'{"action":"opened"}'
 
 
-def _digest(body: bytes = BODY, secret: str = SECRET) -> bytes:
-    return hmac.digest(secret.encode(), body, "sha256")
+def _digest(body: bytes = BODY, secret: str = SECRET, digest: str = "sha256") -> bytes:
+    return hmac.digest(secret.encode(), body, digest)
 
 
 class TestHmacSha256(SimpleTestCase):
@@ -71,6 +72,39 @@ class TestHmacSha256(SimpleTestCase):
     ) -> None:
         scheme = HmacSha256(secret_getter=lambda: SECRET, signature_header="X-Signature", prefix="sha256=")
         self.assertEqual(scheme.verify(body=BODY, headers=headers).outcome, expected)
+
+    @parameterized.expand(
+        [
+            ("missing_header", {}, True),
+            ("empty_header", {"X-Signature": ""}, True),
+            ("malformed_header", {"X-Signature": "not-a-digest"}, True),
+            ("missing_timestamp", {"X-Signature": "0" * 64}, True),
+            ("malformed_timestamp", {"X-Signature": "0" * 64, "X-Timestamp": "yesterday"}, True),
+            ("stale_timestamp", {"X-Signature": "0" * 64, "X-Timestamp": "1700000000"}, True),
+            ("well_formed", {"X-Signature": "0" * 64, "X-Timestamp": "now"}, False),
+            ("missing_header_but_no_secret", {}, False),
+        ]
+    )
+    def test_headers_alone_decide_whether_the_body_is_worth_reading(
+        self, _name: str, headers: dict[str, str], expected: bool
+    ) -> None:
+        # An unconfigured endpoint keeps its NOT_CONFIGURED answer, so the operator signal survives.
+        secret = "" if _name == "missing_header_but_no_secret" else SECRET
+        headers = {k: str(int(time.time())) if v == "now" else v for k, v in headers.items()}
+        scheme = HmacSha256(
+            secret_getter=lambda: secret,
+            signature_header="X-Signature",
+            signature_pattern=re.compile(r"^[0-9a-f]{64}$"),
+            signed_input="v0_timestamp_body",
+            timestamp_header="X-Timestamp",
+        )
+        self.assertEqual(scheme.rejects_headers(headers), expected)
+        # Every refusal here is the same verdict the full check would reach on those headers.
+        if expected:
+            self.assertEqual(
+                scheme.verify(body=BODY, headers=headers).outcome,
+                VerificationOutcome.INVALID,
+            )
 
     def test_missing_secret_is_not_configured_rather_than_invalid(self) -> None:
         scheme = HmacSha256(secret_getter=lambda: None, signature_header="X-Signature")
@@ -141,6 +175,56 @@ class TestHmacSha256(SimpleTestCase):
         with patch("hmac.compare_digest", wraps=hmac.compare_digest) as compare:
             scheme.verify(body=BODY, headers={"X-Signature": _digest().hex()})
         compare.assert_called_once()
+
+    @parameterized.expand([("sha256", "sha256", "sha1"), ("sha1", "sha1", "sha256")])
+    def test_the_declared_digest_is_the_one_that_verifies(self, _name: str, declared: str, other: str) -> None:
+        scheme = HmacSignature(
+            secret_getter=lambda: SECRET,
+            signature_header="X-Signature",
+            digest=declared,  # type: ignore[arg-type]
+        )
+
+        self.assertEqual(
+            scheme.verify(body=BODY, headers={"X-Signature": _digest(digest=declared).hex()}).outcome,
+            VerificationOutcome.VERIFIED,
+        )
+        self.assertEqual(
+            scheme.verify(body=BODY, headers={"X-Signature": _digest(digest=other).hex()}).outcome,
+            VerificationOutcome.INVALID,
+        )
+
+    def test_the_sha256_name_cannot_be_handed_another_digest(self) -> None:
+        named = HmacSha256(secret_getter=lambda: SECRET, signature_header="X-Signature")
+        explicit = HmacSignature(secret_getter=lambda: SECRET, signature_header="X-Signature", digest="sha256")
+
+        self.assertEqual(named.digest, explicit.digest)
+        # A name that promises SHA-256 and hashes something else is the trap this closes.
+        with self.assertRaises(TypeError):
+            HmacSha256(secret_getter=lambda: SECRET, signature_header="X-Signature", digest="sha1")
+
+    @parameterized.expand(
+        [
+            ("missing_header", {}, True),
+            ("empty_header", {"X-Signature": ""}, True),
+            ("malformed_header", {"X-Signature": "not-a-digest"}, True),
+            ("well_formed", {"X-Signature": "0" * 40}, False),
+        ]
+    )
+    def test_headers_alone_decide_the_same_way_for_every_digest(
+        self, _name: str, headers: dict[str, str], expected: bool
+    ) -> None:
+        # A header gate that read the digest would let an unsigned probe make a SHA-1 endpoint
+        # read a body of up to the request limit, which the SHA-256 one refuses.
+        pattern = re.compile(r"^[0-9a-f]{40}$")
+        for digest in ("sha256", "sha1"):
+            with self.subTest(digest=digest):
+                scheme = HmacSignature(
+                    secret_getter=lambda: SECRET,
+                    signature_header="X-Signature",
+                    signature_pattern=pattern,
+                    digest=digest,
+                )
+                self.assertEqual(scheme.rejects_headers(headers), expected)
 
 
 class TestSnsSignature(SimpleTestCase):
@@ -243,6 +327,8 @@ class TestBearerJwt(SimpleTestCase):
         headers = {} if template is None else {"Authorization": template.format(token=self._token())}
 
         self.assertEqual(self._verify(self._scheme(), headers).outcome, VerificationOutcome.INVALID)
+        # The same verdict from the headers alone, so the body is never read for it.
+        self.assertTrue(self._scheme().rejects_headers(headers))
 
     @parameterized.expand(
         [
@@ -259,6 +345,23 @@ class TestBearerJwt(SimpleTestCase):
 
         headers = {"Authorization": "Bearer " + token}
         self.assertEqual(self._verify(self._scheme(), headers).outcome, VerificationOutcome.INVALID)
+
+    def test_the_key_that_signed_the_token_reaches_deliveries_with_what_the_jwks_published(self) -> None:
+        # A real PyJWKClient over a real JWKS document, so a PyJWT release that stops carrying the
+        # members an incarnation reads fails here rather than at a webhook endpoint.
+        published = {
+            **RSAAlgorithm.to_jwk(self.private_key.public_key(), as_dict=True),
+            "kid": KEY_ID,
+            "endorsements": ["msteams"],
+        }
+        headers = {"Authorization": "Bearer " + self._token()}
+
+        with patch.object(jwt.PyJWKClient, "fetch_data", return_value={"keys": [published]}):
+            verification = self._scheme().verify(body=BODY, headers=headers)
+
+        self.assertEqual(verification.outcome, VerificationOutcome.VERIFIED)
+        self.assertEqual(verification.facts[SIGNING_KEY_FACT]["endorsements"], ["msteams"])
+        self.assertEqual(verification.facts[SIGNING_KEY_FACT]["kid"], KEY_ID)
 
     def test_rejects_a_tampered_signature(self) -> None:
         header, payload, signature = self._token().split(".")

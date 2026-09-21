@@ -93,6 +93,50 @@ func TestValidateUnknownTableSuggestsVisibleMatch(t *testing.T) {
 	}
 }
 
+func TestValidateRelationNamesAreCaseSensitive(t *testing.T) {
+	result := Validate(schema(), "SELECT properties FROM Events")
+	if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "unknown_table" || result.Diagnostics[0].Start != len("SELECT properties FROM ") {
+		t.Fatalf("wrong-case table result = %#v", result)
+	}
+
+	caseVariants := catalog.Prepare(&catalog.Catalog{Tables: map[string]catalog.Table{
+		"events": {Name: "events", Fields: map[string]catalog.Field{
+			"properties": {Name: "properties", Type: "json"},
+		}},
+		"Events": {Name: "Events", Fields: map[string]catalog.Field{
+			"custom_field": {Name: "custom_field", Type: "string"},
+		}},
+		"persons": {Name: "persons", Fields: map[string]catalog.Field{
+			"properties": {Name: "properties", Type: "json"},
+		}},
+	}, Properties: map[string][]catalog.Property{
+		"event":  {{Name: "$geo_city", ValueType: "String"}},
+		"person": {{Name: "$geo_country", ValueType: "String"}},
+	}})
+
+	result = Validate(caseVariants, "SELECT events.properties, Events.custom_field FROM events JOIN Events ON 1 = 1")
+	if !result.Valid || len(result.Diagnostics) != 0 || strings.Join(result.TableNames, ",") != "events,Events" {
+		t.Fatalf("case-variant table result = %#v", result)
+	}
+
+	for _, test := range []struct{ query, suggestion string }{
+		{"SELECT e.properties.$geo_cty FROM events AS e JOIN persons AS E ON 1 = 1", "$geo_city"},
+		{"SELECT E.properties.$geo_contry FROM events AS e JOIN persons AS E ON 1 = 1", "$geo_country"},
+		{"WITH t AS (SELECT properties FROM events), T AS (SELECT properties FROM persons) SELECT t.properties.$geo_cty FROM t JOIN T ON 1 = 1", "$geo_city"},
+		{"WITH t AS (SELECT properties FROM events), T AS (SELECT properties FROM persons) SELECT T.properties.$geo_contry FROM t JOIN T ON 1 = 1", "$geo_country"},
+	} {
+		checked := Validate(caseVariants, test.query)
+		if checked.Valid || len(checked.Diagnostics) != 1 || checked.Diagnostics[0].Code != "unknown_property" || len(checked.Diagnostics[0].Suggestions) == 0 || checked.Diagnostics[0].Suggestions[0].Label != test.suggestion {
+			t.Fatalf("query %q returned %#v", test.query, checked)
+		}
+	}
+
+	result = Validate(caseVariants, "WITH t AS (SELECT properties FROM events) SELECT properties FROM T")
+	if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "unknown_table" || result.Diagnostics[0].Start != len("WITH t AS (SELECT properties FROM events) SELECT properties FROM ") {
+		t.Fatalf("wrong-case CTE result = %#v", result)
+	}
+}
+
 func TestValidateUnknownAliasedFieldSuggestsVisibleMatch(t *testing.T) {
 	for _, test := range []struct{ query, suggestion string }{
 		{"SELECT o.amuont FROM warehouse_orders AS o", "amount"},
@@ -125,6 +169,9 @@ func TestValidateAcceptsKnownFieldsAndFunctions(t *testing.T) {
 		{query: "SELECT event AS kind FROM events WHERE uuid IN (SELECT uuid AS kind FROM events WHERE kind != '') ORDER BY kind", tableName: "events"},
 		{query: "SELECT s.subtotal FROM (SELECT amount AS total, total AS subtotal FROM warehouse_orders) AS s", tableName: "warehouse_orders"},
 		{query: "SELECT amount AS amount FROM warehouse_orders ORDER BY amount", tableName: "warehouse_orders"},
+		{query: "SELECT TRUE, false FROM events WHERE TRUE AND false = FALSE", tableName: "events"},
+		{query: "SELECT CASE WHEN TRUE THEN false ELSE FALSE END AS enabled FROM events", tableName: "events"},
+		{query: "WITH flags AS (SELECT TRUE AS enabled FROM events) SELECT enabled FROM flags WHERE enabled = FALSE", tableName: "events"},
 	} {
 		result := Validate(schema(), test.query)
 		if !result.Valid || len(result.Diagnostics) != 0 {
@@ -140,6 +187,160 @@ func TestValidateAcceptsHogQLQualifiedTable(t *testing.T) {
 	result := Validate(schema(), "SELECT o.synced_id FROM postgres.synced.orders AS o")
 	if !result.Valid || len(result.Diagnostics) != 0 {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestValidatePreservesCollidingNormalizedTableReferences(t *testing.T) {
+	fieldTable := func(name, field string) catalog.Table {
+		return catalog.Table{Name: name, Type: "data_warehouse", Fields: map[string]catalog.Field{field: {Name: field, Type: "string"}}}
+	}
+	for _, test := range []struct {
+		name       string
+		catalog    *catalog.Catalog
+		query      string
+		tableNames string
+	}{
+		{
+			name: "distinct canonical tables across statements and Unicode bytes",
+			catalog: &catalog.Catalog{Tables: map[string]catalog.Table{
+				"a.b.c_d": fieldTable("a.b.c_d", "left_field"),
+				"a.b_c.d": fieldTable("a.b_c.d", "right_field"),
+			}},
+			query:      "SELECT 'café'; SELECT l.left_field, r.right_field FROM a.b.c_d AS l JOIN a.b_c.d AS r ON 1 = 1",
+			tableNames: "a.b.c_d,a.b_c.d",
+		},
+		{
+			name: "alias and canonical table",
+			catalog: &catalog.Catalog{
+				Tables: map[string]catalog.Table{
+					"left_target": fieldTable("left_target", "left_field"),
+					"a.b_c.d":     fieldTable("a.b_c.d", "right_field"),
+				},
+				TableAliases: map[string]string{"a.b.c_d": "left_target"},
+			},
+			query:      "SELECT l.left_field, r.right_field FROM a.b.c_d AS l JOIN a.b_c.d AS r ON 1 = 1",
+			tableNames: "a.b.c_d,a.b_c.d",
+		},
+		{
+			name: "same target aliases keep implicit qualifiers",
+			catalog: &catalog.Catalog{
+				Tables: map[string]catalog.Table{"target": fieldTable("target", "shared_field")},
+				TableAliases: map[string]string{
+					"a.b.c_d": "target",
+					"a.b_c.d": "target",
+				},
+			},
+			query:      "SELECT a__b__c_d.shared_field, a__b_c__d.shared_field FROM a.b.c_d JOIN a.b_c.d ON 1 = 1",
+			tableNames: "a.b.c_d,a.b_c.d",
+		},
+		{
+			name: "normalized and unchanged names",
+			catalog: &catalog.Catalog{Tables: map[string]catalog.Table{
+				"a.b.c_d": fieldTable("a.b.c_d", "left_field"),
+				"a.b_c_d": fieldTable("a.b_c_d", "right_field"),
+			}},
+			query:      "SELECT l.left_field, r.right_field FROM a.b.c_d AS l JOIN a.b_c_d AS r ON 1 = 1",
+			tableNames: "a.b.c_d,a.b_c_d",
+		},
+		{
+			name: "quoted normalized spelling CTE does not shadow",
+			catalog: &catalog.Catalog{Tables: map[string]catalog.Table{
+				"a.b.c_d": fieldTable("a.b.c_d", "left_field"),
+			}},
+			query:      "WITH `a.b_c_d` AS (SELECT 1 AS cte_field) SELECT a__b__c_d.left_field FROM a.b.c_d",
+			tableNames: "a.b.c_d",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			test.catalog.Properties = map[string][]catalog.Property{}
+			result := Validate(catalog.Prepare(test.catalog), test.query)
+			if !result.Valid || strings.Join(result.TableNames, ",") != test.tableNames {
+				t.Fatalf("result = %#v", result)
+			}
+		})
+	}
+}
+
+func TestValidateCatalogTableAliasesPreserveQuerySpellingAndOccurrences(t *testing.T) {
+	value := &catalog.Catalog{
+		Tables: map[string]catalog.Table{
+			"postgres.demo.orders": {Type: "data_warehouse", Fields: map[string]catalog.Field{"id": {Type: "integer"}}},
+			"events":               {Type: "posthog", Fields: map[string]catalog.Field{"uuid": {Type: "uuid"}}},
+		},
+		TableAliases: map[string]string{"demo_postgres_orders": "postgres.demo.orders"},
+		Properties:   map[string][]catalog.Property{},
+	}
+	prepared := catalog.Prepare(value)
+
+	for _, query := range []string{
+		"SELECT id FROM demo_postgres_orders",
+		"SELECT a.id, b.id FROM demo_postgres_orders AS a JOIN postgres.demo.orders AS b ON a.id = b.id",
+	} {
+		result := Validate(prepared, query)
+		if !result.Valid {
+			t.Fatalf("query %q returned %#v", query, result)
+		}
+	}
+	result := Validate(prepared, "SELECT a.id, b.id FROM demo_postgres_orders AS a JOIN postgres.demo.orders AS b ON a.id = b.id")
+	if strings.Join(result.TableNames, ",") != "demo_postgres_orders,postgres.demo.orders" {
+		t.Fatalf("table names = %#v", result.TableNames)
+	}
+
+	cte := Validate(prepared, "WITH demo_postgres_orders AS (SELECT uuid FROM events) SELECT c.uuid, o.id FROM demo_postgres_orders AS c JOIN postgres.demo.orders AS o ON 1 = 1")
+	if !cte.Valid || strings.Join(cte.TableNames, ",") != "events,postgres.demo.orders" {
+		t.Fatalf("CTE shadow result = %#v", cte)
+	}
+}
+
+func TestUnknownTableSuggestionsDeduplicateAliasTargets(t *testing.T) {
+	prepared := catalog.Prepare(&catalog.Catalog{
+		Tables: map[string]catalog.Table{
+			"postgres.demo.orders": {Fields: map[string]catalog.Field{}},
+		},
+		TableAliases: map[string]string{
+			"demo_postgres_orders":   "postgres.demo.orders",
+			"legacy_postgres_orders": "postgres.demo.orders",
+		},
+		Properties: map[string][]catalog.Property{},
+	})
+	result := Validate(prepared, "SELECT * FROM demo_postgres_order")
+	if result.Valid || len(result.Diagnostics) != 1 || len(result.Diagnostics[0].Suggestions) != 1 || result.Diagnostics[0].Suggestions[0].Label != "demo_postgres_orders" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestValidateDuplicateTableNames(t *testing.T) {
+	for _, test := range []struct {
+		name, query, qualifier string
+		valid                  bool
+	}{
+		{name: "unaliased", query: "SELECT events.properties FROM events JOIN events ON 1 = 1", qualifier: "events"},
+		{name: "duplicate alias", query: "SELECT e.properties FROM events AS e JOIN persons AS e ON 1 = 1", qualifier: "e"},
+		{name: "derived property", query: "WITH t AS (SELECT events.properties FROM events JOIN events ON 1 = 1) SELECT t.properties.$geo_cty FROM t", qualifier: "events"},
+		{name: "distinct aliases", query: "SELECT e.properties FROM events AS e JOIN events AS other ON 1 = 1", valid: true},
+		{name: "case-sensitive aliases", query: "SELECT e.properties FROM events AS e JOIN events AS E ON 1 = 1", valid: true},
+		{name: "nested reuse", query: "SELECT e.properties FROM events AS e WHERE uuid IN (SELECT properties FROM persons AS e)", valid: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := Validate(schema(), test.query)
+			if test.valid {
+				if !result.Valid || len(result.Diagnostics) != 0 {
+					t.Fatalf("result = %#v", result)
+				}
+				return
+			}
+			if result.Valid || len(result.Diagnostics) != 1 {
+				t.Fatalf("result = %#v", result)
+			}
+			diagnostic := result.Diagnostics[0]
+			if diagnostic.Code != "duplicate_table" || diagnostic.Message != fmt.Sprintf("Table name %q is used more than once. Use a distinct alias for each table.", test.qualifier) {
+				t.Fatalf("diagnostic = %#v", diagnostic)
+			}
+			secondJoin := strings.Index(test.query, " JOIN ") + len(" JOIN ")
+			if diagnostic.Start != secondJoin || diagnostic.End <= diagnostic.Start {
+				t.Fatalf("diagnostic span = %d:%d, want start %d", diagnostic.Start, diagnostic.End, secondJoin)
+			}
+		})
 	}
 }
 
@@ -235,6 +436,8 @@ func TestValidateRejectsUnknownFields(t *testing.T) {
 		"WITH t AS (SELECT total FROM warehouse_orders) SELECT amount AS total FROM warehouse_orders",
 		"SELECT event AS kind FROM events ORDER BY events.kind",
 		"SELECT amount AS Total FROM warehouse_orders ORDER BY total",
+		`SELECT "TRUE" FROM events`,
+		"SELECT events.FALSE FROM events",
 	} {
 		result := Validate(schema(), query)
 		if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "unknown_field" {
@@ -305,9 +508,24 @@ func TestValidatePropertiesAcrossGenericNamespaces(t *testing.T) {
 		{query: "WITH t AS (SELECT 1 AS x) SELECT properties.$geo_cty FROM events JOIN t ON 1 = 1", suggestion: "$geo_city"},
 		{query: "SELECT properties.$geo_cty FROM events JOIN (SELECT 1 AS x) AS t ON 1 = 1", suggestion: "$geo_city"},
 		{query: "WITH t AS (SELECT properties AS attrs FROM events) SELECT properties.$geo_cty FROM events JOIN t ON 1 = 1", suggestion: "$geo_city"},
+		{query: "WITH recent AS (SELECT properties FROM events) SELECT recent.properties.$geo_cty FROM recent", suggestion: "$geo_city"},
+		{query: "WITH recent AS (SELECT properties FROM events) SELECT properties.$geo_cty FROM recent", suggestion: "$geo_city"},
+		{query: "SELECT recent.properties.$geo_cty FROM (SELECT properties FROM events) AS recent", suggestion: "$geo_city"},
+		{query: "WITH recent AS (SELECT properties AS props FROM events) SELECT recent.props.$geo_cty FROM recent", suggestion: "$geo_city"},
+		{query: "WITH recent AS (SELECT properties AS props FROM events) SELECT props.$geo_cty FROM recent", suggestion: "$geo_city"},
+		{query: "WITH a AS (SELECT properties FROM persons), events AS (SELECT * FROM a) SELECT events.properties.$geo_contry FROM events", suggestion: "$geo_country"},
+		{query: "SELECT properties AS props, props AS attrs, attrs.$geo_cty FROM events", suggestion: "$geo_city"},
+		{query: "SELECT properties AS props, uuid AS props, props.$geo_cty FROM events", suggestion: ""},
+		{query: "SELECT properties FROM events EXCEPT SELECT properties.$geo_contry FROM persons", suggestion: "$geo_country"},
 	}
 	for _, test := range tests {
 		result := Validate(schema(), test.query)
+		if test.suggestion == "" {
+			if !result.Valid || len(result.Diagnostics) != 0 {
+				t.Fatalf("query %q returned %#v", test.query, result)
+			}
+			continue
+		}
 		if result.Valid || len(result.Diagnostics) != 1 {
 			t.Fatalf("query %q returned %#v", test.query, result)
 		}

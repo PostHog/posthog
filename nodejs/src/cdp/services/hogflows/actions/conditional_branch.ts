@@ -211,6 +211,7 @@ export async function checkConditions(
 
         // TODO(team-workflows): Figure out error handling here - do we throw or just move on to other conditions?
         const filterResults = await filterFunctionInstrumented({
+            caller: 'hogflow_conditional_branch',
             fn: invocation.hogFlow,
             filters: condition.filters,
             filterGlobals: {

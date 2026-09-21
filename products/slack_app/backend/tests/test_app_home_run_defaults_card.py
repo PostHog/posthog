@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from posthog.models import Team
 from posthog.models.integration import Integration
@@ -37,3 +38,13 @@ class TestRunDefaultsCardRouting(APIBaseTest):
         state = _resolve_run_defaults_state(self.int_b, "U1", accessible=[])
         assert state.model is None
         assert state.settings_url is None
+
+    def test_card_ignores_a_pi_default(self):
+        update_team_ai_run_preferences(
+            self.team.id, runtime_adapter=None, model="gpt-5.6-terra", reasoning_effort=None, runtime="pi"
+        )
+        with patch("products.tasks.backend.logic.services.ai_run_defaults.pi_cloud_runtime_enabled", return_value=True):
+            state = _resolve_run_defaults_state(self.int_b, "U1", accessible=[self.int_a])
+        assert state.model is None
+        assert state.applies is False
+        assert state.settings_url is not None

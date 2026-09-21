@@ -190,7 +190,7 @@ class EvaluationReportRun(UUIDTModel):
 
     class Meta:
         db_table = "llm_analytics_evaluationreportrun"
-        ordering = ["-created_at"]
+        ordering = ["-created_at", "id"]
         indexes = [
             models.Index(fields=["report", "-created_at"]),
         ]

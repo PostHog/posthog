@@ -1,9 +1,15 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
+from django.db import models
+
+from parameterized import parameterized, parameterized_class
 
 from posthog.models import Tag, TaggedItem, Team
+from posthog.models.scoping import reset_current_team_id, set_current_team_id
+from posthog.models.tagged_item_reads import TagReadPointer, clear_generic_reads_cache, tag_read_pointer
 
 from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -180,15 +186,14 @@ class TestTaggedItemGenericColumns(BaseTest):
     def test_save_with_update_fields_persists_the_generic_columns(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="dashboard")
         tag = Tag.objects.create(name="tag", team_id=self.team.id)
+        other_team = Team.objects.create(organization=self.organization, name="other")
         tagged_item = TaggedItem.objects.create(dashboard_id=dashboard.id, tag_id=tag.id)
-        TaggedItem.objects.filter(pk=tagged_item.pk).update(content_type=None, object_id=None, team=None)
+        TaggedItem.objects.filter(pk=tagged_item.pk).update(team_id=other_team.id)
 
         tagged_item = TaggedItem.objects.get(pk=tagged_item.pk)
         tagged_item.save(update_fields=["tag"])
 
         tagged_item.refresh_from_db()
-        assert tagged_item.object_id == dashboard.id
-        assert tagged_item.content_type == ContentType.objects.get_for_model(Dashboard)
         assert tagged_item.team_id == tag.team_id
 
     def test_team_follows_the_tag(self):
@@ -222,3 +227,153 @@ class TestTaggedItemGenericColumns(BaseTest):
         assert list(TaggedItem.objects.for_object(dashboard)) == [tagged_item]
         assert TaggedItem.objects.for_model(Dashboard).count() == 2
         assert list(TaggedItem.objects.for_objects(Dashboard, [dashboard.id])) == [tagged_item]
+
+
+class TestTagReadPointer(BaseTest):
+    def setUp(self):
+        super().setUp()
+        clear_generic_reads_cache()
+        self.addCleanup(clear_generic_reads_cache)
+
+    @parameterized.expand(
+        [
+            ("flag on in a team scope", True, True, True),
+            ("flag off in a team scope", False, True, False),
+            ("flag on outside a team scope", True, False, False),
+        ]
+    )
+    def test_pointer_follows_the_flag(self, _name: str, flag_on: bool, in_team_scope: bool, expect_generic: bool):
+        token = set_current_team_id(self.team.id if in_team_scope else None)
+        self.addCleanup(reset_current_team_id, token)
+        with patch("posthog.models.tagged_item_reads.feature_enabled_or_false", return_value=flag_on):
+            pointer = tag_read_pointer(Dashboard)
+
+        if expect_generic:
+            assert pointer == TagReadPointer(
+                object_column="object_id", content_type_id=ContentType.objects.get_for_model(Dashboard).id
+            )
+        else:
+            assert pointer == TagReadPointer(object_column="dashboard_id", content_type_id=None)
+
+    def test_one_team_evaluates_the_flag_once_for_repeated_reads(self):
+        token = set_current_team_id(self.team.id)
+        self.addCleanup(reset_current_team_id, token)
+        with patch("posthog.models.tagged_item_reads.feature_enabled_or_false", return_value=True) as flag:
+            first = tag_read_pointer(Dashboard)
+            flag.return_value = False
+            second = tag_read_pointer(Dashboard)
+
+        assert flag.call_count == 1
+        assert first == second
+
+
+@parameterized_class(("generic_reads",), [(False,), (True,)])
+class TestTaggedItemsRelation(BaseTest):
+    generic_reads: bool
+
+    def setUp(self):
+        super().setUp()
+        clear_generic_reads_cache()
+        self.addCleanup(clear_generic_reads_cache)
+        flag = patch("posthog.models.tagged_item_reads.feature_enabled_or_false", return_value=self.generic_reads)
+        flag.start()
+        self.addCleanup(flag.stop)
+        token = set_current_team_id(self.team.id)
+        self.addCleanup(reset_current_team_id, token)
+
+    def test_reads_follow_the_pointer_the_flag_picks(self):
+        followed = Dashboard.objects.create(team_id=self.team.id, name="followed")
+        ignored = Dashboard.objects.create(team_id=self.team.id, name="ignored")
+        tag = Tag.objects.create(name="tag", team_id=self.team.id)
+        item = TaggedItem.objects.create(dashboard_id=followed.id, tag=tag)
+        unread_pointer = {"dashboard_id": ignored.id} if self.generic_reads else {"object_id": ignored.id}
+        TaggedItem.objects.filter(pk=item.pk).update(**unread_pointer)
+        item.refresh_from_db()
+        both = [followed.pk, ignored.pk]
+
+        assert list(followed.tagged_items.all()) == [item]
+        assert list(ignored.tagged_items.all()) == []
+        assert list(Dashboard.objects.filter(tagged_items__tag=tag)) == [followed]
+        assert list(Dashboard.objects.filter(pk__in=both).exclude(tagged_items__tag=tag)) == [ignored]
+        prefetched = Dashboard.objects.filter(pk__in=both).prefetch_related("tagged_items")
+        assert {d.pk: list(d.tagged_items.all()) for d in prefetched} == {followed.pk: [item], ignored.pk: []}
+        assert list(TaggedItem.objects.for_object(followed)) == [item]
+        assert list(TaggedItem.objects.for_objects(Dashboard, both).values_list("object_key", flat=True)) == [
+            followed.pk
+        ]
+        assert item.content_object == followed
+
+    def test_reverse_accessor_writes_both_pointer_shapes(self):
+        dashboard = Dashboard.objects.create(team_id=self.team.id, name="dashboard")
+        tag = Tag.objects.create(name="tag", team_id=self.team.id)
+
+        tagged_item, _ = dashboard.tagged_items.get_or_create(tag=tag)
+
+        tagged_item.refresh_from_db()
+        assert tagged_item.dashboard_id == dashboard.id
+        assert tagged_item.object_id == dashboard.id
+        assert tagged_item.team_id == tag.team_id
+        assert list(dashboard.tagged_items.all()) == [tagged_item]
+
+    @parameterized.expand([("integer key", "dashboard"), ("uuid key", "event_definition")])
+    def test_filter_and_prefetch_through_the_relation(self, _name: str, kind: str):
+        model: type[models.Model]
+        tagged: models.Model
+        untagged: models.Model
+        if kind == "dashboard":
+            model = Dashboard
+            tagged = Dashboard.objects.create(team_id=self.team.id, name="tagged")
+            untagged = Dashboard.objects.create(team_id=self.team.id, name="untagged")
+        else:
+            model = EventDefinition
+            tagged = EventDefinition.objects.create(team=self.team, name="tagged")
+            untagged = EventDefinition.objects.create(team=self.team, name="untagged")
+        tagged.tagged_items.create(tag=Tag.objects.create(name="wanted", team_id=self.team.id))
+
+        assert list(model.objects.filter(tagged_items__tag__name="wanted")) == [tagged]
+
+        by_pk = {
+            obj.pk: obj
+            for obj in model.objects.filter(pk__in=[tagged.pk, untagged.pk]).prefetch_related("tagged_items__tag")
+        }
+        assert [item.tag.name for item in by_pk[tagged.pk].tagged_items.all()] == ["wanted"]
+        assert list(by_pk[untagged.pk].tagged_items.all()) == []
+
+    def test_enterprise_and_base_definitions_share_their_tags(self):
+        try:
+            from ee.models import EnterpriseEventDefinition
+        except ImportError:
+            self.skipTest("needs the ee app")
+
+        enterprise_definition = EnterpriseEventDefinition.objects.create(team=self.team, name="event")
+        base_definition = EventDefinition.objects.get(pk=enterprise_definition.pk)
+        tag = Tag.objects.create(name="shared", team_id=self.team.id)
+
+        tagged_item = enterprise_definition.tagged_items.create(tag=tag)
+
+        assert tagged_item.content_type == ContentType.objects.get_for_model(EventDefinition)
+        assert list(base_definition.tagged_items.all()) == [tagged_item]
+        assert list(EnterpriseEventDefinition.objects.filter(tagged_items__tag__name="shared")) == [
+            enterprise_definition
+        ]
+        prefetched = EnterpriseEventDefinition.objects.prefetch_related("tagged_items").get(pk=enterprise_definition.pk)
+        assert list(prefetched.tagged_items.all()) == [tagged_item]
+
+    def test_deleting_the_object_deletes_its_tagged_items(self):
+        dashboard = Dashboard.objects.create(team_id=self.team.id, name="dashboard")
+        dashboard.tagged_items.create(tag=Tag.objects.create(name="tag", team_id=self.team.id))
+
+        dashboard.delete()
+
+        assert not TaggedItem.objects.for_model(Dashboard).exists()
+
+    def test_bulk_create_from_content_objects_fills_the_legacy_key(self):
+        dashboard = Dashboard.objects.create(team_id=self.team.id, name="dashboard")
+        tag = Tag.objects.create(name="tag", team_id=self.team.id)
+
+        TaggedItem.objects.bulk_create([TaggedItem.for_content_object(tag, dashboard)])
+
+        tagged_item = TaggedItem.objects.for_object(dashboard).get()
+        assert tagged_item.dashboard_id == dashboard.id
+        assert tagged_item.related_object_type == "dashboard"
+        assert tagged_item.content_object == dashboard

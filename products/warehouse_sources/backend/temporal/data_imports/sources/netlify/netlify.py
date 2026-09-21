@@ -258,6 +258,11 @@ def _build_fan_out_resource(
             },
         ),
         "paginator": NetlifyCappedHeaderLinkPaginator(config.max_pages_per_parent, context={"table": config.name}),
+        # A site-scoped sub-resource answers 404 when the site doesn't serve it at all (a site with
+        # form detection off has no /forms), and when a site listed by the parent is deleted before
+        # its children are fetched. Both mean this parent contributes no rows, not that the table
+        # can't sync, so skip the parent instead of failing every other site's rows with it.
+        "response_actions": [{"status_code": 404, "action": "ignore"}],
     }
     child_resource: EndpointResource = {
         "name": config.name,

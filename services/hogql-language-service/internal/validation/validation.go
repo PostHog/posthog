@@ -54,17 +54,27 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 	seenTableNames := map[string]bool{}
 	for statement := range document.Statements() {
 		for table := range statement.Tables() {
-			lowerName := strings.ToLower(table.Name)
-			if !seenTableNames[lowerName] {
+			if !seenTableNames[table.Name] {
 				referencedTableNames = append(referencedTableNames, table.Name)
-				seenTableNames[lowerName] = true
+				seenTableNames[table.Name] = true
 			}
 			if !table.Known && len(diagnostics) < querylimits.MaxDiagnostics {
 				diagnostics = append(diagnostics, Diagnostic{
 					Code: "unknown_table", Message: fmt.Sprintf("Unknown table %q", table.Name), Start: table.Start, End: table.End,
-					Suggestions: closest(table.Name, slices.Values(schema.Tables().Entries()), 5),
+					Suggestions: closestTables(table.Name, schema, 5),
 				})
 			}
+		}
+		for source := range statement.DuplicateSources() {
+			if len(diagnostics) >= querylimits.MaxDiagnostics {
+				break
+			}
+			diagnostics = append(diagnostics, Diagnostic{
+				Code:    "duplicate_table",
+				Message: fmt.Sprintf("Table name %q is used more than once. Use a distinct alias for each table.", source.Qualifier()),
+				Start:   source.Start(),
+				End:     source.End(),
+			})
 		}
 		ignoredIdents := map[*clickhouse.Ident]bool{}
 		statement.Walk(func(node clickhouse.Expr) bool {
@@ -136,7 +146,7 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 					}
 				}
 			case *clickhouse.Ident:
-				if ignoredIdents[typed] || typed.Name == "*" {
+				if ignoredIdents[typed] || typed.Name == "*" || analysis.IsBooleanLiteral(typed) {
 					return true
 				}
 				bindings := statement.BindingsAt(int(node.Pos()), int(node.End()))
@@ -253,6 +263,17 @@ func validateUnqualifiedField(diagnostics *[]Diagnostic, seen map[string]bool, b
 }
 
 func closest(input string, candidates iter.Seq[catalog.Entry], limit int) []Suggestion {
+	return closestBy(input, candidates, limit, func(entry catalog.Entry) string { return strings.ToLower(entry.Name) })
+}
+
+func closestTables(input string, schema *catalog.PreparedCatalog, limit int) []Suggestion {
+	return closestBy(input, slices.Values(schema.TableSpellings().Entries()), limit, func(entry catalog.Entry) string {
+		canonical, _ := schema.CanonicalTableName(entry.Name)
+		return canonical
+	})
+}
+
+func closestBy(input string, candidates iter.Seq[catalog.Entry], limit int, identity func(catalog.Entry) string) []Suggestion {
 	if len(input) > querylimits.MaxSuggestionInputBytes {
 		return nil
 	}
@@ -280,14 +301,20 @@ func closest(input string, candidates iter.Seq[catalog.Entry], limit int) []Sugg
 			continue
 		}
 		suggestion := Suggestion{Label: candidate.Name, Distance: distance}
-		duplicate := false
-		for _, existing := range best {
-			if strings.EqualFold(existing.Label, suggestion.Label) {
-				duplicate = true
+		duplicate := -1
+		candidateIdentity := identity(candidate)
+		for index, existing := range best {
+			existingIdentity := identity(catalog.Entry{Name: existing.Label})
+			if existingIdentity == candidateIdentity {
+				duplicate = index
 				break
 			}
 		}
-		if duplicate {
+		if duplicate >= 0 {
+			if suggestionLess(suggestion, best[duplicate]) {
+				best[duplicate] = suggestion
+				sortSuggestions(best)
+			}
 			continue
 		}
 		if len(best) < limit {

@@ -34,6 +34,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
+from posthog.comment.formatting import escape_slack_mrkdwn
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.utils import absolute_uri
@@ -194,70 +195,6 @@ def normalize_labeled_mentions_to_bare(text: str) -> str:
     broadcast/subteam refs (`<!…>`), and URL links (`<https://…|label>`) keep their labels.
     """
     return _RE_LABELED_USER_MENTION.sub(r"<@\1>", text)
-
-
-# Object tags are the agent's way of citing a PostHog object inline:
-# `<insight id="9pQx3">checkout funnel</insight>`, `<hogql label="signups today">SELECT …</hogql>`,
-# `<replay id="…" display="block"/>`. The desktop app turns them into chips and chart cards.
-# Slack has no renderer for them, so the markup reaches the reader as literal text.
-# Kinds and aliases mirror `OBJECT_KINDS` in
-# products/desktop/packages/ui/src/utils/objectKinds.ts — an unlisted tag name stays literal,
-# the same way the desktop parser leaves it alone.
-_OBJECT_TAG_KINDS = frozenset(
-    {
-        "insight",
-        "hogql",
-        "dashboard",
-        "error",
-        "replay",
-        "flag",
-        "experiment",
-        "survey",
-        "ticket",
-        "report",
-        "trace",
-        "eval",
-        "event",
-        "cohort",
-        "action",
-        "person",
-        "session-replay",
-        "recording",
-        "feature-flag",
-        "feature_flag",
-        "sql",
-    }
-)
-_RE_OBJECT_TAG = re.compile(r"""<(\/?)([a-z][\w-]*)(?:\s+[a-z][\w-]*\s*=\s*(?:"[^"]*"|'[^']*'))*\s*(\/?)>""")
-
-
-def strip_object_tags(text: str) -> str:
-    pieces: list[str] = []
-    cursor = 0
-    active_kind: str | None = None
-    depth = 0
-    for tag in _RE_OBJECT_TAG.finditer(text):
-        closing, kind, self_closing = tag.groups()
-        if kind not in _OBJECT_TAG_KINDS:
-            continue
-        if active_kind is not None:
-            if kind == active_kind:
-                if closing:
-                    depth -= 1
-                elif not self_closing:
-                    depth += 1
-                if depth == 0:
-                    active_kind = None
-                    cursor = tag.end()
-            continue
-        pieces.append(text[cursor : tag.start()])
-        cursor = tag.end()
-        if not closing and not self_closing:
-            active_kind = kind
-            depth = 1
-    if active_kind is None:
-        pieces.append(text[cursor:])
-    return "".join(pieces)
 
 
 def flatten_block_text(node: Any) -> list[str]:
@@ -739,6 +676,9 @@ class RunFooter:
     reasoning_effort: str | None = None
     run_id: str | None = None
     task_id: str | None = None
+    # The project the thread's task belongs to, so a reader can tell which project's
+    # data the answer was drawn from.
+    project: str | None = None
 
     def has_content(self) -> bool:
         """Whether this would render as anything.
@@ -748,7 +688,25 @@ class RunFooter:
         keeps meaning "None-coalesce" and cannot silently discard a partial instance.
         The ids are not part of the answer — they say nothing on their own.
         """
-        return any((self.task_url, self.desktop_url, self.model))
+        return any((self.task_url, self.desktop_url, self.model, self.project))
+
+
+def _project_name(team_id: int) -> str | None:
+    """The project a run answered from, named for the footer.
+
+    The run's own team is the project, so this needs no join through the thread mapping:
+    a task, its mapping and every run on it belong to one project.
+    """
+    from posthog.models.team.team import Team  # noqa: PLC0415 — keeps the model off this module's import path
+
+    try:
+        team = Team.objects.filter(pk=team_id).only("name").first()
+    except Exception:
+        # Its own guard, not the caller's: a failed lookup must cost the reader one
+        # segment, not the links and the model with it.
+        logger.warning("slack_app_footer_project_lookup_failed", team_id=team_id)
+        return None
+    return team.name if team else None
 
 
 def load_run_footer(run_id: str | UUID | None) -> RunFooter:
@@ -784,6 +742,7 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
             desktop_url=_desktop_bridge_url(run.task_id),
             model=state.model,
             reasoning_effort=state.reasoning_effort,
+            project=_project_name(run.team_id),
         )
     except Exception:
         logger.exception("slack_app_run_footer_load_failed", run_id=str(run_id))
@@ -802,6 +761,11 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
         segments.append(f"<{footer.task_url}|View on web>")
     if footer.desktop_url:
         segments.append(f"<{footer.desktop_url}|View on desktop>")
+    if footer.project:
+        # A project name is tenant text in a `mrkdwn` block, so `<!channel>` broadcasts
+        # and `<url|label>` renders a link the reader reads as the bot's. Escaped here
+        # rather than on the way in, so `RunFooter.project` stays the plain name.
+        segments.append(f"Project: *{escape_slack_mrkdwn(footer.project)}*")
     if footer.model:
         segments.append(describe_run_model(footer.model, footer.reasoning_effort))
     if configure_url:

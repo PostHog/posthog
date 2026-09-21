@@ -16,6 +16,7 @@ import type {
     CISignalsConfigApi,
     CISignalsConfigUpdateApi,
     CurrentBranchHealthApi,
+    DeliveryComparisonApi,
     DeliverySummaryApi,
     DoraOverviewApi,
     EngineeringAnalyticsAuthorWorkflowCostsParams,
@@ -23,6 +24,7 @@ import type {
     EngineeringAnalyticsCiCardsParams,
     EngineeringAnalyticsCiFailureLogsParams,
     EngineeringAnalyticsCurrentBranchHealthParams,
+    EngineeringAnalyticsDeliveryComparisonParams,
     EngineeringAnalyticsDeliverySummaryParams,
     EngineeringAnalyticsDoraParams,
     EngineeringAnalyticsFlakyTestsParams,
@@ -267,6 +269,39 @@ export const engineeringAnalyticsCurrentBranchHealth = async (
     options?: RequestInit
 ): Promise<CurrentBranchHealthApi> => {
     return apiMutator<CurrentBranchHealthApi>(getEngineeringAnalyticsCurrentBranchHealthUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsDeliveryComparisonUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsDeliveryComparisonParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/delivery_comparison/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/delivery_comparison/`
+}
+
+/**
+ * One author's median ready to merged time, split at the first approval, next to the same medians for the author's own team and for the whole repository, over pull requests merged in the window (date_from default -30d). The team is picked from the author's GitHub teams that own code: a team that pr_number asked to review, else the team the author's pull requests asked to review most often, else every team. Bots and drafts are excluded.
+ */
+export const engineeringAnalyticsDeliveryComparison = async (
+    projectId: string,
+    params: EngineeringAnalyticsDeliveryComparisonParams,
+    options?: RequestInit
+): Promise<DeliveryComparisonApi> => {
+    return apiMutator<DeliveryComparisonApi>(getEngineeringAnalyticsDeliveryComparisonUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
