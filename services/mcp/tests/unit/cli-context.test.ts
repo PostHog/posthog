@@ -79,20 +79,22 @@ describe('CLI context', () => {
     })
 
     it.each([
-        [AnalyticsEvent.MCP_TOOL_CALL, true, false],
-        [AnalyticsEvent.MCP_TOOL_CALL, false, true],
-        [AnalyticsEvent.MCP_FEEDBACK_SUBMITTED, true, true],
-        [AnalyticsEvent.MCP_FEEDBACK_SUBMITTED, false, true],
-    ])('handles %s capture when impersonation is %s', async (event, impersonated, shouldCapture) => {
+        [AnalyticsEvent.MCP_TOOL_CALL, true],
+        [AnalyticsEvent.MCP_TOOL_CALL, false],
+        [AnalyticsEvent.MCP_FEEDBACK_SUBMITTED, true],
+        [AnalyticsEvent.MCP_FEEDBACK_SUBMITTED, false],
+    ])('passes impersonation status to the SDK for %s with impersonation %s', async (event, impersonated) => {
         mocks.getUser.mockResolvedValue({ distinct_id: 'user-123', is_impersonated: impersonated })
         const context = await buildCliContext({ host: 'https://us.posthog.com', version: 2 })
 
-        await context.trackEvent(event)
+        await context.trackEvent(event, { is_impersonated: !impersonated })
 
-        if (shouldCapture) {
-            expect(mocks.capture).toHaveBeenCalledWith(expect.objectContaining({ distinctId: 'user-123', event }))
-        } else {
-            expect(mocks.capture).not.toHaveBeenCalled()
-        }
+        expect(mocks.capture).toHaveBeenCalledWith(
+            expect.objectContaining({
+                distinctId: 'user-123',
+                event,
+                properties: expect.objectContaining({ is_impersonated: impersonated }),
+            })
+        )
     })
 })

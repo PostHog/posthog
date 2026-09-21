@@ -76,7 +76,7 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
                         stateManager.getAnalyticsContext().catch(() => undefined),
                         stateManager.getApiKey().catch(() => undefined),
                     ])
-                    if (event === AnalyticsEvent.MCP_TOOL_CALL && (!user || user.is_impersonated)) {
+                    if (event === AnalyticsEvent.MCP_TOOL_CALL && !user) {
                         return
                     }
                     const groups = analyticsContext ? buildMCPAnalyticsGroups(analyticsContext) : {}
@@ -97,6 +97,7 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
                             ...(analyticsContext ? buildMCPContextProperties(analyticsContext) : {}),
                             $session_id: await sessionManager.getSessionUuid(sessionId),
                             ...properties,
+                            is_impersonated: user?.is_impersonated === true,
                         },
                     })
                 } catch {}

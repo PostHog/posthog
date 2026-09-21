@@ -106,23 +106,20 @@ describe('Hono MCP analytics contexts', () => {
         { impersonated: true, isError: true },
         { impersonated: false, isError: false },
         { impersonated: false, isError: true },
-    ])(
-        'captures tool calls with impersonated=$impersonated and isError=$isError',
-        async ({ impersonated, isError }) => {
-            const state = makeState()
-            vi.mocked(state.reqCtx.isImpersonated).mockResolvedValue(impersonated)
+    ])('passes impersonated=$impersonated to the SDK with isError=$isError', async ({ impersonated, isError }) => {
+        const state = makeState()
+        vi.mocked(state.reqCtx.isImpersonated).mockResolvedValue(impersonated)
 
-            await trackToolCall('user-get', 12, isError, state)
+        await trackToolCall('user-get', 12, isError, state, { is_impersonated: !impersonated })
 
-            if (impersonated) {
-                expect(mockCaptureToolCall).not.toHaveBeenCalled()
-            } else {
-                expect(mockCaptureToolCall).toHaveBeenCalledWith(
-                    expect.objectContaining({ toolName: 'user-get', isError })
-                )
-            }
-        }
-    )
+        expect(mockCaptureToolCall).toHaveBeenCalledWith(
+            expect.objectContaining({
+                toolName: 'user-get',
+                isError,
+                properties: expect.objectContaining({ is_impersonated: impersonated }),
+            })
+        )
+    })
 
     it('does not fail a tool call when impersonation lookup fails', async () => {
         const state = makeState()

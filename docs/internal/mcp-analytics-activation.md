@@ -64,6 +64,7 @@ The data-detected event is a browser observation, not an ingestion timestamp or 
 It can miss projects whose data arrives while no setup detection is mounted.
 MCP analytics detection currently accepts any `$mcp_tool_call` in the project, including hosted PostHog MCP traffic.
 The hosted MCP server and PostHog CLI skip `$mcp_tool_call` during staff impersonation.
+Both pass the request's impersonation status to the shared SDK client, whose `before_send` hook drops these events.
 This excludes both successful and failed impersonated calls from tool-call usage counts.
 The CLI also skips tool-call events if it cannot fetch the user to check impersonation.
 CLI feedback events remain enabled during impersonation and user lookup failures.

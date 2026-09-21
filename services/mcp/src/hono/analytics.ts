@@ -156,9 +156,7 @@ export async function trackToolCall(
     servedDescription?: string
 ): Promise<void> {
     try {
-        if (await state.reqCtx.isImpersonated()) {
-            return
-        }
+        const isImpersonated = await state.reqCtx.isImpersonated()
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const requestContext = state.requestContext
         const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
@@ -211,6 +209,7 @@ export async function trackToolCall(
                 // breakdown rather than a string split over `tool_name` in HogQL.
                 ...(gatewayServer ? { mcp_gateway_server: gatewayServer } : {}),
                 ...extraProperties,
+                is_impersonated: isImpersonated,
             },
         })
     } catch {
