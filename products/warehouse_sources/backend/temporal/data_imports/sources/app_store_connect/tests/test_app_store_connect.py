@@ -871,8 +871,9 @@ class TestAnalyticsReportStreams:
 
         _collect_analytics(api, _FakeManager(), app_ids="A1")
 
-        # The ONGOING request is this source's only write to the customer's account.
-        assert [post[1]["data"]["relationships"]["app"]["data"]["id"] for post in api.posts] == ["A1"]
+        # The report requests are this source's only writes to the customer's account, so an
+        # unselected app must receive none of them.
+        assert {post[1]["data"]["relationships"]["app"]["data"]["id"] for post in api.posts} == {"A1"}
         assert f"{BASE_URL}/v1/apps/A2/analyticsReportRequests" not in [url for url, _ in api.calls]
 
     def test_full_chain_parses_daily_instances_into_keyed_rows(self) -> None:
