@@ -345,13 +345,24 @@ class TestConfigCatAuditLogs:
         # than sent as written — a two-hour offset would otherwise skip two hours of history.
         assert configcat._to_configcat_datetime(value) == expected
 
+    @parameterized.expand(
+        [
+            ("missing_data", {"paging": {"hasNext": False}}, "invalid auditlogs data"),
+            ("missing_paging", {"data": []}, "invalid auditlogs paging"),
+            ("non_boolean_has_next", {"data": [], "paging": {"hasNext": "yes"}}, "invalid auditlogs paging"),
+        ]
+    )
     @mock.patch.object(configcat, "make_tracked_session")
-    def test_malformed_page_fails_loud(self, mock_make_session: MagicMock) -> None:
+    def test_malformed_page_fails_loud(
+        self, _name: str, page: dict[str, Any], error: str, mock_make_session: MagicMock
+    ) -> None:
+        # Losing `hasNext` would otherwise end the walk quietly, and the run would commit a
+        # watermark past every row it never asked for.
         bodies = {
             "/v1/organizations": [{"organizationId": "o1"}],
-            "/v2/organizations/o1/auditlogs?pageNumber=1&pageSize=100": {"paging": {}},
+            "/v2/organizations/o1/auditlogs?pageNumber=1&pageSize=100": page,
         }
-        with pytest.raises(ValueError, match="invalid auditlogs data"):
+        with pytest.raises(ValueError, match=error):
             self._run(mock_make_session, bodies)
 
 

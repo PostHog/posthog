@@ -228,13 +228,18 @@ def _audit_log_pages(
             if not isinstance(item, dict):
                 raise ValueError(f"ConfigCat returned a non-object audit log for organization {organization_id}")
             rows.append({**item, "organizationId": organization_id})
+        paging = body.get("paging")
+        # Losing `hasNext` would end the walk silently, and a run that stops early still commits
+        # its watermark — so the rows behind the truncation would never be fetched again.
+        if not isinstance(paging, dict) or not isinstance(paging.get("hasNext"), bool):
+            raise ValueError(f"ConfigCat returned invalid auditlogs paging for organization {organization_id}")
+
         if rows:
             yield rows
 
-        paging = body.get("paging")
         # An empty page also terminates: it is what a page past the end returns, so the walk stops
         # even if `hasNext` ever disagrees with the data.
-        if not rows or not isinstance(paging, dict) or not paging.get("hasNext"):
+        if not rows or not paging["hasNext"]:
             return
         page_number += 1
 
