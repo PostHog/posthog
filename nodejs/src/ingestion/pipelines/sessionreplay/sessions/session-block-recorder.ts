@@ -1,5 +1,4 @@
 import { DateTime } from 'luxon'
-import snappy from 'snappy'
 
 import { logger } from '~/common/utils/logger'
 import {
@@ -24,6 +23,9 @@ import {
     toSegmentationEvent,
 } from '~/ingestion/pipelines/sessionreplay/segmentation'
 import { ReplayIndexEntry } from '~/ingestion/pipelines/sessionreplay/shared/metadata/replay-index-entry'
+
+import { BlockCompression, DEFAULT_BLOCK_COMPRESSION, compressBlock } from './block-compression'
+import { SessionBatchMetrics } from './metrics'
 
 const MAX_SNAPSHOT_FIELD_LENGTH = 1000
 const MAX_URL_LENGTH = 4 * 1024 // 4KB
@@ -68,14 +70,14 @@ export interface EndResult {
 }
 
 /**
- * Records events for a single session recording using Snappy compression
+ * Records events for a single session recording
  *
- * Buffers events and provides them as a snappy-compressed session recording block that can be
- * stored in a session batch file. The session recording block can be read as an independent unit.
+ * Buffers events and provides them as a compressed session recording block that can be stored in a session batch
+ * file. The session recording block can be read as an independent unit.
  *
  * ```
  * Session Batch File
- * ├── Snappy Session Recording Block 1 <── One SessionRecorder corresponds to one block
+ * ├── Compressed Session Recording Block 1 <── One SessionBlockRecorder corresponds to one block
  * │   └── JSONL Session Recording Block
  * │       ├── [windowId, event1]
  * │       ├── [windowId, event2]
@@ -90,11 +92,12 @@ export interface EndResult {
  * The session block format (after decompression) is a sequence of newline-delimited JSON records.
  * Each record is an array of [windowId, event].
  */
-export class SnappySessionRecorder {
+export class SessionBlockRecorder {
     private readonly uncompressedChunks: Buffer[] = []
     private eventCount: number = 0
     private size: number = 0
     private ended = false
+    private building?: Promise<EndResult>
     private startDateTime: DateTime | null = null
     private endDateTime: DateTime | null = null
     private _distinctId: string | null = null
@@ -116,7 +119,8 @@ export class SnappySessionRecorder {
     constructor(
         public readonly sessionId: string,
         public readonly teamId: number,
-        public readonly batchId: string
+        public readonly batchId: string,
+        private readonly compression: BlockCompression = DEFAULT_BLOCK_COMPRESSION
     ) {}
 
     /**
@@ -302,18 +306,35 @@ export class SnappySessionRecorder {
     /**
      * Finalizes the session recording and returns the compressed buffer with metadata
      *
+     * Idempotent. A flush writes every block before it finishes the batch file, so a throw in that loop abandons the
+     * file and the retry must emit the blocks it already built. A failed build is discarded, so the retry rebuilds it.
+     *
      * @returns The compressed session recording block with metadata
-     * @throws If called more than once
      */
-    public async end(): Promise<EndResult> {
-        if (this.ended) {
-            throw new Error('end() has already been called')
+    public end(): Promise<EndResult> {
+        if (!this.building) {
+            this.ended = true
+            this.building = this.buildBlock().catch((error: unknown) => {
+                this.building = undefined
+                throw error
+            })
         }
-        this.ended = true
+        return this.building
+    }
 
+    private async buildBlock(): Promise<EndResult> {
         // Buffer.concat typings are missing the signature with Buffer[]
         const uncompressedBuffer = Buffer.concat(this.uncompressedChunks as any)
-        const buffer = await snappy.compress(uncompressedBuffer)
+        const startedAt = performance.now()
+        const buffer = await compressBlock(uncompressedBuffer, this.compression)
+        // A built block answers every later end(), so the raw chunks are dead. A flush holds every block, so free them.
+        this.uncompressedChunks.length = 0
+        SessionBatchMetrics.observeBlockCompression(
+            this.compression.codec,
+            uncompressedBuffer.length,
+            buffer.length,
+            (performance.now() - startedAt) / 1000
+        )
 
         // Calculate active time using segmentation events
         const activeTime = activeMillisecondsFromSegmentationEvents(this.segmentationEvents)

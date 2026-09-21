@@ -1,17 +1,25 @@
 import { DateTime } from 'luxon'
+import { brotliDecompressSync } from 'node:zlib'
 import snappy from 'snappy'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 
-import { SnappySessionRecorder } from './snappy-session-recorder'
+import { compressBlock } from './block-compression'
+import { SessionBatchMetrics } from './metrics'
+import { SessionBlockRecorder } from './session-block-recorder'
 
-describe('SnappySessionRecorder', () => {
-    let recorder: SnappySessionRecorder
+jest.mock('./block-compression', () => {
+    const actual = jest.requireActual('./block-compression')
+    return { ...actual, compressBlock: jest.fn(actual.compressBlock) }
+})
+
+describe('SessionBlockRecorder', () => {
+    let recorder: SessionBlockRecorder
 
     beforeEach(() => {
-        recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id')
+        recorder = new SessionBlockRecorder('test_session_id', 1, 'test_batch_id')
     })
 
     const createMessage = (windowId: string, events: any[]): ParsedMessageData => ({
@@ -51,6 +59,90 @@ describe('SnappySessionRecorder', () => {
             .filter(Boolean)
             .map((line) => parseJSON(line))
     }
+
+    describe('compression', () => {
+        it('packs with the declared codec at the declared level, and reports it', async () => {
+            const recorder = new SessionBlockRecorder('test_session_id', 1, 'test_batch_id', {
+                codec: 'brotli',
+                level: 5,
+            })
+            recorder.recordMessage(createMessage('window1', [{ type: 3, timestamp: 1000, data: {} }]))
+
+            const result = await recorder.end()
+
+            expect(brotliDecompressSync(result.buffer).toString()).toContain('"timestamp":1000')
+        })
+
+        it('packs with snappy when a lane declares nothing', async () => {
+            const recorder = new SessionBlockRecorder('test_session_id', 1, 'test_batch_id')
+            recorder.recordMessage(createMessage('window1', [{ type: 3, timestamp: 1000, data: {} }]))
+
+            const result = await recorder.end()
+
+            expect(snappy.uncompressSync(result.buffer, { asBuffer: true }).toString()).toContain('"timestamp":1000')
+        })
+
+        it('stays callable after packing fails, so a retried flush can still write the block', async () => {
+            jest.mocked(compressBlock).mockRejectedValueOnce(new Error('out of memory'))
+            const recorder = new SessionBlockRecorder('test_session_id', 1, 'test_batch_id')
+            recorder.recordMessage(createMessage('window1', [{ type: 3, timestamp: 1000, data: {} }]))
+
+            await expect(recorder.end()).rejects.toThrow('out of memory')
+
+            const result = await recorder.end()
+
+            expect(jest.mocked(compressBlock)).toHaveBeenCalledTimes(2)
+            expect(result.eventCount).toBe(1)
+            expect((await recorder.end()).buffer).toEqual(result.buffer)
+        })
+
+        it('refuses a message once a block is being built, so no event is counted but left out', async () => {
+            let release!: () => void
+            jest.mocked(compressBlock).mockImplementationOnce(
+                (data: Buffer) =>
+                    new Promise<Buffer>((resolve) => {
+                        release = () => resolve(data)
+                    })
+            )
+            const recorder = new SessionBlockRecorder('test_session_id', 1, 'test_batch_id')
+            const message = createMessage('window1', [{ type: 3, timestamp: 1000, data: {} }])
+            recorder.recordMessage(message)
+            const building = recorder.end()
+
+            expect(() => recorder.recordMessage(message)).toThrow('Cannot record message after end() has been called')
+
+            release()
+            expect((await building).eventCount).toBe(1)
+        })
+
+        it('packs once when two callers end the same block', async () => {
+            const recorder = new SessionBlockRecorder('test_session_id', 1, 'test_batch_id')
+            recorder.recordMessage(createMessage('window1', [{ type: 3, timestamp: 1000, data: {} }]))
+
+            const [a, b] = await Promise.all([recorder.end(), recorder.end()])
+
+            expect(jest.mocked(compressBlock)).toHaveBeenCalledTimes(1)
+            expect(a.buffer).toEqual(b.buffer)
+        })
+
+        it('reports the codec and both byte counts, so the saving is measurable', async () => {
+            const observe = jest.spyOn(SessionBatchMetrics, 'observeBlockCompression').mockImplementation()
+            const recorder = new SessionBlockRecorder('test_session_id', 1, 'test_batch_id', {
+                codec: 'brotli',
+                level: 9,
+            })
+            recorder.recordMessage(createMessage('window1', [{ type: 3, timestamp: 1000, data: {} }]))
+
+            const result = await recorder.end()
+
+            expect(observe).toHaveBeenCalledTimes(1)
+            const [codec, rawBytes, packedBytes] = observe.mock.calls[0]
+            expect(codec).toBe('brotli')
+            expect(packedBytes).toBe(result.buffer.length)
+            expect(rawBytes).toBeGreaterThan(packedBytes)
+            observe.mockRestore()
+        })
+    })
 
     describe('recordMessage', () => {
         it('should record events in snappy-compressed JSONL format', async () => {
@@ -178,14 +270,17 @@ describe('SnappySessionRecorder', () => {
             expect(() => recorder.recordMessage(message)).toThrow('Cannot record message after end() has been called')
         })
 
-        it('should throw error when calling end multiple times', async () => {
+        it('returns the same block when end is called again, so a retried flush re-emits it', async () => {
             const message = createMessage('window1', [
                 { type: RRWebEventType.Custom, timestamp: new Date('2025-01-01T01:00:00Z').getTime(), data: {} },
             ])
             recorder.recordMessage(message)
-            await recorder.end()
+            const first = await recorder.end()
 
-            await expect(recorder.end()).rejects.toThrow('end() has already been called')
+            const second = await recorder.end()
+
+            expect(second.buffer).toEqual(first.buffer)
+            expect(second.eventCount).toBe(first.eventCount)
         })
     })
 
@@ -1073,7 +1168,7 @@ describe('SnappySessionRecorder', () => {
     describe('Batch ID', () => {
         it('should include batch ID in end result', async () => {
             const batchId = 'test-batch-123'
-            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId)
+            const recorder = new SessionBlockRecorder('test_session_id', 1, batchId)
             const message = createMessage('window1', [
                 {
                     type: RRWebEventType.Meta,
@@ -1090,7 +1185,7 @@ describe('SnappySessionRecorder', () => {
 
         it('should maintain batch ID across multiple messages', async () => {
             const batchId = 'test-batch-456'
-            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId)
+            const recorder = new SessionBlockRecorder('test_session_id', 1, batchId)
 
             const message1 = createMessage('window1', [
                 { type: RRWebEventType.Meta, timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(), data: {} },
@@ -1108,7 +1203,7 @@ describe('SnappySessionRecorder', () => {
 
         it('should include batch ID even with no messages', async () => {
             const batchId = 'test-batch-789'
-            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId)
+            const recorder = new SessionBlockRecorder('test_session_id', 1, batchId)
             const result = await recorder.end()
 
             expect(result.batchId).toBe(batchId)

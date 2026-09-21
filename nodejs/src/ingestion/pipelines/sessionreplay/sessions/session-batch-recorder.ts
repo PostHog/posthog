@@ -1,7 +1,9 @@
+import pLimit from 'p-limit'
 import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
+import { threadpoolConcurrency } from '~/common/utils/threadpool-concurrency'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import {
@@ -14,22 +16,28 @@ import { SessionMap } from '~/ingestion/pipelines/sessionreplay/shared/session-m
 import { RecordingEncryptor, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
+import { BlockCompression } from './block-compression'
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
+import { SessionBlockRecorder } from './session-block-recorder'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionFeatureRecorder } from './session-feature-recorder'
 import { SessionRateLimiter } from './session-rate-limiter'
-import { SnappySessionRecorder } from './snappy-session-recorder'
 
 /** Per-session recording state held in the batch, keyed by `(teamId, sessionId)`. */
 interface SessionBatchEntry {
-    sessionBlockRecorder: SnappySessionRecorder
+    sessionBlockRecorder: SessionBlockRecorder
     consoleLogRecorder: SessionConsoleLogRecorder
     featureRecorder: SessionFeatureRecorder
     sessionKey: SessionKey
     retentionPeriod: RetentionPeriod
 }
+
+// A flush holds the batch lock, so nothing else here wants the pool while it runs.
+export const BLOCK_BUILD_CONCURRENCY = threadpoolConcurrency()
+
+const buildBlock = pLimit(BLOCK_BUILD_CONCURRENCY)
 
 /**
  * Manages the recording of a batch of session recordings:
@@ -91,7 +99,8 @@ export class SessionBatchRecorder {
         private readonly featureStore: SessionFeatureStore,
         private readonly encryptor: RecordingEncryptor,
         maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER,
-        private readonly featuresRolloutPercentage: number = 100
+        private readonly featuresRolloutPercentage: number = 100,
+        private readonly compression?: BlockCompression
     ) {
         this.batchId = uuidv7()
         this.rateLimiter = new SessionRateLimiter(maxEventsPerSessionPerBatch)
@@ -174,7 +183,7 @@ export class SessionBatchRecorder {
             }
         } else {
             this.sessions.set(teamId, sessionId, {
-                sessionBlockRecorder: new SnappySessionRecorder(sessionId, teamId, this.batchId),
+                sessionBlockRecorder: new SessionBlockRecorder(sessionId, teamId, this.batchId, this.compression),
                 consoleLogRecorder: new SessionConsoleLogRecorder(
                     sessionId,
                     teamId,
@@ -265,13 +274,14 @@ export class SessionBatchRecorder {
         let totalBytes = 0
 
         try {
-            for (const {
-                sessionBlockRecorder,
-                consoleLogRecorder,
-                featureRecorder,
-                sessionKey,
-                retentionPeriod,
-            } of this.sessions.values()) {
+            // Each block packs on its own, on the threadpool, so start them all at once. The writes stay in order, because they append to one file.
+            const entries = [...this.sessions.values()]
+            const built = await Promise.all(entries.map((entry) => buildBlock(() => entry.sessionBlockRecorder.end())))
+
+            for (const [
+                index,
+                { sessionBlockRecorder, consoleLogRecorder, featureRecorder, sessionKey, retentionPeriod },
+            ] of entries.entries()) {
                 const {
                     buffer,
                     eventCount,
@@ -291,7 +301,7 @@ export class SessionBatchRecorder {
                     replayIndexEntries,
                     replayIndexTruncated,
                     batchId,
-                } = await sessionBlockRecorder.end()
+                } = built[index]
 
                 const features = featureRecorder.end()
                 if (features) {
