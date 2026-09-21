@@ -14,6 +14,7 @@ export const SHORTCUTS = {
   NEW_TAB: "mod+t",
   SETTINGS: "mod+,",
   SHORTCUTS_SHEET: "mod+/",
+  SEND_FEEDBACK: "mod+shift+f",
   GO_BACK: "mod+[",
   GO_FORWARD: "mod+]",
   // Arrow variants must stay outside form fields/editors, where mod+left/right
@@ -109,6 +110,12 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
     id: "shortcuts",
     keys: SHORTCUTS.SHORTCUTS_SHEET,
     description: "Show keyboard shortcuts",
+    category: "general",
+  },
+  {
+    id: "send-feedback",
+    keys: SHORTCUTS.SEND_FEEDBACK,
+    description: "Send feedback",
     category: "general",
   },
   {

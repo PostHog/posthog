@@ -16,6 +16,7 @@ a breach the same way and there is one place where "is this value out of bounds?
 from __future__ import annotations
 
 import time
+import uuid
 from datetime import datetime, timedelta
 from functools import partial
 
@@ -36,6 +37,7 @@ from posthog.schema import (
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
+from posthog.models import Team
 
 from products.alerts.backend.facade.evaluation import (
     ComparableSeries,
@@ -45,8 +47,12 @@ from products.alerts.backend.facade.evaluation import (
 )
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CheckResult
+from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck
-from products.signals.backend.report_check_telemetry import capture_report_check_resolved
+from products.signals.backend.report_check_telemetry import (
+    capture_report_check_evaluated,
+    capture_report_checks_expired,
+)
 from products.signals.backend.report_checks import (
     MAX_CONSECUTIVE_CHECK_ERRORS,
     CheckComparison,
@@ -73,6 +79,9 @@ MAX_CHECK_EXPIRIES_PER_TICK = 500
 CHECK_ERROR_RETRY_AFTER = timedelta(hours=6)
 # Same bound the scout runner puts on a stored failure reason.
 MAX_CHECK_ERROR_REASON_LENGTH = 300
+# Weight of the signal a failed check on a resolved report emits. High enough to promote on its own:
+# a fix that stopped holding is a finding somebody already decided was worth fixing once.
+CHECK_FAILURE_SIGNAL_WEIGHT = 1.0
 
 # A check stops running while its report is soft-deleted or suppressed, and runs again when the report
 # comes back. Its horizon keeps advancing meanwhile: a check that outlives `expires_at` while paused
@@ -327,27 +336,131 @@ def record_check_verdict(
             ),
             attribution=attribution or ArtefactAttribution.system(),
         )
+        if _should_resurface(current, verdict):
+            baseline = config.baseline_value if config is not None else None
+            threshold = _describe_comparison(config.comparison) if config is not None else None
+            transaction.on_commit(lambda: resurface_failed_check(current, verdict, baseline, threshold))
         # Post-commit, so a rolled-back verdict is never counted as one, and after the artefact so
         # the event describes a result a reader can already see on the report. The team comes off
         # the caller's row, where both call paths already select it with its organization; the
         # locked row selects neither, and widening the lock to reach them would take `FOR UPDATE`
         # on `Team`.
-        transaction.on_commit(partial(capture_report_check_resolved, check.team, current, run_id=run_id))
+        transaction.on_commit(partial(capture_report_check_evaluated, check.team, current, run_id=run_id))
+
+
+def _should_resurface(check: SignalReportCheck, verdict: CheckVerdict) -> bool:
+    """Whether this verdict has to become a fresh report, because nothing else will carry it.
+
+    An `agent` check has a scout in the loop that can author one. A `metric_threshold` check has
+    nobody, so a breach on a report the inbox no longer lists is an artefact on a closed item that
+    no reader will open. Only a resolved report qualifies: a breach on a report still being worked
+    lands where the person working it already looks.
+    """
+    return (
+        verdict.outcome == "failed"
+        and check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD
+        and check.report.status == SignalReport.Status.RESOLVED
+    )
+
+
+def resurface_failed_check(
+    check: SignalReportCheck,
+    verdict: CheckVerdict,
+    baseline_value: float | None,
+    threshold: str | None,
+) -> None:
+    """Emit the breach as a signal, so the pipeline authors a fresh report for the relapse.
+
+    This is the same rule the grouping stage already applies to a resolved report: a signal that
+    would have joined it starts a new report linked by `related_to` rather than reopening a
+    terminal one. Best-effort — the verdict is already on the report's log, and losing the
+    re-surface must not fail the tick that recorded it.
+    """
+    from asgiref.sync import async_to_sync  # noqa: PLC0415
+
+    from products.signals.backend.facade.api import emit_signal  # noqa: PLC0415
+
+    report = check.report
+    description = "\n".join(
+        [
+            f"A follow-up check on a resolved report failed: {check.title}",
+            "",
+            f"Resolved report: {report.title or 'Untitled'} ({report.id})",
+            f"What the check measured: {verdict.explanation}",
+            *([f"Baseline when the check was written: {baseline_value}"] if baseline_value is not None else []),
+            *([f"Expected: {threshold}"] if threshold else []),
+        ]
+    )
+    try:
+        async_to_sync(emit_signal)(
+            team=report.team,
+            source_product=SignalSourceProduct.SIGNALS_CHECK,
+            source_type=SignalSourceType.CHECK_FAILED,
+            source_id=f"check:{check.id}",
+            description=description,
+            weight=CHECK_FAILURE_SIGNAL_WEIGHT,
+            extra={
+                "check_id": str(check.id),
+                "report_id": str(report.id),
+                "check_title": check.title,
+                "explanation": verdict.explanation,
+                "observed_value": verdict.observed_value,
+                "baseline_value": baseline_value,
+                "threshold": threshold,
+            },
+            idempotency_key=str(check.id),
+        )
+    except Exception:
+        logger.exception("signals.report_check.resurface_failed", check_id=str(check.id), team_id=check.team_id)
 
 
 def expire_overdue_checks(now: datetime) -> int:
-    """Retire active checks whose horizon passed without a run. Returns how many were retired."""
+    """Retire open checks whose horizon passed without a run. Returns how many were retired.
+
+    Pending rows are swept too, so a check waiting on a report that never resolves retires at the
+    horizon instead of waiting forever for a clock that will not start.
+    """
 
     overdue = list(
-        SignalReportCheck.all_teams.filter(status=SignalReportCheck.Status.ACTIVE, expires_at__lte=now).values_list(
-            "id", flat=True
+        SignalReportCheck.all_teams.filter(status__in=SignalReportCheck.OPEN_STATUSES, expires_at__lte=now).values_list(
+            "id", "team_id", "last_run_at"
         )[:MAX_CHECK_EXPIRIES_PER_TICK]
     )
     if not overdue:
         return 0
-    return SignalReportCheck.all_teams.filter(id__in=overdue, status=SignalReportCheck.Status.ACTIVE).update(
-        status=SignalReportCheck.Status.EXPIRED, updated_at=now
-    )
+    # The horizon is re-checked in the write. A report can resolve between the read and the write,
+    # which arms its pending checks and moves `expires_at` forward, and an update filtered on id and
+    # status alone would retire a check that has just been given a clock.
+    expired = SignalReportCheck.all_teams.filter(
+        id__in=[check_id for check_id, _, _ in overdue],
+        status__in=SignalReportCheck.OPEN_STATUSES,
+        expires_at__lte=now,
+    ).update(status=SignalReportCheck.Status.EXPIRED, updated_at=now)
+    if expired:
+        _report_expired_checks(overdue)
+    return expired
+
+
+def _report_expired_checks(overdue: list[tuple[uuid.UUID, int, datetime | None]]) -> None:
+    """Emit one expiry event per project for the rows a sweep selected.
+
+    Counted from the selection rather than the write, so a row armed in between is over-counted by
+    one. That is acceptable for telemetry and saves a second read of every retired row.
+    """
+    per_team: dict[int, list[datetime | None]] = {}
+    for _, team_id, last_run_at in overdue:
+        per_team.setdefault(team_id, []).append(last_run_at)
+    try:
+        teams = Team.objects.filter(id__in=per_team.keys()).select_related("organization")
+        for team in teams:
+            last_runs = per_team[team.id]
+            capture_report_checks_expired(
+                team,
+                expired_count=len(last_runs),
+                never_ran_count=sum(1 for last_run_at in last_runs if last_run_at is None),
+            )
+    except Exception:
+        logger.exception("signals.report_check.expired_report_failed")
 
 
 def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -> list[SignalReportCheck]:

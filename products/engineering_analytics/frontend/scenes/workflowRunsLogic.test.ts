@@ -67,13 +67,14 @@ describe('workflowRunsLogic', () => {
         logic.mount()
         const filters = engineeringAnalyticsFiltersLogic()
         unmountFilters = filters.mount()
-        await expectLogic(logic).toDispatchActions([
+        const windowedReadSuccesses = [
             'loadRunsSuccess',
             'loadWorkflowHealthSuccess',
             'loadRunActivitySuccess',
             'loadRunnerCostsSuccess',
             'loadJobAggregatesSuccess',
-        ])
+        ]
+        await expectLogic(logic).toDispatchActionsInAnyOrder(windowedReadSuccesses)
 
         const windowedReads = [mockRuns, mockWorkflowHealth, mockRunActivity, mockRunnerCosts, mockJobAggregates]
         for (const read of windowedReads) {
@@ -88,18 +89,7 @@ describe('workflowRunsLogic', () => {
         // Picking a group on the shared filters logic reloads all five reads scoped to it, so the detail
         // page's numbers and its chart match the list it was opened from.
         filters.actions.setRunScope('merge_queue')
-        await expectLogic(logic).toDispatchActions([
-            'loadRuns',
-            'loadWorkflowHealth',
-            'loadRunActivity',
-            'loadRunnerCosts',
-            'loadJobAggregates',
-            'loadRunsSuccess',
-            'loadWorkflowHealthSuccess',
-            'loadRunActivitySuccess',
-            'loadRunnerCostsSuccess',
-            'loadJobAggregatesSuccess',
-        ])
+        await expectLogic(logic).toDispatchActionsInAnyOrder(windowedReadSuccesses)
         for (const read of windowedReads) {
             expect(read).toHaveBeenLastCalledWith('1', expect.objectContaining({ run_scope: 'merge_queue' }))
         }

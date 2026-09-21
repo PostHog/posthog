@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlencode
 
@@ -6,7 +7,12 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.settings import CODACY_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.settings import (
+    CODACY_ENDPOINTS,
+    METRICS_LOOKBACK_DAYS,
+    METRICS_PERIOD,
+    CodacyEndpointConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -46,11 +52,13 @@ def _fetch_page(
     url: str,
     headers: dict[str, str],
     logger: FilteringBoundLogger,
+    body: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     if method == "POST":
         # searchRepositoryIssues takes its filters in the body; an empty filter returns every
-        # current issue. Pagination params stay in the query string.
-        response = session.post(url, headers=headers, json={}, timeout=REQUEST_TIMEOUT_SECONDS)
+        # current issue. The metrics time series requires a populated body. Pagination params
+        # stay in the query string either way.
+        response = session.post(url, headers=headers, json=body or {}, timeout=REQUEST_TIMEOUT_SECONDS)
     else:
         response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
@@ -59,8 +67,8 @@ def _fetch_page(
         raise CodacyRetryableError(f"Codacy API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        # 404 during a repository fan-out is expected (repository removed from Codacy mid-sync)
-        # and handled by the caller; anything else is a hard failure.
+        # 404 during a fan-out is expected (the parent was removed from Codacy mid-sync) and
+        # handled by the caller; anything else is a hard failure.
         log = logger.warning if response.status_code == 404 else logger.error
         log(f"Codacy API error: status={response.status_code}, body={response.text}, url={url}")
         response.raise_for_status()
@@ -69,6 +77,8 @@ def _fetch_page(
 
 
 def _build_url(path: str, params: dict[str, Any]) -> str:
+    if not params:
+        return f"{CODACY_BASE_URL}{path}"
     return f"{CODACY_BASE_URL}{path}?{urlencode(params)}"
 
 
@@ -80,6 +90,7 @@ def _paginate(
     method: str = "GET",
     extra_params: Optional[dict[str, str]] = None,
     max_pages: Optional[int] = None,
+    body: Optional[dict[str, Any]] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     """Yield one list of items per page, following Codacy's cursor pagination.
 
@@ -94,7 +105,7 @@ def _paginate(
         if cursor:
             params["cursor"] = cursor
 
-        data = _fetch_page(session, method, _build_url(path, params), headers, logger)
+        data = _fetch_page(session, method, _build_url(path, params), headers, logger, body)
         items = data.get("data", [])
         if items:
             yield items
@@ -109,21 +120,44 @@ def _paginate(
             break
 
 
-def _normalize_item(endpoint: str, item: dict[str, Any], repository: Optional[str] = None) -> dict[str, Any]:
-    """Lift the envelope's entity object to the top level and stamp the repository name onto
-    fan-out rows, so primary keys are plain top-level columns."""
+def _normalize_item(endpoint: str, item: dict[str, Any], stamp: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    """Lift the envelope's entity object to the top level and stamp the fan-out parent's
+    identifiers onto the row, so primary keys are plain top-level columns."""
+    stamp = stamp or {}
     if endpoint == "repositories":
         nested = item.pop("repository", None) or {}
         return {**nested, **item}
     if endpoint == "pull_requests":
         nested = item.pop("pullRequest", None) or {}
-        return {"repository": repository, **nested, **item}
+        return {**stamp, **nested, **item}
     if endpoint == "commits":
         nested = item.pop("commit", None) or {}
-        return {"repository": repository, **nested, **item}
-    if repository is not None:
-        return {"repository": repository, **item}
-    return item
+        return {**stamp, **nested, **item}
+    if endpoint == "commit_delta_issues":
+        nested = item.pop("commitIssue", None) or {}
+        return {**stamp, **nested, **item}
+    if endpoint == "metrics_timerange":
+        group = item.pop("group", None) or {}
+        return {
+            **stamp,
+            "organization": group.get("organization"),
+            # A null key column never matches on merge, so an ungrouped value would be
+            # re-inserted on every sync; key it on an empty repository name instead.
+            "repository": group.get("repository") or "",
+            "dimensions": group.get("dimensions"),
+            **item,
+        }
+    return {**stamp, **item}
+
+
+def _skip_missing_parent(
+    exc: requests.HTTPError, logger: FilteringBoundLogger, endpoint: str, description: str
+) -> None:
+    """Swallow a 404 raised while fetching a fan-out parent's children; re-raise anything else."""
+    if exc.response is not None and exc.response.status_code == 404:
+        logger.warning(f"Codacy: {description} not found while fetching {endpoint}, skipping")
+        return
+    raise exc
 
 
 def _iter_repository_names(
@@ -141,27 +175,83 @@ def _iter_repository_names(
                 yield name
 
 
-def get_rows(
-    api_token: str,
+def _iter_tool_uuids(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> Iterator[str]:
+    for page in _paginate(session, headers, logger, "/tools"):
+        for tool in page:
+            uuid = tool.get("uuid")
+            if uuid:
+                yield uuid
+
+
+def _collect_commit_shas(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
     provider: str,
     organization: str,
-    endpoint: str,
+    repository: str,
+    limit: int,
+) -> list[str]:
+    path = f"/analysis/organizations/{provider}/{organization}/repositories/{repository}/commits"
+    shas: list[str] = []
+    for page in _paginate(session, headers, logger, path):
+        for entry in page:
+            sha = (entry.get("commit") or {}).get("sha")
+            if sha:
+                shas.append(sha)
+            if len(shas) >= limit:
+                logger.warning(
+                    f"Codacy: commit cap reached for repository={repository}, max_commits={limit}; "
+                    "older commits are not expanded"
+                )
+                return shas
+    return shas
+
+
+def _list_ready_metrics(
+    session: requests.Session,
+    headers: dict[str, str],
     logger: FilteringBoundLogger,
+    provider: str,
+    organization: str,
+) -> list[str]:
+    path = f"/organizations/{provider}/{organization}/metrics/ready"
+    try:
+        data = _fetch_page(session, "GET", _build_url(path, {}), headers, logger)
+    except requests.HTTPError as exc:
+        # Metrics are an opt-in Codacy feature; an organization without it answers 403/404 here.
+        # Sync an empty table rather than failing the schema.
+        if exc.response is not None and exc.response.status_code in (403, 404):
+            logger.warning(f"Codacy: no metrics available for organization {organization}, skipping")
+            return []
+        raise
+    return (data.get("data") or {}).get("readyMetrics") or []
+
+
+def _metrics_request_body() -> dict[str, Any]:
+    today = datetime.now(UTC).date()
+    return {
+        "filter": {"entityFilter": {}},
+        "groupBy": {"groupBy": ["repository"]},
+        "from": (today - timedelta(days=METRICS_LOOKBACK_DAYS)).isoformat(),
+        "to": today.isoformat(),
+        "period": METRICS_PERIOD,
+    }
+
+
+def _fan_out_over_repositories(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    provider: str,
+    organization: str,
+    endpoint_config: CodacyEndpointConfig,
 ) -> Iterator[list[dict[str, Any]]]:
-    endpoint_config = CODACY_ENDPOINTS[endpoint]
-    headers = _get_headers(api_token)
-    # One session reused across every page (and repository) so urllib3 keeps the connection
-    # alive instead of re-handshaking per request. The token rides the custom `api-token`
-    # header, which the capture pipeline's name-based denylist doesn't know, so redact it
-    # by value.
-    session = make_tracked_session(redact_values=(api_token,))
-
-    if not endpoint_config.fan_out_per_repository:
-        path = endpoint_config.path.format(provider=provider, organization=organization)
-        for page in _paginate(session, headers, logger, path, endpoint_config.method, endpoint_config.extra_params):
-            yield [_normalize_item(endpoint, item) for item in page]
-        return
-
+    endpoint = endpoint_config.name
     for repository in _iter_repository_names(session, headers, logger, provider, organization):
         path = endpoint_config.path.format(provider=provider, organization=organization, repository=repository)
         try:
@@ -172,16 +262,137 @@ def get_rows(
                 path,
                 endpoint_config.method,
                 endpoint_config.extra_params,
-                max_pages=endpoint_config.max_pages_per_repository,
+                max_pages=endpoint_config.max_pages_per_parent,
             ):
-                yield [_normalize_item(endpoint, item, repository=repository) for item in page]
+                yield [_normalize_item(endpoint, item, {"repository": repository}) for item in page]
         except requests.HTTPError as exc:
-            # A repository removed from Codacy between enumeration and this fetch 404s; skip it
-            # rather than failing the whole sync. Anything else is re-raised.
-            if exc.response is not None and exc.response.status_code == 404:
-                logger.warning(f"Codacy: repository {repository} not found while fetching {endpoint}, skipping")
-            else:
-                raise
+            _skip_missing_parent(exc, logger, endpoint, f"repository {repository}")
+
+
+def _fan_out_over_commits(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    provider: str,
+    organization: str,
+    endpoint_config: CodacyEndpointConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    endpoint = endpoint_config.name
+    for repository in _iter_repository_names(session, headers, logger, provider, organization):
+        try:
+            shas = _collect_commit_shas(
+                session,
+                headers,
+                logger,
+                provider,
+                organization,
+                repository,
+                endpoint_config.max_commits_per_repository,
+            )
+        except requests.HTTPError as exc:
+            _skip_missing_parent(exc, logger, endpoint, f"repository {repository}")
+            continue
+
+        for sha in shas:
+            path = endpoint_config.path.format(
+                provider=provider, organization=organization, repository=repository, commit=sha
+            )
+            try:
+                for page in _paginate(
+                    session,
+                    headers,
+                    logger,
+                    path,
+                    endpoint_config.method,
+                    endpoint_config.extra_params,
+                    max_pages=endpoint_config.max_pages_per_parent,
+                ):
+                    yield [
+                        _normalize_item(endpoint, item, {"repository": repository, "commitSha": sha}) for item in page
+                    ]
+            except requests.HTTPError as exc:
+                _skip_missing_parent(exc, logger, endpoint, f"commit {sha} of repository {repository}")
+
+
+def _fan_out_over_tools(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    endpoint_config: CodacyEndpointConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    endpoint = endpoint_config.name
+    for tool_uuid in _iter_tool_uuids(session, headers, logger):
+        path = endpoint_config.path.format(tool_uuid=tool_uuid)
+        try:
+            for page in _paginate(
+                session,
+                headers,
+                logger,
+                path,
+                endpoint_config.method,
+                endpoint_config.extra_params,
+                max_pages=endpoint_config.max_pages_per_parent,
+            ):
+                yield [_normalize_item(endpoint, item, {"toolUuid": tool_uuid}) for item in page]
+        except requests.HTTPError as exc:
+            _skip_missing_parent(exc, logger, endpoint, f"tool {tool_uuid}")
+
+
+def _fan_out_over_metrics(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    provider: str,
+    organization: str,
+    endpoint_config: CodacyEndpointConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    endpoint = endpoint_config.name
+    body = _metrics_request_body()
+    for metric in _list_ready_metrics(session, headers, logger, provider, organization):
+        path = endpoint_config.path.format(provider=provider, organization=organization, metric=metric)
+        try:
+            for page in _paginate(
+                session,
+                headers,
+                logger,
+                path,
+                endpoint_config.method,
+                endpoint_config.extra_params,
+                max_pages=endpoint_config.max_pages_per_parent,
+                body=body,
+            ):
+                yield [_normalize_item(endpoint, item, {"metricName": metric}) for item in page]
+        except requests.HTTPError as exc:
+            _skip_missing_parent(exc, logger, endpoint, f"metric {metric}")
+
+
+def get_rows(
+    api_token: str,
+    provider: str,
+    organization: str,
+    endpoint: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    endpoint_config = CODACY_ENDPOINTS[endpoint]
+    headers = _get_headers(api_token)
+    # One session reused across every page (and fan-out parent) so urllib3 keeps the connection
+    # alive instead of re-handshaking per request. The token rides the custom `api-token`
+    # header, which the capture pipeline's name-based denylist doesn't know, so redact it
+    # by value.
+    session = make_tracked_session(redact_values=(api_token,))
+
+    if endpoint_config.fan_out == "repository":
+        yield from _fan_out_over_repositories(session, headers, logger, provider, organization, endpoint_config)
+    elif endpoint_config.fan_out == "commit":
+        yield from _fan_out_over_commits(session, headers, logger, provider, organization, endpoint_config)
+    elif endpoint_config.fan_out == "tool":
+        yield from _fan_out_over_tools(session, headers, logger, endpoint_config)
+    elif endpoint_config.fan_out == "metric":
+        yield from _fan_out_over_metrics(session, headers, logger, provider, organization, endpoint_config)
+    else:
+        path = endpoint_config.path.format(provider=provider, organization=organization)
+        for page in _paginate(session, headers, logger, path, endpoint_config.method, endpoint_config.extra_params):
+            yield [_normalize_item(endpoint, item) for item in page]
 
 
 def codacy_source(

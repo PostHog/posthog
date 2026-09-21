@@ -27,6 +27,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads
     OpenAIAdsEndpointConfig,
 )
 
+# Shared with the source's 401 and 403 entries in `get_non_retryable_errors` so a rejected key reads
+# the same whether it surfaces while the source is being set up or during a later sync.
+INVALID_CREDENTIALS_ERROR = (
+    "Your OpenAI Ads API key is invalid or has been revoked. Create a new API key in the Settings "
+    "tab of OpenAI Ads Manager, then reconnect."
+)
+NO_ACCESS_ERROR = (
+    "Your OpenAI Ads API key does not have access to this ad account. Create a key for this ad "
+    "account in the Settings tab of OpenAI Ads Manager, then reconnect."
+)
+UNREACHABLE_ERROR = (
+    "Couldn't reach OpenAI Ads to validate your API key. This is usually temporary, so try again in a moment."
+)
+
 # Floor for the insights window on a full refresh. OpenAI Ads launched to advertisers in 2026, so
 # no reporting data can predate this; the whole window rides a single date_range request, so a
 # generous floor costs nothing while staying within the API's 5-year time-range bound.
@@ -104,17 +118,23 @@ def _headers() -> dict[str, str]:
     return {"Accept": "application/json"}
 
 
-def validate_credentials(api_key: str) -> bool:
+def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     # One cheap probe against the campaigns list confirms the key is genuine. 200 => valid.
     # 403 => a real key the API recognizes but with restricted access; accept it at create time
     # (sync-time 403s are caught by get_non_retryable_errors). 401 => bad key.
-    ok, _status = validate_via_probe(
+    ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
         f"{OPENAI_ADS_BASE_URL}/v1/campaigns?limit=1",
         headers={"Authorization": f"Bearer {api_key}", **_headers()},
         ok_statuses=(200, 403),
     )
-    return ok
+    if ok:
+        return True, None
+    if status == 401:
+        return False, INVALID_CREDENTIALS_ERROR
+    # Anything else — a timeout, connection error, rate limit, or 5xx — says nothing about the key,
+    # so point at retrying rather than sending the user off to replace a key that works.
+    return False, UNREACHABLE_ERROR
 
 
 def _to_utc_date(value: Any) -> date:
