@@ -38,8 +38,8 @@ if (!isInterview) {
 //   - `maskCapturedNetworkRequestFn` is also the hook posthog-js uses for ALL replay URL
 //     surfaces — captured network requests, the rrweb `EventType.Meta` header, `$url_changed`
 //     custom events on SPA route transitions, and masked $current_url in captured console events.
-//   - `metrics.network.attributes` overrides the `path` attribute posthog-js records on every
-//     automatic fetch/XHR duration metric. The default `path` only templates numeric or
+//   - `metrics.network.attributes` overrides the `url.template` attribute posthog-js records on every
+//     automatic fetch/XHR duration metric. The default `url.template` only templates numeric or
 //     uuid-like segments to `:id`, and the access token (a `secrets.token_urlsafe` string) does
 //     not match that pattern, so without this override the token would reach the Metrics UI.
 // Together they cover every surface where the token could land for a viewer to reuse.
@@ -65,7 +65,7 @@ const interviewMaskNetworkRequest = (req: CapturedNetworkRequest): CapturedNetwo
     return req
 }
 const interviewNetworkMetricsAttributes: NonNullable<NetworkMetricsConfig['attributes']> = (request) => ({
-    path: redactInterviewToken(new URL(request.url).pathname),
+    'url.template': redactInterviewToken(new URL(request.url).pathname),
 })
 
 loadPostHogJS({

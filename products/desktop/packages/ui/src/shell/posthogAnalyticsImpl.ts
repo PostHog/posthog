@@ -146,7 +146,7 @@ function templateOwnApiPath(pathname: string): string | undefined {
 }
 
 /**
- * Path attribute for the automatic network-duration metric. posthog-js's default
+ * `url.template` attribute for the automatic network-duration metric. posthog-js's default
  * path templating only replaces numeric/uuid-like segments, so a presigned
  * task-artifact download/preview URL (whose path embeds the artifact's original,
  * user-controlled filename — see `_build_artifact_storage_path` in
@@ -210,7 +210,7 @@ export function initializePostHog(sessionId?: string) {
       network: {
         attributes: (request) => {
           const path = networkMetricPath(request);
-          return path === undefined ? undefined : { path };
+          return path === undefined ? undefined : { "url.template": path };
         },
       },
     },

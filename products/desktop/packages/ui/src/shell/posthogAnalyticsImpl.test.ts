@@ -342,7 +342,7 @@ describe("metrics.network.attributes callback", () => {
     },
   );
 
-  it("returns { path: 'external' } for requests to other hosts", async () => {
+  it("returns { 'url.template': 'external' } for requests to other hosts", async () => {
     const { initializePostHog } = await loadAnalytics();
 
     initializePostHog();
@@ -354,7 +354,7 @@ describe("metrics.network.attributes callback", () => {
       method: "GET",
     });
 
-    expect(result).toEqual({ path: "external" });
+    expect(result).toEqual({ "url.template": "external" });
   });
 });
 
