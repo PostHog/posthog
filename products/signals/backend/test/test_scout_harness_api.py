@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -286,7 +287,6 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
 def _make_emission(team: Team, run: SignalScoutRun, *, finding_id: str, **overrides) -> SignalScoutEmission:
     defaults: dict = {
         "description": "Checkout 500s post-deploy",
-        "weight": 0.7,
         "confidence": 0.85,
         "severity": "P1",
         "source_id": f"run:{run.id}:finding:{finding_id}",
@@ -310,7 +310,7 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
         first = body[0]
         assert first["run_id"] == str(run.id)
         assert first["description"] == "Checkout 500s post-deploy"
-        assert first["weight"] == 0.7
+        assert "weight" not in first
         assert first["confidence"] == 0.85
         assert first["severity"] == "P1"
         assert first["tags"] == ["cost-spike"]
@@ -2429,6 +2429,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             body="# test scout",
         )
 
+    @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
     def test_display_name_update_preserves_identity_and_running_history(self) -> None:
         skill = self._make_skill("signals-scout-daily-digest")
         config = SignalScoutConfig.objects.create(
@@ -2447,15 +2448,21 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             item for item in self.client.get(self._list_url()).json() if item["id"] == str(config.id)
         )
         assert original_config["display_name"] == ""
+        assert original_config["updated_at"] == "2026-09-01T12:00:00Z"
 
-        response = self.client.patch(
-            self._detail_url(str(config.id)), data={"display_name": "  Checkout / daily digest  "}, format="json"
-        )
+        with time_machine.travel("2026-09-01T13:00:00Z", tick=False):
+            response = self.client.patch(
+                self._detail_url(str(config.id)), data={"display_name": "  Checkout / daily digest  "}, format="json"
+            )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {**original_config, "display_name": "Checkout / daily digest"}
+        assert response.json() == {
+            **original_config,
+            "display_name": "Checkout / daily digest",
+            "updated_at": "2026-09-01T13:00:00Z",
+        }
         saved_config = next(item for item in self.client.get(self._list_url()).json() if item["id"] == str(config.id))
-        assert saved_config["display_name"] == "Checkout / daily digest"
+        assert saved_config == response.json()
         config.refresh_from_db()
         skill.refresh_from_db()
         run.refresh_from_db()

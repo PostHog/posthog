@@ -1,7 +1,7 @@
 import os
 
 from posthog.settings.access import SECRET_KEY
-from posthog.settings.base_variables import CLOUD_DEPLOYMENT, DEBUG
+from posthog.settings.base_variables import CLOUD_DEPLOYMENT, DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 TEMPORAL_NAMESPACE: str = os.getenv("TEMPORAL_NAMESPACE", "default")
@@ -306,7 +306,10 @@ LOGS_VOLUME_TICK_TASK_QUEUE = _set_temporal_task_queue(
 RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process
 # Replay Vision observation media (thumbnails, clips). Kept off the shared rasterization
 # queue so media never competes with customer exports and session video summaries.
-RASTERIZATION_MEDIA_TASK_QUEUE = "rasterization-media-task-queue"
+# Collapsed in dev, where a single rasterizer serves every queue: nothing polls the media
+# queue locally, so the render would strand and the poster would never appear. Tests keep the
+# split, because what they assert about routing is the production behaviour.
+RASTERIZATION_MEDIA_TASK_QUEUE = RASTERIZATION_TASK_QUEUE if DEBUG and not TEST else "rasterization-media-task-queue"
 
 # Error tracking
 # Global on/off switch for auto-merging close fingerprints into their nearest issue.

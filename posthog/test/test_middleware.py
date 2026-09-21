@@ -693,6 +693,17 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertEqual(ph_instance_cookie["secure"], True)
         self.assertEqual(ph_instance_cookie["max-age"], 31536000)
 
+        ph_authenticated_cookie = response.cookies["ph_authenticated_us"]
+        self.assertEqual(ph_authenticated_cookie.value, "1")
+        self.assertEqual(ph_authenticated_cookie["path"], "/")
+        self.assertEqual(ph_authenticated_cookie["samesite"], "Lax")
+        self.assertEqual(ph_authenticated_cookie["httponly"], True)
+        self.assertEqual(ph_authenticated_cookie["domain"], "posthog.com")
+        self.assertEqual(ph_authenticated_cookie["secure"], True)
+        self.assertNotIn("ph_authenticated_eu", response.cookies)
+        self.assertLessEqual(ph_authenticated_cookie["max-age"], settings.SESSION_COOKIE_AGE)
+        self.assertGreater(ph_authenticated_cookie["max-age"], settings.SESSION_COOKIE_AGE - 60)
+
         ph_last_login_method_cookie = response.cookies["ph_last_login_method"]
         self.assertEqual(ph_last_login_method_cookie.key, "ph_last_login_method")
         self.assertEqual(ph_last_login_method_cookie.value, "password")
@@ -732,6 +743,8 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertTrue(response.cookies["ph_current_project_name"]["expires"] == "Thu, 01 Jan 1970 00:00:00 GMT")
         # We don't want to remove the ph_current_instance cookie
         self.assertNotIn("ph_current_instance", response.cookies)
+        # ...but the region cookie has to go, or the OAuth picker redirects into a signed-out region
+        self.assertEqual(response.cookies["ph_authenticated_us"]["expires"], "Thu, 01 Jan 1970 00:00:00 GMT")
 
         # Request a page after logging out
         response = self.client.get("/")
@@ -1066,6 +1079,11 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
                 {},
             ),
             (
+                "warehouse_saved_queries_check_incremental",
+                "warehouse_saved_queries/check_incremental/",
+                {"query": "select 1"},
+            ),
+            (
                 "exports",
                 "exports/",
                 {"export_format": "video/mp4", "export_context": {"session_recording_id": "test-session"}},
@@ -1097,13 +1115,17 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             ("logs_alerts", "logs/alerts/"),
             ("logs_views", "logs/views/"),
             ("logs_sampling_rules", "logs/sampling_rules/"),
+            (
+                "warehouse_saved_query_materialize",
+                "warehouse_saved_queries/00000000-0000-0000-0000-000000000000/materialize/",
+            ),
         ]
     )
-    def test_read_only_impersonation_blocks_logs_crud_siblings(self, _name, path_suffix):
+    def test_read_only_impersonation_blocks_mutating_siblings(self, _name, path_suffix):
         self.login_as_other_user_read_only()
 
-        # The logs query allowlist enumerates action names precisely because the same
-        # `logs/` prefix hosts these writing viewsets.
+        # Every allowlist entry names its action exactly, because each of these prefixes also
+        # hosts mutating actions. Widening one to its prefix would reach these.
         response = self.client.post(
             f"/api/projects/{self.team.id}/{path_suffix}",
             data={},

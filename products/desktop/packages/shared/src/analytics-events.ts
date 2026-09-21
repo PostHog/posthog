@@ -74,6 +74,7 @@ export type CommandMenuAction =
   | "open-loops"
   | "open-usage"
   | "open-cost-management"
+  | "send-feedback"
   | "search-files"
   | "open-file"
   | "reload-window"
@@ -385,6 +386,35 @@ export interface SettingChangedProperties {
   setting_name: string;
   new_value: string | boolean | number;
   old_value?: string | boolean | number;
+}
+
+type SettingsBackupScope = "all" | "sounds";
+
+export interface SettingsBackupExportProperties {
+  scope: SettingsBackupScope;
+  sound_count: number;
+}
+
+export interface SettingsBackupExportFailedProperties
+  extends SettingsBackupExportProperties {
+  error: string;
+}
+
+export interface SettingsBackupImportedProperties {
+  scope: SettingsBackupScope;
+  setting_count: number;
+  sound_count: number;
+  added_sound_count: number;
+  warning_count: number;
+  backup_app_version: string;
+  version_matches: boolean;
+}
+
+export interface SettingsBackupImportFailedProperties {
+  scope: SettingsBackupScope;
+  /** "open" = reading and validating the file; "apply" = writing the settings. */
+  stage: "open" | "apply";
+  error: string;
 }
 
 export interface CloudCredentialRelayProperties {
@@ -748,6 +778,7 @@ export type InboxReportActionType =
   | "reingest"
   | "implement"
   | "create_pr"
+  | "refund"
   | "open_pr"
   | "open_task"
   | "copy_link"
@@ -907,6 +938,9 @@ export interface InboxReportActionProperties {
   list_size: number;
   triage_id?: string;
   dismissal_reason?: string;
+  dismissal_note?: string;
+  refund_reason?: string;
+  refund_note?: string;
   signal_id?: string;
   signal_source_product?: string;
   signal_source_type?: string;
@@ -954,7 +988,7 @@ export interface InboxReportFeedbackProperties {
 }
 
 /**
- * Optional note metadata, offered only once a rating is already recorded. It
+ * Optional note, offered only once a rating is already recorded. It
  * rides on its own event rather than re-firing {@link InboxReportFeedbackProperties}
  * so sentiment stays exactly one event per rating; join back to the rating on
  * `report_id`. Carries `sentiment` too so a note can be read without that join.
@@ -967,7 +1001,7 @@ export interface InboxReportFeedbackNoteProperties {
   sentiment: InboxReportFeedbackSentiment;
   has_pr: boolean;
   surface: InboxReportActionSurface;
-  note_length: number;
+  note: string;
 }
 
 // Scout events
@@ -1644,6 +1678,10 @@ export const ANALYTICS_EVENTS = {
   // Settings events
   SETTING_CHANGED: "Setting changed",
   CUSTOM_SOUND_ADDED: "Custom sound added",
+  SETTINGS_BACKUP_EXPORTED: "Settings backup exported",
+  SETTINGS_BACKUP_EXPORT_FAILED: "Settings backup export failed",
+  SETTINGS_BACKUP_IMPORTED: "Settings backup imported",
+  SETTINGS_BACKUP_IMPORT_FAILED: "Settings backup import failed",
   CUSTOM_SOUND_RECORDING_SILENT: "Custom sound recording silent",
   CODEX_SUBSCRIPTION_CONNECTED: "Codex subscription connected",
   CODEX_SUBSCRIPTION_SIGNED_OUT: "Codex subscription signed out",
@@ -1864,6 +1902,10 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_REMOVED]: never;
   [ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY]: CloudCredentialRelayProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_ADDED]: CustomSoundAddedProperties;
+  [ANALYTICS_EVENTS.SETTINGS_BACKUP_EXPORTED]: SettingsBackupExportProperties;
+  [ANALYTICS_EVENTS.SETTINGS_BACKUP_EXPORT_FAILED]: SettingsBackupExportFailedProperties;
+  [ANALYTICS_EVENTS.SETTINGS_BACKUP_IMPORTED]: SettingsBackupImportedProperties;
+  [ANALYTICS_EVENTS.SETTINGS_BACKUP_IMPORT_FAILED]: SettingsBackupImportFailedProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_RECORDING_SILENT]: never;
   [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_CONNECTED]: never;
   [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_SIGNED_OUT]: never;

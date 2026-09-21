@@ -119,6 +119,18 @@ Full details in [PRECOMPUTATION.md](../../products/web_analytics/PRECOMPUTATION.
 - OOM protection: a team that OOMs during a build gets Redis-pinned for 14 days to 1-day insert windows.
 - Max range: 90 days; wider requests are permanently live.
 
+## Session-grain precompute schema
+
+`web_sessions_dimensional_preaggregated` preserves individual sessions and person identity for attribution reads.
+Its sharded storage table lives on the aux cluster; distributed tables on aux and data nodes point to it.
+This schema is a prerequisite for the session writer and reader; creating it does not enable either path.
+
+`session_id_v7` uses `UInt128`, matching the raw Sessions v2 and v3 tables and the numeric representation in `events.$session_id_uuid`.
+Writers must preserve that representation and only materialize valid UUIDv7 sessions; a null or invalid ID must not become a shared zero-valued ID.
+Sessions v1 and arbitrary string IDs require the live query path unless a separate compatible precompute path is available.
+The writer, reader, and HogQL schema must use `session_id_v7` consistently before this precompute path is enabled.
+The table uses `TTL toDateTime(expires_at)` with whole-part expiry; the lazy computation executor includes the in-flight reader buffer in `expires_at`.
+
 ## Background warming systems
 
 Four writers keep buckets warm; user reads only ever consume.
