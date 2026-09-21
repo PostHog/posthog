@@ -33,13 +33,14 @@ A warehouse row has no body and may lack the file paths, so this rung is discove
 
 ## Rung 3: connected GitHub integration
 
-`integrations-list` names the project's integrations; take the `id` of each one whose kind is `github` (the project profile shows only kinds, not ids) and pass it to `integrations-github-repos-retrieve`, which lists the repositories that GitHub App can see.
+`integrations-list` names the project's integrations; take the `id` of each one whose kind is `github` (the project profile shows only kinds, not ids) and pass it to `integrations-github-repos-retrieve`, which lists the repositories that GitHub App can see, 100 per page: follow `has_more` with successive `offset` values until it is false before you write the roster, or an installation with more repositories than one page silently loses the rest.
 
 Write the **whole** discovered list to `roster:pr_follow_up:repos` with a rotation pointer, and never into `config:pr_follow_up:repos`, which is the human-curated list that outranks discovery: a run that recorded only the slice it had budget for would silently drop the rest of the roster forever.
 When the roster is larger than one run can list, take the next slice from the rotation pointer each run and advance it.
 
-For each repository the listing is `gh pr list --repo <owner>/<repo> --state merged --limit 100 --json number,title,body,author,mergedAt,mergeCommit,url,labels,isDraft,additions,deletions,changedFiles,files,closingIssuesReferences,updatedAt`; `body` and `files` ride along on this first page, so those rows need no detail fetch (`files` stops at 100 paths per PR).
-That listing is bounded, so when its oldest `updatedAt` is still inside the window, continue with `gh api 'repos/<owner>/<repo>/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=<n>'`, keep rows with a `merged_at`, and apply the paging rule above; rows from these pages carry a body but no file paths, so they join the hydration pool below.
+For each repository the listing is one stream under one ordering: `gh api 'repos/<owner>/<repo>/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=<n>'` from page 1, keeping rows with a `merged_at` and applying the paging rule above.
+Do not start from `gh pr list`: it orders by creation time, so mixing its first page with an update-sorted continuation can drop a PR that was created long ago but merged inside the window.
+These rows carry the title, body, author, merge SHA, and timestamps but no file paths, so a row that reaches the judged pool is hydrated below.
 The sandbox token is read-only and rate-limited, so cap the repositories you enumerate per run.
 
 ## Rung 4: PRs the inbox already knows
@@ -52,8 +53,9 @@ Those PRs are in scope for side effects; the report's own claim is the inbox-val
 
 The claim table needs the body and linked issue text, and the docs-only filter and the side-effect sweep need the file paths, but a detail fetch per merge in the window would spend the rate-limited token and the run's tool budget before any telemetry is read.
 Filter on listing metadata first (bots by author, `noise:` and terminal or not-yet-due `recheck` keys by exact lookup), then hydrate only the pool this run can judge: the deferred PRs first, then the top-ranked candidates up to about twice the per-run cap.
-Hydrate a PR that lacks a body or file paths with `gh pr view <n> --repo <owner>/<repo> --json number,title,body,author,mergedAt,mergeCommit,labels,files,closingIssuesReferences,url`, or read the same fields from the pinned tree and the warehouse row where they exist, and keep the body and the file paths for the claim and side-effect steps.
-`closingIssuesReferences` names issues without their text: for each one, `gh issue view <issue> --repo <owner>/<repo> --json title,body` so the claim table reads the intent the author linked, not only the PR body.
+Hydrate a PR that lacks a body or file paths with `gh pr view <n> --repo <owner>/<repo> --json number,title,body,author,mergedAt,mergeCommit,labels,files,changedFiles,closingIssuesReferences,url`, or read the same fields from the pinned tree and the warehouse row where they exist, and keep the body and the file paths for the claim and side-effect steps.
+`files` stops at 100 paths: when `changedFiles` is larger than the paths returned, page `gh api 'repos/<owner>/<repo>/pulls/<n>/files?per_page=100&page=<k>'` (or `git -C <path> show --name-only <merge_sha>` on a pinned tree) until you hold every path, because a docs-only verdict or a side-effect sweep on a truncated list is wrong in both directions.
+`closingIssuesReferences` names issues without their text, and each reference carries its own repository, which can differ from the PR's: for each one, `gh issue view <issue> --repo <that issue's owner/repo> --json title,body` so the claim table reads the intent the author linked, not only the PR body, and never a same-numbered issue from the wrong repository.
 
 When no source can supply a PR's body and file paths (a warehouse source on a project whose `gh` token is unavailable), the PR is judged **title-only**: classify the claim from the title, skip the docs-only filter, limit the side-effect sweep to the entities the title names, and say `title-only` in the `pr:` entry, because a clean sweep you could not run is not a clean sweep.
 

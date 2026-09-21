@@ -12,16 +12,16 @@ Two rules hold on every rung.
 `execute-sql` over `<prefix>github_deployments` joined to `<prefix>github_deployment_statuses` (table naming in `sources.md`).
 The statuses table holds one row per transition, so take the **latest** status per deployment (`argMax(state, created_at)`) and keep only deployments whose latest status is `success`; a deployment that later read `failure`, `error`, or `inactive` is not live.
 Candidates are those deployments created after the merge in a persistent production-named environment.
-The onset is the earliest candidate whose `sha` contains the merge.
+The onset is the `created_at` of the qualifying `success` status row of the earliest candidate whose `sha` contains the merge, never the deployment's own `created_at`: a queued or slow deployment is created minutes or hours before users receive it, and a window that starts at creation counts pre-release traffic as post-deploy.
 When no candidate contains the merge, this rung has no answer: move down the ladder.
 
 ## Rung 2: `gh` deployments and releases
 
 The deployments endpoint's `sha` filter matches only a deployment recorded at exactly that commit, so never filter by the merge SHA.
 Enumerate instead: `gh api 'repos/<owner>/<repo>/deployments?per_page=100&page=<n>'` (add `environment=<name>` once you know the production environment), paging until `created_at` falls before the merge.
-Keep persistent production environments, read each candidate's newest status from its `statuses_url` and keep `success`, then apply the containment check; the onset is the earliest that passes.
+Keep persistent production environments, read each candidate's newest status from its `statuses_url` and keep `success`, then apply the containment check; the onset is the `created_at` of that success status on the earliest candidate that passes.
 
-Releases work the same way: `gh api 'repos/<owner>/<repo>/releases?per_page=100&page=<n>'`, paging until `published_at` falls before the merge, then the earliest release published after the merge whose tag contains it (`compare/<merge_sha>...<tag>`).
+Releases work the same way: `gh api 'repos/<owner>/<repo>/releases?per_page=100&page=<n>'`, paging until `published_at` falls before the merge, then the earliest release published after the merge whose tag contains it (`compare/<merge_sha>...<tag>`), skipping any release with `draft` or `prerelease` set, since a beta or release candidate never reached production users; when the repository ships production from a named channel, keep only that channel's releases.
 A small first page can miss the qualifying release, so page before you select.
 
 ## Rung 3: deploy annotations
