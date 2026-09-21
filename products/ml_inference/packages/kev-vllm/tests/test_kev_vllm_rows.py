@@ -1,3 +1,5 @@
+import importlib
+
 import pytest
 
 from kev_vllm.decision import readout_positions
@@ -51,3 +53,12 @@ def test_answers_follow_question_order_and_types():
     assert answers["urgent"]["noul"] == 0.75
     assert answers["team"]["choice"] == "shipping"
     assert answers["mood"]["score"] == 1.1
+
+
+def test_io_processor_entry_point_names_an_importable_dotted_path():
+    from kev_vllm.plugin import io_processor
+
+    module_name, attr = io_processor().rsplit(".", 1)
+    assert module_name == "kev_vllm.io_processor" and attr == "KevIOProcessor"
+    with pytest.raises(ModuleNotFoundError, match="vllm"):
+        importlib.import_module(module_name)

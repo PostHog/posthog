@@ -9,4 +9,5 @@ def register() -> None:
 
 
 def io_processor() -> str:
-    return "kev_vllm.io_processor:KevIOProcessor"
+    # Dotted, not `module:attr`: vLLM resolves IO-processor plugins with importlib on the last dot.
+    return "kev_vllm.io_processor.KevIOProcessor"
