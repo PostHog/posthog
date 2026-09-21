@@ -1,3 +1,7 @@
+import json
+import time
+import base64
+
 import pytest
 from unittest.mock import patch
 
@@ -103,6 +107,36 @@ def test_read_password_falls_back_when_file_unusable(tmp_path, state):
 
     creds = ClickHouseCredentials(user="u", password="fallback-secret", password_file=str(token))
     assert creds.read_password() == "fallback-secret"
+
+
+def _sa_token(exp: int) -> str:
+    def _seg(obj: dict) -> str:
+        return base64.urlsafe_b64encode(json.dumps(obj).encode()).rstrip(b"=").decode()
+
+    return f"{_seg({'alg': 'RS256', 'typ': 'JWT'})}.{_seg({'aud': ['clickhouse-auth'], 'exp': exp})}.signature"
+
+
+@pytest.mark.parametrize(
+    "password,token_kind,expect_static",
+    [
+        pytest.param("static-secret", "expired", True, id="armed-and-expired-uses-static"),
+        pytest.param("static-secret", "valid", False, id="armed-and-valid-uses-token"),
+        pytest.param("", "expired", False, id="token-only-keeps-expired-token"),
+        pytest.param("static-secret", "malformed", False, id="unparseable-token-is-sent"),
+    ],
+)
+def test_read_password_uses_static_only_for_an_armed_user_with_an_expired_token(
+    tmp_path, password, token_kind, expect_static
+):
+    if token_kind == "malformed":
+        token = "not-a-jwt"
+    else:
+        token = _sa_token(int(time.time()) + (-3600 if token_kind == "expired" else 3600))
+    token_file = tmp_path / "token"
+    token_file.write_text(token)
+    creds = ClickHouseCredentials(user="datawarehouse", password=password, password_file=str(token_file))
+
+    assert creds.read_password() == (password if expect_static else token)
 
 
 def test_password_file_env_registers_file_backed_user(monkeypatch, tmp_path):
