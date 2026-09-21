@@ -19,7 +19,10 @@ export function DashboardLoadProgress({ completed, total }: DashboardLoadProgres
             className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-2 text-sm text-secondary"
             data-attr="dashboard-load-progress"
         >
-            <LemonProgress percent={(completed / total) * 100} className="w-24 shrink-0" />
+            {/* LemonProgress spans its container, so the width belongs to the wrapper. */}
+            <div className="w-24 shrink-0">
+                <LemonProgress percent={(completed / total) * 100} bgColor="var(--color-border-primary)" />
+            </div>
             <span className="whitespace-nowrap">
                 Loaded {completed} of {total} tiles
             </span>
