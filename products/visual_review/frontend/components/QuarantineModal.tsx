@@ -124,6 +124,7 @@ export function QuarantineModal({
             return
         }
         setReason(initialReason ?? '')
+        setIncludeSibling(true)
         setExpiresAt(computeDefaultExpiry(initialExpiresAt))
     }, [initialReason, initialExpiresAt, isOpen])
 

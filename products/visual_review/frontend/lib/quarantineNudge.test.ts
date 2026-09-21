@@ -26,6 +26,7 @@ describe('quarantineNudge', () => {
             expected: true,
         },
         { name: 'two manual is not enough', hashes: tolerations('human', 2, 2), expected: false },
+        { name: 'manual exactly at the window edge count', hashes: tolerations('human', 3, 30), expected: true },
         { name: 'manual outside the window do not count', hashes: tolerations('human', 3, 31), expected: false },
         {
             name: 'a few auto do not reach the manual bar',

@@ -22,7 +22,7 @@ export interface RecentTolerations {
 
 export function countRecentTolerations(toleratedHashes: ToleratedHashEntryApi[], now: dayjs.Dayjs): RecentTolerations {
     const cutoff = now.subtract(QUARANTINE_NUDGE_WINDOW_DAYS, 'day')
-    const recent = toleratedHashes.filter((entry) => dayjs(entry.created_at).isAfter(cutoff))
+    const recent = toleratedHashes.filter((entry) => !dayjs(entry.created_at).isBefore(cutoff))
     return {
         manual: recent.filter((entry) => entry.reason === 'human').length,
         agent: recent.filter((entry) => entry.reason === 'agent').length,
