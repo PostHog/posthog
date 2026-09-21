@@ -72,7 +72,7 @@ export function AgentsTabLayout({
         }
       >
         <div
-          className={`mx-auto flex w-full max-w-[90rem] flex-col gap-3 px-6 py-5 ${fill ? "flex-1" : ""}`}
+          className={`mx-auto flex w-full max-w-[90rem] flex-col gap-3 px-6 py-5 ${fill ? "min-h-0 flex-1" : ""}`}
         >
           <p className="max-w-3xl text-[12.5px] text-gray-11 leading-snug">
             {TAB_DESCRIPTION[tab]}

@@ -201,7 +201,7 @@ export function ScoutsFleetView({
   }
 
   return (
-    <div className="flex h-full flex-col gap-5">
+    <div className="flex h-full min-h-0 flex-col gap-5">
       {isError || runsQuery.isError || outputQuery.isError ? (
         <output className="text-(--amber-11) text-[12.5px]">
           Some agent data could not refresh. Available data remains visible.{" "}
