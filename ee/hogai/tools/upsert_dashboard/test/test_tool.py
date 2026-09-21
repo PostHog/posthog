@@ -33,7 +33,12 @@ from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult, V
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
-from ee.hogai.tools.upsert_dashboard.tool import CreateDashboardToolArgs, UpdateDashboardToolArgs, UpsertDashboardTool
+from ee.hogai.tools.upsert_dashboard.tool import (
+    AddDashboardInsightsToolArgs,
+    CreateDashboardToolArgs,
+    UpdateDashboardToolArgs,
+    UpsertDashboardTool,
+)
 from ee.hogai.utils.types import AssistantState
 
 DEFAULT_TRENDS_QUERY = TrendsQuery(series=[EventsNode(name="$pageview")])
@@ -198,6 +203,20 @@ class TestUpsertDashboardTool(BaseTest):
 
         soft_deleted_tiles = [t for t in all_tiles if t.deleted]
         self.assertEqual(len(soft_deleted_tiles), 2)
+
+    async def test_add_insights_preserves_existing_dashboard_tiles(self):
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
+        existing_insight = await self._create_insight("Existing insight")
+        new_insight = await self._create_insight("New insight")
+        await DashboardTile.objects.acreate(dashboard=dashboard, insight=existing_insight, layouts={})
+
+        tool = self._create_tool()
+        await tool._arun_impl(
+            AddDashboardInsightsToolArgs(dashboard_id=str(dashboard.id), insight_ids=[new_insight.short_id])
+        )
+
+        active_tiles = [tile async for tile in DashboardTile.objects.filter(dashboard=dashboard)]
+        self.assertEqual({tile.insight_id for tile in active_tiles}, {existing_insight.id, new_insight.id})
 
     @parameterized.expand(
         [

@@ -70,7 +70,15 @@ class UpdateDashboardToolArgs(BaseModel):
     )
 
 
-UpsertDashboardAction = CreateDashboardToolArgs | UpdateDashboardToolArgs
+class AddDashboardInsightsToolArgs(BaseModel):
+    """Schema to add insights to an existing dashboard without removing its tiles."""
+
+    action: Literal["add_insights"] = "add_insights"
+    dashboard_id: str = Field(description="Provide the ID of the dashboard to add insights to.")
+    insight_ids: list[str] = Field(description="The IDs of the insights to add to the dashboard.")
+
+
+UpsertDashboardAction = CreateDashboardToolArgs | UpdateDashboardToolArgs | AddDashboardInsightsToolArgs
 
 
 class UpsertDashboardToolArgs(BaseModel):
@@ -152,8 +160,9 @@ class UpsertDashboardTool(MaxTool):
     async def _arun_impl(self, action: UpsertDashboardAction) -> tuple[str, dict | None]:
         if isinstance(action, CreateDashboardToolArgs):
             return await self._handle_create(action)
-        else:
+        if isinstance(action, UpdateDashboardToolArgs):
             return await self._handle_update(action)
+        return await self._handle_add_insights(action)
 
     async def _handle_create(self, action: CreateDashboardToolArgs) -> tuple[str, dict | None]:
         """Handle CREATE action: create a new dashboard with insights."""
@@ -214,6 +223,20 @@ class UpsertDashboardTool(MaxTool):
         sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
         insights = [tile.insight for tile in sorted_tiles if tile.insight is not None]
 
+        output = await self._format_dashboard_output(dashboard, insights)
+
+        return output, {"dashboard_id": dashboard.id}
+
+    async def _handle_add_insights(self, action: AddDashboardInsightsToolArgs) -> tuple[str, dict | None]:
+        """Add insights to an existing dashboard while preserving current tiles."""
+        dashboard = await self._get_dashboard(action.dashboard_id)
+        artifacts = await self._get_visualization_artifacts(action.insight_ids)
+        dashboard, resolved_insights = await self._add_dashboard_insights(dashboard, artifacts)
+        await self._report_dashboard_action(dashboard, "dashboard updated")
+        await self._report_new_insights(cast(list[VisualizationWithSourceResult], artifacts), resolved_insights)
+
+        sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
+        insights = [tile.insight for tile in sorted_tiles if tile.insight is not None]
         output = await self._format_dashboard_output(dashboard, insights)
 
         return output, {"dashboard_id": dashboard.id}
@@ -314,6 +337,33 @@ class UpsertDashboardTool(MaxTool):
             ]
         )
         return dashboard
+
+    @database_sync_to_async
+    @transaction.atomic
+    def _add_dashboard_insights(
+        self, dashboard: Dashboard, artifacts: list[VisualizationWithSourceResult]
+    ) -> tuple[Dashboard, list[Insight]]:
+        """Add or restore insight tiles without changing any other dashboard tiles."""
+        insights = self._create_resolved_insights(self._resolve_insights(artifacts))
+        tiles_by_insight_id = {
+            tile.insight_id: tile
+            for tile in DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard, insight__isnull=False)
+        }
+
+        for insight in insights:
+            tile = tiles_by_insight_id.get(insight.id)
+            if tile is None:
+                DashboardTile.objects.create(
+                    dashboard=dashboard,
+                    team_id=dashboard.team_id,
+                    insight=insight,
+                    layouts={},
+                )
+            elif tile.deleted:
+                tile.deleted = False
+                tile.save(update_fields=["deleted"])
+
+        return dashboard, insights
 
     @database_sync_to_async
     @transaction.atomic
