@@ -83,11 +83,11 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
         customer/upstream connection failures as error-tracking noise."""
         ...
 
-    def permission_error_message(self, exc: BaseException) -> str | None:
-        """A user-facing explanation when the exception means the database user lacks a
-        privilege that CDC setup needs (PG: ownership of a published table, the replication
-        attribute), or None for anything else. Callers surface the message as a 400 without
-        capturing it, because the fix is a grant on the customer's database, not a code change."""
+    def customer_fixable_error_message(self, exc: BaseException) -> str | None:
+        """A user-facing explanation when the exception reports something the customer can fix on
+        their own database (PG: ownership of a published table, a missing replication grant, a
+        connection that points at a read replica), or None for anything else. Callers surface the
+        message as a 400 without capturing it, because the fix is not a code change."""
         ...
 
     def classify_error(self, exc: BaseException) -> CDCErrorInfo | None:

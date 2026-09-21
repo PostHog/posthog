@@ -48,22 +48,20 @@ logger = logging.getLogger(__name__)
 _retry_logger = structlog.get_logger(__name__)
 
 
-# PostgreSQL rejects CREATE PUBLICATION FOR TABLE and ALTER PUBLICATION ADD TABLE with this
-# wording when the connecting role does not own the table. A role with REPLICATION and SELECT
-# but no ownership reaches that point, so the error needs its own guidance: the replication
-# grant the generic permission message asks for does not fix it.
-_TABLE_OWNERSHIP_MARKER = "must be owner of"
-
-
-def _slot_setup_error_message(exc: Exception) -> str:
-    """User-facing message for a failed slot/publication setup.
+def _customer_fixable_setup_message(exc: BaseException) -> str | None:
+    """User-facing advice when a slot/publication setup failure is one the customer can fix on
+    their own database, or None for anything else.
 
     When the failure is a lack of replication privilege — the most common CDC blocker —
     point at the simplest fix rather than only echoing the raw error: switch the affected
     tables to Incremental sync, which needs only SELECT.
     """
     message = str(exc).lower()
-    if _TABLE_OWNERSHIP_MARKER in message:
+    # PostgreSQL rejects CREATE PUBLICATION FOR TABLE and ALTER PUBLICATION ADD TABLE with this
+    # wording when the connecting role does not own the table. A role with REPLICATION and SELECT
+    # but no ownership reaches that point, so it needs its own guidance: the replication grant the
+    # permission branch below asks for does not fix it.
+    if "must be owner of" in message:
         return (
             f"Could not publish the tables CDC syncs: {exc} "
             "PostgreSQL only lets a table's owner publish it. Make the database user the owner of "
@@ -90,7 +88,12 @@ def _slot_setup_error_message(exc: Exception) -> str:
             "Connect to the primary database, or switch these tables to Incremental sync, which "
             "needs only SELECT."
         )
-    return f"Failed to create replication slot: {exc}"
+    return None
+
+
+def _slot_setup_error_message(exc: Exception) -> str:
+    """User-facing message for a failed slot/publication setup."""
+    return _customer_fixable_setup_message(exc) or f"Failed to create replication slot: {exc}"
 
 
 def _split_qualified_table(qualified: str, default_schema: str) -> tuple[str, str]:
@@ -184,10 +187,8 @@ class PostgresCDCAdapter:
         # None points at a bug in our code.
         return isinstance(exc, psycopg.OperationalError | BaseSSHTunnelForwarderError | HostNotAllowedError)
 
-    def permission_error_message(self, exc: BaseException) -> str | None:
-        if not isinstance(exc, psycopg.errors.InsufficientPrivilege):
-            return None
-        return _slot_setup_error_message(exc)
+    def customer_fixable_error_message(self, exc: BaseException) -> str | None:
+        return _customer_fixable_setup_message(exc)
 
     def classify_error(self, exc: BaseException) -> CDCErrorInfo | None:
         category = classify_postgres_cdc_error(exc)

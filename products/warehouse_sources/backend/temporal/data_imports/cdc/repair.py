@@ -123,12 +123,12 @@ def _repair_locked(source: ExternalDataSource) -> int:
     except Exception as e:
         # A missing grant on the source database is the customer's to fix, so it must reach them as
         # advice instead of a raw engine error captured into error tracking. The schemas are already
-        # back in snapshot mode and the broken markers still stand, so a repair re-run after the
-        # grant lands picks up from here.
-        permission_message = adapter.permission_error_message(e)
-        if permission_message is None:
+        # back in snapshot mode and the broken markers still stand, so a repair re-run after the fix
+        # lands picks up from here.
+        customer_message = adapter.customer_fixable_error_message(e)
+        if customer_message is None:
             raise
-        raise CDCRepairError(permission_message) from e
+        raise CDCRepairError(customer_message) from e
 
     source.job_inputs = {**(source.job_inputs or {}), **resource_fields}
     source.status = ExternalDataSource.Status.RUNNING
