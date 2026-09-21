@@ -37,6 +37,7 @@ import {
     getAllEventNames,
     queryFromKind,
 } from '~/queries/nodes/InsightViz/utils'
+import { isQueryTimeoutError } from '~/queries/query'
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
@@ -162,7 +163,7 @@ import type {
 import type { PathsV2Query } from '../../queries/schema/schema-general'
 import type { ActionType, AnyPropertyFilter, GroupTypeIndex, PropertyGroupFilter } from '../../types'
 
-const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
+const SLOW_QUERY_MESSAGE_AFTER = 5000
 
 // Stable empty list so the allEventNames selector does not recompute while actionsModel is unmounted
 const NO_ACTIONS: ActionType[] = []
@@ -195,6 +196,7 @@ export interface insightVizDataLogicValues {
     insightDataLoading: boolean // insightDataLogic
     insightQuery: DataNode<Record<string, any>> // insightDataLogic
     query: Node | null // insightDataLogic
+    queryId: string | null // insightDataLogic
     activeUsersMath: BaseMathType.MonthlyActiveUsers | BaseMathType.WeeklyActiveUsers | null
     aggregationGroupTypeIndex: GroupTypeIndex | null | undefined
     allEventNames: string[]
@@ -421,9 +423,6 @@ export interface insightVizDataLogicActions {
     }
     setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => {
         isIntervalManuallySet: boolean
-    }
-    setTimedOutQueryId: (id: string | null) => {
-        id: string | null
     }
     toggleFormulaMode: () => {
         value: true
@@ -1231,6 +1230,7 @@ export interface insightVizDataLogicMeta {
             featureFlags: FeatureFlagsSet
         ) => Intervals
         erroredQueryId: (insightDataError: Record<string, any> | null) => any
+        timedOutQueryId: (insightDataError: Record<string, any> | null) => string | null
         validationError: (insightDataError: Record<string, any> | null) => string | null
         validationErrorCode: (insightDataError: Record<string, any> | null) => string | null
         timezone: (insightData: Record<string, any>) => any
@@ -1338,7 +1338,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     connect(() => ({
         values: [
             insightDataLogic,
-            ['query', 'insightQuery', 'insightData', 'insightDataLoading', 'insightDataError'],
+            ['query', 'insightQuery', 'insightData', 'insightDataLoading', 'insightDataError', 'queryId'],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
             databaseTableListLogic,
@@ -1367,7 +1367,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => ({ breakdownFilter }),
         updateCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
-        setTimedOutQueryId: (id: string | null) => ({ id }),
         setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => ({ isIntervalManuallySet }),
         toggleFormulaMode: true,
         removeFormulaNode: (formulas: TrendsFormulaNode[]) => ({ formulas }),
@@ -1378,13 +1377,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     }),
 
     reducers({
-        timedOutQueryId: [
-            null as null | string,
-            {
-                setTimedOutQueryId: (_, { id }) => id,
-            },
-        ],
-
         isIntervalManuallySet: [
             false,
             {
@@ -2479,8 +2471,17 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         erroredQueryId: [
             (s) => [s.insightDataError],
             (insightDataError: Record<string, any> | null) => {
+                if (isQueryTimeoutError(insightDataError)) {
+                    return null
+                }
                 return insightDataError?.queryId || null
             },
+        ],
+        /** Set only when the client gave up on the poll budget, which is the one real timeout. */
+        timedOutQueryId: [
+            (s) => [s.insightDataError],
+            (insightDataError: Record<string, any> | null): string | null =>
+                isQueryTimeoutError(insightDataError) ? insightDataError?.queryId || null : null,
         ],
         validationError: [
             (s) => [s.insightDataError],
@@ -2794,26 +2795,19 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             } as Node)
         },
 
-        // data loading side effects i.e. displaying loading screens for queries with longer duration
+        // A load that passes this mark is slow, not failed. The event keeps its old name so its
+        // history stays comparable, and nothing user-facing depends on it.
         loadData: async ({ queryId }, breakpoint) => {
-            actions.setTimedOutQueryId(null)
+            await breakpoint(SLOW_QUERY_MESSAGE_AFTER)
 
-            await breakpoint(SHOW_TIMEOUT_MESSAGE_AFTER) // By timeout we just mean long loading time here
-
-            if (values.insightDataLoading) {
-                actions.setTimedOutQueryId(queryId)
+            // A newer load has its own listener and its own query id, so only report the one still in flight.
+            if (values.insightDataLoading && values.queryId === queryId) {
                 const tags = {
                     kind: values.querySource?.kind,
                     scene: sceneLogic.isMounted() ? sceneLogic.values.activeSceneId : null,
                 }
                 posthog.capture('insight timeout message shown', tags)
             }
-        },
-        loadDataSuccess: () => {
-            actions.setTimedOutQueryId(null)
-        },
-        loadDataFailure: () => {
-            actions.setTimedOutQueryId(null)
         },
         toggleFormulaMode: () => {
             // Only if formula mode is already open should we trigger a query.
