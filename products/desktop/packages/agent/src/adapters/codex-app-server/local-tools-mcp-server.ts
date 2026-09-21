@@ -20,6 +20,7 @@ import {
   LOCAL_TOOLS_MCP_NAME,
   type LocalToolCtx,
 } from "@posthog/harness/extensions/local-tools";
+import { installStdioShutdownGuards } from "./stdio-lifecycle";
 
 function die(message: string): never {
   process.stderr.write(`[local-tools-mcp-server] ${message}\n`);
@@ -74,6 +75,8 @@ for (const t of tools) {
     t.handler(ctx, args),
   );
 }
+
+installStdioShutdownGuards(process);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
