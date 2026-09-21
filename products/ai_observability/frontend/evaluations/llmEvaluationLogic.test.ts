@@ -271,13 +271,27 @@ describe('llmEvaluationLogic', () => {
         ])('updates only untouched Hog source %s when selecting numeric output', (source, expected) => {
             logic.actions.setEvaluationType('hog')
             logic.actions.setHogSource(source)
+            logic.actions.setTrueIsFailure(true)
             logic.actions.setOutputType('numeric')
             expect(logic.values.evaluation).toMatchObject({
                 output_type: 'numeric',
                 evaluation_config: { source: expected },
             })
+            expect(logic.values.evaluation?.output_config).not.toHaveProperty('true_is_failure')
+            const numericConfig = { min: 0, max: 10, passing_rule: { operator: 'gte' as const, threshold: 7 } }
+            logic.actions.patchOutputConfig(numericConfig)
             logic.actions.setOutputType('boolean')
-            expect(logic.values.evaluation).toMatchObject({ output_type: 'boolean', evaluation_config: { source } })
+            expect(logic.values.evaluation).toMatchObject({
+                output_type: 'boolean',
+                evaluation_config: { source },
+                output_config: { true_is_failure: true },
+            })
+            expect(logic.values.evaluation?.output_config).not.toHaveProperty('passing_rule')
+            logic.actions.setOutputType('numeric')
+            expect(logic.values.evaluation?.output_config).toMatchObject(numericConfig)
+            logic.actions.patchOutputConfig({ max: 20 })
+            logic.actions.setOutputType('numeric')
+            expect(logic.values.evaluation?.output_config.max).toBe(20)
         })
 
         it('preserves numeric output while switching runtimes and locks saved output types', async () => {
@@ -827,6 +841,9 @@ return result`,
                     output_type: 'numeric',
                     output_config: { passing_rule: { operator: 'gte', threshold: 7 } },
                 })
+                const savedTrendUrl = logic.values.trendInsightUrl
+                expect(savedTrendUrl).toContain('Pass%20rate')
+                expect(logic.values.isReportableEvaluation).toBe(true)
                 logic.actions.loadRunsStatsSuccess({
                     total: 1000,
                     applicable: 0,
@@ -850,9 +867,18 @@ return result`,
                 logic.actions.patchOutputConfig({ passing_rule: { operator: 'lte', threshold: 7 } })
                 expect(logic.values.filteredEvaluationRuns.map((run) => run.score)).toEqual([8])
                 expect(logic.values.runsSummary?.successRate).toBe(50)
+                expect(logic.values.trendInsightUrl).toBe(savedTrendUrl)
+                expect(logic.values.isReportableEvaluation).toBe(true)
                 logic.actions.patchOutputConfig({ passing_rule: null })
                 expect(logic.values.filteredEvaluationRuns.map((run) => run.score)).toEqual([8])
                 expect(logic.values.runsSummary?.successRate).toBe(50)
+                expect(logic.values.trendInsightUrl).toBe(savedTrendUrl)
+                expect(logic.values.isReportableEvaluation).toBe(true)
+                logic.actions.saveEvaluationSuccess(logic.values.evaluation!)
+                expect(logic.values.isReportableEvaluation).toBe(false)
+                expect(logic.values.trendInsightUrl).toContain('Mean%20score')
+                logic.actions.patchOutputConfig({ passing_rule: { operator: 'gte', threshold: 5 } })
+                expect(logic.values.isReportableEvaluation).toBe(false)
             })
 
             it.each(['boolean', 'numeric'] as const)('has no success rate for ungraded %s runs', (output_type) => {

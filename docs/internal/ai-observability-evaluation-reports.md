@@ -29,11 +29,16 @@ If an evaluation loses report support before report generation starts, generatio
 
 Reports classify scores using the rule captured at the start of generation.
 Saving a changed passing rule updates live views of historical scores, while previously generated reports keep their saved metrics.
-Unsaved rules apply only to test previews; the runs table and summary use the saved rule.
+Unsaved rules apply only to test previews; the runs table, summary, Reports tab, and Trend insight use the saved rule.
 Pass rates are unavailable when no runs have been graded.
 
-Scores outside the configured bounds produce a visible skipped run, for both Hog and LLM judge evaluations.
+Scores outside the configured bounds produce a visible skipped run with reason `score_out_of_bounds`, for both Hog and LLM judge evaluations.
 Skipped judge results retain reported token usage for cost calculation when the model call consumed tokens.
 An invalid Hog return type, such as a boolean for a numeric evaluation, disables the evaluation until its code is fixed.
 Selecting the numeric cost or latency example enables N/A so missing measurements do not disable the evaluation.
 The optional numeric `step` guides scoring and does not round or reject results.
+
+When N/A is enabled, the numeric judge returns either a finite score or `null` for N/A.
+Applicability is derived from the score, so the judge does not need to return a separate applicability flag.
+Switching between boolean and numeric output while creating an evaluation preserves each type's draft settings.
+API output settings must be an object. MCP validates supplied setting types and does not insert defaults for omitted settings.

@@ -68,11 +68,13 @@ class TestNumericEvaluationSerializer(SimpleTestCase):
         self.assertEqual(serializer.validated_data["output_type"], "numeric")
         self.assertTrue(serializer.validated_data["allows_na"])
 
-    def test_preview_rejects_invalid_numeric_bounds(self):
+    @parameterized.expand([({"min": 10, "max": 0},), ([],), ("invalid",), (1,), (True,), (None,)])
+    def test_preview_rejects_invalid_numeric_config(self, output_config: object) -> None:
         serializer = HogRequestSerializer(
-            data={"source": "return 0;", "output_type": "numeric", "output_config": {"min": 10, "max": 0}}
+            data={"source": "return 0;", "output_type": "numeric", "output_config": output_config}
         )
         self.assertFalse(serializer.is_valid())
+        self.assertIn("output_config", serializer.errors)
 
     def test_patch_can_clear_rule_without_clearing_bounds(self):
         evaluation = Evaluation(
@@ -1412,10 +1414,11 @@ class TestTestHogEndpoint(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Compilation error", response.json()["error"])
 
-    def test_test_hog_empty_source_rejected(self):
+    @parameterized.expand([({"source": ""},), ({"source": "return 0;", "output_config": []},)])
+    def test_test_hog_invalid_request_rejected(self, payload: dict) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/test_hog/",
-            {"source": ""},
+            payload,
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 

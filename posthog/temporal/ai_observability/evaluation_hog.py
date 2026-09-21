@@ -202,7 +202,13 @@ def execute_hog_eval_bytecode(
         try:
             score = NumericOutputConfig.model_validate(output_config or {}).validate_score(response.result)
         except NumericScoreOutOfBounds as error:
-            return {"verdict": None, "reasoning": reasoning, "error": str(error), "user_input_error": True}
+            return {
+                "verdict": None,
+                "reasoning": reasoning,
+                "error": str(error),
+                "user_input_error": True,
+                "skip_reason": "score_out_of_bounds",
+            }
         except ValueError as error:
             return {"verdict": None, "reasoning": reasoning, "error": str(error)}
         numeric_result: dict[str, Any] = {"score": score, "reasoning": reasoning, "error": None}
@@ -251,7 +257,7 @@ def finalize_hog_eval_result(
             # terminal: the same evaluation usually reads the next unit fine, so disabling it over
             # one malformed payload would cost the user every later result. Skipping keeps the
             # evaluation running and leaves the run visible as skipped rather than failed.
-            input_error_spec = require_user_error_spec("hog_input_error")
+            input_error_spec = require_user_error_spec(result.get("skip_reason", "hog_input_error"))
             increment_user_errors(input_error_spec.error_type)
             # This path raises nothing and emails nobody, and the counter can't carry ids at this
             # cardinality, so without these fields there is no way to find the offending evaluation.

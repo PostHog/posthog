@@ -105,7 +105,7 @@ USER_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
         status_reason=EvaluationStatusReason.HOG_ERROR,
         disables_evaluation=True,
     ),
-    # The one user-actionable spec that neither disables the evaluation nor sets a status reason:
+    # A user-actionable spec that neither disables the evaluation nor sets a status reason:
     # a single unit carried data the Hog source could not handle, which says nothing about whether
     # the evaluation works on the next one. What keeps the workflow off `disable_evaluation_activity`
     # is the result omitting `terminal_user_error` (see `is_terminal_user_error_result`); the unset
@@ -114,6 +114,11 @@ USER_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
         error_type="hog_input_error",
         owner="user",
         safe_message="The evaluation code could not handle the data for this run, so it was skipped.",
+    ),
+    "score_out_of_bounds": EvaluationErrorSpec(
+        error_type="score_out_of_bounds",
+        owner="user",
+        safe_message="The score was outside the configured bounds, so this run was skipped. Check the score limits.",
     ),
 }
 

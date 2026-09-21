@@ -6,7 +6,7 @@ from typing import Annotated, Any, Literal
 import structlog
 import temporalio
 import posthoganalytics
-from pydantic import BaseModel, BeforeValidator, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, Field
 from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
@@ -131,16 +131,11 @@ class NumericEvalResult(BaseModel):
 
 class NumericWithNAEvalResult(BaseModel):
     reasoning: str
-    applicable: bool
-    score: float | None = Field(default=None, strict=True, allow_inf_nan=False)
+    score: float | None = Field(strict=True, allow_inf_nan=False)
 
-    @model_validator(mode="after")
-    def validate_score_consistency(self) -> "NumericWithNAEvalResult":
-        if self.applicable and self.score is None:
-            raise ValueError("score is required when applicable is true")
-        if not self.applicable and self.score is not None:
-            raise ValueError("score must be null when applicable is false")
-        return self
+    @property
+    def applicable(self) -> bool:
+        return self.score is not None
 
 
 @frozen
@@ -173,9 +168,7 @@ def get_output_type_config(
         if numeric_config.step is not None:
             instructions += f" Suggested score increment: {numeric_config.step}; do not round an otherwise valid score."
         if allows_na:
-            instructions += (
-                " Set applicable=true when the criteria applies. Otherwise set applicable=false and score=null."
-            )
+            instructions += " Return score=null when the criteria does not apply."
         return OutputTypeConfig(
             response_format=NumericWithNAEvalResult if allows_na else NumericEvalResult, instructions=instructions
         )

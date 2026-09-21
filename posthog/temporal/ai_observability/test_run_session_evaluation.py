@@ -461,7 +461,7 @@ class TestExecuteSessionActivities:
                 is_byok=False,
             )
             client.return_value.complete.return_value = Mock(
-                parsed=schema.model_validate({"reasoning": "Quality", "score": score, "applicable": score is not None}),
+                parsed=schema.model_validate({"reasoning": "Quality", "score": score}),
                 usage=None,
             )
             if target == "generation":

@@ -30,9 +30,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { urls } from '~/scenes/urls'
-import { AccessControlLevel, AccessControlResourceType, ChartDisplayType, HogQLMathType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
@@ -50,14 +49,7 @@ import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
 import { NumericEvaluationConfig } from './components/NumericEvaluationConfig'
 import { formatNumericEvaluationScore } from './constants'
-import {
-    EVALUATION_NUMERIC_GRADED_HOGQL,
-    EVALUATION_NUMERIC_MEAN_HOGQL,
-    numericEvaluationPassedHogQL,
-    EVALUATION_RUNS_QUERY_LIMIT,
-    evaluationPassedHogQL,
-    evaluationPassRateHogQL,
-} from './constants'
+import { EVALUATION_RUNS_QUERY_LIMIT } from './constants'
 import {
     evaluationOffersSessionTarget,
     evaluationSupportsReports,
@@ -87,6 +79,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const {
         evaluation,
         originalEvaluation,
+        isReportableEvaluation,
+        trendInsightUrl,
         evaluationBackTarget,
         evaluationLoading,
         evaluationFormSubmitting,
@@ -154,73 +148,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
     // here rendered a "wait 30 minutes" field holding a default the config never had.
     const effectiveStrategy: EvaluationSettleStrategy =
         evaluation.target_config.strategy ?? (isSessionTarget ? 'inactivity' : 'fixed_window')
-    const isReportableEvaluation = evaluationSupportsReports(evaluation)
     const supportsRunOutcomes = evaluationSupportsRunOutcomes(originalEvaluation)
     const isBooleanOutput = isBooleanEvaluationOutput(evaluation.output_type)
     const hasEditableCriteria = evaluationTypeHasEditableCriteria(evaluation.evaluation_type)
-
-    const trendInsightUrl =
-        (supportsRunOutcomes || evaluation.output_type === 'numeric') && !isNewEvaluation && evaluation.id
-            ? urls.insightNew({
-                  query: {
-                      kind: NodeKind.InsightVizNode,
-                      source: {
-                          kind: NodeKind.TrendsQuery,
-                          series: [
-                              {
-                                  kind: NodeKind.EventsNode,
-                                  event: '$ai_evaluation',
-                                  custom_name: `${evaluation.name} - ${evaluation.output_type === 'numeric' && !evaluation.output_config.passing_rule ? 'Mean score' : 'Pass rate'}`,
-                                  math: HogQLMathType.HogQL,
-                                  math_hogql:
-                                      evaluation.output_type === 'numeric'
-                                          ? evaluation.output_config.passing_rule
-                                              ? evaluationPassRateHogQL(
-                                                    numericEvaluationPassedHogQL(evaluation),
-                                                    EVALUATION_NUMERIC_GRADED_HOGQL
-                                                )
-                                              : EVALUATION_NUMERIC_MEAN_HOGQL
-                                          : evaluationPassRateHogQL(evaluationPassedHogQL(evaluation)),
-                                  properties: [
-                                      {
-                                          key: '$ai_evaluation_id',
-                                          value: evaluation.id,
-                                          operator: 'exact',
-                                          type: 'event',
-                                      },
-                                  ],
-                              },
-                              ...(evaluation.output_type !== 'numeric' && evaluation.output_config.allows_na
-                                  ? [
-                                        {
-                                            kind: NodeKind.EventsNode as const,
-                                            event: '$ai_evaluation',
-                                            custom_name: `${evaluation.name} — N/A rate`,
-                                            math: HogQLMathType.HogQL as const,
-                                            math_hogql: `if(count() > 0, countIf(properties.$ai_evaluation_result IS NULL) / count() * 100, 0)`,
-                                            properties: [
-                                                {
-                                                    key: '$ai_evaluation_id',
-                                                    value: evaluation.id,
-                                                    operator: 'exact' as const,
-                                                    type: 'event' as const,
-                                                },
-                                            ],
-                                        },
-                                    ]
-                                  : []),
-                          ],
-                          trendsFilter: {
-                              display: ChartDisplayType.ActionsLineGraph,
-                          },
-                          dateRange: {
-                              date_from: '-7d',
-                          },
-                          interval: 'day',
-                      },
-                  } as InsightVizNode,
-              })
-            : null
 
     const configValid = isHog
         ? evaluation.evaluation_config.source.trim().length > 0
@@ -276,7 +206,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         }
 
         const reportLogic = evaluationReportLogic({ evaluationId: isNewEvaluation ? 'new' : evaluation.id })
-        if (isReportableEvaluation && reportLogic.isMounted() && reportLogic.values.configError) {
+        if (evaluationSupportsReports(evaluation) && reportLogic.isMounted() && reportLogic.values.configError) {
             lemonToast.error(reportLogic.values.configError)
             return
         }

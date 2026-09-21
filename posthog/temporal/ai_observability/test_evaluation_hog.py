@@ -84,7 +84,7 @@ def test_invalid_numeric_hog_only_skips_bounds_errors(source: str, terminal: boo
     assert result["result_type"] == "numeric"
     assert is_terminal_user_error_result(result) is terminal
     assert result["skipped"] is True
-    assert result["skip_reason"] == ("hog_error" if terminal else "hog_input_error")
+    assert result["skip_reason"] == ("hog_error" if terminal else "score_out_of_bounds")
     assert "score" not in result
     assert "verdict" not in result
 

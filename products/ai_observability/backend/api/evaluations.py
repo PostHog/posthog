@@ -134,88 +134,65 @@ class _EvaluationConfigField(serializers.JSONField):
 
 # Keep defaults in BooleanOutputConfig: nested schema defaults become explicit MCP PATCH values
 # and overwrite stored settings even when the caller omits them.
-# Require the boolean-only field so generated union parsers cannot select this branch and drop numeric settings.
 @extend_schema_field(
     {
-        "anyOf": [
-            {
+        "type": "object",
+        "properties": {
+            "allows_na": {
+                "type": "boolean",
+                "description": "Whether the evaluation can return N/A for non-applicable generations.",
+            },
+            "true_is_failure": {
+                "type": "boolean",
+                "description": "Boolean output only. Omit for numeric and sentiment "
+                "output. Whether a true result means the evaluation found "
+                "a problem. False (the default) suits pass/fail "
+                "evaluations, where a true result satisfied the criteria. "
+                "Set it to true for detector-style evaluations, so a true "
+                "result is counted and labeled as a fail.",
+            },
+            "min": {
+                "type": "number",
+                "nullable": True,
+                "description": "Inclusive minimum numeric score. Omit for no lower bound.",
+            },
+            "max": {
+                "type": "number",
+                "nullable": True,
+                "description": "Inclusive maximum numeric score. Omit for no upper bound.",
+            },
+            "step": {
+                "type": "number",
+                "nullable": True,
+                "exclusiveMinimum": True,
+                "minimum": 0,
+                "description": "Optional positive input increment. Does not round evaluation results.",
+            },
+            "passing_rule": {
                 "type": "object",
-                "title": "Boolean output config",
-                "description": "For boolean output. Shared allows_na-only settings can also use the common branch.",
-                "required": ["true_is_failure"],
+                "nullable": True,
+                "required": ["operator", "threshold"],
+                "description": "Optional numeric passing rule. Null removes the rule; "
+                "historical scores use the current rule.",
                 "properties": {
-                    "allows_na": {
-                        "type": "boolean",
-                        "description": "Whether the evaluation can return N/A for non-applicable generations.",
+                    "operator": {
+                        "type": "string",
+                        "enum": ["gte", "lte"],
+                        "description": "Pass at or above (gte), or at or below (lte), the threshold.",
                     },
-                    "true_is_failure": {
-                        "type": "boolean",
-                        "description": "Boolean output only. Omit for numeric and "
-                        "sentiment output. Whether a true result means "
-                        "the evaluation found a problem. False (the "
-                        "default) suits pass/fail evaluations, where a "
-                        "true result satisfied the criteria. Set it to "
-                        "true for detector-style evaluations, so a "
-                        "true result is counted and labeled as a "
-                        "fail.",
+                    "threshold": {
+                        "type": "number",
+                        "description": "Finite passing threshold within any configured score bounds.",
                     },
                 },
                 "additionalProperties": False,
             },
-            {
-                "type": "object",
-                "title": "Numeric or shared output config",
-                "description": "For numeric output: min/max/step, allows_na, passing_rule. For boolean output: "
-                "allows_na only. For sentiment output: {}.",
-                "properties": {
-                    "allows_na": {
-                        "type": "boolean",
-                        "description": "Whether the evaluation can return N/A for non-applicable generations.",
-                    },
-                    "min": {
-                        "type": "number",
-                        "nullable": True,
-                        "description": "Inclusive minimum numeric score. Omit for no lower bound.",
-                    },
-                    "max": {
-                        "type": "number",
-                        "nullable": True,
-                        "description": "Inclusive maximum numeric score. Omit for no upper bound.",
-                    },
-                    "step": {
-                        "type": "number",
-                        "nullable": True,
-                        "exclusiveMinimum": True,
-                        "minimum": 0,
-                        "description": "Optional positive input increment. Does not round evaluation results.",
-                    },
-                    "passing_rule": {
-                        "type": "object",
-                        "nullable": True,
-                        "required": ["operator", "threshold"],
-                        "description": "Optional numeric passing rule. Null removes the "
-                        "rule; historical scores use the current rule.",
-                        "properties": {
-                            "operator": {
-                                "type": "string",
-                                "enum": ["gte", "lte"],
-                                "description": "Pass at or above (gte), or at or below (lte), the threshold.",
-                            },
-                            "threshold": {
-                                "type": "number",
-                                "description": "Finite passing threshold within any configured score bounds.",
-                            },
-                        },
-                        "additionalProperties": False,
-                    },
-                },
-                "additionalProperties": False,
-            },
-        ]
+        },
+        "additionalProperties": False,
     }
 )
-class _OutputConfigField(serializers.JSONField):
-    pass
+class _OutputConfigField(serializers.DictField):
+    child = serializers.JSONField(allow_null=True)
 
 
 @extend_schema_field(

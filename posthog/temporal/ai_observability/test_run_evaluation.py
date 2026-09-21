@@ -45,6 +45,7 @@ from .evaluation_errors import (
 )
 from .evaluation_llm_judge import (
     JUDGE_EVENT_MAX_CHARS,
+    NumericWithNAEvalResult,
     TransientJudgeError,
     _execute_llm_judge_activity,
     get_output_type_config,
@@ -2536,7 +2537,7 @@ class TestEvalResultModels:
                 is_byok=False,
             )
             client.return_value.complete.return_value = MagicMock(
-                parsed=schema.model_validate({"reasoning": "Quality", "score": score, "applicable": score is not None}),
+                parsed=schema.model_validate({"reasoning": "Quality", "score": score}),
                 usage=MagicMock(input_tokens=100, output_tokens=20, total_tokens=120),
             )
             inputs = ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=create_mock_event_data(1))
@@ -2567,23 +2568,22 @@ class TestEvalResultModels:
             assert result["score_min"] == 0
             assert result["score_max"] == 1
 
+    @pytest.mark.parametrize("allows_na", [False, True])
     @pytest.mark.parametrize("value", [True, "0.5", float("nan"), float("inf")])
-    def test_numeric_schema_rejects_invalid_scores(self, value: object) -> None:
-        schema = get_output_type_config(False, output_type="numeric").response_format
+    def test_numeric_schema_rejects_invalid_scores(self, value: object, allows_na: bool) -> None:
+        schema = get_output_type_config(allows_na, output_type="numeric").response_format
         with pytest.raises(ValueError):
             schema.model_validate({"reasoning": "Quality", "score": value})
 
-    @pytest.mark.parametrize(
-        "applicable,score,valid", [(True, 0, True), (False, None, True), (True, None, False), (False, 0, False)]
-    )
-    def test_numeric_na_consistency(self, applicable: bool, score: float | None, valid: bool) -> None:
+    @pytest.mark.parametrize("score", [0, 0.5, None])
+    def test_numeric_na_is_derived_from_score(self, score: float | None) -> None:
         schema = get_output_type_config(True, output_type="numeric").response_format
-        data = {"reasoning": "Quality", "score": score, "applicable": applicable}
-        if valid:
-            assert schema.model_validate(data).model_dump()["score"] == score
-        else:
-            with pytest.raises(ValueError):
-                schema.model_validate(data)
+        result = schema.model_validate({"reasoning": "Quality", "score": score})
+        assert isinstance(result, NumericWithNAEvalResult)
+        assert result.model_dump() == {"reasoning": "Quality", "score": score}
+        assert result.applicable is (score is not None)
+        with pytest.raises(ValueError):
+            schema.model_validate({"reasoning": "Quality"})
 
     @pytest.mark.parametrize(
         "extra,expected",
