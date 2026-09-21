@@ -81,7 +81,9 @@ A PR whose body and file paths no source can supply is judged **title-only** and
 
 Then split the list before you spend anything on it.
 First record the **deploy batches**, bots included, because a new error after a deploy can belong to a dependency bump, and the side-effect sweep needs the whole batch to attribute it.
-Every member of a batch you sweep gets its file paths fetched (the paged files endpoint, not `gh pr view`), bots included, or the sweep has nothing to match a bump's regression against; the body and linked issues are fetched only for claim candidates.
+Every member of a batch you sweep gets its **complete** file paths, bots included, from the paged files endpoint or from a first-parent diff on a pinned tree when the endpoint's own cap cuts the list short (`references/sources.md` says when each is complete), or the sweep has nothing to match a bump's regression against.
+A member whose paths no source can complete is not hydrated: it takes the title-only scope when its title names an entity and stays deferred as `no-scope` when it does not, and a batch sweep that ran without it says so.
+The body and linked issues are fetched only for claim candidates.
 A batch is what went live together, not what merged in the same fortnight: with a deploy signal (`references/deploy-ladder.md`) it is the PRs whose merges sit between two consecutive production deployment SHAs (the `compare` check against each), and with only the soak proxy it is the PRs whose proxy onsets fall in the same 24h.
 Then pick the **claim candidates** from that batch on metadata alone: drop bots (`dependabot`, `renovate`, `github-actions`, anything `pull-requests` marks `is_bot`), drop anything a `noise:pr_follow_up:` entry names, and drop a PR whose `pr:` entry says `recheck` with a date that has not passed yet (it is neither due nor deferred, so it takes no slot).
 Once the pool is hydrated, also drop PRs that only touch docs, tests, CI, lockfiles, or formatting (from the fetched file paths), and write each one a `noise:pr_follow_up:<owner/repo>#<n>` entry saying `docs-only`, so the cursor can pass it and no later run hydrates it again to reach the same answer.
