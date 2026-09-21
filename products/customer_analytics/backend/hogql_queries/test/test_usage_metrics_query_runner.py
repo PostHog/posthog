@@ -425,9 +425,9 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "properties": [{"key": "user_type", "type": "person", "value": ["admin"], "operator": "exact"}],
             },
         )
-        for user_type, person_uuid, count in [
-            ("admin", "2c6b2f4a-9f3e-4a1c-8f5d-2b7a1c4e9d30", 3),
-            ("viewer", "7e1d5c83-2a44-4f7b-9c10-6d8e3b5a2f41", 5),
+        for user_type, person_uuid, current_count, previous_count in [
+            ("admin", "2c6b2f4a-9f3e-4a1c-8f5d-2b7a1c4e9d30", 3, 2),
+            ("viewer", "7e1d5c83-2a44-4f7b-9c10-6d8e3b5a2f41", 5, 4),
         ]:
             distinct_id = f"{user_type}-distinct-id"
             _create_person(
@@ -436,14 +436,19 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 properties={"user_type": user_type},
             )
-            for _ in range(count):
-                _create_event(
-                    event="metric_event",
-                    team=self.team,
-                    person_id=person_uuid,
-                    distinct_id=distinct_id,
-                    properties={"$group_0": group_key},
-                )
+            for count, moment in [
+                (current_count, timezone.now()),
+                (previous_count, timezone.now() - timedelta(days=8)),
+            ]:
+                with time_machine.travel(moment, tick=False):
+                    for _ in range(count):
+                        _create_event(
+                            event="metric_event",
+                            team=self.team,
+                            person_id=person_uuid,
+                            distinct_id=distinct_id,
+                            properties={"$group_0": group_key},
+                        )
         flush_persons_and_events()
 
         query_result = self._calculate(group_type_index=0, group_key=group_key)
@@ -452,6 +457,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], str(metric.id))
         self.assertEqual(results[0]["value"], 3.0)
+        self.assertEqual(results[0]["previous"], 2.0)
 
     @time_machine.travel("2025-10-09T12:11:00", tick=False)
     @snapshot_clickhouse_queries
