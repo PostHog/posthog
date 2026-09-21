@@ -109,6 +109,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         isRecordingDeleted,
         recordingDeletedAt,
         recordingDeletedBy,
+        snapshotsEmpty,
     } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
     const { loadSnapshots } = useActions(sessionRecordingDataCoordinatorLogic(logicProps))
 
@@ -365,10 +366,11 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                             <WarningHog height={200} width={200} />
                                             <h1>This recording can't be played</h1>
                                             <p className="max-w-120">
-                                                The snapshot of the screen taken when this recording started never
-                                                reached PostHog, so there is nothing to play back. This usually happens
-                                                when the browser is closed or goes offline before the recording finishes
-                                                uploading.{' '}
+                                                {snapshotsEmpty
+                                                    ? 'None of the screen data for this session reached PostHog, so there is nothing to play back.'
+                                                    : 'The snapshot of the screen taken when this recording started never reached PostHog, so there is nothing to play back.'}{' '}
+                                                This usually happens when the browser is closed or goes offline before
+                                                the recording finishes uploading.{' '}
                                                 <Link to="https://posthog.com/docs/session-replay/troubleshooting">
                                                     Learn more
                                                 </Link>

@@ -524,6 +524,24 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                 isOldAndInvalid: logic.values.isOldAndInvalid,
             }).toEqual(expected)
         })
+
+        it('a recording whose only source returns no snapshots is invalid', async () => {
+            mountWithSnapshots('')
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingMeta()
+                logic.actions.loadSnapshots()
+            })
+                .toDispatchActions(['loadRecordingMetaSuccess', 'loadSnapshotsForSourceSuccess'])
+                .toFinishAllListeners()
+
+            // fullyLoaded needs at least one snapshot, so it can never report this recording unplayable
+            expect(logic.values.fullyLoaded).toBe(false)
+            expect({
+                snapshotsEmpty: logic.values.snapshotsEmpty,
+                snapshotsInvalid: logic.values.snapshotsInvalid,
+                isOldAndInvalid: logic.values.isOldAndInvalid,
+            }).toEqual({ snapshotsEmpty: true, snapshotsInvalid: true, isOldAndInvalid: true })
+        })
     })
 
     // TODO need deduplication tests for blob_v2 sources before we deprecate blob_v1

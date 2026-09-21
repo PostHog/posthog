@@ -346,6 +346,7 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     snapshotsLoading: boolean // metaLogic
     trackedWindow: number | null // metaLogic
     uuidToIndex: Record<string, number> // metaLogic
+    allSourcesLoaded: boolean // snapLogic
     snapshotStore: SnapshotStore // snapLogic
     sourceLoadingStates: SourceLoadingState[] // snapLogic
     storeVersion: number // snapLogic
@@ -368,6 +369,7 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     sessionPlayerData: SessionPlayerData
     snapshots: RecordingSnapshot[]
     snapshotsByWindowId: Record<number, eventWithTime[]>
+    snapshotsEmpty: boolean
     snapshotsInvalid: boolean
     start: Dayjs | null
     urls: {
@@ -609,9 +611,18 @@ export interface sessionRecordingDataCoordinatorLogicMeta {
             url: string
         }[]
         windowsHaveFullSnapshot: (snapshotsByWindowId: Record<number, eventWithTime[]>) => Record<string, boolean>
+        snapshotsEmpty: (
+            snapshots: import('@posthog/replay-shared').RecordingSnapshot[],
+            snapshotSources: SessionRecordingSnapshotSource[] | null,
+            allSourcesLoaded: boolean,
+            snapshotsLoading: boolean,
+            isLoadingSnapshots: boolean,
+            sessionPlayerMetaDataLoading: boolean
+        ) => boolean
         snapshotsInvalid: (
             windowsHaveFullSnapshot: Record<string, boolean>,
             fullyLoaded: boolean,
+            snapshotsEmpty: boolean,
             start: Dayjs | null,
             sessionRecordingId: string,
             currentTeam: TeamPublicType | TeamType | null
@@ -748,7 +759,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'sessionNotebookCommentsLoading',
                 ],
                 snapLogic,
-                ['snapshotStore', 'storeVersion', 'sourceLoadingStates'],
+                ['snapshotStore', 'storeVersion', 'sourceLoadingStates', 'allSourcesLoaded'],
                 featureFlagLogic,
                 ['featureFlags'],
             ],
@@ -1167,15 +1178,59 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             },
         ],
 
+        // Every source the backend listed has been fetched and processed, and not one snapshot came
+        // out. The recording row exists, so the not-found state cannot fire, and `fullyLoaded` needs
+        // at least one snapshot, so nothing else marks the recording unplayable either.
+        snapshotsEmpty: [
+            (s) => [
+                s.snapshots,
+                s.snapshotSources,
+                s.allSourcesLoaded,
+                s.snapshotsLoading,
+                s.isLoadingSnapshots,
+                s.sessionPlayerMetaDataLoading,
+            ],
+            (
+                snapshots: RecordingSnapshot[],
+                snapshotSources: SessionRecordingSnapshotSource[] | null,
+                allSourcesLoaded: boolean,
+                snapshotsLoading: boolean,
+                isLoadingSnapshots: boolean,
+                sessionPlayerMetaDataLoading: boolean
+            ): boolean => {
+                if (
+                    snapshots.length ||
+                    !snapshotSources ||
+                    snapshotsLoading ||
+                    isLoadingSnapshots ||
+                    sessionPlayerMetaDataLoading
+                ) {
+                    return false
+                }
+                return snapshotSources.length === 0 || allSourcesLoaded
+            },
+        ],
+
         snapshotsInvalid: [
-            (s, p) => [s.windowsHaveFullSnapshot, s.fullyLoaded, s.start, p.sessionRecordingId, s.currentTeam],
+            (s, p) => [
+                s.windowsHaveFullSnapshot,
+                s.fullyLoaded,
+                s.snapshotsEmpty,
+                s.start,
+                p.sessionRecordingId,
+                s.currentTeam,
+            ],
             (
                 windowsHaveFullSnapshot: Record<string, boolean>,
                 fullyLoaded: boolean,
+                snapshotsEmpty: boolean,
                 start: Dayjs | null,
                 sessionRecordingId: SessionRecordingId,
                 currentTeam: TeamPublicType | TeamType | null
             ): boolean => {
+                if (snapshotsEmpty) {
+                    return true
+                }
                 if (!fullyLoaded || !start) {
                     return false
                 }

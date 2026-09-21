@@ -69,6 +69,7 @@ export interface sessionProfileLogicValues {
     isInitialLoading: boolean
     isLoadingMore: boolean
     otherEventCount: number
+    recordingAvailabilityUnknown: boolean
     sessionData: SessionData | null
     sessionDataLoading: boolean
     sessionDuration: number | null
@@ -351,6 +352,16 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
         loadSupportTicketEvents: true,
     }),
     reducers({
+        // The availability query and the player's own endpoints can disagree, so a failed probe must
+        // not read as "no recording" — the player is the authority and gets to answer instead.
+        recordingAvailabilityUnknown: [
+            false,
+            {
+                loadRecordingAvailability: () => false,
+                loadRecordingAvailabilitySuccess: () => false,
+                loadRecordingAvailabilityFailure: () => true,
+            },
+        ],
         hasMoreEvents: [
             true,
             {
