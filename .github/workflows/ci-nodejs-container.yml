@@ -41,6 +41,7 @@ jobs:
         name: Determine need to run node Docker build
         outputs:
             node_files: ${{ steps.filter.outputs.node_files }}
+            image_scrub_files: ${{ steps.filter.outputs.image_scrub_files }}
         steps:
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -73,6 +74,25 @@ jobs:
                         - 'Dockerfile.node'
                         - '.github/workflows/ci-nodejs-container.yml'
                         - 'turbo.json'
+                        - 'package.json'
+                        - 'pnpm-lock.yaml'
+                        - 'pnpm-workspace.yaml'
+                      # The image-scrub lane deploys the same image under its own deploy target, and
+                      # only for these paths. Every node deploy restarted it, about eight times a day,
+                      # and each restart reloads the sidecar models, rebalances 128 partitions and
+                      # empties the dedup caches. The lane's server pulls in the session replay
+                      # pipelines and the common consumer code, so both trees are listed whole.
+                      image_scrub_files:
+                        - 'nodejs/src/ingestion/pipelines/sessionreplay/**'
+                        - 'nodejs/src/common/**'
+                        - 'nodejs/src/servers/**'
+                        - 'nodejs/src/index.ts'
+                        - 'nodejs/src/capabilities.ts'
+                        - 'nodejs/package.json'
+                        - 'rust/replay-anonymizer/**'
+                        - 'rust/replay-anonymizer-node/**'
+                        - 'Dockerfile.node'
+                        - '.github/workflows/ci-nodejs-container.yml'
                         - 'package.json'
                         - 'pnpm-lock.yaml'
                         - 'pnpm-workspace.yaml'
@@ -217,6 +237,29 @@ jobs:
                           }
                         },
                         "release": "node",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
+            # Same image, second deploy target: charts keeps state/node-ml-image-scrub.yaml for the
+            # image-scrub lane, and its ApplicationSet reads that file instead of state/node.yaml.
+            - name: Trigger node-ml-image-scrub deployment
+              if: github.ref == 'refs/heads/master' && github.event_name == 'push' && vars.CD_DEPLOY_ENABLED == 'true' && needs.changes.outputs.image_scrub_files == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "node-ml-image-scrub",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},
