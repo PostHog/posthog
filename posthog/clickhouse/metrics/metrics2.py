@@ -23,7 +23,6 @@ METRIC_ATTRIBUTES2_TABLE_NAME = "metric_attributes2"
 METRIC_ATTRIBUTES_DISTRIBUTED_TABLE_NAME = "metric_attributes_distributed"
 
 DEFAULT_RETENTION_DAYS = 90
-MAX_TIMESTAMP_SKEW_SECONDS = 24 * 60 * 60
 
 
 def _db() -> str:
@@ -258,8 +257,7 @@ def KAFKA_METRICS_AVRO2_MV_SELECT() -> str:
     sorted_attributes = "mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes))"
     labelled = "toBool(ifNull(has_labels, 1))"
     # Retention counts from the sample's own timestamp, so late samples expire with their series.
-    # A timestamp more than a day from the observed time is a client clock error; then the observed time is the base.
-    expiry_base = f"if(abs(dateDiff('second', timestamp, observed_timestamp)) <= {MAX_TIMESTAMP_SKEW_SECONDS}, timestamp, observed_timestamp)"
+    # Capture already replaces a timestamp far from the ingest time, so no clock guard is needed here.
     return f"""SELECT
     uuid,
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
@@ -268,7 +266,7 @@ def KAFKA_METRICS_AVRO2_MV_SELECT() -> str:
     cityHash64({sorted_resource_attributes}) AS resource_fingerprint,
     timestamp,
     observed_timestamp,
-    {expiry_base} + toIntervalDay(assumeNotNull(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32({DEFAULT_RETENTION_DAYS}))))) AS original_expiry_timestamp,
+    timestamp + toIntervalDay(assumeNotNull(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32({DEFAULT_RETENTION_DAYS}))))) AS original_expiry_timestamp,
     ifNull(service_name, '') AS service_name,
     ifNull(metric_type, '') AS metric_type,
     ifNull(value, 0) AS value,
