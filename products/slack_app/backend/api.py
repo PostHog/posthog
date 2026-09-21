@@ -55,7 +55,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
-from products.slack_app.backend import inbox_channel, onboarding
+from products.slack_app.backend import inbox_channel
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.discussion_replies import try_ingest_discussion_reply
 from products.slack_app.backend.feature_flags import (
@@ -65,11 +65,12 @@ from products.slack_app.backend.feature_flags import (
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping, UntaggedFollowupMode
-from products.slack_app.backend.services import inbox_interactivity, turn_feedback
+from products.slack_app.backend.services import inbox_interactivity, slack_welcome_messages, turn_feedback
+from products.slack_app.backend.services.commands import SLASH_COMMAND_PREFIX
 from products.slack_app.backend.services.integration_resolver import (
     UserResolutionFailure,
-    format_project_candidate_list,
     load_integrations,
+    pick_a_project_message,
     resolve_from_candidates,
     resolve_user_for_workspace,
     user_resolution_failure_reply,
@@ -89,6 +90,7 @@ from products.slack_app.backend.services.slack_messages import (
     SLACK_WEBHOOK_TIMEOUT_SECONDS,
     TURN_FEEDBACK_ACTION_ID,
     SlackThreadMessage,
+    app_home_url,
     parse_slack_file_refs,
     post_slack_thread_reply,
 )
@@ -105,6 +107,11 @@ from products.slack_app.backend.services.slack_user_oauth import (
     build_invite_url,
     find_linked_posthog_user,
     post_link_invite_message,
+)
+from products.slack_app.backend.services.slack_welcome_messages import (
+    build_assistant_pane_welcome,
+    build_channel_welcome,
+    build_team_join_welcome,
 )
 from products.slack_app.backend.slack_link_unfurl import (
     handle_posthog_link_unfurl,
@@ -143,7 +150,6 @@ SLACK_PLACEHOLDER_USER_ID = "U00"
 # cutover. A real re-join after this window should re-onboard — most likely the
 # person forgot how it works.
 ONBOARDING_DEDUPE_TTL_SECONDS = 60 * 10
-CHANNEL_ONBOARDING_DOCS_URL = "https://posthog.com/docs/slack-app"
 
 ROUTE_HANDLED_LOCALLY = "handled_locally"
 ROUTE_PROXIED = "proxied"
@@ -1644,11 +1650,11 @@ def _post_pick_a_project_hint(
     event: dict[str, Any],
 ) -> bool:
     """Tell the user that this workspace is connected to multiple PostHog
-    projects, and that they should pick one.
+    projects, list the ones they can reach, and point at the two ways to pick one.
 
-    The selection command differs by surface: in a channel the user mentions the app
-    (`@PostHog project <id>`), but in a DM there is no app to mention, so they just reply
-    with `project <id>`.
+    The slash command is offered rather than the `@PostHog project <id>` mention because it
+    reads the same on both surfaces this runs on: a channel mention and a DM, where there
+    is no app to mention.
 
     Returns whether the hint was posted, so callers can record whether the user was
     left with an explanation or with silence.
@@ -1658,11 +1664,11 @@ def _post_pick_a_project_hint(
     thread_ts = event.get("thread_ts") or event.get("ts")
     if not isinstance(slack_user_id, str) or not isinstance(channel, str) or not isinstance(thread_ts, str):
         return False
-    pick_command = "`project <id>`" if event.get("channel_type") == "im" else "`@PostHog project <id>`"
-    text = (
-        "This Slack workspace is connected to multiple PostHog projects:\n"
-        f"{format_project_candidate_list(candidates)}\n\n"
-        f"Use {pick_command} to pick one — that also saves it as your default."
+    text = pick_a_project_message(
+        "This Slack workspace is connected to multiple PostHog projects. You can work in any of these:",
+        candidates,
+        set_command=SLASH_COMMAND_PREFIX,
+        home_tab_url=app_home_url(probe.integration),
     )
     return _post_slack_user_feedback(probe, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
 
@@ -1777,22 +1783,9 @@ _ASSISTANT_SUGGESTED_PROMPTS = [
     {"title": "Investigate an issue", "message": "Investigate why one of my insights is slow"},
     {"title": "Work an inbox item", "message": "Pick up a signals inbox item that needs a code fix"},
 ]
-_ASSISTANT_WELCOME = (
-    "Hi! I'm PostHog, an AI agent. DM me to investigate issues using your PostHog data and "
-    "open PRs in your connected repos to fix them!"
-)
-_ASSISTANT_INSTALL_WELCOME = (
-    "Thanks for adding PostHog! :tada: I'm an AI agent - DM me here or @mention me in a channel "
-    "to investigate issues or open PRs in your connected repos"
-)
 _ASSISTANT_UNAVAILABLE = (
     "I can only help PostHog org members whose project has a connected repo. Make sure your Slack "
     "email matches your PostHog account and that a repo is connected, then try again."
-)
-_ASSISTANT_MEMBER_JOIN_WELCOME = (
-    ":wave: Welcome! I'm PostHog, an AI agent your team uses. DM me here to investigate issues "
-    "using your PostHog data or open PRs in your connected repos - you can also @mention me in "
-    "any channel."
 )
 
 
@@ -1858,7 +1851,7 @@ def _handle_assistant_thread_started(slack: SlackIntegration, channel_id: str, t
             prompts=_ASSISTANT_SUGGESTED_PROMPTS,
         )
         # Slack's own assistant container thread, not a reply to a user message that can be deleted.
-        slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=_ASSISTANT_WELCOME)
+        slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=build_assistant_pane_welcome())
     except Exception:
         logger.warning("assistant_thread_started_failed", exc_info=True)
     return ROUTE_HANDLED_LOCALLY
@@ -1870,19 +1863,6 @@ def _post_assistant_unavailable(slack: SlackIntegration, channel_id: str, thread
         slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=_ASSISTANT_UNAVAILABLE)
     except Exception:
         logger.warning("assistant_unavailable_post_failed", exc_info=True)
-
-
-def send_assistant_install_welcome(integration: Integration) -> None:
-    """DM the installing user the moment the app is added, when the assistant is enabled for their team."""
-    if not is_slack_app_assistant_enabled(integration):
-        return
-    slack_user_id = ((integration.config or {}).get("authed_user") or {}).get("id")
-    if not slack_user_id:
-        return
-    try:
-        SlackIntegration(integration).client.chat_postMessage(channel=slack_user_id, text=_ASSISTANT_INSTALL_WELCOME)
-    except Exception:
-        logger.warning("assistant_install_welcome_failed", exc_info=True)
 
 
 def _handle_assistant_dm_message(
@@ -2867,47 +2847,12 @@ def _release_channel_onboarding_claim(slack_team_id: str, channel_id: str) -> No
 
 def _post_channel_onboarding_message(slack: SlackIntegration, integration: Integration, channel_id: str) -> bool:
     """Post the welcome message. Returns True on success."""
-    blocks: list[dict[str, Any]] = [
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    ":wave: Thanks for adding the PostHog app to this channel! "
-                    "Mention me with `@PostHog` to get started – I can answer "
-                    "questions about your PostHog data, research your codebase, "
-                    "and kick off coding tasks backed by real usage data. "
-                    "I'll also unfurl PostHog links you share here."
-                ),
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "*Try one of these:*\n"
-                    "• `@PostHog what's our weekly active user count this month?`\n"
-                    "• `@PostHog open a PR that adds a unit test for src/utils.py`"
-                ),
-            },
-        },
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "Read the docs"},
-                    "url": CHANNEL_ONBOARDING_DOCS_URL,
-                }
-            ],
-        },
-    ]
+    text, blocks = build_channel_welcome(integration)
 
     try:
         slack.client.chat_postMessage(
             channel=channel_id,
-            text="Thanks for adding the PostHog app – mention me with @PostHog to get started.",
+            text=text,
             blocks=blocks,
             unfurl_links=False,
             unfurl_media=False,
@@ -2989,9 +2934,10 @@ def _team_join_onboarding_cache_key(slack_team_id: str, slack_user_id: str) -> s
 
 
 def _post_team_join_welcome(integration: Integration, slack_user_id: str) -> bool:
+    text, blocks = build_team_join_welcome(integration)
     try:
         SlackIntegration(integration).client.chat_postMessage(
-            channel=slack_user_id, text=_ASSISTANT_MEMBER_JOIN_WELCOME
+            channel=slack_user_id, text=text, blocks=blocks, unfurl_links=False, unfurl_media=False
         )
         logger.info(
             "slack_app_team_join_welcome_posted",
@@ -5084,13 +5030,13 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_signals_dismiss_report(payload)
             if action_id in (INSIGHT_ALERT_SNOOZE_ACTION_ID, INSIGHT_ALERT_SNOOZE_UNTIL_ACTION_ID):
                 return _handle_insight_alert_snooze(payload)
-            if action_id == onboarding.INBOX_CREATE_ACTION_ID:
+            if action_id == slack_welcome_messages.INBOX_CREATE_ACTION_ID:
                 return inbox_interactivity.handle_inbox_create(payload)
-            if action_id == onboarding.INBOX_JOIN_ACTION_ID:
+            if action_id == slack_welcome_messages.INBOX_JOIN_ACTION_ID:
                 return inbox_interactivity.handle_inbox_join(payload)
-            if action_id == onboarding.INBOX_SOURCES_CHECKBOXES_ACTION:
+            if action_id == slack_welcome_messages.INBOX_SOURCES_CHECKBOXES_ACTION:
                 return inbox_interactivity.handle_inbox_sources(payload)
-            if action_id == onboarding.INBOX_AI_APPROVAL_ACTION_ID:
+            if action_id == slack_welcome_messages.INBOX_AI_APPROVAL_ACTION_ID:
                 return inbox_interactivity.handle_inbox_ai_approval(payload)
             if action_id in _AI_PREFERENCES_ACTION_IDS:
                 return _handle_ai_preferences_block_action(payload, action)

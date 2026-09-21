@@ -55,7 +55,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     has_engine_seq,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    normalize_column_name,
+    safe_parse_datetime,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
@@ -534,12 +537,34 @@ class ReplayFilter:
         for name in names:
             column = table.column(name)
             if name in self._content_schema.names:
+                target = self._content_schema.field(name).type
                 try:
-                    column = column.cast(self._content_schema.field(name).type)
+                    column = column.cast(target)
                 except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
-                    stringly.add(name)
+                    parsed = _parse_timestamps(column, target)
+                    if parsed is None:
+                        stringly.add(name)
+                    else:
+                        column = parsed
             columns.append(column)
         return pa.table(columns, names=names).to_pylist(), stringly
+
+
+def _parse_timestamps(column: pa.ChunkedArray, target: pa.DataType) -> pa.ChunkedArray | None:
+    """Capture carries a timestamptz as the text the stream gave it, `2026-01-01 00:00:00+00`, which
+    arrow will not cast into the naive column the table holds. The loader parses it on write, so
+    the comparison has to parse it the same way."""
+    if not isinstance(target, pa.TimestampType):
+        return None
+    values = list(column)
+    parsed = [safe_parse_datetime(value) for value in values]
+    # Text the parser rejects would land as null and match a stored null it never came from.
+    if any(value.is_valid and when is None for value, when in zip(values, parsed)):
+        return None
+    try:
+        return pa.chunked_array([pa.array(parsed, type=target)])
+    except (pa.ArrowInvalid, pa.ArrowNotImplementedError, pa.ArrowTypeError):
+        return None
 
 
 def _same_content(batch_row: dict[str, Any], held_row: dict[str, Any], skip: set[str], stringly: set[str]) -> bool:

@@ -12,6 +12,10 @@ export interface QueryScanState {
     assistantPrompt: string | null
 }
 
+export function queryScanHasActionableFinding(findings: QueryScanWarning[]): boolean {
+    return findings.some((finding) => finding.actionable)
+}
+
 export interface QueryScanPollResult {
     cacheKey: string
     analysis: QueryScanAnalysis
@@ -55,9 +59,10 @@ export function resolveQueryScan(
     // A poll outlives the run that started it, so a result for an earlier query would otherwise
     // decorate whatever response is on screen when it lands.
     const summary = polled && polled.cacheKey === cacheKey ? { ...stored, analysis: polled.analysis } : stored
+    const findings = summary.analysis?.findings ?? []
     return {
         summary,
-        findings: summary.analysis?.findings ?? [],
+        findings,
         cacheKey,
         assistantPrompt: summary.analysis?.assistant_prompt ?? null,
     }
@@ -100,7 +105,7 @@ export interface QueryScanDashboardEntry {
     findingCount: number
 }
 
-/** The insights on a dashboard whose last fresh run has advice for the viewer. */
+/** The insights on a dashboard whose last fresh run has advice the viewer can act on. */
 export function queryScanDashboardEntries(tiles: DashboardTile<QueryBasedInsightModel>[]): QueryScanDashboardEntry[] {
     const entries: QueryScanDashboardEntry[] = []
     for (const tile of tiles) {
@@ -110,7 +115,7 @@ export function queryScanDashboardEntries(tiles: DashboardTile<QueryBasedInsight
         }
         // A killed run has no result to carry the scan, so it arrives on the query status instead.
         const summary = insight.query_scan ?? insight.query_status?.query_scan
-        const findingCount = summary?.analysis?.findings.length ?? 0
+        const findingCount = (summary?.analysis?.findings ?? []).filter((finding) => finding.actionable).length
         if (findingCount === 0) {
             continue
         }

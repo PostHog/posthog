@@ -450,7 +450,10 @@ export function ChannelItemRow({
   const handleDragStart = useCallback(
     (event: DragEvent) => {
       if (item.kind === "canvas") {
-        writeCanvasDragData(event.dataTransfer, item.id);
+        writeCanvasDragData(event.dataTransfer, item.id, {
+          name: item.title,
+          channelId: channelId ?? null,
+        });
         event.dataTransfer.effectAllowed = "copy";
         return;
       }
@@ -462,7 +465,7 @@ export function ChannelItemRow({
       event.dataTransfer.effectAllowed = "copyMove";
       onDragStart?.(event);
     },
-    [item.id, item.kind, onDragStart],
+    [item.id, item.kind, item.title, channelId, onDragStart],
   );
 
   // A canvas gets the same menu with the items it actually has: command-centre

@@ -235,7 +235,9 @@ export async function resolveStreamTarget(
         return null
     }
     try {
-        const { token, stream_base_url } = await tasksRunsStreamTokenRetrieve(projectId, taskId, runId)
+        const { token, stream_base_url } = await tasksRunsStreamTokenRetrieve(projectId, taskId, runId, {
+            resync: true,
+        })
         if (!stream_base_url) {
             return null
         }

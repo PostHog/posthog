@@ -28,6 +28,8 @@ import {
 
 import { mergeSpanFilter } from 'products/tracing/frontend/spanFilterAdd'
 
+import type { TracingDateRangeSource } from './sparklineSelection'
+
 export const DEFAULT_DATE_RANGE: DateRange = { date_from: '-1h', date_to: null }
 export const DEFAULT_TIMEZONE: string = 'UTC'
 export const DEFAULT_SERVICE_NAMES: string[] = []
@@ -194,7 +196,7 @@ export interface tracingFiltersLogicValues {
     timezone: string
     utcDateRange: {
         date_from: string | null | undefined
-        date_to: string | null | undefined
+        date_to: string
     }
     viewMode: TracingViewMode
     windowAnchorMs: number
@@ -225,8 +227,12 @@ export interface tracingFiltersLogicActions {
     setComparison: (comparison: TracingComparison | null) => {
         comparison: TimeComparison | null
     }
-    setDateRange: (dateRange: DateRange) => {
+    setDateRange: (
+        dateRange: DateRange,
+        source?: TracingDateRangeSource
+    ) => {
         dateRange: DateRange
+        source: TracingDateRangeSource | undefined
     }
     setFilterGroup: (
         filterGroup: UniversalFiltersGroup,
@@ -289,9 +295,12 @@ export interface tracingFiltersLogicMeta {
             filterGroup: UniversalFiltersGroup,
             pinnedFilters: UniversalFiltersGroup | undefined
         ) => UniversalFiltersGroup
-        utcDateRange: (dateRange: DateRange) => {
+        utcDateRange: (
+            dateRange: DateRange,
+            sparklineWindowMs: OverlayWindow
+        ) => {
             date_from: string | null | undefined
-            date_to: string | null | undefined
+            date_to: string
         }
         sparklineWindowMs: (dateRange: DateRange, windowAnchorMs: number) => OverlayWindow
         currentWindowMs: (sparklineWindowMs: OverlayWindow, timeComparison: TimeComparison | null) => OverlayWindow
@@ -316,7 +325,7 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
     path((key) => ['products', 'tracing', 'frontend', 'tracingFiltersLogic', key]),
 
     actions({
-        setDateRange: (dateRange: DateRange) => ({ dateRange }),
+        setDateRange: (dateRange: DateRange, source?: TracingDateRangeSource) => ({ dateRange, source }),
         setTimezone: (timezone: string) => ({ timezone }),
         setServiceNames: (serviceNames: string[]) => ({ serviceNames }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup, skipQuery: boolean = false) => ({
@@ -518,15 +527,18 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
                 pinnedFilters: UniversalFiltersGroup | undefined
             ): UniversalFiltersGroup => combineWithPinnedFilters(filterGroup, pinnedFilters),
         ],
+        // `date_to` falls back to the resolved window end (windowAnchorMs for an open relative
+        // range) rather than staying null — a null `date_to` re-sent as a filter reads as "now",
+        // so a sparkline selection on the last bucket would keep growing past the queried window.
         utcDateRange: [
-            (s) => [s.dateRange],
-            (dateRange: DateRange) => ({
+            (s) => [s.dateRange, s.sparklineWindowMs],
+            (dateRange: DateRange, sparklineWindowMs: OverlayWindow) => ({
                 date_from: dayjs(dateRange.date_from).isValid()
                     ? dayjs(dateRange.date_from).toISOString()
                     : dateRange.date_from,
                 date_to: dayjs(dateRange.date_to).isValid()
                     ? dayjs(dateRange.date_to).toISOString()
-                    : dateRange.date_to,
+                    : new Date(sparklineWindowMs.endMs).toISOString(),
             }),
         ],
         sparklineWindowMs: [

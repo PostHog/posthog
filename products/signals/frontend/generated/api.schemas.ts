@@ -2127,6 +2127,7 @@ export interface SignalReportStateRequestApi {
  * * `summary_change` - Summary Change
  * * `code_review` - Code Review
  * * `related_to` - Related To
+ * * `report_link` - Report Link
  * * `work_claim` - Work Claim
  * * `work_release` - Work Release
  * * `pull_request` - Pull Request
@@ -2157,6 +2158,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     SummaryChange: 'summary_change',
     CodeReview: 'code_review',
     RelatedTo: 'related_to',
+    ReportLink: 'report_link',
     WorkClaim: 'work_claim',
     WorkRelease: 'work_release',
     PullRequest: 'pull_request',
@@ -2344,7 +2346,7 @@ export interface CheckComparisonApi {
 }
 
 /**
- * Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created.
+ * Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.
  */
 export type MetricThresholdConfigApiQuery = { [key: string]: unknown } | null
 
@@ -2365,7 +2367,7 @@ export type MetricThresholdConfigApiQuery = { [key: string]: unknown } | null
 export interface MetricThresholdConfigApi {
     /** Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created. */
     metric_id?: string | null
-    /** Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. */
+    /** Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already. */
     query?: MetricThresholdConfigApiQuery
     /** What the measured value must satisfy to pass. */
     comparison: CheckComparisonApi
@@ -2470,6 +2472,11 @@ export interface SignalReportCheckApi {
      * * `failed` - Failed
      * * `errored` - Errored */
     readonly last_outcome: SignalReportCheckOutcomeEnumApi | null
+    /**
+     * When the `agent` check's scout run started, cleared as soon as a verdict is recorded. A non-null value is what tells a reader the check is running rather than waiting, because dispatch also pushes `next_run_at` out to the result window. Always null on a `metric_threshold` check, which is measured in the tick that collects it.
+     * @nullable
+     */
+    readonly dispatched_at: string | null
     /** Runs that could not be measured since the last clean one. */
     readonly consecutive_errors: number
     readonly created_at: string
@@ -3024,6 +3031,8 @@ export interface SignalScoutConfigApi {
      */
     readonly source_id: string | null
     readonly created_at: string
+    /** When this config last changed: an edit through this API, or a status change the system made such as an automatic pause. A scheduled run does not bump it — the coordinator stamps `last_run_at` with a direct write — so this reads as when the scout was last tuned rather than when it last ran. */
+    readonly updated_at: string
 }
 
 export interface SignalScoutCreateResponseApi {
@@ -3393,17 +3402,27 @@ export interface ScoutNoteCreateRequestApi {
 }
 
 /**
- * `inventory.emit_eligibility` — whether scout findings can reach the inbox for this team.
+ * `inventory.emit_eligibility` — whether the calling scout's findings and reports can reach the inbox.
  */
 export interface EmitEligibilityApi {
     /** Whether the organization has approved AI data processing (an org-level gate on all scout emits). */
     ai_processing_approved: boolean
     /** Whether the `signals_scout` signal source is enabled for this team. */
     source_enabled: boolean
-    /** True only when both team/org-level gates pass, so scout findings (signal and report channels alike) actually reach the inbox. When False, every emit is silently dropped — quick-close instead of doing throwaway investigation. Does not account for a scout's own dry-run `emit` toggle, which is per-config, not team-wide. */
+    /**
+     * Whether the calling scout's own config can write, as opposed to running in dry-run (`emit=false`), where it investigates but everything it writes is discarded. Null when the read is not from a scout run, so no single scout's config applies.
+     * @nullable
+     */
+    scout_emit_enabled: boolean | null
+    /** True only when every gate passes, so this scout's findings and reports (both channels) actually reach the inbox. When False, every write is dropped or refused — quick-close instead of doing throwaway investigation. Read this one value: it accounts for the calling scout's own dry-run posture as well as the team-wide gates, and it is the same gate `emit-report` and `edit-report` apply at write time. */
     can_emit: boolean
     /**
-     * One-line next step to unblock emits when `can_emit` is False; null when emits can flow.
+     * Which gate blocks the write: `scout_emit_disabled`, `scout_config_missing`, `ai_processing_not_approved`, or `source_disabled`. Null when `can_emit` is True. Matches the `skipped_reason` `emit-report` returns for the same block.
+     * @nullable
+     */
+    blocking_reason: string | null
+    /**
+     * One-line next step to unblock writes when `can_emit` is False; null when writes can flow.
      * @nullable
      */
     remediation: string | null
@@ -4455,6 +4474,44 @@ export interface ReportMetricWriteApi {
 }
 
 /**
+ * * `depends_on` - Depends on
+ * * `part_of` - Part of
+ * * `follow_up_of` - Follow-up of
+ * * `duplicate_of` - Duplicate of
+ * * `recurrence_of` - Recurrence of
+ */
+export type ReportLinkKindEnumApi = (typeof ReportLinkKindEnumApi)[keyof typeof ReportLinkKindEnumApi]
+
+export const ReportLinkKindEnumApi = {
+    DependsOn: 'depends_on',
+    PartOf: 'part_of',
+    FollowUpOf: 'follow_up_of',
+    DuplicateOf: 'duplicate_of',
+    RecurrenceOf: 'recurrence_of',
+} as const
+
+/**
+ * One typed, directed link to write on the report being edited.
+ */
+export interface ReportLinkWriteApi {
+    /** How the edited report relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.
+     *
+     * * `depends_on` - Depends on
+     * * `part_of` - Part of
+     * * `follow_up_of` - Follow-up of
+     * * `duplicate_of` - Duplicate of
+     * * `recurrence_of` - Recurrence of */
+    kind: ReportLinkKindEnumApi
+    /** Id of the report to link to. Must be another report in this project. */
+    report_id: string
+    /**
+     * Optional one-line note on why the reports are linked this way.
+     * @maxLength 500
+     */
+    reason?: string
+}
+
+/**
  * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
  */
 export interface EditReportRequestApi {
@@ -4515,6 +4572,11 @@ export interface EditReportRequestApi {
      * @items.maxLength 200
      */
     suggested_prompts?: string[] | null
+    /**
+     * Typed, directed links from this report to others, recording how the work relates. Use `depends_on` when you split one finding into a stack and the second report's fix cannot land until the first one's does, so the order is recorded rather than left to a reader of the diffs. Additive: links join what the report already has rather than replacing them, and only this report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project.
+     * @maxItems 10
+     */
+    links?: ReportLinkWriteApi[]
     /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. */
     supersedes_implementation?: boolean
 }
@@ -4528,6 +4590,8 @@ export interface EditReportResponseApi {
     note_appended: boolean
     /** How many observations this edit added to the report's evidence rail; 0 if none. */
     evidence_appended: number
+    /** How many typed report-to-report links this edit wrote; 0 if none. */
+    links_appended: number
     /** Whether the report's suggested reviewers were replaced. */
     reviewers_set: boolean
     /** Whether the report's repository was replaced (true for a cleared target too). */
@@ -4593,12 +4657,6 @@ export interface SignalScoutEmissionApi {
     finding_id: string
     /** The emitted finding prose — the signal's `description` as surfaced to the inbox. */
     description: string
-    /**
-     * Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.
-     * @minimum 0
-     * @maximum 1
-     */
-    weight: number
     /**
      * Agent's confidence the finding is real in [0, 1].
      * @minimum 0
@@ -5931,6 +5989,11 @@ export type SignalsScoutProjectProfileGetParams = {
      * When true, skip the cache and rebuild the profile from authoritative sources before responding. Use after seeding events, importing data, or any other change the caller knows just landed but hasn't surfaced through natural cache expiry yet. Honored only for the internal scout token — public read callers get the cached profile regardless. Concurrent forced rebuilds are serialized by the team-keyed advisory lock — at most one extra `build_inventory` per simultaneous request.
      */
     force_refresh?: boolean
+    /**
+     * The run whose scout's write posture `emit_eligibility` should answer for. A scout sandbox never needs this: its token is bound to the task that dispatched the run, and that binding is what the endpoint reads, so it wins over any value passed here. Pass it to inspect one scout's effective eligibility from outside a run — a run id from another project is ignored.
+     * @nullable
+     */
+    run_id?: string | null
     /**
      * When true, respond with the cache metadata and the `summary` envelope only, and omit `payload` entirely. Use it when you need the emit gate and the inbox counts but not the full inventory. The full profile runs to tens of kilobytes, which a client can truncate. Costs nothing extra: the profile is read or built the same way either way.
      */
