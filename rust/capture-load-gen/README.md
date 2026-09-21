@@ -38,13 +38,20 @@ requests.
 | `--event-name` | `$pageview`, `$autocapture`, `custom_event` | Event names to pick from (repeatable) |
 | `--prop-bytes` | `256` | Approx filler bytes per event |
 | `--percent-person-updates` | `0` | Percentage of events carrying a `$set` payload (person update) |
-| `--percent-merges` | `0` | Percentage of events that are `$identify` merges of a fresh anon distinct id |
+| `--percent-attaches` | `0` | Percentage of events that are an `$identify` of a fresh anon distinct id |
+| `--percent-person-merges` | `0` | Percentage of events spent on merges of two persons (a seed event, then its `$identify`) |
+| `--person-merge-delay` | `10s` | How long a seeded anon id waits before its `$identify` |
+| `--percent-dangerous-merges` | `0` | Percentage of events that are `$merge_dangerously` between paired pool users |
 | `--dry-run` | off | Print one sample batch as JSON and exit |
 
-`--percent-person-updates` and `--percent-merges` must sum to at most 100;
+The `--percent-*` flags must sum to at most 100;
 the rest of the events are plain (no person-pipeline work beyond creation).
-Each merge claims a unique anonymous distinct id, so every `$identify` exercises
-the merge path instead of re-merging an already-folded pair.
+
+The three identity flags exercise different paths:
+
+- `--percent-attaches` claims an anonymous id that never sent an event. It has no person, so the `$identify` only attaches the id to the pool user.
+- `--percent-person-merges` gives the anonymous id a person first. A seed event from the id carries a `$set`, and its `$identify` follows after `--person-merge-delay`, so one person folds into another. The two events use different partitions, so an `$identify` that still arrives first attaches instead.
+- `--percent-dangerous-merges` sends `$merge_dangerously` from a pool user with its partner as `alias`. Users pair off (`0` with `1`, `2` with `3`), which bounds a person to two pool users. The merged-away user keeps receiving events.
 
 Output is a once-per-second throughput line plus a final summary with
 HdrHistogram latency percentiles (p50/p95/p99).
