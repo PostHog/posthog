@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import * as explorerPng from '@posthog/brand/hoggies/png/explorer'
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { SleepingHog } from 'lib/components/hedgehogs'

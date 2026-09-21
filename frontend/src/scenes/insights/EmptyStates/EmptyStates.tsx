@@ -7,7 +7,7 @@ import { TextMorph } from 'torph/react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as doctorPng from '@posthog/brand/hoggies/png/doctor-1'
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import * as stampDeniedPng from '@posthog/brand/hoggies/png/stamp-denied'
 import * as trafficControllerPng from '@posthog/brand/hoggies/png/traffic-controller'
 import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh, IconWarning } from '@posthog/icons'
