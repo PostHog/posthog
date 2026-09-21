@@ -55,7 +55,7 @@ LIMIT 1
 
 SESSIONS_INSERT_TEMPLATE = """
 SELECT
-    toStartOfHour(min(events.session.$start_timestamp)) AS period_bucket,
+    toStartOfHour(toTimeZone(min(events.session.$start_timestamp), 'UTC')) AS period_bucket,
     events.$session_id_uuid AS session_id_v7,
     events.person_id AS person_id,
     min(events.session.$start_timestamp) AS start_timestamp,
@@ -80,8 +80,8 @@ WHERE and(
 )
 GROUP BY session_id_v7, person_id
 HAVING and(
-    toStartOfHour(min(events.session.$start_timestamp)) >= {time_window_min},
-    toStartOfHour(min(events.session.$start_timestamp)) < {time_window_max}
+    min(events.session.$start_timestamp) >= {time_window_min},
+    min(events.session.$start_timestamp) < {time_window_max}
 )
 """
 

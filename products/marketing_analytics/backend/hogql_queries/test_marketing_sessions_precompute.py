@@ -26,6 +26,40 @@ from products.marketing_analytics.backend.hogql_queries.marketing_sessions_preco
 
 @time_machine.travel("2026-09-10T12:00:00Z", tick=False)
 class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand([("UTC",), ("America/Santiago",), ("Asia/Kolkata",), ("Asia/Kathmandu",)])
+    def test_session_start_windows_use_utc_boundaries(self, timezone: str) -> None:
+        self.team.timezone = timezone
+        start = datetime(2026, 9, 1, tzinfo=UTC)
+        end = start + timedelta(days=1)
+        create_person(team=self.team, distinct_ids=["visitor"])
+        expected = []
+        for seconds in (-1, 0, 86399, 86400):
+            timestamp = start + timedelta(seconds=seconds)
+            session_id = uuid7(int(timestamp.timestamp() * 1000))
+            _create_event(
+                team=self.team,
+                distinct_id="visitor",
+                event="$pageview",
+                timestamp=timestamp,
+                properties={"$session_id": str(session_id)},
+            )
+            if 0 <= seconds < 86400:
+                expected.append((session_id.int, timestamp.replace(minute=0, second=0)))
+
+        response = execute_hogql_query(
+            SESSIONS_INSERT_TEMPLATE,
+            self.team,
+            placeholders={
+                **base_placeholders(),
+                "time_window_min": ast.Constant(value=start),
+                "time_window_max": ast.Constant(value=end),
+            },
+        )
+        assert response.columns is not None
+        session_column = response.columns.index("session_id_v7")
+        bucket_column = response.columns.index("period_bucket")
+        assert sorted((row[session_column], row[bucket_column]) for row in response.results) == expected
+
     @parameterized.expand(
         [(version, hours) for version in (SessionTableVersion.V2, SessionTableVersion.V3) for hours in (2, 49, 97)]
     )

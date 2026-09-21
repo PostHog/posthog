@@ -1,6 +1,7 @@
 # Marketing session precompute writer
 
 The writer partitions sessions by the UTC hour of their start in `web_sessions_dimensional_preaggregated`.
+Window membership uses the exact start timestamp; hourly buckets are rounded explicitly in UTC, including for projects with half-hour or quarter-hour timezone offsets.
 It writes `session_id_v7` as the numeric UUID representation from `events.$session_id_uuid` and stores the first and last pageview timestamps.
 Each insert covers at most one day of session starts and scans events through three days after that window ends.
 Before writing or accepting cached jobs, it checks the corresponding daily windows for sessions longer than three days.
