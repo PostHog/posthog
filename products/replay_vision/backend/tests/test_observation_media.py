@@ -150,9 +150,12 @@ class TestObservationMedia(BaseTest):
         assert self.observation.media_render_attempts == 1
         assert self.observation.media_render_attempted_at is not None
 
-        environment = ActivityEnvironment()
-        environment.info = dataclasses.replace(environment.info, attempt=2)
-        async_to_sync(environment.run)(prepare_observation_thumbnail_activity, self._inputs())
+        async def retry_the_same_activity() -> None:
+            environment = ActivityEnvironment()
+            environment.info = dataclasses.replace(environment.info, attempt=2)
+            await environment.run(prepare_observation_thumbnail_activity, self._inputs())
+
+        async_to_sync(retry_the_same_activity)()
 
         self.observation.refresh_from_db()
         assert self.observation.media_render_attempts == 1
