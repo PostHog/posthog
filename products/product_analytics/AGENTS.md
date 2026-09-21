@@ -12,22 +12,23 @@ Foreign-key cascades only apply to hard deletion; soft deletion needs explicit r
 
 Single and bulk insight deletion must apply the same cleanup in the transaction that marks the insight deleted:
 
-| Related resource                                      | Behavior when the insight is soft-deleted                          |
-| ----------------------------------------------------- | ------------------------------------------------------------------ |
-| Insight subscriptions, including paused subscriptions | Soft-delete with `deleted=True`.                                   |
-| Alert configurations                                  | Hard-delete through each alert's `delete()` method.                |
-| Dashboard tiles containing the insight                | Hide through `hide_tiles_for_insights`. Keep the dashboard itself. |
+| Related resource                                                               | Behavior when the insight is soft-deleted                                                         |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| Insight subscriptions, including paused and already soft-deleted subscriptions | Hard-delete through each subscription's `delete()` method; delivery history and contexts cascade. |
+| Alert configurations                                                           | Hard-delete through each alert's `delete()` method.                                               |
+| Dashboard tiles containing the insight                                         | Hide through `hide_tiles_for_insights`. Keep the dashboard itself.                                |
 
 Only related resources within the authorized project scope may change.
+Deleting a subscription directly through its API remains a soft delete; deletion with its parent insight is permanent.
 Skipping delivery for a deleted insight does not replace deleting its subscriptions: surviving rows still appear in subscription management.
 
-Restoring an insight does not restore its deleted subscriptions or recreate its alerts.
+Restoring an insight does not recreate its subscriptions or alerts.
 Do not revive independently deleted related resources when adding or changing restore behavior.
 
 ### Where to make changes
 
 - Read [the insight API](backend/presentation/insight.py) when changing deletion or restore behavior. `InsightSerializer.update` handles single deletion; `InsightViewSet.bulk_delete` bypasses model saves with a queryset update, so it must perform cleanup explicitly.
-- Read [the exports facade](../exports/backend/facade/api.py) when changing subscription cleanup. `delete_insight_subscriptions` saves each subscription so model activity logging runs.
+- Read [the exports facade](../exports/backend/facade/api.py) when changing subscription cleanup. `delete_insight_subscriptions` calls each subscription's `delete()` method so model activity logging runs.
 - Read [the alerts facade](../alerts/backend/facade/api.py) when changing alert cleanup. `delete_insight_alerts` calls each alert's `delete()` method to preserve activity logging; queryset deletion bypasses that override.
 - Read [the dashboards facade](../dashboards/backend/facade/api.py) when changing tile cleanup or restoration. Use `hide_tiles_for_insights` and `restore_tiles_for_insights` rather than duplicating their rules.
 - Extend [the existing insight API tests](backend/tests/api/test_insight.py) when changing these behaviors. Cover single and bulk deletion, unrelated resources surviving, and restore behavior.
