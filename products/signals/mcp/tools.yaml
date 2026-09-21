@@ -112,6 +112,52 @@ tools:
             Replace the `content` of an existing artefact, addressed by its id, when new information supersedes it. The
             new content is validated against the artefact type's schema. Editing the latest row of a status type changes
             the report's canonical status; to re-assess while keeping history, append a new artefact instead.
+    inbox-report-checks-create:
+        operation: signals_scout_report_check_create
+        enabled: true
+        scopes:
+            - signal_scout_report:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Write a follow-up check (removed)
+        description: >
+            Removed. A scout run writes checks with scout-report-check-create, and the research pipeline writes its own;
+            there is no create surface for a person or a task token. Read a report's checks with
+            inbox-report-checks-list.
+    inbox-report-checks-list:
+        operation: signals_report_checks_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List a report's checks
+        description: >
+            List the follow-up checks on one report, newest first. Each row carries the expectation and why it was
+            written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status`
+            (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A
+            `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs
+            and by the research pipeline, so this surface reads them and does not create them. `query` and
+            `baseline_value` read as null when you cannot read the data they describe.
+    inbox-report-checks-retrieve:
+        operation: signals_report_checks_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.report_id}'
+        title: Get a single check
+        description: >
+            Get one check on a report by its id, with its full config, schedule, status, and last outcome. The verdicts
+            themselves are `check_result` artefacts on the report, so read those through the artefact list.
     inbox-reports-bulk-set-state:
         operation: signals_reports_bulk_state_create
         enabled: true
@@ -823,6 +869,77 @@ tools:
             whole call with nothing written — fix and resubmit the batch. Each accepted record lands in the project's
             event stream as a `$scout_structured_output` event, queryable like any event. Idempotent — event ids are
             deterministic, so retrying a call that failed with a delivery error (503) cannot double-count.
+    scout-report-check-cancel:
+        operation: signals_scout_report_check_cancel
+        enabled: true
+        scopes:
+            - signal_scout_report:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Cancel a follow-up check
+        description: >
+            Stop a check that is no longer worth running — the claim it re-measures has changed, or a better check
+            replaces it. Results it already recorded stay on the report. A check that already finished cannot be
+            cancelled, and the call says so.
+    scout-report-check-create:
+        operation: signals_scout_report_check_create
+        enabled: true
+        scopes:
+            - signal_scout_report:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Write a follow-up check on a report
+        description: >
+            Schedule a re-measurement of a report's claim, so "did the fix hold?" becomes a stored fact instead of
+            something a future run has to remember to look for. Write one when this run surfaces something whose fix
+            would show up in data later. Pass the `run_id` of your own in-progress run and the `report_id` of the report
+            the check belongs to. Use `metric_threshold` when a bounded query and a baseline exist: pass a `config` with
+            a `metric_id` naming one of the report's own metrics (or your own bounded Trends `query`), a `comparison`
+            (`lte` / `gte` / `between`) saying what the value must satisfy, and the `baseline_value` you measured now. A
+            `query` you supply must keep `dateRange.date_from` relative (`-13d`) and `date_to` empty, so each run
+            measures the days before it rather than the days before the check was written — absolute dates are refused.
+            The query must produce exactly one output series: use one event or action series, or combine up to ten of
+            them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric`
+            turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`,
+            which keeps compare mode off already. Use `agent` for a claim no single number settles: pass `instructions`
+            saying what a later run must establish and `probe_hints` naming the issue ids, services, or queries to look
+            at; it runs on the scout you name in `skill_name`, or on the fleet's follow-up scout when you name none.
+            `next_run_at` is when to first look, so allow deploy and soak time. The verdict lands on the report as a
+            `check_result` entry people read in the inbox. Check `scout-report-check-list` first: a report holds at most
+            five open checks, and a second check for the same claim is noise.
+    scout-report-check-list:
+        operation: signals_scout_report_checks_list
+        enabled: true
+        scopes:
+            - signal_scout_report:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List a report's follow-up checks
+        description: >
+            Every follow-up check on one report, newest first, with its kind, status, next run and last verdict. Pass
+            the `run_id` of your own in-progress run and the `report_id` of the report to read; both are required. Read
+            this before writing a check: a report already carrying one for the same claim needs no second, and a report
+            holds at most five open checks at a time. A `pending` check is waiting for the report to resolve before its
+            clock starts; every status other than `pending` and `active` is terminal.
+    scout-report-checks-list:
+        operation: signals_scout_report_checks_list
+        enabled: true
+        scopes:
+            - signal_scout_report:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List a report's follow-up checks (deprecated)
+        description:
+            'DEPRECATED: renamed to scout-report-check-list. This alias forwards to the same endpoint and will be
+            removed. Call scout-report-check-list directly with the same arguments.'
     scout-run-now:
         operation: signals_scout_config_run
         enabled: true
@@ -1015,17 +1132,8 @@ tools:
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
         enabled: false
-    signals-report-checks-create:
-        operation: signals_report_checks_create
-        enabled: false
     signals-report-checks-destroy:
         operation: signals_report_checks_destroy
-        enabled: false
-    signals-report-checks-list:
-        operation: signals_report_checks_list
-        enabled: false
-    signals-report-checks-retrieve:
-        operation: signals_report_checks_retrieve
         enabled: false
     signals-report-pr-checks:
         operation: signals_report_pr_checks

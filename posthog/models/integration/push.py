@@ -16,6 +16,7 @@ from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
 from . import model, refresh_tracking
+from .google_cloud import InvalidGoogleTokenUriError, require_google_token_uri
 
 logger = structlog.get_logger(__name__)
 
@@ -134,6 +135,8 @@ class FirebaseIntegration:
     ) -> "model.Integration":
         scope = "https://www.googleapis.com/auth/firebase.messaging"
 
+        key_info["token_uri"] = require_google_token_uri(key_info.get("token_uri"))
+
         try:
             credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
             credentials.refresh(GoogleRequest())
@@ -191,6 +194,14 @@ class FirebaseIntegration:
         scope = "https://www.googleapis.com/auth/firebase.messaging"
         key_info = self.integration.sensitive_config.get("key_info", {})
 
+        try:
+            key_info["token_uri"] = require_google_token_uri(key_info.get("token_uri"))
+        except InvalidGoogleTokenUriError:
+            refresh_tracking.record_refresh_failure(
+                self.integration, reason=refresh_tracking.REFRESH_FAILURE_REASON_INVALID_TOKEN_URI
+            )
+            self.integration.save(update_fields=["config"])
+            raise
         credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
 
         try:

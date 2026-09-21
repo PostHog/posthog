@@ -80,7 +80,7 @@ rules:
     - match: '/.claude/agents/ingestion/'
       owners: team-ingestion
     - match: '/bin/start-llm-gateway'
-      owners: [team-devex, team-ai-gateway]
+      owners: [team-devex, team-agent-infrastructure]
     - match: '/cli/'
       owners: team-error-tracking
     - match: '/docs/onboarding/ai-observability/'
@@ -132,7 +132,7 @@ rules:
     - match: '/posthog/test/test_feature_flag_analytics.py'
       owners: team-feature-flags
     - match: '/services/llm-gateway/'
-      owners: team-ai-gateway
+      owners: team-agent-infrastructure
     - match:
           - '/packages/owners/'
           - '/tools/hogli-commands/'

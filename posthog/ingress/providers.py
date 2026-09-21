@@ -17,13 +17,14 @@ from django.http import HttpRequest, HttpResponse
 from rest_framework.throttling import BaseThrottle
 
 from posthog.ingress.contracts import ProviderSpec, WebhookConsumer, WebhookDelivery
-from posthog.ingress.verify.schemes import SignatureScheme, Verification
+from posthog.ingress.verify.schemes import SignatureScheme, Verification, VerificationOutcome
 
 # Every incarnation module, imported lazily. An incarnation exposes `SPECS` (what it accepts)
 # and may expose `CORE_CONSUMERS` (consumers core owns rather than a product).
 _INCARNATION_MODULES = (
     "posthog.ingress.github.provider",
     "posthog.ingress.slack.provider",
+    "posthog.ingress.teams.provider",
     "posthog.ingress.pandadoc.provider",
     "posthog.ingress.mailgun.provider",
     "posthog.ingress.vapi.provider",
@@ -32,11 +33,31 @@ _INCARNATION_MODULES = (
 
 
 class InvalidPayload(Exception):
-    """A body the provider could not decode.
+    """A body the provider refuses, raised from `parse` or from `deliveries`.
 
-    Carries the decoder's own message, which the view logs and never answers with: what the
-    parser tripped over is a hint to an unauthenticated caller about how PostHog reads a body.
+    `parse` raises it for a body it cannot decode. `deliveries` raises it for a body it decoded
+    and will not accept, which is where a provider holds the body to what the signature proved:
+    Teams refuses an activity whose `serviceUrl` the token did not sign. Either way the view
+    answers 400 and no consumer runs.
+
+    Carries the provider's own message, which the view logs and never answers with: what the
+    provider tripped over is a hint to an unauthenticated caller about how PostHog reads a body.
+    A message that quotes a value the caller sent, or one the token carried, writes that value
+    into the log of an endpoint a stranger can drive, so name the field instead of either value.
     """
+
+
+def decode_json(raw: str | bytes) -> Any:
+    """Decode a body this package accepts, or raise `InvalidPayload` for one it cannot read.
+
+    One decoder for every provider, so which failures mean 400 is decided once. A provider that
+    reads a form decodes the field it holds the JSON in through here.
+    """
+    try:
+        # RecursionError: deeply nested JSON must answer 400, not 500.
+        return json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as error:
+        raise InvalidPayload(str(error)) from error
 
 
 class WebhookProvider(ABC):
@@ -82,10 +103,19 @@ class WebhookProvider(ABC):
 
         `facts` is what the signature scheme proved on the way, such as a signed token's
         verified claims. It is empty for a scheme that only checks an HMAC.
+
+        Raise `InvalidPayload` for a body this provider will not accept, and the view answers
+        400 before any consumer runs. That is how a provider holds a body field to the claim
+        that signs it, rather than handing a consumer a delivery it has to distrust.
         """
 
     def verify(self, request: HttpRequest) -> Verification:
-        return self.scheme().verify(body=request.body, headers=request.headers)
+        scheme = self.scheme()
+        # Asked before `request.body`, so an unsigned probe cannot make every endpoint here
+        # read a body of up to the request limit before the signature header is even looked at.
+        if scheme.rejects_headers(request.headers):
+            return Verification(outcome=VerificationOutcome.INVALID)
+        return scheme.verify(body=request.body, headers=request.headers)
 
     def parse(self, request: HttpRequest) -> Any:
         """Decode the verified body into the value `deliveries` reads.
@@ -94,11 +124,7 @@ class WebhookProvider(ABC):
         form instead (Slack interactivity, Mailgun) overrides this and reads `request.POST`.
         Raise `InvalidPayload` for a body this provider cannot read, and the view answers 400.
         """
-        try:
-            # RecursionError: deeply nested JSON must answer 400, not 500.
-            return json.loads(request.body)
-        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as error:
-            raise InvalidPayload(str(error)) from error
+        return decode_json(request.body)
 
     def pre_dispatch_response(self, request: HttpRequest, payload: Any) -> HttpResponse | None:
         """A handshake the protocol demands, answered before any consumer runs.

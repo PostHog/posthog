@@ -75,7 +75,8 @@ class SignalFinding(BaseModel):
         json_schema_extra={"minProperties": 1},
         description=(
             "A mapping of 'git commit short SHA (7 characters)' -> 'reason'. "
-            "Values are short explanations of WHY each commit is relevant. "
+            "Each value is one sentence of at most 12 words that explains why the commit is relevant. "
+            "Name the affected surface or behavior instead of listing implementation details. "
             "Use `git blame --ignore-revs-file $(git rev-parse --show-toplevel)/.git-blame-ignore-revs` on "
             "the most critical code paths to identify commits that caused, or are most closely related to, "
             "the issue described by this report. Prioritize causative commits (e.g. the commit that introduced a bug) "
@@ -178,7 +179,7 @@ class RelevantCommit(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    reason: str
+    reason: str = Field(max_length=500)
     sha: str
     url: str
 
@@ -210,6 +211,7 @@ class SuggestedReviewerEntry(BaseModel):
     )
     reason: str | None = Field(
         default=None,
+        max_length=500,
         description="Why this reviewer was chosen — the evidence behind the routing (e.g. recent author on the affected surface, human correction precedent).",
     )
     is_skill_owner: bool = Field(

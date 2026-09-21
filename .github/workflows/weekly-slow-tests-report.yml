@@ -32,7 +32,7 @@ permissions:
 
 jobs:
     report:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         # Worst case mirrors the flaky report: 3 HogQL attempts x 150s abort plus 2 x 30s
         # backoffs (~8.5min), plus checkout, owner resolution, and the editor lookups.
         timeout-minutes: 12

@@ -6,10 +6,10 @@ import json
 import math
 import logging
 import functools
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict
 from datetime import datetime, timedelta
-from typing import Any, Literal, NoReturn, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, NoReturn, Optional, cast
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
@@ -105,12 +105,19 @@ from products.feature_flags.backend.api.filters_schema import (
     FeatureFlagFiltersSerializer,
 )
 from products.feature_flags.backend.api.remote_config_shadow import shadow_compare_remote_config
+from products.feature_flags.backend.dependency_formats import (
+    DependencyConfigFormatError,
+    require_v1_config,
+    validate_dependency_formats,
+)
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
+    apply_approved_encrypted_payloads,
     encrypt_flag_payloads,
     get_decrypted_flag_payloads_protected,
+    restore_redacted_flag_payloads,
 )
-from products.feature_flags.backend.facade.config import detect_config_format
+from products.feature_flags.backend.facade.config import ConfigFormatError, detect_config_format
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
 from products.feature_flags.backend.flag_analytics import increment_request_count
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
@@ -139,6 +146,9 @@ from products.feature_flags.backend.version_history import (
 )
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
+
+if TYPE_CHECKING:
+    from pydantic import JsonValue
 
 logger = logging.getLogger(__name__)
 # Dedicated logger name (not `__name__`) so the underlying stdlib logger is created
@@ -1293,6 +1303,11 @@ class FeatureFlagSerializer(
             "is_used_in_replay_settings",
             "is_eligible_for_experiment",
         ]
+        # Server-owned timestamps. Neither is declared above, so ModelSerializer would otherwise
+        # build them as writable (`auto_now` makes `updated_at` read-only, but `created_at` only
+        # carries a default and `last_called_at` is a plain column). A client could then overwrite
+        # the usage telemetry staleness detection reads.
+        read_only_fields = ["created_at", "last_called_at"]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
         from typing import cast
@@ -1332,6 +1347,26 @@ class FeatureFlagSerializer(
         # Fallback to database query if annotation is not available
         return teams_gating_replay_on_flag(feature_flag, key=feature_flag.key).exists()
 
+    def _validate_reactivated_dependency_formats(self, attrs: Mapping[str, JsonValue]) -> None:
+        """Empty filters retain stored targeting and bypass dependency checks in _validate_filters_inner.
+
+        Treat them as omitted so enabling or restoring an active flag still checks its dependencies.
+        """
+        if self.instance is None or self.initial_data.get("filters"):
+            return
+
+        enabling = attrs.get("active") is True and not self.instance.active
+        restoring_active = (
+            attrs.get("deleted") is False and self.instance.deleted and attrs.get("active", self.instance.active)
+        )
+        if not (enabling or restoring_active):
+            return
+
+        try:
+            self._validate_dependency_formats(self.instance.filters or {}, traverse=True)
+        except serializers.ValidationError as exc:
+            raise serializers.ValidationError({"filters": exc.detail}) from exc
+
     def validate(self, attrs):
         """Validate feature flag creation/update including evaluation tag requirements."""
         # `filters` is declared with source="get_filters", so its absence means the request
@@ -1348,6 +1383,7 @@ class FeatureFlagSerializer(
         self._validate_device_bucketing_with_persist_auth(attrs)
         self._validate_encrypted_payloads_require_remote_config(attrs)
         self._validate_archived_flags_are_disabled(attrs)
+        self._validate_reactivated_dependency_formats(attrs)
         self._validate_flag_limits()
 
         # Materialize the remote-config 100% rollout default here, before the approval gate runs in
@@ -1800,9 +1836,13 @@ class FeatureFlagSerializer(
 
         # Circular dependency checks only apply to person-aggregated conditions
         # since flag-based property filters only work with person aggregation
+        # The cycle walk checks target formats through _validate_flag_reference as it
+        # resolves each edge. Group-only conditions skip that walk, so check them separately.
         has_person_condition = any(c.get("aggregation_group_type_index") is None for c in well_formed_groups)
         if has_person_condition:
             self._check_flag_circular_dependencies(merged)
+        else:
+            self._validate_dependency_formats(merged, traverse=True)
 
         if structurally_valid:
             # Cross-field tier (#50084): variant sums, key uniqueness, payload/variant
@@ -1910,6 +1950,23 @@ class FeatureFlagSerializer(
                 f"Please simplify conditions or reduce payload sizes."
             )
 
+    def _validate_dependency_formats(
+        self, filters: Mapping[str, JsonValue], *, traverse: bool = False, flag_id: int | None = None
+    ) -> None:
+        try:
+            if traverse:
+                validate_dependency_formats(filters, project_id=self.context["project_id"])
+            else:
+                require_v1_config(filters)
+        except ConfigFormatError as exc:
+            if isinstance(exc, DependencyConfigFormatError):
+                flag_id = exc.flag_id
+            dependency = f"Flag dependency with ID {flag_id}" if flag_id is not None else "A flag dependency"
+            raise serializers.ValidationError(
+                f"{dependency} uses an unsupported configuration format. Remove this dependency to continue.",
+                code="unsupported_dependency_config_version",
+            ) from exc
+
     def _validate_flag_reference(self, flag_reference):
         """Validate and convert flag reference to flag key."""
         from posthog.utils import safe_int
@@ -1931,6 +1988,7 @@ class FeatureFlagSerializer(
                     f"Flag dependencies must reference active flags only."
                 )
 
+            self._validate_dependency_formats(flag.filters, flag_id=flag_id)
             return flag.key
         except FeatureFlag.DoesNotExist:
             raise serializers.ValidationError(f"Flag dependency references non-existent flag with ID {flag_id}")
@@ -2113,7 +2171,11 @@ class FeatureFlagSerializer(
         # any path that reaches create() without it (e.g. approved-CR re-apply builds a fresh payload).
         self._apply_remote_config_default_filters(validated_data, filters_key="filters")
 
-        encrypt_flag_payloads(validated_data)
+        approved_payloads = self.context.get("approval_encrypted_payloads")
+        if approved_payloads:
+            apply_approved_encrypted_payloads(validated_data, approved_payloads)
+        else:
+            encrypt_flag_payloads(validated_data)
 
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
@@ -2241,8 +2303,18 @@ class FeatureFlagSerializer(
             validated_data["has_encrypted_payloads"] = True
             filters = validated_data.get("filters")
             new_true_payload = ((filters or {}).get("payloads") or {}).get("true")
+            approved_payloads = self.context.get("approval_encrypted_payloads")
 
-            if not new_true_payload or new_true_payload == REDACTED_PAYLOAD_VALUE:
+            if approved_payloads:
+                # The approved change request holds its payload as ciphertext, separate from the
+                # change being replayed, which carries only the sentinel. Restore the stored
+                # ciphertext for the keys the approval does not carry, then swap the approved
+                # ciphertext in over the keys it does.
+                if filters is not None:
+                    stored_payloads = (instance.filters or {}).get("payloads") or {}
+                    filters["payloads"] = restore_redacted_flag_payloads(filters.get("payloads") or {}, stored_payloads)
+                apply_approved_encrypted_payloads(validated_data, approved_payloads)
+            elif not new_true_payload or new_true_payload == REDACTED_PAYLOAD_VALUE:
                 # Preserve the existing encrypted payload when the request didn't
                 # supply a fresh one — either because `filters.payloads` was
                 # omitted (partial PATCH from the V2 form), the redacted
@@ -2257,12 +2329,7 @@ class FeatureFlagSerializer(
                         raise exceptions.ValidationError(
                             "An encrypted payload is required when has_encrypted_payloads is true."
                         )
-                    payloads = filters.get("payloads") or {}
-                    # validate_filters substitutes the sentinel for every stored key, so restoring
-                    # only "true" would persist the placeholder over the other keys' ciphertext.
-                    for key, value in payloads.items():
-                        if value == REDACTED_PAYLOAD_VALUE and key in stored_payloads:
-                            payloads[key] = stored_payloads[key]
+                    payloads = restore_redacted_flag_payloads(filters.get("payloads") or {}, stored_payloads)
                     payloads["true"] = stored_payloads["true"]
                     filters["payloads"] = payloads
             else:
@@ -3828,7 +3895,10 @@ class FeatureFlagViewSet(
         detail=True,
         required_scopes=["feature_flag:write"],
         request=None,
-        responses=flag_lifecycle_responses("The flag is archived, or one of the flags it depends on is disabled."),
+        responses=flag_lifecycle_responses(
+            "The flag is archived, one of the flags it depends on is disabled, or a flag it "
+            "depends on uses an unsupported configuration format."
+        ),
     )
     def enable(self, request: request.Request, **kwargs) -> Response:
         """
@@ -3836,8 +3906,8 @@ class FeatureFlagViewSet(
 
         Sets `active` to true and changes nothing else. Targeting, variants, payloads, tags and
         archived state are left as they are. An archived flag is refused: unarchive it first. A
-        flag whose own flag dependencies are disabled is also refused. An already-enabled flag
-        is returned unchanged.
+        flag whose own flag dependencies are disabled or use an unsupported configuration
+        format is also refused. An already-enabled flag is returned unchanged.
         """
         return self._set_active(request, active=True)
 

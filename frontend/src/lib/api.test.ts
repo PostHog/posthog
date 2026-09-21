@@ -483,6 +483,32 @@ describe('API helper', () => {
 
             expect(error).toBeInstanceOf(ApiError)
             expect(error).not.toBeInstanceOf(NetworkError)
+            expect(error.message).toBe('the fetcher itself broke')
+        })
+
+        it('keeps a thrown object readable instead of stringifying it into the message', async () => {
+            // The caught value used to be passed as the `message`, so an object read back as
+            // "[object Object]" wherever the app prints one, and `detail` and `code` came back null.
+            const thrown = { detail: 'You lack access to this collection.', code: 'permission_denied' }
+            fakeFetch.mockRejectedValue(thrown)
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error.message).toBe('You lack access to this collection.')
+            expect(error.code).toBe('permission_denied')
+            expect(error.data).toBe(thrown)
+        })
+
+        it('keeps the original stack as the cause', async () => {
+            // Every ApiError is built in one file, so they share its stack. posthog-js walks `cause`
+            // and reports the chained frames; it never reads `data`, so only this keeps a reported
+            // request-path fault locatable.
+            const thrown = new Error('the fetcher itself broke')
+            fakeFetch.mockRejectedValue(thrown)
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error.cause).toBe(thrown)
         })
     })
 

@@ -7,7 +7,13 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError, BROWSER_FETCH_FAILURE_MESSAGES, NetworkError, type NetworkFailureReason } from 'lib/api-error'
+import {
+    ApiError,
+    BROWSER_FETCH_FAILURE_MESSAGES,
+    NetworkError,
+    type NetworkFailureReason,
+    readableErrorMessage,
+} from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
@@ -5365,10 +5371,11 @@ const api = {
                     // only on a first connect (no resume cursor); the Last-Event-ID header, when
                     // present, takes precedence and an exact resume ignores `start`.
                     const base = options.proxyTarget.baseUrl.replace(/\/+$/, '')
-                    const url =
-                        !options.lastEventId && options.startLatest
-                            ? `${base}/v1/runs/${runId}/stream?start=latest`
-                            : `${base}/v1/runs/${runId}/stream`
+                    const params = new URLSearchParams({ resync: '1' })
+                    if (!options.lastEventId && options.startLatest) {
+                        params.set('start', 'latest')
+                    }
+                    const url = `${base}/v1/runs/${runId}/stream?${params.toString()}`
                     headers['Authorization'] = `Bearer ${options.proxyTarget.token}`
                     return api.getResponse(url, { signal: options.signal, headers })
                 }
@@ -7568,7 +7575,14 @@ async function handleFetch(
             })
             throw new NetworkError(reason, error)
         }
-        throw new ApiError(error as any, response?.status)
+        // The caught value is the failure, not its message: passing it as `message` stringifies an
+        // object to "[object Object]" and leaves `detail`, `code` and `data` empty, so neither the
+        // user nor support can read what went wrong. `cause` carries the original stack, which is the
+        // only frame naming where in the request path the fault came from - every `ApiError` shares
+        // this one.
+        const failure = new ApiError(readableErrorMessage(error), response?.status, response?.headers, error)
+        failure.cause = error
+        throw failure
     }
 
     // Standalone OAuth mode: a 401 likely means the access token expired — refresh once and retry.

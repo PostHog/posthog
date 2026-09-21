@@ -781,6 +781,7 @@ from .mode.source import ModeSource
 from .moengage.source import MoEngageSource
 from .moesif.source import MoesifSource
 from .mollie.source import MollieSource
+from .monaco.source import MonacoSource
 from .monday.source import MondaySource
 from .moneybird.source import MoneybirdSource
 from .mongodb.source import MongoDBSource
