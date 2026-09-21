@@ -132,12 +132,17 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
         ]
 
     def clean(self):
-        """Ensure the row names exactly one object, through one typed column."""
+        """Ensure the row names exactly one taggable object, through the column its model uses."""
         super().clean()
         if self.content_type_id is None:
             raise ValidationError("A tagged item must have a content type.")
         if (self.object_id is None) == (self.object_uuid is None):
             raise ValidationError("Exactly one object column must be set.")
+        entry = self._taggable_entry
+        if entry is None:
+            raise ValidationError("The content type is not a taggable model.")
+        if getattr(self, entry.object_field) is None:
+            raise ValidationError(f"A tag on {self.content_type} belongs on {entry.object_field}.")
 
     objects = TaggedItemQuerySet.as_manager()
 

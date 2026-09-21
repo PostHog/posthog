@@ -51,6 +51,27 @@ class TestTaggedItem(BaseTest):
         with self.assertRaises(ValidationError):
             TaggedItem.objects.create(tag_id=tag.id, object_id=dashboard.id)
 
+    def test_unregistered_content_type_is_rejected(self):
+        tag = Tag.objects.create(name="tag", team_id=self.team.id)
+
+        with self.assertRaises(ValidationError):
+            TaggedItem.objects.create(
+                tag_id=tag.id, content_type=ContentType.objects.get_for_model(Team), object_id=self.team.id
+            )
+
+    def test_object_column_must_match_the_content_type(self):
+        """A row filed under the wrong typed column reads back as no object at all."""
+        event_definition = EventDefinition.objects.create(team=self.team, name="event")
+        tag = Tag.objects.create(name="tag", team_id=self.team.id)
+
+        with self.assertRaises(ValidationError):
+            TaggedItem.objects.create(
+                tag_id=tag.id,
+                content_type=ContentType.objects.get_for_model(EventDefinition),
+                object_id=self.team.id,
+            )
+        assert event_definition.tagged_items.count() == 0
+
     @parameterized.expand(["dashboard", "insight", "event_definition", "action"])
     def test_uniqueness_constraint(self, kind: str):
         tag = Tag.objects.create(name="tag", team_id=self.team.id)
