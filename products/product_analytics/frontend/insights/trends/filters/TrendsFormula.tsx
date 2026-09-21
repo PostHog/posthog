@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
+import { objectsEqual } from 'lib/utils/objects'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { TrendsFormulaNode } from '~/queries/schema/schema-general'
@@ -26,18 +27,25 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
         // hasFormula branch that seeds one empty input when formula mode is toggled on.
         if (formulaNodes && formulaNodes.length > 0) {
             setValues(formulaNodes)
-            // Merge incoming formulas with existing local fields, maintaining order
+            // Merge incoming formulas with existing local fields, maintaining order. The source
+            // query editor can change the query while this editor stays mounted, so the counts
+            // can differ.
             setLocalValues((prev) => {
-                const newValues = [...prev]
-                // Update existing non-empty fields with backend values
+                const merged: TrendsFormulaNode[] = []
                 let backendIndex = 0
-                for (let i = 0; i < newValues.length && backendIndex < formulaNodes.length; i++) {
-                    if (newValues[i].formula.trim() !== '') {
-                        newValues[i] = formulaNodes[backendIndex]
+                for (const localValue of prev) {
+                    if (localValue.formula.trim() === '') {
+                        merged.push(localValue)
+                    } else if (backendIndex < formulaNodes.length) {
+                        merged.push(formulaNodes[backendIndex])
                         backendIndex++
                     }
                 }
-                return newValues
+                while (backendIndex < formulaNodes.length) {
+                    merged.push(formulaNodes[backendIndex])
+                    backendIndex++
+                }
+                return merged
             })
         } else if (hasFormula) {
             // Always ensure at least one empty value when formula mode is enabled
@@ -52,7 +60,9 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
     const updateFormulas = (newValues: TrendsFormulaNode[]): void => {
         // Filter out empty values when updating the query but keep them in local state
         const filledValues = newValues.filter((v) => v.formula.trim() !== '')
-        if (filledValues.length === 0) {
+        // Blurring a field the user did not change is the common case, so skip the query update
+        // and the refetch it triggers.
+        if (objectsEqual(filledValues, formulaNodes)) {
             return
         }
 
@@ -82,21 +92,15 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
         setLocalValues(newValues)
     }
 
-    const handleFormulaBlur = (index: number, e: React.FocusEvent<HTMLInputElement>): void => {
+    const handleFormulaBlur = (e: React.FocusEvent<HTMLInputElement>): void => {
         // Ignore TrendsFormulaLabel switch click to prevent conflicting updateInsightFilter calls
         if ((e.relatedTarget as HTMLElement | undefined)?.id !== 'trends-formula-switch') {
-            // Only update if the current field has content
-            if (localValues[index].formula.trim() !== '') {
-                updateFormulas(localValues)
-            }
+            updateFormulas(localValues)
         }
     }
 
-    const handleCustomNameBlur = (index: number): void => {
-        // Only update if the current field has a formula with content
-        if (localValues[index].formula.trim() !== '') {
-            updateFormulas(localValues)
-        }
+    const handleCustomNameBlur = (): void => {
+        updateFormulas(localValues)
     }
 
     const handleFormulaEnter = (): void => {
@@ -125,7 +129,7 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
                             autoFocus={index === localValues.length - 1}
                             value={value.formula}
                             onChange={(value) => handleFormulaChange(index, value)}
-                            onBlur={(e) => handleFormulaBlur(index, e)}
+                            onBlur={handleFormulaBlur}
                             onPressEnter={handleFormulaEnter}
                         />
                         <LemonInput
@@ -134,7 +138,7 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
                             size="small"
                             value={value.custom_name || ''}
                             onChange={(value) => handleCustomNameChange(index, value)}
-                            onBlur={() => handleCustomNameBlur(index)}
+                            onBlur={handleCustomNameBlur}
                             onPressEnter={handleFormulaEnter}
                         />
                         <LemonButton
