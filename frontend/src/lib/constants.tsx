@@ -329,7 +329,7 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAG_EARLY_EXIT: 'feature-flag-early-exit', // owner: @gustavo #team-feature-flags
     FEATURE_FLAG_NOTIFICATIONS: 'feature-flag-notifications', // owner: @reecejones #team-platform-features
     FEATURE_FLAG_REQUEST_USAGE: 'feature-flag-request-usage', // owner: #team-feature-flags
-    FIELD_NOTES: 'field-notes', // owner: @adamleith
+    FIELD_NOTES: 'field-notes', // owner: @adamleithp
     FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dmarticus #team-feature-flags
     FLAGGED_FEATURE_INDICATOR: 'flagged-feature-indicator', // owner: @benjackwhite
     FLAT_NAV: 'flat-nav', // owner: @rafaeelaudibert #team-growth multivariate=control,test, swaps the tree-based Browse tab for the flat sidebar, see FlatNavBrowse.tsx
@@ -443,6 +443,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_CHART_ALTERNATIVES: 'product-analytics-chart-alternatives', // owner: #team-product-analytics
     PRODUCT_ANALYTICS_DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS: 'product-analytics-dashboard-modal-smart-defaults', // owner: @sam #team-product-analytics
+    PRODUCT_ANALYTICS_HOME_TAB: 'product-analytics-home-tab', // owner: #team-product-analytics
     PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
     PRODUCT_ANALYTICS_PATHS_STRIP_QUERY_STRING: 'paths-strip-query-string', // owner: #team-product-analytics, gates the "Ignore URL query strings" switch on paths insights
     PRODUCT_ANALYTICS_PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
@@ -466,6 +467,7 @@ export const FEATURE_FLAGS = {
     QUILL_DATE_PICKER: 'quill-date-picker', // owner: @pauldambra, flips the lib/components/DatePicker seam from LemonUI to Quill
     REAL_TIME_NOTIFICATIONS: 'real-time-notifications', // owner: #team-platform-features
     REALTIME_COHORT_FLAG_TARGETING: 'realtime-cohort-flag-targeting', // owner: @dmarticus #team-feature-flags
+    REALTIME_COHORTS: 'realtime-cohorts', // owner: #team-feature-flags, links the cohorts list waitlist banner to its early access feature
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
     REMOTE_CONFIG: 'remote-config', // owner: #team-platform-features
     REPLAY_COLLAPSE_INSPECTOR_ITEMS: 'replay-collapse-inspector-items', // owner: @fasyy612 #team-replay
@@ -505,7 +507,6 @@ export const FEATURE_FLAGS = {
     SSO_SETTINGS_REDESIGN: 'sso-settings-redesign', // owner: @reecejones #team-platform-features
     STREAMLIT_APPS: 'streamlit-apps', // owner: @sakce
     SUBSCRIPTION_AI_PROMPT: 'ai-subscriptions', // owner: #team-analytics-platform, gates AI prompt-based subscriptions
-    SUBSCRIPTION_CREATION_WIZARD: 'subscription-creation-wizard', // owner: #team-analytics-platform, experiment=control,test
     SUBSCRIPTION_SLACK_GALLERY: 'subscription-slack-gallery', // owner: #team-analytics-platform, enables gallery delivery after the worker rollout completes
     SURVEY_HEADLINE_SUMMARY: 'survey-headline-summary', // owner: @adboio #team-surveys
     SURVEYS_ERROR_TRACKING_CROSS_SELL: 'surveys-in-error-tracking', // owner: @adboio #team-surveys
@@ -527,6 +528,7 @@ export const FEATURE_FLAGS = {
     TRACING_OPERATIONS_VIEW: 'tracing-operations-view', // owner: #team-apm — gates the Operations (per-operation aggregate) tab in tracing
     TRACING_SAVED_VIEWS: 'tracing-saved-views', // owner: #team-apm — gates saved views (saved filter sets) in tracing
     TRACING_SESSION_PERSON_LINKS: 'tracing-session-person-links', // owner: #team-apm — gates span attribute links to session replay and persons, plus the tracing correlation settings
+    TRACING_UI_V2: 'tracing-ui-v2',
     TRAFFIC_TYPE_VIRTUAL_PROPERTIES: 'traffic-type-virtual-properties', // owner: #team-web-analytics
     UI_CUSTOMIZATION: 'ui-customization-enabled', // owner: @fercgomes #team-self-driving, gates sidebar/homepage UI customization
     UNIFIED_APM_PRODUCT: 'unified-apm-product', // owner: #team-apm (@jonmcwest, @frankh), gates the shared APM product backing logs, tracing, and metrics

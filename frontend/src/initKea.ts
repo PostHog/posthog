@@ -96,6 +96,8 @@ generic toast would be a second one. Owned by featureFlagLogic's saveFeatureFlag
 */
 const DUPLICATE_KEY_SELF_HANDLED = new Set(['saveFeatureFlag'])
 
+const HAS_DEPENDENTS_SELF_HANDLED = new Set(['deleteDataWarehouseSavedQuery'])
+
 interface InitKeaProps {
     state?: Record<string, any>
     routerHistory?: any
@@ -185,6 +187,8 @@ export function initKea({
                         error.code === 'unique' &&
                         error.attr === 'key' &&
                         DUPLICATE_KEY_SELF_HANDLED.has(String(actionKey))
+                    const isHasDependentsError =
+                        error.code === 'has_dependents' && HAS_DEPENDENTS_SELF_HANDLED.has(String(actionKey))
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
@@ -201,7 +205,8 @@ export function initKea({
                         isTwoFactorError ||
                         isSensitiveActionError ||
                         isVerifiedDomainError ||
-                        isFeatureFlagDuplicateKey
+                        isFeatureFlagDuplicateKey ||
+                        isHasDependentsError
                     ) {
                         // These are handled by their own dedicated toasts elsewhere.
                         errorMessage = null

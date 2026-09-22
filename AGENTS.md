@@ -30,7 +30,6 @@
   - Start dev: `./bin/start` or `hogli start` (interactive TUI). Detached mode: `hogli up -d` paired with `hogli wait` / `hogli down`
     - In a PostHog Tasks cloud run (`POSTHOG_TASK_RUN_ID` set), the boot sequence, prewarmed test database and scoped-test rules differ — read [Cloud task sandbox](docs/internal/cloud-task-sandbox.md) before starting the stack or running tests there
 - OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
-- LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
 - Dev experience feedback: `hogli devex:feedback "<message>"` sends feedback about repo tooling — hogli, the dev stack, tests, CI, migrations, this setup — straight to the devex team as a `hogli_feedback` event (add `-c bug|idea|praise|question`).
   **Local agents must use it too**: when a hogli command or local dev workflow is broken, slow, or confusing, run it — e.g. `hogli devex:feedback -c bug "migrations:run failed with <error>"`. Do not run it from cloud tasks or agent-server sandboxes; the command is a no-op there.
 
@@ -263,7 +262,7 @@ When automating a convention, try these in order — only fall back to the next 
 4. **AGENTS.md / CLAUDE.md instructions** — when automated enforcement isn't suitable
 
 Claude Code hooks are reserved for environment bootstrapping (`SessionStart` only) — do not add `PreToolUse`, `PostToolUse`, or `Notification` hooks as they add latency and are fragile.
-Changes to `.claude/hooks/` trigger a warning from the `pre-commit` hook; changes to `.claude/settings.json` are blocked outright by lint-staged.
+Changes to `.claude/hooks/` trigger a warning from the `pre-commit` hook; lint-staged allows only repo-wide keys in `.claude/settings.json`, because personal settings belong in the gitignored `.claude/settings.local.json`.
 A warn-only check belongs in the `pre-commit` hook body rather than in a lint-staged task, because lint-staged discards the output of every task that exits 0.
 
 ### Mandatory skill invocation

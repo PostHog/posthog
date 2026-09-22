@@ -70,6 +70,10 @@ Each access-controlled system table declares an `access_scope` (e.g. `system.das
 
 At schema build time, `_compute_system_table_access_decision()` checks `UserAccessControl.access_level_for_resource(access_scope)` for each scoped table and removes denied ones from the schema (`Database._apply_system_table_access()`).
 
+`system.data_deletion_requests` uses the dedicated `data_deletion` resource.
+The resource defaults to no access for project members, while organization admins retain their standard highest access.
+Admins can delegate resource-level access, but the table does not support per-request access rules.
+
 Removed tables are tracked in `Database._denied_tables`, so referencing one raises a clear error instead of pretending the table doesn't exist — that way the user knows the table is there and can request access from an admin if they need it:
 
 ```text
