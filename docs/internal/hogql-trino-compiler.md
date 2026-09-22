@@ -77,6 +77,7 @@ Call `resolve_managed_warehouse_trino_connection(...)` through the managed-wareh
 Call `connect_managed_warehouse_trino(...)` to open the Python Trino client with basic authentication, HTTPS, certificate verification, and a bounded request timeout. The connector has no Duckgres fallback. A disabled target, non-ready state, organization mismatch, malformed endpoint, or missing stored credential fails before opening a socket.
 
 The managed connector uses a dedicated HTTP session that bypasses environment proxies only for known PostHog-hosted Trino endpoints on port 443.
+It uses the same hosted endpoint check as direct Trino connections.
 Other destinations retain proxy settings.
 The connector keeps certificate verification enabled and closes the session when the connection scope exits.
 

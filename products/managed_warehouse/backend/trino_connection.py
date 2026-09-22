@@ -12,11 +12,10 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTrinoConnectionUnavailable,
 )
 from products.managed_warehouse.backend.trino_target import get_ready_trino_connection_target
+from products.warehouse_sources.backend.facade import source_management
 
 if TYPE_CHECKING:
     from trino.dbapi import Connection
-
-_MANAGED_TRINO_HOSTS = frozenset({"trino.dw.dev.postwh.com", "trino.dw.us.postwh.com"})
 
 
 def resolve_managed_warehouse_trino_connection(organization_id: str) -> ManagedWarehouseTrinoConnection:
@@ -54,7 +53,7 @@ def connect_managed_warehouse_trino(organization_id: str) -> Iterator[Connection
     config = resolve_managed_warehouse_trino_connection(organization_id)
     with requests.Session() as http_session:
         # Only known hosted Trino endpoints bypass the proxy's private-IP restrictions.
-        if config.host.lower().rstrip(".") in _MANAGED_TRINO_HOSTS and config.port == 443:
+        if source_management.is_posthog_managed_trino_host(config.host) and config.port == 443:
             http_session.trust_env = False
         connection = connect(
             host=config.host,
