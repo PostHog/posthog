@@ -21,6 +21,10 @@ export class ApiRequest {
         return this.signalReports(teamId).addPathComponent(id)
     }
 
+    public signalRules(ruleType: string, teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('signals').addPathComponent(ruleType)
+    }
+
     public signalScoutRuns(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('signals').addPathComponent('scout').addPathComponent('runs')
     }
@@ -37,6 +41,9 @@ const api = {
         },
         async setState(id: string, data: any): Promise<any> {
             return await new ApiRequest().signalReport(id).withAction('state').create({ data })
+        },
+        async createRule(ruleType: string, data: any): Promise<any> {
+            return await new ApiRequest().signalRules(ruleType).create({ data })
         },
         async availableReviewers(): Promise<any> {
             return await new ApiRequest().signalReports().withAction('available_reviewers').get()
@@ -70,6 +77,18 @@ export const signalsReportsStateCreate = async (projectId: string, id: string) =
 export const getSignalsReportsStateCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/state/`
 }
+export const signalsAssignmentRulesCreate = async (projectId: string) => {
+    return apiMutator({ url: getSignalsAssignmentRulesCreateUrl(projectId), method: 'POST' })
+}
+export const getSignalsAssignmentRulesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/assignment_rules/`
+}
+export const signalsGroupingRulesCreate = async (projectId: string) => {
+    return apiMutator({ url: getSignalsGroupingRulesCreateUrl(projectId), method: 'POST' })
+}
+export const getSignalsGroupingRulesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/grouping_rules/`
+}
 export const getSignalsScoutRunsListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/scout/runs/`
 }
@@ -97,6 +116,8 @@ export const load = async (): Promise<void> => {
     await api.signalReports.availableReviewers()
     await api.signalReports
         .setState(id, { state: 'resolved' })
+    await api.signalReports.createRule(SignalRuleType.Grouping, rule)
+    await api.signalReports.createRule(ruleTypeFromProps, rule)
     await api.comments.list()
     await api.get(`api/projects/${projectId}/signals/config/`)
 }
@@ -117,18 +138,34 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
+class TestParameterisedRoutes:
+    # The route is a mask, so the call's own argument decides which generated function
+    # replaces it; reporting the mask as unmatched sent the reader looking for nothing.
+    def test_a_literal_argument_picks_the_generated_function(self, repo: Path) -> None:
+        sites = codegen_call_sites(repo / "products/signals/frontend")
+        by_line = {site.line: site for site in sites if site.verb == "signalReports.createRule"}
+        picked = [site.generated_equivalent for site in by_line.values()]
+        assert "signalsGroupingRulesCreate" in picked
+        # A value the call site does not spell out leaves every candidate on the line.
+        ambiguous = next(name for name in picked if name is not None and " | " in name)
+        assert "signalsAssignmentRulesCreate" in ambiguous
+        assert "signalsGroupingRulesCreate" in ambiguous
+
+
 class TestManualApiCalls:
     # Guards the blind spot: an owned namespace used to score as zero manual calls.
     def test_counts_owned_namespaces_and_skips_foreign_ones(self, repo: Path) -> None:
-        # four api.signalReports calls, one of them broken across lines, one nested
+        # six api.signalReports calls, one of them broken across lines, one nested
         # api.signalScout.runs.list, one api.get; api.comments belongs to platform_features
-        assert count_manual_api_calls(repo / "products/signals/frontend") == 6
+        assert count_manual_api_calls(repo / "products/signals/frontend") == 8
 
     def test_call_sites_mark_a_namespaced_call_as_covered(self, repo: Path) -> None:
         sites = codegen_call_sites(repo / "products/signals/frontend")
         assert sorted(site.verb for site in sites) == [
             "get",
             "signalReports.availableReviewers",
+            "signalReports.createRule",
+            "signalReports.createRule",
             "signalReports.list",
             "signalReports.setState",
             "signalReports.setState",

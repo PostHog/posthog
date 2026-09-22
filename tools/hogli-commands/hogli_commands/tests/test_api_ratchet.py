@@ -415,6 +415,29 @@ class TestNamespaceMembers:
         assert members["alerts.get"].template == ("projects", "{}", "alerts", "{}")
 
 
+class TestMemberTransports:
+    # A member that sends through a wrapper used to be dropped, which hid the call from
+    # the report while the semgrep rule still flagged it.
+    def test_a_wrapper_counts_as_its_verb_and_an_unknown_one_is_reported(self, tmp_path: Path) -> None:
+        api_ts = API_TS_FIXTURE.replace(
+            "    signalReports: {",
+            "    signalReports: {\n"
+            "        async paginated(): Promise<any> {\n"
+            "            const url = new ApiRequest().signalReports().assembleFullUrl()\n"
+            "            return await api.loadPaginatedResults(url)\n"
+            "        },\n"
+            "        async streamed(): Promise<any> {\n"
+            "            return await api.stream(new ApiRequest().signalReports().assembleFullUrl(), {})\n"
+            "        },",
+        )
+        _write_repo(tmp_path, api_ts=api_ts)
+        members = Ratchet(tmp_path).namespace_members()
+        assert members["signalReports.paginated"].method == "GET"
+        # api.stream takes its method as a per-call option, so it stays unrecognized.
+        assert members["signalReports.streamed"].method == ""
+        assert members["signalReports.streamed"].transport == "stream"
+
+
 class TestSemgrepRules:
     def test_rules_are_scoped_to_the_owning_product(self, tmp_path: Path) -> None:
         _write_repo(tmp_path)

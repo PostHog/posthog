@@ -748,6 +748,8 @@ def _call_site_target(site: ManualCallSite) -> str:
     """What to migrate a manual call site to, for the evidence line."""
     if site.generated_equivalent:
         return f"→ {site.generated_equivalent}"
+    if site.note:
+        return f"({site.note})"
     if site.namespaced:
         return "→ this product's generated client"
     return "(no match)"

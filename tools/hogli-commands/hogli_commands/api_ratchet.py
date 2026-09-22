@@ -136,17 +136,30 @@ _NAMESPACE_START: Final = re.compile(r"^    (\w+): \{")
 _NAMESPACE_MEMBER: Final = re.compile(r"^ {8,12}(?:async )?(\w+)[(<]")
 # A group of methods inside a namespace, api.signalScout.runs, always one level deep.
 _NAMESPACE_GROUP: Final = re.compile(r"^ {8}(\w+): \{$")
-_VERB_CALL: Final = re.compile(r"\.(get|getResponse|create|update|put|delete)\(")
-
-# The HTTP method each ApiRequest verb sends, from its body in api.ts.
+# The HTTP method each ApiRequest verb sends, from its body in api.ts, plus the
+# transport wrappers on the `api` object that send one without naming it. A member
+# using an unknown wrapper is reported rather than dropped, so a new wrapper shows up
+# as something to add here instead of quietly removing the member from the report.
 VERB_METHODS: Final[dict[str, str]] = {
     "get": "GET",
     "getResponse": "GET",
+    "loadPaginatedResults": "GET",
     "create": "POST",
+    "createResponse": "POST",
+    "createWithUploadProgress": "POST",
     "update": "PATCH",
     "put": "PUT",
     "delete": "DELETE",
 }
+# api.stream carries its method as a per-call option, so it is reported as
+# unrecognized rather than guessed.
+_VERB_CALL: Final = re.compile(rf"\.({'|'.join(VERB_METHODS)})\(")
+# api.loadPaginatedResults(url) takes the assembled URL rather than chaining off the
+# request, so the wrapper appears as a bare call on the api object too.
+_TRANSPORT_CALL: Final = re.compile(rf"\bapi\.({'|'.join(VERB_METHODS)})\b")
+# A direct call on the api object, so `api.someWrapper(url)` but not the namespace
+# delegation `api.actions.get(...)`, which sends nothing of the member's own.
+_API_CALL: Final = re.compile(r"\bapi\.(\w+)\s*(?:<[^(]*>)?\(")
 _MEMBER_CALL: Final = re.compile(r"\.(\w+)\(")
 _GENERATED_URL: Final = re.compile(r"`(/api/[^`]*)`")
 _TEMPLATE_HOLE: Final = re.compile(r"\$\{[^}]*\}")
@@ -604,7 +617,10 @@ class NamespaceMember:
     namespace: str
     member: str
     template: tuple[str, ...]
+    # Empty when the member sends its request through a transport this tool does not
+    # know, which is a gap in VERB_METHODS rather than a missing generated function.
     method: str
+    transport: str
 
     @property
     def path(self) -> str:
@@ -644,6 +660,18 @@ def _split_members(block: str) -> list[MemberSource]:
         MemberSource(name=name, body="\n".join(lines[index : bounds[position + 1]]))
         for position, (index, name) in enumerate(starts)
     ]
+
+
+def _member_transport(body: str) -> str:
+    """What the member calls to send its request, empty when nothing looks like one."""
+    verb = _VERB_CALL.search(body)
+    if verb is not None:
+        return verb.group(1)
+    wrapper = _TRANSPORT_CALL.search(body)
+    if wrapper is not None:
+        return wrapper.group(1)
+    unknown = _API_CALL.search(body)
+    return unknown.group(1) if unknown is not None else ""
 
 
 def _first_argument(argument: str) -> str:
@@ -705,14 +733,17 @@ class Ratchet:
         for namespace, block in self._namespace_blocks().items():
             for source in _split_members(block):
                 route = self._member_route(source.body)
-                verb = _VERB_CALL.search(source.body)
-                if route is None or verb is None:
+                if route is None:
                     continue
+                transport = _member_transport(source.body)
+                if not transport:
+                    continue  # delegates to another namespace or only builds a URL
                 member = NamespaceMember(
                     namespace=namespace,
                     member=source.name,
                     template=route,
-                    method=VERB_METHODS[verb.group(1)],
+                    method=VERB_METHODS.get(transport, ""),
+                    transport=transport,
                 )
                 members[member.path] = member
         return members

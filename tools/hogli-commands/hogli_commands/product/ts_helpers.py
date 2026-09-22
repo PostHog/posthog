@@ -182,11 +182,49 @@ class ManualCallSite:
     # A call on a namespace this product owns whose route and verb the generated client
     # covers. False when the client has no operation for it, which is a backend gap.
     namespaced: bool = False
+    # Why a site has no generated function, when the reason is not a missing endpoint.
+    note: str = ""
 
 
 def _generated_key(request: NamespaceMember) -> str:
     """The member's route in the shape `_parse_generated_url_map` keys on."""
     return "/api/" + "/".join("{p}" if segment == "{}" else segment for segment in request.template)
+
+
+def _candidate_functions(request: NamespaceMember, generated_map: dict[tuple[str, str], str]) -> list[str]:
+    """Generated functions whose route fits the member's route, holes as wildcards.
+
+    A member that takes a path segment from its caller
+    (api.errorTracking.createRule(ErrorTrackingRuleType.Bypass, ...)) builds a mask
+    rather than one route, and the client generates a function per concrete segment.
+    """
+    mask = _generated_key(request).split("/")
+    matches: dict[str, str] = {}
+    for (url, method), name in generated_map.items():
+        if method != request.method:
+            continue
+        segments = url.split("/")
+        if len(segments) != len(mask):
+            continue
+        if all(want in {have, "{p}"} for want, have in zip(mask, segments)):
+            matches[name] = url
+    return sorted(matches)
+
+
+def _narrow_by_arguments(candidates: list[str], arguments: str) -> list[str]:
+    """The candidates a literal in the call's arguments names, or all of them.
+
+    `ErrorTrackingRuleType.Bypass` and `'bypass_rules'` both name the bypass routes, so
+    the token after the last dot or inside the quotes picks the function.
+    """
+    tokens = [
+        token.lower()
+        for token in re.findall(r"""['"`](\w+)['"`]|\.(\w+)|\b([A-Z]\w+)""", arguments)
+        for token in token
+        if token
+    ]
+    named = [name for name in candidates if any(token in name.lower() for token in tokens)]
+    return named or candidates
 
 
 def _normalize_url(url: str) -> str:
@@ -230,14 +268,50 @@ def _parse_generated_url_map(api_ts: Path) -> dict[tuple[str, str], str]:
     ):
         fn_name = m.group(1)
         method = m.group(2)
-        fn_text = content[m.start() : m.start() + 500]
-        url_call = re.search(r"(get\w+Url)\(", fn_text)
-        if url_call and url_call.group(1) in url_helpers:
-            raw_url = url_helpers[url_call.group(1)]
+        # The last helper call before the method, rather than the first in a fixed
+        # window: a function that builds a FormData first pushes the call past 500
+        # characters, and the helper always sits on the line that sends the request.
+        url_calls = re.findall(r"(get\w+Url)\(", m.group(0))
+        if url_calls and url_calls[-1] in url_helpers:
+            raw_url = url_helpers[url_calls[-1]]
             url = _normalize_url(raw_url)
             generated[(url, method)] = fn_name
 
     return generated
+
+
+def _read_arguments(content: str, open_paren: int) -> str:
+    """The argument text of the call whose `(` sits at ``open_paren``."""
+    depth = 0
+    for index in range(open_paren, len(content)):
+        if content[index] == "(":
+            depth += 1
+        elif content[index] == ")":
+            depth -= 1
+            if depth == 0:
+                return content[open_paren + 1 : index]
+    return ""
+
+
+def _resolve_namespaced(
+    request: NamespaceMember | None,
+    content: str,
+    open_paren: int,
+    generated_map: dict[tuple[str, str], str],
+) -> tuple[str | None, str]:
+    """The generated function for a namespaced call site, and why there is none."""
+    if request is None:
+        return None, ""
+    if not request.method:
+        return None, f"unrecognized transport: api.{request.transport}"
+    exact = generated_map.get((_generated_key(request), request.method))
+    if exact is not None:
+        return exact, ""
+    candidates = _candidate_functions(request, generated_map)
+    if not candidates:
+        return None, ""
+    named = _narrow_by_arguments(candidates, _read_arguments(content, open_paren))
+    return (named[0] if len(named) == 1 else " | ".join(named)), ""
 
 
 def codegen_call_sites(frontend_dir: Path) -> list[ManualCallSite]:
@@ -303,7 +377,7 @@ def codegen_call_sites(frontend_dir: Path) -> list[ManualCallSite]:
             # The route and verb the namespace method sends, so a member the client has
             # no operation for is reported as a gap rather than as already covered.
             request = members.get(f"{namespace}.{member}")
-            equivalent = generated_map.get((_generated_key(request), request.method)) if request is not None else None
+            equivalent, note = _resolve_namespaced(request, content, m.end() - 1, generated_map)
             sites.append(
                 ManualCallSite(
                     file=rel_path,
@@ -313,6 +387,7 @@ def codegen_call_sites(frontend_dir: Path) -> list[ManualCallSite]:
                     method=request.method if request is not None else "",
                     generated_equivalent=equivalent,
                     namespaced=equivalent is not None,
+                    note=note,
                 )
             )
 
