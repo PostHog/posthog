@@ -405,7 +405,7 @@ describe('PostHog filesystem projection', () => {
             nested: { enabled: false },
             readonly_field: 'from API',
             restriction_level: 0,
-            ...(type === 'experiment' ? { version: 7 } : {}),
+            ...(['experiment', 'feature_flag'].includes(type) ? { version: 7 } : {}),
         }
         jest.mocked(apiMutator).mockResolvedValue(original)
         const signal = new AbortController().signal
@@ -434,7 +434,7 @@ describe('PostHog filesystem projection', () => {
                     id: 'another-id',
                     name: 'Edited',
                     nested: { enabled: true },
-                    ...(type === 'experiment' ? { version: 7 } : {}),
+                    ...(['experiment', 'feature_flag'].includes(type) ? { version: 7 } : {}),
                 }),
             })
         }

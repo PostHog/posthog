@@ -459,8 +459,11 @@ export class PosthogFilesystem extends TerminalFilesystem {
                               }
                               payload.text_content = node.attrs.markdown
                           }
+                          // These APIs skip their conflict check when `version` is absent, and the
+                          // filter above drops it because it matches what the read returned. A cohort
+                          // stays out: its version counts calculations rather than writes.
                           if (
-                              ['notebook', 'experiment'].includes(entry.type ?? '') &&
+                              ['notebook', 'experiment', 'feature_flag'].includes(entry.type ?? '') &&
                               value &&
                               typeof value === 'object' &&
                               'version' in value
