@@ -25,6 +25,7 @@ describe('mocksToHandlers', () => {
             '/api/environments/:team_id/alias_probe/',
             '/api/projects/:team_id/alias_probe',
         ],
+        ['different param names', '/api/environments/:team_id/alias_probe/', '/api/projects/:team/alias_probe/'],
     ])('keeps an explicit projects registration ahead of the twin, %s', async (_name, envPath, projectsPath) => {
         useMocks({ get: { [envPath]: { hit: 'environments' }, [projectsPath]: { hit: 'projects' } } })
 

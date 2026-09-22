@@ -47,6 +47,15 @@ const ENVIRONMENTS_PATH = /(^|\/)api\/environments\//
 
 const withoutTrailingSlash = (path: string): string => path.replace(/\/$/, '')
 
+// The key two registrations share when MSW matches them against the same requests. A `:param`
+// segment matches any single segment, so its name carries no meaning, and a trailing slash is
+// stripped before a handler is registered.
+const matchKey = (path: string): string =>
+    withoutTrailingSlash(path)
+        .split('/')
+        .map((segment) => (segment.startsWith(':') ? ':param' : segment))
+        .join('/')
+
 // `/api/environments/` is a deprecated alias of `/api/projects/`: EnvironmentsRewriteMiddleware
 // rewrites it in-process to the same viewset, so a mock registered on one path must answer the
 // other. Serving the twin here keeps the existing environments registrations working while the
@@ -59,8 +68,7 @@ const pathsForRegistration = (path: string, registeredPaths: Set<string>): strin
     }
     const projectsTwin = path.replace(ENVIRONMENTS_PATH, '$1api/projects/')
     // An explicit projects registration wins, because MSW answers with the first matching handler.
-    // Both sides drop the trailing slash, because the two styles register the same handler path.
-    if (registeredPaths.has(withoutTrailingSlash(projectsTwin))) {
+    if (registeredPaths.has(matchKey(projectsTwin))) {
         return [path]
     }
     return [path, projectsTwin]
@@ -71,7 +79,7 @@ export const mocksToHandlers = (mocks: Mocks): HttpHandler[] => {
     Object.entries(mocks)
         .filter((entry): entry is [HttpMethod, Record<string, MockSignature>] => !!entry[1])
         .forEach(([method, mockHandlers]) => {
-            const registeredPaths = new Set(Object.keys(mockHandlers).map(withoutTrailingSlash))
+            const registeredPaths = new Set(Object.keys(mockHandlers).map(matchKey))
             Object.entries(mockHandlers).forEach(([path, handler]) => {
                 pathsForRegistration(path, registeredPaths).forEach((registeredPath) => {
                     const pathWithoutTrailingSlash = withoutTrailingSlash(registeredPath)
