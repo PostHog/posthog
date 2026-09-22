@@ -5,6 +5,7 @@ import type { Compactor, Layout, LayoutItem } from 'react-grid-layout'
 
 import {
     getResizeNeighbors,
+    pinUnmovedItemsToBaseline,
     resizeNeighborToFitRow,
     restoreUnmovedItemPositions,
 } from 'scenes/dashboard/dashboardResizeCompactor'
@@ -13,8 +14,7 @@ import type { ResizeNeighbors } from 'scenes/dashboard/dashboardResizeCompactor'
 import type { DashboardLayoutSize } from '~/types'
 
 import { DashboardGridCompaction, getDashboardGridCompactor } from 'products/dashboards/frontend/dashboardCustomization'
-
-type InteractionKind = 'drag' | 'resize'
+import type { DashboardInteractionKind } from 'products/dashboards/frontend/dashboardCustomization'
 
 interface UseDashboardLayoutInteractionProps {
     layoutEditMode: boolean
@@ -26,7 +26,7 @@ interface DashboardLayoutInteraction {
     gridCompactor: Compactor
     handleLayoutChange: (_: unknown, newLayouts: Partial<Record<DashboardLayoutSize, Layout>>) => void
     interactionInProgress: MutableRefObject<boolean>
-    startInteraction: (layout: Layout, item: LayoutItem, kind: InteractionKind) => void
+    startInteraction: (layout: Layout, item: LayoutItem, kind: DashboardInteractionKind) => void
     finishInteraction: () => void
 }
 
@@ -41,10 +41,11 @@ export function useDashboardLayoutInteraction({
     const baselineById = useRef<Map<string, LayoutItem>>(new Map())
     const resizeNeighbors = useRef<ResizeNeighbors>({})
     const activeItemId = useRef<string | null>(null)
-    const interactionKind = useRef<InteractionKind | null>(null)
+    const interactionKind = useRef<DashboardInteractionKind | null>(null)
 
     const gridCompactor = useMemo<Compactor>(() => {
-        const compactor = getDashboardGridCompactor(layoutCompaction ?? DashboardGridCompaction.Vertical)
+        const selectedCompaction = layoutCompaction ?? DashboardGridCompaction.Vertical
+        const compactor = getDashboardGridCompactor(selectedCompaction)
 
         return {
             ...compactor,
@@ -55,12 +56,21 @@ export function useDashboardLayoutInteraction({
                     return compactor.compact(layout, cols)
                 }
 
-                const restoredLayout = restoreUnmovedItemPositions(layout, baseline, activeTileId, baselineById.current)
+                const kind = interactionKind.current ?? 'drag'
+                // A resize leaves react-grid-layout's push in place for the tiles it overlaps, because the row
+                // has to give way. A drag instead holds every other tile at its pre-drag position, so the tiles
+                // the drag passes over stay where the user put them. Horizontal compaction is the exception: it
+                // packs by column and gives a slot to the leftmost tile, so pinning a tile back onto the drop
+                // point sends the dragged tile away from the cursor.
+                const pinsToBaseline = kind === 'drag' && selectedCompaction !== DashboardGridCompaction.Horizontal
+                const restoredLayout = pinsToBaseline
+                    ? pinUnmovedItemsToBaseline(layout, baseline, activeTileId, baselineById.current)
+                    : restoreUnmovedItemPositions(layout, baseline, activeTileId, baselineById.current)
                 const resizedLayout =
-                    interactionKind.current === 'resize'
+                    kind === 'resize'
                         ? resizeNeighborToFitRow(restoredLayout, baseline, activeTileId, resizeNeighbors.current)
                         : restoredLayout
-                return compactor.compactInteraction(cols, activeTileId, restoredLayout, resizedLayout)
+                return compactor.compactInteraction(cols, activeTileId, kind, restoredLayout, resizedLayout)
             },
         }
     }, [layoutCompaction])
@@ -79,7 +89,7 @@ export function useDashboardLayoutInteraction({
         [layoutEditMode, updateLayouts]
     )
 
-    const startInteraction = useCallback((layout: Layout, item: LayoutItem, kind: InteractionKind): void => {
+    const startInteraction = useCallback((layout: Layout, item: LayoutItem, kind: DashboardInteractionKind): void => {
         interactionInProgress.current = true
         baselineLayout.current = layout.map((layoutItem) => cloneLayoutItem(layoutItem))
         baselineById.current = new Map(baselineLayout.current.map((layoutItem) => [layoutItem.i, layoutItem]))

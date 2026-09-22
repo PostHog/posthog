@@ -27,6 +27,22 @@ export function restoreUnmovedItemPositions(
     })
 }
 
+export function pinUnmovedItemsToBaseline(
+    layout: Layout,
+    baseline: Layout,
+    activeItemId: string,
+    baselineById: Map<string, LayoutItem> = new Map(baseline.map((item) => [item.i, item]))
+): Layout {
+    return layout.map((item) => {
+        const baselineItem = baselineById.get(item.i)
+        if (item.i === activeItemId || !baselineItem) {
+            return item
+        }
+
+        return { ...item, x: baselineItem.x, y: baselineItem.y }
+    })
+}
+
 export function resizeNeighborToFitRow(
     layout: Layout,
     baseline: Layout,
