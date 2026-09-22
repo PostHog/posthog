@@ -26,6 +26,7 @@ class LinkSerializer(serializers.ModelSerializer):
     short_code = serializers.CharField(
         required=True,
         allow_null=False,
+        max_length=255,
         help_text="The unique code/path that identifies the short link, e.g. 'abc123'",
     )
     _create_in_folder = serializers.CharField(
