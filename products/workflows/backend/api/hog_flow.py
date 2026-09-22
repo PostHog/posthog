@@ -6255,7 +6255,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         terminal status, returns 200 without re-writing — the resolver retries
         this call via cyclotron retry semantics, so safe repeats are required.
 
-        Accepts: { status: "completed" | "failed" }
+        Accepts: { status: "completed" | "failed" | "cancelled" }
         """
         from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob  # noqa: PLC0415
 
@@ -6268,9 +6268,16 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             return Response({"error": "Team not found"}, status=404)
 
         new_status = request.data.get("status")
-        if new_status not in (HogFlowBatchJob.State.COMPLETED, HogFlowBatchJob.State.FAILED):
+        # `cancelled` is written by the resolver when it stops a run whose workflow was
+        # disabled or archived mid-run. The cancel-request route flips that status itself,
+        # so only this path needs it accepted here.
+        if new_status not in (
+            HogFlowBatchJob.State.COMPLETED,
+            HogFlowBatchJob.State.FAILED,
+            HogFlowBatchJob.State.CANCELLED,
+        ):
             return Response(
-                {"error": "status must be one of: completed, failed"},
+                {"error": "status must be one of: completed, failed, cancelled"},
                 status=400,
             )
 
