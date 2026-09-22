@@ -849,12 +849,9 @@ def test_config_rejects_out_of_range_values(overrides, message):
 
 
 def test_the_scheduled_config_pins_every_setting_the_drain_reads():
-    pinned = set(drain.SCHEDULED_RUN_CONFIG["ops"]["drain_person_pg_cleanup_queue"]["config"])
-    assert set(drain.DrainConfig.model_fields) == pinned
-    assert (
-        drain.DrainConfig(**drain.SCHEDULED_RUN_CONFIG["ops"]["drain_person_pg_cleanup_queue"]["config"]).dry_run
-        is False
-    )
+    config = drain.SCHEDULED_RUN_CONFIG["ops"]["drain_person_pg_cleanup_queue"]["config"]
+    assert set(drain.DrainConfig.model_fields) == set(config)
+    assert drain.DrainConfig.model_validate(config).dry_run is False
 
 
 def test_the_job_carries_the_tags_that_bound_a_run():
