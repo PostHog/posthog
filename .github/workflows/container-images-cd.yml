@@ -175,6 +175,48 @@ jobs:
                       echo "Image for $SHA already present in ECR ($digest); skipping build." >&2
                   fi
 
+            # Create the error tracking release for this commit before the build, so the build can
+            # bake its id into the image as POSTHOG_RELEASE_ID (see the final stage of the Dockerfile).
+            # The Python SDK sends that id as $release_id on every event, which links a backend
+            # exception to the same release the frontend bundles carry: the sourcemap stage of the
+            # Dockerfile resolves the release by the same name and version, so it finds this one.
+            # The CLI pin is read from the Dockerfile so both places run one CLI version. This step
+            # never fails the build: without the secret, or on a download, checksum, or API error, the
+            # id stays empty and the SDK treats a blank value as unset.
+            - name: Resolve error tracking release
+              id: release
+              if: steps.preflight.outputs.digest == ''
+              env:
+                  POSTHOG_CLI_TOKEN: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
+                  POSTHOG_CLI_ENV_ID: '2'
+                  POSTHOG_CLI_INSTALL_DIR: ${{ runner.temp }}/posthog-cli
+                  POSTHOG_CLI_NO_MODIFY_PATH: '1'
+                  RELEASE_VERSION: ${{ github.sha }}
+              run: |
+                  release_id=""
+                  if [ -n "$POSTHOG_CLI_TOKEN" ]; then
+                      release_id="$(
+                          set -euo pipefail
+                          version="$(sed -n 's/^ARG POSTHOG_CLI_VERSION=//p' Dockerfile)"
+                          checksum="$(sed -n 's/^ARG POSTHOG_CLI_INSTALLER_SHA256=//p' Dockerfile)"
+                          [ -n "$version" ]
+                          [ -n "$checksum" ]
+                          installer="$RUNNER_TEMP/posthog-cli-installer.sh"
+                          curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
+                              -o "$installer" \
+                              "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv${version}/posthog-cli-installer.sh"
+                          echo "${checksum}  ${installer}" | sha256sum -c - >&2
+                          sh "$installer" >&2
+                          "$POSTHOG_CLI_INSTALL_DIR/posthog-cli" release resolve \
+                              --release-name posthog \
+                              --release-version "$RELEASE_VERSION"
+                      )" || release_id=""
+                  fi
+                  if [ -z "$release_id" ]; then
+                      echo "::warning::No error tracking release resolved; the image ships without POSTHOG_RELEASE_ID"
+                  fi
+                  echo "release-id=$release_id" >> "$GITHUB_OUTPUT"
+
             - name: Build and push container image
               id: build
               if: steps.preflight.outputs.digest == ''
@@ -192,10 +234,12 @@ jobs:
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/arm64,linux/amd64
                   # The GITHUB_* args become the git metadata on the error tracking release the
-                  # sourcemap upload stage creates. That stage builds in a container with no .git
-                  # directory, so the workflow has to hand them in (see Dockerfile).
+                  # sourcemap upload stage resolves, and creates when the release step above could
+                  # not. That stage builds in a container with no .git directory, so the workflow
+                  # has to hand them in (see Dockerfile).
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
+                      POSTHOG_RELEASE_ID=${{ steps.release.outputs.release-id }}
                       GITHUB_ACTIONS=true
                       GITHUB_SHA=${{ github.sha }}
                       GITHUB_REF_NAME=${{ github.ref_name }}
@@ -270,10 +314,12 @@ jobs:
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/arm64,linux/amd64
                   # The GITHUB_* args become the git metadata on the error tracking release the
-                  # sourcemap upload stage creates. That stage builds in a container with no .git
-                  # directory, so the workflow has to hand them in (see Dockerfile).
+                  # sourcemap upload stage resolves, and creates when the release step above could
+                  # not. That stage builds in a container with no .git directory, so the workflow
+                  # has to hand them in (see Dockerfile).
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
+                      POSTHOG_RELEASE_ID=${{ steps.release.outputs.release-id }}
                       GITHUB_ACTIONS=true
                       GITHUB_SHA=${{ github.sha }}
                       GITHUB_REF_NAME=${{ github.ref_name }}
