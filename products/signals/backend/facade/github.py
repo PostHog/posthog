@@ -57,16 +57,17 @@ def refresh_pull_request_review_decisions(payload: dict) -> None:
 
     from products.signals.backend.tasks import refresh_pull_request_review_decision
 
-    try:
-        for team_id in sorted(set(team_ids)):
+    for team_id in sorted(set(team_ids)):
+        try:
             refresh_pull_request_review_decision.delay(
                 team_id=team_id,
                 repository=repository,
                 pr_number=pr_number,
             )
-    except Exception:
-        logger.exception(
-            "github_pr_webhook_signal_review_decision_enqueue_failed",
-            repository=repository,
-            pr_number=pr_number,
-        )
+        except Exception:
+            logger.exception(
+                "github_pr_webhook_signal_review_decision_enqueue_failed",
+                team_id=team_id,
+                repository=repository,
+                pr_number=pr_number,
+            )
