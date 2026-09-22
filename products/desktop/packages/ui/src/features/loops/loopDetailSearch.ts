@@ -1,9 +1,5 @@
-export interface LoopDetailSearch {
+export function parseLoopDetailSearch(search: Record<string, unknown>): {
   edit?: boolean;
-}
-
-export function parseLoopDetailSearch(
-  search: Record<string, unknown>,
-): LoopDetailSearch {
+} {
   return { edit: search.edit === true || search.edit === "true" };
 }

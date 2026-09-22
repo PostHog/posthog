@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { useLoopDraftStore } from "./loopDraftStore";
+import type { LoopContextTargetDraft } from "./loopFormTypes";
+import type { LoopTemplate } from "./loopTemplates";
 
 interface LoopWizardDialogState {
   open: boolean;
@@ -21,4 +23,22 @@ export function openNewLoop(): void {
   const spaceName =
     useLoopDraftStore.getState().prefill?.contextTarget?.name ?? null;
   useLoopWizardDialogStore.getState().show(spaceName);
+}
+
+export function startNewLoop(options?: {
+  template?: LoopTemplate;
+  context?: LoopContextTargetDraft;
+}): void {
+  const { template, context } = options ?? {};
+  useLoopDraftStore.getState().setPrefill(
+    template || context
+      ? {
+          ...(template
+            ? { description: template.description, ...template.build() }
+            : {}),
+          ...(context ? { contextTarget: context } : {}),
+        }
+      : null,
+  );
+  openNewLoop();
 }

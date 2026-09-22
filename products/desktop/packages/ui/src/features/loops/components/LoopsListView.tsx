@@ -7,13 +7,6 @@ import { useLoopsHogFlowsEnabled } from "@posthog/ui/features/feature-flags/useL
 import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/StopCloudRunDialog";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { Button } from "@posthog/ui/primitives/Button";
-import {
-  PageHeader,
-  PageHeaderActions,
-  PageHeaderHeading,
-  PageHeaderTitle,
-  PageHeaderTitleRow,
-} from "@posthog/ui/primitives/PageHeader";
 import { toast } from "@posthog/ui/primitives/toast";
 import { navigateToTaskDetail } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
@@ -24,30 +17,18 @@ import {
   type LoopBuilderSession,
   useLoopBuilderSessionStore,
 } from "../loopBuilderSessionStore";
-import { useLoopDraftStore } from "../loopDraftStore";
 import { countLoops } from "../loopListFilters";
 import type { LoopSpace } from "../loopScopes";
 import type { LoopTemplate } from "../loopTemplates";
-import { openNewLoop } from "../loopWizardDialogStore";
+import { startNewLoop } from "../loopWizardDialogStore";
 import { LoopBuilderComposer } from "./LoopBuilderComposer";
 import { LoopsEmptyState } from "./LoopsEmptyState";
 import { LoopsListSection } from "./LoopsListSection";
+import { LoopsPageLayout } from "./LoopsPageLayout";
 import { LoopTemplatesSection } from "./LoopTemplatesSection";
 import { NewLoopButton } from "./NewLoopButton";
 
 const EMPTY_SPACES: LoopSpace[] = [];
-
-function startBlankLoop(): void {
-  useLoopDraftStore.getState().setPrefill(null);
-  openNewLoop();
-}
-
-function startLoopFromTemplate(template: LoopTemplate): void {
-  useLoopDraftStore
-    .getState()
-    .setPrefill({ description: template.description, ...template.build() });
-  openNewLoop();
-}
 
 export function LoopsListView() {
   const { data: loops, isLoading, isError, error } = useLoops();
@@ -107,8 +88,8 @@ export function LoopsListView() {
       limitReason={limitReason}
       showVisibilityFilter={!workflowBacked}
       builderSessions={builderSessions}
-      onStartBlank={startBlankLoop}
-      onStartFromTemplate={startLoopFromTemplate}
+      onStartBlank={() => startNewLoop()}
+      onStartFromTemplate={(template) => startNewLoop({ template })}
       onResumeBuilderSession={navigateToTaskDetail}
       onBuilderSessionStopped={(taskId) =>
         useLoopBuilderSessionStore.getState().removeSession(taskId)
@@ -145,41 +126,16 @@ export function LoopsListViewPresentation({
   onBuilderSessionStopped,
 }: LoopsListViewPresentationProps) {
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <PageHeader>
-        <PageHeaderHeading>
-          <PageHeaderTitleRow>
-            <PageHeaderTitle>Loops</PageHeaderTitle>
-            <PageHeaderActions>
-              <NewLoopButton
-                label="New global loop"
-                limitReason={limitReason}
-                onClick={onStartBlank}
-              />
-            </PageHeaderActions>
-          </PageHeaderTitleRow>
-        </PageHeaderHeading>
-      </PageHeader>
-
-      <div className="min-h-0 flex-1 overflow-auto">
-        <div className="@container mx-auto flex w-full max-w-6xl flex-col gap-8 px-8 pt-6 pb-8">
-          <LoopsListSection
-            loops={loops}
-            spaces={spaces}
-            isLoading={isLoading}
-            error={error}
-            showScope
-            showSpace
-            showVisibility={showVisibilityFilter}
-            emptyState={<LoopsEmptyState />}
-          />
-
-          <LoopTemplatesSection onSelect={onStartFromTemplate} />
-        </div>
-      </div>
-
-      <div className="shrink-0">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 px-8 pt-3 pb-6">
+    <LoopsPageLayout
+      actions={
+        <NewLoopButton
+          label="New global loop"
+          limitReason={limitReason}
+          onClick={onStartBlank}
+        />
+      }
+      footer={
+        <>
           {builderSessions.map((session) => (
             <BuilderSessionRow
               key={session.taskId}
@@ -192,9 +148,22 @@ export function LoopsListViewPresentation({
             placeholder="What do you want automated across the whole project?"
             disabledReason={limitReason}
           />
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      <LoopsListSection
+        loops={loops}
+        spaces={spaces}
+        isLoading={isLoading}
+        error={error}
+        showScope
+        showSpace
+        showVisibility={showVisibilityFilter}
+        emptyState={<LoopsEmptyState />}
+      />
+
+      <LoopTemplatesSection onSelect={onStartFromTemplate} />
+    </LoopsPageLayout>
   );
 }
 
