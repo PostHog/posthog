@@ -19,6 +19,7 @@ An archived step never undoes a resolved plan.
 The roll-up runs on the step's own status change, so a merged PR, a manual resolve, a bulk state change, and an MCP state write all reach it.
 A `part_of` link written on a step that already closed runs the check as well, because that write changes no status.
 It continues up a plan of plans, and skips a plan that is waiting on a replacement.
+It also skips a plan that carries its own open, draft, or unknown PR, because that plan's own work decides its status.
 
 ## Reviewer notifications
 
