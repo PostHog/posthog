@@ -151,6 +151,11 @@ describe('heatmapsBrowserLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(dataLogic.values.href).toBe('https://example.com/pricing?plan=a')
             expect(dataLogic.values.hrefMatchType).toBe('exact')
+
+            logic.actions.setReplayIframeDataURL('https://')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(dataLogic.values.href).toBe('')
+            expect(dataLogic.values.hrefMatchType).toBe('exact')
         })
 
         // The snapshot is a DOM captured at one width, so that width is the only one the overlay can

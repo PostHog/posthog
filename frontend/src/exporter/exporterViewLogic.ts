@@ -135,9 +135,8 @@ export const exporterViewLogic = kea<exporterViewLogicType>([
             if (props.heatmap_context?.heatmap_data_url) {
                 const dataUrl = props.heatmap_context.heatmap_data_url
                 const urlFilter = resolveHeatmapUrlFilter(dataUrl)
-                const isPattern = urlFilter?.matchType === 'pattern'
-                actions.setHref(isPattern ? urlFilter.href : dataUrl)
-                actions.setHrefMatchType(isPattern ? 'pattern' : 'exact')
+                actions.setHref(urlFilter?.href ?? dataUrl)
+                actions.setHrefMatchType(urlFilter?.matchType ?? 'exact')
             }
 
             if (props.heatmap_context?.heatmap_filters) {
