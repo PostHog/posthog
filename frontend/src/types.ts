@@ -777,6 +777,8 @@ export interface ConversationsSettings {
     widget_identification_form_description?: string
     widget_placeholder_text?: string
     widget_position?: 'bottom_left' | 'bottom_right' | 'top_left' | 'top_right'
+    /** Absent means on, so teams that never set it keep the email restore flow. */
+    widget_restore_enabled?: boolean
     slack_enabled?: boolean
     slack_team_id?: string | null
     slack_channel_id?: string | null
