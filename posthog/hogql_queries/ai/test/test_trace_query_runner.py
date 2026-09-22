@@ -314,7 +314,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
             "$ai_is_error",
             "private_note",
         }
-        for name in denied_properties:
+        for name in denied_properties | {"$ai_sentiment_messages"}:
             property_definition, _ = PropertyDefinition.objects.get_or_create(
                 team=self.team, name=name, type=PropertyDefinition.Type.EVENT
             )
@@ -333,6 +333,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
                 "timestamp": datetime(2025, 1, 15, 0, minute, tzinfo=UTC),
                 "properties": {
                     "$ai_trace_id": "restricted-trace",
+                    "$ai_generation_id": "restricted-generation",
                     "$ai_session_id": "restricted-session",
                     "$ai_parent_id": "restricted-trace",
                     "$ai_input": [{"role": "user", "content": "Private input"}],
@@ -349,6 +350,24 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
             }
             for minute, event_name in enumerate(("$ai_trace", "$ai_generation"))
         ]
+        events.append(
+            {
+                "event": "$ai_evaluation",
+                "team": self.team,
+                "distinct_id": "person1",
+                "timestamp": datetime(2025, 1, 15, 0, 2, tzinfo=UTC),
+                "properties": {
+                    "$ai_trace_id": "restricted-trace",
+                    "$ai_evaluation_runtime": "sentiment",
+                    "$ai_target_event_id": "restricted-generation",
+                    "$ai_sentiment_label": "negative",
+                    "$ai_sentiment_score": 0.8,
+                    "$ai_sentiment_scores": {"positive": 0.1, "neutral": 0.1, "negative": 0.8},
+                    "$ai_sentiment_messages": {"0": {"label": "negative", "score": 0.8}},
+                    "$ai_sentiment_message_count": 1,
+                },
+            }
+        )
         if table == "ai_events":
             bulk_create_ai_events(events)
         else:
@@ -358,19 +377,37 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
             date_range = DateRange(date_from="2025-01-15T00:00:00Z", date_to="2025-01-15T01:00:00Z")
             if runner_kind == "trace":
                 return TraceQueryRunner(
-                    team=self.team, user=user, query=TraceQuery(traceId="restricted-trace", dateRange=date_range)
+                    team=self.team,
+                    user=user,
+                    query=TraceQuery(traceId="restricted-trace", dateRange=date_range, includeSentiment=True),
                 )
             if runner_kind == "session":
                 return SessionQueryRunner(
-                    team=self.team, user=user, query=SessionQuery(sessionId="restricted-session", dateRange=date_range)
+                    team=self.team,
+                    user=user,
+                    query=SessionQuery(sessionId="restricted-session", dateRange=date_range, includeSentiment=True),
                 )
-            return TracesQueryRunner(team=self.team, user=user, query=TracesQuery(dateRange=date_range))
+            return TracesQueryRunner(
+                team=self.team, user=user, query=TracesQuery(dateRange=date_range, includeSentiment=True)
+            )
 
         allowed_runner = make_runner(self.user)
         allowed = allowed_runner.run()
         assert isinstance(allowed, (CachedTraceQueryResponse, CachedSessionQueryResponse, CachedTracesQueryResponse))
         assert len(allowed.results) == 1
-        assert allowed.results[0].events[0].properties["$ai_input"] == events[0]["properties"]["$ai_input"]
+        allowed_trace = allowed.results[0]
+        assert allowed_trace.inputState == events[0]["properties"]["$ai_input_state"]
+        assert allowed_trace.outputState == events[0]["properties"]["$ai_output_state"]
+        assert allowed_trace.events
+        for event in allowed_trace.events:
+            for property_name in denied_properties:
+                assert event.properties[property_name] == events[0]["properties"][property_name]
+        assert allowed_trace.sentiment is not None
+        assert allowed_trace.sentiment.messages
+        if runner_kind != "traces":
+            generation = next(event for event in allowed_trace.events if event.event == "$ai_generation")
+            assert generation.sentiment is not None
+            assert generation.sentiment.messages
 
         denied_runner = make_runner(denied_user)
         assert denied_runner.get_cache_key() != allowed_runner.get_cache_key()
@@ -382,8 +419,12 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
             trace = response.results[0]
             assert trace.inputState is None
             assert trace.outputState is None
+            assert trace.sentiment is not None
+            assert not trace.sentiment.messages
             assert trace.events
             for event in trace.events:
+                if event.sentiment is not None:
+                    assert not event.sentiment.messages
                 assert denied_properties.isdisjoint(event.properties)
                 assert event.properties["$ai_output"] == "Public output"
                 assert event.properties["public_note"] == "Public custom property"

@@ -49,8 +49,9 @@ from posthog.rate_limit import (
     AIObservabilitySummarizationSustainedThrottle,
 )
 
-from products.access_control.backend.property_access_control import (
+from products.access_control.backend.facade.api import (
     get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
 )
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.summarization.budget import bounded_text_repr, text_repr_budget
@@ -66,7 +67,6 @@ from products.ai_observability.backend.text_repr.formatters import (
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
-from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -268,7 +268,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             mode,
             model,
             restricted_properties=get_restricted_properties_with_group_type_index_for_team(
-                user=cast("User", self.request.user), team=self.team
+                user=cast("User", self.request.user), team_id=self.team_id
             ),
         )
 
@@ -626,13 +626,12 @@ The response includes the structured summary, the text representation, and metad
                 data = serializer.validated_data["data"]
                 entity_id, entity_data = self._extract_entity_id(summarize_type, data)
                 restrictions = get_restricted_properties_with_group_type_index_for_team(
-                    user=cast("User", request.user), team=self.team
+                    user=cast("User", request.user), team_id=self.team_id
                 )
-                # Client payloads may predate the caller's current property permissions, so read the
-                # entity again to apply them. Only event restrictions reach the formatters, and the
-                # id-based read can fail to resolve a client-supplied id, so the other property types
-                # must not route a request into it.
-                if any(restriction.property_type == PropertyDefinition.Type.EVENT for restriction in restrictions):
+                # Client payloads may contain values fetched before permissions changed, so refetch to mask them.
+                # Formatters render only event properties. Other restrictions must not force a lookup
+                # that could reject a client-only entity without protecting any formatted content.
+                if split_restricted_property_names(restrictions).event:
                     if summarize_type == "trace":
                         trace_id = entity_id
                     else:

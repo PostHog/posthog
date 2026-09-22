@@ -530,7 +530,6 @@ depends_on = [
     "ee",
     "posthog",
     "products.dashboards",
-    "products.event_definitions",
     "products.exports",
     "products.workflows", "products.access_control",
 ]

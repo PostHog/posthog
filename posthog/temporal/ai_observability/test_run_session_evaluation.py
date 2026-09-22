@@ -12,6 +12,7 @@ from posthog.schema import LLMTrace, LLMTraceEvent
 
 from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT
 
+from posthog.cdp.validation import compile_hog
 from posthog.temporal.ai_observability.evaluation_payload import payload_budget_bytes
 from posthog.temporal.ai_observability.run_session_evaluation import (
     _SESSION_EVENT_COUNT_SQL,
@@ -26,6 +27,7 @@ from posthog.temporal.ai_observability.run_session_evaluation import (
     execute_session_llm_judge_activity,
     fetch_session_for_evaluation,
     format_session_for_judge,
+    run_hog_eval_over_recent_sessions,
     session_fetch_lookback,
 )
 
@@ -217,6 +219,46 @@ class TestCountSessionEvents:
         assert result.event_count == 7
         assert result.first_seen == first_seen
         assert mock_query_ai_events.call_args.kwargs["fall_back_to_events"] is False
+
+
+class TestRunHogEvalOverRecentSessions:
+    @time_machine.travel(FROZEN_NOW, tick=False)
+    def test_preview_applies_user_to_sampling_and_session_reads(self) -> None:
+        team = Mock(pk=1)
+        user = Mock()
+        trace = _trace("t1", cost=0, latency=0, event_count=2)
+        bytecode = compile_hog("return target.type == 'session' and length(evaluation_events) == 2", "destination")
+        with (
+            patch("posthog.temporal.ai_observability.run_session_evaluation.Team") as mock_team,
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation.query_ai_events",
+                side_effect=[
+                    Mock(results=[["s-1"]]),
+                    Mock(results=[[2, FROZEN_NOW - timedelta(hours=1)]]),
+                    Mock(results=[[0]]),
+                ],
+            ) as mock_query,
+            patch("posthog.temporal.ai_observability.run_session_evaluation.SessionQueryRunner") as mock_runner,
+        ):
+            mock_team.objects.get.return_value = team
+            mock_runner.return_value.calculate.return_value = Mock(results=[trace], hasMore=False)
+            results = run_hog_eval_over_recent_sessions(
+                team=team,
+                user=user,
+                bytecode=bytecode,
+                condition_filter=None,
+                sample_count=1,
+                allows_na=False,
+                quiet_period_seconds=120,
+            )
+
+        assert len(results) == 1
+        assert results[0].session_id == "s-1"
+        assert results[0].verdict is True
+        assert results[0].error is None
+        for query_call in mock_query.call_args_list:
+            assert query_call.kwargs["user"] is user
+        assert mock_runner.call_args.kwargs["user"] is user
 
 
 class TestFetchSessionForEvaluation:

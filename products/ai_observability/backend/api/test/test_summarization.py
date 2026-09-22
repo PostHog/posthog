@@ -528,21 +528,25 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
                 titles.data["summaries"], [{"trace_id": trace_id, "title": "public-output", "cached": True}]
             )
 
-    @parameterized.expand([("trace",), ("event",)])
+    @parameterized.expand(
+        [
+            (summarize_type, property_type)
+            for summarize_type in ("trace", "event")
+            for property_type in (PropertyDefinition.Type.PERSON, PropertyDefinition.Type.EVENT)
+        ]
+    )
     @patch("products.ai_observability.backend.api.summarization.summarize")
-    def test_client_payload_is_kept_when_only_another_property_type_is_restricted(
-        self, summarize_type: str, mock_summarize: MagicMock
+    def test_client_only_payload_requires_no_event_property_restrictions(
+        self, summarize_type: str, property_type: int, mock_summarize: MagicMock
     ) -> None:
         self._approve_ai_processing()
-        reader = self._create_user("person-restricted-reader@example.com")
+        reader = self._create_user("restricted-reader@example.com")
         self.client.force_login(reader)
         self.organization.available_product_features = [
             {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
         ]
         self.organization.save()
-        definition = PropertyDefinition.objects.create(
-            team=self.team, name="email", type=PropertyDefinition.Type.PERSON
-        )
+        definition = PropertyDefinition.objects.create(team=self.team, name="$ai_input", type=property_type)
         PropertyAccessControl.objects.create(
             team=self.team,
             property_definition=definition,
@@ -550,7 +554,7 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
             access_level=PropertyAccessLevel.NONE.value,
         )
         event = {
-            "id": "client-only-event",
+            "id": str(uuid.uuid4()) if property_type == PropertyDefinition.Type.EVENT else "client-only-event",
             "event": "$ai_generation",
             "properties": {
                 "$ai_span_name": "generation",
@@ -575,8 +579,12 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        self.assertIn("client-supplied-input", response.data["text_repr"])
+        if property_type == PropertyDefinition.Type.EVENT:
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.data)
+            mock_summarize.assert_not_called()
+        else:
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+            self.assertIn("client-supplied-input", response.data["text_repr"])
 
     @parameterized.expand(
         [

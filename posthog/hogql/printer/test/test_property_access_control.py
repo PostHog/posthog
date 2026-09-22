@@ -259,30 +259,33 @@ class TestRestrictPropertiesInHogQL(BaseTest):
 
     @parameterized.expand(
         [
-            ("events_properties", "SELECT properties FROM events", PropertyDefinition.Type.EVENT, "secret_field"),
-            ("events_star", "SELECT * FROM events", PropertyDefinition.Type.EVENT, "secret_field"),
+            ("events_properties", "SELECT properties FROM events", PropertyDefinition.Type.EVENT, "secret_field", None),
+            ("events_star", "SELECT * FROM events", PropertyDefinition.Type.EVENT, "secret_field", None),
             (
                 "ai_properties",
                 "SELECT properties FROM posthog.ai_events",
                 PropertyDefinition.Type.EVENT,
                 "secret_field",
+                None,
             ),
-            ("ai_star", "SELECT * FROM posthog.ai_events", PropertyDefinition.Type.EVENT, "$ai_input"),
+            ("ai_star", "SELECT * FROM posthog.ai_events", PropertyDefinition.Type.EVENT, "$ai_input", "input"),
             (
                 "events_person_properties",
                 "SELECT person.properties FROM events",
                 PropertyDefinition.Type.PERSON,
                 "secret_person_field",
+                None,
             ),
         ]
     )
     def test_restricted_properties_blob_uses_json_drop_keys(
         self,
-        case_name: str,
+        _name: str,
         query: str,
         property_type: int,
         restricted_key: str,
-    ):
+        masked_column: str | None,
+    ) -> None:
         property_definition = self.event_prop
         if property_type == PropertyDefinition.Type.PERSON:
             property_definition = PropertyDefinition.objects.create(
@@ -304,8 +307,8 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         assert "JSONDropKeys" in sql
         assert restricted_key not in sql
         self._assert_value_present(values, restricted_key)
-        if case_name == "ai_star":
-            assert "NULL AS input" in sql
+        if masked_column is not None:
+            assert f"NULL AS {masked_column}" in sql
 
     @parameterized.expand(
         [
@@ -335,12 +338,7 @@ class TestRestrictPropertiesInHogQL(BaseTest):
 
         assert "NULL AS restricted_value" in sql
         assert "JSONExtract" not in sql
-        assert "a.input" not in sql
-        assert "a.output_choices" not in sql
-        assert "a.model" not in sql
-        assert "a.input_tokens" not in sql
-        assert "a.total_cost_usd" not in sql
-        assert "a.is_error" not in sql
+        assert expression.split("[")[0] not in sql
 
     def test_ai_json_content_is_not_an_event_property(self) -> None:
         PropertyAccessControl.objects.create(

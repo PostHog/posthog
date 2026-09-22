@@ -463,10 +463,14 @@ class TestRunHogEvalOverRecentTraces:
             "posthog.temporal.ai_observability.run_trace_evaluation._sample_recent_traces",
             return_value=[TraceHogTestSample(trace_id="trace-123", trigger_timestamp=trigger_timestamp)],
         ) as mock_sample:
-            with patch(
-                "posthog.temporal.ai_observability.run_trace_evaluation._fetch_trace",
-                return_value=TraceFetchOutcome(trace=trace, skip_reason=None, event_count=2),
-            ) as mock_fetch:
+            with (
+                patch(
+                    "posthog.temporal.ai_observability.run_trace_evaluation.query_ai_events",
+                    side_effect=[MagicMock(results=[[2]]), MagicMock(results=[[0]])],
+                ) as mock_query,
+                patch("posthog.temporal.ai_observability.run_trace_evaluation.TraceQueryRunner") as mock_runner,
+            ):
+                mock_runner.return_value.calculate.return_value = MagicMock(results=[trace])
                 results = run_hog_eval_over_recent_traces(
                     team=team,
                     user=user,
@@ -485,13 +489,13 @@ class TestRunHogEvalOverRecentTraces:
             FROZEN_NOW - timedelta(seconds=120),
             user=user,
         )
-        mock_fetch.assert_called_once_with(
-            team,
-            "trace-123",
-            trigger_timestamp - TRACE_EVENTS_LOOKBACK,
-            trigger_timestamp + timedelta(seconds=120),
-            user=user,
-        )
+        for query_call in mock_query.call_args_list:
+            assert query_call.kwargs["user"] is user
+        runner_kwargs = mock_runner.call_args.kwargs
+        assert runner_kwargs["user"] is user
+        assert runner_kwargs["query"].traceId == "trace-123"
+        assert runner_kwargs["query"].dateRange.date_from == (trigger_timestamp - TRACE_EVENTS_LOOKBACK).isoformat()
+        assert runner_kwargs["query"].dateRange.date_to == (trigger_timestamp + timedelta(seconds=120)).isoformat()
         assert results[0].verdict is True
         assert results[0].input_preview == "first"
         assert results[0].output_preview == "two"

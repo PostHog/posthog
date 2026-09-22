@@ -231,12 +231,15 @@ Covering `events`' remaining mirror columns, or a future catalog table's, means 
 When no user is present, only the team **default** rules apply instead of failing every query — see `get_restricted_properties_for_team()`.
 There is the asymmetry with the warehouse access control, which bypasses entirely for shared links rather than applying a default; that may be aligned later.
 
-### AI summaries
+### AI previews and summaries
+
+AI evaluation and tagger previews read event properties with the requesting user's permissions, including properties available to Hog scripts.
 
 Summary caches use the caller's current property restrictions, including cached titles and summaries read by PostHog AI.
 When the caller has event-property restrictions, summaries generated from client-supplied data refetch the source with the caller's permissions.
 For client-supplied events, omitted lookup dates use a window from one day before to one day after the event's `timestamp`.
 Explicit `date_from` and `date_to` values take precedence; events without a valid timestamp keep the default lookup dates.
+A refetch that finds no matching event or trace returns 404 without generating a summary from the supplied data.
 
 ## Query cache partitioning
 

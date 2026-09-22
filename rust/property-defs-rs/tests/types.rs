@@ -841,13 +841,12 @@ fn test_groupidentify_emits_zero_event_properties() {
     "$ai_model": "sample-model"
 }))]
 fn test_plain_event_properties_still_emitted(#[case] name: &str, #[case] props: Value) {
-    let event: Event = serde_json::from_value(json!({
-        "team_id": 1,
-        "project_id": 1,
-        "event": name,
-        "properties": props.to_string(),
-    }))
-    .unwrap();
+    let event = Event {
+        team_id: 1,
+        project_id: 1,
+        event: name.to_string(),
+        properties: Some(props.to_string()),
+    };
 
     let updates = event.into_updates(1000);
 
