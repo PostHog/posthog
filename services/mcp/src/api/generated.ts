@@ -61137,6 +61137,26 @@ export namespace Schemas {
       billable_minutes: number | null;
     }
 
+    export interface PRTimelineRedTime {
+      /** The red segment cause.
+       *
+       * * `draft` - DRAFT
+       * * `waiting_for_review` - WAITING_FOR_REVIEW
+       * * `changes_requested` - CHANGES_REQUESTED
+       * * `approved_not_enqueued` - APPROVED_NOT_ENQUEUED
+       * * `review_state_unknown` - REVIEW_STATE_UNKNOWN
+       * * `ci_running` - CI_RUNNING
+       * * `red_passed_on_rerun` - RED_PASSED_ON_RERUN
+       * * `red_master_broken` - RED_MASTER_BROKEN
+       * * `red_fixed_by_push` - RED_FIXED_BY_PUSH
+       * * `red_not_provable` - RED_NOT_PROVABLE
+       * * `merge_queue` - MERGE_QUEUE
+       * * `out_of_merge_queue` - OUT_OF_MERGE_QUEUE */
+      kind: PRTimelineSegmentKindEnum;
+      /** Average seconds per merged pull request attributed to this cause. */
+      seconds_per_merged_pr: number;
+    }
+
     export interface PaginatedAccountChannelSummaryList {
       count: number;
       /** @nullable */
@@ -80004,6 +80024,8 @@ export namespace Schemas {
     export interface PullRequestTimelines {
       /** The pull requests in scope, newest first: open PRs plus PRs merged in the window, or the one pull request of a pull_request scope. */
       items: PRTimeline[];
+      /** Average red time per merged pull request, grouped by the evidence that classifies each red stretch. */
+      red_seconds_per_merged_pr: PRTimelineRedTime[];
       /** What the read covers: 'author' (one GitHub login), 'github_team' (the members of one GitHub team, through the team membership table), or 'pull_request' (one pull request).
        *
        * * `author` - AUTHOR
@@ -80022,6 +80044,8 @@ export namespace Schemas {
       merge_queue_state_available: boolean;
       /** The now every open PR's timeline ends at. */
       generated_at: string;
+      /** Every pull request merged in the selected scope and window. */
+      merged_pr_count: number;
       /** True when more PRs matched than the limit. */
       truncated: boolean;
       /** The maximum number of PRs returned. */

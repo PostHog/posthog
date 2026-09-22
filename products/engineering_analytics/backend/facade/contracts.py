@@ -32,6 +32,10 @@ from pydantic.dataclasses import dataclass
 from posthog.hogql.database.models import FieldOrTable
 
 
+class QueryWorkLimitExceededError(Exception):
+    """The complete result needs more warehouse queries than one request allows."""
+
+
 class GitHubSourceNotConnectedError(Exception):
     """Raised when a team has no GitHub warehouse source — the curated queries
     reference ``github_*`` tables that aren't in the catalog. Surfaces as a clear
@@ -1790,6 +1794,12 @@ class PRTimelineSegment:
 
 
 @dataclass(frozen=True)
+class PRTimelineRedTime:
+    kind: PRTimelineSegmentKind
+    seconds_per_merged_pr: float
+
+
+@dataclass(frozen=True)
 class PRTimelinePush:
     head_sha: str
     # When the commit's first workflow run was created, which is when the commit arrived.
@@ -1835,6 +1845,8 @@ class PullRequestTimelines:
     merge_queue_state_available: bool
     # The "now" every open PR's last segment ends at.
     generated_at: datetime
+    merged_pr_count: int
+    red_seconds_per_merged_pr: list[PRTimelineRedTime]
     items: list[PRTimeline]
     truncated: bool
     limit: int
