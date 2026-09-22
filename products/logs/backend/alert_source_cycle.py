@@ -297,13 +297,11 @@ def _failures(
     query back every tick and the failure counter never reaches the escalation that stops it.
     """
     classified = classify_alert_error(error)
-    decided: list[Decision] = []
-    for check in checks:
-        try:
-            decided.append(_failed(check, classified, window_end=window_end, now=now))
-        except Exception as failure_error:
-            logger.exception("Failed to record a logs alert failure", check_id=str(check.id), error=str(failure_error))
-    return decided
+    # Deliberately not caught per check. A check dropped here carries no outcome, so the batch
+    # would advance every other check's schedule and leave this one due with its failure counter
+    # unmoved, never reaching the escalation that stops it. Failing the activity leaves the whole
+    # batch due for the next tick instead of recording part of it.
+    return [_failed(check, classified, window_end=window_end, now=now) for check in checks]
 
 
 def _triage(

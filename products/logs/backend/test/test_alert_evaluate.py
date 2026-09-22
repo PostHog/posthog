@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -175,6 +176,18 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert alert.state == expected_state
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
+
+    def test_a_failure_the_batch_cannot_record_leaves_the_whole_batch_due(self) -> None:
+        configuration = self._configuration(consecutive_failures=4)
+
+        with patch(f"{_MODULE}.list_active_alert_destinations", side_effect=RuntimeError("destinations unreachable")):
+            with pytest.raises(RuntimeError):
+                self._run(configuration, query_error=ExposedHogQLError("unknown field"))
+
+        with team_scope(self.team.id):
+            configuration.refresh_from_db()
+            assert not PlatformAlert.objects.filter(configuration=configuration).exists()
+        assert configuration.next_check_at == self.cutoff - timedelta(minutes=1)
 
     def test_the_logs_product_rows_are_never_written(self) -> None:
         legacy = LogsAlertConfiguration.objects.create(
