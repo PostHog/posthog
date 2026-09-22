@@ -32,7 +32,8 @@ const encoder = new TextEncoder()
 const decoder = new TextDecoder('utf-8', { fatal: true })
 
 export function terminalFilename(name: string): string {
-    const safe = name.replace(/[%/\x00-\x1f\x7f]/g, (character) => encodeURIComponent(character))
+    // xterm runs C0, DEL and C1 code points as control functions, so a printed name must not contain them.
+    const safe = name.replace(/[%/\x00-\x1f\x7f-\x9f]/g, (character) => encodeURIComponent(character))
     if (encoder.encode(safe).length > 180) {
         // Leave room for extensions and collision suffixes within Linux's 255-byte limit.
         let prefix = ''

@@ -531,6 +531,10 @@ describe('PostHog filesystem projection', () => {
         ['a/b', 'a%2Fb'],
         ['%2F', '%252F'],
         ['hello\nworld', 'hello%0Aworld'],
+        ['csi\u009bm', 'csi%C2%9Bm'],
+        ['osc\u009d0;x', 'osc%C2%9D0;x'],
+        ['pad\u0080', 'pad%C2%80'],
+        ['keeps\u00a0non-control', 'keeps\u00a0non-control'],
     ])('maps %j to a Unix filename without changing directory structure', (input, expected) => {
         expect(terminalFilename(input)).toBe(expected)
     })
