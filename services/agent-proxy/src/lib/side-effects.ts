@@ -21,6 +21,7 @@ import type { SideEffectKind } from './types.js'
 const ACP_NOTIFICATION_TYPE = 'notification'
 const TURN_COMPLETE_METHOD = '_posthog/turn_complete'
 const STOP_REASON_END_TURN = 'end_turn'
+const IDLE_RESUME_STOP_REASON = 'idle_resume'
 const ACP_METHOD_SESSION_UPDATE = 'session/update'
 const AGENT_COMMAND_DISPATCHED_METHOD = '_posthog/agent_command_dispatched'
 const ACP_GENERATION_UPDATES = new Set([
@@ -89,6 +90,26 @@ export function isTurnComplete(event: Record<string, unknown>): boolean {
 export function isPiTurnError(event: Record<string, unknown>): boolean {
     const piTurnCompleted = asPiTurnCompletedEvent(event)
     return piTurnCompleted !== null && piTurnCompleted['stopReason'] === PI_STOP_REASON_ERROR
+}
+
+export function isIdleResumeTurnComplete(event: Record<string, unknown>): boolean {
+    if (event['type'] !== ACP_NOTIFICATION_TYPE) {
+        return false
+    }
+    const notification = event['notification']
+    if (typeof notification !== 'object' || notification === null) {
+        return false
+    }
+    const notif = notification as Record<string, unknown>
+    if (notif['method'] !== TURN_COMPLETE_METHOD) {
+        return false
+    }
+    const params = notif['params']
+    return (
+        typeof params === 'object' &&
+        params !== null &&
+        (params as Record<string, unknown>)['stopReason'] === IDLE_RESUME_STOP_REASON
+    )
 }
 
 // isSessionUpdate mirrors event_ingest.py:_is_session_update exactly.
@@ -188,8 +209,9 @@ function fireCallback(
     teamId: number,
     originalToken: string,
     config: Config,
-    releaseClaim?: () => Promise<void>
+    options: { releaseClaim?: () => Promise<void>; turnCompleted?: boolean } = {}
 ): void {
+    const { releaseClaim, turnCompleted } = options
     if (!config.djangoCallbackBaseUrl) {
         // Dev environment without AGENT_PROXY_DJANGO_CALLBACK_URL — skip silently.
         void releaseMilestoneClaim(releaseClaim, runId, kind)
@@ -197,7 +219,13 @@ function fireCallback(
     }
 
     const url = `${config.djangoCallbackBaseUrl}/internal/tasks/runs/${runId}/agent-proxy-callback/`
-    const body = JSON.stringify({ kind, agent_active: agentActive, task_id: taskId, team_id: teamId })
+    const body = JSON.stringify({
+        kind,
+        agent_active: agentActive,
+        task_id: taskId,
+        team_id: teamId,
+        turn_completed: turnCompleted,
+    })
 
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -278,13 +306,13 @@ export async function heartbeatWorkflowIfNeeded(
     config: Config
 ): Promise<void> {
     if (isAgentCommandDispatched(event) && (await redisStream.claimFirstAgentCommand())) {
-        fireCallback(runId, 'command_dispatched', false, taskId, teamId, originalToken, config, () =>
-            redisStream.releaseFirstAgentCommand()
-        )
+        fireCallback(runId, 'command_dispatched', false, taskId, teamId, originalToken, config, {
+            releaseClaim: () => redisStream.releaseFirstAgentCommand(),
+        })
     } else if (isAgentGenerationEvent(event) && (await redisStream.claimFirstAgentActivity())) {
-        fireCallback(runId, 'agent_activity', true, taskId, teamId, originalToken, config, () =>
-            redisStream.releaseFirstAgentActivity()
-        )
+        fireCallback(runId, 'agent_activity', true, taskId, teamId, originalToken, config, {
+            releaseClaim: () => redisStream.releaseFirstAgentActivity(),
+        })
     }
 
     if (isTurnComplete(event)) {
@@ -296,7 +324,9 @@ export async function heartbeatWorkflowIfNeeded(
         } else {
             // Let Django decide whether the run is interactive; it will only
             // dispatch the push notification for interactive mode runs.
-            fireCallback(runId, 'awaiting_input', false, taskId, teamId, originalToken, config)
+            fireCallback(runId, 'awaiting_input', false, taskId, teamId, originalToken, config, {
+                turnCompleted: !isIdleResumeTurnComplete(event),
+            })
         }
         return
     }

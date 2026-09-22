@@ -11,7 +11,7 @@ import { MlEncryptedEnvelope } from './keys/crypto'
 import { MlParquetSinkMetrics } from './metrics'
 import { rowsToParquetBuffer } from './parquet-writer'
 import { EncryptedReplayIndex, replayIndexPartitions, replayIndexToParquetBuffer } from './replay-index'
-import { sessionStartMonth } from './session-identifier-format'
+import { sessionStartMonth, usesV3Dataset } from './session-identifier-format'
 
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 
@@ -19,13 +19,19 @@ const DAY_MS = 86_400_000
 // The `dt=` partition is a UTC date, so measure lag and span in whole UTC days to match it.
 const utcDay = (ms: number): number => Math.floor(ms / DAY_MS)
 
+/** A session's start selects its dataset, and each dataset has a bucket of its own. */
+export interface MlDatasetBuckets {
+    v2: string
+    v3: string
+}
+
 export class BlockMetadataParquetStore {
     private seq = 0
     private readonly nodeId: string
 
     constructor(
         private readonly s3Client: S3Client,
-        private readonly bucket: string,
+        private readonly buckets: MlDatasetBuckets,
         private readonly prefix: string,
         nodeId?: string
     ) {
@@ -48,42 +54,52 @@ export class BlockMetadataParquetStore {
         if (envelopes.length === 0) {
             return
         }
-        const months = new Map<string, MlEncryptedEnvelope[]>()
+        const partitions = new Map<string, { bucket: string; envelopes: MlEncryptedEnvelope[] }>()
         for (const envelope of envelopes) {
-            const month = sessionStartMonth(envelope.context.sessionId ?? '')
-            const group = months.get(month) ?? []
-            group.push(envelope)
-            months.set(month, group)
+            const { dataset, month } = this.datasetOf(envelope.context.sessionId ?? '')
+            const partition = `${this.prefix}/${dataset}/${month}`
+            const group = partitions.get(partition) ?? { bucket: this.buckets[dataset], envelopes: [] }
+            group.envelopes.push(envelope)
+            partitions.set(partition, group)
         }
-        for (const [month, group] of months) {
-            const bytes = await this.writeEncryptedPartition(`${this.prefix}/v2/${month}`, group)
-            MlParquetSinkMetrics.observeWrite(group.length, bytes)
+        for (const [partition, group] of partitions) {
+            const bytes = await this.writeEncryptedPartition(group.bucket, partition, group.envelopes)
+            MlParquetSinkMetrics.observeWrite(group.envelopes.length, bytes)
         }
     }
 
     public async writeEncryptedReplayIndex(indexes: EncryptedReplayIndex[]): Promise<void> {
-        const partitions = new Map<string, EncryptedReplayIndex[]>()
+        const partitions = new Map<string, { bucket: string; indexes: EncryptedReplayIndex[] }>()
         for (const index of indexes) {
             const { kind, envelope } = index
-            const month = sessionStartMonth(envelope.context.sessionId ?? '')
-            const partition = `${this.prefix}-replay-index/v2/${month}/kind=${kind}`
-            const group = partitions.get(partition) ?? []
-            group.push(index)
+            const { dataset, month } = this.datasetOf(envelope.context.sessionId ?? '')
+            const partition = `${this.prefix}-replay-index/${dataset}/${month}/kind=${kind}`
+            const group = partitions.get(partition) ?? { bucket: this.buckets[dataset], indexes: [] }
+            group.indexes.push(index)
             partitions.set(partition, group)
         }
         for (const [partition, group] of partitions) {
             await this.writeEncryptedPartition(
+                group.bucket,
                 partition,
-                group.map((index) => index.envelope)
+                group.indexes.map((index) => index.envelope)
             )
             MlParquetSinkMetrics.incReplayIndexRows(
-                group[0].kind,
-                group.reduce((count, index) => count + index.rowCount, 0)
+                group.indexes[0].kind,
+                group.indexes.reduce((count, index) => count + index.rowCount, 0)
             )
         }
     }
 
-    private async writeEncryptedPartition(prefix: string, envelopes: MlEncryptedEnvelope[]): Promise<number> {
+    private datasetOf(sessionId: string): { dataset: 'v2' | 'v3'; month: string } {
+        return { dataset: usesV3Dataset(sessionId) ? 'v3' : 'v2', month: sessionStartMonth(sessionId) }
+    }
+
+    private async writeEncryptedPartition(
+        bucket: string,
+        prefix: string,
+        envelopes: MlEncryptedEnvelope[]
+    ): Promise<number> {
         let body: Buffer
         try {
             const schema = new ParquetSchema({
@@ -103,7 +119,7 @@ export class BlockMetadataParquetStore {
             )
             await this.s3Client.send(
                 new PutObjectCommand({
-                    Bucket: this.bucket,
+                    Bucket: bucket,
                     Key: `${prefix}/part-${this.nodeId}-${Date.now()}-${++this.seq}.parquet`,
                     Body: body,
                     ContentType: 'application/vnd.apache.parquet',
@@ -131,7 +147,7 @@ export class BlockMetadataParquetStore {
                 this.seq += 1
                 await this.s3Client.send(
                     new PutObjectCommand({
-                        Bucket: this.bucket,
+                        Bucket: this.buckets.v2,
                         Key: `${indexPrefix}/${partition}/part-${this.nodeId}-${Date.now()}-${this.seq}.parquet`,
                         Body: indexBody,
                         ContentType: 'application/vnd.apache.parquet',
@@ -144,7 +160,7 @@ export class BlockMetadataParquetStore {
             key = this.objectKey(prefix, new Date(bounds.minMs).toISOString().slice(0, 10))
             await this.s3Client.send(
                 new PutObjectCommand({
-                    Bucket: this.bucket,
+                    Bucket: this.buckets.v2,
                     Key: key,
                     Body: body,
                     ContentType: 'application/vnd.apache.parquet',

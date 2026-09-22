@@ -393,6 +393,11 @@ class QuarantinedIdentifier(ProductTeamModel):
         blank=True,
         related_name="originated_quarantines",
     )
+    # The default-branch head when the quarantine was lifted. A run on a commit that does not
+    # contain it still treats the identifier as quarantined: that branch forked before the lift,
+    # so it lacks what the lift relied on, such as a baseline entry that landed on the default
+    # branch. Null for a quarantine that expired on its own or was lifted before this column.
+    lifted_at_sha = models.CharField(max_length=40, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

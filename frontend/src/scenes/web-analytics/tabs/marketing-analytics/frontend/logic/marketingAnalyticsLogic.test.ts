@@ -200,6 +200,36 @@ describe('marketingAnalyticsLogic', () => {
         expect(logic.values.includeConversionGoals).toBe(true)
     })
 
+    it('separates an ad source missing its required tables from having no source at all', async () => {
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const metaSource = (shouldSync: boolean): ExternalDataSource =>
+            ({
+                id: 'meta-source',
+                source_type: 'MetaAds',
+                schemas: [
+                    { id: 'campaigns', name: 'campaigns', should_sync: shouldSync },
+                    { id: 'campaign_stats', name: 'campaign_stats', should_sync: shouldSync },
+                ],
+            }) as ExternalDataSource
+
+        await expectLogic(logic, () =>
+            logic.actions.loadSourcesSuccess({ count: 1, next: null, previous: null, results: [metaSource(false)] })
+        ).toFinishAllListeners()
+        databaseTableListLogic.actions.loadDatabaseSuccess({ tables: {}, joins: [] })
+
+        expect(logic.values.hasNoConfiguredSources).toBe(true)
+        expect(logic.values.unconfiguredNativeSources.map((source) => source.id)).toEqual(['meta-source'])
+
+        await expectLogic(logic, () =>
+            logic.actions.loadSourcesSuccess({ count: 1, next: null, previous: null, results: [metaSource(true)] })
+        ).toFinishAllListeners()
+
+        expect(logic.values.unconfiguredNativeSources).toEqual([])
+    })
+
     it('keeps the selection and drops an unknown key from a filter saved by an older build', async () => {
         localStorage.setItem(
             STORAGE_KEY,

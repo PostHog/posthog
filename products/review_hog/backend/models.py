@@ -164,11 +164,12 @@ def review_report_artefact_type_choices() -> list[tuple[str, str | Promise]]:
 
 
 class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
-    """Append-only work log for a `ReviewReport`.
+    """Work log for a `ReviewReport`, with append-only completed turns.
 
     Mirrors Signals' `SignalReportArtefact` funnel — the row's type is derived from the content
     model's class and attribution maps to `created_by` / `task` columns — but owns its own types
     and has no auto-start side effects.
+    Deduplication can retire superseded findings and verdicts from an unfinished turn.
     """
 
     class ArtefactType(models.TextChoices):

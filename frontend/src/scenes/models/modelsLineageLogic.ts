@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 
 import { DataModelingEdge, DataModelingNode, DataModelingNodeType } from '~/types'
 
+import { NodeTypeEnumApi } from 'products/data_modeling/frontend/generated/api.schemas'
 import { lineageDataLogic } from 'products/data_modeling/frontend/lineage/lineageDataLogic'
 import {
     ParsedLineageSearch,
@@ -11,7 +12,7 @@ import {
     parseLineageSearch,
 } from 'products/data_modeling/frontend/lineage/lineageSearch'
 
-export const LINEAGE_FILTER_TYPES: DataModelingNodeType[] = ['table', 'view', 'matview', 'endpoint']
+export const LINEAGE_FILTER_TYPES: DataModelingNodeType[] = Object.values(NodeTypeEnumApi)
 
 export interface modelsLineageLogicValues {
     nodes: DataModelingNode[] // lineageDataLogic

@@ -240,16 +240,27 @@ def test_modal_sandbox_backend_label(monkeypatch: pytest.MonkeyPatch, value: str
 
 
 @pytest.mark.parametrize(
-    ("same_run_resume", "using_modal_snapshot", "expected"),
+    ("same_run_resume", "using_modal_snapshot", "from_import_run", "expected"),
     [
-        (True, False, "same_run"),
-        (True, True, "same_run_and_snapshot"),
-        (False, True, "snapshot_only"),
-        (False, False, "neither"),
+        (True, False, False, "same_run"),
+        (True, True, False, "same_run_and_snapshot"),
+        (False, True, False, "snapshot_only"),
+        (False, False, False, "neither"),
+        (False, False, True, "imported_transcript"),
+        (False, True, True, "snapshot_only"),
     ],
 )
-def test_resume_mode_label(same_run_resume: bool, using_modal_snapshot: bool, expected: str) -> None:
-    assert resume_mode_label(same_run_resume=same_run_resume, using_modal_snapshot=using_modal_snapshot) == expected
+def test_resume_mode_label(
+    same_run_resume: bool, using_modal_snapshot: bool, from_import_run: bool, expected: str
+) -> None:
+    assert (
+        resume_mode_label(
+            same_run_resume=same_run_resume,
+            using_modal_snapshot=using_modal_snapshot,
+            from_import_run=from_import_run,
+        )
+        == expected
+    )
 
 
 @pytest.mark.asyncio

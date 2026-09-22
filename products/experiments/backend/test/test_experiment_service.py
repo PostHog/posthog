@@ -287,6 +287,73 @@ class TestExperimentService(APIBaseTest):
         assert experiment.only_count_matured_users is False
 
     # ------------------------------------------------------------------
+    # Minimum detectable effect defaults
+    # ------------------------------------------------------------------
+
+    def _set_default_minimum_detectable_effect(self, value: int | None) -> None:
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_minimum_detectable_effect = value
+        config.save()
+
+    def test_minimum_detectable_effect_defaults_from_team(self):
+        self._set_default_minimum_detectable_effect(10)
+
+        self._create_flag(key="mde-default")
+        service = self._service()
+
+        experiment = service.create_experiment(name="MDE Default", feature_flag_key="mde-default")
+
+        assert experiment.running_time_calculation == {"minimum_detectable_effect": 10}
+
+    def test_minimum_detectable_effect_keeps_provided_value(self):
+        self._set_default_minimum_detectable_effect(10)
+
+        self._create_flag(key="mde-provided")
+        service = self._service()
+
+        experiment = service.create_experiment(
+            name="MDE Provided",
+            feature_flag_key="mde-provided",
+            running_time_calculation={"minimum_detectable_effect": 5},
+        )
+
+        assert experiment.running_time_calculation == {"minimum_detectable_effect": 5}
+
+    def test_minimum_detectable_effect_not_stored_without_team_default(self):
+        self._set_default_minimum_detectable_effect(None)
+
+        self._create_flag(key="mde-unset")
+        service = self._service()
+
+        experiment = service.create_experiment(name="MDE Unset", feature_flag_key="mde-unset")
+
+        assert "minimum_detectable_effect" not in (experiment.running_time_calculation or {})
+
+    @parameterized.expand(
+        [
+            ("duplicate",),
+            ("copy_to_project",),
+        ]
+    )
+    def test_minimum_detectable_effect_does_not_apply_to_clone(self, clone_mode: str):
+        self._create_flag(key=f"mde-source-{clone_mode}")
+        service = self._service()
+        source = service.create_experiment(name="MDE Source", feature_flag_key=f"mde-source-{clone_mode}")
+
+        self._set_default_minimum_detectable_effect(10)
+
+        if clone_mode == "duplicate":
+            clone = service.duplicate_experiment(source)
+        else:
+            target_team = Team.objects.create(organization=self.organization, name="MDE Target Team")
+            target_config = get_or_create_team_extension(target_team, TeamExperimentsConfig)
+            target_config.default_minimum_detectable_effect = 10
+            target_config.save()
+            clone = service.copy_experiment_to_project(source, target_team)
+
+        assert "minimum_detectable_effect" not in (clone.running_time_calculation or {})
+
+    # ------------------------------------------------------------------
     # Metric fingerprints
     # ------------------------------------------------------------------
 

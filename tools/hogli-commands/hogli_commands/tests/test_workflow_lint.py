@@ -28,6 +28,7 @@ from hogli_commands.workflow_lint.checks.checkout_full_depth import CheckoutFull
 from hogli_commands.workflow_lint.checks.dorny_negation import DornyNegationCheck
 from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
 from hogli_commands.workflow_lint.checks.mcp_filter_coverage import McpFilterCoverageCheck, _resolve
+from hogli_commands.workflow_lint.checks.pinned_runner_images import PinnedRunnerImagesCheck
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
 from hogli_commands.workflow_lint.checks.pr_event_fanout import PrEventFanoutCheck
 from hogli_commands.workflow_lint.checks.required_gates import RequiredGateCheck
@@ -207,6 +208,199 @@ class TestJobTimeoutsCheck:
         )
         result = JobTimeoutsCheck().run(_read_all(tmp_path))
         assert result.issues == []
+
+
+# ---------------------------------------------------------------------------
+# PinnedRunnerImagesCheck
+# ---------------------------------------------------------------------------
+
+
+class TestPinnedRunnerImagesCheck:
+    @pytest.mark.parametrize(
+        "job_body",
+        [
+            "runs-on: ubuntu-24.04",
+            "runs-on: depot-ubuntu-24.04-4",
+            "runs-on: [self-hosted, linux]",
+            "runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}",
+            "runs-on: ${{ matrix.runner }}\n    strategy:\n      matrix:\n        runner: [ubuntu-24.04, macos-15]",
+            "runs-on: ubuntu-24.04\n    strategy:\n      matrix:\n        artifact: [cli-macos-latest, cli-windows-latest]",
+            "runs-on: ${{ matrix.runner }}\n    strategy:\n      matrix:\n        runner: [ubuntu-24.04]\n        artifact: [cli-macos-latest]",
+        ],
+        ids=["plain", "depot", "label-list", "expression", "matrix", "non-runner-matrix", "unreferenced-matrix-key"],
+    )
+    def test_passes_pinned_labels(self, tmp_path: Path, job_body: str) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            f"""
+            name: My
+            on: [pull_request]
+            jobs:
+              build:
+                {job_body.replace(chr(10), chr(10) + "            ")}
+                timeout-minutes: 10
+                steps:
+                  - run: echo ok
+            """,
+        )
+        assert PinnedRunnerImagesCheck().run(_read_all(tmp_path)).issues == []
+
+    @pytest.mark.parametrize(
+        "job_body,source,label",
+        [
+            ("runs-on: ubuntu-latest", "runs-on", "ubuntu-latest"),
+            ("runs-on: depot-ubuntu-latest-4", "runs-on", "depot-ubuntu-latest-4"),
+            ("runs-on: [macos-latest]", "runs-on", "macos-latest"),
+            (
+                "runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}",
+                "runs-on",
+                "ubuntu-latest",
+            ),
+            (
+                "runs-on: ${{ matrix.runner }}\n    strategy:\n      matrix:\n        runner: [ubuntu-latest, depot-ubuntu-24.04]",
+                "strategy.matrix.runner",
+                "ubuntu-latest",
+            ),
+            (
+                "runs-on: ${{ matrix.os }}\n    strategy:\n      matrix:\n        include:\n          - os: windows-latest",
+                "strategy.matrix.os",
+                "windows-latest",
+            ),
+            (
+                "runs-on: ${{ matrix['runner'] }}\n    strategy:\n      matrix:\n        runner: [ubuntu-latest]",
+                "strategy.matrix.runner",
+                "ubuntu-latest",
+            ),
+        ],
+        ids=["plain", "depot-suffixed", "label-list", "expression", "matrix-list", "matrix-include", "matrix-bracket"],
+    )
+    def test_fails_floating_labels(self, tmp_path: Path, job_body: str, source: str, label: str) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            f"""
+            name: My
+            on: [pull_request]
+            jobs:
+              build:
+                {job_body.replace(chr(10), chr(10) + "            ")}
+                timeout-minutes: 10
+                steps:
+                  - run: echo ok
+            """,
+        )
+        [issue] = PinnedRunnerImagesCheck().run(_read_all(tmp_path)).issues
+        assert issue.job == "build"
+        assert issue.message.startswith(source)
+        assert label in issue.message
+
+    def test_generated_runner_matrix_fails_closed_without_marker(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: My
+            on: [pull_request]
+            jobs:
+              plan:
+                runs-on: ubuntu-24.04
+                timeout-minutes: 10
+                outputs:
+                  matrix: ${{ steps.plan.outputs.matrix }}
+                steps:
+                  - id: plan
+                    run: echo ok
+              build:
+                needs: [plan]
+                runs-on: ${{ matrix.runner }}
+                timeout-minutes: 10
+                strategy:
+                  matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+                steps:
+                  - run: echo ok
+            """,
+        )
+        [issue] = PinnedRunnerImagesCheck().run(_read_all(tmp_path)).issues
+        assert issue.job == "build"
+        assert "allow-generated-runner-matrix" in issue.message
+
+    def test_generated_matrix_used_only_in_a_comparison_needs_no_marker(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: My
+            on: [pull_request]
+            jobs:
+              build:
+                runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
+                timeout-minutes: 10
+                strategy:
+                  matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+                steps:
+                  - run: echo ok
+            """,
+        )
+        assert PinnedRunnerImagesCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_generated_runner_matrix_passes_with_marker_and_reason(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: My
+            on: [pull_request]
+            jobs:
+              # hogli-lint: allow-generated-runner-matrix -- labels are pinned in dist-workspace.toml
+              build:
+                runs-on: ${{ matrix.runner }}
+                timeout-minutes: 10
+                strategy:
+                  matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+                steps:
+                  - run: echo ok
+            """,
+        )
+        assert PinnedRunnerImagesCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_generated_runner_matrix_marker_without_reason_still_fails(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: My
+            on: [pull_request]
+            jobs:
+              # hogli-lint: allow-generated-runner-matrix
+              build:
+                runs-on: ${{ matrix.runner }}
+                timeout-minutes: 10
+                strategy:
+                  matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+                steps:
+                  - run: echo ok
+            """,
+        )
+        [issue] = PinnedRunnerImagesCheck().run(_read_all(tmp_path)).issues
+        assert issue.job == "build"
+
+    def test_ignores_latest_outside_runner_fields(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: My
+            on: [pull_request]
+            jobs:
+              build:
+                runs-on: ubuntu-24.04
+                timeout-minutes: 10
+                steps:
+                  - run: docker pull ghcr.io/example/ubuntu-latest
+            """,
+        )
+        assert PinnedRunnerImagesCheck().run(_read_all(tmp_path)).issues == []
 
 
 # ---------------------------------------------------------------------------

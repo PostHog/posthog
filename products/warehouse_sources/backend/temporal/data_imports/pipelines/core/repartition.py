@@ -90,7 +90,9 @@ CLAIM_RECHECK_INTERVAL_SECONDS = 10.0
 # and nothing is persisted. That left every memory death restarting from row 0 forever. Checkpointing
 # on committed progress instead means an attempt converges across runs whatever kills it. Throttled
 # because it costs a claim check and a row write per checkpoint, and bounds re-done work to this
-# interval rather than to the whole rewrite.
+# interval rather than to the whole rewrite. A checkpoint only records committed rows, so this also
+# bounds how long the coalescing buffer may be held before it commits — a buffer that fills slower
+# than this would otherwise leave the rewrite with nothing to resume from.
 CHECKPOINT_INTERVAL_SECONDS = 30.0
 
 # Arrow payload the rewrite may hold in its coalescing buffer. Half the package's per-table cap
@@ -991,6 +993,7 @@ async def _rewrite_into_temp(
     buffered: list[pa.Table] = []
     buffered_rows = 0
     buffered_bytes = 0
+    buffer_opened_at: float | None = None
 
     started_at = time.monotonic()
     commits = 0
@@ -1037,9 +1040,10 @@ async def _rewrite_into_temp(
 
     async def flush() -> None:
         """Write the buffered batches as one Delta commit, then report progress."""
-        nonlocal buffered, buffered_rows, buffered_bytes, rows_written, commits
+        nonlocal buffered, buffered_rows, buffered_bytes, rows_written, commits, buffer_opened_at
         if not buffered:
             return
+        buffer_opened_at = None
         # Every buffered table was already aligned to `live_schema`, so they concat without promotion.
         combined = buffered[0] if len(buffered) == 1 else pa.concat_tables(buffered)
         buffered = []
@@ -1145,11 +1149,23 @@ async def _rewrite_into_temp(
         # or a nearly-full buffer could still take a further full-sized batch. Peak residency is this
         # buffer plus the batch in hand, which `REWRITE_BUFFER_MAX_BYTES` budgets for.
         table_bytes = table_payload_bytes(partitioned_table)
+        # Age closes the buffer as well as size. The scan yields at least one batch per source file,
+        # so on an over-fragmented table — the kind a coarsening rewrite exists to fix — filling the
+        # buffer can take longer than the worker survives. Nothing commits, so nothing checkpoints,
+        # and every attempt resumes from the same row until the attempt cap abandons the table.
+        buffer_held_too_long = (
+            buffer_opened_at is not None and time.monotonic() - buffer_opened_at >= checkpoint_interval_seconds
+        )
         if buffered and (
             buffered_rows + partitioned_table.num_rows > REWRITE_BUFFER_MAX_ROWS
             or buffered_bytes + table_bytes > REWRITE_BUFFER_MAX_BYTES
+            or buffer_held_too_long
         ):
             await flush()
+        if save_checkpoint is not None and buffer_opened_at is None:
+            # Only tracked when there is a checkpoint to protect, so a caller that cannot resume
+            # keeps the size-only commits it had.
+            buffer_opened_at = time.monotonic()
         buffered.append(partitioned_table)
         buffered_rows += partitioned_table.num_rows
         buffered_bytes += table_bytes

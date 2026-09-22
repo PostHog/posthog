@@ -16,7 +16,7 @@ from products.tasks.backend.presentation.serializers import (
     AgentProxyCallbackResponseSerializer,
     TaskRunErrorResponseSerializer,
 )
-from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
+from products.tasks.backend.push_dispatcher import dispatch_task_run_turn_completed
 
 from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE
 
@@ -48,15 +48,14 @@ def _dispatch_boot_milestone(run_id: str, task_id: str, team_id: int, kind: str,
     return False
 
 
-def _dispatch_awaiting_input(run_id: str, task_id: str, team_id: int) -> bool:
+def _dispatch_awaiting_input(run_id: str, task_id: str, team_id: int, turn_completed: bool = True) -> bool:
     try:
         # The push dispatcher reads task.created_by; prefetch it so the dispatch stays one query.
         task_run = TaskRun.objects.select_related("task__created_by").get(id=run_id, task_id=task_id, team_id=team_id)
         task_run.signal_agent_turn_completed()
         if task_run.mode != "interactive":
             return False
-        notify_task_run_turn_completed(task_run)
-        return True
+        return dispatch_task_run_turn_completed(task_run, turn_completed=turn_completed)
     except TaskRun.DoesNotExist:
         logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
     except Exception:
@@ -64,7 +63,9 @@ def _dispatch_awaiting_input(run_id: str, task_id: str, team_id: int) -> bool:
     return False
 
 
-def _dispatch_callback(kind: str, agent_active: bool, run_id: str, task_id: str, team_id: int) -> bool:
+def _dispatch_callback(
+    kind: str, agent_active: bool, run_id: str, task_id: str, team_id: int, turn_completed: bool = True
+) -> bool:
     if kind == "heartbeat":
         return _dispatch_heartbeat(run_id, task_id, team_id) if agent_active else False
     if kind == "command_dispatched":
@@ -72,7 +73,7 @@ def _dispatch_callback(kind: str, agent_active: bool, run_id: str, task_id: str,
     if kind == "agent_activity":
         return _dispatch_boot_milestone(run_id, task_id, team_id, kind, "agent_activity_observed")
     if kind == "awaiting_input":
-        return _dispatch_awaiting_input(run_id, task_id, team_id)
+        return _dispatch_awaiting_input(run_id, task_id, team_id, turn_completed)
     if kind == "turn_failed":
         try:
             if TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).exists():
@@ -177,6 +178,6 @@ def agent_proxy_callback(request, run_id: str) -> JsonResponse:
     if task_id != claims.task_id or team_id != claims.team_id:
         return JsonResponse({"error": "Token claims do not match request body"}, status=403)
 
-    dispatched = _dispatch_callback(kind, agent_active, run_id, task_id, team_id)
+    dispatched = _dispatch_callback(kind, agent_active, run_id, task_id, team_id, data["turn_completed"])
 
     return JsonResponse(AgentProxyCallbackResponseSerializer({"dispatched": dispatched}).data)

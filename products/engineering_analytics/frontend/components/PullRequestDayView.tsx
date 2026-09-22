@@ -1,7 +1,3 @@
-// Pull requests on a shared clock: each row starts at 06:00 on the day the pull request went ready (or
-// Monday 06:00 of that week), so nights and weekends line up across rows and a long wait reads as the
-// days it spanned. Groups put the work that needs attention first.
-
 import { LemonCard, LemonSegmentedButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'

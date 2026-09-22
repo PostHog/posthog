@@ -374,6 +374,11 @@ describe('experimentActivityDescriber', () => {
             const text = textOf(result)
             expect(text).toContain('stopped experiment')
             expect(text).toContain('completed it as')
+            const summaryText = render(<>{result.summary?.action}</>).container.textContent || ''
+            expect(summaryText).toContain('stopped experiment')
+            expect(summaryText).toContain('completed it as')
+            expect(summaryText).not.toMatch(/ (for|to|from|on)$/)
+            expect(render(<>{result.summary?.target}</>).container.querySelector('a')).not.toBeNull()
             expect(text).not.toContain('status')
             expect(text).not.toContain('conclusion comment')
             const extended = render(<>{result.extendedDescription}</>).container.textContent

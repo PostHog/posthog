@@ -8,6 +8,7 @@ import { IconExternal, IconTrash, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { useIntegrationManagementRestriction } from 'lib/integrations/integrationPermissions'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
@@ -41,6 +42,10 @@ export function IntegrationChoice({
     const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal, deleteIntegration } =
         useActions(integrationsLogic)
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
+    // Creating an integration needs project admin, a stricter bar than the access a product needs
+    // to reach this picker. Without the gate a member is sent through the provider's whole OAuth
+    // flow and only finds out when the callback fails to save the connection.
+    const integrationManagementRestriction = useIntegrationManagementRestriction()
     const kind = integration
 
     // Identifies this specific picker. Several IntegrationChoice pickers can share a kind (a
@@ -105,7 +110,14 @@ export function IntegrationChoice({
     // 400s with "Kind not configured". Send users to the settings page instead.
     const oauthUnavailable = kind === 'slack' && !slackAvailable
     const setupMenuItem = setupDef
-        ? setupDef.menuItem({ kind, openModal: (modalKind) => openNewIntegrationModal(modalKind, modalId), uploadKey })
+        ? {
+              ...setupDef.menuItem({
+                  kind,
+                  openModal: (modalKind) => openNewIntegrationModal(modalKind, modalId),
+                  uploadKey,
+              }),
+              disabledReason: integrationManagementRestriction ?? undefined,
+          }
         : oauthUnavailable
           ? {
                 to: urls.settings('project-integrations'),
@@ -123,6 +135,7 @@ export function IntegrationChoice({
                 label: integrationsOfKind?.length
                     ? `Connect to a different integration for ${kindName}`
                     : `Connect to ${kindName}`,
+                disabledReason: integrationManagementRestriction ?? undefined,
             }
 
     const button = (

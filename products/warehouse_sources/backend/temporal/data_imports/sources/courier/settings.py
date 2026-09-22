@@ -1,6 +1,9 @@
 from dataclasses import dataclass, field
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField
@@ -24,6 +27,7 @@ COURIER_PAGE_SIZE = 100
 
 @dataclass(frozen=True)
 class CourierEndpointConfig:
+    name: str
     path: str
     # The list of records is wrapped under a named key that varies per endpoint ("results" vs
     # "items").
@@ -45,12 +49,36 @@ class CourierEndpointConfig:
     # datetimes before yielding, so partitioning and incremental filtering see proper timestamps
     # instead of raw millis (which the partitioner would otherwise misread as epoch seconds).
     timestamp_fields: tuple[str, ...] = ()
+    page_size: int = COURIER_PAGE_SIZE
+    # False where the endpoint returns every record in one response and takes no cursor.
+    paginated: bool = True
+    # Set where the endpoint only exists per parent record, so rows are collected by walking the
+    # parent listing first.
+    fanout: DependentEndpointConfig | None = None
+    # Filter param on the *parent* listing, for a fan-out child whose own endpoint takes no
+    # timestamp filter. Bounding the parent walk is the only way such a child can sync
+    # incrementally instead of re-fetching every parent's records every run.
+    parent_incremental_param: str | None = None
 
+    @property
+    def default_incremental_field(self) -> str | None:
+        return self.incremental_fields[0]["field"] if self.incremental_fields else None
+
+
+# Parent listings a fan-out endpoint walks that are not themselves syncable tables.
+FANOUT_ONLY_CONFIGS: dict[str, CourierEndpointConfig] = {
+    "Lists": CourierEndpointConfig(
+        name="Lists",
+        path="/lists",
+        data_selector="items",
+    ),
+}
 
 ENDPOINTS_CONFIG: dict[str, CourierEndpointConfig] = {
     # The primary stream: per-message delivery status/history. `enqueued_after` is a documented
     # server-side filter, so incremental sync genuinely reduces pages.
     "Messages": CourierEndpointConfig(
+        name="Messages",
         path="/messages",
         data_selector="results",
         primary_keys=("id",),
@@ -60,8 +88,38 @@ ENDPOINTS_CONFIG: dict[str, CourierEndpointConfig] = {
         sort_mode="desc",
         timestamp_fields=("enqueued", "sent", "delivered", "opened", "clicked"),
     ),
+    # Per-message state transitions (enqueued, sent, delivered, opened, clicked). The Messages
+    # row only carries the end state, so this is where the deliverability funnel lives.
+    "MessageHistory": CourierEndpointConfig(
+        name="MessageHistory",
+        path="/messages/{message_id}/history",
+        data_selector="results",
+        # Courier types the entries as free-form objects. `type` is the endpoint's own filter
+        # param and the response is documented as one entry per status transition with its
+        # timestamp, so the transition and its `ts` are what identifies a row within a message.
+        primary_keys=("message_id", "type", "ts"),
+        # Projected from the parent message, because the entries carry no timestamp Courier can
+        # filter on. See `parent_incremental_param`.
+        incremental_fields=[incremental_field("enqueued")],
+        parent_incremental_param="enqueued_after",
+        partition_key="enqueued",
+        sort_mode="desc",
+        timestamp_fields=("ts", "enqueued"),
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="Messages",
+            resolve_param="message_id",
+            resolve_field="id",
+            include_from_parent=["id", "enqueued"],
+            parent_field_renames={"id": "message_id", "enqueued": "enqueued"},
+            # A message archived or aged out of log retention between the listing and this
+            # fetch 404s; that parent is skipped rather than failing the whole fan-out.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
     # Account activity log. No server-side timestamp filter is documented, so full refresh only.
     "AuditEvents": CourierEndpointConfig(
+        name="AuditEvents",
         path="/audit-events",
         data_selector="results",
         primary_keys=("auditEventId",),
@@ -70,27 +128,81 @@ ENDPOINTS_CONFIG: dict[str, CourierEndpointConfig] = {
     ),
     # Saved recipient segments. No server-side timestamp filter is documented.
     "Audiences": CourierEndpointConfig(
+        name="Audiences",
         path="/audiences",
         data_selector="items",
         primary_keys=("id",),
         partition_key="created_at",
         timestamp_fields=("created_at", "updated_at"),
     ),
+    # Who currently matches each audience filter. Courier recalculates membership as profiles
+    # change and exposes no timestamp filter, so full refresh only.
+    "AudienceMembers": CourierEndpointConfig(
+        name="AudienceMembers",
+        path="/audiences/{audience_id}/members",
+        data_selector="items",
+        # `member_id` is the user, unique only within its audience. Each row already carries its
+        # own `audience_id`, so nothing has to be projected from the parent to key it.
+        primary_keys=("audience_id", "member_id"),
+        partition_key="added_at",
+        timestamp_fields=("added_at",),
+        fanout=DependentEndpointConfig(
+            parent_name="Audiences",
+            resolve_param="audience_id",
+            resolve_field="id",
+            include_from_parent=[],
+        ),
+    ),
     # Branding profiles (templates/colors/logos). No server-side timestamp filter, and the
     # `created`/`updated` unix timestamps are undocumented as to unit, so no partitioning.
     "Brands": CourierEndpointConfig(
+        name="Brands",
         path="/brands",
+        data_selector="results",
+        primary_keys=("id",),
+    ),
+    # Who is subscribed to each list. Courier documents no timestamp filter on either the list
+    # walk or the subscriptions, so full refresh only.
+    "ListSubscriptions": CourierEndpointConfig(
+        name="ListSubscriptions",
+        path="/lists/{list_id}/subscriptions",
+        data_selector="items",
+        # The subscription carries the recipient but no reference back to its list, so the
+        # parent's id is projected in to make rows joinable and unique across lists.
+        primary_keys=("list_id", "recipientId"),
+        partition_key="created",
+        timestamp_fields=("created",),
+        fanout=DependentEndpointConfig(
+            parent_name="Lists",
+            resolve_param="list_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "list_id"},
+            # A list deleted between the listing and this fetch 404s; skip that parent rather
+            # than failing the whole fan-out.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    # The template catalog resolving the `notification` id every message carries. Like Brands,
+    # `created_at`/`updated_at` are int64s of undocumented unit, so no partitioning.
+    "NotificationTemplates": CourierEndpointConfig(
+        name="NotificationTemplates",
+        path="/notifications",
         data_selector="results",
         primary_keys=("id",),
     ),
     # Multi-tenant scoping objects. No timestamp fields at all, so no partitioning.
     "Tenants": CourierEndpointConfig(
+        name="Tenants",
         path="/tenants",
         data_selector="items",
         primary_keys=("id",),
         cursor_path="cursor",
     ),
 }
+
+# Every config a fan-out can resolve a parent against, syncable or not.
+FANOUT_ENDPOINT_CONFIGS: dict[str, CourierEndpointConfig] = {**ENDPOINTS_CONFIG, **FANOUT_ONLY_CONFIGS}
 
 ENDPOINTS = tuple(ENDPOINTS_CONFIG.keys())
 

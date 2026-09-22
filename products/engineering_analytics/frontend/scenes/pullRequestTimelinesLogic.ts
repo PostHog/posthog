@@ -126,7 +126,6 @@ export const pullRequestTimelinesLogic = kea<pullRequestTimelinesLogicType>([
             (s) => [s.timelines],
             (timelines: PullRequestTimelinesApi | null): RedTimeByCause => redTimeByCause(timelines?.items ?? []),
         ],
-        // A source can hold several repos, so the listed pull requests may span repos.
         repoSlugs: [
             (s) => [s.timelines],
             (timelines: PullRequestTimelinesApi | null): string[] =>

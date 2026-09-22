@@ -5,7 +5,6 @@ import { useEffect } from 'react'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { IconCheckCircle } from '@posthog/icons'
 
-import { getCookie } from 'lib/api'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -20,6 +19,7 @@ import { isEmail } from 'lib/utils/url'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
+import { useLastLoginMethod } from 'scenes/authentication/shared/lastLoginMethod'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
 import { pendingOAuthConnectionLogic, reviewAccessCopy } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
@@ -34,9 +34,13 @@ import { LoginMethod, Region, SSOProvider } from '~/types'
 import { loginLogic } from './loginLogic'
 import { SessionRiskBanner } from './SessionRiskBanner'
 
-const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
-
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+
+function loginGreeting(isReturning: boolean): { note: string; sub: string } {
+    return isReturning
+        ? { note: '// welcome back', sub: "Welcome back. Let's go ship something." }
+        : { note: '// hey, good to see you', sub: "Let's go ship something." }
+}
 
 function loginMethodLabel(method: LoginMethod): string {
     if (method === 'password') {
@@ -125,7 +129,8 @@ export function LoginForm(): JSX.Element {
 
     const isPasswordHidden = !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable
     const isCodeSent = codeVerificationRequired
-    const lastLoginMethod = getCookie(LAST_LOGIN_METHOD_COOKIE) as LoginMethod
+    const lastLoginMethod = useLastLoginMethod()
+    const greeting = loginGreeting(lastLoginMethod !== null)
     const prevEmail = usePrevious(login.email)
 
     useEffect(() => {
@@ -151,7 +156,7 @@ export function LoginForm(): JSX.Element {
     )
 
     return (
-        <AuthScene notes={['// welcome back', '// 500,000+ teams ship here']}>
+        <AuthScene notes={[greeting.note, '// 500,000+ teams ship here']}>
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <AuthSceneCard footer={footer}>
                 {isCodeSent && <HedgehogMagnifyingGlass className="block w-auto mx-auto mb-3 h-28" />}
@@ -180,7 +185,7 @@ export function LoginForm(): JSX.Element {
                         ) : pendingConnection ? (
                             reviewAccessCopy(pendingConnection, 'After you log in')
                         ) : (
-                            "Welcome back. Let's go ship something."
+                            greeting.sub
                         )
                     }
                 />

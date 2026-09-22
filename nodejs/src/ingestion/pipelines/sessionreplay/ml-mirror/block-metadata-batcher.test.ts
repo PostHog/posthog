@@ -145,7 +145,7 @@ describe('BlockMetadataBatcher', () => {
             send: jest.fn().mockRejectedValueOnce(new Error('index upload failed')).mockResolvedValue({}),
         } as unknown as S3Client
         const batcher = new BlockMetadataBatcher(
-            new BlockMetadataParquetStore(s3, 'bucket', 'block-metadata'),
+            new BlockMetadataParquetStore(s3, { v2: 'bucket', v3: 'ml-bucket-v3' }, 'block-metadata'),
             offsets,
             { flushIntervalMs: 1000, maxRows: 1 },
             0,

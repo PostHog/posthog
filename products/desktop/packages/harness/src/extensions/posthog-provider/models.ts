@@ -235,11 +235,29 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     context_window: 262144,
     supports_vision: false,
   },
+  {
+    id: "deepseek-ai/deepseek-v4-flash-0731",
+    owned_by: "baseten",
+    context_window: 1048000,
+    supports_vision: false,
+  },
+  {
+    id: "zai-org/glm-5.3",
+    owned_by: "baseten",
+    context_window: 1048576,
+    supports_vision: false,
+  },
+  {
+    id: "zai-org/glm-5.3-flash",
+    owned_by: "baseten",
+    context_window: 1000000,
+    supports_vision: false,
+  },
 ];
 
-// DeepSeek V4 Flash is deliberately absent from the fallback list: the gateway
-// only serves it to flag-gated posthog_code callers, so it is offered only when
-// the live /v1/models listing advertises it.
+// DeepSeek V4 Flash and GLM 5.3 are advertised and allowed on the public
+// gateway listing, so they belong here too: a failed /v1/models fetch must
+// not be what decides whether they are offered.
 export function fallbackModelConfigs(
   region: CloudRegion,
 ): ProviderModelConfig[] {

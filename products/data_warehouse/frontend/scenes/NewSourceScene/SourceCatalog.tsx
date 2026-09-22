@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { memo } from 'react'
 
 import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -165,7 +165,16 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
             </div>
 
             <div className="flex flex-col gap-4 flex-1">
-                <WarehouseWizardHint />
+                {/* The wizard CLI creates sources through the same API, so it can't help a user
+                    who lacks the access — show what unblocks them instead. */}
+                {accessDisabledReason ? (
+                    <LemonBanner type="info">
+                        You don't have permission to connect a data warehouse source. Ask a project admin for editor
+                        access to data warehouse sources.
+                    </LemonBanner>
+                ) : (
+                    <WarehouseWizardHint />
+                )}
                 <LemonInput
                     type="search"
                     placeholder="Search sources..."

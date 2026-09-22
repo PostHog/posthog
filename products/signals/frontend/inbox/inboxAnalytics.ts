@@ -29,6 +29,7 @@ export const INBOX_EVENTS = {
     WELCOME_MANUAL_SETUP_CLICKED: 'Inbox welcome manual setup clicked',
     INTRO_MODAL_VIEWED: 'Inbox intro modal viewed',
     PANEL_VIEWED: 'Inbox panel viewed',
+    PANEL_LOAD_TIMED_OUT: 'Inbox panel load timed out',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
     REPORT_OPENED: 'Inbox report opened',
@@ -153,6 +154,9 @@ export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limi
  */
 export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings' | 'triage'
 
+/** A panel read that carries its own timeout, named so each one's stall rate reads separately. */
+export type InboxPanelLoad = 'scout_notes' | 'scout_memory'
+
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
 export type InboxQueryChange =
     | 'scope'
@@ -171,7 +175,7 @@ export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'repl
 /**
  * Scout-management actions. The first block matches desktop's enum; the trailing block is
  * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, the
- * scratchpad callout, the roster's on/off filter, owner filter, and search, and opening a folded
+ * scratchpad callout, the roster's on/off filter, owner filter, search, and sort, and opening a folded
  * run group).
  */
 export type ScoutActionType =
@@ -202,6 +206,7 @@ export type ScoutActionType =
     | 'filter_owner'
     | 'search_scouts'
     | 'expand_run_group'
+    | 'sort_roster'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
@@ -616,6 +621,18 @@ export function captureInboxPanelViewed(params: { panel: InboxPanelName; itemCou
     captureInboxEvent(INBOX_EVENTS.PANEL_VIEWED, {
         panel: params.panel,
         item_count: params.itemCount ?? null,
+    })
+}
+
+/**
+ * A panel read was aborted for taking too long. A request that never settles is invisible to
+ * `client_request_failure`, which only records a response, so this is the one place a stalled pane
+ * can be counted.
+ */
+export function capturePanelLoadTimedOut(params: { load: InboxPanelLoad; timeoutMs: number }): void {
+    captureInboxEvent(INBOX_EVENTS.PANEL_LOAD_TIMED_OUT, {
+        load: params.load,
+        timeout_ms: params.timeoutMs,
     })
 }
 

@@ -9,7 +9,13 @@ from parameterized import parameterized
 
 from posthog.models.comment import Comment
 
-from products.conversations.backend.models import EmailChannel, EmailOutboxMessage, Ticket
+from products.conversations.backend.models import (
+    ConversationDeliveryPart,
+    EmailChannel,
+    EmailOutboxMessage,
+    TeamConversationsSlackConfig,
+    Ticket,
+)
 from products.conversations.backend.models.constants import Channel
 
 
@@ -361,10 +367,14 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.last_message_text == "First public"
         assert self.ticket.last_message_at == first_public.created_at
 
-    @patch("products.conversations.backend.tasks.slack.post_reply_to_slack.delay")
-    def test_slack_ticket_team_message_enqueues_slack_reply(self, mock_delay, mock_on_commit):
+    @patch("products.conversations.backend.signals.wake_delivery_part")
+    def test_slack_ticket_team_message_enqueues_slack_reply(self, mock_wake, mock_on_commit):
         self.team.conversations_settings = {"slack_enabled": True}
         self.team.save()
+        TeamConversationsSlackConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"slack_team_id": "T123", "slack_bot_token": "xoxb-test"},
+        )
         slack_ticket = Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id=self.widget_session_id,
@@ -383,12 +393,15 @@ class TestTicketMessageSignals(BaseTest):
             item_context={"author_type": "team", "is_private": False},
         )
 
-        mock_delay.assert_called_once()
-        call_kwargs = mock_delay.call_args[1]
-        assert call_kwargs["author_email"] == self.user.email
+        mock_wake.assert_called_once()
+        part = ConversationDeliveryPart.objects.unscoped().get()
+        assert part.payload is not None
+        assert part.payload["author_email"] == self.user.email
+        assert part.route == {"channel": "C123", "thread_ts": "1700000000.000100"}
+        assert part.client_msg_id
 
-    @patch("products.conversations.backend.tasks.slack.post_reply_to_slack.delay")
-    def test_private_slack_message_does_not_enqueue_slack_reply(self, mock_delay, mock_on_commit):
+    @patch("products.conversations.backend.signals.wake_delivery_part")
+    def test_private_slack_message_does_not_enqueue_slack_reply(self, mock_wake, mock_on_commit):
         self.team.conversations_settings = {"slack_enabled": True}
         self.team.save()
         slack_ticket = Ticket.objects.create_with_number(
@@ -409,10 +422,10 @@ class TestTicketMessageSignals(BaseTest):
             item_context={"author_type": "team", "is_private": True},
         )
 
-        mock_delay.assert_not_called()
+        mock_wake.assert_not_called()
 
-    @patch("products.conversations.backend.tasks.slack.post_reply_to_slack.delay")
-    def test_customer_slack_message_does_not_enqueue_slack_reply(self, mock_delay, mock_on_commit):
+    @patch("products.conversations.backend.signals.wake_delivery_part")
+    def test_customer_slack_message_does_not_enqueue_slack_reply(self, mock_wake, mock_on_commit):
         self.team.conversations_settings = {"slack_enabled": True}
         self.team.save()
         slack_ticket = Ticket.objects.create_with_number(
@@ -432,7 +445,7 @@ class TestTicketMessageSignals(BaseTest):
             item_context={"author_type": "customer", "is_private": False},
         )
 
-        mock_delay.assert_not_called()
+        mock_wake.assert_not_called()
 
     @patch("products.conversations.backend.signals.invalidate_tickets_cache")
     def test_message_invalidates_tickets_cache(self, mock_invalidate, mock_on_commit):

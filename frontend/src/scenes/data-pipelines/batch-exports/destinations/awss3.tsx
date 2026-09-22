@@ -31,6 +31,7 @@ export const awsS3Definition: DestinationDefinition = {
         'file_format',
         'compression',
         'max_file_size_mb',
+        'legacy_parquet_extension',
         'encryption',
         'kms_key_id',
     ],
@@ -39,11 +40,12 @@ export const awsS3Definition: DestinationDefinition = {
     }),
     eventTableExtraFields: S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS,
     eventTableOverrides: { includeGenericPersonFields: false },
-    Fields: function AwsS3Fields({ isNew, formValues }) {
+    Fields: function AwsS3Fields({ isNew, formValues, savedConfig }) {
         return (
             <S3FamilyFields
                 isNew={isNew}
                 formValues={formValues}
+                savedConfig={savedConfig}
                 regionOptions={AWS_ONLY_REGION_OPTIONS}
                 showEncryption
                 showVirtualStyleAddressing={false}

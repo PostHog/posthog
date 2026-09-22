@@ -5,6 +5,7 @@ import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemS
 import { LinkToModal } from 'lib/components/FileSystem/LinkTo/LinkTo'
 import { MoveToModal } from 'lib/components/FileSystem/MoveTo/MoveTo'
 import { HedgehogMode } from 'lib/components/HedgehogMode/HedgehogMode'
+import { MaybeProductPushWelcome } from 'lib/components/NavPanelAdvertisement/MaybeProductPushWelcome'
 import { SuperpowersModal } from 'lib/components/Superpowers/Superpowers'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
@@ -87,6 +88,7 @@ export function GlobalModals(): JSX.Element {
             {superpowersEnabled && <SuperpowersModal />}
             <ConfigureHomeModal isOpen={isConfigureHomeModalOpen} onClose={hideConfigureHomeModal} />
             <MaybeWelcomeDialog />
+            <MaybeProductPushWelcome />
             <MaybePhaiOnboarding />
             <ComposeTicketModal />
         </>

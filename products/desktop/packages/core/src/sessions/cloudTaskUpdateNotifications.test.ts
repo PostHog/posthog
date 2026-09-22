@@ -93,7 +93,11 @@ function snapshotUpdate(
   };
 }
 
-function createHarness(isTaskAuthor = true, initialPrompt?: string) {
+function createHarness(
+  isTaskAuthor = true,
+  initialPrompt?: string,
+  resume?: { ancestorRunId: string; ancestorEntryCount: number },
+) {
   const sessions: Record<string, AgentSession> = {};
   const store = {
     getSessions: () => sessions,
@@ -148,6 +152,13 @@ function createHarness(isTaskAuthor = true, initialPrompt?: string) {
         });
       },
     ),
+    removeOptimisticItems: (taskRunId: string, ids: string[]) => {
+      const session = sessions[taskRunId];
+      if (!session) return;
+      session.optimisticItems = session.optimisticItems.filter(
+        (item) => !ids.includes(item.id),
+      );
+    },
     replaceOptimisticWithEvent: vi.fn(),
     clearMessageQueue: vi.fn(),
   };
@@ -197,6 +208,10 @@ function createHarness(isTaskAuthor = true, initialPrompt?: string) {
     enqueueSpeech,
     taskViewedApi: { markActivity },
     getPersistedConfigOptions: () => undefined,
+    fetchAuthState: vi
+      .fn()
+      .mockResolvedValue({ status: "authenticated", bootstrapComplete: true }),
+    createAuthenticatedClient: () => undefined,
     setPersistedConfigOptions: vi.fn(),
     adapterStore: {
       getAdapter: () => undefined,
@@ -233,7 +248,22 @@ function createHarness(isTaskAuthor = true, initialPrompt?: string) {
 
   const service = new SessionService(deps);
   if (initialPrompt) service.rememberInitialCloudPrompt(TASK_ID, initialPrompt);
-  service.watchCloudTask(TASK_ID, RUN_ID, "https://us.posthog.com", 1);
+  service.watchCloudTask(
+    TASK_ID,
+    RUN_ID,
+    "https://us.posthog.com",
+    1,
+    undefined,
+    undefined,
+    undefined,
+    "claude",
+    undefined,
+    undefined,
+    resume?.ancestorEntryCount,
+    undefined,
+    undefined,
+    resume ? { resume_from_run_id: resume.ancestorRunId } : undefined,
+  );
   if (!onUpdate) throw new Error("watchCloudTask did not subscribe");
   const session = sessions[RUN_ID];
   if (session) session.isTaskAuthor = isTaskAuthor;
@@ -323,6 +353,232 @@ describe("cloud task update notifications", () => {
     expect(harness.notifyPromptComplete).not.toHaveBeenCalled();
     expect(harness.notifyPermissionRequest).not.toHaveBeenCalled();
     expect(harness.enqueueSpeech).not.toHaveBeenCalled();
+  });
+
+  it("replaces the transcript with a rebuilt snapshot instead of dropping it as caught up", () => {
+    const harness = createHarness();
+    const chunk = (text: string, eventId: string): StoredLogEntry => ({
+      type: "notification",
+      event_id: eventId,
+      notification: {
+        method: "session/update",
+        params: {
+          sessionId: RUN_ID,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text },
+          },
+        },
+      },
+    });
+    const prompt: StoredLogEntry = {
+      type: "notification",
+      event_id: "b-0",
+      notification: {
+        id: 7,
+        method: "session/prompt",
+        params: {
+          sessionId: RUN_ID,
+          prompt: [{ type: "text", text: "Say hello" }],
+        },
+      },
+    };
+    harness.sendUpdate(
+      logsUpdate(
+        [prompt, chunk("Hel", "b-1"), chunk("lo", "b-2"), chunk(" wor", "b-3")],
+        4,
+      ),
+    );
+    expect(harness.session.processedLineCount).toBe(4);
+
+    harness.sendUpdate({
+      ...snapshotUpdate(
+        [
+          prompt,
+          {
+            type: "notification",
+            event_id: "b-4",
+            first_event_id: "b-1",
+            notification: {
+              method: "session/update",
+              params: {
+                sessionId: RUN_ID,
+                update: {
+                  sessionUpdate: "agent_message",
+                  content: { type: "text", text: "Hello world" },
+                },
+              },
+            },
+          },
+        ],
+        2,
+      ),
+      rebuilt: true,
+    } as CloudTaskUpdatePayload);
+
+    expect(harness.session.processedLineCount).toBe(2);
+    const texts = harness.session.events.map((event) =>
+      JSON.stringify(event.message),
+    );
+    expect(texts.filter((t) => t.includes("Hello world"))).toHaveLength(1);
+    expect(texts.some((t) => t.includes('"Hel"'))).toBe(false);
+
+    harness.sendUpdate(logsUpdate([turnComplete()], 3));
+    expect(harness.session.processedLineCount).toBe(3);
+  });
+
+  it("retires the optimistic prompt echoed by a rebuilt snapshot that shrinks the transcript", () => {
+    const harness = createHarness();
+    const prompt = (
+      text: string,
+      id: number,
+      eventId: string,
+    ): StoredLogEntry => ({
+      type: "notification",
+      event_id: eventId,
+      notification: {
+        id,
+        method: "session/prompt",
+        params: { sessionId: RUN_ID, prompt: [{ type: "text", text }] },
+      },
+    });
+    const chunk = (text: string, eventId: string): StoredLogEntry => ({
+      type: "notification",
+      event_id: eventId,
+      notification: {
+        method: "session/update",
+        params: {
+          sessionId: RUN_ID,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text },
+          },
+        },
+      },
+    });
+
+    harness.sendUpdate(
+      logsUpdate(
+        [
+          prompt("Say hello", 7, "b-0"),
+          chunk("Hel", "b-1"),
+          chunk("lo", "b-2"),
+          chunk("!", "b-3"),
+        ],
+        4,
+      ),
+    );
+    expect(harness.session.processedLineCount).toBe(4);
+
+    harness.session.optimisticItems.push({
+      type: "user_message",
+      id: "optimistic-follow-up",
+      content: "Say it again",
+      timestamp: Date.now(),
+      pinToTop: false,
+    });
+
+    harness.sendUpdate({
+      ...snapshotUpdate(
+        [
+          prompt("Say hello", 7, "b-0"),
+          {
+            type: "notification",
+            event_id: "b-3",
+            first_event_id: "b-1",
+            notification: {
+              method: "session/update",
+              params: {
+                sessionId: RUN_ID,
+                update: {
+                  sessionUpdate: "agent_message",
+                  content: { type: "text", text: "Hello!" },
+                },
+              },
+            },
+          },
+          prompt("Say it again", 8, "b-4"),
+        ],
+        3,
+      ),
+      rebuilt: true,
+    } as CloudTaskUpdatePayload);
+
+    expect(harness.session.processedLineCount).toBe(3);
+    expect(harness.session.optimisticItems).toEqual([]);
+  });
+
+  it("keeps a resumed run's counts leaf-relative across a rebuilt snapshot", async () => {
+    const ancestorEntryCount = 3;
+    const harness = createHarness(true, undefined, {
+      ancestorRunId: "run-0",
+      ancestorEntryCount,
+    });
+    const message = (text: string, eventId: string): StoredLogEntry => ({
+      type: "notification",
+      event_id: eventId,
+      notification: {
+        method: "session/update",
+        params: {
+          sessionId: RUN_ID,
+          update: {
+            sessionUpdate: "agent_message",
+            content: { type: "text", text },
+          },
+        },
+      },
+    });
+    const ancestorTail = [
+      message("Ancestor two", "a-1"),
+      message("Ancestor three", "a-2"),
+    ];
+    const leaf = [
+      message("Leaf one", "c-0"),
+      message("Leaf two", "c-1"),
+      message("Leaf three", "c-2"),
+      message("Leaf four", "c-3"),
+    ];
+
+    harness.sendUpdate(logsUpdate(leaf, ancestorEntryCount + leaf.length));
+    await vi.waitFor(() =>
+      expect(harness.session.processedLineCount).toBe(leaf.length),
+    );
+
+    harness.sendUpdate({
+      ...snapshotUpdate(
+        [...ancestorTail, ...leaf],
+        1 + ancestorTail.length + leaf.length,
+      ),
+      windowStart: 1,
+      rebuilt: true,
+    } as CloudTaskUpdatePayload);
+
+    expect(harness.session.processedLineCount).toBe(leaf.length);
+    expect(harness.session.transcriptWindowStart).toBe(1);
+
+    harness.sendUpdate(
+      logsUpdate(
+        [message("Leaf five", "c-4")],
+        ancestorEntryCount + leaf.length + 1,
+      ),
+    );
+
+    expect(harness.session.processedLineCount).toBe(leaf.length + 1);
+    expect(harness.session.transcriptWindowStart).toBe(1);
+    const texts = harness.session.events.map((event) =>
+      JSON.stringify(event.message),
+    );
+    for (const text of [
+      "Ancestor two",
+      "Ancestor three",
+      "Leaf one",
+      "Leaf two",
+      "Leaf three",
+      "Leaf four",
+      "Leaf five",
+    ]) {
+      expect(texts.some((t) => t.includes(text))).toBe(true);
+    }
   });
 
   it("does not notify for turn_completes replayed in a snapshot", () => {

@@ -29,6 +29,7 @@ async def test_safety_filter_wires_prompt_source_and_model(
 ) -> None:
     # Guards the single prompt for every source, the source and date preamble, and SAFETY_MODEL wiring.
     captured: dict[str, str] = {}
+    cache_flags: list[bool] = []
 
     async def fake_call_llm(
         *,
@@ -39,9 +40,11 @@ async def test_safety_filter_wires_prompt_source_and_model(
         stage: str,
         ai_product: str,
         model: str,
+        cache_system_prompt: bool,
         **_kwargs: object,
     ) -> SafetyFilterJudgeResponse:
         captured.update(system_prompt=system_prompt, user_prompt=user_prompt, ai_product=ai_product, model=model)
+        cache_flags.append(cache_system_prompt)
         return SafetyFilterJudgeResponse(safe=True)
 
     with patch(f"{MODULE_PATH}.call_llm", new=fake_call_llm), time_machine.travel("2026-09-10", tick=False):
@@ -51,6 +54,7 @@ async def test_safety_filter_wires_prompt_source_and_model(
     assert captured["system_prompt"] == SAFETY_FILTER_PROMPT
     assert captured["model"] == SAFETY_MODEL
     assert captured["ai_product"] == "signals_safety"
+    assert cache_flags == [True]
     assert f"Source: {expected_source}" in captured["user_prompt"]
     assert "Current date: 2026-09-10" in captured["user_prompt"]
     assert "a finding" in captured["user_prompt"]

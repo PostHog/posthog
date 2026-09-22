@@ -1060,6 +1060,29 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert expected_error_fragment in response.json()["detail"].lower()
 
+    def test_create_alert_rejects_an_insight_the_query_runner_cannot_run(self) -> None:
+        seriesless_insight_data = deepcopy(self.default_insight_data)
+        seriesless_insight_data["query"]["series"] = []
+        seriesless_insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights", data=seriesless_insight_data
+        ).json()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": seriesless_insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "name": "alert name",
+                "calculation_interval": "daily",
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "require at least one series" in response.json()["detail"]
+
     @parameterized.expand(
         [
             (

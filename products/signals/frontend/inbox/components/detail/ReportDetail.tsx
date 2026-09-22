@@ -49,6 +49,7 @@ import { PullRequestDiffPending, PullRequestDiffStat, PullRequestDiffStatSkeleto
 import { PullRequestFilesChanged } from './PullRequestFilesChanged'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
+import { ReportChecksSection } from './ReportChecksSection'
 import { useReportDetailActions } from './ReportDetailActions'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportImpactMetrics } from './ReportImpactMetrics'
@@ -454,6 +455,7 @@ export function InboxDetailFrame({
                         {children}
                         <SuggestedReviewersSection report={report} />
                         <ReportTasksSection report={report} />
+                        <ReportChecksSection report={report} />
                         <ReportActivitySection report={report} />
                         {asideFooter}
                     </aside>

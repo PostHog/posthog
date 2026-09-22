@@ -11,6 +11,47 @@ import {
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  it.each(["implementation", "discussion"] as const)(
+    "creates a report %s without client repository credentials",
+    async (relationship) => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ id: "task-1" }), { status: 201 }),
+        );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await client.createSignalReportTask({
+        reportId: "report-1",
+        relationship,
+        description: "Read the report evidence",
+        title: "Review report",
+        question: "  What caused this?  ",
+      });
+
+      expect(fetch).toHaveBeenCalledOnce();
+      const [url, request] = fetch.mock.calls[0];
+      expect((url as URL).pathname).toBe("/api/projects/42/tasks/");
+      expect(request.method).toBe("POST");
+      expect(JSON.parse(request.body)).toEqual({
+        description: "Read the report evidence",
+        title: "Review report",
+        origin_product: "signal_report",
+        signal_report: "report-1",
+        signal_report_task_relationship: relationship,
+        ...(relationship === "discussion"
+          ? { signal_report_discussion_question: "What caused this?" }
+          : {}),
+      });
+    },
+  );
+
   describe("Desktop beta terms", () => {
     it.each([
       [

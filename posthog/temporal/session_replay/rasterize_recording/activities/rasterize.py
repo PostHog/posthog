@@ -16,6 +16,7 @@ from products.exports.backend.analytics import capture_export_event
 from products.exports.backend.models.exported_asset import ExportedAsset, is_valid_session_recording_id
 from products.exports.backend.source_authentication import assert_export_authorization
 
+from ..storage_keys import content_location_from_s3_uri
 from ..types import (
     RASTERIZE_RENDER_MAX_ATTEMPTS,
     RASTERIZE_RENDER_TIMEOUT,
@@ -201,10 +202,6 @@ def finalize_rasterization(inputs: FinalizeRasterizationInput) -> None:
     close_old_connections()
     result = inputs.result
 
-    prefix = f"s3://{settings.OBJECT_STORAGE_BUCKET}/"
-    if not result.s3_uri.startswith(prefix):
-        raise ValueError(f"Unexpected s3_uri prefix: {result.s3_uri} (expected {prefix}...)")
-
     # Row lock serializes the JSONB read-modify-write against prep_session_video_asset_activity.
     with transaction.atomic():
         asset = (
@@ -212,7 +209,7 @@ def finalize_rasterization(inputs: FinalizeRasterizationInput) -> None:
             .select_for_update(of=("self",))
             .get(pk=inputs.exported_asset_id)
         )
-        asset.content_location = result.s3_uri[len(prefix) :]
+        asset.content_location = content_location_from_s3_uri(result.s3_uri)
 
         if asset.export_context is None:
             asset.export_context = {}

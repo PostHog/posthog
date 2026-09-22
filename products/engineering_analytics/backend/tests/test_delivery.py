@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 
 from django.test import SimpleTestCase
 
@@ -8,13 +8,16 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.engineering_analytics.backend.facade.contracts import (
+    ComparisonTeamBasis as Basis,
     DeliveryScopeKind,
     PRTimelineSegmentKind as Kind,
     ScopeRepoFigure,
 )
-from products.engineering_analytics.backend.logic.delivery_scope import DeliveryScope
+from products.engineering_analytics.backend.logic.census import CENSUS_EVENT
+from products.engineering_analytics.backend.logic.comparison_teams import choose_comparison_teams
+from products.engineering_analytics.backend.logic.delivery_scope import CI_LOOKBACK, DeliveryScope, SummaryScope
+from products.engineering_analytics.backend.logic.merge_queue import GateAttempt
 from products.engineering_analytics.backend.logic.pr_timeline import (
-    GateAttempt,
     MasterFailureIndex,
     PRTimelineBuilder,
     PRTimelineInput,
@@ -22,12 +25,17 @@ from products.engineering_analytics.backend.logic.pr_timeline import (
     RunAttempt,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries.delivery_comparison import query_delivery_comparison
 from products.engineering_analytics.backend.logic.queries.delivery_summary import (
-    CI_LOOKBACK,
-    DeliverySummaryAggregator,
     MergedPRFacts,
+    _before_approval_share,
+    _median_ready_to_first_approval,
+    _median_ready_to_merge,
+    _pushes_after_approval,
     query_delivery_summary,
+    scope_repo_figure,
 )
+from products.engineering_analytics.backend.logic.queries.merge_queue_overview import query_merge_queue_overview
 from products.engineering_analytics.backend.logic.queries.pull_request_timelines import query_pull_request_timelines
 from products.engineering_analytics.backend.logic.views.source_schema import (
     DEPLOYMENT_STATUSES_COLUMNS,
@@ -44,6 +52,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     _pr_row,
     _run_row,
     _status_row,
+    create_github_source,
 )
 from products.engineering_analytics.backend.tests._logic_helpers import (
     _ago,
@@ -71,7 +80,7 @@ def _attempt(
     pushed: float | None = None,
 ) -> RunAttempt:
     return RunAttempt(
-        run_id=hash(sha) % 1000,
+        run_id=1,
         workflow_name="CI",
         head_sha=sha,
         attempt=attempt,
@@ -192,7 +201,7 @@ class TestPRTimelineBuilder(SimpleTestCase):
                         ReviewVerdict(reviewer="ada", state="COMMENTED", submitted_at=_at(3)),
                         ReviewVerdict(reviewer="ada", state="APPROVED", submitted_at=_at(6)),
                     ],
-                    gates=[GateAttempt(started_at=_at(7), completed_at=_at(8))],
+                    gates=[GateAttempt(attempt="gate-1", started_at=_at(7), completed_at=_at(8), failed=False)],
                 ),
                 [],
                 [
@@ -224,7 +233,7 @@ class TestPRTimelineBuilder(SimpleTestCase):
                     10,
                     [_attempt("a", 0, 1)],
                     reviews=[ReviewVerdict(reviewer="ada", state="APPROVED", submitted_at=_at(1))],
-                    gates=[GateAttempt(started_at=_at(2), completed_at=_at(3))],
+                    gates=[GateAttempt(attempt="gate-1", started_at=_at(2), completed_at=_at(3), failed=False)],
                     is_open=True,
                     trunk_out=True,
                 ),
@@ -242,7 +251,7 @@ class TestPRTimelineBuilder(SimpleTestCase):
                     10,
                     [_attempt("a", 0, 1)],
                     reviews=[ReviewVerdict(reviewer="ada", state="APPROVED", submitted_at=_at(1))],
-                    gates=[GateAttempt(started_at=_at(2), completed_at=_at(3))],
+                    gates=[GateAttempt(attempt="gate-1", started_at=_at(2), completed_at=_at(3), failed=False)],
                     is_merged=False,
                 ),
                 [],
@@ -283,20 +292,25 @@ class TestPRTimelineBuilder(SimpleTestCase):
 class TestDeliveryScope(SimpleTestCase):
     @parameterized.expand(
         [
-            ("nothing", {}),
-            ("two_people_at_once", {"author": "alice", "github_team": "team-replay"}),
-            ("blank_author", {"author": "  "}),
-            ("pr_without_repo", {"pr_number": 21}),
+            ("nothing", DeliveryScope, {}),
+            ("two_people_at_once", DeliveryScope, {"author": "alice", "github_team": "team-replay"}),
+            ("blank_author", DeliveryScope, {"author": "  "}),
+            ("pr_without_repo", DeliveryScope, {"pr_number": 21}),
+            ("summary_of_one_pull_request", SummaryScope, {"pr_number": 21, "repo": "PostHog/posthog"}),
         ]
     )
-    def test_rejects_anything_but_one_scope(self, _name: str, params: dict) -> None:
+    def test_rejects_anything_but_one_scope(self, _name: str, scope_type: type[DeliveryScope], params: dict) -> None:
         with self.assertRaises(ValueError):
-            DeliveryScope.from_params(
+            scope_type.from_params(
                 author=params.get("author"),
                 github_team=params.get("github_team"),
                 pr_number=params.get("pr_number"),
                 repo=params.get("repo"),
             )
+
+    def test_rejects_a_field_another_kind_owns(self) -> None:
+        with self.assertRaises(ValueError):
+            DeliveryScope(kind=DeliveryScopeKind.AUTHOR, github_team="team-replay")
 
 
 def _facts(
@@ -306,6 +320,7 @@ def _facts(
     ready_at = merged_at - timedelta(hours=ready_hours)
     return MergedPRFacts(
         number=number,
+        author="alice" if in_scope else "bob",
         in_scope=in_scope,
         created_at=ready_at - timedelta(hours=1),
         merged_at=merged_at,
@@ -317,21 +332,114 @@ def _facts(
     )
 
 
-class TestDeliverySummaryAggregator(SimpleTestCase):
-    def test_scope_figures_read_only_the_prs_in_scope(self) -> None:
-        aggregator = DeliverySummaryAggregator(
-            [
-                _facts(1, in_scope=True, ready_hours=10, approved_after_hours=4, pushes_after=[0, 6]),
-                # Approved while still a draft: nobody waited on a reviewer after it went ready.
-                _facts(2, in_scope=False, ready_hours=2, approved_after_hours=-1, pushes_after=[1]),
-                _facts(3, in_scope=False, ready_hours=30, approved_after_hours=None, pushes_after=[]),
-            ]
+class TestComparisonTeamChoice(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_team", set(), {}, set(), [], Basis.NO_TEAM),
+            ("one_team_needs_no_signal", {"team-a"}, {"team-b": 3}, set(), ["team-a"], Basis.ONLY_TEAM),
+            (
+                "a_group_that_owns_no_code_is_no_candidate",
+                {"team-a", "approvers"},
+                {},
+                set(),
+                ["team-a"],
+                Basis.ONLY_TEAM,
+            ),
+            (
+                "a_requested_team_owns_code_without_tests",
+                {"team-a", "team-untested", "approvers"},
+                {"team-untested": 2, "team-a": 1},
+                set(),
+                ["team-untested"],
+                Basis.REVIEW_REQUESTS,
+            ),
+            (
+                "the_pull_request_in_focus_wins",
+                {"team-a", "team-b"},
+                {"team-a": 5, "team-b": 1},
+                {"team-b"},
+                ["team-b"],
+                Basis.PULL_REQUEST,
+            ),
+            (
+                "every_team_the_focus_pull_request_asked_stays",
+                {"team-a", "team-b", "team-c"},
+                {"team-a": 5, "team-b": 1},
+                {"team-a", "team-b"},
+                ["team-a", "team-b"],
+                Basis.PULL_REQUEST,
+            ),
+            (
+                "the_most_requested_team_wins",
+                {"team-a", "team-b"},
+                {"team-a": 1, "team-b": 4},
+                set(),
+                ["team-b"],
+                Basis.REVIEW_REQUESTS,
+            ),
+            (
+                "a_tie_keeps_every_tied_team",
+                {"team-a", "team-b", "team-c"},
+                {"team-a": 2, "team-b": 2, "team-c": 1},
+                set(),
+                ["team-a", "team-b"],
+                Basis.REVIEW_REQUESTS,
+            ),
+            (
+                "requests_for_other_teams_show_every_code_team",
+                {"team-b", "team-a", "approvers"},
+                {"team-x": 3},
+                set(),
+                ["team-a", "team-b"],
+                Basis.ALL_TEAMS,
+            ),
+        ]
+    )
+    def test_picks_the_teams_to_compare_with(
+        self,
+        _name: str,
+        author_teams: set[str],
+        requested_prs: dict[str, int],
+        focus_requested: set[str],
+        teams: list[str],
+        basis: Basis,
+    ) -> None:
+        choice = choose_comparison_teams(
+            author_teams=author_teams,
+            code_teams={"team-a", "team-b", "team-c"},
+            requested_prs=requested_prs,
+            focus_requested=focus_requested,
         )
 
-        assert aggregator.ready_to_merge(0.5) == ScopeRepoFigure(scope=36000, repo=36000)
-        assert aggregator.median_ready_to_first_approval() == ScopeRepoFigure(scope=14400, repo=7200)
-        assert aggregator.before_first_approval_share() == ScopeRepoFigure(scope=0.4, repo=14400 / 43200)
-        assert aggregator.pushes_after_approval() == ScopeRepoFigure(scope=1, repo=1)
+        assert (choice.teams, choice.basis) == (teams, basis)
+
+    def test_every_team_is_a_candidate_without_any_evidence_of_owning_code(self) -> None:
+        choice = choose_comparison_teams(
+            author_teams={"team-untested", "approvers"}, code_teams={"team-a"}, requested_prs={}, focus_requested=set()
+        )
+
+        assert (choice.teams, choice.basis) == (["approvers", "team-untested"], Basis.ALL_TEAMS)
+
+
+class TestScopeRepoFigure(SimpleTestCase):
+    def test_scope_figures_read_only_the_prs_in_scope(self) -> None:
+        facts = [
+            _facts(1, in_scope=True, ready_hours=10, approved_after_hours=4, pushes_after=[0, 6]),
+            # Approved while still a draft: nobody waited on a reviewer after it went ready.
+            _facts(2, in_scope=False, ready_hours=2, approved_after_hours=-1, pushes_after=[1]),
+            _facts(3, in_scope=False, ready_hours=30, approved_after_hours=None, pushes_after=[]),
+        ]
+
+        scope_facts = [fact for fact in facts if fact.in_scope]
+
+        assert scope_repo_figure(scope_facts, facts, _median_ready_to_merge) == ScopeRepoFigure(scope=36000, repo=36000)
+        assert scope_repo_figure(scope_facts, facts, _median_ready_to_first_approval) == ScopeRepoFigure(
+            scope=14400, repo=7200
+        )
+        assert scope_repo_figure(scope_facts, facts, _before_approval_share) == ScopeRepoFigure(
+            scope=0.4, repo=14400 / 43200
+        )
+        assert scope_repo_figure(scope_facts, facts, _pushes_after_approval) == ScopeRepoFigure(scope=1, repo=1)
 
 
 def _review_row(review_id: int, pr_number: int, state: str, submitted_at: str) -> dict:
@@ -349,8 +457,14 @@ def _member_row(member_id: int, login: str, team_slug: str) -> dict:
     return {"id": member_id, "login": login, "team_id": 1, "team_slug": team_slug, "team_name": team_slug}
 
 
-_ALICE = DeliveryScope.from_params(author="alice", github_team=None, pr_number=None, repo=None)
-_ALICES_TEAM = DeliveryScope.from_params(author=None, github_team="team-replay", pr_number=None, repo=None)
+_LISTED_KINDS = {
+    21: [Kind.CI_RUNNING, Kind.RED_FIXED_BY_PUSH, Kind.CI_RUNNING, Kind.APPROVED_NOT_ENQUEUED, Kind.MERGE_QUEUE],
+    23: [Kind.WAITING_FOR_REVIEW],
+    24: [Kind.DRAFT],
+    26: [Kind.WAITING_FOR_REVIEW],
+}
+_ALICE = SummaryScope.from_params(author="alice", github_team=None, pr_number=None, repo=None)
+_ALICES_TEAM = SummaryScope.from_params(author=None, github_team="team-replay", pr_number=None, repo=None)
 
 
 class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
@@ -390,7 +504,6 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
             REVIEWS_COLUMNS,
             [_review_row(1, 21, "APPROVED", _ago_offset_with_duration(2, 6 * 3600, 0)[0])],
         )
-        # Bob sits in another team, so the team scope must match alice's PRs only.
         self._create_table(
             "github_team_members",
             TEAM_MEMBERS_COLUMNS,
@@ -399,6 +512,8 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         red_start, red_end = _ago_offset_with_duration(2, 0, 3600)
         fix_start, fix_end = _ago_offset_with_duration(2, 8 * 3600, 3600)
         gate_start, gate_end = _ago_offset_with_duration(2, 20 * 3600, 3600)
+        post_merge_probe_start, post_merge_probe_end = _ago_offset_with_duration(1, 3600, 3600)
+        old_gate_start, old_gate_end = _ago_offset_with_duration(20, 0, 3600)
         self._create_table(
             "github_workflow_runs",
             WORKFLOW_RUNS_COLUMNS,
@@ -418,17 +533,40 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
                     actor="trunk-io[bot]",
                 ),
                 _run_row(3004, "CI", "sha22", "completed", "success", _ago(2), _ago(2), pr_number=22),
+                _run_row(
+                    3005,
+                    "CI",
+                    "sha21probe",
+                    "completed",
+                    "failure",
+                    post_merge_probe_start,
+                    post_merge_probe_end,
+                    pr_number=9002,
+                    head_branch="trunk-merge/pr-21/cabec75e-5181-4429-aea5-0501a52d0688-bisection",
+                    actor="trunk-io[bot]",
+                ),
+                _run_row(
+                    3006,
+                    "CI",
+                    "sha26queue",
+                    "completed",
+                    "failure",
+                    old_gate_start,
+                    old_gate_end,
+                    pr_number=9003,
+                    head_branch="trunk-merge/pr-26/old",
+                    actor="trunk-io[bot]",
+                ),
             ],
         )
 
     @parameterized.expand([("author", _ALICE), ("github_team", _ALICES_TEAM)])
-    def test_summary_compares_scope_with_repo_and_flags_missing_sources(self, _name: str, scope: DeliveryScope) -> None:
+    def test_summary_compares_scope_with_repo_and_flags_missing_sources(self, _name: str, scope: SummaryScope) -> None:
         self._seed()
         curated = CuratedGitHubSource.for_team(self.team)
+        date_from = datetime.now(tz=UTC) - timedelta(days=7)
 
-        summary = query_delivery_summary(
-            curated=curated, scope=scope, date_from=datetime.now(tz=UTC) - timedelta(days=7), date_to=None
-        )
+        summary = query_delivery_summary(curated=curated, scope=scope, date_from=date_from, date_to=None)
 
         assert (summary.opened_pr_count, summary.merged_pr_count, summary.open_pr_count, summary.draft_pr_count) == (
             3,
@@ -445,6 +583,15 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         assert summary.median_ready_to_merge_seconds.repo == (86400 + 3 * 86400) / 2
         assert summary.pushes_after_approval_per_merged_pr.scope == 1
         assert summary.merge_queue_attempts_per_merged_pr.scope == 1
+        assert summary.failed_merge_queue_share.scope == 0
+        overview = query_merge_queue_overview(
+            curated=curated,
+            date_from=date_from,
+            date_to=None,
+            prev_from=date_from - timedelta(days=7),
+        )
+        assert overview.avg_attempts_per_merge == summary.merge_queue_attempts_per_merged_pr.scope
+        assert overview.failed_gate_merge_share == summary.failed_merge_queue_share.scope
         assert summary.push_count == 2
         assert summary.cost_per_merged_pr_usd.scope is None
         assert summary.lead_time.deploy_data_available is False
@@ -470,16 +617,7 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         timelines = query_pull_request_timelines(curated=curated, scope=scope, date_from=date_from, date_to=None)
 
         kinds = {item.number: [segment.kind for segment in item.segments] for item in timelines.items}
-        assert set(kinds) == expected
-        assert kinds[21] == [
-            Kind.CI_RUNNING,
-            Kind.RED_FIXED_BY_PUSH,
-            Kind.CI_RUNNING,
-            Kind.APPROVED_NOT_ENQUEUED,
-            Kind.MERGE_QUEUE,
-        ]
-        assert kinds.get(23, [Kind.WAITING_FOR_REVIEW]) == [Kind.WAITING_FOR_REVIEW]
-        assert kinds.get(24, [Kind.DRAFT]) == [Kind.DRAFT]
+        assert kinds == {number: _LISTED_KINDS[number] for number in expected}
         merged = next(item for item in timelines.items if item.number == 21)
         assert merged.author.handle == "alice"
         assert [(push.head_sha, push.pushed_at) for push in merged.pushes] == [
@@ -488,8 +626,224 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         ]
         assert merged.segments[-1].ended_at == merged.merged_at
         assert merged.started_at == _dt(_ago(2))
-        old_open = next((item for item in timelines.items if item.number == 26), None)
-        assert old_open is None or old_open.started_at == date_from - CI_LOOKBACK
+        starting_at_lookback = {item.number for item in timelines.items if item.started_at == date_from - CI_LOOKBACK}
+        assert starting_at_lookback == expected & {26}
+
+    def test_a_ready_event_after_the_close_still_builds_a_timeline(self) -> None:
+        closed_at = _ago(2)
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(31, "alice", "closed", 0, _ago(4), closed_at=closed_at)],
+        )
+        self._create_table(
+            "github_issue_events",
+            ISSUE_EVENTS_COLUMNS,
+            [_issue_event_row(1, "ready_for_review", 31, _ago(1))],
+        )
+        self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [])
+        curated = CuratedGitHubSource.for_team(self.team)
+        scope = DeliveryScope(
+            kind=DeliveryScopeKind.PULL_REQUEST, pr_number=31, repo_owner="PostHog", repo_name="posthog"
+        )
+
+        timelines = query_pull_request_timelines(
+            curated=curated, scope=scope, date_from=datetime.now(tz=UTC) - timedelta(days=7), date_to=None
+        )
+
+        reopened = next(item for item in timelines.items if item.number == 31)
+        assert reopened.started_at == _dt(_ago(4))
+        assert reopened.segments != []
+
+    def test_an_earlier_ready_event_still_wins_when_the_latest_is_after_the_close(self) -> None:
+        # PR 33 went ready, back to draft, then ready again; the events and pull-requests tables sync
+        # apart, so its last ready event lands after its own row's close. Picking the unbounded latest
+        # ready event and discarding it wholesale on an out-of-bounds read would lose the earlier,
+        # still-valid one and overstate the review timeline from created_at instead.
+        closed_at = _ago(2)
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(33, "alice", "closed", 0, _ago(6), closed_at=closed_at)],
+        )
+        self._create_table(
+            "github_issue_events",
+            ISSUE_EVENTS_COLUMNS,
+            [
+                _issue_event_row(1, "ready_for_review", 33, _ago(5)),
+                _issue_event_row(2, "convert_to_draft", 33, _ago(4)),
+                _issue_event_row(3, "ready_for_review", 33, _ago(1)),
+            ],
+        )
+        self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [])
+        curated = CuratedGitHubSource.for_team(self.team)
+        scope = DeliveryScope(
+            kind=DeliveryScopeKind.PULL_REQUEST, pr_number=33, repo_owner="PostHog", repo_name="posthog"
+        )
+
+        timelines = query_pull_request_timelines(
+            curated=curated, scope=scope, date_from=datetime.now(tz=UTC) - timedelta(days=7), date_to=None
+        )
+
+        reopened = next(item for item in timelines.items if item.number == 33)
+        assert reopened.started_at == _dt(_ago(5))
+
+    def test_a_never_ready_pr_starts_at_its_own_created_at(self) -> None:
+        # PR 32 has an issue event, but never a ready_for_review one. The bounded ready-at read must
+        # come back empty here, not fall back to ClickHouse's zero-value DateTime default, which would
+        # read as truthy and pin the timeline to run_from instead.
+        created_at = _ago(6)
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(32, "alice", "closed", 0, created_at, closed_at=_ago(5))],
+        )
+        self._create_table(
+            "github_issue_events",
+            ISSUE_EVENTS_COLUMNS,
+            [_issue_event_row(1, "convert_to_draft", 32, _ago(5))],
+        )
+        self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [])
+        curated = CuratedGitHubSource.for_team(self.team)
+        scope = DeliveryScope(
+            kind=DeliveryScopeKind.PULL_REQUEST, pr_number=32, repo_owner="PostHog", repo_name="posthog"
+        )
+
+        timelines = query_pull_request_timelines(
+            curated=curated, scope=scope, date_from=datetime.now(tz=UTC) - timedelta(days=7), date_to=None
+        )
+
+        never_ready = next(item for item in timelines.items if item.number == 32)
+        assert never_ready.started_at == _dt(created_at)
+
+
+_ISSUE_EVENTS_WITHOUT_TEAM_REQUESTS = {
+    column: types for column, types in ISSUE_EVENTS_COLUMNS.items() if column != "requested_team"
+}
+
+
+def _team_request_row(event_id: int, pr_number: int, team_slug: str, created_at: str) -> dict:
+    return {
+        **_issue_event_row(event_id, "review_requested", pr_number, created_at, login="assigner[bot]"),
+        "requested_team": f'{{"slug": "{team_slug}"}}',
+    }
+
+
+class TestDeliveryComparisonOnWarehouse(_WarehouseMixin):
+    def _seed(self, *, with_team_requests: bool) -> None:
+        # The census is keyed by repository, so the source has to name one.
+        self._github_source = create_github_source(self.team, repository="PostHog/posthog")
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(21, "alice", "closed", 0, _ago(3), merged_at=_ago(1)),
+                _pr_row(27, "alice", "closed", 0, _ago(3), merged_at=_ago(2)),
+                _pr_row(23, "alice", "closed", 0, _ago(2), merged_at=_ago(1)),
+                _pr_row(22, "bob", "closed", 0, _ago(4), merged_at=_ago(1)),
+                _pr_row(28, "carol", "closed", 0, _ago(4), merged_at=_ago(2)),
+                _pr_row(29, "dave", "closed", 0, _ago(4), merged_at=_ago(2)),
+                # Opened before the issue events start, so their ready times are unknown.
+                _pr_row(30, "erin", "closed", 0, _ago(12), merged_at=_ago(2)),
+                _pr_row(31, "gina", "closed", 0, _ago(12), merged_at=_ago(2)),
+                _pr_row(32, "hank", "closed", 0, _ago(12), merged_at=_ago(2)),
+            ],
+        )
+        self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [])
+        # Alice is in two teams that own code and in an approver group that owns none. The two teams sit on
+        # either side of MIN_OTHER_TEAM_AUTHORS: team-replay has exactly as many other authors with a ready
+        # time as the floor asks for, team-ingestion one fewer, so its median stays hidden.
+        self._create_table(
+            "github_team_members",
+            TEAM_MEMBERS_COLUMNS,
+            [
+                _member_row(1, "alice", "team-replay"),
+                _member_row(2, "alice", "team-ingestion"),
+                _member_row(3, "alice", "client-libraries-approvers"),
+                _member_row(4, "bob", "team-replay"),
+                _member_row(5, "carol", "team-ingestion"),
+                _member_row(6, "dave", "team-replay"),
+                _member_row(7, "erin", "team-replay"),
+                _member_row(8, "gina", "team-ingestion"),
+                _member_row(9, "hank", "team-ingestion"),
+            ],
+        )
+        if with_team_requests:
+            # Other authors' pull requests ask team-ingestion more often, and must not count for alice.
+            self._create_table(
+                "github_issue_events",
+                ISSUE_EVENTS_COLUMNS,
+                [
+                    _issue_event_row(9, "labeled", 21, _ago(10)),
+                    _team_request_row(1, 21, "team-replay", _ago(2)),
+                    _team_request_row(2, 27, "team-replay", _ago(3)),
+                    _team_request_row(3, 23, "team-ingestion", _ago(1)),
+                    _team_request_row(4, 22, "team-ingestion", _ago(3)),
+                    _team_request_row(5, 28, "team-ingestion", _ago(3)),
+                ],
+            )
+        else:
+            self._create_table(
+                "github_issue_events",
+                _ISSUE_EVENTS_WITHOUT_TEAM_REQUESTS,
+                [_issue_event_row(1, "labeled", 21, _ago(10)), _issue_event_row(2, "labeled", 21, _ago(0))],
+            )
+        for owner_team in ("team-replay", "team-ingestion"):
+            _create_event(
+                event=CENSUS_EVENT,
+                team=self.team,
+                distinct_id="census",
+                properties={"repository": "PostHog/posthog", "owner_team": owner_team, "test_file_count": 10},
+                timestamp=datetime.now(tz=UTC) - timedelta(days=1),
+            )
+        flush_persons_and_events()
+
+    @parameterized.expand(
+        [
+            ("the_most_requested_team", True, None, Basis.REVIEW_REQUESTS, {"team-replay": 6}, (3, 9), None),
+            ("the_team_the_focus_pr_asked", True, 23, Basis.PULL_REQUEST, {"team-ingestion": None}, (2, 8), 86400),
+            (
+                "every_code_team_without_requests",
+                False,
+                None,
+                Basis.ALL_TEAMS,
+                {"team-ingestion": None, "team-replay": 6},
+                (3, 9),
+                None,
+            ),
+        ]
+    )
+    def test_compares_the_author_with_their_team(
+        self,
+        _name: str,
+        with_team_requests: bool,
+        focus_pr: int | None,
+        basis: Basis,
+        team_merged_counts: dict[str, int | None],
+        author_and_repo_counts: tuple[int, int],
+        focus_ready_seconds: int | None,
+    ) -> None:
+        self._seed(with_team_requests=with_team_requests)
+        curated = CuratedGitHubSource.for_team(self.team)
+
+        comparison = query_delivery_comparison(
+            curated=curated,
+            author="alice",
+            focus_pr=focus_pr,
+            date_from=datetime.now(tz=UTC) - timedelta(days=7),
+            date_to=None,
+        )
+
+        assert comparison.team_basis == basis
+        assert {
+            team.github_team: team.medians.merged_pr_count if team.medians else None for team in comparison.teams
+        } == team_merged_counts
+        assert (
+            comparison.author_medians.merged_pr_count,
+            comparison.repo_medians.merged_pr_count,
+        ) == author_and_repo_counts
+        focus = comparison.pull_request
+        assert (focus.ready_to_merge_seconds if focus else None) == focus_ready_seconds
 
 
 class TestDeliveryDeployWindow(_WarehouseMixin):
@@ -563,9 +917,16 @@ class TestDeliveryDeployWindow(_WarehouseMixin):
 
 
 class TestDeliveryEndpoints(APIBaseTest):
-    @parameterized.expand([("delivery_summary",), ("pull_request_timelines",)])
-    def test_requires_exactly_one_scope(self, action: str) -> None:
-        response = self.client.get(f"/api/projects/{self.team.id}/engineering_analytics/{action}/")
+    @parameterized.expand(
+        [
+            ("delivery_summary", "", "exactly one of author, github_team"),
+            ("pull_request_timelines", "", "exactly one of author, github_team"),
+            ("delivery_comparison", "", "author is required"),
+            ("delivery_comparison", "?author=alice&pr_number=21", "repo is required with pr_number"),
+        ]
+    )
+    def test_rejects_a_missing_scope(self, action: str, query: str, message: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/engineering_analytics/{action}/{query}")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "exactly one of author, github_team" in response.json()["detail"]
+        assert message in response.json()["detail"]

@@ -12,6 +12,7 @@ import {
     getCapabilityLadder,
     getDefaultModelForRuntimeAdapter,
     getEffortsForModel,
+    getModelCost,
     getModelLabel,
     getRuntimeAdapterForModel,
     listRuntimeAdapters,
@@ -105,6 +106,17 @@ describe('composerModels', () => {
                 {}
             )
         ).toMatchObject({ runtime_adapter: getRuntimeAdapterForModel(CATALOGUE, bare) })
+    })
+
+    // A stored `anthropic/...` spelling must not lose its cost while keeping its name, which would
+    // show as one row in the list silently missing a figure every other row has.
+    it.each([
+        ['claude-opus-5', '2.5×'],
+        ['anthropic/claude-opus-5', '2.5×'],
+        ['gpt-5', null],
+        ['some-unreleased-model', null],
+    ])('reads the cost of %s off the catalog', (model, expected) => {
+        expect(getModelCost(model)?.multiplier ?? null).toBe(expected)
     })
 
     // A model absent from the catalogue (still loading, or retired from the gateway) must still produce a

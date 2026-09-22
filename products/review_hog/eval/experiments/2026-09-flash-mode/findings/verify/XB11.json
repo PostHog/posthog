@@ -1,0 +1,27 @@
+{
+    "letter": "XB",
+    "id": "XB11",
+    "cluster": 2,
+    "is_real": true,
+    "severity": "must_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "/tmp/frozen-75215/products/stamphog/AGENTS.md:97-99 promises linkage-verified provenance, but review_hog/receivers.py:92-138 forwards output.pr_url with genuine task/report/reviewer IDs without comparing the target with the task repository/head. That URL is caller-writable through tasks/presentation/views/api.py:1101-1118 and facade/api.py:1770-1788,2149-2154; only pr_merged is attested. The task serializer permits a same-team signal_report and internal=False at serializers.py:435-460,611-614, so the receiver's task-shape gate is reachable. stamphog/tasks/tasks.py:1138-1181 resolves the target URL's configured repository and requires open/nonempty head, then creates inbox provenance without bot/native-head/origin checks. temporal/activities.py:451 turns it into self_driving_review, review_local.py:321-330 and review_pr.py:590 bypass bot/draft refusal, and activities.py:723-745 can approve unrelated code.",
+            "refutation": "I first checked task authorization, normal forced bot creation, and webhook protections. Task control does not prove the target URL was produced by that task; the output helper explicitly allows replacing it. The bot/native-head protections at stamphog/tasks.py:169-178 apply only to webhook re-reviews, not this initial task. The caller still needs an eligible task, configured repository and opted-in reviewer, but can then target an unrelated human draft with a valid head. Ready-state itself is intentionally supported and is not the retained defect; the code-proven defect is minting trusted provenance for an unverified caller-writable PR target."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "The claimed trust boundary is absent from the initial entry. /tmp/frozen-75215/products/review_hog/backend/receivers.py:92-138 derives real task/report/reviewer IDs but forwards caller-written output.pr_url without comparing the task repository or generated branch. Task controllers can set it through products/tasks/backend/presentation/views/api.py:1101-1118, and facade/api.py:1770-1788,2139-2154 explicitly allows URL replacement while protecting only pr_merged. Noninternal signal implementation tasks are supported by presentation/serializers.py:435-460,594-614 and the API test at tests/test_api.py:1307-1333. Stamphog tasks/tasks.py:1140-1181 accepts a configured same-team repository and any open PR/head before recording inbox_review. activities.py:451 enables self-driving, which suppresses bot/draft refusal and can lead to :745 approving a human/fork/unrelated PR.",
+            "refutation": "First tested whether repository scoping, the receiver's signal/internal guard or the webhook's native-head check already proves the target. Config tests/test_tasks.py:947-970 verify only that the URL's repository is enabled and synced; this limits blast radius but does not bind the PR to the task. The explicit native-head and linkage checks at tasks.py:169-207 exist only on the webhook entry, not the initial worker. Authentic task/report IDs and current reviewer opt-in therefore coexist with a substituted PR URL. Draft-to-ready lifecycle itself is intentional at :160-165; the retained defect is false task/PR provenance, not readiness alone."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "A task:write caller can PATCH set_output (products/tasks/backend/presentation/views/api.py:1099-1118), and signal tasks are controllable by project teammates (visibility.py:22-24,30-46). facade/api.py:2149-2154 accepts a replacement pr_url; only pr_merged is attested at 1770-1788. The non-internal signal-task receiver checks an assigned opted-in reviewer but forwards that URL without a repository/head binding (review_hog/backend/receivers.py:104-114,126-138). process_inbox_pr_review selects the URL's connected repository at stamphog/backend/tasks/tasks.py:1130-1146 and checks open state/head SHA at 1166-1174, then stamps the passed provenance IDs at 1176-1181 without loading the task. temporal/activities.py:448-451 converts it to self_driving_review, allowing unrelated human drafts or forks through the exceptional engine path.",
+            "refutation": "I checked the caller's authorization and any upstream attestation before treating the missing checks as a real trust failure. The authorization is real but task writers are allowed to change output references; they are not required to hold the target PR author's repository write permission. Non-internal signal tasks are produced by the manual Inbox Create PR path (frontend/src/scenes/inbox/inboxTaskKickoffLogic.ts:80-96), so the internal guard does not make this unreachable. The webhook's native/bot checks at tasks.py:169-205 are not called by the initial task; clone and final posting also do not revalidate provenance (activities.py:989-992,700-745). A draft-only restriction is not itself required by the ready-state lifecycle, but the unbound author/head/task provenance is a proved shipping defect."
+        }
+    ]
+}

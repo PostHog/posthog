@@ -19,8 +19,8 @@ export function downloadBlob(content: Blob, filename: string): void {
 }
 
 export async function exportedAssetBlob(asset: ExportedAssetType): Promise<Blob> {
-    const downloadUrl = api.exports.determineExportUrl(asset.id)
-    const response = await api.getResponse(downloadUrl)
+    const contentUrl = api.exports.determineExportFetchUrl(asset.id)
+    const response = await api.getResponse(contentUrl)
     return await response.blob()
 }
 

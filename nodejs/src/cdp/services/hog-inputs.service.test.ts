@@ -279,6 +279,21 @@ describe('Hog Inputs', () => {
             expect(inputs.oauth).toMatchInlineSnapshot(`null`)
         })
 
+        it('should not load a posthog connection', async () => {
+            const connectionId = team.id + 2
+            await insertIntegration(hub.postgres, team.id, {
+                id: connectionId,
+                kind: 'posthog',
+                sensitive_config: { access_token: hub.encryptedFields.encrypt('connection-token') },
+            })
+            hogFunction.inputs = { connection: { value: connectionId } }
+            hogFunction.inputs_schema = [{ key: 'connection', type: 'integration', required: true }]
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+
+            expect(inputs.connection).toBeNull()
+        })
+
         it('should add unsubscribe url if email input is present', async () => {
             hogFunction.inputs = {
                 email: {

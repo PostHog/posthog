@@ -176,8 +176,17 @@ pub async fn insert_flags_with_metadata_for_team_in_redis(
         "evaluation_metadata": evaluation_metadata
     })
     .to_string();
+    write_flags_wire_json_to_redis(client, team_id, json_string).await
+}
+
+/// Preserves raw numeric tokens that Value-based test setup would round away.
+pub async fn write_flags_wire_json_to_redis(
+    client: Arc<dyn RedisClientTrait + Send + Sync>,
+    team_id: i32,
+    wire_json: String,
+) -> Result<(), Error> {
     let pickled_bytes =
-        serde_pickle::to_vec(&json_string, Default::default()).expect("Failed to pickle flags");
+        serde_pickle::to_vec(&wire_json, Default::default()).expect("Failed to pickle flags");
 
     let cache_key = format!("posthog:1:cache/teams/{team_id}/feature_flags/flags.json");
     client.set_bytes(cache_key, pickled_bytes, None).await?;

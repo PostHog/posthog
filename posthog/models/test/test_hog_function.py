@@ -130,6 +130,129 @@ class TestHogFunction(TestCase):
             == f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 2, "match", 2, 5, 47, 3, 35, 33, 1]'
         )
 
+    def test_save_keeps_working_bytecode_when_filters_stop_compiling(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Internal users",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+                }
+            },
+        )
+        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.id}]
+        self.team.save()
+
+        item = HogFunction.objects.create(
+            name="Test",
+            type=HogFunctionType.DESTINATION,
+            team=self.team,
+            enabled=True,
+            filters={"filter_test_accounts": True},
+        )
+        working_bytecode = to_dict(item.filters)["bytecode"]
+        assert working_bytecode is not None
+
+        cohort.is_static = True
+        cohort.save()
+
+        item.name = "Renamed"
+        item.save()
+
+        item.refresh_from_db()
+        assert item.enabled
+        assert to_dict(item.filters)["bytecode"] == working_bytecode
+        assert "static cohort" in to_dict(item.filters)["bytecode_error"]
+
+    def test_save_leaves_an_existing_enabled_function_without_bytecode_alone(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Internal users",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+                }
+            },
+        )
+        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.id}]
+        self.team.save()
+
+        item = HogFunction.objects.create(
+            name="Test",
+            type=HogFunctionType.DESTINATION,
+            team=self.team,
+            enabled=True,
+            filters={"filter_test_accounts": True},
+        )
+        cohort.is_static = True
+        cohort.save()
+        # An enabled function that already lost its bytecode. Written past save() so the row keeps
+        # that shape. A bulk re-save of every destination must not switch it off, because the
+        # notification command and the recompile task both need it enabled to reach it.
+        HogFunction.objects.filter(id=item.id).update(
+            filters={"filter_test_accounts": True, "bytecode": None, "bytecode_error": "static cohort"}
+        )
+
+        item.name = "Renamed"
+        item.save()
+
+        item.refresh_from_db()
+        assert item.enabled
+        assert to_dict(item.filters)["bytecode"] is None
+
+    def test_save_that_changes_the_filters_does_not_reuse_the_old_bytecode(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Internal users",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+                }
+            },
+        )
+        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.id}]
+        self.team.save()
+
+        item = HogFunction.objects.create(
+            name="Test",
+            type=HogFunctionType.DESTINATION,
+            team=self.team,
+            enabled=True,
+            filters={"filter_test_accounts": True},
+        )
+        assert to_dict(item.filters)["bytecode"] is not None
+
+        cohort.is_static = True
+        cohort.save()
+
+        item.filters = {"filter_test_accounts": True, "events": [{"id": "$pageview", "type": "events"}]}
+        item.save()
+
+        item.refresh_from_db()
+        assert to_dict(item.filters)["bytecode"] is None
+        assert "static cohort" in to_dict(item.filters)["bytecode_error"]
+
+    def test_create_with_uncompilable_filters_is_not_enabled(self):
+        cohort = Cohort.objects.create(team=self.team, name="Imported users", is_static=True)
+        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.id}]
+        self.team.save()
+
+        item = HogFunction.objects.create(
+            name="Test",
+            type=HogFunctionType.DESTINATION,
+            team=self.team,
+            enabled=True,
+            filters={"filter_test_accounts": True},
+        )
+
+        item.refresh_from_db()
+        assert not item.enabled
+        assert to_dict(item.filters)["bytecode"] is None
+        assert "static cohort" in to_dict(item.filters)["bytecode_error"]
+
 
 class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
     def setUp(self):

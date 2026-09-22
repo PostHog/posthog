@@ -445,7 +445,7 @@ For each candidate, the call is **edit an existing report, author a new one, rem
   author a fresh report and repoint the `report:` key.
 - **Author** (`scout-emit-report`) only when nothing live covers it — one report
   per page+metric problem, never one per query row. A **report-worthy finding**
-  (confidence ≥ 0.8): names the **page** (host + path), the **metric**, the **p75 value
+  leaves nothing for the reader to take on trust: it names the **page** (host + path), the **metric**, the **p75 value
   and band**, the **sample count** behind the percentile, whether it's standing-poor or a
   dated regression (with the onset day), a **metric-specific cause hypothesis**, and a
   **concrete remediation** — the last two pulled from

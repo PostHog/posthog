@@ -408,7 +408,7 @@ impl SeederOrchestrator {
                         producer: self.producer.clone(),
                         pacer: person.pacer.clone(),
                         producer_settings: self.settings.producer,
-                        emit_nonmatchers: person_settings.emit_nonmatchers,
+                        emission: person_settings.emission,
                         retry_backoff: self.settings.retry_backoff,
                     };
                     let shutdown = shutdown.clone();

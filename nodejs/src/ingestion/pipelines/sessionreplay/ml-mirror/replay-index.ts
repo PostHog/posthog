@@ -1,6 +1,5 @@
 import { ParquetSchema } from '@dsnp/parquetjs'
 
-import { parseJSON } from '~/common/utils/json-parse'
 import {
     ReplayIndexEntry,
     ReplayIndexEntrySchema,
@@ -8,7 +7,7 @@ import {
 import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
 
 import { MlBlockMetadataRow } from './block-metadata-row'
-import { MlDataKey, MlEncryptedEnvelope, encryptEnvelope } from './keys/crypto'
+import { MlDataKey, MlEncryptedEnvelope, encryptEnvelopeJson } from './keys/crypto'
 import { MlParquetSinkMetrics } from './metrics'
 import { sessionStartTimestampFromUuidV7 } from './session-identifier-format'
 
@@ -131,9 +130,7 @@ export function encryptReplayIndex(row: MlBlockMetadataRow, key: MlDataKey): Enc
         return {
             kind,
             rowCount: records.length,
-            envelope: parseJSON(
-                encryptEnvelope(key, 'replay-index', Buffer.from(JSON.stringify(records)), kind).toString()
-            ) as MlEncryptedEnvelope,
+            envelope: encryptEnvelopeJson(key, 'replay-index', Buffer.from(JSON.stringify(records)), kind),
         }
     })
 }

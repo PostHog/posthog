@@ -635,7 +635,10 @@ class TestWarehouseTableAccessControl(BaseTest):
     def _membership(self):
         return OrganizationMembership.objects.get(user=self.user, organization=self.organization)
 
-    def test_object_level_deny_filters_schema_and_cache_key(self):
+    @parameterized.expand([("full", None), ("filtered", {"allowed_table", "denied_table"})])
+    def test_object_level_deny_filters_schema_and_cache_key(
+        self, _label: str, schema_table_names: set[str] | None
+    ) -> None:
         self._create_ac(
             resource="warehouse_table",
             resource_id=str(self.denied_table.id),
@@ -643,7 +646,7 @@ class TestWarehouseTableAccessControl(BaseTest):
             member=self._membership(),
         )
 
-        database = Database.create_for(team=self.team, user=self.user)
+        database = Database.create_for(team=self.team, user=self.user, schema_table_names=schema_table_names)
 
         # Schema filtering: the denied table is dropped from the schema, the allowed one stays.
         assert "denied_table" in database._denied_tables
@@ -654,6 +657,11 @@ class TestWarehouseTableAccessControl(BaseTest):
         assert str(self.denied_table.id) in database.user_access_control.blocked_resource_ids_by_scope.get(
             "warehouse_table", set()
         )
+        serialized = database.serialize(
+            HogQLContext(team_id=self.team.pk, database=database), include_only=schema_table_names
+        )
+        assert "allowed_table" in serialized
+        assert "denied_table" not in serialized
 
     def test_source_denial_reaches_its_tables_but_not_self_managed(self):
         # The gate resolves each table through RESOURCE_FALLBACK_MAP, so a rule about a source must

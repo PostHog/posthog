@@ -62,8 +62,8 @@ export const authorLogic = kea<authorLogicType>([
     })),
 
     loaders(({ props, values }) => ({
-        // The author's CI spend split by workflow, for "where their CI minutes go". [] when the job-level
-        // source isn't synced.
+        // The author's CI spend split by workflow, for "where their CI minutes go". [] when the
+        // job-level source isn't synced.
         workflowCosts: [
             [] as WorkflowCostApi[],
             {

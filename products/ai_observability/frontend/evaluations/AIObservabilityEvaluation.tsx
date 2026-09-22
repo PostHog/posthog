@@ -36,6 +36,7 @@ import { AccessControlLevel, AccessControlResourceType, ChartDisplayType, HogQLM
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
+import { ByokModelPickerNotice } from '../ByokModelPickerNotice'
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { providerKeyStateIssueDescription, providerLabel } from '../settings/providerKeyStateUtils'
@@ -934,6 +935,7 @@ function EvaluationModelPicker(): JSX.Element {
                             selectedModelName={selectedModelName}
                             data-attr="evaluation-model-selector"
                         />
+                        <ByokModelPickerNotice />
                         {modelSelectionRequired && !selectedModel && (
                             <p className="text-sm text-danger mt-1">Select a judge model.</p>
                         )}

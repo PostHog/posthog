@@ -16,7 +16,6 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { createFuse, Fuse } from 'lib/utils/fuseSearch'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
@@ -34,7 +33,7 @@ import type { DatabaseSchemaQueryResponse } from '../../../../../frontend/src/qu
 import type { ExternalDataSourceRevenueAnalyticsConfig } from '../../../../../frontend/src/types'
 import type { SourceConfigResponseApi } from '../../../../warehouse_sources/frontend/generated/api.schemas'
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
-import { joinsLogic } from './joinsLogic'
+import { joinsDataLogic } from './joinsDataLogic'
 import { sourcesDataLogic } from './sourcesDataLogic'
 
 // Poll fast while something is actively syncing so sync status feels live; otherwise poll slowly. The
@@ -105,7 +104,10 @@ export interface sourceManagementLogicActions {
         force?: boolean
         shallow?: boolean
     } // databaseTableListLogic
-    loadJoins: () => any // joinsLogic
+    deleteJoin: (join: DataWarehouseViewLink) => {
+        join: DataWarehouseViewLink
+    } // joinsDataLogic
+    loadJoins: () => any // joinsDataLogic
     loadSources: () => {
         value: true
     } // sourcesDataLogic
@@ -151,9 +153,6 @@ export interface sourceManagementLogicActions {
         config: Partial<ExternalDataSourceRevenueAnalyticsConfig>
         source: ExternalDataSource
     } // sourcesDataLogic
-    deleteJoin: (join: DataWarehouseViewLink) => {
-        join: DataWarehouseViewLink
-    }
     deleteSelfManagedTable: (tableId: string) => {
         tableId: string
     }
@@ -245,8 +244,8 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
         actions: [
             databaseTableListLogic,
             ['ensureAllTableFields', 'loadDatabase'],
-            joinsLogic,
-            ['loadJoins'],
+            joinsDataLogic,
+            ['loadJoins', 'deleteJoin'],
             sourcesDataLogic,
             [
                 'loadSources',
@@ -267,7 +266,6 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setManagedSearchTerm: (managedSearchTerm: string) => ({ managedSearchTerm }),
         setDirectSearchTerm: (directSearchTerm: string) => ({ directSearchTerm }),
-        deleteJoin: (join: DataWarehouseViewLink) => ({ join }),
     }),
     loaders(({ actions, values }) => ({
         schemas: [
@@ -548,21 +546,6 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
                     return () => clearTimeout(timerId)
                 }, 'refreshTimeout')
             }
-        },
-        deleteJoin: ({ join }): void => {
-            void deleteWithUndo({
-                endpoint: api.dataWarehouseViewLinks.determineDeleteEndpoint(),
-                object: {
-                    id: join.id,
-                    name: `${join.field_name} on ${join.source_table_name}`,
-                },
-                callback: () => {
-                    actions.loadDatabase()
-                    actions.loadJoins()
-                },
-            }).catch((e) => {
-                lemonToast.error(`Failed to delete warehouse view link: ${e.detail}`)
-            })
         },
     })),
     afterMount(({ actions, values }) => {

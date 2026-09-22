@@ -250,11 +250,11 @@ def build_scout_slack_message(emission: SignalScoutEmission) -> tuple[list[dict]
     details: list[str] = []
     if emission.severity:
         details.append(escape_slack_mrkdwn(emission.severity))
-    details.append(f"{round(emission.confidence * 100)}% confidence")
     if emission.tags:
         safe_tags = [escape_slack_mrkdwn(str(tag)).replace("`", "'") for tag in emission.tags[:5]]
         details.append(" ".join(f"`{tag}`" for tag in safe_tags))
-    blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(details)}]})
+    if details:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(details)}]})
 
     skill_segment = quote(emission.scout_run.skill_name, safe="")
     finding_segment = quote(emission.finding_id, safe="")

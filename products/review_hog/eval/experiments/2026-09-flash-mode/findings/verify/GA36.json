@@ -1,0 +1,27 @@
+{
+    "letter": "GA",
+    "id": "GA36",
+    "cluster": 3,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "tools/pr-approval-agent/review_local.py:321 does read `bool(context.get(\"self_driving_review\"))`, so a string \"false\" would indeed be truthy. But the only producer of this key is products/stamphog/backend/logic/reviewer.py:101,131, a function typed `self_driving_review: bool = False` that writes a JSON bool via json.dumps (reviewer.py:136). Its caller products/stamphog/backend/temporal/activities.py:451 passes `bool(output.get(\"inbox_review\"))`, so the value is always a real bool. The integration test at products/stamphog/backend/tests/test_integration.py:1413 asserts `context[\"self_driving_review\"] is True`. The context file is otherwise loaded only by main() (review_local.py:384-394) from a `--context` path. That file is written by the server into a sandbox it controls.",
+            "refutation": "Nothing can actually hit the claimed failure. The server serializes a Python bool, so the value on the hosted path is always true or false. It is never the string \"false\" or \"0\". The other route in is the one the finding names: a person hand-editing a context file and running the script with --context. That person already controls every field in the file, including the PR author data that feeds `author_is_bot` through `_build_pr_data`. They could skip the bot-author refusal simply by setting the author to a non-bot. A stricter `is True` check therefore guards nothing that the same file cannot already bypass. Making the check stricter is a style or defensive preference, not a defect in shipping code."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "tools/pr-approval-agent/review_local.py:322 does use `bool(context.get(\"self_driving_review\"))`. But the only producer of that key is the server. products/stamphog/backend/logic/reviewer.py:101 declares `self_driving_review: bool = False`, and line 131 writes it into the context dict. products/stamphog/backend/temporal/activities.py:451 passes `bool(output.get(\"inbox_review\"))`. json.dumps of a real bool always comes back as a real bool. products/stamphog/backend/tests/test_integration.py:1413 asserts `context[\"self_driving_review\"] is True`, so the producer side already has a strict type test.",
+            "refutation": "Only one party writes the value: the server, which is trusted. The server always stamps a real Python bool (reviewer.py:101/131, activities.py:451), and an integration test pins it as an exact boolean (test_integration.py:1413). A PR author has no way to put a string like \"false\" into the context. The --context script path takes a file that the operator writes themselves, and that operator could just as easily set `true`. So no trigger an attacker can reach changes the result. This is a defensive-style preference for a malformed input nobody can produce, not a defect."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "tools/pr-approval-agent/review_local.py:321 does read the flag as `bool(context.get(\"self_driving_review\"))`. The only production writer is products/stamphog/backend/logic/reviewer.py:101 and :131, which types the value as `self_driving_review: bool = False` and puts it into the context dict. Its caller, products/stamphog/backend/temporal/activities.py:451, passes `self_driving_review=bool(output.get(\"inbox_review\"))`, so the value is always a real Python bool. json.dumps writes that as JSON true or false, and json.loads in main() reads it back as a real bool. The integration test at products/stamphog/backend/tests/test_integration.py:1413 asserts `context[\"self_driving_review\"] is True`. No production path can put a string such as \"false\" or \"0\" into this field.",
+            "refutation": "I could not find a way to trigger this in production. The server always writes a real JSON boolean into the context (reviewer.py:101/131, activities.py:451), and the context is generated inside the sandbox, not supplied by a user. The finding's only trigger is \"a malformed or hand-edited context file\" passed through `--context` when someone runs the script locally. That person already controls the whole context, including `pr.author_is_bot`, and could just set `self_driving_review: true`. So the stricter `is True` check would not protect any trust boundary. The claim that the gate \"flips open\" depends on an input that production never produces. This makes the finding a speculative defensive-style preference, not a defect."
+        }
+    ]
+}

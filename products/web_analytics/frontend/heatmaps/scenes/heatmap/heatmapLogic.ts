@@ -1,6 +1,8 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
+import type { CombinedLocation } from 'kea-router/lib/utils'
 import posthog from 'posthog-js'
+import type { JSX } from 'react'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
@@ -10,10 +12,20 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { AccessControlLevel, ActivityScope, HeatmapSource, HeatmapStatus, HeatmapType } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActivityScope,
+    HeatmapScreenshotType,
+    HeatmapSource,
+    HeatmapStatus,
+    HeatmapType,
+} from '~/types'
 import type { ExportContext } from '~/types'
 
 import {
@@ -23,12 +35,14 @@ import {
     savedRegenerateCreate,
     savedRetrieve,
 } from 'products/web_analytics/frontend/generated/api'
-import type { SavedHeatmapRequestApi } from 'products/web_analytics/frontend/generated/api.schemas'
+import type {
+    HeatmapScreenshotResponseApi,
+    SavedHeatmapRequestApi,
+} from 'products/web_analytics/frontend/generated/api.schemas'
 
-import { heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
+import { IFrameBanner, PagePreflight, heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
 import { heatmapsSceneLogic } from '../heatmaps/heatmapsSceneLogic'
-
-const DEFAULT_HEATMAP_NAME = 'Untitled heatmap'
+import { DEFAULT_HEATMAP_NAME, HeatmapSettings, normalizeHeatmapSettings } from './heatmapSettings'
 
 export interface HeatmapCreationContext {
     creation_flow: 'wizard'
@@ -36,6 +50,16 @@ export interface HeatmapCreationContext {
     has_matching_data: boolean | null
     page_access: 'public'
     background_type: HeatmapType
+}
+
+function withSavedHeatmap(
+    items: HeatmapScreenshotType[],
+    updated: HeatmapScreenshotResponseApi
+): HeatmapScreenshotType[] {
+    const settings = normalizeHeatmapSettings(updated)
+    return items.map((item) =>
+        item.short_id === updated.short_id ? { ...item, ...settings, type: settings.type as HeatmapType } : item
+    )
 }
 
 function getApiErrorMessage(error: unknown, fallback: string): string {
@@ -111,27 +135,43 @@ export interface heatmapLogicValues {
     heightOverride: number // heatmapDataLogic
     isHeightCapped: boolean // heatmapDataLogic
     widthOverride: number // heatmapDataLogic
+    currentPagePreflight: PagePreflight | null // heatmapsBrowserLogic
     dataUrl: string | null // heatmapsBrowserLogic
     displayUrl: string | null // heatmapsBrowserLogic
+    iframeBanner: IFrameBanner | null // heatmapsBrowserLogic
     isBrowserUrlAuthorized: boolean // heatmapsBrowserLogic
     isBrowserUrlValid: boolean // heatmapsBrowserLogic
+    savedHeatmaps: HeatmapScreenshotType[] // heatmapsSceneLogic
     currentTeamIdStrict: number | string // teamLogic
     blockConsentModals: boolean
     containerWidth: number | null
     desiredNumericWidth: number
     displayUrlIsPattern: boolean
+    draftSettings: HeatmapSettings
+    editDisabledReason: string | null
     effectiveWidth: number
     generatingScreenshot: boolean
+    hasUnsavedChanges: boolean
     heatmapId: string | null
     isDisplayUrlValid: boolean
     isPageUrlDraftValid: boolean
     loading: boolean
     lockedWidth: number | null
     name: string
+    pageSettingsOpen: boolean
     pageUrlDraft: string
     pageUrlDraftIsPattern: boolean
-    savedBlockConsentModals: boolean
-    savedDisplayUrl: string | null
+    previewError: string | JSX.Element | null
+    previewType: HeatmapType
+    previewUnavailable: boolean
+    previewVersion: number
+    regenerateDisabledReason: string | null
+    reloadPreviewDisabledReason: string | null
+    renderSettingsChanged: boolean
+    renderSettingsEditDisabledReason: string | null
+    saveDisabledReason: string | null
+    savedSettings: HeatmapSettings | null
+    saving: boolean
     scalePercent: number
     screenshotError: string | null
     screenshotLoaded: boolean
@@ -140,7 +180,9 @@ export interface heatmapLogicValues {
     sidePanelContext: SidePanelSceneContext | null
     source: HeatmapSource
     status: HeatmapStatus
+    switchToScreenshotDisabledReason: string | null
     type: HeatmapType
+    urlEditDisabledReason: string | null
     userAccessLevel: AccessControlLevel | null
     width: number | null
 }
@@ -174,11 +216,11 @@ export interface heatmapLogicActions {
     loadSavedHeatmaps: () => {
         value: true
     } // heatmapsSceneLogic
-    applyPageUrlDraft: () => {
+    setSavedHeatmaps: (items: HeatmapScreenshotType[]) => {
+        items: HeatmapScreenshotType[]
+    } // heatmapsSceneLogic
+    closePageSettings: () => {
         value: true
-    }
-    changeCaptureMethod: (type: HeatmapType) => {
-        type: HeatmapType
     }
     createHeatmap: (context?: HeatmapCreationContext | null) => {
         context: HeatmapCreationContext | null
@@ -186,16 +228,28 @@ export interface heatmapLogicActions {
     creationCompleted: (shortId: string) => {
         shortId: string
     }
+    discardChanges: () => {
+        value: true
+    }
     exportHeatmap: () => {
         value: true
     }
+    generateScreenshot: () => {
+        value: true
+    }
     load: () => {
+        value: true
+    }
+    openPageSettings: () => {
         value: true
     }
     pollScreenshotStatus: (width?: number) => {
         width: number | undefined
     }
     regenerateScreenshot: () => {
+        value: true
+    }
+    reloadPreview: () => {
         value: true
     }
     setBlockConsentModals: (value: boolean) => {
@@ -222,6 +276,12 @@ export interface heatmapLogicActions {
     setPageUrlDraft: (value: string) => {
         value: string
     }
+    setSavedSettings: (settings: HeatmapSettings) => {
+        settings: HeatmapSettings
+    }
+    setSaving: (saving: boolean) => {
+        saving: boolean
+    }
     setScreenshotError: (error: string | null) => {
         error: string | null
     }
@@ -243,11 +303,8 @@ export interface heatmapLogicActions {
     setWidth: (width: number) => {
         width: number
     }
-    snapshotSavedBlockConsentModals: (value: boolean) => {
-        value: boolean
-    }
-    snapshotSavedDisplayUrl: (displayUrl: string | null) => {
-        displayUrl: string | null
+    switchToScreenshot: () => {
+        value: true
     }
     updateHeatmap: () => {
         value: true
@@ -263,6 +320,45 @@ export interface heatmapLogicProps {
 export interface heatmapLogicMeta {
     key: number | string
     __keaTypeGenInternalSelectorTypes: {
+        draftSettings: (
+            name: string,
+            pageUrlDraft: string,
+            dataUrl: string | null,
+            type: HeatmapType,
+            blockConsentModals: boolean
+        ) => HeatmapSettings
+        hasUnsavedChanges: (savedSettings: HeatmapSettings | null, draftSettings: HeatmapSettings) => boolean
+        renderSettingsChanged: (savedSettings: HeatmapSettings | null, draftSettings: HeatmapSettings) => boolean
+        previewType: (savedSettings: HeatmapSettings | null, type: HeatmapType) => HeatmapType
+        editDisabledReason: (userAccessLevel: AccessControlLevel | null) => string | null
+        renderSettingsEditDisabledReason: (editDisabledReason: string | null, source: HeatmapSource) => string | null
+        urlEditDisabledReason: (editDisabledReason: string | null, source: HeatmapSource) => string | null
+        saveDisabledReason: (
+            editDisabledReason: string | null,
+            saving: boolean,
+            pageUrlDraft: string,
+            isPageUrlDraftValid: boolean,
+            isBrowserUrlValid: boolean,
+            generatingScreenshot: boolean,
+            renderSettingsChanged: boolean
+        ) => string | null
+        switchToScreenshotDisabledReason: (
+            renderSettingsEditDisabledReason: string | null,
+            saving: boolean,
+            generatingScreenshot: boolean
+        ) => string | null
+        regenerateDisabledReason: (
+            switchToScreenshotDisabledReason: string | null,
+            renderSettingsChanged: boolean
+        ) => string | null
+        reloadPreviewDisabledReason: (saving: boolean, renderSettingsChanged: boolean) => string | null
+        previewError: (
+            previewType: HeatmapType,
+            screenshotError: string | null,
+            iframeBanner: IFrameBanner | null,
+            currentPagePreflight: PagePreflight | null
+        ) => string | JSX.Element | null
+        previewUnavailable: (previewError: string | JSX.Element | null, generatingScreenshot: boolean) => boolean
         isDisplayUrlValid: (displayUrl: string | null) => boolean
         displayUrlIsPattern: (displayUrl: string | null) => boolean
         isPageUrlDraftValid: (pageUrlDraft: string) => boolean
@@ -287,7 +383,16 @@ export const heatmapLogic = kea<heatmapLogicType>([
     connect(() => ({
         values: [
             heatmapsBrowserLogic,
-            ['dataUrl', 'displayUrl', 'isBrowserUrlAuthorized', 'isBrowserUrlValid'],
+            [
+                'dataUrl',
+                'displayUrl',
+                'isBrowserUrlAuthorized',
+                'isBrowserUrlValid',
+                'iframeBanner',
+                'currentPagePreflight',
+            ],
+            heatmapsSceneLogic,
+            ['savedHeatmaps'],
             teamLogic,
             ['currentTeamIdStrict'],
             featureFlagLogic,
@@ -307,7 +412,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             heatmapsBrowserLogic,
             ['setDataUrl', 'setDisplayUrl', 'onIframeLoad', 'setDataUrlUserTouched', 'checkPagePreflight'],
             heatmapsSceneLogic,
-            ['loadSavedHeatmaps'],
+            ['loadSavedHeatmaps', 'setSavedHeatmaps'],
             heatmapDataLogic({ context: 'in-app' }),
             ['loadHeatmap', 'setWindowWidthOverride'],
             exportsLogic,
@@ -319,10 +424,16 @@ export const heatmapLogic = kea<heatmapLogicType>([
         createHeatmap: (context: HeatmapCreationContext | null = null) => ({ context }),
         creationCompleted: (shortId: string) => ({ shortId }),
         updateHeatmap: true,
+        setSaving: (saving: boolean) => ({ saving }),
+        setSavedSettings: (settings: HeatmapSettings) => ({ settings }),
+        discardChanges: true,
+        reloadPreview: true,
+        switchToScreenshot: true,
+        openPageSettings: true,
+        closePageSettings: true,
         setLoading: (loading: boolean) => ({ loading }),
         setType: (type: HeatmapType) => ({ type }),
         setSource: (source: HeatmapSource) => ({ source }),
-        changeCaptureMethod: (type: HeatmapType) => ({ type }),
         setWidth: (width: number) => ({ width }),
         setName: (name: string) => ({ name }),
         setScreenshotUrl: (url: string | null) => ({ url }),
@@ -333,16 +444,18 @@ export const heatmapLogic = kea<heatmapLogicType>([
         setScreenshotLoaded: (screenshotLoaded: boolean) => ({ screenshotLoaded }),
         setLockedWidth: (lockedWidth: number | null) => ({ lockedWidth }),
         regenerateScreenshot: true,
+        generateScreenshot: true,
         exportHeatmap: true,
         setContainerWidth: (containerWidth: number | null) => ({ containerWidth }),
-        snapshotSavedDisplayUrl: (displayUrl: string | null) => ({ displayUrl }),
         setBlockConsentModals: (value: boolean) => ({ value }),
-        snapshotSavedBlockConsentModals: (value: boolean) => ({ value }),
         setPageUrlDraft: (value: string) => ({ value }),
-        applyPageUrlDraft: true,
         setUserAccessLevel: (level: AccessControlLevel | null) => ({ level }),
     }),
     reducers({
+        saving: [false, { setSaving: (_, { saving }) => saving }],
+        savedSettings: [null as HeatmapSettings | null, { setSavedSettings: (_, { settings }) => settings }],
+        previewVersion: [0, { reloadPreview: (version) => version + 1 }],
+        pageSettingsOpen: [false, { openPageSettings: () => true, closePageSettings: () => false }],
         type: ['screenshot' as HeatmapType, { setType: (_, { type }) => type }],
         source: ['server' as HeatmapSource, { setSource: (_, { source }) => source }],
         width: [DEFAULT_HEATMAP_WIDTH as number | null, { setWidth: (_, { width }) => width }],
@@ -357,9 +470,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         heatmapId: [null as string | null, { setHeatmapId: (_, { id }) => id }],
         screenshotLoaded: [false, { setScreenshotLoaded: (_, { screenshotLoaded }) => screenshotLoaded }],
         containerWidth: [null as number | null, { setContainerWidth: (_, { containerWidth }) => containerWidth }],
-        savedDisplayUrl: [null as string | null, { snapshotSavedDisplayUrl: (_, { displayUrl }) => displayUrl }],
         blockConsentModals: [false as boolean, { setBlockConsentModals: (_, { value }) => value }],
-        savedBlockConsentModals: [false as boolean, { snapshotSavedBlockConsentModals: (_, { value }) => value }],
         pageUrlDraft: [
             '' as string,
             {
@@ -371,19 +482,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
         lockedWidth: [null as number | null, { setLockedWidth: (_, { lockedWidth }) => lockedWidth }],
     }),
     listeners(({ actions, values, props, cache }) => ({
-        changeCaptureMethod: async ({ type }) => {
-            actions.setType(type)
-            if (type !== 'screenshot') {
-                actions.setScreenshotError(null)
-            }
-            if (!values.heatmapId) {
-                return
-            }
-            await actions.updateHeatmap()
-            if (type === 'screenshot' && !values.screenshotUrl) {
-                actions.regenerateScreenshot()
-            }
-        },
         load: async () => {
             if (!props.id || String(props.id) === 'new') {
                 return
@@ -401,11 +499,10 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 actions.setDataUrlUserTouched(true)
                 actions.setDisplayUrl(item.url)
                 actions.setDataUrl(item.data_url ?? null)
-                actions.snapshotSavedDisplayUrl(item.url ?? null)
                 actions.setBlockConsentModals(item.block_consent_modals ?? false)
-                actions.snapshotSavedBlockConsentModals(item.block_consent_modals ?? false)
                 actions.setUserAccessLevel((item.user_access_level ?? null) as AccessControlLevel | null)
                 actions.setType(item.type ?? 'screenshot')
+                actions.setSavedSettings(normalizeHeatmapSettings(item))
                 const source = (item.source ?? 'server') as HeatmapSource
                 actions.setSource(source)
                 posthog.capture('in-app heatmap viewed', {
@@ -443,7 +540,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         },
         // React to viewport width changes by updating the image URL directly
         setWindowWidthOverride: async ({ widthOverride }) => {
-            if (values.type !== 'screenshot' || !values.heatmapId) {
+            if (values.previewType !== 'screenshot' || !values.heatmapId || values.generatingScreenshot) {
                 return
             }
             const w = widthOverride ?? DEFAULT_HEATMAP_WIDTH
@@ -511,21 +608,24 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 actions.setScreenshotError('Screenshot is still generating. Refresh to check, or try fewer widths.')
             }
         },
-        regenerateScreenshot: async () => {
-            if (!props.id || !values.heatmapId) {
-                return
+        regenerateScreenshot: () => {
+            if (!values.regenerateDisabledReason) {
+                actions.generateScreenshot()
             }
-            if (values.source === 'toolbar') {
-                lemonToast.info('This heatmap was captured from the toolbar. Open it in the toolbar to re-capture it.')
+        },
+        generateScreenshot: async () => {
+            if (!props.id || !values.heatmapId || values.generatingScreenshot) {
                 return
             }
             actions.setScreenshotError(null)
+            actions.setGeneratingScreenshot(true)
             actions.setScreenshotUrl(null)
             actions.setScreenshotLoaded(false)
             try {
                 await savedRegenerateCreate(String(values.currentTeamIdStrict), String(props.id))
                 actions.pollScreenshotStatus(values.widthOverride)
             } catch (error: unknown) {
+                actions.setGeneratingScreenshot(false)
                 actions.setScreenshotError(getApiErrorMessage(error, 'Failed to regenerate screenshot'))
             }
         },
@@ -558,57 +658,99 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 actions.setLoading(false)
             }
         },
-        updateHeatmap: async () => {
-            actions.setLoading(true)
-            const previousSavedUrl = values.savedDisplayUrl
-            const previousBlockConsentModals = values.savedBlockConsentModals
+        switchToScreenshot: async () => {
+            const saved = values.savedSettings
+            if (!saved || values.switchToScreenshotDisabledReason) {
+                return
+            }
+            const draftType = values.type
+            actions.setSaving(true)
             try {
-                const data: SavedHeatmapRequestApi = {
-                    name: values.name || DEFAULT_HEATMAP_NAME,
-                    url: values.displayUrl || '',
-                    data_url: values.dataUrl,
-                    type: values.type,
-                    block_consent_modals: values.blockConsentModals,
+                const updated = await savedPartialUpdate(String(values.currentTeamIdStrict), String(props.id), {
+                    type: 'screenshot',
+                })
+                if (!heatmapLogic.findMounted(props)) {
+                    return
                 }
-                const updated = await savedPartialUpdate(String(values.currentTeamIdStrict), String(props.id), data)
-                actions.snapshotSavedDisplayUrl(updated.url ?? null)
-                actions.snapshotSavedBlockConsentModals(updated.block_consent_modals ?? false)
-                const renderInputChanged =
-                    updated.url !== previousSavedUrl ||
-                    (updated.block_consent_modals ?? false) !== previousBlockConsentModals
-                if (values.type === 'screenshot' && renderInputChanged) {
-                    actions.setScreenshotUrl(null)
-                    actions.setScreenshotLoaded(false)
-                    actions.setScreenshotError(null)
-                    if (values.heatmapId) {
-                        actions.pollScreenshotStatus(values.widthOverride)
-                    }
+                actions.setSavedSettings({ ...saved, type: 'screenshot' })
+                if (values.type === draftType) {
+                    actions.setType('screenshot')
                 }
+                actions.setSavedHeatmaps(withSavedHeatmap(values.savedHeatmaps, updated))
+                actions.generateScreenshot()
+                lemonToast.success('Switched to screenshot')
             } catch (error: unknown) {
-                if (values.displayUrl !== previousSavedUrl) {
-                    actions.setDisplayUrl(previousSavedUrl)
-                }
-                lemonToast.error(getApiErrorMessage(error, 'Failed to update heatmap'))
+                lemonToast.error(getApiErrorMessage(error, 'Could not switch to screenshot. Try again.'))
             } finally {
-                actions.setLoading(false)
+                actions.setSaving(false)
             }
         },
-        applyPageUrlDraft: () => {
-            if (!values.isPageUrlDraftValid) {
+        updateHeatmap: async () => {
+            if (!values.hasUnsavedChanges || values.saveDisabledReason) {
                 return
             }
-            const next = values.pageUrlDraft.trim()
-            if (!next) {
+            const data = values.draftSettings
+            const previous = values.savedSettings
+            actions.setSaving(true)
+            try {
+                const updated = await savedPartialUpdate(String(values.currentTeamIdStrict), String(props.id), data)
+                if (!heatmapLogic.findMounted(props)) {
+                    return
+                }
+                const saved = normalizeHeatmapSettings(updated)
+                const pageUrlDraft = values.pageUrlDraft
+                if (values.draftSettings.name === data.name) {
+                    actions.setName(saved.name)
+                }
+                if (saved.url !== values.displayUrl) {
+                    actions.setDisplayUrl(saved.url)
+                }
+                actions.setPageUrlDraft(pageUrlDraft.trim() === data.url ? saved.url : pageUrlDraft)
+                actions.setSavedSettings(saved)
+                actions.setSavedHeatmaps(withSavedHeatmap(values.savedHeatmaps, updated))
+                actions.closePageSettings()
+                lemonToast.success('Heatmap saved')
+                const typeChanged = saved.type !== previous?.type
+                const urlChanged = saved.url !== previous?.url
+                const renderInputChanged = urlChanged || saved.block_consent_modals !== previous?.block_consent_modals
+                if (saved.type === 'screenshot') {
+                    if (renderInputChanged || (typeChanged && !values.screenshotUrl)) {
+                        actions.setScreenshotUrl(null)
+                        actions.setScreenshotLoaded(false)
+                        actions.setScreenshotError(null)
+                        if (renderInputChanged) {
+                            actions.pollScreenshotStatus(values.widthOverride)
+                        } else {
+                            actions.generateScreenshot()
+                        }
+                    }
+                } else if (typeChanged || urlChanged) {
+                    actions.setScreenshotError(null)
+                    if (renderInputChanged) {
+                        actions.setScreenshotUrl(null)
+                    }
+                    actions.checkPagePreflight(saved.url)
+                }
+            } catch (error: unknown) {
+                lemonToast.error(
+                    getApiErrorMessage(error, 'Could not save heatmap. Your changes are still here. Try again.')
+                )
+            } finally {
+                actions.setSaving(false)
+            }
+        },
+        discardChanges: () => {
+            const saved = values.savedSettings
+            if (!saved || values.saving) {
                 return
             }
-            if (next !== values.displayUrl) {
-                actions.setDisplayUrl(next)
-                actions.updateHeatmap()
-                return
+            actions.setName(saved.name)
+            actions.setPageUrlDraft(saved.url)
+            if (saved.data_url !== values.dataUrl) {
+                actions.setDataUrl(saved.data_url)
             }
-            if (values.type === 'screenshot') {
-                actions.regenerateScreenshot()
-            }
+            actions.setType(saved.type as HeatmapType)
+            actions.setBlockConsentModals(saved.block_consent_modals)
         },
         setScreenshotLoaded: ({ screenshotLoaded }) => {
             if (screenshotLoaded) {
@@ -621,13 +763,16 @@ export const heatmapLogic = kea<heatmapLogicType>([
             }
         },
         exportHeatmap: () => {
-            if ((values.type === 'screenshot' && !values.screenshotUrl) || (!values.displayUrl && !values.dataUrl)) {
+            if (
+                (values.previewType === 'screenshot' && !values.screenshotUrl) ||
+                (!values.displayUrl && !values.dataUrl)
+            ) {
                 return
             }
             actions.startHeatmapExport({
-                heatmap_url: resolveHeatmapExportUrl(values.type, values.screenshotUrl, values.displayUrl),
+                heatmap_url: resolveHeatmapExportUrl(values.previewType, values.screenshotUrl, values.displayUrl),
                 heatmap_data_url: values.dataUrl ?? '',
-                heatmap_type: values.type,
+                heatmap_type: values.previewType,
                 width: values.widthOverride,
                 height: values.heightOverride,
                 heatmap_color_palette: values.heatmapColorPalette,
@@ -639,6 +784,123 @@ export const heatmapLogic = kea<heatmapLogicType>([
         },
     })),
     selectors({
+        draftSettings: [
+            (s) => [s.name, s.pageUrlDraft, s.dataUrl, s.type, s.blockConsentModals],
+            (
+                name: string,
+                url: string,
+                data_url: string | null,
+                type: HeatmapType,
+                block_consent_modals: boolean
+            ): HeatmapSettings => normalizeHeatmapSettings({ name, url, data_url, type, block_consent_modals }),
+        ],
+        hasUnsavedChanges: [
+            (s) => [s.savedSettings, s.draftSettings],
+            (saved: HeatmapSettings | null, draft: HeatmapSettings): boolean =>
+                saved !== null && !objectsEqual(saved, draft),
+        ],
+        renderSettingsChanged: [
+            (s) => [s.savedSettings, s.draftSettings],
+            (saved: HeatmapSettings | null, draft: HeatmapSettings): boolean =>
+                !!saved &&
+                (saved.url !== draft.url ||
+                    saved.type !== draft.type ||
+                    saved.block_consent_modals !== draft.block_consent_modals),
+        ],
+        previewType: [
+            (s) => [s.savedSettings, s.type],
+            (saved: HeatmapSettings | null, type: HeatmapType): HeatmapType => (saved?.type ?? type) as HeatmapType,
+        ],
+        editDisabledReason: [
+            (s) => [s.userAccessLevel],
+            (level: AccessControlLevel | null): string | null =>
+                getAccessControlDisabledReason(
+                    AccessControlResourceType.Heatmap,
+                    AccessControlLevel.Editor,
+                    level ?? undefined
+                ),
+        ],
+        renderSettingsEditDisabledReason: [
+            (s) => [s.editDisabledReason, s.source],
+            (reason: string | null, source: HeatmapSource): string | null =>
+                reason || (source === 'toolbar' ? 'Open in toolbar to capture a new screenshot.' : null),
+        ],
+        urlEditDisabledReason: [
+            (s) => [s.editDisabledReason, s.source],
+            (reason: string | null, source: HeatmapSource): string | null =>
+                reason ||
+                (source === 'toolbar'
+                    ? 'Open in toolbar to capture a different page.'
+                    : getAccessControlDisabledReason(AccessControlResourceType.Heatmap, AccessControlLevel.Editor)),
+        ],
+        saveDisabledReason: [
+            (s) => [
+                s.editDisabledReason,
+                s.saving,
+                s.pageUrlDraft,
+                s.isPageUrlDraftValid,
+                s.isBrowserUrlValid,
+                s.generatingScreenshot,
+                s.renderSettingsChanged,
+            ],
+            (
+                reason: string | null,
+                saving: boolean,
+                url: string,
+                validUrl: boolean,
+                validDataUrl: boolean,
+                generating: boolean,
+                renderChanged: boolean
+            ): string | null =>
+                reason ||
+                (saving
+                    ? 'Saving changes'
+                    : !url.trim()
+                      ? 'Enter a page URL'
+                      : !validUrl
+                        ? 'Enter a valid page URL without wildcards'
+                        : !validDataUrl
+                          ? 'Enter a valid heatmap data URL'
+                          : generating && renderChanged
+                            ? 'Wait for the screenshot to finish before changing its settings.'
+                            : null),
+        ],
+        switchToScreenshotDisabledReason: [
+            (s) => [s.renderSettingsEditDisabledReason, s.saving, s.generatingScreenshot],
+            (reason: string | null, saving: boolean, generating: boolean): string | null =>
+                reason || (saving ? 'Saving changes' : generating ? 'A screenshot is already being generated.' : null),
+        ],
+        regenerateDisabledReason: [
+            (s) => [s.switchToScreenshotDisabledReason, s.renderSettingsChanged],
+            (reason: string | null, changed: boolean): string | null =>
+                reason || (changed ? 'Save your changes before regenerating the screenshot.' : null),
+        ],
+        reloadPreviewDisabledReason: [
+            (s) => [s.saving, s.renderSettingsChanged],
+            (saving: boolean, changed: boolean): string | null =>
+                saving ? 'Saving changes' : changed ? 'Save your changes before reloading the page.' : null,
+        ],
+        previewError: [
+            (s) => [s.previewType, s.screenshotError, s.iframeBanner, s.currentPagePreflight],
+            (
+                previewType: HeatmapType,
+                screenshotError: string | null,
+                iframeBanner: IFrameBanner | null,
+                preflight: PagePreflight | null
+            ): string | JSX.Element | null => {
+                if (previewType === 'screenshot') {
+                    return screenshotError
+                }
+                const message = iframeBanner?.level === 'error' ? iframeBanner.message : null
+                return message && preflight?.framing === 'blocked'
+                    ? 'This website blocks embedded previews. Use a screenshot to view your heatmap.'
+                    : message
+            },
+        ],
+        previewUnavailable: [
+            (s) => [s.previewError, s.generatingScreenshot],
+            (error: string | JSX.Element | null, generating: boolean): boolean => !!error || generating,
+        ],
         isDisplayUrlValid: [(s) => [s.displayUrl], (displayUrl: string | null) => isValidPageUrl(displayUrl)],
         displayUrlIsPattern: [(s) => [s.displayUrl], (displayUrl: string | null) => isUrlPattern(displayUrl ?? '')],
         isPageUrlDraftValid: [
@@ -675,6 +937,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     : null
             },
         ],
+    })),
+    beforeUnload(({ values, actions }) => ({
+        enabled: (newLocation?: CombinedLocation) =>
+            values.hasUnsavedChanges && (!newLocation || newLocation.pathname !== router.values.location.pathname),
+        message: 'Leave this heatmap? Changes you made will be discarded.',
+        onConfirm: () => actions.discardChanges(),
     })),
     afterMount(({ actions }) => {
         actions.load()

@@ -151,6 +151,26 @@ class TestSlashCommandDispatch(_SlashCommandTestBase):
         assert self.mock_start.call_args.kwargs["command_prefix"] == "/posthog"
         assert self.integration in self.mock_start.call_args.args[1]
 
+    def test_every_workspace_integration_is_forwarded(self) -> None:
+        """``project <id>`` can name any project the workspace is connected to, so the entry
+        point forwards the whole candidate set. Sending one would leave the others unreachable,
+        with no surface left to pick them from."""
+        from posthog.models.team.team import Team
+
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_integration = Integration.objects.create(
+            team=other_team,
+            kind="slack",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-other"},
+        )
+
+        response = self._post_slash_command(self._default_payload(text="project 42"))
+
+        assert response.status_code == 200
+        forwarded = {i.id for i in self.mock_start.call_args.args[1]}
+        assert forwarded == {self.integration.id, other_integration.id}
+
     def test_unknown_sub_command_returns_help_text(self) -> None:
         response = self._post_slash_command(self._default_payload(text="frobnicate the widgets"))
 

@@ -2,12 +2,41 @@
 // products/tasks/backend/model_catalog.py.
 // Regenerate with `hogli build:task-model-catalog`. Do not edit.
 //
-// The single definition of a task agent run's triple: runtime adapter,
-// model, and reasoning effort. The backend validates a run against this
-// same data, so a picker built on this file can only offer a selection
-// the API will accept.
+// The single definition of how a task agent run is configured: harness,
+// runtime adapter, model, and reasoning effort, plus what each model
+// costs. The backend validates a run against this same data, so a picker
+// built on this file can only offer a selection the API will accept.
 
 export type RuntimeAdapter = "claude" | "codex";
+
+export type Runtime = "acp" | "pi";
+
+export interface RuntimeOption {
+  runtime: Runtime;
+  /** Absent for Pi, which has no adapter. */
+  runtimeAdapter?: RuntimeAdapter;
+  label: string;
+}
+
+/** What a harness picker shows. The runtime says which agent program runs the
+    task; the adapter says which vendor protocol ACP speaks. A picker shows one
+    flat list, so the two choices become one set of entries here. */
+export const RUNTIME_OPTIONS: readonly RuntimeOption[] = [
+  {
+    runtime: "acp",
+    runtimeAdapter: "claude",
+    label: "Claude Code",
+  },
+  {
+    runtime: "acp",
+    runtimeAdapter: "codex",
+    label: "Codex",
+  },
+  {
+    runtime: "pi",
+    label: "Pi",
+  },
+];
 
 /** Thinking depths, shallowest first. */
 export type ReasoningEffort =
@@ -33,6 +62,11 @@ export type ByRuntimeAdapter<T> = Record<RuntimeAdapter, T>;
 /** Efforts per adapter, absent where the adapter has no fallback. */
 type FallbackEfforts = Partial<ByRuntimeAdapter<readonly ReasoningEffort[]>>;
 
+export interface ModelCost {
+  inputPerMtok: number;
+  outputPerMtok: number;
+}
+
 export interface CatalogModel {
   id: string;
   runtimeAdapter: RuntimeAdapter;
@@ -45,7 +79,22 @@ export interface CatalogModel {
       means generally available. Governs display only — the server decides
       whether a run may use it. */
   accessFlag?: string;
+  /** List price in US dollars per million tokens. Absent for a model no
+      public price list covers, which a picker shows with no cost at all. */
+  cost?: ModelCost;
+  /** Per-token cost against Claude Sonnet 5, ready to render: `2.5×`,
+      `≈0.55×`. Prefixed when input and output rates diverge enough that one
+      number flatters either. Absent whenever `cost` is. */
+  costMultiplier?: string;
+  /** The rates behind the multiplier, ready to render. Absent whenever
+      `cost` is. */
+  costSummary?: string;
 }
+
+/** The model `1×` refers to. */
+export const COST_BASELINE_MODEL = "claude-sonnet-5";
+
+export const COST_BASELINE_LABEL = "Claude Sonnet 5";
 
 /** Which vendor API each runtime adapter speaks. */
 export const PROVIDER_BY_RUNTIME_ADAPTER: ByRuntimeAdapter<string> = {
@@ -61,89 +110,168 @@ export const MODELS: readonly CatalogModel[] = [
     runtimeAdapter: "claude",
     reasoningEfforts: ["high", "max"],
     label: "GLM-5.2",
-    accessFlag: "posthog-code-glm-model",
+    cost: {
+      inputPerMtok: 1.4,
+      outputPerMtok: 4.4,
+    },
+    costMultiplier: "≈0.57×",
+    costSummary: "Input $1.40 · Output $4.40 per 1M tokens",
   },
   {
     id: "zai-org/glm-5.3",
     runtimeAdapter: "claude",
     reasoningEfforts: ["high", "max"],
     label: "GLM-5.3",
-    accessFlag: "posthog-code-glm-53-model",
+    cost: {
+      inputPerMtok: 1.4,
+      outputPerMtok: 4.4,
+    },
+    costMultiplier: "≈0.57×",
+    costSummary: "Input $1.40 · Output $4.40 per 1M tokens",
   },
   {
     id: "zai-org/glm-5.3-flash",
     runtimeAdapter: "claude",
     reasoningEfforts: ["high", "max"],
     label: "GLM-5.3 Flash",
-    accessFlag: "posthog-code-glm-53-flash-model",
+    cost: {
+      inputPerMtok: 0.15,
+      outputPerMtok: 0.5,
+    },
+    costMultiplier: "≈0.06×",
+    costSummary: "Input $0.15 · Output $0.50 per 1M tokens",
   },
   {
     id: "moonshotai/kimi-k3",
     runtimeAdapter: "claude",
     reasoningEfforts: [],
     label: "Kimi K3",
-    accessFlag: "tasks-kimi-k3",
+    cost: {
+      inputPerMtok: 3,
+      outputPerMtok: 15,
+    },
+    costMultiplier: "1.5×",
+    costSummary: "Input $3 · Output $15 per 1M tokens",
   },
   {
     id: "deepseek-ai/deepseek-v4-flash-0731",
     runtimeAdapter: "claude",
     reasoningEfforts: [],
     label: "DeepSeek V4 Flash",
-    accessFlag: "posthog-code-deepseek-model",
+    cost: {
+      inputPerMtok: 0.13,
+      outputPerMtok: 0.26,
+    },
+    costMultiplier: "≈0.05×",
+    costSummary: "Input $0.13 · Output $0.26 per 1M tokens",
   },
   {
     id: "claude-opus-4-5",
     runtimeAdapter: "claude",
     reasoningEfforts: ["low", "medium", "high"],
     label: "Claude Opus 4.5",
+    cost: {
+      inputPerMtok: 5,
+      outputPerMtok: 25,
+    },
+    costMultiplier: "2.5×",
+    costSummary: "Input $5 · Output $25 per 1M tokens",
   },
   {
     id: "claude-opus-4-6",
     runtimeAdapter: "claude",
     reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
     label: "Claude Opus 4.6",
+    cost: {
+      inputPerMtok: 5,
+      outputPerMtok: 25,
+    },
+    costMultiplier: "2.5×",
+    costSummary: "Input $5 · Output $25 per 1M tokens",
   },
   {
     id: "claude-opus-4-7",
     runtimeAdapter: "claude",
     reasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultracode"],
     label: "Claude Opus 4.7",
+    cost: {
+      inputPerMtok: 5,
+      outputPerMtok: 25,
+    },
+    costMultiplier: "2.5×",
+    costSummary: "Input $5 · Output $25 per 1M tokens",
   },
   {
     id: "claude-opus-4-8",
     runtimeAdapter: "claude",
     reasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultracode"],
     label: "Claude Opus 4.8",
+    cost: {
+      inputPerMtok: 5,
+      outputPerMtok: 25,
+    },
+    costMultiplier: "2.5×",
+    costSummary: "Input $5 · Output $25 per 1M tokens",
   },
   {
     id: "claude-opus-5",
     runtimeAdapter: "claude",
     reasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultracode"],
     label: "Claude Opus 5",
+    cost: {
+      inputPerMtok: 5,
+      outputPerMtok: 25,
+    },
+    costMultiplier: "2.5×",
+    costSummary: "Input $5 · Output $25 per 1M tokens",
   },
   {
     id: "claude-fable-5",
     runtimeAdapter: "claude",
     reasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultracode"],
     label: "Claude Fable 5",
+    cost: {
+      inputPerMtok: 10,
+      outputPerMtok: 50,
+    },
+    costMultiplier: "5×",
+    costSummary: "Input $10 · Output $50 per 1M tokens",
   },
   {
     id: "claude-fable-5-1",
     runtimeAdapter: "claude",
     reasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultracode"],
     label: "Claude Fable 5.1",
+    cost: {
+      inputPerMtok: 10,
+      outputPerMtok: 50,
+    },
+    costMultiplier: "5×",
+    costSummary: "Input $10 · Output $50 per 1M tokens",
   },
   {
     id: "claude-sonnet-5",
     runtimeAdapter: "claude",
     reasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultracode"],
     label: "Claude Sonnet 5",
+    cost: {
+      inputPerMtok: 2,
+      outputPerMtok: 10,
+    },
+    costMultiplier: "1×",
+    costSummary: "Input $2 · Output $10 per 1M tokens",
   },
   {
     id: "claude-sonnet-4-6",
     runtimeAdapter: "claude",
     reasoningEfforts: ["low", "medium", "high"],
     label: "Claude Sonnet 4.6",
+    cost: {
+      inputPerMtok: 3,
+      outputPerMtok: 15,
+    },
+    costMultiplier: "1.5×",
+    costSummary: "Input $3 · Output $15 per 1M tokens",
   },
   {
     id: "gpt-5",
@@ -156,30 +284,60 @@ export const MODELS: readonly CatalogModel[] = [
     runtimeAdapter: "codex",
     reasoningEfforts: ["low", "medium", "high", "xhigh"],
     label: "GPT-5.5",
+    cost: {
+      inputPerMtok: 5,
+      outputPerMtok: 30,
+    },
+    costMultiplier: "≈2.8×",
+    costSummary: "Input $5 · Output $30 per 1M tokens",
   },
   {
     id: "gpt-5.6-sol",
     runtimeAdapter: "codex",
     reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
     label: "GPT-5.6 Sol",
+    cost: {
+      inputPerMtok: 5,
+      outputPerMtok: 30,
+    },
+    costMultiplier: "≈2.8×",
+    costSummary: "Input $5 · Output $30 per 1M tokens",
   },
   {
     id: "gpt-5.6-terra",
     runtimeAdapter: "codex",
     reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
     label: "GPT-5.6 Terra",
+    cost: {
+      inputPerMtok: 2.5,
+      outputPerMtok: 15,
+    },
+    costMultiplier: "≈1.4×",
+    costSummary: "Input $2.50 · Output $15 per 1M tokens",
   },
   {
     id: "gpt-5.6-luna",
     runtimeAdapter: "codex",
     reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
     label: "GPT-5.6 Luna",
+    cost: {
+      inputPerMtok: 1,
+      outputPerMtok: 6,
+    },
+    costMultiplier: "≈0.55×",
+    costSummary: "Input $1 · Output $6 per 1M tokens",
   },
   {
     id: "gpt-6-astra",
     runtimeAdapter: "codex",
     reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
     label: "GPT-6 Astra",
+    cost: {
+      inputPerMtok: 10,
+      outputPerMtok: 50,
+    },
+    costMultiplier: "5×",
+    costSummary: "Input $10 · Output $50 per 1M tokens",
   },
 ];
 

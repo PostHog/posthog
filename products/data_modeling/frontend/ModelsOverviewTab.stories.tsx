@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -6,6 +6,8 @@ import { ModelsOverviewTab } from 'scenes/models/tabs/ModelsOverviewTab'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import type { Mocks } from '~/mocks/utils'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 const nodes = ['attention', 'behind'].flatMap((group) =>
     Array.from({ length: 12 }, (_, index) => ({
@@ -33,9 +35,69 @@ const checks = Array.from({ length: 12 }, (_, index) => ({
     last_status: 'failed',
 }))
 
+const healthyNodes = Array.from({ length: 3 }, (_, index) => ({
+    id: `healthy-${index + 1}`,
+    name: `healthy_model_${index + 1}`,
+    type: 'matview',
+    dag: 'example-dag',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    last_run_at: '2026-09-15T00:00:00Z',
+    last_run_status: 'Completed',
+    last_run_error: null,
+    sync_interval: '24hour',
+    upstream_count: 0,
+    downstream_count: 0,
+}))
+const passingChecks = [
+    {
+        id: 'check-1',
+        name: 'Example check',
+        check_type: 'not_null',
+        subject_type: 'view',
+        subject_name: 'example_view',
+        subject_node_id: 'healthy-1',
+        last_status: 'passed',
+    },
+]
+const neverRunChecks = passingChecks.map((check) => ({ ...check, last_status: '' }))
+
+function healthyMocks(checkRows: Record<string, any>[]): { mocks: Mocks } {
+    return {
+        mocks: {
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/': {
+                    results: healthyNodes,
+                    count: healthyNodes.length,
+                },
+                '/api/projects/:team_id/data_quality_checks/': { results: checkRows, count: checkRows.length },
+            },
+        },
+    }
+}
+
+const inMainContent =
+    (widthClass: string): Decorator =>
+    (Story) => (
+        <div className={`@container/main-content ${widthClass}`}>
+            <Story />
+        </div>
+    )
+
 const meta: Meta<typeof ModelsOverviewTab> = {
     title: 'Products/Data modeling/Models overview',
     component: ModelsOverviewTab,
+    beforeEach: () => {
+        const context = window.POSTHOG_APP_CONTEXT!
+        const previous = context.resource_access_control
+        context.resource_access_control = {
+            ...previous,
+            [AccessControlResourceType.WarehouseObjects]: AccessControlLevel.Editor,
+        }
+        return () => {
+            context.resource_access_control = previous
+        }
+    },
     decorators: [mswDecorator({})],
     parameters: {
         featureFlags: [FEATURE_FLAGS.DATA_QUALITY_CHECKS],
@@ -101,4 +163,43 @@ export const PartialLastPage: Story = {
 export const NarrowPartialLastPage: Story = {
     ...Narrow,
     play: PartialLastPage.play,
+}
+
+export const Healthy: Story = {
+    decorators: [inMainContent('w-256')],
+    parameters: { msw: healthyMocks(passingChecks) },
+}
+
+export const HealthyWithoutChecks: Story = {
+    decorators: [inMainContent('w-256')],
+    parameters: { msw: healthyMocks([]) },
+}
+
+export const HealthyWithChecksNotRun: Story = {
+    decorators: [inMainContent('w-256')],
+    parameters: { msw: healthyMocks(neverRunChecks) },
+}
+
+export const HealthyWithDataQualityDisabled: Story = {
+    decorators: [inMainContent('w-256')],
+    parameters: { featureFlags: [], msw: healthyMocks(passingChecks) },
+}
+
+export const HealthyNarrow: Story = {
+    decorators: [inMainContent('w-128')],
+    parameters: { msw: healthyMocks(passingChecks) },
+}
+
+export const FirstView: Story = {
+    decorators: [inMainContent('w-256')],
+    parameters: {
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/data_modeling_nodes/': { results: [], count: 0 },
+                    '/api/projects/:team_id/data_quality_checks/': { results: [], count: 0 },
+                },
+            },
+        },
+    },
 }

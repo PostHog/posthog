@@ -5,7 +5,7 @@ from typing import Final, Literal, Optional, TypedDict, TypeVar
 from django.conf import settings
 
 import structlog
-from anthropic.types import Message, MessageParam, OutputConfigParam
+from anthropic.types import Message, MessageParam, OutputConfigParam, TextBlockParam
 
 from posthog.dataclasses import frozen
 from posthog.helpers.tiktoken_encoding import TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
@@ -147,6 +147,7 @@ async def call_llm(
     stage: Optional[str] = None,
     ai_product: Optional[str] = None,
     model: Optional[str] = None,
+    cache_system_prompt: bool = False,
 ) -> T:
     model = model or MATCHING_MODEL
     # Native Anthropic Messages endpoint so prefilling and extended thinking carry over unchanged.
@@ -178,9 +179,16 @@ async def call_llm(
     if prefill:
         messages.append({"role": "assistant", "content": "{"})
 
+    # A cached system prompt is billed at about a tenth of the input price on every call after the
+    # first. Only a prompt above the model's cache minimum (1,024 tokens on Sonnet 5) and on a hot
+    # path pays for the cache write, so a call site opts in rather than every stage paying it.
+    system: str | list[TextBlockParam] = system_prompt
+    if cache_system_prompt:
+        system = [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}]
+
     create_kwargs: dict = {
         "model": model,
-        "system": system_prompt,
+        "system": system,
         "messages": messages,
         "max_tokens": MAX_RESPONSE_TOKENS,
         "timeout": TIMEOUT,

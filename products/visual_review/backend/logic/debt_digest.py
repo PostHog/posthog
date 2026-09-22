@@ -46,8 +46,8 @@ from django.conf import settings
 from django.utils import timezone
 
 import structlog
-from posthog_owners.resolver import Purpose, team_channel
-from posthog_owners.schema import Producer, TeamEntry
+from owners_yaml.resolver import Purpose, team_channel
+from owners_yaml.schema import Producer, TeamEntry
 
 from posthog.comment.formatting import escape_slack_mrkdwn
 from posthog.dataclasses import frozen

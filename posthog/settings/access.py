@@ -38,6 +38,11 @@ IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=str_to_bool)
 TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", None)
 TRUST_ALL_PROXIES = get_from_env("TRUST_ALL_PROXIES", False, type_cast=str_to_bool)
 
+# Keys the managed reverse proxy uses to sign the client IP it forwards (ManagedProxyClientIPMiddleware).
+# Comma-separated, newest first: "<new>,<old>" while a rotation is in progress. Django accepts a
+# signature from any key. When the list is empty, Django never trusts the signed client IP headers.
+MANAGED_PROXY_SIGNING_KEYS: list[str] = get_list(os.getenv("MANAGED_PROXY_SIGNING_KEYS", ""))
+
 
 if IS_BEHIND_PROXY:
     USE_X_FORWARDED_HOST = True
@@ -181,3 +186,5 @@ BLOCKED_GEOIP_REGIONS = get_list(os.getenv("BLOCKED_GEOIP_REGIONS", ""))
 # development can reach localhost services. Set this to run the production validation path in dev —
 # e.g. to reproduce or test SSRF fixes — without flipping DEBUG globally.
 FORCE_URL_VALIDATION: bool = get_from_env("POSTHOG_FORCE_URL_VALIDATION", False, type_cast=str_to_bool)
+
+SSRF_TRUSTED_PROXY_URLS: list[str] = get_list(get_from_env("SSRF_TRUSTED_PROXY_URLS", ""))

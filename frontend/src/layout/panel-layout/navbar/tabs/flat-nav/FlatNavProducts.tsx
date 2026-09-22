@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { Fragment } from 'react'
 
-import { IconGear } from '@posthog/icons'
+import { IconChevronDown, IconGear, IconPlusSmall } from '@posthog/icons'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -16,6 +16,37 @@ import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTr
 import { NavLink } from '../../NavLink'
 import { flatNavLogic } from './flatNavLogic'
 import { FlatNavSection } from './FlatNavSection'
+import { FlatNavDashboardsMenuItems } from './menus/FlatNavDashboardsMenuItems'
+import { FlatNavProductAnalyticsMenuItems } from './menus/FlatNavProductAnalyticsMenuItems'
+import { FlatNavProductMenu } from './menus/FlatNavProductMenu'
+import { FlatNavSessionReplayMenuItems } from './menus/FlatNavSessionReplayMenuItems'
+
+// Keyed by product path, the same key the picked-tools list stores
+const PRODUCT_MENUS: Record<string, JSX.Element> = {
+    'Product analytics': (
+        <FlatNavProductMenu icon={<IconPlusSmall />} tooltip="New insight" data-attr="flat-nav-tool-menu-insight">
+            <FlatNavProductAnalyticsMenuItems />
+        </FlatNavProductMenu>
+    ),
+    Dashboards: (
+        <FlatNavProductMenu
+            icon={<IconChevronDown />}
+            tooltip="Pinned dashboards"
+            data-attr="flat-nav-tool-menu-dashboards"
+        >
+            <FlatNavDashboardsMenuItems />
+        </FlatNavProductMenu>
+    ),
+    'Session replay': (
+        <FlatNavProductMenu
+            icon={<IconChevronDown />}
+            tooltip="Saved filters and collections"
+            data-attr="flat-nav-tool-menu-session-replay"
+        >
+            <FlatNavSessionReplayMenuItems />
+        </FlatNavProductMenu>
+    ),
+}
 
 function slugify(path: string): string {
     return path.toLowerCase().replace(/[^a-z0-9]+/g, '-')
@@ -83,6 +114,7 @@ export function FlatNavProducts(): JSX.Element {
                                         tag={item.tag}
                                         data-attr={`flat-nav-tool-${slugify(item.path)}`}
                                         onClick={() => reportNavItemClicked(item.path, 'tools')}
+                                        sideAction={PRODUCT_MENUS[item.path]}
                                     />
                                 )
                             })}

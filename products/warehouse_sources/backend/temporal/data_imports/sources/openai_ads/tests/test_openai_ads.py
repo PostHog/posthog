@@ -305,16 +305,31 @@ class TestInsights:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("forbidden_scope", 403, True), ("unauthorized", 401, False)])
-    def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
+    @parameterized.expand(
+        [
+            ("ok", 200, True, None),
+            ("forbidden_scope", 403, True, None),
+            ("unauthorized", 401, False, "invalid or has been revoked"),
+            ("server_error", 500, False, "Couldn't reach OpenAI Ads"),
+        ]
+    )
+    def test_status_mapping(self, _name: str, status: int, expected: bool, message_fragment: str | None) -> None:
         # 403 is accepted at create time (a real key with restricted access); 401 means a bad key.
+        # A 5xx says nothing about the key, so it must not read as a rejected credential.
         session = mock.MagicMock()
         session.get.return_value = mock.MagicMock(status_code=status)
         with mock.patch(OPENAI_ADS_SESSION_PATCH, return_value=session):
-            assert validate_credentials("oa-ads-test") is expected
+            is_valid, message = validate_credentials("oa-ads-test")
+        assert is_valid is expected
+        if message_fragment is None:
+            assert message is None
+        else:
+            assert message is not None and message_fragment in message
 
-    def test_network_error_is_invalid(self) -> None:
+    def test_network_error_reads_as_unreachable_not_a_bad_key(self) -> None:
         session = mock.MagicMock()
         session.get.side_effect = requests.ConnectionError("boom")
         with mock.patch(OPENAI_ADS_SESSION_PATCH, return_value=session):
-            assert validate_credentials("oa-ads-test") is False
+            is_valid, message = validate_credentials("oa-ads-test")
+        assert is_valid is False
+        assert message is not None and "Couldn't reach OpenAI Ads" in message

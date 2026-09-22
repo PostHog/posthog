@@ -1169,7 +1169,7 @@ async function fetchPreviewImage(
     asset: ExportedAssetType,
     actions: { setPreviewImageUrl: (url: string | null) => void; setPreviewError: (error: string | null) => void }
 ): Promise<void> {
-    const url = api.exports.determineExportUrl(asset.id)
+    const url = api.exports.determineExportFetchUrl(asset.id)
     const response = await fetch(url, { credentials: 'include' })
     if (!response.ok) {
         actions.setPreviewError('Failed to load preview image')

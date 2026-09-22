@@ -72,6 +72,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: '{id}'
         list: true
         title: List business knowledge sources
         description: >
@@ -122,6 +123,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: '{id}'
         title: Get business knowledge source
         description: >
             Get a single business knowledge source by ID, including processing status, document/chunk counts, and

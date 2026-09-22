@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockCaptureToolCall, mockCaptureInitialize, mockCapture } = vi.hoisted(() => ({
+const { mockCaptureToolCall, mockCaptureInitialize, mockCaptureToolsList, mockCapture } = vi.hoisted(() => ({
     mockCaptureToolCall: vi.fn(),
     mockCaptureInitialize: vi.fn(),
+    mockCaptureToolsList: vi.fn(),
     // Raw `capture`; must never be used for the retired legacy `mcp_*` event names.
     mockCapture: vi.fn(),
 }))
@@ -11,6 +12,7 @@ vi.mock('@/lib/posthog', () => ({
     getPostHogClient: vi.fn(() => ({
         captureToolCall: mockCaptureToolCall,
         captureInitialize: mockCaptureInitialize,
+        captureToolsList: mockCaptureToolsList,
         capture: mockCapture,
     })),
 }))
@@ -20,6 +22,7 @@ import {
     trackInitEvent,
     trackSkillInvoked,
     trackToolCall,
+    trackToolsList,
     trackToolSpan,
 } from '@/hono/analytics'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
@@ -89,6 +92,7 @@ describe('Hono MCP analytics contexts', () => {
     beforeEach(() => {
         mockCaptureToolCall.mockClear()
         mockCaptureInitialize.mockClear()
+        mockCaptureToolsList.mockClear()
         mockCapture.mockClear()
     })
 
@@ -98,6 +102,32 @@ describe('Hono MCP analytics contexts', () => {
         await trackToolCall('user-get', 12, false, makeState())
 
         expect(mockCapture).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        { impersonated: true, isError: false },
+        { impersonated: true, isError: true },
+        { impersonated: false, isError: false },
+        { impersonated: false, isError: true },
+    ])('passes impersonated=$impersonated to the SDK with isError=$isError', async ({ impersonated, isError }) => {
+        const state = makeState({ isImpersonated: impersonated })
+
+        await trackToolCall('user-get', 12, isError, state, { is_impersonated: !impersonated })
+        await trackInitEvent(state)
+        await trackToolsList(['user-get'], state)
+
+        expect(mockCaptureToolCall).toHaveBeenCalledWith(
+            expect.objectContaining({
+                toolName: 'user-get',
+                isError,
+                properties: expect.objectContaining({ is_impersonated: impersonated }),
+            })
+        )
+        for (const capture of [mockCaptureInitialize, mockCaptureToolsList]) {
+            expect(capture).toHaveBeenCalledWith(
+                expect.objectContaining({ properties: expect.objectContaining({ is_impersonated: impersonated }) })
+            )
+        }
     })
 
     it('emits request properties on $mcp fields and session properties on mcp_session fields', async () => {

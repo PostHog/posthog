@@ -379,24 +379,24 @@ class TestRouteThreadMessage(TestCase):
     # --- Rules command not invoked for untagged --------------------------
 
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_rules_command_text_does_not_trigger_command_workflow(self):
-        """A rules-shaped message in an untagged thread (no @mention) must not
-        kick off the command workflow — the user never tagged us. It should
-        flow through to the regular mention workflow with
+    def test_rules_command_text_does_not_trigger_command_redirect(self):
+        """A rules-shaped message in an untagged thread (no @mention) must not be read as a
+        command — the user never addressed us, so they are owed no pointer at the slash
+        command. It should flow through to the regular mention workflow with
         ``untagged_followup=True`` so the classifier in the workflow can drop
         it as off-topic."""
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
 
         rules_text = '@PostHog rules add "use the helper" org/repo'
         with (
-            patch("products.slack_app.backend.api._start_command_workflow") as mock_command,
+            patch("products.slack_app.backend.api._redirect_mention_command") as mock_redirect,
             patch(
                 "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
             ) as mock_start,
         ):
             result = self._route(self._make_event(text=rules_text))
         assert result == ROUTE_HANDLED_LOCALLY
-        mock_command.assert_not_called()
+        mock_redirect.assert_not_called()
         mock_start.assert_called_once()
         assert mock_start.call_args.kwargs["untagged_followup"] is True
 

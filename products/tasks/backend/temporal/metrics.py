@@ -155,10 +155,14 @@ def _model_label(value: str | None) -> str:
     return normalized if runtime_adapter_for(normalized) else "other"
 
 
-def resume_mode_label(*, same_run_resume: bool, using_modal_snapshot: bool) -> str:
+def resume_mode_label(*, same_run_resume: bool, using_modal_snapshot: bool, from_import_run: bool = False) -> str:
     if same_run_resume:
         return "same_run_and_snapshot" if using_modal_snapshot else "same_run"
-    return "snapshot_only" if using_modal_snapshot else "neither"
+    if using_modal_snapshot:
+        return "snapshot_only"
+    # An import run never had a sandbox, so there is no working tree to lose: the successor
+    # starts from the transcript alone by design, not because a snapshot went missing.
+    return "imported_transcript" if from_import_run else "neither"
 
 
 def increment_resume_mode(mode: str, *, origin_product: str | None) -> None:
@@ -167,7 +171,8 @@ def increment_resume_mode(mode: str, *, origin_product: str | None) -> None:
             "tasks_process_resume_mode",
             "Resuming process-task runs by the resume state available at provision time. "
             "same_run labels identify a restart of the current run. neither means no snapshot "
-            "or same-run state accompanied the resume, so the prior working tree could not be restored.",
+            "or same-run state accompanied the resume, so the prior working tree could not be restored. "
+            "imported_transcript means the resumed run only held an imported transcript and had no tree.",
         ).add(1)
     except Exception:
         pass

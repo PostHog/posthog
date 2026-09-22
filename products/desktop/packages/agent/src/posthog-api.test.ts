@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { API_DOWNLOAD_TIMEOUT_MS } from "@posthog/shared";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PostHogAPIClient } from "./posthog-api";
 
 const mockFetch = vi.fn();
@@ -8,6 +9,10 @@ vi.stubGlobal("fetch", mockFetch);
 describe("PostHogAPIClient", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it.each([
@@ -232,6 +237,37 @@ describe("PostHogAPIClient", () => {
 
   it.each([
     [
+      "downloadArtifact",
+      (client: PostHogAPIClient) =>
+        client.downloadArtifact("task-1", "run-1", "tasks/artifacts/file.txt"),
+    ],
+    [
+      "fetchTaskRunLogs",
+      (client: PostHogAPIClient) =>
+        client.fetchTaskRunLogs({ id: "run-1", task: "task-1" } as never),
+    ],
+  ])("gives %s the download timeout", async (_method, call) => {
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey: vi.fn().mockResolvedValue("token"),
+      projectId: 7,
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(0)),
+      text: vi.fn().mockResolvedValue(""),
+    });
+
+    await call(client);
+
+    const init = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(timeout.mock.calls).toEqual([[API_DOWNLOAD_TIMEOUT_MS]]);
+    expect(init?.signal).toBe(timeout.mock.results[0]?.value);
+  });
+
+  it.each([
+    [
       "includes message_id, text_parts and trace_id when provided",
       ["part one", "final answer"],
       "msg-1",
@@ -399,34 +435,5 @@ describe("PostHogAPIClient", () => {
       ),
     ).rejects.toThrow("Failed to sync task session: [504] Gateway Timeout");
     expect(mockFetch).toHaveBeenCalledOnce();
-  });
-
-  it("returns only the artifacts created by the current upload request", async () => {
-    const client = new PostHogAPIClient({
-      apiUrl: "https://app.posthog.com",
-      getApiKey: vi.fn().mockResolvedValue("token"),
-      projectId: 1,
-    });
-
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: vi.fn().mockResolvedValue({
-        artifacts: [
-          { storage_path: "gs://bucket/existing.tar.gz", name: "existing" },
-          { storage_path: "gs://bucket/new-1.pack", name: "new-1" },
-          { storage_path: "gs://bucket/new-2.index", name: "new-2" },
-        ],
-      }),
-    });
-
-    const artifacts = await client.uploadTaskArtifacts("task-1", "run-1", [
-      { name: "new-1", type: "artifact", content: "AAA" },
-      { name: "new-2", type: "artifact", content: "BBB" },
-    ]);
-
-    expect(artifacts).toEqual([
-      { storage_path: "gs://bucket/new-1.pack", name: "new-1" },
-      { storage_path: "gs://bucket/new-2.index", name: "new-2" },
-    ]);
   });
 });

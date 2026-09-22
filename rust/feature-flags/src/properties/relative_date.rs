@@ -69,21 +69,19 @@ pub(crate) fn naive_to_utc_in_tz(naive: NaiveDateTime, tz: Tz) -> Option<DateTim
     }
 }
 
+pub(crate) fn parse_relative_date_parts(date_str: &str) -> Option<(i64, &str)> {
+    let captures = RELATIVE_DATE_REGEX.captures(date_str)?;
+    let number = captures.name("number")?.as_str().parse::<i64>().ok()?;
+    (number < 10_000).then_some((number, captures.name("interval")?.as_str()))
+}
+
 /// Apply the relativedelta-style subtraction purely on a naive wall clock.
 ///
 /// All arithmetic is timezone-agnostic here; callers decide how to anchor `now`
 /// and how to interpret the result. Time-of-day (including sub-second precision)
 /// is preserved across calendar month/year shifts.
 fn parse_relative_date_naive(date_str: &str, now: NaiveDateTime) -> Option<NaiveDateTime> {
-    let captures = RELATIVE_DATE_REGEX.captures(date_str)?;
-
-    let number: i64 = captures.name("number")?.as_str().parse().ok()?;
-    if number >= 10_000 {
-        // Guard against overflow, disallow numbers greater than 10_000
-        return None;
-    }
-
-    let interval = captures.name("interval")?.as_str();
+    let (number, interval) = parse_relative_date_parts(date_str)?;
 
     match interval {
         "h" => Some(now - Duration::hours(number)),

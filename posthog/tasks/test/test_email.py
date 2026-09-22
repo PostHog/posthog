@@ -1,4 +1,5 @@
 import uuid
+import hashlib
 import datetime as dt
 from typing import cast
 from uuid import uuid4
@@ -15,6 +16,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.api.authentication import password_reset_token_generator
+from posthog.constants import AvailableFeature
 from posthog.models import Comment, Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.instance_setting import set_instance_setting
@@ -36,6 +38,7 @@ from posthog.tasks.email import (
     send_external_data_failure_digest,
     send_fatal_plugin_error,
     send_hog_function_disabled,
+    send_hog_function_filters_uncompilable,
     send_hog_functions_daily_digest,
     send_hog_functions_digest_email,
     send_invite,
@@ -56,6 +59,7 @@ from posthog.tasks.email import (
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.api_keys import create_project_secret_api_key
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.models.batch_export import (
     BatchExport,
     BatchExportDestination,
@@ -1105,6 +1109,246 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].to == [
             {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
         ]
+
+    def test_send_hog_function_filters_uncompilable_reaches_admins_and_the_creator(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        # A plain member who happens to have created the destination. The admins get it because
+        # they can act on it; the creator gets it because they know what it was for.
+        creator = self._create_user("creator@posthog.com")
+        creator_membership = OrganizationMembership.objects.get(user=creator, organization=self.organization)
+        creator_membership.level = OrganizationMembership.Level.MEMBER
+        creator_membership.save()
+        hog_function = HogFunction.objects.create(
+            team=self.team, name="Broken destination", enabled=True, created_by=creator
+        )
+        # Written past save(), which recompiles the filters and would clear the error again. This is
+        # also the shape the row has in the database: a null bytecode beside the reason.
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
+        )
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
+
+        recipients = {entry["recipient"] for entry in mocked_email_messages[0].to}
+        assert "creator@posthog.com" in recipients
+        assert self.user.email in recipients
+
+    def test_send_hog_function_filters_uncompilable_lists_every_destination_in_one_email(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        # A shared mistake breaks several destinations at once, so the project gets one message
+        # naming each of them beside its own error rather than one message each.
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        ids = []
+        for name, error in (
+            ("Send pageviews to Slack", "Cohort membership can't be evaluated in real-time filters"),
+            ("Forward signups to a webhook", "Select queries are not allowed in filters"),
+        ):
+            hog_function = HogFunction.objects.create(team=self.team, name=name, enabled=True)
+            HogFunction.objects.filter(id=hog_function.id).update(filters={"bytecode": None, "bytecode_error": error})
+            ids.append(str(hog_function.id))
+
+        send_hog_function_filters_uncompilable(self.team.id, ids)
+
+        assert len(mocked_email_messages) == 1
+        html = mocked_email_messages[0].html_body
+        # Apostrophe-free slices: how Django escapes a quote is framework behavior, not this email's.
+        for fragment in (
+            "Send pageviews to Slack",
+            "Forward signups to a webhook",
+            "evaluated in real-time filters",
+            "Select queries are not allowed in filters",
+        ):
+            assert fragment in html
+
+    def test_send_hog_function_filters_uncompilable_skips_a_destination_still_on_its_last_bytecode(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        # A save whose recompile fails keeps the previous bytecode beside the error, so this
+        # destination still delivers. The email says the listed destinations dropped events, which
+        # would be wrong for this one.
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        hog_function = HogFunction.objects.create(team=self.team, name="Still delivering", enabled=True)
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": ["_H", 1, 29], "bytecode_error": "Cohort membership can't be evaluated"}
+        )
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
+
+        assert mocked_email_messages == []
+
+    def test_send_hog_function_filters_uncompilable_skips_a_creator_who_left(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        creator = self._create_user("gone@posthog.com")
+        hog_function = HogFunction.objects.create(
+            team=self.team, name="Broken destination", enabled=True, created_by=creator
+        )
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
+        )
+        # The email names the project and quotes the error, so it must not follow a stale created_by.
+        OrganizationMembership.objects.filter(user=creator, organization=self.organization).delete()
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
+
+        recipients = {entry["recipient"] for entry in mocked_email_messages[0].to}
+        assert "gone@posthog.com" not in recipients
+        assert self.user.email in recipients
+
+    def test_send_hog_function_filters_uncompilable_skips_a_creator_denied_project_access(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        creator = self._create_user("denied@posthog.com")
+        creator_membership = OrganizationMembership.objects.get(user=creator, organization=self.organization)
+        creator_membership.level = OrganizationMembership.Level.MEMBER
+        creator_membership.save()
+        # The project is private, so organization membership alone no longer grants access to it.
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
+        hog_function = HogFunction.objects.create(
+            team=self.team, name="Broken destination", enabled=True, created_by=creator
+        )
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
+        )
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
+
+        recipients = {entry["recipient"] for entry in mocked_email_messages[0].to}
+        assert "denied@posthog.com" not in recipients
+        assert self.user.email in recipients
+
+    def test_send_hog_function_filters_uncompilable_tells_a_switched_off_destination_to_switch_back_on(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        hog_function = HogFunction.objects.create(team=self.team, name="Broken destination", enabled=True)
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
+        )
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
+        HogFunction.objects.filter(id=hog_function.id).update(enabled=False)
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
+
+        assert "switch it back on" not in mocked_email_messages[0].html_body
+        assert "switch it back on" in mocked_email_messages[1].html_body
+        # Fixing the filters leaves the destination off, so the second email must reach the
+        # recipients rather than being deduped away by the first.
+        assert mocked_email_messages[0].campaign_key != mocked_email_messages[1].campaign_key
+
+    def test_send_hog_function_filters_uncompilable_keys_the_campaign_on_a_stable_digest(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        bytecode_error = "Cohort membership can't be evaluated"
+        hog_function = HogFunction.objects.create(team=self.team, name="Broken destination", enabled=True)
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": None, "bytecode_error": bytecode_error}
+        )
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
+
+        # The key decides whether a re-run emails the same people again, so it has to survive a
+        # worker restart. hash() is salted per interpreter and would not. It covers the whole set,
+        # because one email now lists every broken destination in the project.
+        fingerprint = f"{hog_function.id}:{bytecode_error}:1"
+        digest = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:16]
+        assert mocked_email_messages[0].campaign_key == f"hog_function_filters_uncompilable_{self.team.id}_{digest}"
+
+    def test_send_hog_function_filters_uncompilable_orders_same_named_destinations_by_id(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        bytecode_error = "Cohort membership can't be evaluated"
+        # Two destinations can share a name, and the query that reads them has no ORDER BY. The
+        # higher id is written first, so the rows come back in the reverse of the order the key
+        # has to use, and a key built on names alone would flip between runs and mail twice.
+        earlier = uuid.UUID("00000000-0000-0000-0000-0000000000a0")
+        later = uuid.UUID("00000000-0000-0000-0000-0000000000b0")
+        for hog_function_id in (later, earlier):
+            HogFunction.objects.create(id=hog_function_id, team=self.team, name="Shared name", enabled=True)
+            HogFunction.objects.filter(id=hog_function_id).update(
+                filters={"bytecode": None, "bytecode_error": bytecode_error}
+            )
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(later), str(earlier)])
+
+        fingerprint = ";".join(f"{hog_function_id}:{bytecode_error}:1" for hog_function_id in (earlier, later))
+        digest = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:16]
+        assert mocked_email_messages[0].campaign_key == f"hog_function_filters_uncompilable_{self.team.id}_{digest}"
+
+    def test_send_hog_function_filters_uncompilable_subject_survives_a_newline_in_a_name(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        # A CR or LF in either name would make Django reject the whole email as a multiline
+        # header. The send path swallows that error, so every recipient would lose this notice.
+        mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.team.name = "Production\nBcc: sneaky@example.com"
+        self.team.save()
+        hog_function = HogFunction.objects.create(
+            team=self.team, name="Broken destination\nBcc: sneaky@example.com", enabled=True
+        )
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
+        )
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
+
+        subject = MockEmailMessage.call_args.kwargs["subject"]
+        assert "\n" not in subject
+        assert "\r" not in subject
+        assert "Production" in subject
+
+    @parameterized.expand(
+        [
+            ("filters that compile", {"bytecode": ["_H", 1]}, False),
+            (
+                "an archived destination",
+                {"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"},
+                True,
+            ),
+        ]
+    )
+    def test_send_hog_function_filters_uncompilable_sends_nothing_for(
+        self, MockEmailMessage: MagicMock, _name: str, filters: dict, deleted: bool
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        # An admin, so an email would have a recipient and the assertion is about the skip.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        hog_function = HogFunction.objects.create(team=self.team, name="A destination", enabled=True)
+        HogFunction.objects.filter(id=hog_function.id).update(filters=filters, deleted=deleted)
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
+
+        assert mocked_email_messages == []
 
     def test_send_batch_export_run_failure_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

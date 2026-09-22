@@ -15,7 +15,7 @@ import { makeLogger } from 'scenes/session-recordings/player/utils/player-loggin
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { ExporterFormat, RecordingSegment, RecordingSnapshot } from '~/types'
+import { ExporterFormat, RecordingSegment, RecordingSnapshot, SessionPlayerState } from '~/types'
 
 import { analysisNudgeLogic } from 'products/replay_vision/frontend/logics/analysisNudgeLogic'
 import { isUsableHeatmapUrl } from 'products/web_analytics/frontend/heatmaps/replayIframeData'
@@ -409,6 +409,23 @@ describe('sessionRecordingPlayerLogic', () => {
             ])
 
             expect(logic.values.sessionPlayerData).toMatchSnapshot()
+
+            resumeKeaLoadersErrors()
+        })
+
+        it('stays paused if autoplay is off', async () => {
+            logic.unmount()
+            logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test', autoPlay: false })
+            logic.mount()
+
+            silenceKeaLoadersErrors()
+
+            await expectLogic(logic).toDispatchActions([
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesSuccess,
+            ])
+
+            expect(logic.values.playingState).toEqual(SessionPlayerState.PAUSE)
 
             resumeKeaLoadersErrors()
         })

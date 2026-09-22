@@ -1,3 +1,4 @@
+import { SETTINGS_BACKUP_FILES } from "@posthog/platform/settings-backup-files";
 import { CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS } from "@posthog/ui/features/settings/claudeSubscriptionTokenSettings";
 // Desktop host service bindings live here as features move into packages.
 // Importing the renderer container performs today's existing bindings.
@@ -462,3 +463,9 @@ container.bind(HOST_CAPABILITIES).toConstantValue({
 } satisfies HostCapabilities);
 
 container.bind(DISK_CACHE_IMAGES).toConstantValue(desktopDiskCacheImages);
+
+container.bind(SETTINGS_BACKUP_FILES).toConstantValue({
+  getAppVersion: () => hostTrpcClient.os.getAppVersion.query(),
+  open: () => hostTrpcClient.settingsBackup.open.mutate(),
+  save: (input) => hostTrpcClient.settingsBackup.save.mutate(input),
+});

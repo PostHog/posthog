@@ -1,0 +1,27 @@
+{
+    "letter": "XA",
+    "id": "XA9",
+    "cluster": 2,
+    "is_real": true,
+    "severity": "must_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1110-1117 assumes bot-authored origin from its Celery arguments; 1130-1174 only resolves the URL's team config, fetches the PR, and checks open state/nonempty head before stamping those arguments at 1176-1181 and persisting inbox_review at 1223-1229. The supported caller provides a concrete exploit path: tasks/backend/presentation/views/api.py:852-868,1101-1118 permits task controllers to submit output; facade/api.py:1770-1788 permits changing pr_url and 2149-2154 saves it. review_hog/backend/receivers.py:92-114,126-138 binds that URL to the existing non-internal signal task and opted-in reviewer without proving PR origin. The flag at stamphog/temporal/activities.py:451 then bypasses engine bot/draft refusal (review_local.py:321-326; review_pr.py:590) and can reach approval posting at activities.py:723-745 for unrelated code.",
+            "refutation": "I first tried the strongest intended invariant: normal signal implementation PRs are forced to bot authorship by tasks/backend/temporal/process_task/utils.py:1059-1084, and the receiver checks real task/report/reviewer records. That only proves the PR the task would create is bot-authored; it does not make output.pr_url immutable or attested. The write helper explicitly anticipates callers redirecting that URL. A task controller therefore needs no direct Celery access or forged cross-team identifiers: an eligible task, opted-in assignee, and another open PR in a configured repository satisfy the initial path. The stricter webhook bot/native-head checks never run on this entrypoint."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1130-1181 resolves a config from pr_url, fetches that PR and checks open/head, but never loads task_run_id or validates the run/report/repository/head relationship before setting inbox_review. The reachable input is /tmp/frozen-75215/products/tasks/backend/presentation/views/api.py:1101-1118 (task:write set_output), backed by facade/api.py:2123-2154 (optional schema validation and caller-provided pr_url replacement) and :1770-1788 (only pr_merged is attested). visibility.py:22-46 makes signal tasks controllable by team members. /tmp/frozen-75215/products/review_hog/backend/receivers.py:92-138 forwards that new target under the existing opted-in reviewer. activities.py:451 enables the engine carve-out and :745 can approve that unrelated target; its clone path at :955-957 also supports fork PR heads.",
+            "refutation": "First checked upstream access control and downstream source guards. The API does enforce team/task control and the receiver supplies authentic task/report IDs and current opt-in; consequently this is a same-team target substitution, not arbitrary cross-team ID injection. Those checks never compare output.pr_url to the task's generated branch. The webhook-only fork/team cases in tests/test_tasks.py:830-846 do not guard this entry point. Initial-path tests :891-944 even create a review using placeholder run/report IDs without any lookup, confirming those arguments are recorded rather than validated. Config scoping limits the affected repositories but does not prevent an unrelated PR in a connected repository from being approved."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "The production PATCH set_output endpoint accepts task:write at products/tasks/backend/presentation/views/api.py:1092-1118; signal tasks are controllable by project teammates at products/tasks/backend/visibility.py:22-24,30-46. set_task_run_output preserves a caller-supplied replacement pr_url (facade/api.py:2149-2154); only pr_merged is webhook-attested at facade/api.py:1770-1788. The receiver validates a real non-internal signal task and opted-in reviewer but forwards that editable URL without comparing the task repository/branch at products/review_hog/backend/receivers.py:98-111,126-137. process_inbox_pr_review checks the URL's connected repository, open state, and head SHA, then stamps the passed IDs as inbox provenance without loading them or checking author/native head at products/stamphog/backend/tasks/tasks.py:1130-1181. activities.py:448-451 turns that marker into the trusted self_driving_review flag; review_local.py:321-325 and review_pr.py:590 bypass bot and draft refusal. An unrelated open PR in the same connected repository can consequently receive the privileged review path.",
+            "refutation": "I first checked caller authorization, existing output attestation, repository installation scoping, and final publication gates. These constrain the attacker to a controllable signal task and a repository configured for the team, but do not bind its URL to the real implementation PR. The normal webhook's bot/native/task checks are not called by this initial task. Final posting checks unchanged head SHA and supersession (activities.py:673-679,700-704), then can approve at 723-745; it does not revalidate the signal task or PR author. Thus an opted-in canonical reviewer plus an enabled repository is a realistic configuration and the editable-output trigger remains reachable."
+        }
+    ]
+}

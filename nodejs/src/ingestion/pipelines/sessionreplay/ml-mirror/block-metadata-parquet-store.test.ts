@@ -65,6 +65,33 @@ describe('BlockMetadataParquetStore', () => {
         } as unknown as S3Client
     })
 
+    it('writes v3 sessions to the v3 bucket and keeps earlier sessions in v2 when both are configured', async () => {
+        const envelopes = ['2026-09-21T16:59:59.999Z', '2026-09-21T17:00:00Z'].map((date) => {
+            const hex = Date.parse(date).toString(16).padStart(12, '0')
+            return {
+                ...TrainingEncryptionVector.envelope,
+                context: {
+                    ...TrainingEncryptionVector.envelope.context,
+                    sessionId: `${hex.slice(0, 8)}-${hex.slice(8)}-7000-8000-000000000007`,
+                },
+            }
+        })
+        const store = new BlockMetadataParquetStore(
+            s3,
+            { v2: 'ml-bucket', v3: 'ml-bucket-v3' },
+            'block-metadata',
+            'pod'
+        )
+        await store.writeEncrypted(envelopes)
+        await store.writeEncryptedReplayIndex(envelopes.map((envelope) => ({ kind: 'page', rowCount: 1, envelope })))
+        expect(puts.map((put) => [put.Bucket, put.Key?.split('/').slice(0, 3).join('/')])).toEqual([
+            ['ml-bucket', 'block-metadata/v2/2026-09'],
+            ['ml-bucket-v3', 'block-metadata/v3/2026-09'],
+            ['ml-bucket', 'block-metadata-replay-index/v2/2026-09'],
+            ['ml-bucket-v3', 'block-metadata-replay-index/v3/2026-09'],
+        ])
+    })
+
     it('splits encrypted metadata by session month rather than upload time', async () => {
         const envelopes = ['2026-09-30T23:59:59.999Z', '2026-10-01T00:00:00Z'].map((date) => {
             const hex = Date.parse(date).toString(16).padStart(12, '0')
@@ -76,10 +103,15 @@ describe('BlockMetadataParquetStore', () => {
                 },
             }
         })
-        await new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod').writeEncrypted(envelopes)
+        await new BlockMetadataParquetStore(
+            s3,
+            { v2: 'ml-bucket', v3: 'ml-bucket-v3' },
+            'block-metadata',
+            'pod'
+        ).writeEncrypted(envelopes)
         expect(puts.map((put) => put.Key?.split('/').slice(0, 3).join('/'))).toEqual([
-            'block-metadata/v2/2026-09',
-            'block-metadata/v2/2026-10',
+            'block-metadata/v3/2026-09',
+            'block-metadata/v3/2026-10',
         ])
         for (const [index, put] of puts.entries()) {
             const records = await readRows(put.Body)
@@ -91,7 +123,12 @@ describe('BlockMetadataParquetStore', () => {
         await sodium.ready
         const starts = ['2026-09-30T23:59:59.999Z', '2026-10-01T00:00:00Z']
         const eventTimestamp = Date.parse('2026-10-01T00:00:01Z')
-        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod')
+        const store = new BlockMetadataParquetStore(
+            s3,
+            { v2: 'ml-bucket', v3: 'ml-bucket-v3' },
+            'block-metadata',
+            'pod'
+        )
         for (const [index, start] of starts.entries()) {
             const hex = Date.parse(start).toString(16).padStart(12, '0')
             const sessionId = `${hex.slice(0, 8)}-${hex.slice(8)}-7000-8000-000000000007`
@@ -113,7 +150,7 @@ describe('BlockMetadataParquetStore', () => {
             }
             await store.writeEncryptedReplayIndex(encryptReplayIndex(metadata, key))
             const month = start.slice(0, 7)
-            const objects = puts.filter((put) => put.Key!.startsWith(`block-metadata-replay-index/v2/${month}/`))
+            const objects = puts.filter((put) => put.Key!.startsWith(`block-metadata-replay-index/v3/${month}/`))
             expect(objects).toHaveLength(2)
             const labels = await readRows(objects.find((put) => put.Key!.includes('/kind=json_ld/'))!.Body)
             expect(labels).toHaveLength(1)
@@ -141,7 +178,12 @@ describe('BlockMetadataParquetStore', () => {
         if (failed) {
             jest.mocked(s3.send).mockImplementationOnce(() => Promise.reject(new Error('upload failed')))
         }
-        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod-1')
+        const store = new BlockMetadataParquetStore(
+            s3,
+            { v2: 'ml-bucket', v3: 'ml-bucket-v3' },
+            'block-metadata',
+            'pod-1'
+        )
         const write = store.writeEncrypted([TrainingEncryptionVector.envelope])
         if (failed) {
             await expect(write).rejects.toThrow('upload failed')
@@ -222,13 +264,23 @@ describe('BlockMetadataParquetStore', () => {
     })
 
     it('rejects plaintext v2 metadata before writing any objects', async () => {
-        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod-1')
+        const store = new BlockMetadataParquetStore(
+            s3,
+            { v2: 'ml-bucket', v3: 'ml-bucket-v3' },
+            'block-metadata',
+            'pod-1'
+        )
         await expect(store.write([{ ...row('session', '42'), format_version: 2 }])).rejects.toThrow('encrypted storage')
         expect(puts).toHaveLength(0)
     })
 
     it('writes one dt-partitioned Parquet object that round-trips', async () => {
-        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod-1')
+        const store = new BlockMetadataParquetStore(
+            s3,
+            { v2: 'ml-bucket', v3: 'ml-bucket-v3' },
+            'block-metadata',
+            'pod-1'
+        )
         await store.write([row('s1', 't1'), row('s2', 't1')])
 
         expect(puts).toHaveLength(1)
@@ -242,7 +294,12 @@ describe('BlockMetadataParquetStore', () => {
     })
 
     it('indexes cross-block pairs by session start day and preserves window and fractional timestamps', async () => {
-        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod-1')
+        const store = new BlockMetadataParquetStore(
+            s3,
+            { v2: 'ml-bucket', v3: 'ml-bucket-v3' },
+            'block-metadata',
+            'pod-1'
+        )
         const start = Date.parse('2025-01-01T23:59:00Z')
         const snapshotTimestamp = start + 60_000.5
         const full = {
@@ -301,7 +358,12 @@ describe('BlockMetadataParquetStore', () => {
     })
 
     it('propagates index upload failures so Kafka offsets cannot advance', async () => {
-        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod-1')
+        const store = new BlockMetadataParquetStore(
+            s3,
+            { v2: 'ml-bucket', v3: 'ml-bucket-v3' },
+            'block-metadata',
+            'pod-1'
+        )
         jest.mocked(s3.send).mockImplementationOnce(() => Promise.reject(new Error('index unavailable')))
         await expect(
             store.write([
@@ -333,7 +395,12 @@ describe('BlockMetadataParquetStore', () => {
             ],
         },
     ])('keeps block metadata when index fields are unusable: %j', async (override) => {
-        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod-1')
+        const store = new BlockMetadataParquetStore(
+            s3,
+            { v2: 'ml-bucket', v3: 'ml-bucket-v3' },
+            'block-metadata',
+            'pod-1'
+        )
         await store.write([
             {
                 ...row('s1', 't1'),
@@ -347,7 +414,12 @@ describe('BlockMetadataParquetStore', () => {
     })
 
     it('sorts rows by (team_id, session_id)', async () => {
-        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod-1')
+        const store = new BlockMetadataParquetStore(
+            s3,
+            { v2: 'ml-bucket', v3: 'ml-bucket-v3' },
+            'block-metadata',
+            'pod-1'
+        )
         await store.write([row('s9', 't3'), row('s1', 't1'), row('s5', 't2'), row('s2', 't1')])
         const rows = await readRows(puts[0].Body)
         const keys = rows.map((r) => `${r.team_id}|${r.session_id}`)
@@ -355,14 +427,24 @@ describe('BlockMetadataParquetStore', () => {
     })
 
     it('writes nothing for an empty batch', async () => {
-        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod-1')
+        const store = new BlockMetadataParquetStore(
+            s3,
+            { v2: 'ml-bucket', v3: 'ml-bucket-v3' },
+            'block-metadata',
+            'pod-1'
+        )
         await store.write([])
         expect(puts).toHaveLength(0)
     })
 
     it('propagates upload failures so the caller can replay from Kafka', async () => {
         s3 = { send: jest.fn(() => Promise.reject(new Error('s3 down'))) } as unknown as S3Client
-        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod-1')
+        const store = new BlockMetadataParquetStore(
+            s3,
+            { v2: 'ml-bucket', v3: 'ml-bucket-v3' },
+            'block-metadata',
+            'pod-1'
+        )
         await expect(store.write([row('s1', 't1')])).rejects.toThrow('s3 down')
     })
 })

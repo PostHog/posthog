@@ -384,8 +384,11 @@ class TestFreeTierModelListing:
         premium = by_id["claude-opus-4-5"]
         assert premium["allowed"] is False
         assert premium["restriction_reason"] == "paid_plan_required"
-        # exact, not subset: the default free model must survive the allowlist
-        assert {m["id"] for m in body["data"] if m["allowed"]} == {"@cf/zai-org/glm-5.2"}
+        # exact, not subset: every free-tier model must survive the allowlist
+        assert {m["id"] for m in body["data"] if m["allowed"]} == {
+            "@cf/zai-org/glm-5.2",
+            "deepseek-ai/deepseek-v4-flash-0731",
+        }
         # codex reads the `models` mirror; the marks must be there too
         assert body["models"] == body["data"]
 
@@ -397,10 +400,16 @@ class TestFreeTierModelListing:
     def test_flag_gated_model_is_listed_only_when_its_flag_clears(
         self, app, mock_db_pool, flag_enabled: bool | None, listed: bool
     ):
+        # No model is behind a rollout flag now, so one is gated here for the listing to have
+        # something to drop.
         _wire_authenticated_user(mock_db_pool, "gated-user")
 
         evaluate = AsyncMock(side_effect=lambda flag_keys, _: dict.fromkeys(flag_keys, flag_enabled))
         with (
+            patch(
+                "llm_gateway.api.models.get_required_model_flag",
+                side_effect=lambda model: "acme-gated-model" if model == "claude-opus-4-5" else None,
+            ),
             patch("llm_gateway.api.models.evaluate_flags", evaluate),
             TestClient(app) as c,
         ):
@@ -409,8 +418,31 @@ class TestFreeTierModelListing:
         assert response.status_code == 200
         evaluate.assert_awaited_once()
         body = response.json()
-        assert ("deepseek-ai/deepseek-v4-flash-0731" in {m["id"] for m in body["data"]}) is listed
+        assert ("claude-opus-4-5" in {m["id"] for m in body["data"]}) is listed
         assert body["models"] == body["data"]
+
+    # The listing drops a model whose flag cannot be evaluated, so a flag left behind after a
+    # rollout finished is what took the open-weights models off non-staff pickers.
+    def test_open_weights_models_are_listed_without_a_flag_evaluation(self, app, mock_db_pool):
+        _wire_authenticated_user(mock_db_pool, "open-weights-user")
+
+        evaluate = AsyncMock(side_effect=lambda flag_keys, _: dict.fromkeys(flag_keys, False))
+        with (
+            patch("llm_gateway.api.models.evaluate_flags", evaluate),
+            TestClient(app) as c,
+        ):
+            response = c.get("/posthog_code/v1/models", headers={"Authorization": "Bearer phx_open_weights_models"})
+
+        assert response.status_code == 200
+        evaluate.assert_not_awaited()
+        listed = {m["id"] for m in response.json()["data"]}
+        # Kimi K3 is Modal-served, and Modal is unconfigured here, so it is out of scope for
+        # a listing test.
+        assert {
+            "deepseek-ai/deepseek-v4-flash-0731",
+            "zai-org/glm-5.3",
+            "zai-org/glm-5.3-flash",
+        } <= listed
 
     def test_billed_org_sees_full_list(self, app, mock_db_pool):
         from unittest.mock import AsyncMock

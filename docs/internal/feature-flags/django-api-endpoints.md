@@ -56,6 +56,7 @@ still provides optimistic concurrency control.
 
 Stored filters with an absent version or numeric 1 use the existing v1 path.
 Updates reject other stored formats with `unsupported_config_version`, including writes that omit filters or send `{}`.
+Writes also reject dependencies on flags whose stored format is not v1 with `unsupported_dependency_config_version`.
 This check does not migrate existing configurations.
 
 Ordinary POST, PUT, and PATCH writes route through the feature flag facade.

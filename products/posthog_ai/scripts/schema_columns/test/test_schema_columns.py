@@ -107,7 +107,6 @@ def test_renders_session_recording_nullability() -> None:
         "deleted",
         "created_at",
         "retention_period_days",
-        "storage_version",
     ):
         assert f"`{column}` | " in rendered
         assert (

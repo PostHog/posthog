@@ -41,7 +41,7 @@ jest.mock('./runStreamLogic', () => {
             pushConversationCleared: true,
             respondToPermission: (payload: unknown) => ({ payload }),
             cancelRun: (run?: unknown) => ({ run }),
-            markTurnComplete: true,
+            markTurnComplete: (isReplay: boolean = false) => ({ isReplay }),
             setCurrentMode: (mode: string) => ({ mode }),
             handleTerminalStatus: (status: { status: string }) => status,
             setStubStatus: (status: string | null) => ({ status }),
@@ -608,6 +608,21 @@ describe('runInteractionLogic', () => {
         expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(1)
         expect(tasksRunsCommandCreate).toHaveBeenCalledWith(...userMessageCommand('first\n\nsecond'))
         expect(logic.values.queuedMessages).toEqual([])
+    })
+
+    it('keeps a staged follow-up queued when history replays an older turn completion', async () => {
+        setThinking(true)
+        logic.actions.setComposerFormValues({ draft: 'follow up' })
+        logic.actions.submitComposerForm()
+        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'follow up' }])
+
+        setThinking(false)
+        await expectLogic(logic, () => {
+            stream.actions.markTurnComplete(true)
+        }).toFinishAllListeners()
+
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'follow up' }])
     })
 
     it.each(['approval first', 'turn first'])('holds ordinary delivery until both gates clear: %s', async (order) => {

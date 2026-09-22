@@ -24,6 +24,8 @@ interface ObjectTagsPropsBase {
     inputPlaceholder?: string
     /** Makes each displayed tag clickable, e.g. to filter by it. */
     onTagClick?: (tag: string) => void
+    /** Called before opening the tag editor. */
+    onEdit?: () => void
     /** Maximum number of tags to show before showing the rest in a popover. */
     maxVisibleTags?: number
     /**
@@ -61,6 +63,7 @@ const COLOR_OVERRIDES: Record<string, LemonTagType> = {
 export function ObjectTags({
     tags,
     onChange, // Required unless `staticOnly`
+    onEdit,
     onBlur,
     saving, // Required unless `staticOnly`
     tagsAvailable,
@@ -163,7 +166,10 @@ export function ObjectTags({
                         <span className="inline-flex font-normal">
                             <LemonTag
                                 type="none"
-                                onClick={() => setEditingTags(true)}
+                                onClick={() => {
+                                    onEdit?.()
+                                    setEditingTags(true)
+                                }}
                                 data-attr="button-add-tag"
                                 icon={hasTags ? <IconPencil /> : <IconPlus />}
                                 className="border border-dashed"

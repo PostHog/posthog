@@ -16,7 +16,6 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: csp_violations
-  credits: pauldambra (PR #58596 — push-based CSP signal emission, encoded here as pull)
 ---
 
 # Signals scout: CSP violations

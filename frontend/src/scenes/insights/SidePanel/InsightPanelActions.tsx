@@ -25,6 +25,7 @@ import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopy
 import { urls } from 'scenes/urls'
 
 import { ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import {
     isDataTableNode,
     isDataVisualizationNode,
@@ -50,6 +51,7 @@ import { openSaveAsCohortDialog } from './insightSidePanelDialogs'
 const RESOURCE_TYPE = 'insight'
 
 export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
+    const { scenePanelOpen } = useValues(sceneLayoutLogic)
     const theInsightLogic = insightLogic(insightLogicProps)
     const { insightProps, insight, hasDashboardItemId, insightDuplicating } = useValues(theInsightLogic)
     const { duplicateInsight, setInsightMetadata } = useActions(theInsightLogic)
@@ -223,7 +225,9 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                 Create endpoint
             </ButtonPrimitive>
 
-            <CreateMetricFromInsightButton isSavedInsight={isSavedInsight} insightShortId={insight?.short_id} />
+            {scenePanelOpen && (
+                <CreateMetricFromInsightButton isSavedInsight={isSavedInsight} insightShortId={insight?.short_id} />
+            )}
 
             {canEditInSqlEditor && (
                 <Link

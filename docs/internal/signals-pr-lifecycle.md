@@ -8,6 +8,19 @@ The shared PR-linking service applies this rule to task outputs and agent attach
 An existing attachment retry does not reopen a report, and importing legacy assignments preserves its status.
 Suppressed reports remain suppressed when another PR is attached.
 
+## Reviewer notifications
+
+Slack notifications for a ready report include only reviewers who have access to the report's project when delivery starts.
+The same access rule applies when a reviewer is added later.
+If no suggested reviewer has access, the ready report still goes to the configured team channel without reviewer mentions.
+
+## Report links
+
+Only scouts and the signals pipeline create and manage typed, directed report links.
+Scouts attach them through the `links` list on `scout-edit-report`.
+Public callers can read `report_link` artefacts, but cannot create, edit, or delete them through the artefact API.
+Links must name a different live report in the same project and cannot form a cycle among links of the same kind.
+
 ## Scout revisions
 
 Scout edits increment the content revision count only when the title or summary changes. Notes, evidence, routing updates, and unchanged text do not spend a revision. The edit response always includes the report's running revision total.

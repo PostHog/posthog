@@ -39,6 +39,9 @@ Warehouse callers can obtain curated definitions from `resolve_external_table_fi
 using the source resource name and the columns actually present in the import.
 Supplying raw column metadata alone omits these semantic mappings.
 
+Structural lowering retains logical field names until the second type-resolution pass finishes.
+Physical names are emitted during final lowering, so a curated schema does not need to expose physical columns as additional logical fields.
+
 When a logical field maps to a different physical column, Trino keeps the source qualifier after rewriting the field.
 This lets a query join tables that share the physical column name while selecting the intended logical field.
 `JOIN ... USING` becomes an `ON` condition with both sources qualified, including joins between CTEs and subqueries.
@@ -93,6 +96,10 @@ The printer checks each rendered expression against a 1,000,000-character SQL li
 `arraySlice` and dynamic `range` bind their arguments once so nesting does not multiply their generated SQL.
 Scalar CTE substitution preserves resolved column bindings, including columns that share a CTE name.
 
+Arithmetic operators render each operand once and reuse its SQL after applying Trino's type conversions.
+This keeps long arithmetic chains from repeatedly registering unused bind parameters, including JSON extraction paths.
+Integer conversions also render their input only in the selected conversion path, so nested casts do not retain discarded parameters.
+
 `numbers()` uses Trino's scalar `sequence`, which supports at most 10,000 entries.
 Constant counts above this limit fail during compilation; dynamic counts are clamped to the range from zero to 10,000.
 
@@ -137,6 +144,11 @@ queries = [compiler.compile(query) for query in batch]
 
 Create a new compiler when the batch needs fresh control-plane placement or team-table mappings. The one-shot `compile_hogql_to_trino_sql(...)` API prepares and compiles in one call. Django expansion stays one-shot because its schema and semantic expansion depend on query-specific team and user state.
 
+Both managed compilation modes preserve the source query's limits and offsets in the generated SQL and diagnostic HogQL.
+They do not add an implicit row limit or cap an explicit limit at the interactive query maximum.
+For example, an unbounded query stays unbounded, and `LIMIT 75000` stays `LIMIT 75000`.
+After deploying this behavior, rerun saved-view translation for queries compiled with the implicit cap; previously stored SQL is not rewritten automatically.
+
 Pass `expansion_mode=TrinoExpansionMode.DJANGO` when a query requires actions, cohorts, saved queries, filters, variables, access-controlled warehouse discovery, or other Django-backed semantic expansion. This compatibility mode builds the full database and maps:
 
 - `events` and `persons` to the project's provisioned tables in the `posthog` schema;
@@ -172,6 +184,12 @@ Response organization strings are limited to 128 characters; non-string values l
 
 Compilation is best effort per view. Unsupported HogQL records a failed result and processing continues. A definition changed after the snapshot records a stale result. The workflow stores generated SQL and named values directly from activities so large SQL strings do not cross the Temporal workflow payload boundary. It never executes the SQL, creates Trino relations, or updates `DataWarehouseSavedQuery.query`.
 
+Each team compilation activity has a one-hour start-to-close timeout, a two-minute heartbeat timeout, and at most two attempts.
+A background thread sends heartbeats during synchronous compilation, including while one view takes longer than the heartbeat interval.
+Cancellation propagates as an activity cancellation instead of a per-view compilation failure.
+Activities check cancellation and the job's running state before each view and before recording compilation outcomes; result updates also require a running job and a pending result.
+An interrupted view remains pending for an activity retry, which resumes from pending results.
+
 The result admin can retry selected failed or stale rows. A retry creates a new selected-view job linked to the source job, preserving the original job and results as an immutable audit record.
 
 The data modeling shadow path uses these results as an eligibility gate. It requires a ready Trino target and a non-empty compiled result whose source hash matches the saved query's current definition.
@@ -187,6 +205,8 @@ expressions and numeric conditions in `if`/`multiIf` use native Trino conditiona
 Aliases inside expressions are omitted from SQL; projection aliases are retained.
 String inputs to `toInt` use `TRY_CAST`, returning NULL for strings that do not
 represent an integer. Numeric aggregate-filter conditions are cast to BOOLEAN.
+This includes conditional argument, array, and quantile aggregates and conditional window functions.
+Window quantiles use a conditional NULL input because Trino does not support `FILTER` on window functions.
 
 Additional mappings cover common mathematical functions, array transforms,
 base64 strings, maps, URLs, date arithmetic, vector operations, and statistical
@@ -251,6 +271,7 @@ Dynamic arrays receive an equal-length guard instead of Trino's NULL padding.
 The regex group functions support constant patterns with 1–20 capture groups.
 They support one-match, vertical, and horizontal result shapes.
 `regexpExtract` supports a constant pattern and an optional constant group index.
+`extractAll` returns the first capture group when present and the entire match otherwise, for both constant and dynamic patterns.
 `replaceRegexpOne` supports constant
 patterns and replacements, including numbered replacement captures. Lookarounds,
 inline flags, and pattern backreferences remain rejected for first-only replacement.

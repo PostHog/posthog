@@ -103,6 +103,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     FeatureRequestEvidenceCreateSerializer,
     FeatureRequestEvidenceDeleteSerializer,
     FeatureRequestEvidenceUpdateSerializer,
+    FeatureRequestGitHubLinkSerializerInput,
     FeatureRequestHistorySerializer,
     FeatureRequestListQuerySerializer,
     FeatureRequestProductAreaListQuerySerializer,
@@ -620,6 +621,82 @@ class FeatureRequestViewSet(
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         return self.update(request, *args, **kwargs)
 
+    @extend_schema(request=FeatureRequestGitHubLinkSerializerInput, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
+    def link_github(self, request: Request, *args, **kwargs) -> Response:
+        serializer = FeatureRequestGitHubLinkSerializerInput(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            feature_request = api.link_feature_request_github(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                input=contracts.LinkFeatureRequestGitHubInput(**serializer.validated_data),
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.GitHubLinkUnavailableError as error:
+            raise ValidationError({"issue_url": str(error)})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
+    def _set_github_sync(self, request: Request, *, enabled: bool) -> Response:
+        serializer = FeatureRequestVersionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            feature_request = api.set_feature_request_github_sync(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                expected_version=serializer.validated_data["expected_version"],
+                enabled=enabled,
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.GitHubLinkUnavailableError as error:
+            raise ValidationError({"github_link": str(error)})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
+    @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
+    def pause_github(self, request: Request, *args, **kwargs) -> Response:
+        return self._set_github_sync(request, enabled=False)
+
+    @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
+    def resume_github(self, request: Request, *args, **kwargs) -> Response:
+        return self._set_github_sync(request, enabled=True)
+
+    @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
+    def unlink_github(self, request: Request, *args, **kwargs) -> Response:
+        serializer = FeatureRequestVersionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            feature_request = api.unlink_feature_request_github(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                expected_version=serializer.validated_data["expected_version"],
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
     @extend_schema(request=FeatureRequestAddAccountSerializer, responses={200: FeatureRequestSerializer})
     @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def add_account(self, request: Request, *args, **kwargs) -> Response:
@@ -835,12 +912,12 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         responses={
             200: OpenApiResponse(
                 response=UserCustomerAnalyticsConfigSerializer,
-                description="The requesting user's account sidebar configuration.",
+                description="The requesting user's account sidebar and notification configuration.",
             )
         },
         summary="Get account sidebar configuration",
         description=(
-            "Get the requesting user's account sidebar configuration for this project. "
+            "Get the requesting user's account sidebar and task digest configuration for this project. "
             "The first read creates an empty configuration row."
         ),
     )
@@ -862,26 +939,42 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         },
         summary="Update account sidebar configuration",
         description=(
-            "Replace the requesting user's ordered account sidebar properties when pinned_properties is provided. "
-            "Omitting pinned_properties leaves the configuration unchanged. "
+            "Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, "
+            "and change the task digest email preferences when task_digest is provided. "
+            "Anything omitted keeps its current value. "
             "At most 50 account custom properties and relationships can be pinned."
         ),
     )
     def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
-        if "pinned_properties" not in request.validated_data:
-            return self.retrieve(request, *args, **kwargs)
-        pinned_properties = [
-            contracts.PinnedAccountProperty(kind=reference["kind"], id=reference["id"])
-            for reference in request.validated_data["pinned_properties"]
-        ]
-        try:
-            config = api.update_user_customer_analytics_config(
+        user_id = cast(User, request.user).id
+        config: contracts.UserCustomerAnalyticsConfig | None = None
+
+        if "pinned_properties" in request.validated_data:
+            pinned_properties = [
+                contracts.PinnedAccountProperty(kind=reference["kind"], id=reference["id"])
+                for reference in request.validated_data["pinned_properties"]
+            ]
+            try:
+                config = api.update_user_customer_analytics_config(
+                    team_id=self.team_id,
+                    user_id=user_id,
+                    pinned_properties=pinned_properties,
+                )
+            except api.InvalidPinnedAccountProperties as error:
+                raise ValidationError({"pinned_properties": error.errors})
+
+        if "task_digest" in request.validated_data:
+            task_digest = request.validated_data["task_digest"]
+            config = api.update_user_task_digest_preferences(
                 team_id=self.team_id,
-                user_id=cast(User, request.user).id,
-                pinned_properties=pinned_properties,
+                user_id=user_id,
+                enabled=task_digest.get("enabled"),
+                send_time=task_digest.get("send_time"),
+                cadence=task_digest.get("cadence"),
             )
-        except api.InvalidPinnedAccountProperties as error:
-            raise ValidationError({"pinned_properties": error.errors})
+
+        if config is None:
+            return self.retrieve(request, *args, **kwargs)
         return Response(UserCustomerAnalyticsConfigSerializer(instance=config).data)
 
 

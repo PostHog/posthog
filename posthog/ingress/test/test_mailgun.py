@@ -74,7 +74,9 @@ class TestMailgunProvider(SimpleTestCase):
         (delivery,) = provider.deliveries(request, payload, {})
         self.assertEqual(delivery.delivery_id, fields["token"])
 
-    @parameterized.expand([("inbound", "message_received"), ("outbound", "message_sent")])
+    @parameterized.expand(
+        [("inbound", "message_received"), ("outbound", "message_sent"), ("capture", "message_received")]
+    )
     def test_each_app_types_its_delivery_by_the_route_it_serves(self, app: str, event_type: str) -> None:
         request = RequestFactory().post(URL, data=urlencode(_signed_fields()), content_type=FORM_CONTENT_TYPE)
         provider = _provider(app)
@@ -101,7 +103,3 @@ class TestMailgunProvider(SimpleTestCase):
         payload = _provider().parse(request)
 
         self.assertEqual(len(payload[FILES_KEY]), MAX_FILES)
-
-    def test_an_unknown_app_is_refused_at_build(self) -> None:
-        with self.assertRaises(ValueError):
-            _provider("events")

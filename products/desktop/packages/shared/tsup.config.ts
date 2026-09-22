@@ -16,6 +16,7 @@ export default defineConfig({
     "src/product-engineer-prompt.ts",
     "src/quick-ask-shortcuts.ts",
     "src/rich-output-prompt.ts",
+    "src/task-context.ts",
     "src/types.ts",
   ],
   format: ["esm"],

@@ -63,6 +63,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
     "customer_analytics",
     "data_catalog",
+    "data_deletion",
     "dashboard",
     "early_access_feature",
     "endpoint",
@@ -193,6 +194,8 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         return "AI trace clusters"
     if resource == "external_data_source":
         return "data warehouse sources"
+    if resource == "data_deletion":
+        return "data deletion requests"
     if resource == "warehouse_objects":
         # Umbrella label for both warehouse tables and views (both children inherit from this)
         return "data warehouse tables & views"
@@ -214,6 +217,8 @@ def ordered_access_levels(resource: APIScopeObject) -> list[AccessControlLevel]:
 
 
 def default_access_level(resource: APIScopeObject) -> AccessControlLevel:
+    if resource == "data_deletion":
+        return "none"
     if resource in ["project"]:
         return "admin"
     if resource in ["organization"]:

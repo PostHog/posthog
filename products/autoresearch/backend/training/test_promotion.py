@@ -22,6 +22,7 @@ from products.autoresearch.backend.training.artifacts import ArtifactBundle, Inv
 from products.autoresearch.backend.training.promotion import PromotionError, complete_training_run
 
 ANCHORED_FEATURE_SQL = "SELECT a.person_id AS distinct_id, count() AS c FROM {anchors} a GROUP BY a.person_id"
+_DEFAULT_PARAMS = object()
 LITERAL_FEATURE_SQL = (
     "SELECT a.person_id AS distinct_id, count() AS c, 'plan upgraded' AS marker FROM {anchors} a GROUP BY a.person_id"
 )
@@ -56,15 +57,23 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
         status: str = AutoresearchIteration.Status.KEPT,
         holdout: float | None = 0.8,
         feature_sql: str = ANCHORED_FEATURE_SQL,
+        feature_transforms: list[dict[str, str]] | None = None,
         model_class: str = "sklearn.linear_model.LogisticRegression",
+        model_params: object = _DEFAULT_PARAMS,
     ) -> AutoresearchIteration:
+        recipe_snapshot: dict[str, object] = {"feature_sql": feature_sql} if feature_sql else {}
+        if feature_transforms:
+            recipe_snapshot["feature_transforms"] = feature_transforms
         return AutoresearchIteration.objects.create(
             pipeline=self.pipeline,
             training_run=run,
             iteration_number=number,
             recipe_hash=f"hash{number}",
-            recipe_snapshot={"feature_sql": feature_sql} if feature_sql else {},
-            model_spec={"model_class": model_class, "model_params": {}},
+            recipe_snapshot=recipe_snapshot,
+            model_spec={
+                "model_class": model_class,
+                "model_params": {} if model_params is _DEFAULT_PARAMS else model_params,
+            },
             holdout_score=holdout,
             status=status,
             agent_description=f"iteration {number}",
@@ -184,6 +193,14 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
             # in-process scorer resolves the class through importlib and refuses anything
             # off the allowlist, so this champion could never score.
             ("bundle_only_model_class", {"model_class": "my_package.MyClassifier"}),
+            # The in-process scorer fits on the raw columns, so a recipe whose holdout score
+            # was measured on transformed features would serve a different model.
+            ("feature_transforms", {"feature_transforms": [{"column": "c", "transform": "log1p"}]}),
+            ("string_model_params", {"model_params": "bad"}),
+            ("trailing_limit", {"feature_sql": ANCHORED_FEATURE_SQL + " LIMIT 10"}),
+            # sklearn refuses an unknown keyword only in the constructor, which inference would hit on
+            # every cadence.
+            ("unknown_model_param", {"model_params": {"unexpected": 1}}),
         ]
     )
     def test_recipe_the_legacy_scorer_cannot_run_is_refused(self, _name, iteration_kwargs):
@@ -196,6 +213,26 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
         run.refresh_from_db()
         assert run.status == AutoresearchTrainingRun.Status.RUNNING
         assert not AutoresearchModel.objects.filter(pipeline=self.pipeline).exists()
+
+    def test_overridden_nomination_drops_its_explanation(self):
+        run = self._run()
+        self._iteration(run, number=0, holdout=0.9)
+        weaker = self._iteration(run, number=1, holdout=0.7)
+
+        complete_training_run(run, best_iteration_id=weaker.id, model_explanation={"top_features": ["c"]})
+
+        champion = self._champion()
+        assert champion.source_training_run_id == run.id
+        assert champion.model_explanation == {}
+
+    def test_null_model_params_promote_with_constructor_defaults(self):
+        run = self._run()
+        self._iteration(run, number=0, holdout=0.8, model_params=None)
+
+        result = complete_training_run(run)
+
+        assert result["promoted"] is True
+        assert self._champion().model_recipe["model_params"] == {}
 
     def test_bundle_matching_the_selected_iteration_completes(self):
         run = self._run()

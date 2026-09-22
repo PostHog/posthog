@@ -61,7 +61,7 @@ import { escapeDottedHogQLIdentifier, escapePropertyAsHogQLIdentifier } from '~/
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { endpointModelUrl } from 'products/data_modeling/frontend/endpointModelName'
-import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
+import { joinsDataLogic } from 'products/data_warehouse/frontend/shared/logics/joinsDataLogic'
 import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
 import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
@@ -178,7 +178,7 @@ export const QueryDatabase = ({
         updateDataWarehouseSavedQueryFolder,
         deleteDataWarehouseSavedQuery,
     } = useActions(dataWarehouseViewsLogic)
-    const { deleteJoin } = useActions(sourceManagementLogic)
+    const { deleteJoin } = useActions(joinsDataLogic)
     const { expressionsByFieldName } = useValues(expressionModalLogic)
     const { openNewExpressionModal, openEditExpressionModal, deleteExpression } = useActions(expressionModalLogic)
     const { deleteDraft } = useActions(draftsLogic)

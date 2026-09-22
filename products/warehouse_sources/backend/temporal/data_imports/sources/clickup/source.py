@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.cl
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -112,8 +113,15 @@ The **Workspace ID** is the numeric ID in your ClickUp URL: `https://app.clickup
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Only tasks exposes an incremental field; ClickUp endpoints are all full-refresh, never append.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=ENDPOINTS)
+        # Only tasks and time entries expose a server-side timestamp filter; the rest are
+        # full-refresh, and none of them are append-only.
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=ENDPOINTS,
+            should_sync_default=SHOULD_SYNC_DEFAULTS,
+        )
 
     def validate_credentials(
         self,

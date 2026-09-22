@@ -160,6 +160,41 @@ class TestTaggersApi(APIBaseTest):
         assert "Tagger 1" in names
         assert "Tagger 2" in names
 
+    @parameterized.expand(
+        [
+            ("default", None, "-created_at"),
+            ("created_at_ascending", "created_at", "created_at"),
+        ]
+    )
+    def test_list_pages_are_stable_when_taggers_share_a_created_at(
+        self, _name: str, order_by: str | None, expected_order: str
+    ) -> None:
+        for index in range(5):
+            Tagger.objects.create(
+                name=f"Tagger {index}",
+                tagger_config=_make_tagger_config(),
+                team=self.team,
+                created_by=self.user,
+            )
+        Tagger.objects.filter(team=self.team).update(created_at="2026-01-01T00:00:00Z")
+
+        paged_ids = []
+        for offset in range(5):
+            query = {"limit": "1", "offset": str(offset)}
+            if order_by is not None:
+                query["order_by"] = order_by
+            response = self.client.get(f"/api/environments/{self.team.id}/taggers/", query)
+            assert response.status_code == status.HTTP_200_OK
+            paged_ids.append(response.data["results"][0]["id"])
+
+        expected_ids = [
+            str(tagger_id)
+            for tagger_id in Tagger.objects.filter(team=self.team)
+            .order_by(expected_order, "id")
+            .values_list("id", flat=True)
+        ]
+        assert paged_ids == expected_ids
+
     def test_can_get_single_tagger(self):
         tagger = Tagger.objects.create(
             name="Test Tagger",

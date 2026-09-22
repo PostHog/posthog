@@ -77,6 +77,36 @@ describe('EditSubscription unsaved changes', () => {
 
     afterEach(() => cleanup())
 
+    it('shows a missing-subscription message after its request fails', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': () => [404, { detail: 'Not found' }],
+                '/api/environments/:team/subscriptions': { count: 0, results: [] },
+                '/api/projects/:team/subscriptions/1/deliveries/': { next: null, previous: null, results: [] },
+                '/api/projects/:team/integrations': { count: 0, results: [] },
+                '/api/projects/:team/integrations/:intId/channels': { channels: [] },
+                '/api/environments/:team/subscriptions/summary_quota': {
+                    active_count: 0,
+                    limit: null,
+                    at_limit: false,
+                },
+                '/api/organizations/@current/': MOCK_DEFAULT_ORGANIZATION,
+                '/api/organizations/@current/members/': { count: 0, results: [] },
+            },
+        })
+        initKeaTests()
+        userLogic.mount()
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+
+        render(
+            <Provider>
+                <EditSubscription id={1} dashboard={DASHBOARD} onCancel={jest.fn()} onDelete={jest.fn()} />
+            </Provider>
+        )
+
+        expect(await screen.findByText('Not found')).toBeInTheDocument()
+    })
+
     it.each([
         [
             'an email destination',

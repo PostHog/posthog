@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { FeatureFlagKey } from 'lib/constants'
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { objectsEqual } from 'lib/utils/objects'
@@ -84,6 +84,20 @@ export interface CatalogItem {
     selfManaged?: boolean
     /** The sources most people connect (Stripe, Postgres, the ad platforms, ...). Led with when browsing. */
     featured?: boolean
+}
+
+// PostHog's own webhook endpoint isn't a warehouse connector, so it never reaches this catalog
+// through `availableSources` — but it's where people look for one, and the only other entry point
+// is the sources list. Gated on the same preview flag as that list's section.
+const EVENT_WEBHOOK_CATALOG_ITEM: CatalogItem = {
+    name: 'event-webhook',
+    label: 'Incoming webhook',
+    iconType: 'PostHog',
+    category: 'Engineering & monitoring',
+    keywords: ['webhook', 'webhooks', 'http', 'https', 'endpoint', 'events', 'incoming', 'custom', 'real time'],
+    status: 'stable',
+    releaseStatus: 'alpha',
+    url: urls.hogFunctionNew('template-source-webhook'),
 }
 
 export interface CatalogCategory {
@@ -170,6 +184,29 @@ export type sourceCatalogLogicType = MakeLogicType<
     SourceCatalogLogicProps,
     sourceCatalogLogicMeta
 >
+
+// Fuse matches the whole search term as one pattern, so an extra word buries a term that would
+// match on its own: "csv" finds every file-storage connector, "csv files" finds nothing. Retry the
+// individual words when the whole term matches nothing, ranking an item by how many words it
+// matches, so a term that already works keeps its relevance order untouched.
+function searchCatalog(catalogFuse: Fuse, term: string): CatalogItem[] {
+    const whole = catalogFuse.search(term).map((r) => r.item)
+    // Capped: the retry costs one index lookup per word and runs on every keystroke.
+    const words = term
+        .split(/\s+/)
+        .filter((word) => word.length > 1)
+        .slice(0, 5)
+    if (whole.length > 0 || words.length < 2) {
+        return whole
+    }
+    const matchCounts = new Map<CatalogItem, number>()
+    for (const word of words) {
+        for (const { item } of catalogFuse.search(word)) {
+            matchCounts.set(item, (matchCounts.get(item) ?? 0) + 1)
+        }
+    }
+    return [...matchCounts.keys()].sort((a, b) => (matchCounts.get(b) ?? 0) - (matchCounts.get(a) ?? 0))
+}
 
 export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
     path(['products', 'dataWarehouse', 'sourceCatalogLogic']),
@@ -305,7 +342,12 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     })
                 )
 
-                return [...managed, ...selfManaged, ...fileUpload]
+                // `allowedSources` restricts the catalog to warehouse connectors, so the webhook
+                // source has no place in it.
+                const eventWebhook =
+                    !allowedSources && featureFlags[FEATURE_FLAGS.CDP_HOG_SOURCES] ? [EVENT_WEBHOOK_CATALOG_ITEM] : []
+
+                return [...managed, ...selfManaged, ...fileUpload, ...eventWebhook]
             },
             // featureFlags is a broad dependency that changes identity on every flag refresh;
             // keeping the previous array when the derived catalog is unchanged stops the Fuse
@@ -355,7 +397,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 selectedCategory: SourceCategoryFilter
             ): CatalogItem[] => {
                 const trimmed = search.trim()
-                const base = trimmed ? catalogFuse.search(trimmed).map((r) => r.item) : catalogItems
+                const base = trimmed ? searchCatalog(catalogFuse, trimmed) : catalogItems
                 const filtered =
                     selectedCategory === ALL_SOURCES_CATEGORY
                         ? base
@@ -399,9 +441,9 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 if (!trimmed || selectedCategory === ALL_SOURCES_CATEGORY) {
                     return false
                 }
-                return catalogFuse
-                    .search(trimmed)
-                    .some((r) => r.item.status !== 'coming_soon' && r.item.category !== selectedCategory)
+                return searchCatalog(catalogFuse, trimmed).some(
+                    (item) => item.status !== 'coming_soon' && item.category !== selectedCategory
+                )
             },
         ],
     }),

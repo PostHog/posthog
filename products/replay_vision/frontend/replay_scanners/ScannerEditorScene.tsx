@@ -23,6 +23,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -55,14 +56,13 @@ import { replayScannerLogic } from './replayScannerLogic'
 import {
     SCANNER_EDITOR_STEPS,
     SCANNER_EDITOR_STEP_ORDER,
+    SCANNER_STEPPER_STEPS,
     STEP_LABELS,
     ScannerEditorStep,
     UNVALIDATED_SCANNER_STEPS,
-    scannerStepErrors,
     scannerEditorSceneLogic,
     scannerStepUrlWithParams,
 } from './scannerEditorSceneLogic'
-import { ScannerEditorStepper } from './ScannerEditorStepper'
 import { scannerSelfDrivingStatsLogic } from './scannerSelfDrivingStatsLogic'
 import { SCANNER_TYPE_OPTIONS, getModelOptions, modelNamingVariant } from './types'
 
@@ -121,15 +121,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, scannerEditorSceneLogic)
 
-    const {
-        scanner,
-        scannerLoading,
-        isScannerSubmitting,
-        scannerValidationErrors,
-        showScannerErrors,
-        durationValidationError,
-        experimentContext,
-    } = useValues(scannerLogic)
+    const { scanner, scannerLoading, isScannerSubmitting, stepErrors, experimentContext } = useValues(scannerLogic)
     const { submitScanner } = useActions(scannerLogic)
 
     // An experiment cross-sell entry point has already said what to watch and deep-linked the
@@ -148,10 +140,6 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     }
 
     const title = isNew ? scanner?.name || 'New scanner' : scanner?.name || 'Scanner'
-
-    const stepErrors = showScannerErrors
-        ? scannerStepErrors({ ...scannerValidationErrors, duration: durationValidationError })
-        : undefined
 
     // Validate the current step and move on: submit routes to the next step on success. A step with
     // nothing to validate navigates straight on, so it can't fail on fields the user hasn't reached.
@@ -191,9 +179,9 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                         actions={<ReplayVisionFeedbackButton />}
                     />
                     {showGoalEntry || step === 'overview' || fromOverview ? null : (
-                        <ScannerEditorStepper
+                        <GuidedWizardStepper
+                            steps={SCANNER_STEPPER_STEPS}
                             currentStep={step}
-                            steps={SCANNER_EDITOR_STEPS}
                             onStepClick={goToStep}
                             stepErrors={stepErrors}
                             disabledSteps={
@@ -201,6 +189,8 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                     ? undefined
                                     : { template: 'A saved scanner keeps the template it was created from' }
                             }
+                            className="flex-wrap justify-center gap-y-1"
+                            aria-label="Scanner editor progress"
                         />
                     )}
                     {step === 'template' ? (

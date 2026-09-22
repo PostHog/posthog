@@ -717,6 +717,14 @@ CACHES["cohort_dependencies"] = {
     "LOCATION": REDIS_URL,
 }
 
+# The inbound webhook dedup lease must read what it wrote: the fence in `release()` compares a
+# holder token against the value the primary holds, and a replica that still serves the previous
+# token would let a run delete a mark a newer run owns.
+CACHES["ingress_dedup"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Dedicated cache for the feature flags service (if configured)
 # Django only writes to this cache (never reads), so no reader URL needed
 if FLAGS_REDIS_URL:
@@ -781,6 +789,7 @@ if TEST:
     CACHES["query_cache"] = CACHES["default"]
     CACHES["organization_access"] = CACHES["default"]
     CACHES["cohort_dependencies"] = CACHES["default"]
+    CACHES["ingress_dedup"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

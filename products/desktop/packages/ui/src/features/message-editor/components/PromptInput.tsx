@@ -480,10 +480,14 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
     // only what you are writing plus the send button. Mirrors the addons' own
     // flex/gap/padding so the row keeps their spacing and left inset, and
     // carries the muted colour the addons would have supplied.
+    // `@container/composer` lets the controls shorten their own labels when a
+    // narrow host such as the canvas side panel cannot fit them whole. Wrapping
+    // is what happens after that, because the host clips the overflow instead
+    // of scrolling it, so a clipped control would be unreachable.
     const toolbar = (!hideDefaultToolbar ||
       toolbarEndSlot ||
       messagingModeToggle) && (
-      <div className="flex select-none items-center gap-1 whitespace-nowrap px-1 text-muted-foreground">
+      <div className="@container/composer flex select-none flex-wrap items-center gap-1 whitespace-nowrap px-1 text-muted-foreground">
         {!hideDefaultToolbar && (
           <>
             <AttachmentMenu
@@ -524,7 +528,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
             )}
           </>
         )}
-        <span className="ml-auto flex items-center gap-1">
+        <span className="ml-auto flex flex-wrap items-center justify-end gap-1">
           {toolbarEndSlot}
           {!hideDefaultToolbar && historyButton}
           {messagingModeToggle}

@@ -51,7 +51,7 @@ from posthog.models.organization import BillingPeriod
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.enums import SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalReportRefund, SignalReportTask, SignalScoutRun
-from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_origin
+from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_is_proven_canonical
 from products.skills.backend.models.skills import LLMSkill
 
 if TYPE_CHECKING:
@@ -126,11 +126,11 @@ def _scout_skill_is_canonical(team_id: int, skill_name: str) -> bool:
 
     `skill_name` alone doesn't attest PostHog-system origin: a team can edit a seeded scout in
     place and the diverged row keeps its canonical name, which would let a repurposed fork mint
-    permanent exemptions. `scout_skill_row_origin` settles it by content hash against the
-    fingerprint stamped at seed time. Fails closed — no row, no proof → billable.
+    permanent exemptions. `scout_skill_row_is_proven_canonical` settles it by content hash against
+    the fingerprint stamped at seed time. Fails closed — no row, no hash, no match → billable.
     """
     skill = LLMSkill.objects.filter(team_id=team_id, name=skill_name, deleted=False, is_latest=True).first()
-    return skill is not None and scout_skill_row_origin(skill) == "canonical"
+    return skill is not None and scout_skill_row_is_proven_canonical(skill)
 
 
 def system_billing_exempt_reason(team_id: int, report_id: str | uuid.UUID) -> str | None:

@@ -3,6 +3,8 @@ from dataclasses import dataclass, field
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField
 
 # Cortex is a single global SaaS deployment (no regional hosts, no per-tenant subdomain).
@@ -12,7 +14,7 @@ CORTEX_BASE_URL = "https://api.getcortexapp.com/api/v1"
 DEFAULT_PAGE_SIZE = 250
 
 
-@dataclass
+@dataclass(frozen=True)
 class CortexEndpointConfig:
     name: str
     path: str
@@ -29,11 +31,30 @@ class CortexEndpointConfig:
     # Stable creation-time field to partition by. Left None for endpoints with no such field
     # (never a mutable field like lastUpdated/lastEvaluated).
     partition_key: str | None = None
-    # Cortex's documented list endpoints expose no updated-since/created-since filter, so every
-    # endpoint is full-refresh only.
+    # Only the per-entity custom event stream documents a server-side time filter (`startTime`);
+    # every other Cortex list endpoint is full-refresh only.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     default_incremental_field: str | None = None
+    # Rows from a fan-out arrive grouped per parent, so the run only knows its true high-water
+    # mark once every parent has been walked. "desc" is what defers the watermark commit to the
+    # end of the run; committing per batch would skip history for parents not yet visited.
+    sort_mode: SortMode = "asc"
     fanout: DependentEndpointConfig | None = None
+
+
+def _entity_fanout(resolve_param: str, parent_field_renames: dict[str, str]) -> DependentEndpointConfig:
+    """Fan out over the catalog, binding each entity to a per-entity child path.
+
+    Resolves on `tag_encoded` rather than `tag`: Cortex entity tags may contain forward slashes,
+    which have to be percent-encoded to address the entity (see `_encode_entity_tag` in cortex.py).
+    """
+    return DependentEndpointConfig(
+        parent_name="entities",
+        resolve_param=resolve_param,
+        resolve_field="tag_encoded",
+        include_from_parent=list(parent_field_renames),
+        parent_field_renames=parent_field_renames,
+    )
 
 
 CORTEX_ENDPOINTS: dict[str, CortexEndpointConfig] = {
@@ -109,6 +130,62 @@ CORTEX_ENDPOINTS: dict[str, CortexEndpointConfig] = {
             resolve_field="tag",
             include_from_parent=["tag"],
             parent_field_renames={"tag": "relationship_type_tag"},
+        ),
+    ),
+    "users": CortexEndpointConfig(
+        name="users",
+        path="/users",
+        data_selector="users",
+        # The API exposes no user id; email is the documented unique handle for a workspace user.
+        primary_key=["email"],
+        total_path="totalPages",
+        partition_key="joinedAt",
+    ),
+    # Fans out over every entity and pulls its custom event stream (incidents, migrations,
+    # releases). `startTime` filters server-side on the event timestamp, so this is the one
+    # Cortex endpoint that can sync incrementally.
+    "custom_events": CortexEndpointConfig(
+        name="custom_events",
+        path="/catalog/{tagOrId}/custom-events",
+        data_selector="events",
+        primary_key=["entity_id", "uuid"],
+        total_path="totalPages",
+        partition_key="timestamp",
+        incremental_fields=[incremental_field("timestamp")],
+        default_incremental_field="timestamp",
+        sort_mode="desc",
+        fanout=_entity_fanout("tagOrId", {"tag": "entity_tag", "id": "entity_id"}),
+    ),
+    # Fans out over every entity and pulls its deployment events. The tenant-wide
+    # `/deploys/search` endpoint returns the same rows without the entity they belong to, so
+    # deploy frequency per entity has to come from the per-entity path.
+    "deploys": CortexEndpointConfig(
+        name="deploys",
+        path="/catalog/{tagOrId}/deploys",
+        data_selector="deployments",
+        primary_key=["entity_id", "uuid"],
+        total_path="totalPages",
+        partition_key="timestamp",
+        fanout=_entity_fanout("tagOrId", {"tag": "entity_tag", "id": "entity_id"}),
+    ),
+    # Fans out over every entity and pulls the dependency edges it calls. Each edge is
+    # identified by the caller, the callee and the optional endpoint it depends on, and the row
+    # carries its own `callerTag`, so the parent identifier is already part of the key.
+    "dependencies": CortexEndpointConfig(
+        name="dependencies",
+        path="/catalog/{callerTag}/dependencies",
+        data_selector="dependencies",
+        primary_key=["callerTag", "calleeTag", "method", "path"],
+        total_path="totalPages",
+        fanout=DependentEndpointConfig(
+            parent_name="entities",
+            resolve_param="callerTag",
+            resolve_field="tag_encoded",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "caller_entity_id"},
+            # Outgoing only: an edge is listed by both of its endpoints, so including incoming
+            # edges would fetch every edge twice under two different callers.
+            child_params={"includeOutgoing": "true", "includeIncoming": "false"},
         ),
     ),
 }

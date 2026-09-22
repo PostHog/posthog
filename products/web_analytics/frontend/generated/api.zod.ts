@@ -9,6 +9,25 @@
  */
 import * as zod from 'zod'
 
+export const heatmapCaptureSettingsUpdateBodyUrlAllowlistItemMax = 2000
+
+export const heatmapCaptureSettingsUpdateBodyUrlAllowlistMax = 100
+
+export const HeatmapCaptureSettingsUpdateBody = /* @__PURE__ */ zod.object({
+    capture_mode: zod
+        .enum(['all', 'url_allowlist'])
+        .describe('\* `all` - All URLs\n\* `url_allowlist` - Only listed URLs')
+        .optional()
+        .describe(
+            "Whether to capture heatmap data from every page ('all') or only listed URLs ('url_allowlist').\n\n\* `all` - All URLs\n\* `url_allowlist` - Only listed URLs"
+        ),
+    url_allowlist: zod
+        .array(zod.string().max(heatmapCaptureSettingsUpdateBodyUrlAllowlistItemMax))
+        .max(heatmapCaptureSettingsUpdateBodyUrlAllowlistMax)
+        .optional()
+        .describe('Full http(s) URLs that may send heatmap data. Use \* to match any characters.'),
+})
+
 export const heatmapScreenshotSettingsUpdateBodyAllowedHostnamesItemMax = 253
 
 export const heatmapScreenshotSettingsUpdateBodyAllowedHostnamesMax = 100

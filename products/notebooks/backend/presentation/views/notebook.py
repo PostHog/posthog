@@ -845,6 +845,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 input_candidates,
                 self._authorize_widget_run,
                 node_id=node_id,
+                skip_unready=True,
             )
             result = start_widget_generation(
                 notebook=notebook,

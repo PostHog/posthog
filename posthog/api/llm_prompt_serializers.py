@@ -658,6 +658,18 @@ class LLMPromptLabelSerializer(serializers.ModelSerializer):
         return instance.prompt.version
 
 
+class LLMPromptReferencedBySerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Prompt whose latest or labeled version references this prompt.")
+    label = serializers.CharField(  # type: ignore[assignment]
+        allow_null=True,
+        help_text="Label of this prompt the reference follows, or null when it pins a version.",
+    )
+    version = serializers.IntegerField(
+        allow_null=True,
+        help_text="Version of this prompt the reference pins, or null when it follows a label.",
+    )
+
+
 class LLMPromptResolveResponseSerializer(serializers.Serializer):
     prompt = LLMPromptSerializer()
     versions = LLMPromptVersionSummarySerializer(many=True)
@@ -665,4 +677,12 @@ class LLMPromptResolveResponseSerializer(serializers.Serializer):
     labels = LLMPromptLabelSerializer(
         many=True,
         help_text="All labels on this prompt with the version each one currently points to, across all versions (not just the returned page).",
+    )
+    referenced_by = LLMPromptReferencedBySerializer(
+        many=True,
+        help_text=(
+            "Prompts whose latest or labeled version references this prompt, with the label or version "
+            "each reference uses. Empty when nothing references this prompt. At most 100 entries, "
+            "ordered by prompt name."
+        ),
     )

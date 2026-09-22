@@ -69,12 +69,19 @@ describe('viewLinkLogic', () => {
 
         validateHandler.mockReturnValue([
             200,
-            { is_valid: true, msg: 'Validation query returned no results', hogql: null, results: [] },
+            {
+                is_valid: true,
+                msg: 'None of the sampled rows matched on these keys. Check that both key columns hold the same values, then validate again.',
+                hogql: null,
+                results: [],
+            },
         ])
         logic.actions.setViewLinkValue('joining_table_key', 'id')
         await expectLogic(logic).toDispatchActions(['validateJoinSuccess'])
         expect(logic.values.saveDisabledReason).toBeNull()
-        expect(logic.values.joinValidation.msg).toBe('Validation query returned no results')
+        expect(logic.values.joinValidation.msg).toBe(
+            'None of the sampled rows matched on these keys. Check that both key columns hold the same values, then validate again.'
+        )
     })
 
     it('buckets tables into picker groups and keeps unknown types reachable', async () => {

@@ -121,6 +121,17 @@ SHOPIFY_STORE_NOT_FOUND_ERROR = (
 # The field name varies, so the match anchors on the stable leading phrase.
 SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR = "Access denied for"
 
+# Shopify's Protected Customer Data restriction — an app can only read PII fields (customer
+# names, addresses, emails, phone numbers) when the store's plan grants that access, regardless
+# of the token's granted scopes. The plan can't change on retry, so
+# `ShopifySource.get_non_retryable_errors` matches this substring to fail the job fast. The
+# object name and the docs URL vary per request, so the match anchors on the stable sentence
+# in between.
+SHOPIFY_GRAPHQL_PII_PLAN_RESTRICTED_ERROR = (
+    "Access to personally identifiable information (PII) like customer names, addresses, "
+    "emails, phone numbers is only available on Shopify, Advanced, and Plus plans"
+)
+
 # Shopify's Admin API returns 402 Payment Required when the store is frozen for an unpaid
 # bill — the shop owner must settle their outstanding Shopify balance to unfreeze the store,
 # so retrying the import cannot recover. `requests.raise_for_status` renders this as

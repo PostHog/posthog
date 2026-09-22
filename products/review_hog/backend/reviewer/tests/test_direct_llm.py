@@ -44,11 +44,12 @@ async def test_oneshot_call_pins_model_effort_schema_and_stage() -> None:
     parsed = IssueDeduplication(duplicates=[])
     mock_parse = AsyncMock(return_value=MagicMock(parsed_output=parsed))
 
-    with patch(f"{_MODULE}.get_async_anthropic_gateway_client", return_value=_mock_client(mock_parse)) as mock_get:
+    with patch(f"{_MODULE}.build_async_anthropic_client", return_value=_mock_client(mock_parse)) as mock_get:
         result = await _call()
 
     assert result is parsed
     assert mock_get.call_args.kwargs["product"] == "review_hog"
+    assert mock_get.call_args.kwargs["ai_product"] == "review_hog"
     assert mock_get.call_args.kwargs["team_id"] == 1
     kwargs = mock_parse.call_args.kwargs
     assert kwargs["model"] == ONESHOT_MODEL
@@ -74,7 +75,7 @@ async def test_api_errors_map_to_temporal_retryability(status: int, non_retryabl
     mock_parse = AsyncMock(side_effect=_api_error(status))
 
     with (
-        patch(f"{_MODULE}.get_async_anthropic_gateway_client", return_value=_mock_client(mock_parse)),
+        patch(f"{_MODULE}.build_async_anthropic_client", return_value=_mock_client(mock_parse)),
         pytest.raises(ApplicationError) as exc_info,
     ):
         await _call()
@@ -96,7 +97,7 @@ async def test_no_parseable_output_retryability_branches_on_stop_reason(stop_rea
     mock_parse = AsyncMock(return_value=MagicMock(parsed_output=None, stop_reason=stop_reason))
 
     with (
-        patch(f"{_MODULE}.get_async_anthropic_gateway_client", return_value=_mock_client(mock_parse)),
+        patch(f"{_MODULE}.build_async_anthropic_client", return_value=_mock_client(mock_parse)),
         pytest.raises(ApplicationError) as exc_info,
     ):
         await _call()
@@ -122,10 +123,21 @@ async def test_truncated_json_validation_error_becomes_a_compact_application_err
     mock_parse = AsyncMock(side_effect=_validation_error())
 
     with (
-        patch(f"{_MODULE}.get_async_anthropic_gateway_client", return_value=_mock_client(mock_parse)),
+        patch(f"{_MODULE}.build_async_anthropic_client", return_value=_mock_client(mock_parse)),
         pytest.raises(ApplicationError) as exc_info,
     ):
         await _call()
 
     assert exc_info.value.non_retryable is False
     assert "dedup" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_stage_labels_both_gateway_dialects() -> None:
+    mock_parse = AsyncMock(return_value=MagicMock(parsed_output=IssueDeduplication(duplicates=[])))
+
+    with patch(f"{_MODULE}.build_async_anthropic_client", return_value=_mock_client(mock_parse)) as mock_get:
+        await _call()
+
+    assert mock_get.call_args.kwargs["ai_stage"] == "dedup"
+    assert mock_parse.call_args.kwargs["extra_headers"] == {"x-posthog-property-ai_stage": "dedup"}

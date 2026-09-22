@@ -514,21 +514,40 @@ class QueryDateRangeWithIntervals(QueryDateRange):
         return cast(timedelta, PERIOD_MAP[period.lower()]) * interval
 
     @cached_property
-    def intervals_between(self):
+    def intervals_between(self) -> int:
         """
         Number of intervals between date_from and date_to
         """
         assert self._interval
 
         date_from = self.date_from()
+        date_to = self.date_to()
         delta = PERIOD_MAP[self._interval.lower()]
 
-        intervals = 0
-        while date_from < self.date_to():
-            date_from = date_from + delta
+        # Counted from the span instead of by stepping, because `dateRange` comes from the request: an hourly
+        # grain over a century would walk a million datetimes to arrive at a number. The estimate can miss by
+        # one interval around a daylight saving change, so it is corrected against the comparison it replaces.
+        intervals = self._estimated_intervals_between(date_from, date_to)
+        while date_from + delta * intervals < date_to:
             intervals += 1
+        while intervals > 0 and date_from + delta * (intervals - 1) >= date_to:
+            intervals -= 1
 
         return intervals
+
+    def _estimated_intervals_between(self, date_from: datetime, date_to: datetime) -> int:
+        assert self._interval
+
+        period = PERIOD_MAP[self._interval.lower()]
+        if isinstance(period, relativedelta):
+            months_per_interval = period.years * 12 + period.months
+            months_apart = (date_to.year - date_from.year) * 12 + date_to.month - date_from.month
+            return max(months_apart // months_per_interval, 0)
+
+        # Local time, not elapsed time, because adding a timedelta to an aware datetime moves the local clock
+        # by that amount whether or not a daylight saving change falls inside the step.
+        span = date_to.replace(tzinfo=None) - date_from.replace(tzinfo=None)
+        return max(span // period, 0)
 
     def date_from(self) -> datetime:
         assert self._interval

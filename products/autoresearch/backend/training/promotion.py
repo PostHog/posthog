@@ -25,7 +25,12 @@ from posthog.hogql.visitor import clear_locations
 
 from posthog.models.scoping import team_scope
 
-from products.autoresearch.backend.inference.sandbox import fit_champion_model
+from products.autoresearch.backend.inference.sandbox import (
+    SandboxInferenceError,
+    fit_champion_model,
+    validate_runnable_feature_sql,
+)
+from products.autoresearch.backend.inference.scoring import check_recipe_estimator
 from products.autoresearch.backend.models import (
     AutoresearchIteration,
     AutoresearchModel,
@@ -112,9 +117,10 @@ def _build_recipe(iteration: AutoresearchIteration, *, trained_on: date) -> dict
     spec = iteration.model_spec or {}
     return {
         "feature_sql": snapshot.get("feature_sql", ""),
-        "feature_transforms": snapshot.get("feature_transforms", []),
+        "feature_transforms": snapshot.get("feature_transforms") or [],
         "model_class": spec.get("model_class", "sklearn.linear_model.LogisticRegression"),
-        "model_params": spec.get("model_params", {}),
+        # Recording accepts an absent or null model_params; both mean the constructor defaults.
+        "model_params": spec.get("model_params") or {},
         "fit_signature": (iteration.recipe_hash or "")[:16],
         "trained_on": trained_on.isoformat(),
         "holdout_score": iteration.holdout_score or 0.0,
@@ -230,7 +236,26 @@ def _require_legacy_recipe_is_runnable(recipe: dict[str, Any]) -> None:
             "iteration recorded no feature_sql for the legacy scoring path."
         )
     try:
+        # Scoring runs the feature SQL as the top-level query and refuses a trailing LIMIT,
+        # OFFSET or SETTINGS, so a champion that would fail every cadence is refused here.
+        validate_runnable_feature_sql(str(recipe["feature_sql"]), source="feature_sql")
+    except SandboxInferenceError as exc:
+        raise PromotionError(f"Cannot persist a model on the legacy scoring path: {exc}") from exc
+    if recipe.get("feature_transforms"):
+        # The in-process scorer fits on the raw feature_sql columns and never applies the
+        # transforms, so the served model would not be the one the holdout score describes.
+        raise PromotionError(
+            "Cannot persist a model on the legacy scoring path: it does not apply feature_transforms, "
+            "so a recipe that needs them must ship as an uploaded bundle."
+        )
+    if not isinstance(recipe.get("model_params"), dict):
+        raise PromotionError(
+            "Cannot persist a model on the legacy scoring path: model_params must be a JSON object, "
+            "because the in-process scorer expands it into the estimator's constructor."
+        )
+    try:
         validate_model_class(str(recipe["model_class"]))
+        check_recipe_estimator(recipe)
     except RecipeValidationError as exc:
         raise PromotionError(f"Cannot persist a model on the legacy scoring path: {exc}") from exc
 
@@ -370,6 +395,9 @@ def _finalize_under_lock(
         raise PromotionError("Agent recorded no iterations, so there is nothing to complete.")
 
     best = _select_best_iteration(training_run, best_iteration_id)
+    if best_iteration_id is not None and best.id != best_iteration_id:
+        # The explanation describes the nominated recipe, not the one the ranking selected.
+        model_explanation = {}
 
     # If the agent uploaded a runnable bundle, the champion's artifact is that bundle
     # (inference runs train.py/predict.py in a sandbox).

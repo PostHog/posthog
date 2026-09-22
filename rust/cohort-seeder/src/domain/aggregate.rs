@@ -31,6 +31,9 @@ pub struct RecordStats {
     pub non_matched: u32,
     pub unknown_functions: u32,
     pub vm_failures: VmFailureCounts,
+    /// Conditions the person path decided from the run's cached vacuous verdict rather than by
+    /// running the VM. Always zero on the behavioral path.
+    pub shortcut_evaluations: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

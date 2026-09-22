@@ -91,7 +91,7 @@ Memory is a continuous activity. Write a scratchpad entry whenever you observe s
 
 - key `pattern:error_tracking:baseline` — _"Project's normal `$exception` baseline: ~50/day across ~30 distinct users. Anything materially above that is fresh."_
 - key `dedupe:error_tracking:019de34e` — _"Issue 019de34e — surfaced 2026-05-01 11:31–13:22Z, then quiet. If quiet next run, treat as already-surfaced; if firing, escalate."_
-- key `noise:error_tracking:sandbox-timeoutexpired` — _"Sandbox `TimeoutExpired` Docker errors are recurring noise on this team — internal harness ops, not user-facing."_
+- key `noise:error_tracking:ci-runner-timeoutexpired` — _"`TimeoutExpired` raised by the team's own CI runner is recurring noise — internal tooling, not user-facing."_
 - key `pattern:error_tracking:fetch_signals_for_report_activity` — _"Server activity `fetch_signals_for_report_activity` was a regression source on 2026-05-01 — if it appears in a fresh stack trace, double-check it's not the same root cause."_
 - key `report:error_tracking:019de34e` — the `report_id` of a report you authored for issue `019de34e`, so the next run edits it (`append_evidence` with the fresh window) instead of duplicating.
 - key `reviewer:error_tracking:ingestion` — a resolved owner (bare lowercase GitHub login) for a service / module / activity area, so reports route to a human faster.
@@ -116,7 +116,6 @@ Sibling courtesy: raw log-line rate/level shifts belong to the logs scout; LLM `
 ## Disqualifiers (skip these)
 
 - **Single user, single session, single occurrence** — almost always a personal browser quirk. Confirmed via low `count` AND low `distinct_users`.
-- **Sandbox-internal exceptions** — KEA store-path errors, Docker `TimeoutExpired`, `agentsh` failures. Internal harness operations, not user-facing.
 - **Known upstream provider errors** — Anthropic / OpenAI rate limits, third-party API outages already covered by past memory. Skip unless volume / shape changes meaningfully.
 
 When in doubt, write a memory entry instead of filing a report.

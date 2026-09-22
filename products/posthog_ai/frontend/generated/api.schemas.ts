@@ -372,7 +372,7 @@ export interface ConversationApi {
     readonly has_unsupported_content: boolean
     /** @nullable */
     readonly agent_mode: string | null
-    /** Runtime that owns this conversation. 'langgraph' conversations return their messages in the `messages` field; born-'sandbox' conversations return an empty `messages` array and load history from the products/tasks logs endpoint. A converted conversation is 'sandbox' but still returns its legacy thread in `messages`.
+    /** Runtime that owns this conversation. 'langgraph' conversations return their messages in the `messages` field. 'sandbox' conversations return an empty `messages` array and load history from the products/tasks logs endpoint; a conversation copied into a task carries its legacy thread in that task's import run. Only a conversion that predates the copy still returns its legacy thread in `messages`.
      *
      * * `langgraph` - LangGraph
      * * `sandbox` - Sandbox */
@@ -443,7 +443,7 @@ export interface PatchedConversationApi {
     readonly has_unsupported_content?: boolean
     /** @nullable */
     readonly agent_mode?: string | null
-    /** Runtime that owns this conversation. 'langgraph' conversations return their messages in the `messages` field; born-'sandbox' conversations return an empty `messages` array and load history from the products/tasks logs endpoint. A converted conversation is 'sandbox' but still returns its legacy thread in `messages`.
+    /** Runtime that owns this conversation. 'langgraph' conversations return their messages in the `messages` field. 'sandbox' conversations return an empty `messages` array and load history from the products/tasks logs endpoint; a conversation copied into a task carries its legacy thread in that task's import run. Only a conversion that predates the copy still returns its legacy thread in `messages`.
      *
      * * `langgraph` - LangGraph
      * * `sandbox` - Sandbox */
@@ -464,6 +464,7 @@ export interface PatchedConversationApi {
  * * `evaluation` - evaluation
  * * `event` - event
  * * `insight` - insight
+ * * `instructions` - instructions
  * * `notebook` - notebook
  * * `text` - text
  */
@@ -477,6 +478,7 @@ export const SandboxAttachedContextItemTypeEnumApi = {
     Evaluation: 'evaluation',
     Event: 'event',
     Insight: 'insight',
+    Instructions: 'instructions',
     Notebook: 'notebook',
     Text: 'text',
 } as const
@@ -489,7 +491,7 @@ export const SandboxAttachedContextItemTypeEnumApi = {
  * the live path wraps context client-side (`products/posthog_ai/frontend/utils/posthogContextBlock.ts`).
  */
 export interface SandboxAttachedContextItemApi {
-    /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.
+    /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` and `instructions` carry `value`. `instructions` is the caller's own guidance and renders into the trusted context block; every other kind renders into the untrusted block, which tells the agent to read it as data.
      *
      * * `action` - action
      * * `dashboard` - dashboard
@@ -497,6 +499,7 @@ export interface SandboxAttachedContextItemApi {
      * * `evaluation` - evaluation
      * * `event` - event
      * * `insight` - insight
+     * * `instructions` - instructions
      * * `notebook` - notebook
      * * `text` - text */
     type: SandboxAttachedContextItemTypeEnumApi
@@ -504,7 +507,7 @@ export interface SandboxAttachedContextItemApi {
     id?: unknown
     /** Optional human-readable label rendered in the context block. */
     name?: string
-    /** Free-text content. Only for `text` attachments. */
+    /** Free-text content. Only for `text` and `instructions` attachments. */
     value?: string
 }
 

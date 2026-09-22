@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
@@ -730,4 +730,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             }
         },
     })),
+    afterMount(() => {
+        dashboardsModel.actions.loadDashboardsIfNeeded()
+    }),
 ])

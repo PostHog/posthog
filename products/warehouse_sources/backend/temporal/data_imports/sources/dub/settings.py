@@ -93,3 +93,8 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 # /payouts needs a Business partner-program plan, and /partners + /commissions require a
 # partner program. Used by get_endpoint_permissions to surface per-table reachability.
 PLAN_GATED_ENDPOINTS = ("click_events", "lead_events", "sale_events", "partners", "commissions", "payouts")
+
+# These three resolve the workspace's default partner program before they read anything, so a
+# workspace without Dub Partners gets 404 not_found on the list endpoint itself rather than a
+# plan error. Their paths are static and always valid, so a 404 here can only mean "no program".
+PARTNER_PROGRAM_ENDPOINTS = ("partners", "commissions", "payouts")

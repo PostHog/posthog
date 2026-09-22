@@ -2,17 +2,17 @@ import type { HookCallback, HookInput } from "@anthropic-ai/claude-agent-sdk";
 import {
   enrichFileForAgent,
   type FileEnrichmentDeps,
-} from "../../enrichment/file-enricher";
+} from "@posthog/harness/extensions/enrichment";
+import { SIGNED_COMMIT_QUALIFIED_TOOL_NAME } from "@posthog/harness/extensions/local-tools";
 import {
   extractPostHogSubTool,
   isPostHogExecTool,
   matchesPostHogExecPermission,
-} from "../../posthog-exec-permission";
+} from "@posthog/harness/extensions/posthog-mcp-policy";
+import { gitSubcommand } from "@posthog/harness/extensions/rtk";
 import type { Logger } from "../../utils/logger";
-import { SIGNED_COMMIT_QUALIFIED_TOOL_NAME } from "../signed-commit-shared";
 import { stripCatLineNumbers } from "./conversion/sdk-to-acp";
 import type { TaskState } from "./conversion/task-state";
-import { gitSubcommand } from "./git-command";
 import { neutralizeUnprocessableImages } from "./image-sanitization";
 import type { SettingsManager } from "./session/settings";
 import type { CodeExecutionMode } from "./tools";

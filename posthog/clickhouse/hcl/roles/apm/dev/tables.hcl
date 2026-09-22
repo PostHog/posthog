@@ -374,6 +374,24 @@ database "posthog" {
     }
   }
 
+  patch_table "kafka_metrics_avro4" {
+    engine "kafka" {
+      collection           = "warpstream_metrics"
+      topic_list           = "clickhouse_metrics"
+      group_name           = "clickhouse-metrics-avro4"
+      format               = "Avro"
+      num_consumers        = 4
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      poll_max_batch_size  = 1000
+      flush_interval_ms    = 10000
+      thread_per_consumer  = true
+    }
+    settings = {
+      input_format_avro_allow_missing_fields = "1"
+    }
+  }
+
   patch_table "kafka_trace_spans_avro" {
     engine "kafka" {
       collection           = "warpstream_traces"

@@ -719,8 +719,8 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         Records the per-snapshot "Accept change" decision. Does not commit the baseline
         or change the GitHub gate — call finalize to ship the run. Works on a quarantined
-        snapshot too: a quarantined NEW snapshot approved here is committed by finalize,
-        which gives a quarantined story a baseline entry without lifting the quarantine.
+        snapshot too: a quarantined snapshot approved here is committed by finalize, which
+        updates a quarantined story's baseline entry without lifting the quarantine.
         """
         body = request.validated_data
         run_id = _parse_uuid(pk)
@@ -750,7 +750,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
         and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
         any still-pending changed/new snapshot is approved first; quarantined snapshots are
-        skipped, but a quarantined NEW snapshot approved by identifier is still committed.
+        skipped, but a quarantined snapshot approved by identifier is still committed.
         With commit_to_github=false the server returns the signed baseline YAML instead of
         committing it.
         """

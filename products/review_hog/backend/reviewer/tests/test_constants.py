@@ -11,12 +11,16 @@ from products.review_hog.backend.reviewer.constants import (
     DEDUP_REASONING_EFFORT,
     DEDUP_RUNTIME_ADAPTER,
     DEFAULT_REVIEW_ARM,
+    DEFAULT_VALIDATION_ARM,
+    FLASH_ARM,
     HUMAN_TRIGGER_SOURCES,
     RESOLUTION_MODEL,
     RESOLUTION_REASONING_EFFORT,
     RESOLUTION_RUNTIME_ADAPTER,
     REVIEW_ARMS_BY_TIER,
     REVIEW_MCP_SCOPES,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
     REVIEW_MODEL,
     REVIEW_REASONING_EFFORT,
     REVIEW_RUNTIME_ADAPTER,
@@ -27,7 +31,9 @@ from products.review_hog.backend.reviewer.constants import (
     ReviewTier,
     is_below_human_tier,
     resolve_review_arm,
+    review_arm_for_mode,
     select_review_tier,
+    validation_arm_for_mode,
 )
 from products.review_hog.backend.temporal.types import TRIGGER_INBOX
 from products.signals.backend.enums import ReportPriority
@@ -84,7 +90,11 @@ def test_sandbox_fallback_runtime_is_a_registry_supported_combo(
     assert get_provider_for_runtime_adapter(adapter) == LLMProvider.ANTHROPIC
 
 
-@pytest.mark.parametrize("arm", [pytest.param(arm, id=tier.value) for tier, arm in REVIEW_ARMS_BY_TIER.items()])
+@pytest.mark.parametrize(
+    "arm",
+    [pytest.param(arm, id=tier.value) for tier, arm in REVIEW_ARMS_BY_TIER.items()]
+    + [pytest.param(FLASH_ARM, id="flash")],
+)
 def test_tier_arm_is_a_registry_supported_combo(arm: ReviewArm) -> None:
     # Same lock as the pinned combos, per tier: a bad combo is persisted onto every report in the
     # tier and fails only mid-review in prod. A Codex arm without "full-access" stalls every
@@ -200,3 +210,21 @@ def test_review_mcp_scopes_open_a_session_and_stay_read_only() -> None:
     assert "user:read" in resolved
     assert "llm_skill:read" in resolved
     assert not has_write_scopes(REVIEW_MCP_SCOPES)
+
+
+@pytest.mark.parametrize(
+    "review_mode,expected_review,expected_validation",
+    [
+        # A flash turn swaps both seats; a full turn keeps the report's own arm and the validator pins.
+        # A helper that read the pins for flash would run the expensive review under a cheap label
+        # and the analytics events, which share these helpers, would misprice every flash turn.
+        pytest.param(REVIEW_MODE_FLASH, FLASH_ARM, FLASH_ARM, id="flash"),
+        pytest.param(REVIEW_MODE_FULL, REVIEW_ARMS_BY_TIER[ReviewTier.AGENT_P2], DEFAULT_VALIDATION_ARM, id="full"),
+    ],
+)
+def test_mode_helpers_pick_both_seats(
+    review_mode: str, expected_review: ReviewArm, expected_validation: ReviewArm
+) -> None:
+    persisted = REVIEW_ARMS_BY_TIER[ReviewTier.AGENT_P2]
+    assert review_arm_for_mode(review_mode, persisted) == expected_review
+    assert validation_arm_for_mode(review_mode) == expected_validation

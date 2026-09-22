@@ -223,6 +223,8 @@ from products.growth.backend.temporal import (
 )
 from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
+    SOURCE_EVALUATION_ACTIVITIES as LOGS_SOURCE_EVALUATION_ACTIVITIES,
+    SOURCE_EVALUATION_WORKFLOWS as LOGS_SOURCE_EVALUATION_WORKFLOWS,
     VOLUME_TICK_ACTIVITIES as LOGS_VOLUME_TICK_ACTIVITIES,
     VOLUME_TICK_WORKFLOWS as LOGS_VOLUME_TICK_WORKFLOWS,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
@@ -238,6 +240,10 @@ from products.managed_warehouse.backend.facade.temporal import (
 from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
     WORKFLOWS as NOTEBOOKS_WORKFLOWS,
+)
+from products.posthog_ai.backend.temporal.backfill import (
+    ACTIVITIES as CONVERSATION_BACKFILL_ACTIVITIES,
+    WORKFLOWS as CONVERSATION_BACKFILL_WORKFLOWS,
 )
 from products.product_analytics.backend.facade.temporal import (
     ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,
@@ -349,6 +355,7 @@ _task_queue_specs = [
         + CLEANUP_PROPDEFS_WORKFLOWS
         + [BackfillMaterializedPropertiesBatchWorkflow]
         + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
+        + CONVERSATION_BACKFILL_WORKFLOWS
         + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS
         + SYNC_EVENTS_RETENTION_WORKFLOWS
@@ -373,6 +380,7 @@ _task_queue_specs = [
         + CLEANUP_PROPDEFS_ACTIVITIES
         + BACKFILL_MATERIALIZED_PROPERTY_ACTIVITIES
         + BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES
+        + CONVERSATION_BACKFILL_ACTIVITIES
         + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES
         + SYNC_EVENTS_RETENTION_ACTIVITIES
@@ -558,8 +566,8 @@ _task_queue_specs = [
     ),
     (
         settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
-        ALERTS_PRODUCT_EVALUATION_WORKFLOWS,
-        ALERTS_PRODUCT_EVALUATION_ACTIVITIES,
+        ALERTS_PRODUCT_EVALUATION_WORKFLOWS + LOGS_SOURCE_EVALUATION_WORKFLOWS,
+        ALERTS_PRODUCT_EVALUATION_ACTIVITIES + LOGS_SOURCE_EVALUATION_ACTIVITIES,
     ),
     (
         settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE,
@@ -746,14 +754,14 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
-        # Max AI and tasks-agent traces span the Django request and the Temporal activity that runs
+        # Max AI, tasks-agent, and wizard traces span the Django request and the Temporal activity that runs
         # the agent loop. Without the OTel plugin on the worker, every span emitted from an activity
         # is a root span and the conversation trace splits across disconnected pieces. Force-enable
-        # for both queues so investigations don't depend on an operator flipping
+        # for these queues so investigations don't depend on an operator flipping
         # TEMPORAL_OTEL_PLUGIN_ENABLED.
         enable_otel = (
             settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True
-            or task_queue in (settings.MAX_AI_TASK_QUEUE, settings.TASKS_TASK_QUEUE)
+            or task_queue in (settings.MAX_AI_TASK_QUEUE, settings.TASKS_TASK_QUEUE, settings.WIZARD_TASK_QUEUE)
         ) and settings.OTEL_SERVICE_NAME is not None
         if enable_otel is True:
             # Mypy doesn't understand we have already checked settings.OTEL_SERVICE_NAME

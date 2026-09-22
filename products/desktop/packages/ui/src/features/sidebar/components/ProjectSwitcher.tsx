@@ -2,6 +2,7 @@ import {
   Archive,
   ArrowSquareOut,
   Buildings,
+  ChatCircleDots,
   DiscordLogo,
   FolderSimple,
   Gear,
@@ -45,6 +46,11 @@ import {
 } from "@posthog/ui/features/auth/useAuthMutations";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import {
+  formatHotkey,
+  SHORTCUTS,
+} from "@posthog/ui/features/command/keyboard-shortcuts";
+import { useFeedbackStore } from "@posthog/ui/features/feedback/feedbackStore";
 import { useProjects } from "@posthog/ui/features/projects/useProjects";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
@@ -73,12 +79,12 @@ interface ProjectSwitcherProps {
   onNavigateToSettings?: (category: SettingsCategory) => void;
 }
 
-/** The account / project / org menu. */
 export function ProjectSwitcher({
   appearance = "row",
   onNavigateToSettings,
 }: ProjectSwitcherProps = {}) {
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const openFeedback = useFeedbackStore((state) => state.open);
 
   const trackMenu = (
     action: ProjectMenuAction,
@@ -241,6 +247,11 @@ export function ProjectSwitcher({
     setPopoverOpen(false);
   };
 
+  const handleFeedback = () => {
+    setPopoverOpen(false);
+    openFeedback();
+  };
+
   const handleLogout = () => {
     trackMenu("log_out");
     setPopoverOpen(false);
@@ -382,6 +393,14 @@ export function ProjectSwitcher({
             <DropdownMenuItem onClick={handleViewChangelog}>
               <Gift size={14} className="text-gray-11" />
               View changelog
+            </DropdownMenuItem>
+
+            <DropdownMenuItem onClick={handleFeedback}>
+              <ChatCircleDots size={14} className="text-gray-11" />
+              Send feedback…
+              <DropdownMenuShortcut>
+                {formatHotkey(SHORTCUTS.SEND_FEEDBACK)}
+              </DropdownMenuShortcut>
             </DropdownMenuItem>
 
             <DropdownMenuSub>

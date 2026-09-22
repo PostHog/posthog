@@ -2,7 +2,7 @@ import re
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Optional
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 from django.conf import settings
 from django.http import HttpResponse
@@ -72,9 +72,51 @@ def sample_csp_report(properties: dict, percent: float, add_metadata: bool = Fal
     return should_ingest_report
 
 
+# Reports carry the URL of the document they came from, and auth routes embed live
+# credentials as path segments (password reset, 2FA reset, email verification, invite and
+# sharing links), so storing a URL verbatim would put redeemable tokens into events. A
+# violation report repeats the document URL as its source file and, for a same-origin
+# resource, its blocked URL. Query strings are dropped wholesale, and a path segment is
+# masked when it is token-shaped: 16+ URL-safe characters that include a digit or mix upper and
+# lower case. That matches Django auth tokens, UUIDs and base64url tokens such as sharing tokens,
+# which can lack a digit, but not route names, which are lowercase. The check reads the decoded
+# segment, because a link rewriter can percent-encode a token character and Django still decodes
+# the path before it checks the token.
+_TOKEN_LIKE_PATH_SEGMENT = re.compile(r"[A-Za-z0-9_.~-]{16,}")
+
+
+def _is_token_like(segment: str) -> bool:
+    segment = unquote(segment)
+    if not _TOKEN_LIKE_PATH_SEGMENT.fullmatch(segment):
+        return False
+    return any(c.isdigit() for c in segment) or (segment.lower() != segment and segment.upper() != segment)
+
+
+def sanitize_report_url(url: object) -> Optional[str]:
+    if not isinstance(url, str) or not url:
+        return None
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return None
+    path = "/".join("<redacted>" if _is_token_like(segment) else segment for segment in parts.path.split("/"))
+    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+
+
+_REPORT_URI_URL_KEYS = frozenset({"document-uri", "referrer", "blocked-uri", "source-file"})
+_REPORT_TO_URL_KEYS = frozenset({"documentURL", "document-uri", "referrer", "blockedURL", "blocked-uri", "sourceFile"})
+# The endpoint also accepts report-to items that carry report-uri field names beside `type`
+# rather than inside `body`, so the envelope can hold any of these.
+_REPORT_ENVELOPE_URL_KEYS = _REPORT_TO_URL_KEYS | _REPORT_URI_URL_KEYS | {"url"}
+
+
+def _with_sanitized_urls(report: dict, url_keys: frozenset[str]) -> dict:
+    return {key: sanitize_report_url(value) if key in url_keys else value for key, value in report.items()}
+
+
 # https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/report-uri
 def parse_report_uri(data: dict) -> dict:
-    report_uri_data = data["csp-report"]
+    report_uri_data = _with_sanitized_urls(data["csp-report"], _REPORT_URI_URL_KEYS)
 
     report_uri_data["script-sample"] = escape(report_uri_data.get("script-sample") or "")
 
@@ -93,22 +135,23 @@ def parse_report_uri(data: dict) -> dict:
         "source_file": report_uri_data.get("source-file"),
         "status_code": report_uri_data.get("status-code"),
         "script_sample": report_uri_data.get("script-sample"),
-        # Keep the raw report for debugging
-        "raw_report": data,
+        # Keep the raw report for debugging, but not its unsanitized urls.
+        "raw_report": {**data, "csp-report": report_uri_data},
     }
     return properties
 
 
 # https://developer.mozilla.org/en-US/docs/Web/API/CSPViolationReportBody
 def parse_report_to(data: dict) -> dict:
-    report_to_data = data.get("body", {})
+    report_to_data = _with_sanitized_urls(data.get("body", {}), _REPORT_TO_URL_KEYS)
+    envelope = _with_sanitized_urls(data, _REPORT_ENVELOPE_URL_KEYS)
     user_agent = data.get("user_agent") or report_to_data.get("user-agent")
 
     report_to_data["sample"] = escape(report_to_data.get("sample") or "")
     report_to_data["script-sample"] = escape(report_to_data.get("sample") or "")
     properties = {
         "report_type": data.get("type"),
-        "document_url": report_to_data.get("documentURL") or report_to_data.get("document-uri") or data.get("url"),
+        "document_url": report_to_data.get("documentURL") or report_to_data.get("document-uri") or envelope.get("url"),
         "referrer": report_to_data.get("referrer"),
         "violated_directive": report_to_data.get("effectiveDirective")
         or report_to_data.get("violated-directive"),  # Inferring from effectiveDirective
@@ -122,8 +165,8 @@ def parse_report_to(data: dict) -> dict:
         "status_code": report_to_data.get("statusCode"),
         "script_sample": report_to_data.get("sample"),
         "user_agent": user_agent,
-        # Keep the raw report for debugging
-        "raw_report": data,
+        # Keep the raw report for debugging, but not its unsanitized urls.
+        "raw_report": {**envelope, "body": report_to_data},
     }
     return properties
 
@@ -139,35 +182,12 @@ def is_crash_report(data: dict) -> bool:
     return "type" in data and data["type"] == "crash"
 
 
-# Crash reports carry the crashed document's URL, and auth routes embed live credentials
-# as path segments (password reset, 2FA reset, email verification, invite and sharing
-# links), so storing the URL verbatim would put redeemable tokens into events. Query
-# strings are dropped wholesale, and a path segment is masked when it is token-shaped:
-# 16+ URL-safe characters including a digit, which matches Django auth tokens, UUIDs,
-# and sharing tokens but not route names.
-_TOKEN_LIKE_PATH_SEGMENT = re.compile(r"[A-Za-z0-9_.~-]{16,}")
-
-
-def sanitize_crash_report_url(url: object) -> Optional[str]:
-    if not isinstance(url, str) or not url:
-        return None
-    try:
-        parts = urlsplit(url)
-    except ValueError:
-        return None
-    path = "/".join(
-        "<redacted>" if _TOKEN_LIKE_PATH_SEGMENT.fullmatch(segment) and any(c.isdigit() for c in segment) else segment
-        for segment in parts.path.split("/")
-    )
-    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
-
-
 def parse_crash_report(data: dict) -> dict:
     body = data.get("body")
     if not isinstance(body, dict):
         # A malformed body still leaves the envelope's signal: the tab crashed.
         body = {}
-    document_url = sanitize_crash_report_url(data.get("url"))
+    document_url = sanitize_report_url(data.get("url"))
     return {
         "reason": body.get("reason") or "unknown",
         "id": body.get("crashId"),

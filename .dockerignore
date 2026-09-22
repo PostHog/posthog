@@ -12,8 +12,10 @@
 !common/plugin_transpiler/*.*
 !common/plugin_transpiler/src
 !common/tailwind
+!packages/personhog-proto
 !packages/quill
 !packages/llm-normalizer
+!packages/owners-yaml
 !dags
 !docs/onboarding
 !ee
@@ -75,7 +77,6 @@ services/agent-*/.next
 !tailwind.config.js
 !tools/hogli
 !tools/openapi-codegen
-!tools/owners
 !tsconfig.json
 common/*/*/node_modules
 common/*/node_modules

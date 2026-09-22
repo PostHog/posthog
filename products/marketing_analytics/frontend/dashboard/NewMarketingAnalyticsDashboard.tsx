@@ -6,9 +6,7 @@ import { LemonBanner, LemonButton, LemonCard, LemonCollapse, LemonSelect, LemonS
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { suggestionsForSection } from 'scenes/marketing-analytics/Setup/sectionRouting'
 import { SuggestionRow } from 'scenes/marketing-analytics/Setup/SuggestionRow'
 import { teamLogic } from 'scenes/teamLogic'
@@ -36,11 +34,12 @@ import {
     WebOverviewQueryResponse,
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
+import { ChartDisplayType } from '~/types'
 
 import { CustomerAcquisitionCards } from './CustomerAcquisitionCards'
 import { marketingAcquisitionLogic } from './marketingAcquisitionLogic'
 import { marketingTrafficQueryContext } from './marketingTrafficQueryContext'
+import { TRAFFIC_CHART_METRICS } from './trafficChartSeries'
 
 const TRAFFIC_BREAKDOWNS = [
     { value: WebStatsBreakdown.InitialChannelType, label: 'Channel' },
@@ -51,60 +50,58 @@ const TRAFFIC_BREAKDOWNS = [
     { value: WebStatsBreakdown.InitialPage, label: 'Landing page' },
 ]
 
+const SECTIONS = [
+    {
+        key: 'acquisition',
+        title: 'Acquisition',
+        description: 'Visitors, sessions and pageviews',
+        icon: <IconPeople />,
+    },
+    {
+        key: 'engagement',
+        title: 'Engagement',
+        description: 'Session duration and bounce rate',
+        icon: <IconCursor />,
+    },
+    {
+        key: 'retention',
+        title: 'Retention',
+        description: 'Returning visitors by cohort',
+        icon: <IconRetention />,
+    },
+    {
+        key: 'conversion',
+        title: 'Conversion',
+        description: 'Goals and conversion paths',
+        icon: <IconTarget />,
+    },
+    {
+        key: 'revenue',
+        title: 'Revenue',
+        description: 'Revenue by attribution model',
+        icon: <IconTrends />,
+    },
+]
+
 // Scaffold for the redesigned marketing analytics dashboard, gated behind the
 // `new-marketing-analytics-dashboard` feature flag.
 export function NewMarketingAnalyticsDashboard(): JSX.Element {
     const [selectedSection, setSelectedSection] = useState('acquisition')
     const [trafficBreakdown, setTrafficBreakdown] = useState(WebStatsBreakdown.InitialChannelType)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const sections = [
-        {
-            key: 'acquisition',
-            title: 'Acquisition',
-            description: 'Visitors, sessions and pageviews',
-            icon: <IconPeople />,
-        },
-        {
-            key: 'engagement',
-            title: 'Engagement',
-            description: 'Session duration and bounce rate',
-            icon: <IconCursor />,
-        },
-        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETENTION]
-            ? [
-                  {
-                      key: 'retention',
-                      title: 'Retention',
-                      description: 'Returning visitors by cohort',
-                      icon: <IconRetention />,
-                  },
-              ]
-            : []),
-        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION]
-            ? [
-                  {
-                      key: 'conversion',
-                      title: 'Conversion',
-                      description: 'Goals and conversion paths',
-                      icon: <IconTarget />,
-                  },
-                  {
-                      key: 'revenue',
-                      title: 'Revenue',
-                      description: 'Revenue by attribution model',
-                      icon: <IconTrends />,
-                  },
-              ]
-            : []),
-    ]
-    const activeSection = sections.some(({ key }) => key === selectedSection) ? selectedSection : 'acquisition'
+    const activeSection = SECTIONS.some(({ key }) => key === selectedSection) ? selectedSection : 'acquisition'
     const isTraffic = activeSection === 'acquisition' || activeSection === 'engagement'
     const { revenueGoals, selectedRevenueGoalId, revenueQuery, breakdownBy } = useValues(marketingAttributionLogic)
     const { setRevenueGoalId, setBreakdownBy } = useActions(marketingAttributionLogic)
-    const { customerGoals, selectedCustomerGoal, customerConversionGoal, trafficOrderBy } =
-        useValues(marketingAcquisitionLogic)
-    const { setCustomerGoalId, toggleTrafficSort } = useActions(marketingAcquisitionLogic)
+    const {
+        customerGoals,
+        selectedCustomerGoal,
+        customerConversionGoal,
+        trafficOrderBy,
+        trafficChartMetric,
+        trafficChartSeries,
+    } = useValues(marketingAcquisitionLogic)
+    const { setCustomerGoalId, toggleTrafficSort, setTrafficChartMetric } = useActions(marketingAcquisitionLogic)
     const { dateFilter, compareFilter, shouldFilterTestAccounts } = useValues(marketingAnalyticsLogic)
     const { setDates, setCompareFilter, setActiveTab, setSetupSection } = useActions(marketingAnalyticsLogic)
     const { setupPlan, setupPlanLoading, visibleSuggestions } = useValues(setupPlanLogic)
@@ -255,7 +252,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                 )}
             </div>
             <nav aria-label="Dashboard sections" className="flex flex-wrap gap-1 rounded border p-1 w-fit max-w-full">
-                {sections.map(({ key, title, icon }) => (
+                {SECTIONS.map(({ key, title, icon }) => (
                     <LemonButton
                         key={key}
                         type="tertiary"
@@ -291,7 +288,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                 <section key={title} className="flex flex-col gap-2" aria-label={title}>
                                     <h2 className="mb-0">{title}</h2>
                                     <p className="text-secondary mb-2">
-                                        {sections.find(({ key }) => key === activeSection)?.description}
+                                        {SECTIONS.find(({ key }) => key === activeSection)?.description}
                                     </p>
                                     <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),1fr))] auto-rows-fr gap-2">
                                         <div className="contents">
@@ -351,7 +348,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                     <section aria-label="Conversion" className="flex flex-col gap-2">
                         <h2 className="mb-0">Conversion</h2>
                         <p className="text-secondary mb-2">
-                            {sections.find(({ key }) => key === activeSection)?.description}
+                            {SECTIONS.find(({ key }) => key === activeSection)?.description}
                         </p>
                         <AttributionTab />
                     </section>
@@ -426,11 +423,30 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                     <>
                         {activeSection === 'acquisition' && (
                             <LemonCard hoverEffect={false}>
-                                <h3>Visitors over time</h3>
+                                <div className="flex flex-wrap justify-between items-center gap-2">
+                                    <h3 className="mb-0">
+                                        {`${TRAFFIC_CHART_METRICS.find(({ value }) => value === trafficChartMetric)?.label} over time`}
+                                    </h3>
+                                    <LemonSelect
+                                        size="small"
+                                        value={trafficChartMetric}
+                                        onChange={(value) => value && setTrafficChartMetric(value)}
+                                        options={TRAFFIC_CHART_METRICS.map(({ value, label }) => ({
+                                            value,
+                                            label,
+                                            disabledReason:
+                                                value === 'new_customers' && !customerConversionGoal
+                                                    ? 'Mark a conversion goal as a new customer goal in Setup first.'
+                                                    : undefined,
+                                        }))}
+                                        aria-label="Chart metric"
+                                        data-attr="marketing-traffic-chart-metric"
+                                    />
+                                </div>
                                 <p className="text-secondary text-sm">All traffic in the selected period.</p>
                                 <div className="flex flex-col h-80">
                                     <Query
-                                        key={activeSection}
+                                        key={`${activeSection}-${trafficChartMetric}`}
                                         query={{
                                             kind: NodeKind.InsightVizNode,
                                             source: {
@@ -440,22 +456,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                                 filterTestAccounts: shouldFilterTestAccounts,
                                                 interval: 'day',
                                                 tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                                series: [
-                                                    {
-                                                        kind: NodeKind.EventsNode,
-                                                        event: null,
-                                                        properties: [
-                                                            {
-                                                                key: 'event',
-                                                                type: PropertyFilterType.EventMetadata,
-                                                                operator: PropertyOperator.Exact,
-                                                                value: ['$pageview', '$screen'],
-                                                            },
-                                                        ],
-                                                        math: BaseMathType.UniqueUsers,
-                                                        custom_name: 'Visitors',
-                                                    },
-                                                ],
+                                                series: [trafficChartSeries],
                                                 trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
                                             },
                                             embedded: true,

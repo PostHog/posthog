@@ -81,6 +81,7 @@ export interface StoredLogEntry {
   timestamp?: string;
   /** Shared identity with the entry's Redis stream copy, when stamped */
   event_id?: string;
+  first_event_id?: string;
   covered_event_ids?: string[];
   event?: AgentConversationEvent;
   notification?: {

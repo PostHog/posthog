@@ -12,6 +12,7 @@ var (
 	ErrInvalidScope    = errors.New("team ID and user ID must be positive")
 	ErrInvalidRevision = errors.New("invalid catalog revision")
 	ErrInvalidCatalog  = errors.New("catalog must contain tables and properties")
+	ErrInvalidAliases  = errors.New("table aliases must map non-empty alternate names directly to canonical table keys")
 	ErrCatalogTooLarge = errors.New("catalog exceeds cache capacity")
 )
 
@@ -57,6 +58,17 @@ func ValidateRevision(revision string) error {
 func ValidateCatalog(value *Catalog) error {
 	if value == nil || value.Tables == nil || value.Properties == nil {
 		return ErrInvalidCatalog
+	}
+	for alias, target := range value.TableAliases {
+		if alias == "" || target == "" {
+			return ErrInvalidAliases
+		}
+		if _, targetExists := value.Tables[target]; !targetExists {
+			return ErrInvalidAliases
+		}
+		if _, aliasIsCanonical := value.Tables[alias]; aliasIsCanonical && alias != target {
+			return ErrInvalidAliases
+		}
 	}
 	return nil
 }

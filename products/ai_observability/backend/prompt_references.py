@@ -31,6 +31,10 @@ PROMPT_REFERENCE_REGEX = re.compile(
 )
 
 MAX_PROMPT_REFERENCES = 20
+# Incoming references are unbounded (any number of prompts can reference one
+# partial), so surfaces listing them cap the result. Existence checks stay
+# correct: over the cap still means "referenced".
+MAX_ACTIVE_REFERENCE_RESULTS = 100
 
 
 @frozen
@@ -75,13 +79,25 @@ def get_active_referencing_parent_names(team_id: int, child_name: str) -> list[s
     recorded before validation existed must not let a prompt block its own
     archival.
     """
-    return sorted(
+    return sorted({reference["name"] for reference in get_active_references_to(team_id, child_name)})
+
+
+def get_active_references_to(team_id: int, child_name: str) -> list[dict[str, Any]]:
+    """Active incoming references with the selector each parent used.
+
+    `label` set means the parent follows that label of this prompt, so moving
+    it propagates; `version` set means the parent pinned that version and
+    nothing propagates to it.
+    """
+    rows = (
         LLMPromptDependency.objects.filter(team_id=team_id, child_name=child_name, prompt__deleted=False)
         .filter(Q(prompt__is_latest=True) | Q(prompt__labels__isnull=False))
         .exclude(parent_name=child_name)
-        .values_list("parent_name", flat=True)
+        .values_list("parent_name", "child_label", "child_version")
         .distinct()
+        .order_by("parent_name", "child_label", "child_version")[:MAX_ACTIVE_REFERENCE_RESULTS]
     )
+    return [{"name": name, "label": label, "version": version} for name, label, version in rows]
 
 
 def get_active_parents_referencing_label(team_id: int, prompt_name: str, label_name: str) -> list[str]:

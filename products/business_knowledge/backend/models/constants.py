@@ -119,6 +119,13 @@ class LearningRunResult(models.TextChoices):
     KNOWLEDGE_CREATED = "knowledge_created", "Knowledge created"
     NO_KNOWLEDGE = "no_knowledge", "No knowledge"
     INELIGIBLE = "ineligible", "Ineligible"
+    SUPERSEDED = "superseded", "Superseded"
+
+
+# nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
+def learning_run_result_choices() -> list[tuple[str, str]]:
+    # Callable so adding a result does not emit a no-SQL AlterField.
+    return [(str(value), str(label)) for value, label in LearningRunResult.choices]
 
 
 class SafetyVerdict(models.TextChoices):

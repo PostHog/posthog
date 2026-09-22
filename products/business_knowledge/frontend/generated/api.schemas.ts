@@ -54,6 +54,8 @@ export interface KnowledgeSearchResultApi {
     readonly heading_path: string
     /** The chunk's text content. */
     readonly content: string
+    /** True when this chunk comes from a generated source learned from a past support ticket. */
+    readonly is_generated: boolean
 }
 
 export interface KnowledgeGapSuggestionApi {

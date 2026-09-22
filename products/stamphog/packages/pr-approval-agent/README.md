@@ -349,6 +349,9 @@ A retry against the now-classified head commit reviews it properly.
 Ownership context for the LLM, not a hard gate.
 The sources are declared in `policy.yml` under `ownership:` and read from the checked-out tree: a `hogli-resolver` source that resolves ownership through the shared hogli resolver over the distributed `owners.yaml` / `product.yaml` files.
 A file's owning teams are the union across all sources.
+A repo that vendors this directory does not need to vendor the resolver as well: add a pinned `owners-yaml` from PyPI to the script dependencies of `review_pr.py`.
+Pin the version, because a new release can change how paths resolve.
+In this monorepo and in the review sandbox, the engine uses the resolver that ships beside it, so the two always match.
 Cross-team typo, test and comment fixes are fine, as are small well-tested behavioral fixes (T1a/T1b) with no outstanding reviewer concerns.
 API contract, data model, and larger behavioral changes get escalated.
 

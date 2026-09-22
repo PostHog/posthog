@@ -28,6 +28,7 @@ const CONFIG: SignalScoutConfigApi = {
     last_run_at: null,
     consecutive_failure_count: 0,
     status_changed_at: null,
+    status_changed_by: null,
     auto_pause_exempt: false,
     network_access: 'trusted',
     model: null,
@@ -35,6 +36,7 @@ const CONFIG: SignalScoutConfigApi = {
     source_product: null,
     source_id: null,
     created_at: '2026-07-21T12:00:00Z',
+    updated_at: '2026-07-21T12:00:00Z',
 }
 
 describe('ScoutWriteAccessSection', () => {

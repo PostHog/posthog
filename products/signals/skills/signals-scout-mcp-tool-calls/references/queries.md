@@ -20,7 +20,7 @@ throughout:
   group showed as absent). Two formulations tested consistent and are the only ones to use:
   - **Classified failures (positive membership):**
     `toString(properties.$mcp_error_type) IN ('internal', 'validation', 'api_4xx', 'api_5xx', 'permission', 'timeout', 'rate_limited', 'missing_context')`.
-    On PostHog's own data only ~4% of failures are classified.
+    In the hono regime the classified share can be a few percent.
   - **Unclassified failures:** compute by **subtraction**, not `NOT IN` (which mishandles the absent
     value): `countIf(toBool($mcp_is_error)) - countIf(toBool($mcp_is_error) AND <the IN whitelist>)`.
     The remainder are tool-result errors (handler returned `{isError:true}` without a class) — ~96% here.
@@ -31,7 +31,7 @@ throughout:
   `''` to Float64). Read them with `toFloat(...)`.
 - The `$mcp_exec_tool_call_name` fallback is genuinely empty/NULL when absent, so the coalesce above is
   correct as written.
-- **`$mcp_error_message` does not exist on PostHog's own (hono) data** — it's an external-SDK-only field.
+- **`$mcp_error_message` does not exist in the hono regime** — it's an external-SDK-only field.
   Referencing it there yields a taxonomy warning and empty results, not an error.
 - **Category derivation:** never group rows directly by `properties.$mcp_tool_category` (some rows
   for a tool lack it — notably exec-routed calls captured before dispatch attribution). Derive per-tool
@@ -73,9 +73,9 @@ WHERE event = '$mcp_tool_call'
 Read the result:
 
 - `pct_failures_classified` high → **hono regime with useful classes**: use query 3a. But don't assume
-  this is high just because you're on PostHog's own data — most `$mcp_is_error` failures are _tool-result_
+  this is high just because the project is in that regime — most `$mcp_is_error` failures are _tool-result_
   errors (the handler returned `{isError:true}` gracefully) which never get classified, so `error_type`
-  stays `'None'`. On PostHog's own project only ~4% of failures carry a real class. When
+  stays `'None'`, and the classified share can be a few percent. When
   `pct_failures_classified` is low, the **unclassified-failure bucket is the main story** — lean on
   query 1 (rate), query 2 (struggle), and query 7 (the gap), not the class breakdown.
 - `pct_failures_with_message` high (and classified ~0) → **external-SDK regime**: use query 3b to sample messages.
@@ -84,10 +84,10 @@ Read the result:
   report-worthy (see the scout's Decide section).
 - `pct_with_category` ≥ ~50 → **per-category report grain** (query 9 is the aggregation layer). Hono
   projects land around 70–100% — un-dispatched `exec` rows (discovery verbs, wrapper validation
-  errors) carry no category, so don't expect 100% and don't read ~70% as "coverage is broken"
-  (verified: PostHog's own project sits at ~72%). ~0 → external-SDK regime, fall back to the
+  errors) carry no category, so don't expect 100% and don't read ~70% as "coverage is broken".
+  ~0 → external-SDK regime, fall back to the
   per-tool report grain.
-- `pct_with_intent` ≥ ~20 → intent lens (query 5) is worth running. (On PostHog's own data this is ~100%.)
+- `pct_with_intent` ≥ ~20 → intent lens (query 5) is worth running. (In the hono regime it is usually near 100%.)
 - `distinct_clients` > 1 → the per-client split (query 6) can localize a client-specific break.
 
 ---
@@ -291,8 +291,8 @@ schema rather than the tool itself.
 
 Tools that fail materially but carry no diagnosable detail — the improvement is to add error
 instrumentation (or a clearer returned-error message) so failures become debuggable. The
-"no detail" marker is `error_type IN ('', 'None')` **and** no message — on PostHog's own data
-this is the _majority_ of failures (tool-result errors), so tune the ratio/floor to surface the
+"no detail" marker is `error_type IN ('', 'None')` **and** no message — in the hono regime
+this is usually the _majority_ of failures (tool-result errors), so tune the ratio/floor to surface the
 worst offenders rather than every tool.
 
 ```sql
@@ -387,7 +387,6 @@ Read it:
   without the `HAVING`, filtered to that category.
 - The `Uncategorized` bucket is dominated by bare `exec` rows (discovery verbs, wrapper
   validation errors) plus uncatalogued tools like `render-ui` — attribution residue to
-  sanity-check, not an owning team (verified: on PostHog's own project it is exactly those two
-  tools at high volume).
+  sanity-check, not an owning team.
 - `category_error_rate_pct` alone is not a finding — a big category dilutes a broken tool; the
   per-tool entries in `problem_tool_details` are what clears the bar.

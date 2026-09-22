@@ -226,6 +226,33 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            # A judge response nobody could read may parse on a later run, so the unit is still owed a verdict.
+            ("unparsable_response", 4),
+            # These two skip the same way every run, so re-offering them would never produce a verdict.
+            ("context_window_exceeded", 3),
+            ("trace_errored", 3),
+        ]
+    )
+    def test_only_a_transient_skip_leaves_the_unit_a_candidate(self, skip_reason: str, expected: int) -> None:
+        _create_event(
+            team=self.team,
+            event="$ai_evaluation",
+            distinct_id="d",
+            timestamp=BASE + timedelta(minutes=5),
+            properties={
+                "$ai_evaluation_id": str(self.evaluation.id),
+                "$ai_target_id": _generation_uuid(1),
+                "$ai_target_type": "generation_uuid",
+                "$ai_evaluation_skipped": True,
+                "$ai_evaluation_skip_reason": skip_reason,
+            },
+        )
+        flush_persons_and_events()
+
+        assert self._count(target="generation", rerun_existing=False) == expected
+
+    @parameterized.expand(
+        [
             # A generation is graded when it lands, so a verdict three days later belongs to
             # something else and the unit is still a candidate.
             ("a settle horizon this evaluation does not have", timedelta(0), 3),

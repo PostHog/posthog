@@ -8,18 +8,21 @@ from django.utils import timezone
 from ..db import WRITER_DB
 from ..facade.enums import INTENTIONAL_TOLERATE_REASONS, ReviewState, RunPurpose, SnapshotResult
 from ..models import QuarantinedIdentifier, Run, RunSnapshot
-from . import baselines, ci_status, comment_markdown, comments
+from . import baselines, ci_status, comment_markdown, comments, quarantine
 
 
 def _stamp_quarantine(run: Run) -> None:
-    """Evaluate quarantine policy and freeze it on each snapshot."""
+    """Evaluate quarantine policy and freeze it on each snapshot.
+
+    A quarantine lifted at a commit this run does not contain still applies to this run.
+    """
     now = timezone.now()
     quarantined_ids = set(
         QuarantinedIdentifier.objects.using(WRITER_DB)
         .filter(repo_id=run.repo_id, run_type=run.run_type, team_id=run.team_id)
         .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
         .values_list("identifier", flat=True)
-    )
+    ) | quarantine.identifiers_lifted_after_commit(run, now=now)
 
     if not quarantined_ids:
         run.snapshots.using(WRITER_DB).filter(is_quarantined=True).update(is_quarantined=False)

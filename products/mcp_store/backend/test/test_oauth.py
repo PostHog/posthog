@@ -150,7 +150,10 @@ class TestRefreshOauthToken(SimpleTestCase):
         mock_resp.json.return_value = {"access_token": "new-token", "refresh_token": "new-refresh"}
         mock_resp.raise_for_status = MagicMock()
 
-        with patch("products.mcp_store.backend.oauth.requests.post", return_value=mock_resp) as mock_post:
+        with (
+            patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None)),
+            patch("products.mcp_store.backend.oauth.requests.post", return_value=mock_resp) as mock_post,
+        ):
             result = refresh_oauth_token(
                 token_url="https://example.com/token",
                 refresh_token="old-refresh",

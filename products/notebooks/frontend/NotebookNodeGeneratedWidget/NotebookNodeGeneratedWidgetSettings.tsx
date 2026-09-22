@@ -47,7 +47,7 @@ export function NotebookNodeGeneratedWidgetSettings({
         prompt: attributes.prompt ?? '',
         model: attributes.model ?? DEFAULT_WIDGET_MODEL,
         isEditable,
-        prepareInsightDataframes: () => prepareNotebookInsightDataframes(notebookLogic),
+        prepareInsightDataframes: (names) => prepareNotebookInsightDataframes(notebookLogic, names),
         persistNotebook: async (): Promise<void> => {
             await notebookLogic.asyncActions.saveNotebook({
                 content: notebookLogic.values.content,
@@ -186,8 +186,8 @@ export function NotebookNodeGeneratedWidgetSettings({
                         />
                     </div>
                     <div className="text-xs text-muted">
-                        Run every SQL and Python cell before generating. The widget can use their latest completed
-                        results automatically.
+                        Run the SQL and Python cells the widget should use. The widget uses their latest completed
+                        results and skips cells that haven't run.
                     </div>
                     <div>
                         <LemonLabel htmlFor={modelId}>Model</LemonLabel>

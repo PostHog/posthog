@@ -186,9 +186,18 @@ Running, purges pre-flip buffer files **and aborts if any file survives the purg
 `job_inputs.cdc_ingest_mode = "buffered"`, then unpauses the extraction schedule and each eligible
 schema's own schedule.
 
-If a batch is still working after the drain timeout the command aborts with the source **left
-paused**. That is deliberate — flipping on top of a stuck load lets that batch land against a table
-the buffered lane has already started writing. Investigate the stuck load, then re-run.
+If a batch is still working after the drain timeout the command aborts. **Extraction is left
+paused and the per-schema schedules are restored.** Extraction stays down deliberately, because
+flipping on top of a stuck load lets that batch land against a table the buffered lane has already
+started writing. The per-schema schedules come back because the mode never changed: the source is
+the legacy source it was before the command ran, and leaving its syncs down stops the customer's
+data with nothing to report it. Investigate the stuck load, then re-run.
+
+The restore covers every failure from the pause at step 3 to the mode change at step 6, including a
+pause that fails partway through the batch. Unpausing a schedule that was never paused is a no-op,
+so the whole eligible set is restored on any failure. A schema that stopped syncing while the
+command waited stays paused, because the restore re-reads `should_sync` rather than trusting the
+copy it loaded at the start.
 
 Pre-flip buffer files are purged because the legacy lane already delivered those rows, and the load
 position has no watermark for them yet.
@@ -246,7 +255,11 @@ The order matters, and the command enforces it:
    batches, then retire any companion job a hard kill left Running — nothing else can, once the
    schedules are paused. No in-flight merge of old buffered rows can then land after legacy
    delivery resumes and overwrite newer rows.
-5. Set the mode to `legacy` and unpause the extraction schedule.
+5. Set the mode to `legacy`, then unpause the per-schema schedules that step 4 paused, then the
+   extraction schedule. Both halves matter: legacy delivery needs capture running to produce the
+   changes, and the per-schema syncs running to load them. The per-schema restore goes first
+   because it degrades gracefully per schema, while unpausing extraction is a single Temporal
+   call that can raise and strand them again.
 
 The buffer-drain check covers every schema the buffered lane serves, including ones disabled after
 the flip — a disabled schema's unconsumed files still block, and draining them means re-enabling the
@@ -259,10 +272,61 @@ Fully-applied buffer files are **not** purged: the completed job already deleted
 have written.
 
 **If the command dies partway, re-run it.** Every step is idempotent, and the mode flips in the last
-one, so an interrupted rollback leaves the source on `buffered` with some or all of its schedules
-paused. That state moves no data and raises no alert of its own: capture is not running, so nothing
-reports a stall. Re-running walks the same steps and finishes them. A source paused with
+one, so an interrupted rollback leaves the source on `buffered` with extraction paused. A clean
+abort restores the per-schema schedules on its way out; a process killed outright does not, so
+check them. Re-running walks the same steps and finishes them. A source paused with
 `cdc_ingest_mode` still `buffered` and no failing job is the signature to look for.
+
+Capture is not running in that state, so it reports nothing itself. What reports it is
+`sweep_stalled_schema_schedules`, described below, which reads the schemas rather than capture.
+
+## When a schedule stops firing
+
+A per-schema Temporal schedule carries its own paused flag, written once when the schedule is
+created or rewritten. Nothing reconciles that flag with `should_sync` afterwards, so a schedule
+paused out of band stops a schema's syncs while every Postgres column still reports it as healthy:
+`should_sync` true, `status` `Completed`, source enabled. No run starts, so there is no job row, no
+`latest_error`, and no failure digest entry.
+
+`sweep_stalled_schema_schedules` runs hourly and is the only thing that reports it. It publishes
+`warehouse_stalled_schema_schedules`, labelled by kind:
+
+- `no_runs`: nothing started. The schedule is the problem.
+- `stuck_job`: a run started and never finished. Its workflow needs terminating first, which is
+  what `unstick_external_data_jobs` does. Rescheduling alone changes nothing, because Temporal
+  skips a tick while the previous run is still Running.
+
+Repair is deliberately manual. Restarting a sync reaches into a customer's database, and the sweep
+cannot tell a schedule paused by accident from one paused on purpose.
+
+```bash
+python manage.py repair_stalled_schema_schedules --source-type <type>            # dry run
+python manage.py repair_stalled_schema_schedules --source-type <type> --live-run
+```
+
+The command clears a stale Running status, rewrites the schedule from `should_sync`, and recreates
+a schedule that went missing. It triggers no run, so it bills nothing and each schema waits for its
+own next tick. It stops at 100 schemas by default and refuses a wider match rather than acting on
+it; raise `--max-schemas` deliberately.
+
+### What it will not touch, and where those go instead
+
+A paused schedule is normal in more cases than it looks, so the command repairs only what it can
+prove is the outage above. It re-checks every exclusion against a freshly loaded row at repair
+time, because minutes can pass between the sweep finding a schema and an operator confirming the
+prompt, and reports those as skips rather than repairs.
+
+| Excluded                               | Why                                                                                                                                                            | Where it goes                                                         |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Streaming CDC schema                   | A paused schedule is its steady state. `CDCExtractionWorkflow` owns the schedule and re-pauses it on its own next tick, so unpausing only races that workflow. | The source's `repair_cdc` action                                      |
+| `cdc_halted` schema                    | The marker exists to keep everything else off the schema until the halt clears.                                                                                | The source's `repair_cdc` action                                      |
+| Buffered CDC source                    | Its schedule paces buffer consumption, so restarting it out of sequence merges files against a table the buffered lane already writes.                         | Re-run the flip or the rollback, and let it reach its own step 6 or 7 |
+| `admin_unpause_schedule_after_run` set | The pause may belong to an in-flight admin-triggered run that clears the marker itself.                                                                        | Wait for that run                                                     |
+| No `sync_frequency_interval`           | The schedule builder cannot turn a null interval into a cadence.                                                                                               | Set an interval first                                                 |
+
+Two of those five matter most on a CDC source. A streaming schema and a halted one are both
+expected to sit with a paused schedule, so neither is evidence of this outage, and unpausing either
+one is at best wasted and at worst a race.
 
 ## Buffer expiry — no partial recovery
 
@@ -275,6 +339,31 @@ The only fix is a full `reset_pipeline` re-snapshot for that schema.
 
 Watch the age of the oldest unconsumed file per schema, not the file count. A schema with few files
 that are all thirteen days old is in trouble; one with thousands of fresh files is fine.
+
+## Retried capture attempts
+
+Temporal retries a capture attempt that dies, and the retry re-reads the WAL from the slot's
+confirmed position. Micro-batch boundaries are not stable across attempts, so the retry covers the
+same positions with differently-shaped files. Before its first write per schema, it removes every
+file that reaches the position it restarted from (`end_seq >= restart_seq`), because it is about to
+re-emit all of those positions.
+
+One file can straddle that position. A micro-flush is cut per event, so it can carry the head of a
+transaction; the slot then advances only to the previous transaction's end, and the retry re-reads
+the straddled transaction from its first row. That file holds settled positions the WAL no longer
+has beside the head the retry re-emits. Deleting it loses the settled rows. Keeping it hands the
+`_cdc` table a second copy of the head: the replay filter matches a batch row against what the
+table already holds, and when both files are read in one run the table holds neither copy yet, so
+both are appended. So the retry rewrites the file with its settled rows only, under the narrowed
+range and the same index. The replacement is staged under a `.staging` suffix the consumer never
+parses, the original is removed, and only then is the staged file promoted to its final name, so no
+listing ever holds both. A crash anywhere in that sequence is finished by the next attempt's
+cleanup: a staged file always holds settled rows, so it removes the original if it is still there
+and promotes the staged file.
+
+A cleanup failure fails the attempt. A superseded file that survives is a second copy of every
+position it holds once the retry writes them again, so the run retries rather than write beside it.
+`cdc_buffer_superseded_files_removed` in the capture logs carries `removed` and `trimmed` counts.
 
 ## Known gap: zombie-attempt file collision
 

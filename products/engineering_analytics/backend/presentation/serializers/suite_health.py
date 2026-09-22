@@ -145,7 +145,10 @@ class TrunkQuarantineDebtSerializer(DataclassSerializer):
 class FlakyTestListSerializer(DataclassSerializer):
     items = FlakyTestItemSerializer(
         many=True,
-        help_text="Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs.",
+        help_text="Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs. "
+        "A CI setup break (a run attempt whose tests errored in 3 or more jobs or for 3 or more owning teams, or a "
+        "job attempt with 100 or more distinct failed or errored tests) excludes every trial of that attempt, not "
+        "only its failures.",
     )
 
     class Meta:

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const { mockMe, mockApiClientCtor } = vi.hoisted(() => {
+const { mockMe, mockApiClientCtor, mockCapture } = vi.hoisted(() => {
     const mockMe = vi.fn()
     const mockApiClientCtor = vi.fn().mockImplementation(function (config) {
         return {
@@ -8,15 +8,20 @@ const { mockMe, mockApiClientCtor } = vi.hoisted(() => {
             users: () => ({ me: mockMe }),
         }
     })
-    return { mockMe, mockApiClientCtor }
+    return { mockMe, mockApiClientCtor, mockCapture: vi.fn() }
 })
 
 vi.mock('@/api/client', () => ({
     ApiClient: mockApiClientCtor,
 }))
 
+vi.mock('@/lib/posthog', () => ({
+    getPostHogClient: () => ({ capture: mockCapture }),
+}))
+
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { RequestContext } from '@/hono/request-context'
+import { AnalyticsEvent } from '@/lib/posthog/analytics'
 import type { RequestProperties } from '@/lib/request-properties'
 
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
@@ -70,6 +75,34 @@ function makeProps(overrides: Partial<RequestProperties> = {}): RequestPropertie
 }
 
 describe('RequestContext', () => {
+    it.each([true, false, undefined])('passes cached impersonation=%s to captured events', async (impersonated) => {
+        mockCapture.mockClear()
+        const ctx = new RequestContext(fakeRedis(), env, makeProps())
+        if (impersonated !== undefined) {
+            await ctx.tokenCache.set('apiKey', {
+                scopes: [],
+                scoped_teams: [],
+                scoped_organizations: [],
+                is_impersonated: impersonated,
+            })
+        }
+
+        await ctx.trackEvent(
+            AnalyticsEvent.MCP_FEEDBACK_SUBMITTED,
+            { is_impersonated: !impersonated },
+            undefined,
+            undefined,
+            'user-123'
+        )
+
+        expect(mockCapture).toHaveBeenCalledWith(
+            expect.objectContaining({
+                event: AnalyticsEvent.MCP_FEEDBACK_SUBMITTED,
+                properties: expect.objectContaining({ is_impersonated: impersonated === true }),
+            })
+        )
+    })
+
     describe('ApiClient construction', () => {
         const originalEnv = { ...process.env }
 

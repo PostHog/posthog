@@ -21,6 +21,7 @@ from common.hogvm.python.stl import _MAX_SEQUENCE_LENGTH, STL, _guard_sequence_l
 from common.hogvm.python.utils import (
     COST_PER_UNIT,
     MAX_MEMORY,
+    MAX_REGEX_PATTERN_LENGTH,
     HogVMException,
     HogVMMemoryExceededException,
     UncaughtHogVMException,
@@ -142,6 +143,49 @@ class TestBytecodeExecute:
             execute_bytecode(bytecode, globals_dict)
 
         assert expected_message in str(exc_info.value)
+
+    @pytest.mark.parametrize(
+        "expression, expected",
+        [
+            ("match(input, pattern)", True),
+            ("extractRegex(input, pattern)", "needle"),
+            ("like(input, pattern)", True),
+            ("ilike(input, pattern)", True),
+            ("notLike(input, pattern)", False),
+            ("notILike(input, pattern)", False),
+            ("input like pattern", True),
+            ("input ilike pattern", True),
+            ("input not like pattern", False),
+            ("input not ilike pattern", False),
+            ("input =~ pattern", True),
+            ("input !~ pattern", False),
+            ("input =~* pattern", True),
+            ("input !~* pattern", False),
+        ],
+    )
+    @pytest.mark.parametrize("oversized_pattern", [False, True])
+    def test_matching_accepts_large_subjects_but_bounds_patterns(
+        self, expression: str, expected: bool | str, oversized_pattern: bool
+    ) -> None:
+        bytecode = create_bytecode(parse_expr(expression)).bytecode
+        globals_dict = {
+            "input": "z" * (8 * 1024 * 1024) + "needle",
+            "pattern": "z" * (MAX_REGEX_PATTERN_LENGTH + 1) if oversized_pattern else "needle",
+        }
+
+        if oversized_pattern:
+            with pytest.raises(HogVMException, match=f"exceeds {MAX_REGEX_PATTERN_LENGTH} characters"):
+                execute_bytecode(bytecode, globals_dict, timeout=60)
+        else:
+            assert execute_bytecode(bytecode, globals_dict, timeout=60).result == expected
+
+    @pytest.mark.parametrize("function_name", ["match", "extractRegex", "like", "ilike"])
+    def test_regex_pattern_limit_is_inclusive(self, function_name: str) -> None:
+        bytecode = create_bytecode(parse_expr(f"{function_name}(input, pattern)")).bytecode
+        pattern = "z" * MAX_REGEX_PATTERN_LENGTH
+        result = execute_bytecode(bytecode, {"input": "z", "pattern": pattern}, timeout=60).result
+
+        assert result == ("" if function_name == "extractRegex" else False)
 
     def test_nested_value(self):
         my_dict = {

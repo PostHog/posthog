@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from unittest.mock import Mock, patch
@@ -10,8 +11,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex import (
+    _encode_entity_tag,
     _flatten_relationship,
     _flatten_scorecard_score,
+    _format_cortex_datetime,
+    _normalize_dependency,
     cortex_source,
     get_resource,
     validate_credentials,
@@ -221,3 +225,119 @@ class TestCortexTransport:
         rows = list(cast(Any, response.items()))
 
         assert rows[0]["relationship_type_tag"] == "depends-on"
+
+    @parameterized.expand(
+        [
+            ("plain", "payments-api", "payments-api"),
+            ("slashes", "/services/payments-api", "%2Fservices%2Fpayments-api"),
+            ("space_and_colon", "payments api:v2", "payments%20api%3Av2"),
+            ("missing", None, ""),
+        ]
+    )
+    def test_encode_entity_tag_makes_the_tag_addressable(self, _name: str, tag: str | None, expected: str) -> None:
+        # Cortex matches a tag exactly as encoded, so an unencoded slash addresses the wrong path.
+        assert _encode_entity_tag({"tag": tag})["tag_encoded"] == expected
+
+    @parameterized.expand(
+        [
+            ("absent", {}, "", ""),
+            ("null", {"method": None, "path": None}, "", ""),
+            ("present", {"method": "GET", "path": "/2.0/users"}, "GET", "/2.0/users"),
+        ]
+    )
+    def test_normalize_dependency_fills_the_key_columns(
+        self, _name: str, item: dict[str, Any], method: str, path: str
+    ) -> None:
+        normalized = _normalize_dependency(dict(item))
+        assert normalized["method"] == method
+        assert normalized["path"] == path
+
+    def test_format_cortex_datetime_drops_the_zone(self) -> None:
+        # Cortex documents startTime as a date-time without a time zone.
+        assert _format_cortex_datetime(datetime(2024, 3, 1, 9, 30, tzinfo=UTC)) == "2024-03-01T09:30:00"
+
+    def test_format_cortex_datetime_caps_a_future_cursor_at_now(self) -> None:
+        formatted = _format_cortex_datetime(datetime(2999, 1, 1, tzinfo=UTC))
+        assert formatted <= datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.rest_api_resource")
+    def test_cortex_source_users_partitions_on_joined_at(self, mock_rest_api_resource: Mock) -> None:
+        mock_rest_api_resource.return_value = Mock()
+        response = cortex_source(api_key="cx_key", endpoint="users", team_id=1, job_id="job-1")
+
+        assert response.primary_keys == ["email"]
+        assert response.partition_keys == ["joinedAt"]
+        assert response.sort_mode == "asc"
+
+    @parameterized.expand(["custom_events", "deploys", "dependencies"])
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.build_dependent_resource")
+    def test_entity_fanouts_bind_the_encoded_tag(
+        self, endpoint: str, mock_build_dependent_resource: Mock, *_: Any
+    ) -> None:
+        mock_build_dependent_resource.return_value = _FakeDltResource(endpoint, [])
+
+        cortex_source(api_key="cx_key", endpoint=endpoint, team_id=1, job_id="job-1")
+
+        kwargs = mock_build_dependent_resource.call_args.kwargs
+        assert kwargs["fanout"].parent_name == "entities"
+        assert kwargs["fanout"].resolve_field == "tag_encoded"
+        # Without the parent map the derived resolve field never exists on a parent row.
+        assert kwargs["parent_data_map"] is _encode_entity_tag
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.build_dependent_resource")
+    def test_cortex_source_custom_events_incremental_passes_the_watermark(
+        self, mock_build_dependent_resource: Mock
+    ) -> None:
+        mock_build_dependent_resource.return_value = _FakeDltResource("custom_events", [])
+
+        response = cortex_source(
+            api_key="cx_key",
+            endpoint="custom_events",
+            team_id=1,
+            job_id="job-1",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 3, 1, tzinfo=UTC),
+            incremental_field="timestamp",
+        )
+
+        kwargs = mock_build_dependent_resource.call_args.kwargs
+        assert kwargs["should_use_incremental_field"] is True
+        assert kwargs["incremental_field"] == "timestamp"
+        assert kwargs["db_incremental_field_last_value"] == datetime(2024, 3, 1, tzinfo=UTC)
+        window = kwargs["incremental_config_factory"]("timestamp")
+        assert window["start_param"] == "startTime"
+        assert window["cursor_path"] == "timestamp"
+        # Fan-out rows arrive grouped per entity, so the watermark may only commit once the whole
+        # run is done — an asc sync would checkpoint one entity's latest event over every entity
+        # it has not reached yet.
+        assert response.sort_mode == "desc"
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.build_dependent_resource")
+    def test_cortex_source_custom_events_full_refresh_omits_the_watermark(
+        self, mock_build_dependent_resource: Mock
+    ) -> None:
+        mock_build_dependent_resource.return_value = _FakeDltResource("custom_events", [])
+
+        cortex_source(api_key="cx_key", endpoint="custom_events", team_id=1, job_id="job-1")
+
+        kwargs = mock_build_dependent_resource.call_args.kwargs
+        assert kwargs["should_use_incremental_field"] is False
+        assert kwargs["db_incremental_field_last_value"] is None
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.build_dependent_resource")
+    def test_cortex_source_dependencies_requests_outgoing_edges_only(self, mock_build_dependent_resource: Mock) -> None:
+        mock_build_dependent_resource.return_value = _FakeDltResource(
+            "dependencies", [{"callerTag": "a", "calleeTag": "b"}]
+        )
+
+        response = cortex_source(api_key="cx_key", endpoint="dependencies", team_id=1, job_id="job-1")
+        rows = list(cast(Any, response.items()))
+
+        # Each edge is listed by both of its endpoints; pulling incoming edges too would fetch
+        # every edge twice, under two different callers.
+        assert mock_build_dependent_resource.call_args.kwargs["fanout"].child_params == {
+            "includeOutgoing": "true",
+            "includeIncoming": "false",
+        }
+        assert rows[0]["method"] == "" and rows[0]["path"] == ""
+        assert response.primary_keys == ["callerTag", "calleeTag", "method", "path"]
