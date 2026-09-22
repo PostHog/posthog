@@ -1194,6 +1194,19 @@ describe('ActionMatcher', () => {
             expect(checkElementsAgainstSelector(elements, 'section > span:nth-child(1):nth-of-type(1)')).toBeFalsy()
             expect(checkElementsAgainstSelector(elements, 'section > span:nth-child(2):nth-of-type(3)')).toBeFalsy()
         })
+
+        it('does not match a selector that asks for two values of one requirement', () => {
+            const elements: Element[] = [
+                { tag_name: 'button', attr_id: 'submit', nth_child: 2, attributes: { attr__type: 'submit' } },
+            ]
+
+            expect(checkElementsAgainstSelector(elements, "[type='submit']")).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, "[type='submit'][type='submit']")).toBeTruthy()
+
+            expect(checkElementsAgainstSelector(elements, "[type='button'][type='submit']")).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, "[id='cancel'][id='submit']")).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'button:nth-child(1):nth-child(2)')).toBeFalsy()
+        })
     })
 })
 

@@ -68,6 +68,7 @@ class SelectorPart:
         self.direct_descendant = direct_descendant
         self.data: dict[str, Union[str, list]] = {}
         self.ch_attributes: dict[str, Union[str, list]] = {}  # attributes for CH
+        self.unsatisfiable = False
 
         attribute_matches = list(re.finditer(SELECTOR_ATTRIBUTE_REGEX, tag))
         if attribute_matches:
@@ -75,11 +76,9 @@ class SelectorPart:
                 key = match.group(1)
                 value = match.group(3)
                 if key == "id":
-                    self.data["attr_id"] = value
-                    self.ch_attributes["attr_id"] = value
+                    self._require("attr_id", "attr_id", value)
                 else:
-                    self.data[f"attributes__attr__{key}"] = value
-                    self.ch_attributes[key] = value
+                    self._require(f"attributes__attr__{key}", key, value)
             # Excise the attribute spans and keep the rest, so a class, id or
             # nth-child written after an attribute selector is not discarded.
             for match in reversed(attribute_matches):
@@ -87,8 +86,7 @@ class SelectorPart:
         positional_matches = list(re.finditer(POSITIONAL_PSEUDO_CLASS_REGEX, tag))
         for match in positional_matches:
             pseudo_class, position = match.group(1), match.group(2)
-            self.data["nth_child" if pseudo_class == "nth-child" else "nth_of_type"] = position
-            self.ch_attributes[pseudo_class] = position
+            self._require("nth_child" if pseudo_class == "nth-child" else "nth_of_type", pseudo_class, position)
         for match in reversed(positional_matches):
             tag = tag[: match.start()] + tag[match.end() :]
         if "." in tag:
@@ -106,8 +104,7 @@ class SelectorPart:
         if "#" in tag:
             parts = tag.split("#")
             if len(parts) > 1:
-                self.data["attr_id"] = self._unescape_class(parts[1]) if escape_slashes else parts[1]
-                self.ch_attributes["attr_id"] = self.data["attr_id"]
+                self._require("attr_id", "attr_id", self._unescape_class(parts[1]) if escape_slashes else parts[1])
             tag = parts[0]
         if tag:
             self.data["tag_name"] = tag
@@ -126,6 +123,15 @@ class SelectorPart:
                     where.append(f"{key} = %s")
             params.append(value)
         return {"where": where, "params": params}
+
+    def _require(self, data_key: str, ch_key: str, value: str) -> None:
+        # One selector part is a conjunction, so the same key written twice with two
+        # values describes an element that cannot exist. Letting the later value
+        # overwrite the earlier one would turn an impossible selector into a match.
+        if self.data.get(data_key, value) != value:
+            self.unsatisfiable = True
+        self.data[data_key] = value
+        self.ch_attributes[ch_key] = value
 
     def _unescape_class(self, class_name):
         r"""Separate all double slashes "\\" (replace them with "\") and remove all single slashes between them."""
@@ -173,6 +179,10 @@ class Selector:
                 part.append(char)
 
         yield "".join(part)
+
+    def is_unsatisfiable(self) -> bool:
+        # For example [type="button"][type="submit"], which no element can satisfy.
+        return any(part.unsatisfiable for part in self.parts)
 
     def has_unsupported_syntax(self) -> bool:
         # A part keeps unsupported CSS (a pseudo-class, an unsupported combinator, ...)

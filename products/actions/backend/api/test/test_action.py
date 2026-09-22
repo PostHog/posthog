@@ -922,9 +922,15 @@ class TestSelectorWarning(SimpleTestCase):
     def test_no_warning_for_matchable_selector(self, _name: str, selector: str) -> None:
         assert ActionStepJSONSerializer().get_selector_warning({"selector": selector}) is None
 
-    def test_warns_for_selector_that_never_matches(self) -> None:
-        # Pseudo-class selectors are unsupported and compile to a regex that matches nothing.
-        assert ActionStepJSONSerializer().get_selector_warning({"selector": "input:disabled"}) is not None
+    @parameterized.expand(
+        [
+            ("unsupported_pseudo_class", "input:disabled"),
+            ("two_values_for_one_attribute", '[type="button"][type="submit"]'),
+            ("two_positions_for_one_element", "button:nth-child(1):nth-child(2)"),
+        ]
+    )
+    def test_warns_for_selector_that_never_matches(self, _name: str, selector: str) -> None:
+        assert ActionStepJSONSerializer().get_selector_warning({"selector": selector}) is not None
 
     def test_no_warning_without_selector(self) -> None:
         assert ActionStepJSONSerializer().get_selector_warning({}) is None

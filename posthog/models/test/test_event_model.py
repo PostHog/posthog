@@ -282,6 +282,36 @@ class TestSelectorRegexMatching(SimpleTestCase):
                 [Element(tag_name="button", attr_id="submit", attributes={"attr__type": "button"})],
                 True,
             ),
+            (
+                "a class matches a whole class token, not a class it only prefixes",
+                ".btn",
+                [Element(tag_name="button", attr_class=["btn-primary"])],
+                False,
+            ),
+            (
+                "two values for one attribute cannot both hold",
+                '[type="button"][type="submit"]',
+                [Element(tag_name="button", attributes={"attr__type": "submit"})],
+                False,
+            ),
+            (
+                "the same attribute value written twice still holds",
+                '[type="submit"][type="submit"]',
+                [Element(tag_name="button", attributes={"attr__type": "submit"})],
+                True,
+            ),
+            (
+                "two ids for one element cannot both hold",
+                '#submit[id="cancel"]',
+                [Element(tag_name="button", attr_id="cancel")],
+                False,
+            ),
+            (
+                "two positions for one element cannot both hold",
+                "button:nth-child(1):nth-child(2)",
+                [Element(tag_name="button", nth_child=2)],
+                False,
+            ),
         ]
     )
     def test_selector_matches_elements_chain(self, _name, selector, elements, expected):
