@@ -2470,6 +2470,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # sandbox and re-enabling the run-log mirror with the rollout off).
         AGENT_OTEL_TELEMETRY_STATE_KEY,
         "sandbox_event_ingest_enabled",
+        "agent_proxy_keep_stream_open",
+        "overlap_clone_boot_enabled",
+        "use_modal_network_allowlist",
         "stream_presence_gated",
         "stream_thin_tail",
         PR_LOOP_ENABLED_STATE_KEY,
