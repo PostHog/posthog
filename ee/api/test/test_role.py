@@ -2,6 +2,7 @@ from uuid import uuid4
 
 from django.db import IntegrityError, connection
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from rest_framework import status
 
@@ -216,6 +217,24 @@ class TestRoleAPI(APILicensedTest):
 
         # Constant query count as members grow: the social-auth/2FA lookups are prefetched, not N+1.
         self.assertEqual(len(few_members.captured_queries), len(more_members.captured_queries))
+
+    def test_paginated_listing_is_stable_when_roles_share_a_created_at(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        # Descending ids on one timestamp: without the id tie-breaker Postgres is free to return
+        # the rows in insertion order, which drops one role and repeats another across pages.
+        role_ids = sorted((uuid4() for _ in range(6)), reverse=True)
+        for index, role_id in enumerate(role_ids):
+            Role.objects.create(id=role_id, name=f"Role {index}", organization=self.organization)
+        Role.objects.filter(organization=self.organization).update(created_at=timezone.now())
+
+        paged_ids = []
+        for offset in range(0, len(role_ids), 2):
+            res = self.client.get(f"/api/organizations/@current/roles?limit=2&offset={offset}")
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+            paged_ids.extend(role["id"] for role in res.json()["results"])
+
+        self.assertEqual(paged_ids, [str(role_id) for role_id in sorted(role_ids)])
 
     def test_returns_correct_results_by_organization(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
