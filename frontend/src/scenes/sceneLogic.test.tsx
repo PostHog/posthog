@@ -37,6 +37,7 @@ const testScenes: Record<string, () => any> = {
     [Scene.PasswordResetComplete]: sceneImport,
     [Scene.ProjectCreateFirst]: sceneImport,
     [Scene.Settings]: sceneImport,
+    [Scene.ProjectFiles]: sceneImport,
 }
 
 describe('sceneLogic', () => {
@@ -74,13 +75,17 @@ describe('sceneLogic', () => {
         expect(teamLogic.isMounted()).toBe(true)
     })
 
-    it('changing URL runs openScene, loadScene and setScene', async () => {
+    it.each([
+        [urls.settings('user'), Scene.Settings],
+        [urls.projectFiles(), Scene.ProjectFiles],
+        [urls.projectFiles('Research'), Scene.ProjectFiles],
+    ])('changing URL to %s loads its own scene', async (url, sceneId) => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             sceneId: Scene.DataManagement,
         })
-        router.actions.push(urls.settings('user'))
+        router.actions.push(url)
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
-            sceneId: Scene.Settings,
+            sceneId,
         })
     })
 
