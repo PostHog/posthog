@@ -55,15 +55,16 @@ def sync_timeseries_recalculation(
     now = now or timezone.now()
     with team_scope(team_id, canonical=True), transaction.atomic():
         try:
-            experiment = Experiment.objects.get(id=experiment_id, team_id=team_id, deleted=False)
+            # Same lock as request_recalculation and the calc result write; the two hourly workflows serialize
+            # here so they see each other's row and share it instead of creating two. Taken on the initial read
+            # so the metric config inspected below cannot go stale while waiting for the lock.
+            experiment = Experiment.objects.select_for_update(no_key=True).get(
+                id=experiment_id, team_id=team_id, deleted=False
+            )
         except Experiment.DoesNotExist:
             return None
         if experiment.start_date is None:
             return None
-
-        # Same lock as request_recalculation and the calc result write; the two hourly workflows serialize here
-        # so they see each other's row and share it instead of creating two.
-        Experiment.objects.select_for_update(no_key=True).filter(id=experiment_id, team_id=team_id).exists()
 
         stats_method = get_experiment_stats_method(experiment)
         metric_uuids: list[str] = []
