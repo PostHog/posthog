@@ -36,11 +36,10 @@ from products.slack_app.backend.api import (
     resolve_region_or_terminal_route,
     was_proxied,
 )
+from products.slack_app.backend.services.commands import SLASH_COMMAND_PREFIX
 from products.slack_app.backend.services.integration_resolver import load_integrations
 
 logger = structlog.get_logger(__name__)
-
-SLASH_COMMAND_NAME = "/posthog"
 
 
 @csrf_exempt
@@ -69,7 +68,7 @@ def slack_app_command_handler(request: HttpRequest) -> HttpResponse:
     # Present only when invoked inside a thread; forwarding it keeps the reply in-thread.
     thread_ts = payload.get("thread_ts", "")
     raw_text = (payload.get("text") or "").strip()
-    command_name = payload.get("command", SLASH_COMMAND_NAME)
+    command_name = payload.get("command", SLASH_COMMAND_PREFIX)
     # Unique per invocation — used to derive a distinct workflow id since slash
     # payloads carry no message ``ts`` or event id to key on.
     trigger_id = payload.get("trigger_id", "")

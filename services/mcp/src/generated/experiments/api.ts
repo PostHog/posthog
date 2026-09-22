@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 39 enabled ops
+ * PostHog API - MCP 40 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -4734,7 +4734,15 @@ export const ExperimentsCreateBody = () => zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -4920,6 +4928,12 @@ export const ExperimentsCreateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
+                                ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -5756,7 +5770,15 @@ export const ExperimentsCreateBody = () => zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -5942,6 +5964,12 @@ export const ExperimentsCreateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
+                                ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -10657,7 +10685,15 @@ export const ExperimentsPartialUpdateBody = () => zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -10843,6 +10879,12 @@ export const ExperimentsPartialUpdateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
+                                ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -11679,7 +11721,15 @@ export const ExperimentsPartialUpdateBody = () => zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -11865,6 +11915,12 @@ export const ExperimentsPartialUpdateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
+                                ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -16559,7 +16615,15 @@ export const ExperimentsDuplicateCreateBody = () => zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -16745,6 +16809,12 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
+                                ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -17581,7 +17651,15 @@ export const ExperimentsDuplicateCreateBody = () => zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -17767,6 +17845,12 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
+                                ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -19160,6 +19244,357 @@ export const ExperimentsPromptTemplatesRetrieveParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+/**
+ * Facts about this project that decide how to configure a new experiment.
+ *
+ * Returns the team's experiment defaults, which SDKs call feature flags, traffic on a target
+ * surface, the baseline of a candidate metric, how recent experiments were set up, and the
+ * most reused shared metrics. Each section has its own status, so a slow or failed read
+ * leaves the others valid. POST because the inputs describe a plan rather than a resource;
+ * the endpoint only reads.
+ */
+export const ExperimentsSetupContextCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const experimentsSetupContextCreateBodyTargetEventMax = 400
+
+export const experimentsSetupContextCreateBodyTargetUrlContainsMax = 1000
+
+export const experimentsSetupContextCreateBodyTargetPropertiesOneItemOneOperatorDefault = `exact`
+export const experimentsSetupContextCreateBodyTargetPropertiesOneItemOneTypeDefault = `event`
+export const experimentsSetupContextCreateBodyTargetPropertiesOneItemTwoTypeDefault = `person`
+export const experimentsSetupContextCreateBodyTargetPropertiesOneMax = 10
+
+export const experimentsSetupContextCreateBodyMetricEventMax = 400
+
+export const experimentsSetupContextCreateBodyMetricPropertiesOneItemOneOperatorDefault = `exact`
+export const experimentsSetupContextCreateBodyMetricPropertiesOneItemOneTypeDefault = `event`
+export const experimentsSetupContextCreateBodyMetricPropertiesOneItemTwoTypeDefault = `person`
+export const experimentsSetupContextCreateBodyMetricPropertiesOneMax = 10
+
+export const experimentsSetupContextCreateBodyPreviousExperimentsLimitDefault = 10
+export const experimentsSetupContextCreateBodyPreviousExperimentsLimitMax = 25
+
+export const experimentsSetupContextCreateBodySharedMetricsLimitDefault = 10
+export const experimentsSetupContextCreateBodySharedMetricsLimitMax = 25
+
+export const ExperimentsSetupContextCreateBody = () => zod
+    .object({
+        target_event: zod
+            .string()
+            .max(experimentsSetupContextCreateBodyTargetEventMax)
+            .nullish()
+            .describe(
+                "Event that marks a visit to the surface under test, for example '$pageview' or '$screen'. Needed for target_surface and for the baseline in candidate_metric."
+            ),
+        target_url_contains: zod
+            .string()
+            .max(experimentsSetupContextCreateBodyTargetUrlContainsMax)
+            .nullish()
+            .describe(
+                "Only counts target events whose $current_url contains this text, ignoring case. Needs target_event to be '$pageview'."
+            ),
+        target_properties: zod
+            .union([
+                zod
+                    .array(
+                        zod.union([
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod
+                                    .union([
+                                        zod.enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                            'is_set',
+                                            'is_not_set',
+                                            'is_date_exact',
+                                            'is_date_before',
+                                            'is_date_after',
+                                            'between',
+                                            'not_between',
+                                            'min',
+                                            'max',
+                                            'in',
+                                            'not_in',
+                                            'is_cleaned_path_exact',
+                                            'flag_evaluates_to',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                            'icontains_multi',
+                                            'not_icontains_multi',
+                                        ]),
+                                        zod.null(),
+                                    ])
+                                    .default(
+                                        experimentsSetupContextCreateBodyTargetPropertiesOneItemOneOperatorDefault
+                                    ),
+                                type: zod
+                                    .literal('event')
+                                    .default(experimentsSetupContextCreateBodyTargetPropertiesOneItemOneTypeDefault)
+                                    .describe('Event properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            }),
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod.enum([
+                                    'exact',
+                                    'is_not',
+                                    'icontains',
+                                    'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
+                                    'regex',
+                                    'not_regex',
+                                    'gt',
+                                    'gte',
+                                    'lt',
+                                    'lte',
+                                    'is_set',
+                                    'is_not_set',
+                                    'is_date_exact',
+                                    'is_date_before',
+                                    'is_date_after',
+                                    'between',
+                                    'not_between',
+                                    'min',
+                                    'max',
+                                    'in',
+                                    'not_in',
+                                    'is_cleaned_path_exact',
+                                    'flag_evaluates_to',
+                                    'semver_eq',
+                                    'semver_neq',
+                                    'semver_gt',
+                                    'semver_gte',
+                                    'semver_lt',
+                                    'semver_lte',
+                                    'semver_tilde',
+                                    'semver_caret',
+                                    'semver_wildcard',
+                                    'icontains_multi',
+                                    'not_icontains_multi',
+                                ]),
+                                type: zod
+                                    .literal('person')
+                                    .default(experimentsSetupContextCreateBodyTargetPropertiesOneItemTwoTypeDefault)
+                                    .describe('Person properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            }),
+                        ])
+                    )
+                    .max(experimentsSetupContextCreateBodyTargetPropertiesOneMax)
+                    .describe('Event or person property filters that narrow which events are counted.'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Event or person property filters that narrow the target event, for example an exact $host and $pathname for one page. At most 10 filters, and each needs type 'event' or 'person'. Needs target_event. Combines with target_url_contains."
+            ),
+        metric_event: zod
+            .string()
+            .max(experimentsSetupContextCreateBodyMetricEventMax)
+            .nullish()
+            .describe(
+                "Event of the candidate primary metric. With target_event, candidate_metric returns a baseline. Without it, candidate_metric returns only the event's volume. Also marks the shared metrics that count this event."
+            ),
+        metric_properties: zod
+            .union([
+                zod
+                    .array(
+                        zod.union([
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod
+                                    .union([
+                                        zod.enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                            'is_set',
+                                            'is_not_set',
+                                            'is_date_exact',
+                                            'is_date_before',
+                                            'is_date_after',
+                                            'between',
+                                            'not_between',
+                                            'min',
+                                            'max',
+                                            'in',
+                                            'not_in',
+                                            'is_cleaned_path_exact',
+                                            'flag_evaluates_to',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                            'icontains_multi',
+                                            'not_icontains_multi',
+                                        ]),
+                                        zod.null(),
+                                    ])
+                                    .default(
+                                        experimentsSetupContextCreateBodyMetricPropertiesOneItemOneOperatorDefault
+                                    ),
+                                type: zod
+                                    .literal('event')
+                                    .default(experimentsSetupContextCreateBodyMetricPropertiesOneItemOneTypeDefault)
+                                    .describe('Event properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            }),
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod.enum([
+                                    'exact',
+                                    'is_not',
+                                    'icontains',
+                                    'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
+                                    'regex',
+                                    'not_regex',
+                                    'gt',
+                                    'gte',
+                                    'lt',
+                                    'lte',
+                                    'is_set',
+                                    'is_not_set',
+                                    'is_date_exact',
+                                    'is_date_before',
+                                    'is_date_after',
+                                    'between',
+                                    'not_between',
+                                    'min',
+                                    'max',
+                                    'in',
+                                    'not_in',
+                                    'is_cleaned_path_exact',
+                                    'flag_evaluates_to',
+                                    'semver_eq',
+                                    'semver_neq',
+                                    'semver_gt',
+                                    'semver_gte',
+                                    'semver_lt',
+                                    'semver_lte',
+                                    'semver_tilde',
+                                    'semver_caret',
+                                    'semver_wildcard',
+                                    'icontains_multi',
+                                    'not_icontains_multi',
+                                ]),
+                                type: zod
+                                    .literal('person')
+                                    .default(experimentsSetupContextCreateBodyMetricPropertiesOneItemTwoTypeDefault)
+                                    .describe('Person properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            }),
+                        ])
+                    )
+                    .max(experimentsSetupContextCreateBodyMetricPropertiesOneMax)
+                    .describe('Event or person property filters that narrow which events are counted.'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Event or person property filters that narrow the metric event, for the metric that counts only some of its occurrences. At most 10 filters, and each needs type 'event' or 'person'. Needs metric_event."
+            ),
+        previous_experiments_limit: zod
+            .number()
+            .min(1)
+            .max(experimentsSetupContextCreateBodyPreviousExperimentsLimitMax)
+            .default(experimentsSetupContextCreateBodyPreviousExperimentsLimitDefault)
+            .describe('How many experiments to return, most recently launched first, then drafts, 1 to 25.'),
+        shared_metrics_limit: zod
+            .number()
+            .min(1)
+            .max(experimentsSetupContextCreateBodySharedMetricsLimitMax)
+            .default(experimentsSetupContextCreateBodySharedMetricsLimitDefault)
+            .describe('How many shared metrics to return, most reused first, 1 to 25.'),
+    })
+    .describe(
+        "What the caller plans to test. Every field is optional; a section that needs a missing input\ncomes back with status 'skipped'."
+    )
 
 /**
  * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.

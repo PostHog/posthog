@@ -162,7 +162,12 @@ from products.signals.backend.scout_harness.tools.checks import (
     list_report_checks,
     record_check_result,
 )
-from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
+from products.signals.backend.scout_harness.tools.emit import (
+    EvidenceEntry,
+    InvalidEmitError,
+    emit_eligibility_for_run,
+    emit_finding_sync,
+)
 from products.signals.backend.scout_harness.tools.lighthouse import (
     MAX_AUDITS_PER_RUN,
     RUN_AUDIT_COUNT_KEY,
@@ -185,6 +190,7 @@ from products.signals.backend.scout_harness.tools.profile import get_project_pro
 from products.signals.backend.scout_harness.tools.report import (
     ReportChartInput,
     ReportEvidence,
+    ReportLinkInput,
     ReportMetricComparisonInput,
     ReportMetricInput,
     ReviewerInput,
@@ -460,16 +466,23 @@ def _to_report_metrics(entries: list[dict] | None) -> list[ReportMetricInput] | 
 
 
 def _to_report_evidence(entries: list[dict] | None) -> list[ReportEvidence] | None:
-    """Map validated evidence entries to `ReportEvidence`s for the report tools. `weight` is omitted
-    when unset so the dataclass default stands. Empty/None yields None, which the edit path reads as
-    "no evidence supplied"."""
+    """Map validated evidence entries to `ReportEvidence`s for the report tools. Empty/None yields
+    None, which the edit path reads as "no evidence supplied"."""
+    if not entries:
+        return None
+    return [ReportEvidence(description=entry["description"], source_id=entry["source_id"]) for entry in entries]
+
+
+def _to_report_links(entries: list[dict] | None) -> list[ReportLinkInput] | None:
+    """Map validated `links` entries to `ReportLinkInput`s for the report tools, so the tool layer
+    has no DRF dependency. Empty/None yields None, which the tool reads as "no links supplied"."""
     if not entries:
         return None
     return [
-        ReportEvidence(
-            description=entry["description"],
-            source_id=entry["source_id"],
-            **({"weight": entry["weight"]} if entry.get("weight") is not None else {}),
+        ReportLinkInput(
+            kind=entry["kind"],
+            report_id=entry["report_id"],
+            reason=entry.get("reason") or None,
         )
         for entry in entries
     ]
@@ -747,7 +760,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="List a run's emitted findings",
         description=(
             "Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit "
-            "with its `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, and "
+            "with its `description` (the finding text as surfaced), `severity`, and "
             "the deterministic `source_id` that joins back to the underlying signal. Lets a team and its "
             "agents see *what* a run surfaced without parsing `emitted_finding_ids` or scanning the signal "
             "store. Strictly team-scoped — a run UUID belonging to another team returns 404."
@@ -1033,7 +1046,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(
                 response=EmitFindingResponseSerializer, description="Finding emitted, or skipped by a preflight gate."
             ),
-            400: OpenApiResponse(description="Invalid emit shape (description, weight, confidence, evidence cap)."),
+            400: OpenApiResponse(description="Invalid emit shape (description, evidence cap)."),
             404: OpenApiResponse(description="Run not found for this project."),
         },
         summary="Emit a finding for a run",
@@ -1088,7 +1101,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 team=self.team,
                 run=run,
                 description=data["description"],
-                confidence=data["confidence"],
+                confidence=data.get("confidence"),
                 evidence=evidence,
                 hypothesis=data.get("hypothesis") or None,
                 severity=data.get("severity") or None,
@@ -1294,6 +1307,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 charts=_to_report_charts(data.get("charts")),
                 metrics=_to_report_metrics(data.get("metrics")),
                 suggested_prompts=data.get("suggested_prompts"),
+                links=_to_report_links(data.get("links")),
                 supersedes_implementation=bool(data.get("supersedes_implementation")),
                 corroboration_only=bool(data.get("corroboration_only")),
             )
@@ -1306,6 +1320,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "updated_fields": result.updated_fields,
                     "note_appended": result.note_appended,
                     "evidence_appended": result.evidence_appended,
+                    "links_appended": result.links_appended,
                     "reviewers_set": result.reviewers_set,
                     "repository_set": result.repository_set,
                     "repository": result.repository,
@@ -2063,6 +2078,40 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+def _eligibility_run_id(request: Request, *, team_id: int, supplied: uuid.UUID | None) -> str | None:
+    """The run whose scout-level write gate `emit_eligibility` must answer for, or None for no scout.
+
+    Provenance first. A scout sandbox's OAuth token is bound to the task that dispatched its run and
+    the sandbox cannot choose that binding, so it names the calling scout even when the agent passes
+    nothing, which is what makes the returned eligibility the calling scout's own rather than
+    whatever it remembered to ask about. A supplied `run_id` is only a hint, used when there is no
+    binding (a person inspecting one scout's posture), and it is verified against this team, so it
+    can neither reach another project's config nor let a sandbox read a different scout's gate.
+    """
+    bound = run_id_for_sandbox_task(task_id=_sandbox_bound_task_id(request), team_id=team_id)
+    if bound is not None:
+        return bound
+    return str(supplied) if supplied is not None else None
+
+
+def _overlay_effective_emit_eligibility(body: dict[str, Any], *, team_id: int, run_id: str | None) -> None:
+    """Replace the stored team-wide `emit_eligibility` with the calling scout's effective one.
+
+    Updates both response sections, and no-ops when no scout run resolves or the payload predates the
+    section. The profile row is shared per team, so what it stores can only be the team-wide floor;
+    the scout reading it also has its own config's dry-run toggle to clear. Re-deriving here rather
+    than at build time keeps that answer live too, because the row is cached for up to
+    `PROFILE_TTL` while the gate is re-read from the config on every write.
+    """
+    effective = emit_eligibility_for_run(team_id=team_id, run_id=run_id)
+    if effective is None:
+        return
+    inventory = body["payload"].get("inventory")
+    if isinstance(inventory, dict) and "emit_eligibility" in inventory:
+        inventory["emit_eligibility"] = effective
+        body["summary"]["emit_eligibility"] = effective
+
+
 class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Project profile — deterministic snapshot of \"what's true about this project\".
 
@@ -2154,14 +2203,20 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         # scout's sandbox token carries `signal_scout_internal:write`, and the Phase-7 Temporal
         # workflow builds out-of-band, so the build path stays covered.
         force_refresh = bool(validated.get("force_refresh", False)) and caller_is_internal_scout
+        team_id = _canonical_team_id(self)
         profile = get_project_profile(
-            team_id=_canonical_team_id(self),
+            team_id=team_id,
             force_refresh=force_refresh,
             lazy_build=caller_is_internal_scout,
         )
         if profile is None:
             raise exceptions.NotFound("No project profile has been built for this team yet.")
         body = profile.as_dict()
+        _overlay_effective_emit_eligibility(
+            body,
+            team_id=team_id,
+            run_id=_eligibility_run_id(request, team_id=team_id, supplied=validated.get("run_id")),
+        )
         if validated.get("summary_only", False):
             # `payload` is `required=False` on the serializer, so dropping the key here omits it
             # from the response rather than rendering it null.
