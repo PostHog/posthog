@@ -19,6 +19,7 @@ from uuid import UUID
 
 from django.db import transaction
 from django.db.models import F
+from django.db.models.functions import Coalesce
 
 import structlog
 
@@ -38,9 +39,9 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportCheck,
     SignalReportGithubComment,
-    SignalReportTask,
 )
 from products.signals.backend.recurrence import latest_recurrence_report
+from products.signals.backend.signal_metadata import REASSIGN_SIGNAL_ROW_CAP
 
 logger = structlog.get_logger(__name__)
 
@@ -58,11 +59,15 @@ MERGE_DISMISSAL_REASON = "merged"
 # verdict, and folding it in would undo that verdict silently. A resolved survivor is terminal for
 # new signals, so it would take the sources' signals somewhere the pipeline never looks at again
 # while archiving those sources for good.
+#
+# IN_PROGRESS is excluded although it is live: a research run is writing to that report right now,
+# and `SUPPRESSED -> READY` is a legal transition, so `mark_report_ready_activity` would resurrect
+# the report after the merge moved its signals and work log away. CANDIDATE is safe because a run
+# that starts later needs `SUPPRESSED -> IN_PROGRESS`, which the model refuses.
 MERGEABLE_STATUSES = frozenset(
     {
         SignalReport.Status.POTENTIAL,
         SignalReport.Status.CANDIDATE,
-        SignalReport.Status.IN_PROGRESS,
         SignalReport.Status.PENDING_INPUT,
         SignalReport.Status.READY,
         SignalReport.Status.FAILED,
@@ -111,35 +116,27 @@ class MergeResult:
     sources: tuple[MergedSource, ...]
 
 
-def _latest_dismissal_reason(report: SignalReport) -> str | None:
-    latest = (
-        SignalReportArtefact.objects.filter(
-            team_id=report.team_id,
-            report_id=report.id,
-            type=SignalReportArtefact.ArtefactType.DISMISSAL,
-        )
-        .order_by("-created_at")
-        .values_list("content", flat=True)
-        .first()
-    )
-    if latest is None:
-        return None
-    try:
-        return Dismissal.model_validate_json(latest).reason
-    except ValueError:
-        return None
-
-
 def was_merged_away(report: SignalReport) -> bool:
     """Whether this report was folded into another one and so no longer holds its own signals.
 
-    Only the latest dismissal counts, matching `fixed_dismissal_at`. A reviewer who re-dismisses a
-    merged report with another code has overruled the merge as the report's current verdict, and
-    restoring it is their call again.
+    Any `merged` dismissal counts, unlike `fixed_dismissal_at`, which reads only the latest. A
+    fixed dismissal is a verdict a reviewer can overrule; a merge is structural. The signals and
+    the work log are on the survivor either way, so a later dismissal with another code must not
+    make the report restorable or stop it redirecting matches.
     """
-    return report.status == SignalReport.Status.SUPPRESSED and _latest_dismissal_reason(report) == (
-        MERGE_DISMISSAL_REASON
-    )
+    if report.status != SignalReport.Status.SUPPRESSED:
+        return False
+    for content in SignalReportArtefact.objects.filter(
+        team_id=report.team_id,
+        report_id=report.id,
+        type=SignalReportArtefact.ArtefactType.DISMISSAL,
+    ).values_list("content", flat=True):
+        try:
+            if Dismissal.model_validate_json(content).reason == MERGE_DISMISSAL_REASON:
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 def _merge_target(report: SignalReport, *, lock: bool) -> SignalReport | None:
@@ -206,18 +203,20 @@ def signal_target_report(report: SignalReport, *, lock: bool = False) -> SignalR
 
 
 def _release_source_claim(source: SignalReport, attribution: ArtefactAttribution) -> bool:
-    """End an active claim on the source so the merge does not carry live work onto the survivor.
+    """End any active claim on the source, so no claim is left stranded on an archived report.
 
-    A claim held by the caller themselves is left alone: it is the same actor continuing the same
-    work, and the survivor's own claim (if any) already belongs to them.
+    Claim history stays on the source (see `_MOVED_ARTEFACT_TYPES`), so a claim left active there
+    would make the survivor look unclaimed while the work is still owned, and another actor could
+    take it. That holds whoever owns the claim, the merge caller included: they re-claim the
+    survivor, which is the report the work now belongs to.
     """
     from products.signals.backend.report_assignments import (
         release_claim,  # noqa: PLC0415 — keeps the GitHub integration off the grouping import path
     )
-    from products.signals.backend.report_claims import actor_owns_claim, get_active_claim  # noqa: PLC0415 — same
+    from products.signals.backend.report_claims import get_active_claim  # noqa: PLC0415 — same
 
     claim = get_active_claim(team_id=source.team_id, report_id=str(source.id))
-    if claim is None or actor_owns_claim(claim, attribution):
+    if claim is None:
         return False
     release_claim(claim, attribution)
     return True
@@ -229,14 +228,14 @@ def _move_side_rows(source: SignalReport, survivor: SignalReport) -> None:
     Each of these has a uniqueness constraint the survivor may already satisfy, so a colliding row
     stays on the source rather than failing the merge. Reading either report then still finds the
     fact once.
-    """
-    survivor_task_ids = set(
-        SignalReportTask.objects.filter(report_id=survivor.id).values_list("task_id", flat=True),
-    )
-    SignalReportTask.objects.filter(team_id=source.team_id, report_id=source.id).exclude(
-        task_id__in=survivor_task_ids
-    ).update(report_id=survivor.id)
 
+    `SignalReportTask` stays on the source even though it names the same work. Billing charges one
+    flat credit per report whose implementation bridge shipped a pull request in the period
+    (`billing.get_signals_billing_credits_by_team`), so moving a bridge would collapse two charges
+    into one and could make the survivor look billed in an earlier period. The survivor still
+    reaches the work through the `task_run` and `pull_request` artefacts that do move, which is
+    what implementation-PR resolution reads.
+    """
     survivor_comments = set(
         SignalReportGithubComment.all_teams.filter(report_id=survivor.id).values_list("repository", "number"),
     )
@@ -247,16 +246,6 @@ def _move_side_rows(source: SignalReport, survivor: SignalReport) -> None:
         comment.save(update_fields=["report", "updated_at"])
 
     SignalReportCheck.objects.for_team(source.team_id).filter(report_id=source.id).update(report_id=survivor.id)
-
-    # Implementation runs are looked up through the tasks product's own column, and the survivor
-    # owns the source's implementation work now.
-    from products.tasks.backend.facade import (
-        api as tasks_facade,  # noqa: PLC0415 — cross-product import kept off the module import path
-    )
-
-    tasks_facade.reassign_signal_report_tasks(
-        team_id=source.team_id, source_report_id=str(source.id), survivor_report_id=str(survivor.id)
-    )
 
 
 def _merge_source_into(
@@ -286,6 +275,9 @@ def _merge_source_into(
     SignalReport.objects.filter(id=survivor.id).update(
         signal_count=F("signal_count") + source.signal_count,
         total_weight=F("total_weight") + source.total_weight,
+        # A scout's corroborations past the per-report note cap exist only as this counter, with no
+        # artefact rows behind them, so leaving it on the source would drop the only record.
+        corroboration_count=Coalesce(F("corroboration_count"), 0) + (source.corroboration_count or 0),
     )
 
     SignalReportArtefact.add_log(
@@ -371,6 +363,13 @@ def _mergeable_source(report: SignalReport | None, requested_id: str) -> SignalR
         raise ReportMergeError(
             f"Report {requested_id} is {report.status} and cannot be merged. Only a live report can be a source."
         )
+    # The signal move reads one bounded page and never pages or retries, so a source past the cap
+    # would leave the remainder pointing at itself while the survivor's counters already include
+    # them. Refusing upfront keeps that inconsistency from being created at all.
+    if report.signal_count > REASSIGN_SIGNAL_ROW_CAP:
+        raise ReportMergeError(
+            f"Report {requested_id} has more than {REASSIGN_SIGNAL_ROW_CAP} signals and is too large to merge."
+        )
     return report
 
 
@@ -443,8 +442,23 @@ def merge_reports(
 
 
 def _schedule_signal_move(*, team_id: int, survivor_id: str, source_ids: list[str]) -> None:
+    """Queue the ClickHouse move, and never fail the request if the broker refuses it.
+
+    This runs after the merge has committed, and a retried call answers 409 because the sources
+    are archived by then, so raising here would report a completed merge as a 500 with no way to
+    re-drive it. Grouping still routes new matches through the merge pointer, so the cost of a
+    lost dispatch is that the moved signals stay indexed under the archived source.
+    """
     from products.signals.backend.tasks import (  # noqa: PLC0415 — keeps the celery app off the API import path
         move_merged_report_signals,
     )
 
-    move_merged_report_signals.delay(team_id=team_id, survivor_report_id=survivor_id, source_report_ids=source_ids)
+    try:
+        move_merged_report_signals.delay(team_id=team_id, survivor_report_id=survivor_id, source_report_ids=source_ids)
+    except Exception:
+        logger.exception(
+            "signals_merged_report_signal_move_not_queued",
+            team_id=team_id,
+            survivor_report_id=survivor_id,
+            source_report_ids=source_ids,
+        )

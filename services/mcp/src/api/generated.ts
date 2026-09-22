@@ -86508,6 +86508,7 @@ export namespace Schemas {
     export interface SignalReportMergeRequest {
       /**
          * Ids of the duplicate reports to fold into this one (1–10). Each must be a live report in this project: a resolved, archived or deleted report is rejected with 409, as is the survivor's own id. Duplicates in the list are de-duplicated. The whole merge applies or none of it does.
+         * @minItems 1
          * @maxItems 10
          */
       source_report_ids: string[];

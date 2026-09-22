@@ -745,6 +745,9 @@ class SignalReportMergeRequestSerializer(serializers.Serializer):
     source_report_ids = serializers.ListField(
         child=serializers.UUIDField(),
         allow_empty=False,
+        # min_length (not just allow_empty=False) so the non-empty constraint surfaces as
+        # `minItems: 1` in the generated OpenAPI/Zod schema, not only as a server-side 400.
+        min_length=1,
         max_length=MAX_MERGE_SOURCE_REPORTS,
         help_text=(
             "Ids of the duplicate reports to fold into this one (1–"
@@ -2460,8 +2463,9 @@ class SignalReportViewSet(
             409: OpenApiResponse(
                 description=(
                     "Both ends of a merge must be a live report of this project. Returned when "
-                    "the survivor is resolved, or when a source is the survivor itself, is "
-                    "already resolved or archived, or belongs to another project. Nothing is applied."
+                    "the survivor is resolved, or when a source is the survivor itself, is resolved "
+                    "or archived, is still being researched, carries more signals than one merge "
+                    "can move, or belongs to another project. Nothing is applied."
                 )
             ),
         },
@@ -2473,7 +2477,8 @@ class SignalReportViewSet(
             "with a 'duplicate of' link back to the survivor. A source's open pull request stays "
             "open, because the survivor holds it after the move. Pick the survivor deliberately: "
             "prefer the older report, and prefer the one with an open implementation PR or an "
-            "active claim. Titles and summaries are not combined, so edit the survivor afterwards "
+            "active claim. Any active claim on a source is released, so re-claim the survivor if "
+            "you were working on one. Titles and summaries are not combined, so edit it afterwards "
             "if it needs a rewrite. A merged report keeps its URL but cannot be restored, because "
             "its signals now belong to the survivor."
         ),

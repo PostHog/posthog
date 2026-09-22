@@ -21,6 +21,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
+    REASSIGN_SIGNAL_ROW_CAP,
     SIGNAL_DOCUMENT_PRODUCT,
     SIGNAL_DOCUMENT_RENDERING,
     SIGNAL_DOCUMENT_TYPE,
@@ -153,12 +154,6 @@ def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None
             timestamp=_ensure_tz_aware(timestamp_raw),
             metadata=metadata,
         )
-
-
-# The move neither pages nor retries, so a source past this many live signals keeps the remainder
-# pointing at itself while the survivor's counters already include them. Hitting the cap is logged
-# rather than handled, so an affected merge is findable.
-REASSIGN_SIGNAL_ROW_CAP = 5000
 
 
 def reassign_report_signals(*, source_report_id: str, survivor_report_id: str, team_id: int, team: Team) -> int:

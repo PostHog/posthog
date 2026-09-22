@@ -629,11 +629,27 @@ def move_merged_report_signals(team_id: int, survivor_report_id: str, source_rep
     (`report_merge.merge_survivor`), which is what keeps a signal from re-attaching to the
     duplicate before the rows land.
     """
+    from products.signals.backend.report_merge import (  # noqa: PLC0415 — keeps the merge module off the celery import path
+        merge_survivor,
+    )
     from products.signals.backend.temporal.signal_queries import (  # noqa: PLC0415 — keeps the temporal and hogql deps off the import path
         reassign_report_signals,
     )
 
     team = Team.objects.get(pk=team_id)
+    # Two merges in quick succession (A into B, then B into C) queue two tasks that can run out of
+    # order, so the survivor recorded at merge time may itself be merged away by now. Follow the
+    # chain here instead, or A's signals land under the archived B and never reach C.
+    survivor = SignalReport.objects.filter(team_id=team_id, id=survivor_report_id).first()
+    if survivor is None:
+        logger.warning(
+            "signals_merged_report_signals_survivor_missing",
+            team_id=team_id,
+            survivor_report_id=survivor_report_id,
+        )
+        return
+    survivor_report_id = str(merge_survivor(survivor).id)
+
     for source_report_id in source_report_ids:
         try:
             moved = reassign_report_signals(

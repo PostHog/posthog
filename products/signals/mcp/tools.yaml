@@ -302,11 +302,12 @@ tools:
             survivor deliberately: prefer the older report, and prefer the one holding an open implementation PR or an
             active claim. The sources' signals, work-log artefacts, pull requests, task runs and checks move onto the
             survivor, the survivor's signal counters take theirs on, and each source is archived with a 'duplicate of'
-            link back. A source's open pull request stays open, because the survivor holds it after the move; a source's
-            active claim by another actor is released first. Titles and summaries are NOT combined, so follow with
-            `inbox-reports-update` if the survivor needs a rewrite. Both ends must be a live report: a resolved
-            survivor, or a source that is the survivor itself or is already resolved or archived, comes back as 409 and
-            nothing moves, because the whole call applies or none of it does. A merged report keeps its URL but can
+            link back. A source's open pull request stays open, because the survivor holds it after the move; any
+            active claim on a source is released first, so re-claim the survivor if you were working on one. Titles and
+            summaries are NOT combined, so follow with `inbox-reports-update` if the survivor needs a rewrite. Both
+            ends must be a live report, and the whole call applies or none of it does: 409 and no writes when the
+            survivor is resolved, or when a source is the survivor itself, is resolved or archived, is still being
+            researched (`in_progress`), or carries more signals than one merge can move. A merged report keeps its URL but can
             never be restored, so merge only reports you are confident are the same issue, and use an
             `inbox-report-artefacts-create` `related_to` link when they are merely related.
         param_overrides:

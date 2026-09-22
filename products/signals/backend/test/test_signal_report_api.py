@@ -69,7 +69,7 @@ from products.signals.backend.models import (
 from products.signals.backend.report_assignments import create_claim
 from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
-from products.signals.backend.signal_metadata import ReportSignalMeta
+from products.signals.backend.signal_metadata import REASSIGN_SIGNAL_ROW_CAP, ReportSignalMeta
 from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_IMPLEMENTATION,
     TASK_RUN_TYPE_RESEARCH,
@@ -2813,8 +2813,8 @@ class TestSignalReportMergeAPI(APIBaseTest):
             )
 
     def test_merge_moves_the_work_log_and_archives_the_source(self):
-        survivor = self._report(signal_count=3, total_weight=1.5)
-        source = self._report(signal_count=2, total_weight=0.5, title="The twin")
+        survivor = self._report(signal_count=3, total_weight=1.5, corroboration_count=1)
+        source = self._report(signal_count=2, total_weight=0.5, title="The twin", corroboration_count=4)
         SignalReportArtefact.add_log(
             team_id=self.team.id,
             report_id=str(source.id),
@@ -2842,6 +2842,8 @@ class TestSignalReportMergeAPI(APIBaseTest):
         source.refresh_from_db()
         assert survivor.signal_count == 5
         assert survivor.total_weight == pytest.approx(2.0)
+        # Corroborations past the per-report note cap have no artefact rows, only this counter.
+        assert survivor.corroboration_count == 5
         # The source keeps its counters as the record of what it collected.
         assert (source.signal_count, source.status) == (2, SignalReport.Status.SUPPRESSED)
 
@@ -2885,11 +2887,17 @@ class TestSignalReportMergeAPI(APIBaseTest):
         assert SignalReportArtefact.objects.get(id=artefact.id).report_id == survivor.id
         assert implementation_pr_needed_by_another_report(team_id=self.team.id, report_id=str(source.id), pr_url=pr.url)
 
-    def test_merge_releases_another_actors_claim_before_moving(self):
+    @parameterized.expand([("another_actor", False), ("the_caller", True)])
+    def test_merge_releases_the_sources_claim_whoever_holds_it(self, _name, caller_owns):
+        # Claim history stays on the source, so a claim left active there would make the survivor
+        # look unclaimed while the work is still owned, and another actor could take it.
         survivor = self._report()
         source = self._report()
-        other = User.objects.create_and_join(self.organization, "someone-else@posthog.com", None)
-        create_claim(source, ArtefactAttribution.from_user(other.id))
+        if caller_owns:
+            owner = self.user
+        else:
+            owner = User.objects.create_and_join(self.organization, "someone-else@posthog.com", None)
+        create_claim(source, ArtefactAttribution.from_user(owner.id))
 
         response = self._merge(survivor, source)
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -2923,6 +2931,10 @@ class TestSignalReportMergeAPI(APIBaseTest):
             ("self_merge", "self", "cannot be merged into itself"),
             ("resolved_source", SignalReport.Status.RESOLVED, "cannot be merged"),
             ("suppressed_source", SignalReport.Status.SUPPRESSED, "cannot be merged"),
+            # A research run is writing to an in-progress report, and `SUPPRESSED -> READY` is
+            # legal, so the run would resurrect it after the merge moved its work away.
+            ("in_progress_source", SignalReport.Status.IN_PROGRESS, "cannot be merged"),
+            ("oversized_source", "oversized", "too large to merge"),
             ("other_team_source", "other_team", "was not found"),
         ]
     )
@@ -2933,6 +2945,8 @@ class TestSignalReportMergeAPI(APIBaseTest):
         elif source_spec == "other_team":
             other_team = Team.objects.create(organization=self.organization, name="Other")
             source = self._report(team=other_team)
+        elif source_spec == "oversized":
+            source = self._report(signal_count=REASSIGN_SIGNAL_ROW_CAP + 1)
         else:
             source = self._report(report_status=source_spec)
 
@@ -2955,10 +2969,22 @@ class TestSignalReportMergeAPI(APIBaseTest):
         assert survivor.signal_count == 1
         assert good.status == SignalReport.Status.READY
 
-    def test_a_merged_report_cannot_be_restored(self):
+    @parameterized.expand([("straight_after_the_merge", False), ("after_a_later_dismissal", True)])
+    def test_a_merged_report_cannot_be_restored(self, _name, dismiss_again):
         survivor = self._report()
         source = self._report()
         assert self._merge(survivor, source).status_code == status.HTTP_200_OK
+        if dismiss_again:
+            # A merge is structural, not a verdict: the signals and work log are on the survivor
+            # either way, so a newer dismissal must not make the source restorable.
+            assert (
+                self.client.post(
+                    self._state_url(str(source.id)),
+                    data=json.dumps({"state": "suppressed", "dismissal_reason": "wontfix_irrelevant"}),
+                    content_type="application/json",
+                ).status_code
+                == status.HTTP_200_OK
+            )
 
         response = self.client.post(
             self._state_url(str(source.id)), data=json.dumps({"state": "potential"}), content_type="application/json"
