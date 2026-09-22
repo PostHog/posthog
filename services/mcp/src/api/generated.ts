@@ -54048,7 +54048,7 @@ export namespace Schemas {
          */
       redirect_url: string;
       /**
-         * Domain where the short link is hosted, e.g. hog.gg
+         * Domain the short link is hosted on. Only phog.gg is accepted.
          * @maxLength 255
          */
       short_link_domain: string;
@@ -71404,7 +71404,7 @@ export namespace Schemas {
          */
       redirect_url?: string;
       /**
-         * Domain where the short link is hosted, e.g. hog.gg
+         * Domain the short link is hosted on. Only phog.gg is accepted.
          * @maxLength 255
          */
       short_link_domain?: string;
