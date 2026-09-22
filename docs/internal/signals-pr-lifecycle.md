@@ -17,6 +17,13 @@ If the period usage query fails, an active stored block keeps its original expir
 An expired stored block does not trigger verification unless a team still has an active block in the quota cache.
 Removing the limit, raising it above the verified usage, or starting a new billing period can still release the block.
 
+## Repository selection
+
+The shared repository selection prompt asks the agent to check the sources in the supplied context before choosing a repository.
+For information from a private repository or another explicitly private source, it prefers a relevant private candidate and returns no repository if none is suitable or its visibility cannot be confirmed.
+Each candidate carries a private, public, or unknown label from the cached GitHub repository list, so the agent does not query GitHub for visibility.
+This is prompt guidance, not an enforced access control, and it does not validate repositories selected outside the agent.
+
 ## Reviewer notifications
 
 Slack notifications for a ready report include only reviewers who have access to the report's project when delivery starts.
@@ -29,6 +36,37 @@ Only scouts and the signals pipeline create and manage typed, directed report li
 Scouts attach them through the `links` list on `scout-edit-report`.
 Public callers can read `report_link` artefacts, but cannot create, edit, or delete them through the artefact API.
 Links must name a different live report in the same project and cannot form a cycle among links of the same kind.
+
+## Recurrence after a fixed verdict
+
+A report dismissed as `already_fixed`, `fixed_outside_posthog`, or `pr_merged` can create a new report when the issue returns.
+The pipeline records the new report's parent with a typed `recurrence_of` report link.
+Generic `related_to` links do not control signal assignment.
+Later signals follow the recurrence chain, even if an older parent is restored.
+Matching selects the current successor before the specificity check, so the check uses its signals and title.
+Traversal passes through deleted intermediate reports without assigning signals to them.
+A successor dismissed for a preference reason keeps absorbing signals, including signals that match an older parent.
+Repeated fixed feedback does not create another successor.
+A new dismissal without feedback clears the fixed claim from an earlier dismissal cycle.
+Automatic suppression after an unmerged PR closes also records an empty dismissal.
+The state API rejects fixed reasons with `potential`; use `suppressed` or `resolved` for a fixed claim.
+
+This change does not recover historical signals automatically.
+Older dismissal records cannot reliably identify the active dismissal cycle.
+Historical recovery needs a verified transition history before it can create new reports.
+Research context excludes parent reports whose latest safety judgment rejects their content.
+New reports do not copy the title or summary from these unsafe parents.
+Legacy `related_to` links supply context only for resolved parents. Fixed-dismissed parents require a typed recurrence link.
+
+The state API also accepts resolution from `failed`.
+The web inbox offers Resolve for failed reports.
+The Needs decision section includes failed reports, even without an actionability judgment.
+Its `needs_decision` API view also includes actionable ready or pending-input reports without an implementation PR.
+Triage warns before a verdict closes an open implementation PR.
+New failed reports consume a daily inbox slot when they first become visible.
+Existing failed reports without a visibility timestamp remain historical backlog; they do not consume the rollout day's slots.
+The desktop eligibility change must ship separately after this backend transition is deployed.
+A suppressed report can resolve if its prior status was `ready`, `pending_input`, `failed`, or `resolved`.
 
 ## Scout revisions
 

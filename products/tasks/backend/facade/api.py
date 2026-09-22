@@ -1615,6 +1615,21 @@ def collect_task_run_state_metrics(
 # --- Writes ---
 
 
+def link_slack_task_to_report(*, team_id: int, task_id: str, report_id: str, user_id: int) -> None:
+    """Link only a saved Slack task; a repeated activity must not add another discussion entry."""
+    from products.signals.backend.facade.api import record_slack_report_discussion
+
+    with transaction.atomic():
+        task = Task.objects.select_for_update().get(
+            team_id=team_id, id=task_id, origin_product=Task.OriginProduct.SLACK, created_by_id=user_id
+        )
+        if task.signal_report_id is not None:
+            return
+        record_slack_report_discussion(team_id=team_id, report_id=report_id, task_id=task_id, user_id=user_id)
+        task.signal_report_id = UUID(report_id)
+        task.save(update_fields=["signal_report_id", "updated_at"])
+
+
 def create_and_run_task(
     *,
     team,
@@ -1651,6 +1666,7 @@ def create_and_run_task(
 
     ``scheduled_at`` creates the run in NOT_STARTED and defers its workflow until the dispatcher
     materializes it at or after that time. The run still stores its complete execution settings.
+
     """
     # create_pr=False sessions (research, repo selection, custom agents) can never open the
     # billable PR, so the quota gate must not block them.
@@ -2444,6 +2460,10 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "pr_authorship_mode",
         "repositories",
         "verified_pr_urls",
+        "prewarmed",
+        "await_user_message",
+        "warm_activation_started",
+        "warm_activated",
         TASK_RUN_SUMMARY_STATE_KEY,
         PRIOR_RUN_SUMMARY_STATE_KEY,
         "sandbox_id",
@@ -2470,6 +2490,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # sandbox and re-enabling the run-log mirror with the rollout off).
         AGENT_OTEL_TELEMETRY_STATE_KEY,
         "sandbox_event_ingest_enabled",
+        "agent_proxy_keep_stream_open",
+        "overlap_clone_boot_enabled",
+        "use_modal_network_allowlist",
         "stream_presence_gated",
         "stream_thin_tail",
         PR_LOOP_ENABLED_STATE_KEY,
@@ -5224,6 +5247,10 @@ def bootstrap_task_run(
                 kind="detail", detail="An analysis task runs once. Start a new analysis instead."
             )
         )
+    if _is_unlinked_report_warm_task(task):
+        return contracts.TaskRunCreateResult(
+            error=contracts.TaskRunValidationError(kind="detail", detail=REPORT_WARM_RUN_NOT_ACTIVATED)
+        )
     mode = validated_data.get("mode", "background")
     environment = validated_data.get("environment", TaskRun.Environment.LOCAL)
     branch = validated_data.get("branch")
@@ -6505,6 +6532,16 @@ def create_task(
         if default_integration:
             validated_data["github_integration"] = default_integration
 
+    # The relationship the client asserted (validated by the serializer, which rejects `research`).
+    # Popped so it isn't forwarded to the model; the link itself is recorded by record_report_task below.
+    signal_report_task_relationship = validated_data.pop("signal_report_task_relationship", None)
+    signal_report = validated_data.get("signal_report")
+    report_discussion = (
+        validated_data["origin_product"] == Task.OriginProduct.SIGNAL_REPORT
+        and signal_report is not None
+        and signal_report_task_relationship not in (None, "implementation")
+    )
+
     # Reuse is scoped to the submitting origin product: `_find_idling_warm_run` filters on it, so an
     # origin that never warms simply finds nothing. The warm call and this create call are separate
     # requests that must agree on the origin — when they disagree the lookup misses and we cold-create,
@@ -6521,20 +6558,30 @@ def create_task(
         warm_runtime_adapter = warm_selection.get("runtime_adapter")
         warm_model = warm_selection.get("model")
         warm_reasoning_effort = warm_selection.get("reasoning_effort")
-        warm_run = _find_idling_warm_run(
-            team_id,
-            user_id,
-            origin_product=validated_data["origin_product"],
-            repository=validated_data.get("repository"),
-            repositories=validated_data.get("repositories", []),
-            github_integration_id=getattr(validated_data.get("github_integration"), "id", None),
-            branch=warm_branch,
-            runtime_adapter=warm_runtime_adapter,
-            model=warm_model,
-            reasoning_effort=warm_reasoning_effort,
-            sandbox_environment_id=warm_sandbox_environment_id,
-            custom_image_id=warm_custom_image_id,
-            initial_permission_mode=warm_initial_permission_mode,
+        warm_github_integration_id = getattr(validated_data.get("github_integration"), "id", None)
+        if report_discussion:
+            warm_github_integration_id = _report_task_github_integration_id(
+                team, code_access_allowed=code_access_allowed
+            )
+        warm_run = (
+            None
+            if validated_data["origin_product"] == Task.OriginProduct.SIGNAL_REPORT and not report_discussion
+            else _find_idling_warm_run(
+                team_id,
+                user_id,
+                origin_product=validated_data["origin_product"],
+                repository=validated_data.get("repository"),
+                repositories=validated_data.get("repositories", []),
+                github_integration_id=warm_github_integration_id,
+                branch=warm_branch,
+                runtime_adapter=warm_runtime_adapter,
+                model=warm_model,
+                reasoning_effort=warm_reasoning_effort,
+                sandbox_environment_id=warm_sandbox_environment_id,
+                custom_image_id=warm_custom_image_id,
+                initial_permission_mode=warm_initial_permission_mode,
+                signal_report_id=str(signal_report.id) if report_discussion and signal_report is not None else None,
+            )
         )
         if warm_run is not None and not _warm_sandbox_selection_is_accessible(
             team_id=team_id,
@@ -6557,6 +6604,10 @@ def create_task(
                 )
                 warm_run = None
         if warm_run is not None:
+            if Team.objects.filter(id=team_id, organization__is_pending_deletion=True).exists():
+                raise PermissionDenied(
+                    "This organization is scheduled for deletion. Select another organization to run tasks."
+                )
             _warm_retry_message_id(warm_retry_token, warm_run)
             warm_task = warm_run.task
             should_set_client_provenance = warm_task.client_provenance is None and client_provenance is not None
@@ -6573,9 +6624,19 @@ def create_task(
                 raise ComputeBillingLimitError(
                     {"team_id": team_id, "task_id": str(warm_task.id), "run_id": str(warm_run.id)}, reason
                 )
+            report_reservation = (
+                _reserve_report_warm_activation(team, warm_task, relationship=signal_report_task_relationship)
+                if report_discussion
+                else None
+            )
             description = (validated_data.get("description") or "").strip()
+            requested_title = (validated_data.get("title") or "").strip()
             update_fields: list[str] = []
-            if description and not (warm_task.title or "").strip():
+            if requested_title and not (warm_task.title or "").strip():
+                warm_task.title = requested_title
+                warm_task.title_manually_set = True
+                update_fields += ["title", "title_manually_set"]
+            elif description and not (warm_task.title or "").strip():
                 warm_task.title = generate_task_title(naming_source or description)
                 warm_task.title_manually_set = False
                 update_fields += ["title", "title_manually_set"]
@@ -6592,39 +6653,38 @@ def create_task(
                 Task.objects.filter(id=warm_task.id, client_provenance__isnull=True).update(
                     client_provenance=client_provenance
                 )
-            _activate_warm_run(
-                warm_run,
-                warm_task,
-                team_id,
-                message=pending_user_message or description or None,
-                branch=warm_branch,
-                description=description or None,
-                artifact_ids=pending_user_artifact_ids,
-                auto_publish=warm_auto_publish,
-                reasoning_effort=warm_reasoning_effort,
-                retry_token=warm_retry_token,
-            )
+            try:
+                _activate_warm_run(
+                    warm_run,
+                    warm_task,
+                    team_id,
+                    message=pending_user_message or description or None,
+                    branch=warm_branch,
+                    description=description or None,
+                    artifact_ids=pending_user_artifact_ids,
+                    auto_publish=warm_auto_publish,
+                    reasoning_effort=warm_reasoning_effort,
+                    retry_token=warm_retry_token,
+                )
+            except Exception:
+                if report_reservation is not None:
+                    report_reservation.delete()
+                raise
             return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
 
     if warm_retry_token is not None:
         raise WarmRunActivationUnavailable("target_unavailable")
 
-    # The relationship the client asserted (validated by the serializer, which rejects `research`).
-    # Popped so it isn't forwarded to the model; the link itself is recorded by record_report_task below.
-    signal_report_task_relationship = validated_data.pop("signal_report_task_relationship", None)
-
     # Inbox "Create PR" doesn't pre-select a repo, so resolve one here rather than creating a
     # report-linked task that can never open a PR. "Implementation" (Create PR) and legacy clients
     # (no relationship) always resolve one. "Discuss" (and any other non-implementation label)
-    # resolves one only for a caller the Desktop gate passed: the run endpoint gates a
-    # repository-backed discussion, so resolving for anyone else would 403 the very click this
-    # path exists to unblock (see `task_exempt_from_code_access`).
-    signal_report = validated_data.get("signal_report")
+    # starts repo-less: the sandbox boots without a clone and the agent clones on demand with the
+    # credential an entitled caller's task carries (see `task_exempt_from_code_access`).
     if (
         signal_report is not None
         and not validated_data.get("repository")
         and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
-        and (signal_report_task_relationship in (None, "implementation") or code_access_allowed)
+        and signal_report_task_relationship in (None, "implementation")
     ):
         from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product read kept off the api import path
             persisted_repo_selection,
@@ -7192,6 +7252,7 @@ def _find_idling_warm_run(
     sandbox_environment_id: str | UUID | None = None,
     custom_image_id: str | UUID | None = None,
     initial_permission_mode: str | None = None,
+    signal_report_id: str | UUID | None = None,
 ) -> TaskRun | None:
     """Most-recent idling pre-warmed Run matching this user's cloud composing selection, or ``None``.
 
@@ -7227,6 +7288,7 @@ def _find_idling_warm_run(
             state__await_user_message=True,
             branch=branch or None,
             **repository_filter,
+            **({"task__signal_report_id": signal_report_id} if signal_report_id else {}),
         )
         .exclude(status__in=_TERMINAL_TASK_RUN_STATUSES)
         .select_related("task")
@@ -7324,6 +7386,9 @@ def _attach_staged_artifacts_to_run(
     get_tasks_cache().delete_many(
         [build_task_staged_artifact_cache_key(str(task.id), artifact_id) for artifact_id in artifact_ids]
     )
+
+
+REPORT_WARM_RUN_NOT_ACTIVATED = "This sandbox is waiting for the report's Ask AI question. Send it from the report."
 
 
 class WarmRunActivationUnavailable(Exception):
@@ -7491,6 +7556,46 @@ def _activate_warm_run(
         observe_prewarmed_activated(run)
 
 
+def _report_task_github_integration_id(team: Team, *, code_access_allowed: bool) -> int | None:
+    if not code_access_allowed:
+        return None
+    integration = Integration.objects.filter(team=team, kind="github").first()
+    return integration.id if integration is not None else None
+
+
+def _reserve_report_warm_activation(team: Team, task: Task, *, relationship: str | None) -> Model:
+    from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
+        enforce_report_task_cap,
+        record_report_task,
+    )
+
+    report_id = str(task.signal_report_id)
+    enforce_self_driving_pr_quota(team, report_id=report_id)
+    with transaction.atomic():
+        enforce_report_task_cap(team_id=task.team_id, report_id=report_id, relationship=relationship)
+        return record_report_task(
+            team_id=task.team_id, report_id=report_id, task_id=str(task.id), relationship=relationship
+        )
+
+
+def _is_unlinked_report_warm_task(task: Task) -> bool:
+    if task.origin_product != Task.OriginProduct.SIGNAL_REPORT or not task.signal_report_id:
+        return False
+    if not task.runs.filter(team_id=task.team_id, state__has_key="prewarmed").exists():
+        return False
+    from products.signals.backend.models import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        SignalReport,
+    )
+
+    linked = SignalReport.associated_task_runs(report_id=str(task.signal_report_id), team_id=task.team_id)
+    return not any(str(entry.task_id) == str(task.id) for entry in linked)
+
+
+def task_run_awaits_report_activation(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool:
+    run = _get_visible_run(run_id, task_id, team_id)
+    return run is not None and _is_unlinked_report_warm_task(run.task)
+
+
 def warm_task_sandbox(
     team_id: int,
     user_id: int,
@@ -7507,6 +7612,8 @@ def warm_task_sandbox(
     client_provenance: TaskClientProvenance | None = None,
     origin_product: str = Task.OriginProduct.USER_CREATED,
     initial_permission_mode: str | None = None,
+    signal_report_id: str | UUID | None = None,
+    code_access_allowed: bool = False,
 ) -> contracts.WarmTaskDTO | None:
     """Warm a full idling Run for a cloud task while the user composes.
 
@@ -7543,6 +7650,8 @@ def warm_task_sandbox(
         SandboxWarmer,  # noqa: PLC0415 — keep warming deps off the api import path
     )
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        PrAuthorshipMode,
+        RunSource,
         RuntimeAdapter,
         get_provider_for_runtime_adapter,
     )
@@ -7550,6 +7659,10 @@ def warm_task_sandbox(
     team = Team.objects.get(id=team_id)
     normalized_repositories = [repo.lower() for repo in (repositories or ([repository] if repository else []))]
     repository = normalized_repositories[0] if normalized_repositories else None
+    if signal_report_id is not None:
+        normalized_repositories = []
+        repository = None
+        github_integration_id = _report_task_github_integration_id(team, code_access_allowed=code_access_allowed)
     github_integration = None
     if github_integration_id is not None:
         github_integration = Integration.objects.filter(
@@ -7607,6 +7720,7 @@ def warm_task_sandbox(
         sandbox_environment_id=sandbox_environment_id,
         custom_image_id=custom_image_id,
         initial_permission_mode=initial_permission_mode,
+        signal_report_id=signal_report_id,
     )
     if existing is not None:
         return contracts.WarmTaskDTO(task_id=existing.task_id, run_id=existing.id)
@@ -7618,6 +7732,7 @@ def warm_task_sandbox(
         origin_product=Task.OriginProduct(origin_product),
         user_id=user_id,
         repositories=normalized_repositories,
+        signal_report_id=str(signal_report_id) if signal_report_id is not None else None,
         client_provenance=client_provenance,
     )
     # `_build_task` resolves the team's first GitHub integration; a warm must instead hold the
@@ -7642,6 +7757,10 @@ def warm_task_sandbox(
         extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
     if custom_image is not None:
         extra_state["custom_image_id"] = str(custom_image.id)
+    if signal_report_id is not None:
+        extra_state["run_source"] = RunSource.SIGNAL_REPORT.value
+        extra_state["signal_report_id"] = str(signal_report_id)
+        extra_state["pr_authorship_mode"] = PrAuthorshipMode.BOT.value
     for key, value in {
         "runtime_adapter": runtime_adapter,
         "provider": provider.value if provider is not None else None,
@@ -7885,6 +8004,10 @@ def run_task(
     refusal = task_run_start_refusal(str(task.id), team_id, user_id)
     if refusal is not None:
         return contracts.TaskRunResult(error=contracts.TaskValidationError(kind="detail", detail=refusal))
+    if _is_unlinked_report_warm_task(task):
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(kind="detail", detail=REPORT_WARM_RUN_NOT_ACTIVATED)
+        )
     report_id_for_slot_check = (
         str(task.signal_report_id)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT

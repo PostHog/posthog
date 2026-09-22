@@ -43,6 +43,9 @@ from products.tasks.backend.exceptions import (
 )
 from products.tasks.backend.logic.services.agent_server_launcher import (
     AGENT_SERVER_HEALTH_MAX_ATTEMPTS,
+    AGENT_SERVER_LAUNCH_CAPABILITIES,
+    AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX,
+    AGENT_SERVER_PREFLIGHT_REUSE_MARKER,
     HOST_PRESSURE_PROBE_SCRIPT,
     STARTUP_LOG_MAX_BYTES,
     _egress_failure_reason,
@@ -96,6 +99,17 @@ def _agent_server_launch_command(mock_execute: Any) -> str:
         if "./node_modules/.bin/agent-server" in command:
             return command
     raise AssertionError("agent-server launch command not found among execute calls")
+
+
+def _is_preflight_command(command: str) -> bool:
+    return AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX in command
+
+
+def _preflight_stdout(*, reused: bool = False, capabilities: tuple[str, ...] = AGENT_SERVER_LAUNCH_CAPABILITIES) -> str:
+    lines = [f"{AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX}{capability}" for capability in capabilities]
+    if reused:
+        lines.append(AGENT_SERVER_PREFLIGHT_REUSE_MARKER)
+    return "\n".join(lines)
 
 
 def _mock_token_response(status_code: int = 200, token: str | None = "test-token"):
@@ -461,14 +475,6 @@ class TestModalSandboxAgentServer:
         with patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()):
             return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
 
-    @pytest.fixture(autouse=True)
-    def _bypass_start_guard(self):
-        with (
-            patch.object(ModalSandbox, "_agent_server_is_healthy", return_value=False),
-            patch.object(ModalSandbox, "_free_agent_server_port"),
-        ):
-            yield
-
     def test_get_connect_credentials_success(self, mock_sandbox: Any):
         result = mock_sandbox.get_connect_credentials()
 
@@ -615,7 +621,9 @@ class TestModalSandboxAgentServer:
         clear_index = next(
             index for index, command in enumerate(commands) if "rm -rf" in command and "skills" in command
         )
-        launch_index = next(index for index, command in enumerate(commands) if "agent-server" in command)
+        launch_index = next(
+            index for index, command in enumerate(commands) if "./node_modules/.bin/agent-server" in command
+        )
         assert clear_index < launch_index
 
     def test_start_agent_server_clears_bundled_skills_even_when_the_server_is_already_healthy(
@@ -627,20 +635,19 @@ class TestModalSandboxAgentServer:
             environment_variables={ENV_DISABLE_BUNDLED_SKILLS: "1"},
         )
         mock_sandbox.execute = MagicMock(
-            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+            return_value=ExecutionResult(stdout=_preflight_stdout(reused=True), stderr="", exit_code=0, error=None),
         )
 
-        with patch.object(mock_sandbox, "_agent_server_is_healthy", return_value=True):
-            mock_sandbox.start_agent_server(
-                repository="posthog/posthog",
-                task_id="task-123",
-                run_id="run-456",
-                wait_for_health=False,
-            )
+        mock_sandbox.start_agent_server(
+            repository="posthog/posthog",
+            task_id="task-123",
+            run_id="run-456",
+            wait_for_health=False,
+        )
 
         commands = [call.args[0] for call in mock_sandbox.execute.call_args_list]
         assert any("rm -rf" in command and "skills" in command for command in commands)
-        assert not any("agent-server" in command for command in commands)
+        assert not any("./node_modules/.bin/agent-server" in command for command in commands)
 
     def test_start_agent_server_waits_for_repository_before_launch(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
@@ -732,7 +739,7 @@ class TestModalSandboxAgentServer:
 
     def test_start_agent_server_includes_runtime_environment_variables(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
-            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+            return_value=ExecutionResult(stdout=_preflight_stdout(), stderr="", exit_code=0, error=None),
         )
 
         mock_sandbox.start_agent_server(
@@ -942,10 +949,11 @@ class TestModalSandboxAgentServer:
         assert mock_sandbox.execute.call_count == 1
 
     def test_start_agent_server_skips_relaunch_when_already_healthy(self, mock_sandbox: Any):
-        mock_sandbox.execute = MagicMock(return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None))
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout=_preflight_stdout(reused=True), stderr="", exit_code=0, error=None)
+        )
 
         with (
-            patch.object(mock_sandbox, "_agent_server_is_healthy", return_value=True),
             patch.object(mock_sandbox, "_agentsh_daemon_is_healthy", return_value=True),
             patch.object(mock_sandbox, "wait_for_agent_server_ready") as wait_for_ready,
             patch.object(mock_sandbox, "_free_agent_server_port") as mock_free,
@@ -969,12 +977,14 @@ class TestModalSandboxAgentServer:
         assert any(command == "chmod +x /opt/posthog/bin/gh" for command in commands[1:])
 
     def test_start_agent_server_relaunches_when_agentsh_is_unhealthy(self, mock_sandbox: Any):
-        mock_sandbox.execute = MagicMock(
-            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
-        )
+        def execute(command: str, timeout_seconds: int | None = None) -> ExecutionResult:
+            if _is_preflight_command(command):
+                return ExecutionResult(stdout=_preflight_stdout(reused=True), stderr="", exit_code=0, error=None)
+            return ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
+
+        mock_sandbox.execute = MagicMock(side_effect=execute)
 
         with (
-            patch.object(mock_sandbox, "_agent_server_is_healthy", return_value=True),
             patch.object(mock_sandbox, "_agentsh_daemon_is_healthy", side_effect=[False, True]),
             patch.object(mock_sandbox, "_prepare_agent_server_launch") as mock_setup_agentsh,
             patch.object(mock_sandbox, "wait_for_agent_server_ready") as wait_for_ready,
@@ -1016,11 +1026,33 @@ class TestModalSandboxAgentServer:
             mode="background",
         )
 
-        mock_sandbox._free_agent_server_port.assert_called_once_with()
+        commands = [call.args[0] for call in mock_sandbox.execute.call_args_list]
+        preflight = next(command for command in commands if _is_preflight_command(command))
+        assert "xargs kill -KILL" in preflight
+        assert commands.index(preflight) < commands.index(_agent_server_launch_command(mock_sandbox.execute))
         command = _agent_server_launch_command(mock_sandbox.execute)
         assert health_ms == 250
         assert "nohup" in command
         assert "http://localhost:8080/health" in command
+
+    def test_start_agent_server_runs_one_preflight_exec_before_the_launch(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout=_preflight_stdout(), stderr="", exit_code=0, error=None)
+        )
+        mock_sandbox.write_file = MagicMock(return_value=ExecutionResult(stdout="", stderr="", exit_code=0))
+
+        mock_sandbox.start_agent_server(
+            repository="posthog/posthog",
+            task_id="task-123",
+            run_id="run-456",
+            wait_for_health=False,
+        )
+
+        commands = [call.args[0] for call in mock_sandbox.execute.call_args_list]
+        launch_index = commands.index(_agent_server_launch_command(mock_sandbox.execute))
+        assert launch_index == 2
+        assert _is_preflight_command(commands[0])
+        assert commands[1].startswith("bash /tmp/posthog-launch-preparation-")
 
     def test_create_snapshot_waits_for_container_before_snapshot(self, mock_sandbox: Any) -> None:
         events: list[str] = []
@@ -1248,8 +1280,6 @@ class TestModalSandboxCommandEscaping:
         with (
             patch.object(sandbox, "is_running", return_value=True),
             patch.object(sandbox, "_prepare_agent_server_launch"),
-            patch.object(sandbox, "_agent_server_is_healthy", return_value=False),
-            patch.object(sandbox, "_free_agent_server_port"),
             patch.object(sandbox, "execute") as mock_execute,
             patch.object(sandbox, "_wait_for_health_check", return_value=True),
         ):
@@ -1350,22 +1380,6 @@ class TestModalSandboxAgentServerStartupHelpers:
         sandbox._sandbox = MagicMock()
         return sandbox
 
-    @pytest.mark.parametrize(
-        "exit_code,expected",
-        [
-            (0, True),
-            (1, False),
-        ],
-    )
-    def test_agent_server_is_healthy(self, exit_code: int, expected: bool):
-        sandbox = self._make_sandbox()
-        sandbox.execute = MagicMock(
-            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=exit_code, error=None)
-        )
-
-        assert sandbox._agent_server_is_healthy() is expected
-        assert sandbox.execute.call_count == 1
-
     def test_free_agent_server_port_terminates_existing_process(self):
         sandbox = self._make_sandbox()
         sandbox.execute = MagicMock(return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None))
@@ -1373,8 +1387,8 @@ class TestModalSandboxAgentServerStartupHelpers:
         sandbox._free_agent_server_port()
 
         command = sandbox.execute.call_args_list[0][0][0]
-        assert "pkill -TERM -f '[a]gent-server'" in command
-        assert "pkill -KILL -f '[a]gent-server'" in command
+        assert "xargs kill -TERM" in command
+        assert "xargs kill -KILL" in command
 
 
 class TestStartupFailureDiagnostics:

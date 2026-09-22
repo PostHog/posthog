@@ -126,10 +126,11 @@ class NoMatchMetadata:
 MatchMetadata = MatchedMetadata | NoMatchMetadata
 
 
-@dataclass
+@dataclass(frozen=False)
 class ExistingReportMatch:
     report_id: str
     match_metadata: MatchedMetadata
+    report_title: str | None = None
 
 
 @dataclass

@@ -24,7 +24,7 @@ Token-awareness is lost when you pass your own `sync_client` to `sync_execute`, 
 Build a custom native pool for a timeout or a setting only by replicating the file-backed branch of `get_pool`.
 A pool that skips this branch stays on the static password with no error.
 Resolve the credentials with `get_clickhouse_creds`.
-When `_is_file_backed_user` is true, pop the static `password` and pass `credential_provider=creds.read_password` to `make_ch_pool`.
+When `is_file_backed_user` is true, pop the static `password` and pass `credential_provider=creds.read_password` to `make_ch_pool`.
 `read_password` reads the token file on each call.
 It falls back to the static password when the file is unreadable or empty.
 For a user that keeps a static password, it also falls back when the token has expired or is about to expire.
