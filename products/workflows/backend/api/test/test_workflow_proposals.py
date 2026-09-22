@@ -232,23 +232,6 @@ class TestWorkflowProposals(APIBaseTest):
         assert WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"]).status == "suggested"
         assert HogFlow.objects.get(id=flow_id).draft is None
 
-    def test_provenance_comes_from_the_transport_not_the_payload(self, _mock_flag):
-        flow_id = self._create_active_flow()
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
-            {
-                "title": "Self-labelled as a human edit",
-                "rationale": "A caller must not be able to pass its own work off as someone else's.",
-                "content": {"actions": [_trigger_action(), _webhook_action()]},
-                "base_version": 1,
-                "created_via": "web",
-            },
-            format="json",
-            HTTP_X_POSTHOG_CLIENT="mcp",
-        )
-        assert response.status_code == 201, response.json()
-        assert response.json()["created_via"] == "mcp"
-
     def test_repeat_source_id_returns_the_same_proposal(self, _mock_flag):
         flow_id = self._create_active_flow()
         first = self._propose(flow_id, source_id="run:1:finding:webhook-url")
@@ -597,7 +580,6 @@ class TestWorkflowProposals(APIBaseTest):
             base_version=1,
             status=WorkflowProposal.Status.APPLIED,
             applied_version=3,
-            created_via=WorkflowProposal.CreatedVia.MCP,
         )
         written_first.save()
         written_last = WorkflowProposal(
@@ -609,7 +591,6 @@ class TestWorkflowProposals(APIBaseTest):
             base_version=1,
             status=WorkflowProposal.Status.APPLIED,
             applied_version=2,
-            created_via=WorkflowProposal.CreatedVia.MCP,
         )
         written_last.save()
 
@@ -653,7 +634,6 @@ class TestWorkflowProposalModel(APIBaseTest):
             rationale="Fail-closed reads filter on this row's team, so it has to match the workflow's.",
             content={"actions": []},
             base_version=1,
-            created_via=WorkflowProposal.CreatedVia.MCP,
         )
         proposal.save()
 

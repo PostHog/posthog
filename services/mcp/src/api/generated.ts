@@ -68802,22 +68802,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `web` - Web
-     * * `api` - API
-     * * `mcp` - MCP
-     * * `self_driving` - Self-driving
-     */
-    export type WorkflowProposalCreatedViaEnum = typeof WorkflowProposalCreatedViaEnum[keyof typeof WorkflowProposalCreatedViaEnum];
-
-
-    export const WorkflowProposalCreatedViaEnum = {
-      Web: 'web',
-      Api: 'api',
-      Mcp: 'mcp',
-      SelfDriving: 'self_driving',
-    } as const;
-
-    /**
      * Only the content fields the proposal changes. Valid keys: actions, edges, trigger_masking, conversion, exit_condition, email_sending_rate_limit, variables. Each value has the same shape as on the workflow itself.
      */
     export type WorkflowProposalContent = { [key: string]: unknown };
@@ -68847,19 +68831,11 @@ export namespace Schemas {
       /** Whether approving this would undo an edit made since it was proposed. False while the workflow only changed elsewhere, because approving merges per step. */
       readonly is_stale: boolean;
       readonly status: WorkflowProposalStatusEnum;
-      /** How the proposal was created. Derived from the request, never set by the caller.
-       *
-       * * `web` - Web
-       * * `api` - API
-       * * `mcp` - MCP
-       * * `self_driving` - Self-driving */
-      readonly created_via: WorkflowProposalCreatedViaEnum;
       /**
          * Stable id of the producing agent run or finding, e.g. 'run:<run id>:finding:<finding id>'.
          * @nullable
          */
       readonly source_id: string | null;
-      readonly created_by: UserBasic | null;
       readonly created_at: string;
       /** @nullable */
       readonly resolved_at: string | null;

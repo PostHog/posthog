@@ -3852,7 +3852,6 @@ class WorkflowProposalEvidenceField(serializers.JSONField):
 
 
 class WorkflowProposalSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True, allow_null=True)
     resolved_by = UserBasicSerializer(read_only=True, allow_null=True)
     content = WorkflowProposalContentField(read_only=True)
     evidence = WorkflowProposalEvidenceField(read_only=True)
@@ -3875,9 +3874,7 @@ class WorkflowProposalSerializer(serializers.ModelSerializer):
             "base_version",
             "is_stale",
             "status",
-            "created_via",
             "source_id",
-            "created_by",
             "created_at",
             "resolved_at",
             "resolved_by",
@@ -5496,19 +5493,6 @@ class HogFlowViewSet(
         ):
             raise exceptions.NotFound()
 
-    def _proposal_created_via(self, request: Request) -> str:
-        # Derived from the transport, never the body, so a caller cannot pass an agent's proposal off as a person's.
-        source = get_event_source(request)
-        # Only the Signals OAuth application, which cannot be forged, records `self_driving`; user agents and
-        # client headers are self-declared, so those record as `mcp`.
-        if source == EventSource.SELF_DRIVING:
-            return WorkflowProposal.CreatedVia.SELF_DRIVING
-        if source in AGENT_EVENT_SOURCES:
-            return WorkflowProposal.CreatedVia.MCP
-        if source == EventSource.WEB:
-            return WorkflowProposal.CreatedVia.WEB
-        return WorkflowProposal.CreatedVia.API
-
     @extend_schema(
         methods=["GET"],
         parameters=[
@@ -5546,7 +5530,7 @@ class HogFlowViewSet(
             queryset = WorkflowProposal.objects.filter(hog_flow=instance).order_by(*ordering)
             if requested_status:
                 queryset = queryset.filter(status=requested_status)
-            queryset = queryset.select_related("created_by", "resolved_by", "hog_flow")
+            queryset = queryset.select_related("resolved_by", "hog_flow")
             page = self.paginate_queryset(queryset)
             return self.get_paginated_response(WorkflowProposalSerializer(page, many=True).data)
 
@@ -5589,8 +5573,6 @@ class HogFlowViewSet(
             step_id=params.get("step_id") or None,
             base_version=params.get("base_version") or instance.version or 1,
             source_id=source_id,
-            created_via=self._proposal_created_via(request),
-            created_by=request.user if request.user.is_authenticated else None,
         )
         try:
             with transaction.atomic():
@@ -5628,7 +5610,7 @@ class HogFlowViewSet(
         if parsed is None:
             raise exceptions.NotFound("No such suggestion for this workflow.")
         try:
-            return WorkflowProposal.objects.select_related("created_by", "resolved_by", "hog_flow").get(
+            return WorkflowProposal.objects.select_related("resolved_by", "hog_flow").get(
                 team_id=self.team_id, hog_flow_id=hog_flow.pk, id=parsed
             )
         except WorkflowProposal.DoesNotExist:
