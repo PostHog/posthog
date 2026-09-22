@@ -46,6 +46,8 @@ jobs:
                           '[.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))] | max_by(.id) | if . == null then "" elif .status == "completed" then .conclusion // "" else .status end'
                   }
 
+                  pause() { sleep $(( SECONDS < 300 ? 15 : 60 )); }
+
                   deadline=$((SECONDS + 3300))
                   handed_off=false
                   while [ "$SECONDS" -lt "$deadline" ]; do
@@ -54,7 +56,7 @@ jobs:
                           case "$handoff" in
                               success) handed_off=true ;;
                               ""|queued|in_progress|pending|waiting|requested)
-                                  sleep 15
+                                  pause
                                   continue
                                   ;;
                               *)
@@ -80,7 +82,7 @@ jobs:
                               exit 0
                               ;;
                       esac
-                      sleep 15
+                      pause
                   done
                   echo "::warning::No terminal Depot backend signal for $HEAD_SHA within 55 minutes"
 
