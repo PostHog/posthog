@@ -7,6 +7,9 @@ import {
   macOnlyNativeModules,
   packagedFileGlobs,
   requiredNativeModules,
+  requiredRuntimeModules,
+  runtimeModuleSources,
+  runtimeModules,
   runtimeNativeModules,
   watcherPackageFor,
 } from "./runtime-dependencies";
@@ -99,6 +102,19 @@ describe("staged arch-specific binaries reach the packaged app", () => {
 });
 
 describe("native module globs", () => {
+  it("packages Playwright MCP for Chrome browser access", () => {
+    expect(runtimeModules).toContain("@playwright/mcp");
+    expect(runtimeModules).toContain("playwright-core");
+    expect(requiredRuntimeModules).toEqual(
+      expect.arrayContaining(["@playwright/mcp", "playwright-core"]),
+    );
+    expect(runtimeModuleSources["playwright-core"]).toBe(
+      "@playwright/mcp/node_modules/playwright-core",
+    );
+    expect(packagedFileGlobs).toContain("node_modules/@playwright/mcp/**/*");
+    expect(packagedFileGlobs).toContain("node_modules/playwright-core/**/*");
+  });
+
   it("collapses the @parcel scope to a single glob", () => {
     expect(packagedFileGlobs).toContain("node_modules/@parcel/**/*");
     expect(asarUnpackGlobs).toContain("node_modules/@parcel/**");
@@ -121,7 +137,7 @@ describe("native module list invariants", () => {
   });
 
   it("externalizes only modules staged on some platform", () => {
-    const staged = new Set([...runtimeNativeModules, ...macOnlyNativeModules]);
+    const staged = new Set([...runtimeModules, ...macOnlyNativeModules]);
     for (const mod of buildExternals) {
       expect(staged.has(mod)).toBe(true);
     }

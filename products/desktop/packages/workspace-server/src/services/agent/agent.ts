@@ -5,6 +5,7 @@ import {
   type Client,
   ClientSideConnection,
   type ContentBlock,
+  type McpServer,
   ndJsonStream,
   PROTOCOL_VERSION,
   type RequestPermissionRequest,
@@ -39,6 +40,7 @@ import {
   getReasoningEffortOptions,
 } from "@posthog/agent/adapters/reasoning-effort";
 import { Agent } from "@posthog/agent/agent";
+import { createBrowserMcpServer } from "@posthog/agent/browser-mcp";
 import {
   getAvailableCodexModes,
   getAvailableModes,
@@ -322,6 +324,7 @@ interface SessionConfig {
   importedSessionId?: string;
   /** rtk command-output compression for this session; false opts out. */
   rtkEnabled?: boolean;
+  browserIntegrationEnabled?: boolean;
   /** The user's spoken-narration setting at session start. */
   spokenNarration?: boolean;
   /** Matched `bedrock-llm-gateway` variant at session start. */
@@ -1119,6 +1122,9 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
         toolApprovals,
         toolInstallations,
       } = await this.agentAuthAdapter.buildMcpServers(credentials);
+      const sessionMcpServers: McpServer[] = config.browserIntegrationEnabled
+        ? [...mcpServers, createBrowserMcpServer()]
+        : mcpServers;
 
       // Store server configs for lazy MCP connections — actual connections
       // are created on-demand when UI resources are first requested.
@@ -1181,7 +1187,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
           const loadResponse = await connection.loadSession({
             sessionId: importedSessionId,
             cwd: repoPath,
-            mcpServers,
+            mcpServers: sessionMcpServers,
             _meta: {
               ...(logUrl && {
                 persistence: { taskId, runId: taskRunId, logUrl },
@@ -1269,7 +1275,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
         const resumeResponse = await connection.resumeSession({
           sessionId: existingSessionId,
           cwd: repoPath,
-          mcpServers,
+          mcpServers: sessionMcpServers,
           _meta: {
             ...(logUrl && {
               persistence: { taskId, runId: taskRunId, logUrl },
@@ -1308,7 +1314,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
         }
         const newSessionResponse = await connection.newSession({
           cwd: repoPath,
-          mcpServers,
+          mcpServers: sessionMcpServers,
           _meta: {
             ...(!isPreview && { taskId }),
             taskRunId,
@@ -2346,6 +2352,10 @@ For git operations while detached:
       importedSessionId:
         "importedSessionId" in params ? params.importedSessionId : undefined,
       rtkEnabled: "rtkEnabled" in params ? params.rtkEnabled : undefined,
+      browserIntegrationEnabled:
+        "browserIntegrationEnabled" in params
+          ? params.browserIntegrationEnabled
+          : undefined,
       spokenNarration:
         "spokenNarration" in params ? params.spokenNarration : undefined,
       bedrockGatewayVariant:

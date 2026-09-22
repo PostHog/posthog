@@ -1,5 +1,5 @@
-// Single source of truth for native modules (and their runtime-required
-// transitive deps). pnpm hoists these to the root node_modules; the packaged
+// Single source of truth for modules that must remain available at runtime.
+// pnpm hoists these to the root node_modules; the packaged
 // app needs real copies next to the bundle.
 //
 //   - scripts/before-pack.ts stages them from the hoisted root into the app's
@@ -10,7 +10,9 @@
 //     them to be resolved from node_modules at runtime.
 
 // Staged + packaged on every platform.
-export const runtimeNativeModules = [
+export const runtimeModules = [
+  "@playwright/mcp",
+  "playwright-core",
   "node-pty",
   "node-addon-api",
   "@parcel/watcher",
@@ -29,12 +31,26 @@ export const runtimeNativeModules = [
   "is-number",
 ];
 
+export const runtimeNativeModules = runtimeModules.filter(
+  (name) => name !== "@playwright/mcp" && name !== "playwright-core",
+);
+
+export const runtimeModuleSources: Record<string, string> = {
+  "playwright-core": "@playwright/mcp/node_modules/playwright-core",
+};
+
 // The base native modules that must exist when packaging; a missing one is a
 // broken build, not a warning. before-pack stages these with copyRequiredDep.
 export const requiredNativeModules = [
   "node-pty",
   "@parcel/watcher",
   "better-sqlite3",
+];
+
+export const requiredRuntimeModules = [
+  ...requiredNativeModules,
+  "@playwright/mcp",
+  "playwright-core",
 ];
 
 // file-icon is only used on macOS; koffi only reads the macOS window list.
@@ -84,7 +100,7 @@ const stagedOnlyScopes = ["@koromix"];
 
 export const packagedFileGlobs = [
   ...new Set([
-    ...[...runtimeNativeModules, ...macOnlyNativeModules].map(scopeOf),
+    ...[...runtimeModules, ...macOnlyNativeModules].map(scopeOf),
     ...stagedOnlyScopes,
   ]),
 ].map((scope) => `node_modules/${scope}/**/*`);

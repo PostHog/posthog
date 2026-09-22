@@ -114,6 +114,15 @@ vi.mock("@posthog/agent/agent", () => ({
   Agent: mockAgentConstructor,
 }));
 
+vi.mock("@posthog/agent/browser-mcp", () => ({
+  createBrowserMcpServer: () => ({
+    name: "browser",
+    command: "/mock/electron",
+    args: ["/mock/playwright-mcp/cli.js", "--extension"],
+    env: [{ name: "ELECTRON_RUN_AS_NODE", value: "1" }],
+  }),
+}));
+
 vi.mock("@agentclientprotocol/sdk", () => ({
   ClientSideConnection: mockClientSideConnection,
   ndJsonStream: vi.fn(),
@@ -839,6 +848,27 @@ describe("AgentService", () => {
         ]),
       );
     });
+
+    it.each(["claude", "codex"] as const)(
+      "adds Chrome browser access for %s when enabled",
+      async (adapter) => {
+        await service.startSession({
+          ...baseSessionParams,
+          adapter,
+          browserIntegrationEnabled: true,
+        });
+
+        expect(mockNewSession.mock.calls[0][0].mcpServers).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              name: "browser",
+              command: "/mock/electron",
+              args: ["/mock/playwright-mcp/cli.js", "--extension"],
+            }),
+          ]),
+        );
+      },
+    );
 
     it("passes the same MCP servers to codex as to claude without probing them first", async () => {
       vi.stubGlobal(

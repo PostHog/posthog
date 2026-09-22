@@ -1,5 +1,6 @@
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
+import { Button as QuillButton, Switch as QuillSwitch } from "@posthog/quill";
 import {
   BACKGROUND_AGENT_LOGS_FLAG,
   ONBOARDING_TEST_TOOLS_FLAG,
@@ -18,12 +19,16 @@ import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettin
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useSetupStore } from "@posthog/ui/features/setup/setupStore";
 import { useTourStore } from "@posthog/ui/features/tour/tourStore";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { clearApplicationStorage } from "@posthog/ui/utils/clearStorage";
 import { Button, Checkbox, Flex, Switch, Text } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
 import { OnboardingTestTools } from "./OnboardingTestTools";
 import { SettingsBackup } from "./SettingsBackup";
+
+const PLAYWRIGHT_EXTENSION_URL =
+  "https://chromewebstore.google.com/detail/playwright-extension/mmlmfjhmonkocbjadbfplnigmagldckm";
 
 export function AdvancedSettings() {
   const showDebugLogsToggle =
@@ -40,6 +45,12 @@ export function AdvancedSettings() {
   const setRtkEnabledLocal = useSettingsStore((s) => s.setRtkEnabledLocal);
   const rtkEnabledCloud = useSettingsStore((s) => s.rtkEnabledCloud);
   const setRtkEnabledCloud = useSettingsStore((s) => s.setRtkEnabledCloud);
+  const browserIntegrationEnabled = useSettingsStore(
+    (s) => s.browserIntegrationEnabled,
+  );
+  const setBrowserIntegrationEnabled = useSettingsStore(
+    (s) => s.setBrowserIntegrationEnabled,
+  );
   const hostTRPC = useHostTRPC();
   const { data: rtkStatus } = useQuery(hostTRPC.agent.rtkStatus.queryOptions());
   const devModeClient = useServiceOptional<DevModeClient>(DEV_MODE_CLIENT);
@@ -58,6 +69,24 @@ export function AdvancedSettings() {
             onCheckedChange={setAutoPublishCloudRuns}
             size="1"
           />
+        </SettingsCardRow>
+        <SettingsCardRow
+          label="Chrome browser access"
+          description="Let local agents use tabs you choose in Chrome. This requires the Playwright extension."
+        >
+          <div className="flex items-center gap-3">
+            <QuillButton
+              size="sm"
+              variant="outline"
+              onClick={() => openExternalUrl(PLAYWRIGHT_EXTENSION_URL)}
+            >
+              Install extension
+            </QuillButton>
+            <QuillSwitch
+              checked={browserIntegrationEnabled}
+              onCheckedChange={setBrowserIntegrationEnabled}
+            />
+          </div>
         </SettingsCardRow>
         <SettingsCardRow
           label="Compress command output"

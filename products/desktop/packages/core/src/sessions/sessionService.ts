@@ -515,6 +515,7 @@ export interface SessionServiceDeps {
     customInstructions?: string | null;
     rtkEnabledLocal?: boolean;
     rtkEnabledCloud?: boolean;
+    browserIntegrationEnabled?: boolean;
     spokenNotifications?: boolean;
     spokenNarrationEnabled?: boolean;
     bedrockGatewayVariant?: BedrockGatewayVariant;
@@ -2338,6 +2339,7 @@ export class SessionService {
       const {
         customInstructions,
         rtkEnabledLocal,
+        browserIntegrationEnabled,
         spokenNarrationEnabled,
         bedrockGatewayVariant,
         codexModelAccess,
@@ -2348,6 +2350,7 @@ export class SessionService {
         taskRunId,
         repoPath,
         rtkEnabled: rtkEnabledLocal,
+        browserIntegrationEnabled,
         codexModelAccess,
         claudeModelAccess: settingsClaudeModelAccess,
         spokenNarration: spokenNarrationEnabled === true,
@@ -2701,6 +2704,7 @@ export class SessionService {
     const {
       customInstructions: startCustomInstructions,
       rtkEnabledLocal,
+      browserIntegrationEnabled,
       spokenNarrationEnabled,
       bedrockGatewayVariant,
       codexModelAccess: settingsCodexModelAccess,
@@ -2741,6 +2745,7 @@ export class SessionService {
         claudeModelAccess: resolvedModelAccess.claude,
         customInstructions: startCustomInstructions || undefined,
         rtkEnabled: rtkEnabledLocal,
+        browserIntegrationEnabled,
         spokenNarration: spokenNarrationEnabled === true,
         bedrockGatewayVariant,
         effort: effortLevelSchema.safeParse(reasoningLevel).success

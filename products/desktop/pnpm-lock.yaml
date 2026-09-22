@@ -798,6 +798,9 @@ importers:
       '@opentelemetry/semantic-conventions':
         specifier: ^1.28.0
         version: 1.39.0
+      '@playwright/mcp':
+        specifier: 0.0.82
+        version: 0.0.82
       '@types/jsonwebtoken':
         specifier: ^9.0.10
         version: 9.0.10
@@ -6189,6 +6192,11 @@ packages:
   '@pkgr/core@0.3.6':
     resolution: {integrity: sha512-SEeaJLb3qBNF/OaXnaR1NmmBbFYk1zC0ZH/52fATcRPLFg/p791YrcyFFy44Bo9sLaGuSuLp5Q6axbb/O+v/RA==}
     engines: {node: ^14.18.0 || >=16.0.0}
+
+  '@playwright/mcp@0.0.82':
+    resolution: {integrity: sha512-OCqftfb8H4dnqm/njbTBRk3seUvUPttOlJUxCtEzXGETYOlRH5Qt3bbXIjmZIuWAxD9RF+yg1ASrPeXvm0y5cA==}
+    engines: {node: '>=18'}
+    hasBin: true
 
   '@playwright/test@1.60.0':
     resolution: {integrity: sha512-O71yZIbAh/PxDMNGns37GHBIfrVkEVyn+AXyIa5dOTfb4/xNvRWV+Vv/NMbNCtODB/pO7vLlF2OTmMVLhmr7Ag==}
@@ -13823,9 +13831,19 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
+  playwright-core@1.64.0-alpha-1789764292000:
+    resolution: {integrity: sha512-ZgRaybFv4rRy7QMGnYprEGFdNJnvapNqcaER2w96bDQA+40BWIle1el1Yh9KHD3E6XYmieMB+r+UxFTCauTGGQ==}
+    engines: {node: '>=20'}
+    hasBin: true
+
   playwright@1.60.0:
     resolution: {integrity: sha512-hheHdokM8cdqCb0lcE3s+zT4t4W+vvjpGxsZlDnikarzx8tSzMebh3UiFtgqwFwnTnjYQcsyMF8ei2mCO/tpeA==}
     engines: {node: '>=18'}
+    hasBin: true
+
+  playwright@1.64.0-alpha-1789764292000:
+    resolution: {integrity: sha512-3Ngs4ERGdC912uW3srEDtNVey4u1wSaQ/EFcKhxMpz0by0K6nidaJgM087pLpJc1osytiVnL7ack5gvgPArPNw==}
+    engines: {node: '>=20'}
     hasBin: true
 
   plist@3.1.0:
@@ -20880,6 +20898,11 @@ snapshots:
     optional: true
 
   '@pkgr/core@0.3.6': {}
+
+  '@playwright/mcp@0.0.82':
+    dependencies:
+      playwright: 1.64.0-alpha-1789764292000
+      playwright-core: 1.64.0-alpha-1789764292000
 
   '@playwright/test@1.60.0':
     dependencies:
@@ -29894,11 +29917,17 @@ snapshots:
 
   playwright-core@1.62.1: {}
 
+  playwright-core@1.64.0-alpha-1789764292000: {}
+
   playwright@1.60.0:
     dependencies:
       playwright-core: 1.60.0
     optionalDependencies:
       fsevents: 2.3.2
+
+  playwright@1.64.0-alpha-1789764292000:
+    dependencies:
+      playwright-core: 1.64.0-alpha-1789764292000
 
   plist@3.1.0:
     dependencies:

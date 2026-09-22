@@ -136,6 +136,7 @@ export const portableSettingsSchema = z
     autoPublishCloudRuns: z.boolean(),
     rtkEnabledLocal: z.boolean(),
     rtkEnabledCloud: z.boolean(),
+    browserIntegrationEnabled: z.boolean(),
     terminalFont: z.enum([
       "berkeley-mono",
       "jetbrains-mono",

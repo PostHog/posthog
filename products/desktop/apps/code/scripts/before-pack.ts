@@ -3,8 +3,9 @@ import path from "node:path";
 import {
   koffiPackageFor,
   macOnlyNativeModules,
-  requiredNativeModules,
-  runtimeNativeModules,
+  requiredRuntimeModules,
+  runtimeModuleSources,
+  runtimeModules,
   watcherPackageFor,
 } from "../runtime-dependencies";
 
@@ -17,8 +18,9 @@ function copyDep(
   name: string,
   rootNodeModules: string,
   localNodeModules: string,
+  sourceName = name,
 ): boolean {
-  const src = path.join(rootNodeModules, name);
+  const src = path.join(rootNodeModules, sourceName);
   if (!existsSync(src)) {
     const localSrc = path.join(localNodeModules, name);
     if (existsSync(localSrc)) {
@@ -46,10 +48,11 @@ function copyRequiredDep(
   name: string,
   rootNodeModules: string,
   localNodeModules: string,
+  sourceName = name,
 ): void {
-  if (!copyDep(name, rootNodeModules, localNodeModules)) {
+  if (!copyDep(name, rootNodeModules, localNodeModules, sourceName)) {
     throw new Error(
-      `[before-pack] required native dependency "${name}" not found in node_modules`,
+      `[before-pack] required runtime dependency "${name}" not found in node_modules`,
     );
   }
 }
@@ -65,11 +68,12 @@ export default async function beforePack(context: BeforePackContext) {
   console.log(`[before-pack] root node_modules: ${rootNodeModules}`);
   console.log(`[before-pack] local node_modules: ${localNodeModules}`);
 
-  for (const dep of runtimeNativeModules) {
-    if (requiredNativeModules.includes(dep)) {
-      copyRequiredDep(dep, rootNodeModules, localNodeModules);
+  for (const dep of runtimeModules) {
+    const sourceName = runtimeModuleSources[dep] ?? dep;
+    if (requiredRuntimeModules.includes(dep)) {
+      copyRequiredDep(dep, rootNodeModules, localNodeModules, sourceName);
     } else {
-      copyDep(dep, rootNodeModules, localNodeModules);
+      copyDep(dep, rootNodeModules, localNodeModules, sourceName);
     }
   }
 

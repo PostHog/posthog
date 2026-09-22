@@ -71,6 +71,7 @@ export const startSessionInput = z.object({
    * Defaults to enabled; false sets POSTHOG_RTK=0 on the agent environment.
    */
   rtkEnabled: z.boolean().optional(),
+  browserIntegrationEnabled: z.boolean().optional(),
   /**
    * The user's spoken-narration setting at session start. Gates the agent's
    * speak tool and its prompt instructions. Strictly opt-in: only the desktop
@@ -235,6 +236,7 @@ export const reconnectSessionInput = z.object({
   jsonSchema: z.record(z.string(), z.unknown()).nullish(),
   /** See startSessionInput.rtkEnabled. */
   rtkEnabled: z.boolean().optional(),
+  browserIntegrationEnabled: z.boolean().optional(),
   /** See startSessionInput.spokenNarration. */
   spokenNarration: z.boolean().optional(),
   /** See startSessionInput.bedrockGatewayVariant. */
