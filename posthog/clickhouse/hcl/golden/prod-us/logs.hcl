@@ -4044,7 +4044,14 @@ FROM
       ) AS environment,
       lower(severity_text) AS severity_text,
       toUInt16(
-        least(greatest(dateDiff('day', observed_timestamp, original_expiry_timestamp), 0), 3650)
+        least(
+          intDiv(
+            greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0)
+            + 86399999999,
+            86400000000
+          ),
+          3650
+        )
       ) AS retention_days
     FROM posthog.logs34
   )

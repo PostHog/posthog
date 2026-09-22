@@ -21,9 +21,9 @@ from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, 
 #
 # The TTL floor is 42 days, which buys 6 weekly samples per time-of-week slot.
 # A team whose raw logs outlive that keeps the rollup alongside them, so the
-# TTL takes whichever of the two is longer. `retention_days` is the retention
-# the ingest path applied, folded with max: a series whose rows carry mixed
-# retentions lives as long as its longest lived log. Rows in one partition
+# TTL takes whichever of the two is longer. `retention_days` is the bucket's
+# lifetime rounded up to whole days, folded with max: a series whose rows carry
+# mixed retentions lives at least as long as its longest lived log. Rows in one partition
 # carry different TTLs, so ttl_only_drop_parts is off; a whole-part drop would
 # hold every team's rows to the longest retention in the part.
 

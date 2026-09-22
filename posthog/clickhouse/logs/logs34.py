@@ -372,12 +372,11 @@ def LOGS34_TO_VOLUME_BUCKETS_MV_SELECT():
     # BUCKET_SECONDS there must stay equal to it or the detector reads buckets
     # this MV never writes.
     #
-    # `retention_days` re-derives what the ingest path applied to this row,
-    # because logs34 keeps the resulting expiry rather than the input. It feeds
-    # the rollup's TTL, so it is clamped: a corrupt expiry would otherwise pin
-    # a bucket in the table for centuries. 3650 is that guard, set clear of the
-    # product's own retention ceiling rather than tracking it. Folded with max
-    # so mixed retentions in one series never shorten its life.
+    # `retention_days` rounds the lifetime from the bucket to the raw expiry up
+    # to whole days, so event-time skew and bucket rounding cannot expire the
+    # rollup before its logs. Microseconds preserve fractional-second expiries.
+    # The 3650-day guard sits above the product's retention ceiling and bounds
+    # corrupt expiries. Max keeps mixed retentions as long as the latest expiry.
     return f"""SELECT
     team_id,
     time_bucket,
@@ -408,7 +407,7 @@ FROM
             )
         ) AS environment,
         lower(severity_text) AS severity_text,
-        toUInt16(least(greatest(dateDiff('day', observed_timestamp, original_expiry_timestamp), 0), 3650)) AS retention_days
+        toUInt16(least(intDiv(greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0) + 86399999999, 86400000000), 3650)) AS retention_days
     FROM {db}.{TABLE_NAME}
 )
 GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text"""
