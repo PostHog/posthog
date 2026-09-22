@@ -60,7 +60,7 @@ request
 [5] Full events↔sessions join (unconditional fallback)
 ```
 
-**Conversion goals on the overview** run ahead of this ladder as two independent reads: the goal-less overview (which climbs the ladder above for visitors) plus a scan of goal events only (`web_overview_conversion_goal_query`). The joined shape grouped every pageview session in range to count the goal, so its memory scaled with traffic; the split scales with conversions. Visitors therefore equal the goal-less visitors card, and a session with a goal event but no pageview or screenview no longer counts as a visitor. Session and cohort filters keep the joined shape.
+**Conversion goals on the overview** run ahead of this ladder as two independent reads: the goal-less overview (which climbs the ladder above for visitors) plus a scan of goal events only (`web_overview_conversion_goal_query`). The joined shape grouped every pageview session in range to count the goal, so its memory scaled with traffic; the split scales with conversions. Visitors therefore equal the goal-less visitors card, and a session with a goal event but no pageview or screenview no longer counts as a visitor. Legacy sessions v1 and queries with session or cohort filters keep the joined shape.
 
 **The one-way rule (#72959):** user-facing reads never build precompute buckets inline — `run_inserts` is true only for background-warming requests.
 A miss costs one live-path serve; the background warm makes the next identical request a bucket hit.
@@ -70,14 +70,14 @@ The dashboard "enqueues precompute" as a side effect; it never waits on it.
 
 ### WebOverviewQuery (`web_overview.py`)
 
-| #   | Strategy                   | Conditions                                                                                                           | Tag                                                    |
-| --- | -------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| 0   | Conversion-goal split      | Conversion goal + events-evaluable filters; visitors from the goal-less dispatch below, conversions from goal events | `web_overview_conversion_goal_query` (+ visitors' tag) |
-| 1   | Lazy precompute            | Shared gate only — overview has no extra shape restrictions                                                          | `web_overview_lazy_query`                              |
-| 2   | Preaggregated (deprecated) | Modifier on + no conversion goal                                                                                     | `web_overview_preaggregated_query`                     |
-| 3   | Session-id-set             | Filtered + allowlisted + preflight passes (sets `sessionIdPushdown`)                                                 | `web_overview_session_id_set_query`                    |
-| 4   | No-join                    | Unfiltered, no conversion goal                                                                                       | `web_overview_no_join_query`                           |
-| 5   | Full join                  | Fallback (conversion goals with session or cohort filters land here)                                                 | `web_overview_query`                                   |
+| #   | Strategy                   | Conditions                                                                                                                            | Tag                                                    |
+| --- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| 0   | Conversion-goal split      | Conversion goal + sessions v2/v3 + events-evaluable filters; visitors from the goal-less dispatch below, conversions from goal events | `web_overview_conversion_goal_query` (+ visitors' tag) |
+| 1   | Lazy precompute            | Shared gate only — overview has no extra shape restrictions                                                                           | `web_overview_lazy_query`                              |
+| 2   | Preaggregated (deprecated) | Modifier on + no conversion goal                                                                                                      | `web_overview_preaggregated_query`                     |
+| 3   | Session-id-set             | Filtered + allowlisted + preflight passes (sets `sessionIdPushdown`)                                                                  | `web_overview_session_id_set_query`                    |
+| 4   | No-join                    | Unfiltered, no conversion goal                                                                                                        | `web_overview_no_join_query`                           |
+| 5   | Full join                  | Fallback (conversion goals with legacy sessions v1, session filters, or cohort filters land here)                                     | `web_overview_query`                                   |
 
 ### WebStatsTableQuery (`stats_table.py`) — three lazy families, tried in order
 

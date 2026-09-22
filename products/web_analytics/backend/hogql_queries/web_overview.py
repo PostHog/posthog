@@ -8,6 +8,7 @@ from posthog.schema import (
     EventPropertyFilter,
     HogQLQueryModifiers,
     PersonPropertyFilter,
+    SessionTableVersion,
     WebAnalyticsPreComputeStrategy,
     WebOverviewQuery,
     WebOverviewQueryResponse,
@@ -338,6 +339,8 @@ CROSS JOIN {sessions_agg} AS sessions_agg
         filters keep the joined shape.
         """
         if not self.query.conversionGoal:
+            return False
+        if self.modifiers.sessionTableVersion == SessionTableVersion.V1:
             return False
         if not all(isinstance(p, EventPropertyFilter | PersonPropertyFilter) for p in self.effective_query_properties):
             return False
