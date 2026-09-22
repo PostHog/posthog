@@ -621,16 +621,31 @@ def _nonempty_container_json(value: ast.Expr, empty_json: str) -> ast.Expr:
     )
 
 
-def _active_feature_flag_keys(feature_flags: ast.Expr, restricted_keys: list[str] | None = None) -> ast.Expr:
+def _active_flag_lambda(restricted_keys: list[str] | None, key_predicate: ast.Expr | None = None) -> ast.Lambda:
+    """`(key, value) -> value is active, key is not restricted, and `key_predicate` holds."""
     predicates: list[ast.Expr] = [_not_in_lambda_values("value", ["", "false"])]
     if restricted_keys:
         predicates.append(_not_in_lambda_values("key", restricted_keys, is_sensitive=True))
+    if key_predicate is not None:
+        predicates.append(key_predicate)
     predicate = predicates[0] if len(predicates) == 1 else _call("and", predicates)
+    return ast.Lambda(args=["key", "value"], expr=predicate)
+
+
+def _active_feature_flag_keys(feature_flags: ast.Expr, restricted_keys: list[str] | None = None) -> ast.Expr:
     # ClickHouse map storage order cannot reproduce the SDK's feature flag evaluation order.
-    return _call(
-        "mapKeys",
-        [_call("mapFilter", [ast.Lambda(args=["key", "value"], expr=predicate), feature_flags])],
-    )
+    return _call("mapKeys", [_call("mapFilter", [_active_flag_lambda(restricted_keys), feature_flags])])
+
+
+def _active_feature_flag_exists(
+    feature_flags: ast.Expr, restricted_keys: list[str], key_predicate: ast.Expr
+) -> ast.Expr:
+    """Whether an active, visible flag satisfies `key_predicate`, in one pass over the map.
+
+    Materializing the filtered key array first (`mapKeys(mapFilter(...))`) costs 1.5x to 3.5x more per row than testing
+    the predicate inside the scan, because the map and the array are both copied for every event.
+    """
+    return _call("mapExists", [_active_flag_lambda(restricted_keys, key_predicate), feature_flags])
 
 
 def _active_feature_flags_json(feature_flags: ast.Expr, restricted_keys: list[str]) -> ast.Expr:
@@ -1685,11 +1700,6 @@ class ClickHousePropertyResolver(CloningVisitor):
         )
 
     def _string_array_expr(self, expr: ast.Expr, *, allow_to_string: bool = False) -> ast.Expr | None:
-        active_feature_flags = self._active_feature_flags_operand(expr, allow_to_string=allow_to_string)
-        if active_feature_flags is not None:
-            feature_flags, restricted_keys = active_feature_flags
-            return _active_feature_flag_keys(feature_flags, restricted_keys)
-
         prop = self._materialized_string_array_property(expr, allow_to_string=allow_to_string)
         return prop.bare_column() if prop is not None else None
 
@@ -1918,11 +1928,16 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         if node.op not in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
             return None
-        array_expr = self._string_array_expr(node.left)
-        if array_expr is None:
-            return None
         values = self._extract_string_constants(node.right)
         if values is None:
+            return None
+        if (active := self._active_feature_flags_operand(node.left)) is not None:
+            feature_flags, restricted_keys = active
+            key_in_values = _call("in", [_lambda_string_arg("key"), ast.Tuple(exprs=[_const(v) for v in values])])
+            contains_any = _active_feature_flag_exists(feature_flags, restricted_keys, key_in_values)
+            return contains_any if node.op == ast.CompareOperationOp.In else _call("not", [contains_any])
+        array_expr = self._string_array_expr(node.left)
+        if array_expr is None:
             return None
         contains_any = _call("hasAny", [array_expr, ast.Array(exprs=[_const(v) for v in values])])
         return contains_any if node.op == ast.CompareOperationOp.In else _call("not", [contains_any])
@@ -1930,9 +1945,16 @@ class ClickHousePropertyResolver(CloningVisitor):
     def _optimize_materialized_array_ilike(self, node: ast.CompareOperation) -> ast.Expr | None:
         if node.op not in (ast.CompareOperationOp.ILike, ast.CompareOperationOp.NotILike):
             return None
-        array_expr = self._string_array_expr(node.left, allow_to_string=True)
         pattern = _string_pattern_constant(node.right)
-        if array_expr is None or pattern is None:
+        if pattern is None:
+            return None
+        if (active := self._active_feature_flags_operand(node.left, allow_to_string=True)) is not None:
+            feature_flags, restricted_keys = active
+            key_matches = _call("ilike", [_lambda_string_arg("key"), _const(pattern.value)])
+            contains = _active_feature_flag_exists(feature_flags, restricted_keys, key_matches)
+            return contains if node.op == ast.CompareOperationOp.ILike else _call("not", [contains])
+        array_expr = self._string_array_expr(node.left, allow_to_string=True)
+        if array_expr is None:
             return None
 
         contains = _call(
@@ -1954,9 +1976,21 @@ class ClickHousePropertyResolver(CloningVisitor):
         if len(node.left.args) != 2:
             return None
 
-        array_expr = self._string_array_expr(node.left.args[0], allow_to_string=True)
         values = self._extract_string_constants(node.left.args[1])
-        if array_expr is None or values is None:
+        if values is None:
+            return None
+        if (active := self._active_feature_flags_operand(node.left.args[0], allow_to_string=True)) is not None:
+            feature_flags, restricted_keys = active
+            key_search = _call(
+                "multiSearchAnyCaseInsensitive",
+                [_lambda_string_arg("key"), ast.Array(exprs=[_const(v) for v in values])],
+            )
+            contains = _active_feature_flag_exists(
+                feature_flags, restricted_keys, _call("greater", [key_search, _const(0)])
+            )
+            return contains if node.op == ast.CompareOperationOp.Gt else _call("not", [contains])
+        array_expr = self._string_array_expr(node.left.args[0], allow_to_string=True)
+        if array_expr is None:
             return None
 
         search = _call(

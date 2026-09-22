@@ -368,27 +368,25 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("in", "properties.$active_feature_flags IN ('checkout', 'variant')", "hasAny(mapKeys(mapFilter("),
-            ("not_in", "properties.$active_feature_flags NOT IN ('checkout')", "not(hasAny(mapKeys(mapFilter("),
-            (
-                "ilike",
-                "properties.$active_feature_flags ILIKE 'check%'",
-                "arrayExists(v -> ifNull(ilike(v, %(hogql_val_0)s), 0), mapKeys(mapFilter(",
-            ),
+            ("in", "properties.$active_feature_flags IN ('checkout', 'variant')", "in(key, tuple("),
+            ("not_in", "properties.$active_feature_flags NOT IN ('checkout')", "not(mapExists("),
+            ("ilike", "properties.$active_feature_flags ILIKE 'check%'", "ilike(key, %(hogql_val_"),
             (
                 "multi_search",
                 "multiSearchAnyCaseInsensitive(properties.$active_feature_flags, ['check']) > 0",
-                "arrayExists(v -> ifNull(greater(multiSearchAnyCaseInsensitive(v, [%(hogql_val_0)s]), 0), 0), mapKeys(",
+                "multiSearchAnyCaseInsensitive(key, [%(hogql_val_",
             ),
         ]
     )
-    def test_active_feature_flag_operator_families_read_the_filtered_keys(
+    def test_active_feature_flag_operator_families_scan_the_map_once(
         self, _name: str, where_clause: str, expected_fragment: str
     ) -> None:
         printed = self._print_select(f"SELECT count() FROM events WHERE {where_clause}", use_new_events_schema=True)
         where = printed.split("WHERE", 1)[1]
 
+        assert "mapExists((key, value) -> and(" in where, printed
         assert expected_fragment in where, printed
+        assert "mapKeys(" not in where, printed
         assert "events.properties.`$active_feature_flags`" not in where, printed
 
     def test_exception_types_use_array_subcolumn(self) -> None:
