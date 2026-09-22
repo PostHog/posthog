@@ -10,7 +10,7 @@ Do not restrict a project-level insight operation to only `team_id=self.team_id`
 
 ### Authorization contract
 
-- `InsightViewSet` uses `AccessControlViewSetMixin` to filter normal insight reads. Keep this filter on every new list-like action.
+- `InsightViewSet` filters normal `list` reads through `_filter_queryset_by_access_level`. Custom list-like actions need an access-aware queryset implementation because this helper only filters when `self.action == "list"`.
 - On Enterprise installs, `EnterpriseInsightsViewSet` adds `CanEditInsight` for unsafe detail actions. A new unsafe detail action must keep object permission checks.
 - Detail-false bulk actions do not receive DRF object permissions. Filter every target through `_bulk_filter_editable_insights`, or perform the equivalent per-insight editor check. Return skipped targets without changing them.
 - Restore access to an insight does not grant edit access to every dashboard that contains it. Use `restore_tiles_for_insights` with `user_permissions`, so tiles remain hidden on dashboards the requester cannot edit.
