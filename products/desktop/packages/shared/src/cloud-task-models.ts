@@ -53,7 +53,7 @@ export interface CloudTaskModePreset {
   description: string;
 }
 
-export const DEFAULT_GATEWAY_MODEL = "claude-opus-4-8";
+export const DEFAULT_GATEWAY_MODEL = "claude-opus-5-5";
 
 export const DEFAULT_CODEX_MODEL = "gpt-5.5";
 

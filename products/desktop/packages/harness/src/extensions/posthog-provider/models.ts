@@ -5,7 +5,7 @@ import type { CloudRegion } from "@posthog/shared";
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import { getLlmGatewayUrl } from "./gateway";
 
-export const DEFAULT_MODEL = "claude-opus-4-8";
+export const DEFAULT_MODEL = "claude-opus-5-5";
 
 const MODELS_FETCH_TIMEOUT_MS = 5_000;
 
