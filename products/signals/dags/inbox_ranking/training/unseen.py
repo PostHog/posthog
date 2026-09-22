@@ -350,18 +350,6 @@ def empty_scores_write_allowed(existing_row_count: int | None) -> bool:
     return not existing_row_count
 
 
-def with_head_readable(scores: pd.DataFrame) -> pd.DataFrame:
-    """`scores` with a `head_readable` column, filling True where it is absent.
-
-    The grader reads scores objects up to 14 days old, so it still meets objects written before the
-    column existed. Those runs scored a head only when it was readable, so every row in them is a
-    readable one.
-    """
-    if "head_readable" not in scores:
-        return scores.assign(head_readable=True)
-    return scores.assign(head_readable=scores["head_readable"].fillna(True).astype(bool))
-
-
 def with_model_names(scores: pd.DataFrame) -> pd.DataFrame:
     """`scores` with a `model_name` column, filling the tabular family where it is absent.
 
@@ -526,6 +514,10 @@ def graded_rows(head_scores: pd.DataFrame, labels: pd.DataFrame, head: Head, *, 
     if head.status_labels and "label_provenance_ok" in aligned:
         in_cohort &= aligned["label_provenance_ok"].fillna(False).to_numpy(dtype=bool)
     graded = head_scores.copy()
+    # An object written before the column existed scored a head only when it was readable.
+    graded["head_readable"] = (
+        head_scores["head_readable"].fillna(True).astype(bool) if "head_readable" in head_scores else True
+    )
     graded["in_cohort"] = in_cohort
     graded["outcome"] = pd.array(head.label(aligned).to_numpy(dtype=bool), dtype="boolean")
     graded.loc[~in_cohort, "outcome"] = pd.NA
@@ -541,8 +533,7 @@ def head_grades(graded: pd.DataFrame, head: Head, *, pool: str, scoring_partitio
     `model_name`, with `<set>_pool_coverage` on the scores asset for how thin the day was.
     """
     grades: list[HeadGrade] = []
-    kept = with_head_readable(graded)
-    kept = kept[kept["in_cohort"]]
+    kept = graded[graded["in_cohort"]]
     for (model_name, model_version, model_role), rows in kept.groupby(
         ["model_name", "model_version", "model_role"], sort=True
     ):

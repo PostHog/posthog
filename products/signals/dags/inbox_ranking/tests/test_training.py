@@ -1539,9 +1539,9 @@ def test_a_scores_object_written_before_the_readable_column_grades_as_readable()
     # The grader reads objects up to 14 days old, and those runs scored a head only when it was
     # readable, so a missing column must not turn a readable series unreadable overnight.
     head = HEADS_BY_NAME["open"]
-    # _scores builds the pre-column row shape, so the frame reaching the grader has no flag at all.
+    # _scores builds the pre-column row shape, so the frame reaching the grader carries no flag.
     graded = graded_rows(_scores(["a", "b"]), _labels(["a", "b"], open_count=[1, 0]), head, pool=POOL_NAME)
-    assert "head_readable" not in graded
+    assert graded["head_readable"].all()
     (grade,) = head_grades(graded, head, pool=POOL_NAME, scoring_partition="2026-08-10")
     assert grade.readable
 
