@@ -77,7 +77,7 @@ def detector_rows_from_history(
         return None
 
     team_id = resolve_effective_team_id(alert.team_id)
-    fingerprint = _fingerprint(matched, config)
+    fingerprint = _fingerprint(matched, config, team)
     now = django_timezone.now()
 
     def rebuild() -> tuple[list[_Row], list[str]]:
@@ -144,7 +144,7 @@ def _flag_enabled(team: Team) -> bool:
     )
 
 
-def _fingerprint(matched: DetectorSeriesQuery, config: HogQLAlertConfig) -> str:
+def _fingerprint(matched: DetectorSeriesQuery, config: HogQLAlertConfig, team: Team) -> str:
     """Tie cached values to what produced them, so an edit cannot mix two series together."""
     source = matched.source
     inner = source.get("source") if source.get("kind") == "DataVisualizationNode" else source
@@ -154,6 +154,8 @@ def _fingerprint(matched: DetectorSeriesQuery, config: HogQLAlertConfig) -> str:
             "column": config.column,
             "evaluation": config.evaluation.value,
             "window_hours": matched.window_hours,
+            # Bucket instants are read back through the team timezone, so a change re-aligns them.
+            "timezone": team.timezone,
         },
         sort_keys=True,
     )

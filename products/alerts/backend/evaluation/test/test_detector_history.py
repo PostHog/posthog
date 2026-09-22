@@ -137,6 +137,17 @@ class TestDetectorHistory(BaseTest):
         assert warehouse.overrides[-1] is None
         assert AlertSeriesPoint.objects.for_team(self.team.pk).filter(alert_config=self.alert).count() == 10
 
+    def test_changing_the_team_timezone_discards_the_cached_series(self) -> None:
+        warehouse = _Warehouse(self._dense(10))
+        with time_machine.travel(NOW, tick=False):
+            self._check(warehouse)
+            self.team.timezone = "Asia/Kathmandu"
+            self.team.save(update_fields=["timezone"])
+            self._check(warehouse)
+
+        # Cached buckets were aligned under the old timezone, so the new one must rebuild.
+        assert warehouse.overrides[-1] is None
+
     def test_a_bucket_that_loses_its_events_loses_its_cached_value(self) -> None:
         warehouse = _Warehouse(self._dense(10))
         with time_machine.travel(NOW, tick=False):
