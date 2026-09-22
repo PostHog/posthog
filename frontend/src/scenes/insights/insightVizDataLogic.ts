@@ -1402,6 +1402,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 // mode open or hasFormula closes the editor mid-edit. A filled row needs no flag.
                 removeFormulaNode: (state, { formulas }) =>
                     formulas.length > 0 && formulas.every((node) => node.formula.trim() === '') ? true : state,
+                // A query that holds a formula keeps the mode open on its own, so drop the flag
+                // there. It would otherwise outlive the removal that set it and hold the editor
+                // open over the next empty field. The reset keys on setQuery, which is what writes
+                // the formula into the query: reset it one action earlier and hasFormula is false
+                // for a render, which closes the editor the user is typing in.
+                setQuery: (state, { query }) =>
+                    isInsightVizNode(query) && (getFormulaNodes(query.source)?.length ?? 0) > 0 ? false : state,
             },
         ],
     }),

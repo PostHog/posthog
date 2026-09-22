@@ -66,21 +66,50 @@ describe('TrendsFormula', () => {
         })
     })
 
-    it('closes the editor when the last formula is emptied after another was removed', async () => {
-        renderInsightPage({ query: buildTrendsQuery({ trendsFilter: { formulaNodes: nodes('A', 'B') } }) })
+    /** Each route leaves the editor open on one filled formula, so the removal behind it must not
+     *  change what emptying that formula does. */
+    const routesToOneFormula: [string, TrendsFormulaNode[], () => Promise<void>][] = [
+        [
+            'another was removed',
+            nodes('A', 'B'),
+            async () => {
+                await waitFor(() => expect(formulaInputs()).toHaveLength(2))
+                await userEvent.click(screen.getAllByTitle('Remove formula')[1])
+                await waitFor(() => expect(getQuerySource().trendsFilter?.formulaNodes).toEqual(nodes('A')))
+            },
+        ],
+        [
+            'the only filled one was removed and a new one typed',
+            nodes('A'),
+            async () => {
+                await screen.findByPlaceholderText(FORMULA_PLACEHOLDER)
+                await userEvent.click(screen.getByText('Add formula'))
+                await userEvent.click(screen.getAllByTitle('Remove formula')[0])
+                await waitFor(() => expect(getQuerySource().trendsFilter?.formulaNodes).toEqual([]))
 
-        await waitFor(() => expect(formulaInputs()).toHaveLength(2))
-        await userEvent.click(screen.getAllByTitle('Remove formula')[1])
-        await waitFor(() => expect(getQuerySource().trendsFilter?.formulaNodes).toEqual(nodes('A')))
+                await userEvent.type(formulaInputs()[0], 'B')
+                await userEvent.tab()
+                await waitFor(() => expect(getQuerySource().trendsFilter?.formulaNodes).toEqual(nodes('B')))
+            },
+        ],
+    ]
 
-        await userEvent.clear(formulaInputs()[0])
-        await userEvent.tab()
+    it.each(routesToOneFormula)(
+        'closes the editor when the last formula is emptied after %s',
+        async (_, initialNodes, reachOneFormula) => {
+            renderInsightPage({ query: buildTrendsQuery({ trendsFilter: { formulaNodes: initialNodes } }) })
 
-        await waitFor(() => {
-            expect(getQuerySource().trendsFilter?.formulaNodes).toEqual([])
-            expect(screen.queryByText('Add formula')).not.toBeInTheDocument()
-        })
-    })
+            await reachOneFormula()
+
+            await userEvent.clear(formulaInputs()[0])
+            await userEvent.tab()
+
+            await waitFor(() => {
+                expect(getQuerySource().trendsFilter?.formulaNodes).toEqual([])
+                expect(screen.queryByText('Add formula')).not.toBeInTheDocument()
+            })
+        }
+    )
 
     it('keeps the editor open on a blank input when the only filled formula is removed', async () => {
         renderInsightPage({ query: buildTrendsQuery({ trendsFilter: { formulaNodes: nodes('A') } }) })
