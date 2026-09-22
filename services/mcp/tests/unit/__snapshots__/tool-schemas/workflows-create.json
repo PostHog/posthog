@@ -551,7 +551,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?type=`.\n\n* `loops` - Loops\n* `broadcasts` - Broadcasts"
+            "description": "Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n* `loops` - Loops\n* `broadcasts` - Broadcasts"
         },
         "status": {
             "description": "draft (no execution), active (live), archived (disabled).\n\n* `draft` - Draft\n* `active` - Active\n* `archived` - Archived",

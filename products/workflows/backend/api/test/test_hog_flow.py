@@ -448,6 +448,17 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?type=campaign")
         assert response.status_code == 400
 
+    def test_list_filter_by_origin_product(self):
+        HogFlow.objects.create(team=self.team, name="Loop", created_by=self.user, origin_product="loops")
+        HogFlow.objects.create(team=self.team, name="Hand built", created_by=self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?origin_product=loops")
+        assert response.status_code == 200, response.json()
+        assert {flow["name"] for flow in response.json()["results"]} == {"Loop"}
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?origin_product=spreadsheets")
+        assert response.status_code == 400
+
     def test_origin_product_is_set_on_create_and_immutable(self):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}

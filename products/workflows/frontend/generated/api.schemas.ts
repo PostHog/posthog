@@ -595,7 +595,7 @@ export interface HogFlowApi {
      * * `active` - Active
      * * `archived` - Archived */
     status?: HogFlowStateEnumApi
-    /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?type=`.
+    /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
      *
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts */
@@ -1795,6 +1795,10 @@ export type HogFlowsListParams = {
      */
     offset?: number
     /**
+     * Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.
+     */
+    origin_product?: HogFlowsListOriginProduct
+    /**
      * Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.
      */
     search?: string
@@ -1814,6 +1818,13 @@ export type HogFlowsListParams = {
     type?: string
     updated_at?: string
 }
+
+export type HogFlowsListOriginProduct = (typeof HogFlowsListOriginProduct)[keyof typeof HogFlowsListOriginProduct]
+
+export const HogFlowsListOriginProduct = {
+    Broadcasts: 'broadcasts',
+    Loops: 'loops',
+} as const
 
 export type HogFlowsListStatus = (typeof HogFlowsListStatus)[keyof typeof HogFlowsListStatus]
 
