@@ -468,8 +468,6 @@ export interface SignalScoutEmission {
     run_id: string
     finding_id: string
     description: string
-    weight: number
-    confidence: number
     severity: SignalReportPriority | null
     /** Slug tags the scout attached to this finding (lowercase kebab-case, e.g. `cost-spike`). */
     tags: string[]

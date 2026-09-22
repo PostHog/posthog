@@ -74,6 +74,7 @@ import {
     FleetSummary,
     isSettledRun,
     rosterRunCosts,
+    runResponseCoversFleet,
     scoutDisplayName,
     SCOUT_ROSTER_WINDOW_DAYS,
     SCOUT_ROSTER_WINDOW_HOURS,
@@ -346,6 +347,7 @@ export interface scoutFleetLogicValues {
     scoutRunCosts: Map<string, number>
     scoutRunCostsLoading: boolean
     scoutRuns: SignalScoutRunSummary[]
+    scoutRunsCoverFleet: boolean
     scoutRunsLoadedOnce: boolean
     scoutRunsLoading: boolean
     scoutSearch: string
@@ -599,6 +601,7 @@ export interface scoutFleetLogicMeta {
             dataProcessingApprovalDisabledReason: string | null
         ) => string | null
         rollups: (scoutRuns: SignalScoutRunSummary[]) => Map<string, ScoutRollup>
+        scoutRunsCoverFleet: (scoutConfigs: SignalScoutConfigApi[] | null) => boolean
         expensiveRunCostThreshold: (
             scoutRuns: SignalScoutRunSummary[],
             scoutRunCosts: Map<string, number>
@@ -1179,6 +1182,13 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         rollups: [
             (s) => [s.scoutRuns],
             (scoutRuns: SignalScoutRunSummary[]): Map<string, ScoutRollup> => computeScoutRollups(scoutRuns),
+        ],
+        // Whether `scoutRuns` speaks for the whole fleet. The endpoint probes a bounded number of
+        // scouts, so past that bound an empty rollup means "not read", not "never ran" - and a
+        // surface that cannot tell the two apart reports lost history as a scout that never worked.
+        scoutRunsCoverFleet: [
+            (s) => [s.scoutConfigs],
+            (scoutConfigs: SignalScoutConfig[] | null): boolean => runResponseCoversFleet(scoutConfigs?.length ?? 0),
         ],
         expensiveRunCostThreshold: [
             (s) => [s.scoutRuns, s.scoutRunCosts],
