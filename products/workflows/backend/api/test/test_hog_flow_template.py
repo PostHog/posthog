@@ -1,6 +1,8 @@
 from typing import Any
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
@@ -666,3 +668,31 @@ class TestHogFlowTemplateAPI(APIBaseTest):
 
         template_ids = [t["id"] for t in response.json()["results"]]
         assert template_id in template_ids
+
+    @patch("products.workflows.backend.api.hog_flow_template.load_global_templates", return_value=[])
+    def test_list_is_stably_ordered_across_pages_when_updated_at_ties(self, _mock_load_global_templates):
+        # Insert in ascending id order, the reverse of what the endpoint must return, so the
+        # assertion cannot pass on an ordering that only reflects insertion order.
+        ids = sorted(uuid4() for _ in range(4))
+        for index, template_id in enumerate(ids):
+            HogFlowTemplate.objects.create(
+                id=template_id,
+                name=f"Template {index}",
+                team=self.team,
+                scope="team",
+                trigger={"type": "event"},
+                actions=[],
+                created_by=self.user,
+            )
+        # auto_now sets updated_at per row, so flatten it to put every template in one tie.
+        HogFlowTemplate.objects.filter(team=self.team).update(updated_at="2026-01-01T00:00:00Z")
+
+        walked: list[str] = []
+        for offset in (0, 2):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/hog_flow_templates", {"limit": 2, "offset": offset}
+            )
+            assert response.status_code == 200, response.json()
+            walked.extend(t["id"] for t in response.json()["results"])
+
+        assert walked == [str(template_id) for template_id in sorted(ids, reverse=True)]
