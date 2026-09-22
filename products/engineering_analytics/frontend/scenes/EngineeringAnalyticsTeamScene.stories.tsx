@@ -206,7 +206,7 @@ export const Team: Story = {
 // A docked side panel leaves the scene about 520px wide, where the comparison cards must stack.
 export const TeamNarrow: Story = {
     render: () => <App />,
-    parameters: { testOptions: { viewport: { width: 900, height: 1800 } } },
+    parameters: { testOptions: { viewport: { width: 520, height: 1800 } } },
 }
 
 export const TeamWithoutMembership: Story = {
