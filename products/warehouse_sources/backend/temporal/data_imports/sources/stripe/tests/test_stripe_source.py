@@ -247,9 +247,9 @@ class TestStripeSource:
             # listing a specific customer's nested resources — every retry replays the same request
             # against the same customer and fails identically.
             "Request req_abc123: error_details_unknown",
-            # The key's own account isn't a Stripe Connect platform, so it can never list connected
-            # accounts — an intrinsic account-topology rejection, not something a retry can fix.
-            "InvalidRequestError: You cannot access the connected accounts of your platform's connected accounts.",
+            # The key belongs to a connected account, so Stripe refuses to nest Connect access two
+            # levels deep when an "Account id" is also configured — a customer misconfiguration.
+            "Request req_abc123: You cannot access the connected accounts of your platform's connected accounts.",
         ],
     )
     def test_non_retryable_errors_match_permission_failures(self, observed_error):
@@ -276,10 +276,10 @@ class TestStripeSource:
 
     def test_connect_account_topology_rejection_has_actionable_message(self):
         # Stripe's own text names no fix a customer can act on — the guidance has to say what will,
-        # which is turning the Account table off, since the rejection depends on the account's
-        # Connect role rather than anything about the request.
+        # which is removing the 'Account id' or switching to a platform key, since the rejection is
+        # about the key/account combination and surfaces on any endpoint the sync calls, not one table.
         observed_error = (
-            "InvalidRequestError: You cannot access the connected accounts of your platform's connected accounts."
+            "Request req_abc123: You cannot access the connected accounts of your platform's connected accounts."
         )
         messages = [
             message
@@ -288,7 +288,7 @@ class TestStripeSource:
         ]
         assert messages
         assert messages[0] is not None
-        assert "Account" in messages[0]
+        assert "Account id" in messages[0]
 
     @pytest.mark.parametrize(
         "other_error",
