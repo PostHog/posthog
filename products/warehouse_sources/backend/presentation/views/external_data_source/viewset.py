@@ -89,6 +89,9 @@ class ExternalDataSourceViewSet(
         # Enumerates the connected provider's accounts/sites — write-scoped so a read-only token can't
         # list them (info disclosure); also gated behind admin in dangerously_get_permissions.
         "oauth_accounts",
+        # Same disclosure concern as `oauth_accounts`, plus it makes an outbound call with
+        # credentials taken from the request body.
+        "credential_accounts",
         # Live outbound HTTP to a caller-supplied manifest (including POSTs) — a
         # side-effecting action, so it needs write scope, not read.
         "preview_resource",
@@ -131,7 +134,7 @@ class ExternalDataSourceViewSet(
         # The account picker enumerates every account/site the connected provider exposes, so require
         # manage access even though it's a GET — a read-only member shouldn't discover unrelated
         # accounts (info disclosure). Other actions fall back to the viewset defaults.
-        if self.action == "oauth_accounts":
+        if self.action in ("oauth_accounts", "credential_accounts"):
             return [
                 IsAuthenticated(),
                 APIScopePermission(),

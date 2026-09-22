@@ -22154,6 +22154,26 @@ export namespace Schemas {
       access_secret: string;
     }
 
+    /**
+     * Values of the sibling fields named by the picker's `credentialFields`. Any other key is rejected.
+     */
+    export type CredentialAccountsRequestCredentials = {[key: string]: string};
+
+    /**
+     * Body for listing accounts from credentials the user has typed but not yet submitted.
+     */
+    export interface CredentialAccountsRequest {
+      /** The data warehouse source type whose picker is asking (e.g. 'AppleSearchAds'). */
+      source_type: string;
+      /** Values of the sibling fields named by the picker's `credentialFields`. Any other key is rejected. */
+      credentials: CredentialAccountsRequestCredentials;
+      /**
+         * Vendor API version the source is pinned to. Defaults to the source's current default.
+         * @nullable
+         */
+      api_version?: string | null;
+    }
+
     export interface CurrentBranchHealth {
       /** Detected default branch ('master' or 'main') from runs in the same 24-hour window. */
       default_branch: string;
@@ -87402,6 +87422,26 @@ export namespace Schemas {
       type: 'oauth-account-select';
     }
 
+    /**
+     * Account picker for a source whose credentials are typed into the form, not held by an
+     * `Integration` row. Same `IntegrationAccount` shape and same picker as `oauth-account-select`;
+     * only where the credentials come from differs.
+     *
+     * `credentialFields` is the security boundary. The listing endpoint accepts those field names and
+     * no others, so the picker cannot be used to push arbitrary connection details into a source's
+     * client.
+     */
+    export interface SourceFieldCredentialAccountSelectConfig {
+      caption?: string | null;
+      /** Names of the sibling fields whose values the account listing needs. The form sends exactly these, and the listing endpoint accepts exactly these. */
+      credentialFields: string[];
+      label: string;
+      name: string;
+      placeholder?: string | null;
+      required?: boolean | null;
+      type: 'credential-account-select';
+    }
+
     export interface SourceFieldFileUploadJsonFormatConfig {
       format?: '.json';
       keys: '*' | string[];
@@ -87422,7 +87462,7 @@ export namespace Schemas {
     }
 
     export interface SourceFieldSelectConfigOption {
-      fields?: (SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig | SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig | SourceFieldFileUploadConfig | SourceFieldSSHTunnelConfig)[] | null;
+      fields?: (SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig | SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig | SourceFieldCredentialAccountSelectConfig | SourceFieldFileUploadConfig | SourceFieldSSHTunnelConfig)[] | null;
       label: string;
       value: string;
     }
@@ -87443,7 +87483,7 @@ export namespace Schemas {
     export interface SourceFieldSwitchGroupConfig {
       caption?: string | null;
       default: string | number | boolean;
-      fields: (SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig | SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig | SourceFieldFileUploadConfig | SourceFieldSSHTunnelConfig)[];
+      fields: (SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig | SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig | SourceFieldCredentialAccountSelectConfig | SourceFieldFileUploadConfig | SourceFieldSSHTunnelConfig)[];
       label: string;
       name: string;
       type: 'switch-group';
@@ -87482,7 +87522,7 @@ export namespace Schemas {
       featureFlag?: string | null;
       /** Whether this source should be prominently displayed in onboarding flows */
       featured?: boolean | null;
-      fields: (SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig | SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig | SourceFieldFileUploadConfig | SourceFieldSSHTunnelConfig)[];
+      fields: (SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig | SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig | SourceFieldCredentialAccountSelectConfig | SourceFieldFileUploadConfig | SourceFieldSSHTunnelConfig)[];
       iconClassName?: string | null;
       iconPath: string;
       /** Extra search terms (alternate spellings, acronyms) for the catalog search, e.g. GoogleAnalytics → ["ga4", "ga"]. Matched alongside name/label/category. */
@@ -87496,7 +87536,7 @@ export namespace Schemas {
       /** Whether the source-creation wizard should expose the per-column projection picker. Mirrors `SQLSource.supports_column_selection` so the wizard doesn't show a picker for drivers that ignore `enabled_columns` at sync time. */
       supportsColumnSelection: boolean;
       unreleasedSource?: boolean | null;
-      webhookFields?: (SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig | SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig | SourceFieldFileUploadConfig | SourceFieldSSHTunnelConfig)[] | null;
+      webhookFields?: (SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig | SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig | SourceFieldCredentialAccountSelectConfig | SourceFieldFileUploadConfig | SourceFieldSSHTunnelConfig)[] | null;
       /** If true, the source does not support automatic webhook registration via API (e.g. Slack, where the user must paste the URL into the source's app settings). Adjusts the setup UI copy to avoid promising automatic registration. */
       webhookManualOnly?: boolean | null;
       webhookSetupCaption?: string | null;
