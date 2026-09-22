@@ -449,8 +449,9 @@ class RepoOverviewSerializer(DataclassSerializer):
             "rerun_cycles": {"help_text": "Runs in the window that were a 2nd+ attempt (attempt > 1)."},
             "rerun_cycles_prev": {"help_text": "Re-run cycles over the previous window."},
             "merged_pr_count": {
-                "help_text": "PRs merged in the window, all authors and bots included: the merge population "
-                "that triggered the CI spend, so it divides cleanly into billable_minutes and estimated_cost_usd."
+                "help_text": "PRs merged in the window, all authors and bots included. billable_minutes and "
+                "estimated_cost_usd cover every run in the window, including default-branch and unmerged PR runs, "
+                "so dividing them by this count spreads all CI spend over the merges."
             },
             "merged_pr_count_prev": {"help_text": "Merged-PR count over the previous window."},
             "median_open_to_merge_seconds": {

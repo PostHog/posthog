@@ -83015,7 +83015,7 @@ export namespace Schemas {
       rerun_cycles: number;
       /** Re-run cycles over the previous window. */
       rerun_cycles_prev: number;
-      /** PRs merged in the window, all authors and bots included: the merge population that triggered the CI spend, so it divides cleanly into billable_minutes and estimated_cost_usd. */
+      /** PRs merged in the window, all authors and bots included. billable_minutes and estimated_cost_usd cover every run in the window, including default-branch and unmerged PR runs, so dividing them by this count spreads all CI spend over the merges. */
       merged_pr_count: number;
       /** Merged-PR count over the previous window. */
       merged_pr_count_prev: number;
