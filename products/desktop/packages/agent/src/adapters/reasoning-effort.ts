@@ -74,11 +74,11 @@ const CLAUDE_CAPABILITY_LADDER: CapabilityNotch[] = [
 ];
 
 const CODEX_CAPABILITY_LADDER: CapabilityNotch[] = [
-  { model: "gpt-5.6-terra", effort: "low" },
-  { model: "gpt-5.6-sol", effort: "low" },
-  { model: "gpt-5.6-sol", effort: "medium" },
-  { model: "gpt-5.6-sol", effort: "high" },
-  { model: "gpt-5.6-sol", effort: "xhigh" },
+  { model: "gpt-6-luna", effort: "low" },
+  { model: "gpt-6-sol", effort: "low" },
+  { model: "gpt-6-sol", effort: "medium" },
+  { model: "gpt-6-sol", effort: "high" },
+  { model: "gpt-6-sol", effort: "xhigh" },
   { model: "gpt-6-astra", effort: "max" },
 ];
 

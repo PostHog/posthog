@@ -150,7 +150,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
             >
                 <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                     <WindowComparisonCard
-                        title="Tests owned"
+                        title="Test files owned"
                         tooltip="Test files this team owns per the daily owners.yaml census."
                         value={healthRow?.testFileCount}
                         previousValue={healthRow?.testFileCountPrior}
