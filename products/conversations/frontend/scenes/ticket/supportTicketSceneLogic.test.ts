@@ -539,12 +539,31 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
     // without warning (or prompts when there is nothing extra to save).
     test.each<[string, () => void, string[]]>([
         ['a priority edit', () => logic.actions.setPriority('high'), ['Priority: High']],
+        ['a cleared priority', () => logic.actions.setPriority(null), ['Priority: No priority']],
         ['a tags edit', () => logic.actions.setTags(['bug']), ['Tags: bug']],
         ['an assignee edit', () => logic.actions.setAssignee({ type: 'role', id: 'role-1' }), ['Assignee: updated']],
         ['a status-only edit', () => logic.actions.setStatus('pending'), []],
     ])('unsavedTicketChanges lists %s', (_name, applyEdit, expected) => {
         applyEdit()
         expect(logic.values.unsavedTicketChanges).toEqual(expected)
+    })
+
+    // A priority set by mistake must be removable, so null is a real edit here, not "no change".
+    it('sends a null priority when the agent clears it', async () => {
+        ticketUpdateMock.mockImplementation((_projectId: string, _id: string, data: Record<string, unknown>) =>
+            Promise.resolve({ ...loadedTicket(), ...data })
+        )
+
+        logic.actions.setPriority(null)
+        await expectLogic(logic, () => {
+            logic.actions.updateTicket()
+        }).toFinishAllListeners()
+
+        expect(ticketUpdateMock).toHaveBeenCalledWith(
+            expect.any(String),
+            '42',
+            expect.objectContaining({ priority: null })
+        )
     })
 
     // Overlapping updates must serialize: the second PATCH waits for the first and carries the

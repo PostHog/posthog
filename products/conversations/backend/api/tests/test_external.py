@@ -157,6 +157,17 @@ class TestExternalTicketAPI(BaseTest):
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.priority, new_priority)
 
+    def test_patch_priority_null_clears_it(self):
+        self.ticket.priority = Priority.HIGH
+        self.ticket.save(update_fields=["priority"])
+
+        response = self.client.patch(
+            self.url, {"priority": None}, content_type="application/json", **self._auth_headers()
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertIsNone(self.ticket.priority)
+
     def test_patch_status_and_priority_together(self):
         response = self.client.patch(
             self.url,

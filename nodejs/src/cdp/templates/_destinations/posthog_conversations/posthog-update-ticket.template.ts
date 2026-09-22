@@ -26,7 +26,9 @@ if (not empty(inputs.status) and inputs.status != '') {
   updates.status := inputs.status
 }
 
-if (not empty(inputs.priority) and inputs.priority != '') {
+if (inputs.priority == 'clear') {
+  updates.priority := null
+} else if (not empty(inputs.priority) and inputs.priority != '') {
   updates.priority := inputs.priority
 }
 
@@ -105,8 +107,10 @@ return response.body
                 { label: 'Low', value: 'low' },
                 { label: 'Medium', value: 'medium' },
                 { label: 'High', value: 'high' },
+                { label: 'Clear priority', value: 'clear' },
             ],
-            description: 'New priority for the ticket. Leave empty to keep current.',
+            description:
+                "New priority for the ticket. Leave empty to keep current, or choose 'Clear priority' to remove it.",
         },
         {
             key: 'sla_amount',

@@ -33,7 +33,7 @@ from products.conversations.backend.services.sla import WEEKDAYS, compute_sla_de
 
 class TicketActionUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=[s.value for s in Status], required=False)
-    priority = serializers.ChoiceField(choices=[p.value for p in Priority], required=False)
+    priority = serializers.ChoiceField(choices=[p.value for p in Priority], required=False, allow_null=True)
     sla_due_at = serializers.DateTimeField(required=False, allow_null=True)
     # `sla_amount`/`sla_unit`/`sla_business_hours` are the raw workflow inputs;
     # the backend computes `sla_due_at` from them so the calculation stays
@@ -362,9 +362,9 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
                 )
             )
 
-    new_priority = serializer.validated_data.get("priority")
     old_priority = ticket.priority
-    if new_priority is not None:
+    if "priority" in serializer.validated_data:
+        new_priority = serializer.validated_data["priority"]
         ticket.priority = new_priority
         update_fields.append("priority")
 
