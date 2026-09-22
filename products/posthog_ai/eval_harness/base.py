@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import os
+import json
 import time
 import uuid
 import asyncio
 import logging
 from collections.abc import Sequence
 from dataclasses import replace
+from datetime import datetime
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -27,12 +29,26 @@ from .scorers import ExitCodeZero, wrap_scorers
 from .trace_events import emit_evaluation_events, emit_trace_events, emit_trace_root
 
 if TYPE_CHECKING:
+    from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+
     from .harness.context import EvalContext
+    from .harness.demo_data import SandboxedDemoData
 
 logger = logging.getLogger(__name__)
 
 
-def _get_last_assistant_text(parsed: ParsedLog) -> str:
+async def prepare_sandbox_case(
+    demo_data: SandboxedDemoData,
+    case: SandboxedEvalCase,
+) -> tuple[CustomPromptSandboxContext, dict[str, Any]]:
+    sandbox_context = await asyncio.to_thread(demo_data.make_context, case.name)
+    if case.interaction_origin:
+        sandbox_context = replace(sandbox_context, interaction_origin=case.interaction_origin)
+    seed = await asyncio.to_thread(case.setup, sandbox_context) if case.setup is not None else {}
+    return sandbox_context, seed
+
+
+def get_last_assistant_text(parsed: ParsedLog) -> str:
     """Extract the last assistant message text from the final generation."""
     for gen in reversed(parsed.generations):
         if not gen.output_content:
@@ -119,6 +135,105 @@ def _log_conversation_spans(hooks: CaseHooks, parsed: ParsedLog) -> None:
                 span.log(metadata={"message": display_content})
 
     # Also log non-AI spans (console, errors)
+    for span_desc in parsed.spans:
+        with hooks.start_span(span_desc.span_name, "function") as span:
+            span.log(metadata={"message": span_desc.content})
+
+
+def _braintrust_message(message: dict[str, Any]) -> list[dict[str, Any]]:
+    role = message.get("role", "user")
+    content = message.get("content")
+    if not isinstance(content, list):
+        return [{"role": role, "content": content}]
+
+    text = "\n".join(
+        str(block.get("text", ""))
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "text" and block.get("text")
+    )
+    tool_calls = [
+        {
+            "id": str(block.get("id", "")),
+            "type": "function",
+            "function": {
+                "name": str(block.get("name", "unknown tool")),
+                "arguments": json.dumps(block.get("input", {}), sort_keys=True),
+            },
+        }
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "tool_use"
+    ]
+    tool_results = [
+        {
+            "role": "tool",
+            "tool_call_id": str(block.get("tool_use_id", "")),
+            "content": str(block.get("content", "")),
+        }
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "tool_result"
+    ]
+
+    messages: list[dict[str, Any]] = []
+    if text or tool_calls:
+        assistant_message: dict[str, Any] = {"role": role, "content": text or None}
+        if tool_calls:
+            assistant_message["tool_calls"] = tool_calls
+        messages.append(assistant_message)
+    messages.extend(tool_results)
+    return messages
+
+
+def _braintrust_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [converted for message in messages for converted in _braintrust_message(message)]
+
+
+def _unix_timestamp(timestamp: str) -> float | None:
+    if not timestamp:
+        return None
+    try:
+        return datetime.fromisoformat(timestamp.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def log_agent_spans(hooks: CaseHooks, parsed: ParsedLog) -> None:
+    tools = {tool.tool_call_id: tool for tool in parsed.tools}
+
+    for index, generation in enumerate(parsed.generations, start=1):
+        metadata = {"model": parsed.model} if parsed.model else None
+        with hooks.start_span(
+            f"model turn {index}",
+            "llm",
+            start_time=_unix_timestamp(generation.start_ts),
+            end_time=_unix_timestamp(generation.end_ts),
+        ) as span:
+            span.log(
+                input=_braintrust_messages(generation.input_messages),
+                output=_braintrust_message({"role": "assistant", "content": generation.output_content})[0],
+                metadata=metadata,
+                metrics=generation.metrics or None,
+            )
+
+        for block in generation.output_content:
+            if not isinstance(block, dict) or block.get("type") != "tool_use":
+                continue
+            tool_call_id = str(block.get("id", ""))
+            tool = tools.get(tool_call_id)
+            tool_metadata: dict[str, Any] = {"tool_call_id": tool_call_id}
+            if tool and tool.is_error:
+                tool_metadata["error"] = True
+            with hooks.start_span(
+                str(block.get("name", "unknown tool")),
+                "tool",
+                start_time=_unix_timestamp(tool.start_ts) if tool else None,
+                end_time=_unix_timestamp(tool.end_ts) if tool else None,
+            ) as span:
+                span.log(
+                    input=tool.input if tool else block.get("input", {}),
+                    output=tool.output if tool else None,
+                    metadata=tool_metadata,
+                )
+
     for span_desc in parsed.spans:
         with hooks.start_span(span_desc.span_name, "function") as span:
             span.log(metadata={"message": span_desc.content})
@@ -360,6 +475,10 @@ class _BaseEvalRun:
 
     async def run(self) -> ExperimentResult:
         eval_cases = self._build_eval_cases()
+        if not eval_cases:
+            if self.case_filter:
+                raise ValueError(f"{self.experiment_name} has no cases matching --eval {self.case_filter!r}")
+            raise ValueError(f"{self.experiment_name} has no cases")
 
         # Register the case total (post-filter, times trials) so the reporter can
         # append a per-experiment progress counter to each case line.
@@ -499,11 +618,15 @@ class _SandboxedEvalRun(_BaseEvalRun):
         # Parse the log once, use for both Braintrust spans and PostHog trace capture
         last_message = ""
         messages: list[dict[str, Any]] = []
+        token_usage: dict[str, int] | None = None
+        cost_usd: float | None = None
         if result.raw_log:
             parsed = parse_log(result.raw_log, initial_prompt=eval_case.prompt)
-            _log_conversation_spans(hooks, parsed)
-            last_message = _get_last_assistant_text(parsed)
+            log_agent_spans(hooks, parsed)
+            last_message = get_last_assistant_text(parsed)
             messages = parsed.messages
+            token_usage = parsed.total_token_usage
+            cost_usd = parsed.total_cost_usd
 
             if self.posthog_client:
                 try:
@@ -523,7 +646,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                         "first_timestamp": parsed.first_timestamp,
                         "last_message": last_message,
                         "artifacts_summary": result.artifacts.model_dump(),
-                        "token_usage": parsed.total_token_usage,
+                        "token_usage": token_usage,
                     }
                 except Exception:
                     logger.exception("Failed to emit trace events for '%s'", eval_case.name)
@@ -537,7 +660,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 prompt=eval_case.prompt,
                 duration=result.artifacts.duration_seconds,
                 last_message=last_message,
-                token_usage=self.case_trace_meta.get(eval_case.name, {}).get("token_usage"),
+                token_usage=token_usage,
             )
         except Exception:
             logger.exception("Failed to write local eval logs for '%s'", eval_case.name)
@@ -554,6 +677,8 @@ class _SandboxedEvalRun(_BaseEvalRun):
             "raw_log": result.raw_log,
             "turn_logs": result.turn_logs,
             "turn_prompts": [eval_case.prompt, *eval_case.followups],
+            "token_usage": token_usage,
+            "cost_usd": cost_usd,
             "seed": seed_result,
             "prompt": eval_case.prompt,
         }

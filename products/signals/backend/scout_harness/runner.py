@@ -27,7 +27,7 @@ from posthog.temporal.oauth import scout_mcp_scopes, scout_scope_posture
 from products.business_knowledge.backend.logic import is_maintained_for_team
 from products.data_catalog.backend.facade.api import approved_metric_names_for_team
 from products.mcp_store.backend.facade.api import get_sandbox_mcp_server_names
-from products.signals.backend.agent_runtime import STEP_SCOUT, resolve_agent_runtime
+from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, resolve_agent_runtime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import canonical_skill_names, sync_canonical_skills
@@ -147,6 +147,7 @@ def run_signals_scout(
     verbose: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
+    agent_runtime: AgentRuntime | None = None,
 ) -> RunResult:
     """Synchronous entrypoint: resolves config, spawns sandbox, persists the run row.
 
@@ -162,6 +163,7 @@ def run_signals_scout(
             verbose=verbose,
             triggered_by=triggered_by,
             run_note=run_note,
+            agent_runtime=agent_runtime,
         )
     )
 
@@ -175,6 +177,7 @@ async def arun_signals_scout(
     verbose: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
+    agent_runtime: AgentRuntime | None = None,
 ) -> RunResult:
     """Async core. Safe to call from inside a running event loop (Temporal activity).
 
@@ -320,34 +323,42 @@ async def arun_signals_scout(
     # for the team, deterministic per scout), then the `scouts-model-selection` payload — a
     # per-team, per-scout model distribution, bucketed per run on `run_id`, so a scout can A/B/n
     # across models against itself across runs. Resolved once here so the whole run is consistent.
-    # Off the event loop — the flag reads do blocking network I/O.
-    scout_model = await database_sync_to_async(resolve_scout_model, thread_sensitive=False)(
-        team, skill.name, str(run_id), configured_model=config.model
-    )
-
-    # The scout-model resolution (config pin, then experiment gate) sits above the
-    # `signals-pipeline-models` runtime pin, the default layer beneath it. When it resolves a model
-    # for this run it wins (the gate's unallocated remainder resolves None and falls through to the
-    # pin), so a fleet-wide pin can't silently swallow a configured model. Either way the whole
-    # runtime/model/effort triple is taken from one source — a Codex runtime never pairs with a
-    # model it can't serve. Model-only pin entries are still ignored for scout: a pin supplies
-    # model+runtime as a pair, and overriding one without the other would mis-route.
-    agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(team_id, STEP_SCOUT)
-    if scout_model.model:
-        runtime_adapter: str | None = scout_model.runtime_adapter
-        model: str | None = scout_model.model
-        reasoning_effort: str | None = scout_model.reasoning_effort
-        service_tier: str | None = scout_model.service_tier
-    elif agent_runtime.runtime_adapter:
-        runtime_adapter = agent_runtime.runtime_adapter
-        model = agent_runtime.model
-        reasoning_effort = agent_runtime.reasoning_effort
-        service_tier = agent_runtime.service_tier
+    # Off the event loop — the flag reads do blocking network I/O. An explicit `agent_runtime`
+    # (the eval harness pinning one model per arm) skips both layers.
+    if agent_runtime is not None:
+        runtime_adapter: str | None = agent_runtime.runtime_adapter
+        model: str | None = agent_runtime.model
+        reasoning_effort: str | None = agent_runtime.reasoning_effort
+        service_tier: str | None = agent_runtime.service_tier
     else:
-        runtime_adapter = None
-        model = None
-        reasoning_effort = None
-        service_tier = None
+        scout_model = await database_sync_to_async(resolve_scout_model, thread_sensitive=False)(
+            team, skill.name, str(run_id), configured_model=config.model
+        )
+        # The scout-model resolution (config pin, then experiment gate) sits above the
+        # `signals-pipeline-models` runtime pin, the default layer beneath it. When it resolves a model
+        # for this run it wins (the gate's unallocated remainder resolves None and falls through to the
+        # pin), so a fleet-wide pin can't silently swallow a configured model. Either way the whole
+        # runtime/model/effort triple is taken from one source — a Codex runtime never pairs with a
+        # model it can't serve. Model-only pin entries are still ignored for scout: a pin supplies
+        # model+runtime as a pair, and overriding one without the other would mis-route.
+        pipeline_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(
+            team_id, STEP_SCOUT
+        )
+        if scout_model.model:
+            runtime_adapter = scout_model.runtime_adapter
+            model = scout_model.model
+            reasoning_effort = scout_model.reasoning_effort
+            service_tier = scout_model.service_tier
+        elif pipeline_runtime.runtime_adapter:
+            runtime_adapter = pipeline_runtime.runtime_adapter
+            model = pipeline_runtime.model
+            reasoning_effort = pipeline_runtime.reasoning_effort
+            service_tier = pipeline_runtime.service_tier
+        else:
+            runtime_adapter = None
+            model = None
+            reasoning_effort = None
+            service_tier = None
     # The OpenAI queue travels with the model it was configured beside, like the rest of the
     # triple: a slice's own tier, or the pipeline pin's when the pin's model runs. It never crosses
     # to a model the operator did not pair it with (some reject the field outright), which is what
