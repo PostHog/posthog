@@ -84,6 +84,12 @@ PERSON_DELETION_UNPUBLISHED_TOMBSTONES_COUNTER = Counter(
 # UUIDs per log line, so a large give-up is split across lines instead of truncated.
 UNPUBLISHED_TOMBSTONES_LOG_CHUNK = 500
 
+PERSON_DELETION_REPUBLISH_TOMBSTONED_LIVE_COUNTER = Counter(
+    "posthog_person_deletion_republish_tombstoned_live_total",
+    "Persons that a republish found live and tombstoned. A republish expects persons tombstoned by an "
+    "earlier attempt, so each one is a person that a lagging read missed or that ingestion revived.",
+)
+
 PERSON_DELETION_DISTINCT_IDS_PER_PERSON = Histogram(
     "posthog_person_deletion_distinct_ids_per_person",
     "Distinct IDs fetched per person by the queued deletion, which shows how wide deleted persons are.",
@@ -246,7 +252,6 @@ def process_queued_person_deletion(
     was_impersonated: bool,
     organization_id: uuid_lib.UUID | None,
     unmatched_distinct_ids: builtins.list[str] | None = None,
-    republish_unresolved: bool = False,
 ) -> PersonProfileDeletionResult:
     """Run every distinct-ID-dependent deletion step for ``person_uuids`` from a background task.
 
@@ -263,9 +268,9 @@ def process_queued_person_deletion(
     when the steps before it succeeded, because it removes the distinct IDs a retry of those
     steps would need.
 
-    ``republish_unresolved`` is for retries under the tombstone setting: a person whose
-    Postgres tombstone landed but whose ClickHouse tombstones did not no longer resolves, so
-    the retry asks the replica for its versions again and publishes them.
+    Under the tombstone setting, a requested person that does not resolve is republished. An
+    earlier attempt, or a delivery that a lost worker left unfinished, can have tombstoned it
+    in Postgres without publishing to ClickHouse, and it no longer resolves.
     """
     from posthog.personhog_client.client import personhog_call
 
@@ -328,7 +333,7 @@ def process_queued_person_deletion(
         deleted_count += _run_batch_and_release(team_id, batch, batch_distinct_ids, failures, options)
 
     resolve_failed = any(f.step is PersonDeletionStep.RESOLVE_PERSONS for f in failures)
-    if republish_unresolved and options.delete_profile and settings.PERSON_DELETE_TOMBSTONE and not resolve_failed:
+    if options.delete_profile and settings.PERSON_DELETE_TOMBSTONE and not resolve_failed:
         # After a failed resolve every uuid looks unresolved, and republishing would tombstone
         # live persons without their recording and training steps.
         resolved = {person.uuid for person in persons}
@@ -590,7 +595,7 @@ def _tombstone_persons_at_exact_versions(
     person_by_uuid = {person.uuid: person for person in persons}
     for batch in _batches_by_distinct_id_count(persons, distinct_ids_for):
         try:
-            tombstones = tombstone_persons_in_postgres(team_id, [person.uuid for person in batch])
+            tombstones = tombstone_persons_in_postgres(team_id, [person.uuid for person in batch]).tombstones
         except Exception as exc:
             _record_step_failure(
                 failures,
@@ -650,18 +655,31 @@ def _republish_tombstones(
 
     The replica reports the versions an already tombstoned person holds and skips a uuid it
     does not know. Publishing the same versions twice is harmless, and the previous attempt
-    already counted and logged these persons.
+    already counted and logged these persons. The call also tombstones a person that is
+    live, which the counter and log below make visible.
     """
     if not person_uuids:
         return
     try:
-        tombstones = tombstone_persons_in_postgres(team_id, person_uuids)
+        result = tombstone_persons_in_postgres(team_id, person_uuids)
     except Exception as exc:
         _record_step_failure(
             failures, step=PersonDeletionStep.TOMBSTONE_POSTGRES, team_id=team_id, exc=exc, person_uuids=person_uuids
         )
         return
-    for tombstone in tombstones:
+    if result.newly_tombstoned:
+        PERSON_DELETION_REPUBLISH_TOMBSTONED_LIVE_COUNTER.inc(result.newly_tombstoned)
+        # The response does not say which persons were live, so every uuid of the call is logged.
+        uuids = [str(u) for u in person_uuids]
+        for start in range(0, len(uuids), UNPUBLISHED_TOMBSTONES_LOG_CHUNK):
+            logger.warning(
+                "person_deletion.republish_tombstoned_live_persons",
+                team_id=team_id,
+                newly_tombstoned=result.newly_tombstoned,
+                person_count=len(uuids),
+                person_uuids=uuids[start : start + UNPUBLISHED_TOMBSTONES_LOG_CHUNK],
+            )
+    for tombstone in result.tombstones:
         try:
             publish_person_tombstone(team_id, tombstone)
         except Exception as exc:

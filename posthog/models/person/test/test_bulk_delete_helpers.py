@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.test import override_settings
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -20,7 +21,7 @@ from posthog.models.person.bulk_delete import (
     republish_tombstones,
     resolve_persons_for_deletion,
 )
-from posthog.models.person.util import DistinctIdForPerson, PersonTombstone
+from posthog.models.person.util import DistinctIdForPerson, PersonTombstone, PersonTombstones
 from posthog.personhog_client.fake_client import get_active_fake
 from posthog.personhog_client.proto import DeletePersonsMode
 from posthog.test.persons import create_person
@@ -235,7 +236,10 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
         persons = [create_person(team=self.team, distinct_ids=[f"d{i}"], properties={}) for i in range(3)]
         with (
             patch("posthog.models.person.bulk_delete.QUEUED_DELETION_DISTINCT_IDS_PER_BATCH", 2),
-            patch("posthog.models.person.bulk_delete.tombstone_persons_in_postgres", return_value=[]) as rpc,
+            patch(
+                "posthog.models.person.bulk_delete.tombstone_persons_in_postgres",
+                return_value=PersonTombstones(tombstones=[], newly_tombstoned=0),
+            ) as rpc,
             patch("posthog.models.person.bulk_delete.publish_person_tombstone"),
         ):
             delete_persons_profile(self.team.pk, persons, actor=self.user)
@@ -587,8 +591,8 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
 
 
 @override_settings(PERSON_DELETE_TOMBSTONE=True)
-class RepublishTombstonesOnRetryTests(BaseTest):
-    def _run(self, person_uuid, *, republish_unresolved):
+class RepublishUnresolvedTombstonesTests(BaseTest):
+    def _run(self, person_uuid):
         return process_queued_person_deletion(
             self.team.pk,
             [str(person_uuid)],
@@ -597,31 +601,40 @@ class RepublishTombstonesOnRetryTests(BaseTest):
             actor=None,
             was_impersonated=False,
             organization_id=None,
-            republish_unresolved=republish_unresolved,
         )
 
-    def test_retry_republishes_tombstones_for_a_person_that_no_longer_resolves(self):
+    def test_republishes_tombstones_for_a_person_that_no_longer_resolves(self):
         gone = uuid4()
         tombstone = PersonTombstone(uuid=gone, version=7, distinct_ids=[DistinctIdForPerson(id="x", version=3)])
         with (
-            patch("posthog.models.person.bulk_delete.tombstone_persons_in_postgres", return_value=[tombstone]) as rpc,
+            patch(
+                "posthog.models.person.bulk_delete.tombstone_persons_in_postgres",
+                return_value=PersonTombstones(tombstones=[tombstone], newly_tombstoned=0),
+            ) as rpc,
             patch("posthog.models.person.bulk_delete.publish_person_tombstone") as publish,
         ):
-            result = self._run(gone, republish_unresolved=True)
+            result = self._run(gone)
 
         assert result.errors == []
         assert result.deleted_count == 0
         rpc.assert_called_once_with(self.team.pk, [gone])
         publish.assert_called_once_with(self.team.pk, tombstone)
 
-    def test_first_attempt_leaves_an_unresolved_person_alone(self):
-        with patch("posthog.models.person.bulk_delete.tombstone_persons_in_postgres") as rpc:
-            result = self._run(uuid4(), republish_unresolved=False)
+    def test_counts_a_live_person_that_the_republish_tombstoned(self):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        before = REGISTRY.get_sample_value("posthog_person_deletion_republish_tombstoned_live_total") or 0.0
+        with (
+            # A lagging read that misses a live person.
+            patch("posthog.models.person.bulk_delete._fetch_persons_by_uuids_via_personhog", return_value=[]),
+            patch("posthog.models.person.bulk_delete.publish_person_tombstone") as publish,
+        ):
+            self._run(p.uuid)
 
-        assert result.errors == []
-        rpc.assert_not_called()
+        after = REGISTRY.get_sample_value("posthog_person_deletion_republish_tombstoned_live_total") or 0.0
+        assert after - before == 1
+        assert publish.call_args.args[1].uuid == p.uuid
 
-    def test_retry_does_not_republish_after_a_failed_resolve(self):
+    def test_does_not_republish_after_a_failed_resolve(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
         with (
             patch(
@@ -630,7 +643,7 @@ class RepublishTombstonesOnRetryTests(BaseTest):
             ),
             patch("posthog.models.person.bulk_delete.tombstone_persons_in_postgres") as rpc,
         ):
-            result = self._run(p.uuid, republish_unresolved=True)
+            result = self._run(p.uuid)
 
         # A live person that merely failed to resolve must not be tombstoned behind its other steps.
         assert [f.step for f in result.failures] == [PersonDeletionStep.RESOLVE_PERSONS]
@@ -655,7 +668,7 @@ class RepublishTombstonesOnRetryTests(BaseTest):
             patch(
                 "posthog.models.person.bulk_delete.tombstone_persons_in_postgres",
                 side_effect=RuntimeError("deadline exceeded") if rpc_fails else None,
-                return_value=tombstones,
+                return_value=PersonTombstones(tombstones=tombstones, newly_tombstoned=0),
             ),
             patch("posthog.models.person.bulk_delete.publish_person_tombstone", side_effect=publish),
         ):

@@ -702,15 +702,24 @@ class PersonTombstone:
     distinct_ids: list[DistinctIdForPerson]
 
 
-def tombstone_persons_in_postgres(team_id: int, person_uuids: list[UUID]) -> list[PersonTombstone]:
+@frozen
+class PersonTombstones:
+    tombstones: list[PersonTombstone]
+    # Persons this call tombstoned. The others were tombstoned before and came back with the
+    # versions they hold, so a count above zero on a republish means a live row was tombstoned.
+    newly_tombstoned: int
+
+
+def tombstone_persons_in_postgres(team_id: int, person_uuids: list[UUID]) -> PersonTombstones:
     """Tombstone Person rows via the personhog RPC and return the versions it wrote.
 
     Batches of 1000, the RPC maximum. An already tombstoned person comes back with the
     versions it holds; one that no longer exists comes back with nothing.
     """
 
-    def personhog_fn() -> list[PersonTombstone]:
+    def personhog_fn() -> PersonTombstones:
         tombstones: list[PersonTombstone] = []
+        newly_tombstoned = 0
         uuids = [str(u) for u in person_uuids]
         for i in range(0, len(uuids), 1000):
             batch = uuids[i : i + 1000]
@@ -719,6 +728,7 @@ def tombstone_persons_in_postgres(team_id: int, person_uuids: list[UUID]) -> lis
                     team_id=team_id, person_uuids=batch, mode=DeletePersonsMode.DELETE_PERSONS_MODE_TOMBSTONE
                 )
             )
+            newly_tombstoned += response.deleted_count
             tombstones.extend(
                 PersonTombstone(
                     uuid=UUID(t.person_uuid),
@@ -729,7 +739,7 @@ def tombstone_persons_in_postgres(team_id: int, person_uuids: list[UUID]) -> lis
                 )
                 for t in response.tombstones
             )
-        return tombstones
+        return PersonTombstones(tombstones=tombstones, newly_tombstoned=newly_tombstoned)
 
     return personhog_call("tombstone_persons", personhog_fn)
 
