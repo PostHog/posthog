@@ -65,8 +65,8 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_REDIS_ERRORS = (
 )
 
 # Redis errors are not ClickHouse errors, so without them a Redis blip ends the run with the
-# checkpoint unmoved and no Celery retry; the 6 hour lookback cap then drops the last_called_at
-# updates for any outage longer than that.
+# checkpoint unmoved and no Celery retry; FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS then
+# drops the last_called_at updates for any outage longer than that cap.
 FEATURE_FLAG_LAST_CALLED_AT_SYNC_TRANSIENT_ERRORS = (
     *CH_TRANSIENT_ERRORS,
     *FEATURE_FLAG_LAST_CALLED_AT_SYNC_REDIS_ERRORS,
@@ -1355,24 +1355,24 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         # Get last sync timestamp from Redis or use lookback
         try:
             last_sync_str = redis_client.get(FEATURE_FLAG_LAST_CALLED_SYNC_KEY)
-            if last_sync_str:
-                parsed_timestamp = datetime.fromisoformat(last_sync_str.decode())
-                # Ensure timezone-aware to avoid comparison issues with timezone.now()
-                last_sync_timestamp = (
-                    parsed_timestamp if parsed_timestamp.tzinfo else timezone.make_aware(parsed_timestamp)
-                )
-            else:
-                last_sync_timestamp = timezone.now() - timedelta(
-                    days=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS
-                )
         except FEATURE_FLAG_LAST_CALLED_AT_SYNC_REDIS_ERRORS:
             # The fallback below caps the window at the max lookback, and the end of the run then
             # advances the checkpoint past everything older than that cap. So a read that failed on
             # the transport has to reach Celery and retry, rather than take the fallback.
             logger.warning("Failed to read last sync timestamp from Redis", exc_info=True)
             raise
-        except Exception as e:
-            logger.warning("Failed to parse last sync timestamp", error=str(e))
+
+        last_sync_timestamp = None
+        if last_sync_str:
+            try:
+                parsed_timestamp = datetime.fromisoformat(last_sync_str.decode())
+                # Ensure timezone-aware to avoid comparison issues with timezone.now()
+                last_sync_timestamp = (
+                    parsed_timestamp if parsed_timestamp.tzinfo else timezone.make_aware(parsed_timestamp)
+                )
+            except ValueError as e:
+                logger.warning("Failed to parse last sync timestamp", error=str(e))
+        if last_sync_timestamp is None:
             last_sync_timestamp = timezone.now() - timedelta(
                 days=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS
             )
