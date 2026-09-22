@@ -11,7 +11,6 @@ from django.utils import timezone
 import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
@@ -86,6 +85,15 @@ class SourceOrSchemaDeletedError(NonReportableError):
     """
 
 
+class V3PipelineLockLostError(NonReportableError):
+    """Another run's lock takeover (see acquire_v3_lock.py) reassigned the v3 pipeline lock
+    away from this run before it reached job creation. The takeover path only steals from a
+    holder whose Temporal workflow already looks terminal, so a resumed run landing here is
+    the mechanism working as designed, not a defect — subclassing ``NonReportableError`` keeps
+    it out of error tracking, matching ``SourceOrSchemaDeletedError`` above.
+    """
+
+
 def _statistics_stale(team_id: int, table: DataWarehouseTable | None) -> bool:
     """Whether column statistics need recomputing: no stats yet, or the freshest column row is older
     than the recompute interval. Mirrors compute_table_statistics' own skip check so we don't spawn a
@@ -138,10 +146,7 @@ def _verify_v3_lock_still_held(team_id: int, schema_id: uuid.UUID) -> None:
     if holder is None:
         return
     if holder != run_id:
-        raise ApplicationError(
-            "v3 pipeline lock lost to another run before job creation",
-            non_retryable=True,
-        )
+        raise V3PipelineLockLostError("v3 pipeline lock lost to another run before job creation")
 
 
 # Per-run state, not configuration. `cdc_deferred_runs` is a notification queue that reaches
