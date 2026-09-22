@@ -2197,24 +2197,24 @@ Note: The OpenAPI 3 spec at https://api.cultureamp.com/spec declares exactly thr
 
 ## Cursor — **thin**
 
-Today (4): `daily_usage`, `members`, `spend`, `usage_events`
+Today (11): `agent_edits`, `ai_code_commits`, `by_user_agent_edits`, `by_user_models`, `by_user_tabs`, `by_user_top_file_extensions`, `daily_usage`, `members`, `spend`, `tabs`, `usage_events`
 
 Diffed against: <https://cursor.com/docs/account/teams/analytics-api.md>
 
-- [ ] `GET /analytics/ai-code/commits` — AI-authored code attribution per commit - Cursor's headline ROI metric, entirely absent today (high)
+- [x] `GET /analytics/ai-code/commits` — AI-authored code attribution per commit - Cursor's headline ROI metric (high)
 - [ ] `GET /analytics/ai-code/changes` — change-level AI vs human code accounting, the finer grain behind the commit metrics (high)
 - [ ] `GET /analytics/team/models` — model usage breakdown; the dimension every cost and adoption question needs alongside spend (high)
 - [ ] `GET /analytics/team/dau` — daily active users, the standard seat-utilization metric (high)
-- [ ] `GET /analytics/team/agent-edits` — agent edit volume - the primary productivity measure for agent usage (high)
-- [ ] `GET /analytics/team/tabs` — tab-completion acceptance metrics, the other half of core usage (high)
-- [ ] `GET /analytics/by-user/{agent-edits,tabs,models,top-file-extensions}` — per-user breakdowns joining directly to the members table we already sync (high)
+- [x] `GET /analytics/team/agent-edits` — agent edit volume - the primary productivity measure for agent usage (high)
+- [x] `GET /analytics/team/tabs` — tab-completion acceptance metrics, the other half of core usage (high)
+- [x] `GET /analytics/by-user/{agent-edits,tabs,models,top-file-extensions}` — per-user breakdowns joining directly to the members table we already sync (high)
 - [ ] `GET /teams/groups and /teams/groups/{id}/members` — billing-group lookup and membership resolving the group IDs on member and spend rows (medium)
 - [ ] `GET /analytics/team/top-file-extensions` — language/file-type breakdown of AI usage (medium)
 - [ ] `GET /analytics/team/bugbot and /analytics/team/bugbot-reviews` — code-review volume and per-review analytics for the Bugbot product (medium)
 - [ ] `GET /analytics/team/conversation-insights` — aggregated conversation topics and outcomes (medium)
 - [ ] `GET /teams/audit-logs` — admin action history for access and compliance reporting (medium)
 
-Note: PostHog covers the four Admin API data endpoints (members, daily-usage-data, spend, filtered-usage-events) but none of the separate Analytics API (25 team- and by-user endpoints), AI Code Tracking API (4), or Cloud Agents API. Admin API endpoints verified at https://cursor.com/docs/account/teams/admin-api.md and AI code tracking at https://cursor.com/docs/account/teams/ai-code-tracking-api.md. Repo blocklists and spend-limit endpoints excluded as configuration. Note most analytics endpoints are POST-with-body query endpoints, not plain GETs.
+Note: PostHog covers the four Admin API data endpoints (members, daily-usage-data, spend, filtered-usage-events) plus the agent-edits and tabs team metrics, their four by-user breakdowns, and the AI Code Tracking commit metrics. The rest of the Analytics API and the Cloud Agents API are still unmapped. Admin API endpoints verified at https://cursor.com/docs/account/teams/admin-api.md and AI code tracking at https://cursor.com/docs/account/teams/ai-code-tracking-api.md. Repo blocklists and spend-limit endpoints excluded as configuration. Correcting the original sweep: every Analytics API and AI Code Tracking endpoint is a plain GET with query params, not a POST with a body, and the Analytics API caps a range at 30 inclusive calendar days.
 
 ## Customerly — gaps
 
