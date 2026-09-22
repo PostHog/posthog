@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from posthog.hogql.escape_sql import escape_trino_identifier
@@ -9,6 +12,9 @@ from products.managed_warehouse.backend.table_binding import get_data_modeling_t
 from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
 from products.managed_warehouse.backend.view_translation_status import get_current_trino_translation
 
+if TYPE_CHECKING:
+    from products.managed_warehouse.backend.trino_execution import TrinoQueryControl
+
 
 def execute_trino_shadow_materialization(
     *,
@@ -16,6 +22,7 @@ def execute_trino_shadow_materialization(
     team_id: int,
     saved_query_id: str | UUID,
     source_query: object,
+    control: TrinoQueryControl | None = None,
 ) -> DuckLakeTableResult:
     compiled = get_current_trino_translation(
         organization_id=organization_id,
@@ -34,9 +41,19 @@ def execute_trino_shadow_materialization(
         schema = f"{escape_trino_identifier(connection.catalog)}.{escape_trino_identifier(schema_name)}"
         table = f"{schema}.{escape_trino_identifier(table_name)}"
         cursor = connection.cursor()
+        if control:
+            control.attach(cursor)
         try:
+            if control:
+                control.checkpoint()
+            cursor.execute("SET SESSION query_max_run_time = '15m'")
+            cursor.fetchall()
+            if control:
+                control.checkpoint()
             cursor.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
             cursor.fetchall()
+            if control:
+                control.checkpoint()
             # The connector replaces the table atomically, so a failed write preserves the previous shadow.
             cursor.execute(f"CREATE OR REPLACE TABLE {table} AS {sql}", parameters or None)
             cursor.fetchall()
@@ -45,5 +62,7 @@ def execute_trino_shadow_materialization(
                 raise RuntimeError("Trino did not report the materialized row count")
         finally:
             cursor.close()
+            if control:
+                control.safe_to_release = True
 
     return DuckLakeTableResult(schema_name=schema_name, table_name=table_name, row_count=row_count)

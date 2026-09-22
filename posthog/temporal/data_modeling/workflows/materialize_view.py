@@ -253,8 +253,14 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     use_trino=use_trino,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=20),
+                heartbeat_timeout=dt.timedelta(minutes=2) if use_trino else None,
+                cancellation_type=(
+                    temporalio.workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED
+                    if use_trino
+                    else temporalio.workflow.ActivityCancellationType.TRY_CANCEL
+                ),
                 retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=3 if managed_warehouse_only else 1,
+                    maximum_attempts=20 if use_trino else (3 if managed_warehouse_only else 1),
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(minutes=5),
                 ),

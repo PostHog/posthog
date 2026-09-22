@@ -12,6 +12,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
 from products.data_modeling.backend.facade.models import (
@@ -30,7 +31,12 @@ from products.managed_warehouse.backend.facade.api import (
     is_data_modeling_shadow_ready,
     is_dev_mode,
 )
-from products.managed_warehouse.backend.facade.contracts import DuckLakeCompiledQuery, DuckLakeS3Secret
+from products.managed_warehouse.backend.facade.contracts import (
+    DuckLakeCompiledQuery,
+    DuckLakeS3Secret,
+    TrinoCapacityUnavailable,
+)
+from products.managed_warehouse.backend.facade.feature_flags import DATA_MODELING_SHADOW_FLAG
 
 from ..metrics import get_node_suspended_metric
 from .utils import (
@@ -42,7 +48,7 @@ from .utils import (
 
 LOGGER = get_logger(__name__)
 
-FEATURE_FLAG = "managed-warehouse-data-modeling-shadow"
+FEATURE_FLAG = DATA_MODELING_SHADOW_FLAG
 
 
 @frozen
@@ -230,10 +236,7 @@ async def _materialize_view_managed_warehouse(
     values: dict[str, object] = {}
     s3_secrets: tuple[DuckLakeS3Secret, ...] = ()
     try:
-        from products.managed_warehouse.backend.facade.client import (
-            execute_ducklake_create_table,
-            execute_trino_shadow_materialization,
-        )
+        from products.managed_warehouse.backend.facade.client import execute_ducklake_create_table, execute_trino_model
 
         if inputs.use_trino:
             table_name = await database_sync_to_async_pool(get_data_modeling_table_name)(team.pk, saved_query.id)
@@ -244,7 +247,7 @@ async def _materialize_view_managed_warehouse(
             table_name=table_name,
         )
         if inputs.use_trino:
-            result = await database_sync_to_async_pool(execute_trino_shadow_materialization)(
+            result = await execute_trino_model(
                 organization_id=str(team.organization_id),
                 team_id=team.pk,
                 saved_query_id=saved_query.id,
@@ -253,7 +256,7 @@ async def _materialize_view_managed_warehouse(
             from products.managed_warehouse.backend.facade.client import request_model_alias_reconciliation
 
             try:
-                await request_model_alias_reconciliation(team.pk)
+                await request_model_alias_reconciliation(team.pk, str(saved_query.id))
             except Exception as error:
                 capture_exception(error)
                 await logger.awarning(
@@ -300,6 +303,8 @@ async def _materialize_view_managed_warehouse(
             engine=job_engine,
         )
         return shadow_result
+    except TrinoCapacityUnavailable:
+        raise
     except Exception as e:
         duration = time.monotonic() - start_time
         capture_exception(e, {"sql": sql, "inputs": inputs})
@@ -338,4 +343,7 @@ async def _materialize_view_managed_warehouse(
 async def materialize_view_managed_warehouse_activity(
     inputs: ManagedWarehouseShadowInputs,
 ) -> ManagedWarehouseShadowResult:
+    if inputs.use_trino:
+        async with Heartbeater():
+            return await _materialize_view_managed_warehouse(inputs)
     return await _materialize_view_managed_warehouse(inputs)

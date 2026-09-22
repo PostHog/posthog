@@ -209,10 +209,27 @@ Do not run the legacy DuckLake model-copy workflow against the same destinations
 Publication uses the DuckLake connector's atomic `CREATE OR REPLACE TABLE` operation, so a failed write preserves the previous table.
 The shadow row count comes from Trino's write result; storage size metrics are unavailable and remain zero.
 
+### Execution limits and cancellation
+
+Trino model builds and alias passes use a dedicated four-thread executor, separate from the general database thread pool.
+Redis admission leases cap their combined concurrency at 16 across workers and two per organization.
+Admission waits up to two minutes; a busy model build retries through Temporal with backoff, without counting capacity contention as a failed or suspended model.
+Trino shadow activities allow up to 20 attempts for infrastructure failures; query failures still produce a failed model result.
+
+Build sessions set `query_max_run_time` to 15 minutes.
+The client also enforces a total execution deadline and sends cancellation through the active Trino cursor when the activity is canceled or its deadline expires.
+Activities heartbeat every second under a two-minute heartbeat timeout, and workflow cancellation waits for activity cleanup.
+Leases expire after 40 minutes to recover from lost workers; a failed cancellation keeps its lease until expiry instead of immediately admitting another query.
+This covers admission and a statement submitted near the client deadline still running to its server deadline.
+Alias passes share the same capacity limits, use a five-minute total deadline, and cap each metadata statement at 30 seconds.
+
 ### Readable model names
 
 After a successful Trino build, the activity starts or signals `managed-warehouse.reconcile-model-aliases` on the DuckLake task queue.
-One workflow per team (`managed-warehouse-model-aliases/<team_id>`) reconciles aliases after build signals and every five minutes, including after a model is renamed or deleted.
+One workflow per team (`managed-warehouse-model-aliases/<team_id>`) coalesces build signals for 30 seconds, then refreshes up to 100 requested models at a time.
+These passes load only the requested models and name conflicts, and fetch columns and ownership comments for their relations.
+Full audits handle renames, deletions, and missed signals, starting at a 30-minute interval and backing off to two hours when unchanged, with 20% jitter.
+Errors retry with backoff; pending model IDs survive retries and continuation.
 It continues as a new run after 100 passes to bound its history.
 Alias failures retry independently and do not fail a completed physical build or block downstream materialization.
 
@@ -229,17 +246,20 @@ Logical names use the saved-query name lowercased for Trino's case-insensitive i
 Dots, spaces, and quotes remain part of one quoted identifier, so a model named `reporting.orders` is queried as `<catalog>.<schema>."reporting.orders"`.
 If a legacy physical table already has its model's logical name, it needs no extra view.
 Names that collide after lowercasing, with another model's physical destination, or with an unmanaged relation are reported instead of overwritten.
+The `model_<32 hexadecimal characters>` namespace is reserved for physical destinations.
 
 Generated view comments record the team, saved-query ID, and a fingerprint of the destination and output columns.
 Reconciliation refreshes views when their destination or columns change and removes only marked views that are no longer desired.
 It leaves physical tables and unmarked relations intact.
-Renames and deletions are eventually reflected by the next successful pass; alias cleanup does not delete backing data.
+Renames and deletions are eventually reflected by the next successful full audit; alias cleanup does not delete backing data.
 The schema must be managed exclusively by this publisher for aliases; do not edit generated views or their ownership comments manually.
 
 The connector and DuckLake catalog must support views, view comments, and `CREATE OR REPLACE VIEW`.
 Unsupported catalogs retain working physical materializations while alias reconciliation reports failures.
 Inspect the workflow's `status` query and `trino_model_aliases_reconciled` worker logs for publication counts and errors (at most 50 collision messages per pass).
-An alias workflow remains running to reconcile future changes; cancel it explicitly when retiring the team's managed warehouse.
+The workflow stops when its team is missing or its shadow flag is disabled.
+An empty team gets one final owned-alias cleanup before the workflow stops.
+A subsequent build starts reconciliation again.
 If dispatch failed or the workflow was stopped, restart reconciliation without rebuilding any models from a Django shell:
 
 ```python

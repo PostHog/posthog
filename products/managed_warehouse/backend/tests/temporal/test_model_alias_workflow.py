@@ -12,6 +12,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.managed_warehouse.backend.model_alias_dispatch import request_model_alias_reconciliation
 from products.managed_warehouse.backend.temporal.model_alias_workflow import (
+    ModelAliasBatch,
     ModelAliasInputs,
     ReconcileModelAliasesWorkflow,
 )
@@ -22,11 +23,12 @@ from products.managed_warehouse.backend.trino_model_aliases import ModelAliasRec
 async def test_dispatch_coalesces_builds_into_one_team_workflow() -> None:
     client = AsyncMock()
     with patch("products.managed_warehouse.backend.model_alias_dispatch.async_connect", return_value=client):
-        await request_model_alias_reconciliation(42)
+        await request_model_alias_reconciliation(42, "12345678-1234-5678-1234-567812345678")
     args = client.start_workflow.call_args
     assert args.args == ("managed-warehouse.reconcile-model-aliases", {"team_id": 42})
     assert args.kwargs["id"] == "managed-warehouse-model-aliases/42"
     assert args.kwargs["start_signal"] == "refresh"
+    assert args.kwargs["start_signal_args"] == ["12345678-1234-5678-1234-567812345678"]
 
 
 @pytest.mark.asyncio
@@ -36,7 +38,7 @@ async def test_refresh_during_failed_pass_is_processed_afterwards() -> None:
     calls = 0
 
     @activity.defn(name="reconcile_trino_model_aliases_activity")
-    async def reconcile(inputs: ModelAliasInputs) -> ModelAliasReconciliation:
+    async def reconcile(inputs: ModelAliasBatch) -> ModelAliasReconciliation:
         nonlocal calls
         attempt = calls
         calls += 1
@@ -44,7 +46,7 @@ async def test_refresh_during_failed_pass_is_processed_afterwards() -> None:
         await releases[attempt].wait()
         if attempt == 0:
             raise ApplicationError("Catalog temporarily unavailable", non_retryable=True)
-        return ModelAliasReconciliation(published=1)
+        return ModelAliasReconciliation(published=1, active=attempt < 2)
 
     async with await WorkflowEnvironment.start_time_skipping() as environment:
         queue = f"model-alias-test-{uuid4()}"
@@ -62,6 +64,7 @@ async def test_refresh_during_failed_pass_is_processed_afterwards() -> None:
                 task_queue=queue,
                 execution_timeout=dt.timedelta(minutes=10),
             )
+            result_task = asyncio.create_task(handle.result())
             try:
                 assert await asyncio.wait_for(entered.get(), timeout=10) == 0
                 await handle.signal(ReconcileModelAliasesWorkflow.refresh)
@@ -73,7 +76,41 @@ async def test_refresh_during_failed_pass_is_processed_afterwards() -> None:
                 releases[1].set()
                 assert await asyncio.wait_for(entered.get(), timeout=10) == 2
                 assert await handle.query(ReconcileModelAliasesWorkflow.status) == ModelAliasReconciliation(published=1)
+                releases[2].set()
+                await asyncio.wait_for(result_task, timeout=10)
             finally:
                 for release in releases:
                     release.set()
-                await handle.cancel()
+                if not result_task.done():
+                    await handle.cancel()
+                    await asyncio.gather(result_task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_batches_large_refresh_and_stops_when_team_becomes_inactive() -> None:
+    batches: list[tuple[str, ...] | None] = []
+
+    @activity.defn(name="reconcile_trino_model_aliases_activity")
+    async def reconcile(inputs: ModelAliasBatch) -> ModelAliasReconciliation:
+        batches.append(inputs.saved_query_ids)
+        return ModelAliasReconciliation(active=len(batches) < 3)
+
+    ids = tuple(str(uuid4()) for _ in range(201))
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        queue = f"model-alias-test-{uuid4()}"
+        async with Worker(
+            environment.client,
+            task_queue=queue,
+            workflows=[ReconcileModelAliasesWorkflow],
+            activities=[reconcile],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await environment.client.execute_workflow(
+                ReconcileModelAliasesWorkflow.run,
+                ModelAliasInputs(team_id=42, pending_ids=ids),
+                id=f"model-alias-{uuid4()}",
+                task_queue=queue,
+                execution_timeout=dt.timedelta(minutes=10),
+            )
+    assert [len(batch or ()) for batch in batches] == [100, 100, 1]
+    assert sorted(item for batch in batches for item in batch or ()) == sorted(ids)

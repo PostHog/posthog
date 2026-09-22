@@ -61,6 +61,7 @@ __all__ = [
     "execute_ducklake_create_table",
     "execute_ducklake_query",
     "execute_trino_shadow_materialization",
+    "execute_trino_model",
     "make_duckgres_conninfo",
     "mint_service_credential",
     "prepare_hogql_to_trino_compiler",
@@ -222,7 +223,25 @@ def execute_ducklake_create_table(
     )
 
 
-async def request_model_alias_reconciliation(team_id: int) -> None:
+async def request_model_alias_reconciliation(team_id: int, saved_query_id: str | None = None) -> None:
     from products.managed_warehouse.backend.model_alias_dispatch import request_model_alias_reconciliation as request
 
-    await request(team_id)
+    await request(team_id, saved_query_id)
+
+
+async def execute_trino_model(
+    *, organization_id: str, team_id: int, saved_query_id: str | UUID, source_query: object
+) -> DuckLakeTableResult:
+    from products.managed_warehouse.backend.trino_execution import run_trino_model
+    from products.managed_warehouse.backend.trino_materialization import execute_trino_shadow_materialization
+
+    return await run_trino_model(
+        organization_id,
+        lambda control: execute_trino_shadow_materialization(
+            organization_id=organization_id,
+            team_id=team_id,
+            saved_query_id=saved_query_id,
+            source_query=source_query,
+            control=control,
+        ),
+    )

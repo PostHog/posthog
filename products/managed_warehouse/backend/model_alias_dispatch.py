@@ -5,7 +5,7 @@ from temporalio.common import WorkflowIDConflictPolicy
 from posthog.temporal.common.client import async_connect
 
 
-async def request_model_alias_reconciliation(team_id: int) -> None:
+async def request_model_alias_reconciliation(team_id: int, saved_query_id: str | None = None) -> None:
     temporal = await async_connect()
     await temporal.start_workflow(
         "managed-warehouse.reconcile-model-aliases",
@@ -14,4 +14,5 @@ async def request_model_alias_reconciliation(team_id: int) -> None:
         task_queue=settings.DUCKLAKE_TASK_QUEUE,
         id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
         start_signal="refresh",
+        start_signal_args=[saved_query_id],
     )

@@ -118,6 +118,12 @@ def test_legacy_physical_name_already_serves_as_logical_name() -> None:
 
 
 class TestModelAliasScoping(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(
+            patch("products.managed_warehouse.backend.trino_model_aliases.is_dev_mode", return_value=False)
+        )
+
     def test_reconciles_only_live_materialized_models_for_the_requested_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization)
         DataWarehouseSavedQuery.objects.create(
@@ -135,7 +141,56 @@ class TestModelAliasScoping(BaseTest):
         with (
             patch("products.managed_warehouse.backend.trino_model_aliases.connect_managed_warehouse_trino") as connect,
             patch.object(ModelAliasPublisher, "reconcile") as publish,
+            patch("posthog.ph_client.feature_enabled_or_false", return_value=True),
         ):
             reconcile_trino_model_aliases(self.team.pk, lambda: None)
         connect.assert_called_once_with(str(self.organization.id))
-        publish.assert_called_once_with([alias("reporting.orders")])
+        publish.assert_called_once_with([alias("reporting.orders")], None)
+
+    def test_disabled_team_stops_before_connecting(self) -> None:
+        with (
+            patch("posthog.ph_client.feature_enabled_or_false", return_value=False),
+            patch("products.managed_warehouse.backend.trino_model_aliases.connect_managed_warehouse_trino") as connect,
+        ):
+            assert reconcile_trino_model_aliases(self.team.pk, lambda: None) == ModelAliasReconciliation(active=False)
+        connect.assert_not_called()
+
+    def test_empty_team_cleans_up_owned_aliases_then_stops(self) -> None:
+        with (
+            patch("posthog.ph_client.feature_enabled_or_false", return_value=True),
+            patch("products.managed_warehouse.backend.trino_model_aliases.connect_managed_warehouse_trino") as connect,
+        ):
+            cursor = connect.return_value.__enter__.return_value.cursor.return_value
+            cursor.fetchall.side_effect = [
+                [],
+                [("old_alias", "VIEW")],
+                [("old_alias", f"posthog:model-alias:{self.team.pk}:old")],
+                [],
+                [],
+            ]
+            assert reconcile_trino_model_aliases(self.team.pk, lambda: None) == ModelAliasReconciliation(
+                removed=1, active=False
+            )
+            assert cursor.execute.call_args_list[-1].args[0].endswith('."old_alias"')
+            assert cursor.execute.call_args_list[-1].args[0].startswith("DROP VIEW IF EXISTS ")
+
+
+@pytest.mark.parametrize("exists", [False, True])
+def test_targeted_refresh_reads_only_requested_metadata_and_leaves_other_aliases(exists: bool) -> None:
+    cursor = MagicMock()
+    cursor.fetchall.side_effect = [
+        [(TABLE, "BASE TABLE"), *(([("daily_revenue", "VIEW")]) if exists else [])],
+        *([[("daily_revenue", published_comment())]] if exists else []),
+        [("amount", "bigint", "", "")],
+        [],
+    ]
+    result = ModelAliasPublisher(cursor, "catalog", 42, lambda: None).reconcile(
+        [alias(), ModelAlias(saved_query_id=OTHER_ID, name="unrelated", table_name="other_table")], (str(MODEL_ID),)
+    )
+    statements = [call.args[0] for call in cursor.execute.call_args_list]
+    assert cursor.execute.call_args_list[0].args[1] == ["posthog_data_modeling_team_42", "daily_revenue", TABLE]
+    assert not any("information_schema.columns" in sql or "DROP VIEW" in sql for sql in statements)
+    assert f'SHOW COLUMNS FROM {SCHEMA}."{TABLE}"' in statements
+    assert (
+        result == ModelAliasReconciliation(unchanged=1) if exists else result == ModelAliasReconciliation(published=1)
+    )
