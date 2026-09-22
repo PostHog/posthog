@@ -159,35 +159,3 @@ def test_diff_touches_backend_is_undetermined_when_git_fails(monkeypatch: pytest
 
     monkeypatch.setattr(coverage_report.subprocess, "run", fake_run)
     assert coverage_report.diff_touches_backend("origin/master") is None
-
-
-@pytest.mark.parametrize(
-    "environment,expected",
-    [
-        (
-            {"GITHUB_RUN_ID": "123"},
-            "https://github.com/PostHog/posthog/actions/runs/123) (`gh run download 123 -n patch-coverage`)",
-        ),
-        (
-            {"DEPOT_JOB_URL": "https://depot.dev/orgs/org/workflows/workflow?job=job", "PR_NUMBER": "102277"},
-            'depot ci artifacts list "$(depot ci workflow list --repo PostHog/posthog --pr 102277 '
-            "--name 'Backend CI on Depot' -n 1 -o json "
-            "| jq -r '.[0].run_id')\" -o json",
-        ),
-    ],
-    ids=["github actions", "depot ci"],
-)
-def test_build_agent_hint_links_to_the_engine_artifact(
-    monkeypatch: pytest.MonkeyPatch, environment: dict[str, str], expected: str
-) -> None:
-    monkeypatch.setenv("GITHUB_SERVER_URL", "https://github.com")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "PostHog/posthog")
-    monkeypatch.delenv("GITHUB_RUN_ID", raising=False)
-    monkeypatch.delenv("DEPOT_JOB_URL", raising=False)
-    monkeypatch.delenv("PR_NUMBER", raising=False)
-    for name, value in environment.items():
-        monkeypatch.setenv(name, value)
-
-    hint = coverage_report.build_agent_hint()
-
-    assert expected in hint

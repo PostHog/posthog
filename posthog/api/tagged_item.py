@@ -274,7 +274,7 @@ class BulkUpdateTagsUUIDRequestSerializer(BulkUpdateTagsRequestSerializer):
 
 
 class BulkUpdateTagsUUIDItemSerializer(serializers.Serializer):
-    id = serializers.UUIDField(help_text="UUID of the object whose tags this request updated.")
+    id = serializers.UUIDField(help_text="UUID of the object whose tags this probe updated.")
     tags = serializers.ListField(
         child=serializers.CharField(),
         help_text="The object's full tag list after the update.",

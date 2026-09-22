@@ -15,7 +15,6 @@ from slack_sdk.errors import SlackApiError
 from posthog.email import EmailMessage, raise_if_delivery_rejected
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.markdown_safety import strip_external_links_markdown
-from posthog.helpers.slack_subscription_explore import build_explore_hint
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async
@@ -38,6 +37,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     compute_report_window,
 )
 from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
+from products.slack_app.backend.facade.api import slack_followup_invite
 
 from ee.tasks.subscriptions.slack_subscriptions import (
     UTM_TAGS_BASE,
@@ -439,7 +439,7 @@ def _build_ai_slack_message(
         )
     # AI consent is enforced before report generation, so this renderer only applies the delivery option.
     if subscription.includes_delivery_part("include_posthog_hint"):
-        if explore_hint := build_explore_hint(integration, utm_tags=utm_tags, ai_enabled=True):
+        if explore_hint := slack_followup_invite(integration, utm_tags=utm_tags, ai_enabled=True):
             footer_blocks.append(explore_hint)
     if footer_blocks:
         blocks.append({"type": "divider"})

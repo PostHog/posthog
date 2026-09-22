@@ -438,12 +438,18 @@ jobs:
                           exit 1
                         fi
 
-                  - name: Run bin script tests
+                  - name: Run dependency detection script tests
                     shell: bash
                     run: |
                         [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
-                        pytest bin/test/test_find_python_dependencies.py bin/test/test_ci_wait_for_docker.py \
-                          -v --junitxml=junit-dependency-detection.xml
+                        pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
+
+                  - name: Run granian shared socket tests
+                    shell: bash
+                    # The bin_scripts filter includes uv.lock, so every granian upgrade runs this.
+                    run: |
+                        [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
+                        pytest bin/test/test_granian_shared_socket.py -v --junitxml=junit-granian-shared-socket.xml
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -466,6 +472,14 @@ jobs:
                   name: junit-results-dependency-detection
                   if-no-files-found: ignore
                   path: junit-dependency-detection.xml
+
+            - name: Upload test results for granian shared socket
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-granian-shared-socket
+                  if-no-files-found: ignore
+                  path: junit-granian-shared-socket.xml
 
     # Collate job - single required status check for branch protection.
     # The code-quality job skips when no Python changes, but this job always

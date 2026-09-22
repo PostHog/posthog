@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.models.oom_event import ExternalDataSche
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     NON_RETRYABLE_ERROR_RETRY_LIMIT,
+    UNREADABLE_JOB_INPUTS_MESSAGE,
     _get_redis,
     handle_corrupted_delta_log,
     handle_non_retryable_error,
@@ -149,9 +150,6 @@ class TestPersistPrimaryKeys:
 class TestTrimSourceJobInputs:
     @parameterized.expand(
         [
-            # A non-empty string decoded out of the EncryptedJSONField used to reach `.items()` and
-            # raise AttributeError — it must be skipped, not crash the whole import activity.
-            ("bare_string_is_skipped", "not-a-dict"),
             ("list_is_skipped", ["a", "b"]),
             ("none_is_skipped", None),
             ("empty_dict_is_skipped", {}),
@@ -163,6 +161,52 @@ class TestTrimSourceJobInputs:
         with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool") as pool:
             await trim_source_job_inputs(source)
         pool.assert_not_called()
+
+    @parameterized.expand(
+        [
+            # A config stored as a JSON string decodes back to that string on every read, so it used
+            # to reach `.items()` and raise AttributeError. It must decode to the mapping, and the
+            # row must be rewritten as a mapping even when no value needs trimming, so the next run
+            # reads a mapping.
+            (
+                "padded_value_is_trimmed",
+                '{"host": " db.example.com ", "port": "5432"}',
+                {"host": "db.example.com", "port": "5432"},
+            ),
+            (
+                "unpadded_values_are_still_normalized",
+                '{"host": "db.example.com", "port": "5432"}',
+                {"host": "db.example.com", "port": "5432"},
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_json_string_job_inputs_is_decoded_and_saved(self, _name: str, job_inputs, expected) -> None:
+        source = MagicMock(job_inputs=job_inputs, save=MagicMock())
+        saved = AsyncMock()
+        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", return_value=saved):
+            await trim_source_job_inputs(source)
+        assert source.job_inputs == expected
+        saved.assert_awaited_once()
+
+    @parameterized.expand(
+        [
+            # Nothing recovers a mapping from these, and every run fails the same way, so the sync
+            # gives up with an error the customer can act on instead of an AttributeError.
+            ("not_json", "not-a-dict"),
+            ("json_scalar", '"db.example.com"'),
+            ("json_list", "[1, 2]"),
+            ("blank", ""),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_unreadable_string_job_inputs_fails_non_retryably(self, _name: str, job_inputs) -> None:
+        source = MagicMock(job_inputs=job_inputs, save=MagicMock())
+        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool") as pool:
+            with pytest.raises(NonRetryableException) as caught:
+                await trim_source_job_inputs(source)
+        pool.assert_not_called()
+        assert str(caught.value.cause) == UNREADABLE_JOB_INPUTS_MESSAGE
 
     @pytest.mark.asyncio
     async def test_dict_job_inputs_is_trimmed_and_saved(self) -> None:

@@ -14,9 +14,11 @@ import { useWorkspace } from "@posthog/ui/features/workspace/useWorkspace";
 export function TaskTabIcon({
   task,
   size = 14,
+  showPrState = true,
 }: {
   task: Task | undefined;
   size?: number;
+  showPrState?: boolean;
 }) {
   const taskData = useChannelTaskData(task);
   const workspace = useWorkspace(task?.id);
@@ -44,8 +46,8 @@ export function TaskTabIcon({
       runMode={taskData.runMode}
       originProduct={taskData.originProduct}
       slackThreadUrl={taskData.slackThreadUrl}
-      prState={prState}
-      hasDiff={hasDiff}
+      prState={showPrState ? prState : null}
+      hasDiff={showPrState ? hasDiff : false}
       size={size}
     />
   );

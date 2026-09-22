@@ -19,11 +19,11 @@
 #   local action a depot workflow uses needs a mirror even when it is identical to
 #   canonical: Depot resolves ./.github/actions/<x> from .depot/actions/<x>, so a missing
 #   mirror fails the step at setup with "action manifest not found".
-# - permissions: read-only in every job, so the ambient token never writes. Each ported CI
-#   report poster mints a posthog-tests token scoped to pull-requests:write (see
-#   check-migrations, backend-coverage-report and .depot/actions/commit-snapshots).
-# - backend-coverage-report links to its Depot job and gives Depot CLI artifact instructions.
-#   It sets up Node from .nvmrc, which canonical takes from the GitHub-hosted image.
+# - permissions: read-only in every job, so the ambient token never writes. Canonical grants
+#   handle-snapshots' and backend-coverage-report's github.token pull-requests:write for their
+#   CI report sections; here those sections post with a posthog-tests token scoped to pull-requests:write (see the header of
+#   .depot/actions/commit-snapshots). Migration reports cross an artifact boundary into the
+#   base-controlled ci-backend-report.yml workflow before any write token is minted.
 # - Trunk uploads and quarantine verdicts match canonical only when side effects
 #   are enabled. Disabled test steps retain their direct failure verdict.
 # - dynamic-ci-filter: canonical asks Trunk which jobs a diff needs and records the verdict
@@ -33,47 +33,23 @@
 # - Artifact uploads, run-scoped sharding plans, and the failing-test rollup
 #   require side effects, including duration writes. Depot stores these separately
 #   from GitHub Actions.
-# - CI telemetry (test-selection-verdict, calculate-running-time, capture-test-selection,
-#   report-test-timings) is tagged with its engine: events carry `ci_engine: depot` and
-#   spans carry the `ci.engine: depot` resource attribute. GitHub Actions sets neither.
-#   GITHUB_RUN_ID here is a number Depot issues, and the GitHub API has no run with it, so:
-#   - calculate-running-time sends posthog-ci-running-time and its -job events through
-#     .github/scripts/capture_depot_running_time.py instead of posthog-github-action. The
-#     action reads the run from the Actions API, so it fails here before it captures. The
-#     script reads the check runs Depot CI posts, links the Depot workflow as `url`, takes
-#     the gate conclusion from `needs`, and sends no per-job `runner` name. It reads with
-#     the ambient token (checks: read), so canonical's telemetry App token mint has no
-#     counterpart. The job also waits on the hand-off, because its `!cancelled()` would
-#     otherwise start it when GitHub Actions kept the event and skipped every dependency.
-#   - report-test-timings sets CI_ENGINE, which also points ci.run_url at DEPOT_JOB_URL. It
-#     skips the emit when the trusted base reporter predates CI_ENGINE.
-#   - capture-test-selection adds ci_engine to turbo-discover's telemetry before it captures,
-#     and sends nothing when that fails.
-#   - test-selection-verdict uploads its artifact to Depot's artifact store.
 # - Hourly scheduled master run: canonical no longer runs the test matrices on master push
 #   (the merge queue's trunk-merge/** run gates every commit) and runs them from an hourly
 #   `schedule` trigger instead — the shape this shadow always had (its `!= 'push'` gates on
 #   turbo-discover / get_clickhouse_versions). A sampling trial must not run on a timer, so
 #   the schedule trigger and canonical's per-commit-vs-scheduled splits (the `!= 'schedule'`
-#   gates on check-migrations / check-openapi-types / repo-checks, and the paths-filter
-#   schedule skip) are depot-exempt.
+#   gates on check-migrations / check-openapi-types / repo-checks, report-test-timings' push
+#   exclusion, and the paths-filter schedule skip) are depot-exempt.
 # - mirror-schema-cache: canonical's master run copies the migrated schema dump out of the
 #   migrated-schema artifact into GitHub Actions Cache, so fork PRs (which run without
 #   secrets and cannot authenticate to Depot Cache) prime instead of migrating from scratch.
 #   The shadow routes cache writes to Depot Cache, so it must not fill the GitHub
 #   cache. This job and the mig_schema_key output that feeds it remain depot-exempt.
-# - OpenAPI types: an extra step fails the job when ghcommit-action reports no commit-hash. It is
-#   a Docker container action, and no Depot run has proven its workspace mount.
-# - Deterministic-failure self-cancel: the cancel jobs call `depot ci cancel --workflow`, not
-#   `gh run cancel`, with an organization API token from the DEPOT_CI_CANCEL_TOKEN Depot
-#   secret, because the `depot ci` API rejects the DEPOT_TOKEN that Depot injects. They look
-#   the workflow up by pull request and head SHA, so they also cancel any other running copy
-#   for that commit, which fails the same way. Without the secret they only post the notice.
-#   Depot check runs carry no annotations, so canonical's `Django Tests Pass` reads the cancel
-#   jobs' check runs to name the root cause. The gate's hand-off `&&` is safe only while its
-#   status remains optional.
+# - Deterministic-failure self-cancel: `depot ci cancel` with DEPOT_CI_CANCEL_TOKEN replaces
+#   `gh run cancel` with github.token, which only reaches GitHub Actions runs.
 # - Workflow-name expressions remain literal, so the role cannot switch names through a
-#   variable; the cutover renames the workflow in a plain edit.
+#   variable; the cutover renames the workflow in a plain edit. The gate's hand-off `&&`
+#   is safe only while its status remains optional.
 # - events_json variants: gated on the test-new-events-schema label only; canonical also
 #   doubles the matrices on workflow_dispatch, but shadow dispatches stay legacy-only so
 #   trial runs do the same work as handed-off PR runs
@@ -90,23 +66,15 @@
 # - GitHub App tokens: the mint steps' vars.* / secrets.* resolve from Depot's store, not
 #   GitHub's. A name missing there makes the setup-action mints (continue-on-error) fall
 #   back to the ambient GITHUB_TOKEN, the Depot Code Access installation token that every
-#   Depot CI job across repos shares, and fails the paths-filter mint outright. Mints whose
-#   only consumer is a stripped side effect are stripped with it; none remain.
-#   The migration-risk check run is published here because stamphog waits for it on every
-#   pull request. It and the OpenAPI auto-commit mint the posthog-tests App token.
-# - CI report sections from check-migrations (Django migration SQL, migration risk,
-#   ClickHouse migration SQL) post with a posthog-tests token scoped to pull-requests:write,
-#   so a report comment they create is authored by tests-posthog[bot], not
-#   github-actions[bot]. They post only when the PR head's
-#   frontend/bin/ci-report/update-ci-report.mjs adopts that login, because an older writer
-#   would add a new report comment on every write. With no token, the SQL preview step is
-#   skipped and the risk analysis still runs. The job sets up Node from .nvmrc, which
-#   canonical takes from the GitHub-hosted image.
+#   Depot CI job across repos shares, and fails the paths-filter mint outright. The trusted migration reporter publishes the migration-risk
+#   check because stamphog waits for it on every pull request.
+# - check-migrations uploads inert Django and ClickHouse migration report data. The
+#   pull_request_target workflow in ci-backend-report.yml validates that data and posts it
+#   with base-revision scripts, so PR-controlled code never receives a write token.
 # - Workflow-command annotations (::error, ::warning) stay in the Depot job log. Depot CI
-#   does not attach them to the job's GitHub check run (as of 2026-09-18, the Repo checks
-#   check run 105649963153 has no annotations although its job logged a ::warning). So the
-#   file annotations from `hogli lint:migration-deletions` have no GitHub counterpart here;
-#   the failing Repo checks run carries the verdict.
+#   does not attach them to the job's GitHub check run. The file annotations from
+#   `hogli lint:migration-deletions` therefore have no GitHub counterpart here; the failing
+#   Repo checks run carries the verdict.
 # - `depot ci run` fires with event_name `api`; the hand-off wait treats it like
 #   workflow_dispatch: it runs only when GitHub Actions already handed the commit off.
 #   Depot caps an inline workflow at 64 KiB, which this file exceeds, so
@@ -131,8 +99,8 @@
 #   the node that ships with the GitHub-hosted image, and fails with a rebase hint when the PR
 #   head predates .depot/actions/commit-snapshots
 # - Test durations restored from Depot Cache (posthog-test-durations- prefix), refreshed by
-#   the canonical .github timing workflow on a Depot runner, so shard counts match GitHub Actions.
-#   The timing workflow's artifact is the fallback.
+#   .depot/workflows/ci-backend-update-test-timing.yml, so shard counts match GitHub Actions.
+#   Committed .test_durations is the fallback.
 # - No push trigger: canonical primes the shared schema cache on master, and Depot Cache
 #   serves both engines. The `github.event_name != 'push'` guards stay to mirror canonical.
 #   Trunk merge-queue PRs are excluded because they would repeat a source PR's trial run.
@@ -141,8 +109,8 @@
 
 # This workflow runs all of our backend django tests.
 #
-# Shards derive from .test_durations (Amdahl), restored from Depot Cache (else the canonical
-# timing artifact); .github/workflows/ci-backend-update-test-timing.yml keeps both fresh.
+# Shards derive from .test_durations (Amdahl), restored from Depot Cache (else committed);
+# .depot/workflows/ci-backend-update-test-timing.yml keeps that cache fresh.
 name: Backend CI on Depot
 # Depot CI copy of canonical Backend CI. Branch protection requires only canonical's
 # `Django Tests Pass`, which relays this workflow's gate when the event ran here. Each event runs on
@@ -201,11 +169,9 @@ env:
     TEST: 1
     # Depot CI runners expose OTEL_SERVICE_NAME=ci-worker ambient; GitHub Actions test steps do not.
     # Left set, it leaks into settings.OTEL_SERVICE_NAME (personhog metric client_name label) and
-    # diverges from test assertions. Blank it to match the GHA environment. (GITHUB_TOKEN is also
-    # injected ambient and leaks into plugin download auth headers. A workflow-level
-    # `GITHUB_TOKEN: ''` did not clear it, so it is unset inside the test run scripts instead,
-    # and no step relies on an empty value clearing it. A non-empty step-level value does
-    # replace it, which the App-token steps below rely on.)
+    # diverges from test assertions. Blank it to match the GHA environment. Depot also injects
+    # GITHUB_TOKEN, which test scripts unset because workflow-level replacement is unreliable.
+    # Authenticated steps set an explicit step-level token.
     OTEL_SERVICE_NAME: ''
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
     CLICKHOUSE_COMPAT_PYTEST_TARGETS: 'posthog/clickhouse ee/clickhouse'
@@ -388,6 +354,8 @@ jobs:
                         - 'common/ingestion/**'
                         - 'common/migration_utils/**'
                         - 'common/plugin_transpiler/**'
+                        # The personhog gRPC stubs that posthog/personhog_client imports
+                        - 'packages/personhog-proto/**'
                         - 'posthog/**/*'
                         - 'products/**/backend/**/*'
                         # Python outside backend/ — products like logs and
@@ -494,6 +462,8 @@ jobs:
                         - 'common/ingestion/**'
                         - 'common/migration_utils/**'
                         - 'common/plugin_transpiler/**'
+                        # The personhog gRPC stubs that posthog/personhog_client imports
+                        - 'packages/personhog-proto/**'
                         - 'posthog/**/*'
                         - bin/build-schema-latest-versions.py
                         - bin/build-taxonomy-json.py
@@ -1537,6 +1507,9 @@ jobs:
                   enable-cache: false
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+            # Block deleting historical migration files (see safe-django-migrations.md).
+            # Two steps, so a failed PR-files read fails the job instead of handing the
+            # check an empty list. The read uses the ambient token, which only reads here.
             # Above the boundary: a gh-api flake here is retryable setup, not a
             # run-cancelling deterministic failure. The classifier runs below.
             - name: Fetch deleted migration paths
@@ -1553,7 +1526,6 @@ jobs:
             - name: Mark setup complete
               id: setup-complete
               run: echo "Setup complete — any failure below is a deterministic check failure"
-            # Block deleting historical migration files (see safe-django-migrations.md).
             - name: Check deleted migrations
               if: steps.fetch-deleted-migrations.outcome == 'success'
               run: ./bin/hogli lint:migration-deletions < "$RUNNER_TEMP/deleted-migration-paths.txt"
@@ -1608,7 +1580,6 @@ jobs:
               if: failure() && steps.setup-complete.outcome == 'success'
               run: echo "deterministic_failure=true" >> "$GITHUB_OUTPUT"
 
-    # Canonical's `Django Tests Pass` reads this job's check run by name, so keep the name in sync.
     cancel-backend-on-repo-check-failure:
         needs: [repo-checks]
         if: >
@@ -1622,8 +1593,7 @@ jobs:
         name: Cancel Backend CI after repo check failure
         runs-on: depot-ubuntu-24.04
         steps:
-            - name: Set up Depot CLI
-              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
             - name: Cancel run
               env:
                   DEPOT_TOKEN: ${{ secrets.DEPOT_CI_CANCEL_TOKEN }}
@@ -1631,15 +1601,10 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
-                  set -euo pipefail
-                  echo "::notice title=Repo checks failed deterministically::A retry cannot fix this failure; push a fix to start a new run."
-                  [ -n "$DEPOT_TOKEN" ] || { echo "DEPOT_CI_CANCEL_TOKEN is not set, so the remaining Backend CI jobs keep running."; exit 0; }
-                  depot ci workflow list --repo "$REPO" --pr "$PR_NUMBER" --sha "$HEAD_SHA" --status running -o json \
-                      | jq -r '.[] | select(.workflow_path == "ci-backend.yml") | "\(.run_id) \(.workflow_id)"' > "$RUNNER_TEMP/workflows"
-                  [ -s "$RUNNER_TEMP/workflows" ] || echo "::warning::No running Backend CI workflow on Depot for $HEAD_SHA"
-                  while read -r run workflow; do
-                      depot ci cancel "$run" --workflow "$workflow"
-                  done < "$RUNNER_TEMP/workflows"
+                  echo "::notice title=Repo checks failed deterministically::Canceling remaining Backend CI jobs. A retry cannot fix this failure; push a fix to start a new run."
+                  depot ci workflow list --repo "$REPO" --pr "$PR_NUMBER" --status running -o json \
+                      | jq -r --arg sha "$HEAD_SHA" '.[] | select(.workflow_path == "ci-backend.yml" and .head_sha == $sha) | "\(.run_id) \(.workflow_id)"' \
+                      | while read -r run workflow; do depot ci cancel "$run" --workflow "$workflow"; done
 
     validate-product-yamls:
         needs: [changes]
@@ -1864,49 +1829,18 @@ jobs:
             - name: Install python dependencies for this PR
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-            - name: Check the CI report writer on this checkout
-              # The report writer comes from the PR checkout. One that predates tests-posthog[bot]
-              # authorship adopts only github-actions[bot] comments, so every write as the app
-              # would add a new report comment.
-              id: ci-report-writer
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-              run: |
-                  grep -qsF 'tests-posthog[bot]' frontend/bin/ci-report/update-ci-report.mjs || { echo "Skipping the migration CI report sections: update-ci-report.mjs predates tests-posthog[bot] authorship."; exit 0; }
-                  echo "adopts=true" >> "$GITHUB_OUTPUT"
-            - name: Get app token for CI report
-              # continue-on-error: an empty token skips the CI report sections, not the validation.
-              if: steps.ci-report-writer.outputs.adopts == 'true'
-              id: ci-report-app-token
-              continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-                  permission-pull-requests: write
-            - name: Set up Node.js
-              if: steps.ci-report-app-token.outputs.token != ''
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  token: ${{ steps.ci-report-app-token.outputs.token }}
-
-            - name: Check migrations and post SQL to CI report
-              # Runs only with the minted token. The step only builds and posts the SQL preview.
-              if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true' && steps.ci-report-app-token.outputs.token != ''
+            - name: Render Django migration SQL report
+              if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
               env:
-                  GITHUB_TOKEN: ${{ steps.ci-report-app-token.outputs.token }}
                   CHANGED_FILES: ${{ needs.changes.outputs.migrations_files }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
-                  post_migration_section() {
-                    node .github/scripts/post-django-migration-section.mjs "$@"
-                  }
+                  mkdir -p migration-report
+                  printf '%s\n' '{"version":1,"migrations":[]}' > migration-report/django-migration-sql.json
 
                   # If no migration files changed, exit
                   if [ -z "$CHANGED_FILES" ]; then
                     echo "No migration files changed"
-                    echo "No new Django migrations need SQL review." > /tmp/django-migration-sql.md
-                    post_migration_section sql clear ok "no new migrations" /tmp/django-migration-sql.md
                     exit 0
                   fi
 
@@ -1917,13 +1851,12 @@ jobs:
                     git fetch --no-tags --prune --depth=1 origin "$BASE_SHA" || echo "::warning::Could not fetch base SHA $BASE_SHA — all changed migrations will be shown as new"
                   fi
 
-                  # Initialize comment body for SQL changes
-                  COMMENT_BODY="We've detected new migrations on this PR. Review the SQL output for each migration:\n\n"
                   HAS_NEW_MIGRATIONS=false
-                  MIGRATION_COUNT=0
+                  mapfile -t migration_files < <(tr ' ' '\n' <<< "$CHANGED_FILES")
 
                   # Process each changed migration file (excluding Rust migrations)
-                  for file in $CHANGED_FILES; do
+                  for file in "${migration_files[@]}"; do
+                    [ -n "$file" ] || continue
                     # Skip Rust migrations as they're handled separately by sqlx
                     if [[ $file =~ rust/persons_migrations ]]; then
                       continue
@@ -1940,7 +1873,7 @@ jobs:
                       if [[ $file =~ products/([^/]+)/backend/migrations/ ]]; then
                         app_name="${BASH_REMATCH[1]}"
                       else
-                        app_name=$(echo $file | sed -E 's|^([^/]+/)*([^/]+)/migrations/.*|\2|')
+                        app_name=$(sed -E 's|^([^/]+/)*([^/]+)/migrations/.*|\2|' <<< "$file")
                       fi
 
                       # Only show SQL for new migrations, not modifications to existing ones
@@ -1960,93 +1893,47 @@ jobs:
                       fi
 
                       HAS_NEW_MIGRATIONS=true
-                      MIGRATION_COUNT=$((MIGRATION_COUNT + 1))
                       echo "Checking migration $migration_number for app $app_name"
 
                       # Get SQL output. A sqlmigrate failure degrades to a
                       # placeholder — this comment is informational, and the
                       # real migrate step below still gates the job.
-                      if ! SQL_OUTPUT=$(python manage.py sqlmigrate $app_name $migration_number 2>&1); then
+                      if ! SQL_OUTPUT=$(python manage.py sqlmigrate "$app_name" "$migration_number" 2>&1); then
                         echo "::warning::sqlmigrate failed for $app_name $migration_number — see job log"
                         SQL_OUTPUT="-- sqlmigrate failed for this migration (see the Validate migrations job log)"
                       fi
 
-                      # Add to comment body
-                      COMMENT_BODY+="#### [\`$file\`](https://github.com/${{ github.repository }}/blob/${{ github.sha }}/$file)\n\`\`\`sql\n$SQL_OUTPUT\n\`\`\`\n\n"
+                      report_tmp=$(mktemp)
+                      jq --arg path "$file" --arg sql "$SQL_OUTPUT" \
+                          '.migrations += [{path: $path, sql: $sql}]' \
+                          migration-report/django-migration-sql.json > "$report_tmp"
+                      mv "$report_tmp" migration-report/django-migration-sql.json
                     fi
                   done
 
                   if [ "$HAS_NEW_MIGRATIONS" = false ]; then
                       echo "No new migrations to show (all changed files already exist on base branch)"
-                      echo "No new Django migrations need SQL review." > /tmp/django-migration-sql.md
-                      post_migration_section sql clear ok "no new migrations" /tmp/django-migration-sql.md
-                      exit 0
                   fi
 
-                  # Add timestamp and commit SHA to SQL changes
-                  TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
-                  COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
-                  COMMIT_SHORT="${COMMIT_SHA:0:7}"
-                  COMMENT_BODY+="\n*Last updated: $TIMESTAMP ([${COMMIT_SHORT}](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA}))*"
-
-                  # Convert \n into actual newlines
-                  COMMENT_BODY=$(printf '%b' "$COMMENT_BODY")
-                  printf '%s' "$COMMENT_BODY" > /tmp/django-migration-sql.md
-                  if [ "$MIGRATION_COUNT" -eq 1 ]; then
-                    MIGRATION_SUMMARY="1 new migration to review"
-                  else
-                    MIGRATION_SUMMARY="$MIGRATION_COUNT new migrations to review"
-                  fi
-                  post_migration_section sql post warn "$MIGRATION_SUMMARY" /tmp/django-migration-sql.md
-
-            - name: Run migration risk analysis and update CI report
+            - name: Run migration risk analysis
               if: github.event_name == 'pull_request'
-              # A hang fails this step, which the publish below still reports as a verdict.
+              # The artifact upload uses always(), so an analyzer failure still reaches the reporter.
               timeout-minutes: 5
-              env:
-                  CI_REPORT_TOKEN: ${{ steps.ci-report-app-token.outputs.token }}
               run: |
-                  # The analysis always runs, so the token cannot gate this step. It travels as
-                  # CI_REPORT_TOKEN because an empty `GITHUB_TOKEN:` may leave the ambient Depot
-                  # token in place (see the workflow env note).
-                  post_migration_section() {
-                    if [ -n "$CI_REPORT_TOKEN" ]; then
-                      GITHUB_TOKEN="$CI_REPORT_TOKEN" node .github/scripts/post-django-migration-section.mjs "$@"
-                    fi
-                  }
+                  mkdir -p migration-report
 
-                  # Get risk analysis for all unapplied migrations (including third-party).
-                  # --output-json gives downstream consumers (the check-run step
-                  # below, and any other tool) a stable structured shape to read.
-                  set +e  # Don't exit immediately on error
-                  RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked --output-json migration_analysis.json 2>/dev/null)
+                  set +e
+                  python manage.py analyze_migration_risk --fail-on-blocked --output-json migration_analysis.json
                   EXIT_CODE=$?
-                  set -e  # Re-enable exit on error
-
-                  # Save analysis to file for artifact upload
-                  if [ -n "$RISK_ANALYSIS" ]; then
-                    echo "$RISK_ANALYSIS" > migration_analysis.md
-                  fi
-
-                  if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
-                    # Add timestamp and commit SHA to analysis
-                    TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
-                    COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
-                    COMMIT_SHORT="${COMMIT_SHA:0:7}"
-                    RISK_COMMENT="We've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS\n\n*Last updated: $TIMESTAMP ([${COMMIT_SHORT}](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA}))*"
-                    RISK_COMMENT=$(printf '%b' "$RISK_COMMENT")
-                    printf '%s' "$RISK_COMMENT" > /tmp/django-migration-risk.md
-                    if [ $EXIT_CODE -ne 0 ]; then
-                      post_migration_section risk post fail "blocked migration detected" /tmp/django-migration-risk.md
-                    else
-                      post_migration_section risk post ok "migration analysis complete" /tmp/django-migration-risk.md
-                    fi
-                  elif [ $EXIT_CODE -ne 0 ]; then
-                    echo "Migration risk analysis failed. Check the workflow logs for details." > /tmp/django-migration-risk.md
-                    post_migration_section risk post fail "migration analysis failed" /tmp/django-migration-risk.md
+                  set -e
+                  if jq -e 'type == "object"' migration_analysis.json > /dev/null 2>&1; then
+                      jq -n --argjson exit_code "$EXIT_CODE" --slurpfile analysis migration_analysis.json \
+                          '{version: 1, exit_code: $exit_code, analysis: $analysis[0]}' \
+                          > migration-report/django-migration-risk.json
                   else
-                    echo "No Django migrations need risk analysis." > /tmp/django-migration-risk.md
-                    post_migration_section risk clear ok "no migrations to analyze" /tmp/django-migration-risk.md
+                      jq -n --argjson exit_code "$EXIT_CODE" \
+                          '{version: 1, exit_code: $exit_code, analysis: null}' \
+                          > migration-report/django-migration-risk.json
                   fi
 
                   # Fail the job if there were blocked migrations
@@ -2054,85 +1941,14 @@ jobs:
                     exit $EXIT_CODE
                   fi
 
-            - name: Get app token for Migration risk check
-              # The posthog-tests app owns the check, so it lands in that app's own check
-              # suite instead of under an arbitrary run. continue-on-error: a mint failure
-              # must not redden migration validation; the publish step skips on an empty token.
-              # !cancelled(): a superseded run leaves the verdict to the run that replaced it.
-              if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false }}
-              id: migration-risk-app-token
-              continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-
-            - name: Publish Migration risk check
-              # Same contract as canonical: one completed `Migration risk` check on the head
-              # commit for every pull request, with the stamphog marker first in the summary.
-              # An analyzer crash publishes a failure, so consumers never wait forever.
-              if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && steps.migration-risk-app-token.outputs.token != '' }}
-              env:
-                  GITHUB_TOKEN: ${{ steps.migration-risk-app-token.outputs.token }}
-                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-                  REPO: ${{ github.repository }}
-              run: |
-                  if [ ! -f migration_analysis.json ]; then
-                    echo "No migration_analysis.json — analyzer didn't run; publishing failure check"
-                    jq -n \
-                      --arg name "Migration risk" \
-                      --arg head_sha "$HEAD_SHA" \
-                      '{name: $name, head_sha: $head_sha, status: "completed",
-                        conclusion: "failure",
-                        output: {title: "❌ Analyzer failed",
-                                 summary: "<!-- stamphog:v1 [] -->\nMigration analyzer did not produce migration_analysis.json. Re-run the Backend CI job; if it keeps failing, inspect the analyzer step logs."}}' \
-                      | gh api "repos/$REPO/check-runs" --method POST --input -
-                    exit 0
-                  fi
-
-                  MAX_LEVEL=$(jq -r '.max_level // "none"' migration_analysis.json)
-
-                  case "$MAX_LEVEL" in
-                    "Safe")          CONCLUSION=success; TITLE="✅ All migrations safe" ;;
-                    "Needs Review")  CONCLUSION=neutral; TITLE="⚠️ Needs review" ;;
-                    "Blocked")       CONCLUSION=failure; TITLE="❌ Blocked migrations" ;;
-                    "none"|"null")
-                      CONCLUSION=success
-                      TITLE="✅ No Django migrations to analyze"
-                      ;;
-                    *)
-                      echo "Unknown max_level '$MAX_LEVEL' — publishing failure"
-                      CONCLUSION=failure
-                      TITLE="❌ Unknown analyzer output"
-                      ;;
-                  esac
-
-                  # Stamphog scopes its deny-list bypass to exactly the files the analyzer
-                  # classified, so the marker stays first and survives truncation.
-                  ANALYZED_PATHS=$(jq -c '[.migrations[].file_path | select(. != null)]' migration_analysis.json 2>/dev/null || echo '[]')
-                  MARKER="<!-- stamphog:v1 ${ANALYZED_PATHS} -->"
-                  REPORT_BODY=$(head -c 59000 migration_analysis.md 2>/dev/null || echo "See the CI report")
-                  SUMMARY=$(printf '%s\n%s' "$MARKER" "$REPORT_BODY")
-
-                  jq -n \
-                    --arg name "Migration risk" \
-                    --arg head_sha "$HEAD_SHA" \
-                    --arg conclusion "$CONCLUSION" \
-                    --arg title "$TITLE" \
-                    --arg summary "$SUMMARY" \
-                    '{name: $name, head_sha: $head_sha, status: "completed",
-                      conclusion: $conclusion,
-                      output: {title: $title, summary: $summary}}' \
-                    | gh api "repos/$REPO/check-runs" --method POST --input -
-
             - name: Upload migration analysis artifact
               if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request') }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: migration-analysis
                   path: |
-                      migration_analysis.md
-                      migration_analysis.json
+                      migration-report/django-migration-sql.json
+                      migration-report/django-migration-risk.json
                   if-no-files-found: ignore
 
             - name: Run migrations for this PR
@@ -2246,8 +2062,8 @@ jobs:
                           echo "::warning::Could not fetch base ref $BASE_REF; counting CH migrations against master instead"
                       fi
                   fi
-                  # test_ch_migrations_are_safe runs `git checkout master`. Git creates that branch from a
-                  # remote-tracking ref only for a configured remote, and upstream/master is not one.
+                  # test_ch_migrations_are_safe requires a local master branch, while the
+                  # comparison checkout is registered as upstream/master.
                   git show-ref --verify --quiet refs/heads/master || git branch master upstream/master
                   # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
                   git diff --name-status "$DIFF_BASE"..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
@@ -2262,84 +2078,63 @@ jobs:
               # grouped together; if all environments match, the environment level is collapsed.
               id: render_ch_sql
               if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
-                  CHANGED=$(git diff --name-only --diff-filter=AM upstream/master..HEAD | grep '^posthog/clickhouse/migrations/[0-9]' | grep -v __pycache__ || true)
+                  DIFF_BASE=upstream/master
+                  if [ -n "$BASE_REF" ] && [ "$BASE_REF" != "master" ]; then
+                      if git fetch --no-tags --depth=1 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"; then
+                          DIFF_BASE="origin/$BASE_REF"
+                      else
+                          echo "::warning::Could not fetch base ref $BASE_REF; rendering CH migrations against master instead"
+                      fi
+                  fi
+                  mkdir -p migration-report
+                  printf '%s\n' '{"version":1,"count":0,"environments":[]}' > migration-report/ch-migration-sql.json
+                  CHANGED=$(git diff --name-only --diff-filter=AM "$DIFF_BASE"..HEAD | grep '^posthog/clickhouse/migrations/[0-9]' | grep -v __pycache__ || true)
                   if [ -z "$CHANGED" ]; then
                       echo "No ClickHouse migrations changed."
                       echo "has_changes=false" >> "$GITHUB_OUTPUT"
                       exit 0
                   fi
                   echo "has_changes=true" >> "$GITHUB_OUTPUT"
-                  echo "migration_count=$(echo "$CHANGED" | grep -c .)" >> "$GITHUB_OUTPUT"
-                  {
-                      echo '<!-- ch-migration-sql -->'
-                      echo '## ClickHouse migration SQL per cloud environment'
-                      echo ''
-                  } > ch_migration_sql_comment.md
+                  mapfile -t changed_migrations <<< "$CHANGED"
+                  MIGRATION_COUNT=${#changed_migrations[@]}
+                  echo "migration_count=$MIGRATION_COUNT" >> "$GITHUB_OUTPUT"
+                  jq --argjson count "$MIGRATION_COUNT" '.count = $count' \
+                      migration-report/ch-migration-sql.json > migration-report/ch-migration-sql.tmp
+                  mv migration-report/ch-migration-sql.tmp migration-report/ch-migration-sql.json
                   mkdir -p ch_sql_env
                   DEPLOYMENTS=('' US EU DEV)
                   LABELS=(unset US EU DEV)
-                  # Bucket environments by identical rendered output (parallel indexed arrays;
-                  # avoids bash 4 associative arrays) so divergent SQL prints once.
-                  BUCKET_HASH=()
-                  BUCKET_LABEL=()
-                  BUCKET_FILE=()
                   for idx in "${!DEPLOYMENTS[@]}"; do
                       file="ch_sql_env/${idx}.md"
-                      # Render once per environment; the same output feeds both the log group and the comment.
-                      # On failure (e.g. an import error in the migration) write a visible marker rather than
-                      # silently dropping the environment — stderr still shows in the step log for debugging.
-                      if ! CLOUD_DEPLOYMENT="${DEPLOYMENTS[$idx]}" python manage.py print_ch_migration_sql --format markdown ${CHANGED} > "$file"; then
-                          echo '- _⚠️ failed to render SQL for this environment — see the workflow logs_' > "$file"
+                      if ! CLOUD_DEPLOYMENT="${DEPLOYMENTS[$idx]}" python manage.py print_ch_migration_sql --format markdown "${changed_migrations[@]}" > "$file"; then
+                          echo 'Failed to render SQL for this environment. See the workflow logs.' > "$file"
                       fi
                       echo "::group::CLOUD_DEPLOYMENT=${LABELS[$idx]}"
                       cat "$file"
                       echo "::endgroup::"
-                      h=$(sha1sum "$file" | cut -d' ' -f1)
-                      found=-1
-                      for b in "${!BUCKET_HASH[@]}"; do
-                          if [ "${BUCKET_HASH[$b]}" = "$h" ]; then found=$b; break; fi
-                      done
-                      if [ "$found" -ge 0 ]; then
-                          BUCKET_LABEL[$found]="${BUCKET_LABEL[$found]}, ${LABELS[$idx]}"
-                      else
-                          BUCKET_HASH+=("$h")
-                          BUCKET_LABEL+=("${LABELS[$idx]}")
-                          BUCKET_FILE+=("$file")
-                      fi
+                      report_tmp=$(mktemp)
+                      jq --arg label "${LABELS[$idx]}" --rawfile output "$file" \
+                          '.environments += [{label: $label, output: $output}]' \
+                          migration-report/ch-migration-sql.json > "$report_tmp"
+                      mv "$report_tmp" migration-report/ch-migration-sql.json
                   done
-                  if [ "${#BUCKET_HASH[@]}" -eq 1 ]; then
-                      # Every environment renders the same SQL — collapse the environment level.
-                      echo '_Identical across all cloud environments (unset, US, EU, DEV)._' >> ch_migration_sql_comment.md
-                      echo '' >> ch_migration_sql_comment.md
-                      cat "${BUCKET_FILE[0]}" >> ch_migration_sql_comment.md
-                  else
-                      for b in "${!BUCKET_HASH[@]}"; do
-                          echo "- **${BUCKET_LABEL[$b]}**" >> ch_migration_sql_comment.md
-                          sed 's/^/  /' "${BUCKET_FILE[$b]}" >> ch_migration_sql_comment.md
-                      done
-                  fi
 
-            - name: Post CH migration SQL to CI report comment
-              # Sticky section in the shared CI report comment so pushes don't spam the PR.
-              # Skipped on trunk-merge/** branches: merge-queue draft PRs are ephemeral and
-              # unread. Runs only with the minted token.
-              if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && steps.ci-report-app-token.outputs.token != ''
-              env:
-                  HAS_CHANGES: ${{ steps.render_ch_sql.outputs.has_changes }}
-                  CH_MIGRATION_COUNT: ${{ steps.render_ch_sql.outputs.migration_count }}
-                  GITHUB_TOKEN: ${{ steps.ci-report-app-token.outputs.token }}
-              run: |
-                  node .github/scripts/post-ch-migration-section.mjs
-                  node frontend/bin/ci-report/delete-legacy-comments.mjs
+            - name: Upload CH migration report artifact
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request') }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: ch-migration-report
+                  path: migration-report/ch-migration-sql.json
+                  if-no-files-found: ignore
 
     check-openapi-types:
         needs: [changes]
         # Not on master push: master only primes the schema cache.
         if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true') && github.event_name != 'push'
         timeout-minutes: 20
-        permissions:
-            contents: read
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
         name: Validate OpenAPI types
@@ -2347,9 +2142,6 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  # For same-repo PRs, checkout the actual branch (not the merge commit)
-                  # so generated OpenAPI types can be committed directly. Fork PRs fall
-                  # back to the default merge commit (auto-commit bails out for forks).
                   ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.ref || github.ref }}
                   clean: false
             - name: Clean up data directories with container permissions
@@ -2419,11 +2211,6 @@ jobs:
                   BRANCH: ${{ github.event.pull_request.head.ref }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
-                  if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
-                      echo "::error::The checkout was dirty before OpenAPI generation; refusing to commit unrelated files."
-                      git status --short --untracked-files=all
-                      exit 1
-                  fi
                   if ! ./bin/hogli build:openapi; then
                       echo ""
                       echo "::error::OpenAPI schema generation failed."
@@ -2444,10 +2231,7 @@ jobs:
                       exit 1
                   fi
                   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-                  mapfile -t DRIFTED_FILES < <(
-                      git ls-files --modified --deleted --others --exclude-standard | LC_ALL=C sort -u
-                  )
-                  if [ "${#DRIFTED_FILES[@]}" -eq 0 ]; then
+                  if git diff --exit-code; then
                       echo "OpenAPI types are up to date"
                       echo "needs-commit=false" >> $GITHUB_OUTPUT
                       exit 0
@@ -2494,17 +2278,11 @@ jobs:
                   # Commit exactly the files this check flagged. A hand-listed pattern
                   # silently dropped generated paths it did not cover, so the PR passed on
                   # an empty commit and every later master push failed this same check.
-                  for file in "${DRIFTED_FILES[@]}"; do
-                      if [[ "$file" =~ [[:space:]] ]]; then
-                          echo "::error::Cannot auto-commit generated path containing whitespace: $file"
-                          exit 1
-                      fi
-                  done
-                  printf -v DRIFTED_FILE_PATTERNS '%s ' "${DRIFTED_FILES[@]}"
-                  DRIFTED_FILE_PATTERNS=${DRIFTED_FILE_PATTERNS% }
-                  echo "Committing: $DRIFTED_FILE_PATTERNS"
-                  echo "drifted-files=$DRIFTED_FILE_PATTERNS" >> $GITHUB_OUTPUT
+                  DRIFTED_FILES=$(git diff --name-only | tr '\n' ' ')
+                  echo "Committing: $DRIFTED_FILES"
+                  echo "drifted-files=$DRIFTED_FILES" >> $GITHUB_OUTPUT
                   echo "needs-commit=true" >> $GITHUB_OUTPUT
+
             - name: Get app token for OpenAPI type commits
               if: steps.openapi-check.outputs.needs-commit == 'true'
               id: openapi-app-token
@@ -2512,14 +2290,15 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
             - name: Disable auto-merge before OpenAPI type commit
               if: steps.openapi-check.outputs.needs-commit == 'true'
               env:
                   GH_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
+
             - name: Commit OpenAPI types via GitHub API (signed)
-              id: openapi-commit
               if: steps.openapi-check.outputs.needs-commit == 'true'
               uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
@@ -2529,13 +2308,6 @@ jobs:
                   file_pattern: ${{ steps.openapi-check.outputs.drifted-files }}
               env:
                   GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
-            # The action's entrypoint reads `git status` through process substitution, so a git
-            # failure inside its container exits 0 with no commit-hash and the job passes on stale types.
-            - name: Fail when the OpenAPI types commit did not land
-              if: steps.openapi-check.outputs.needs-commit == 'true' && steps.openapi-commit.outputs.commit-hash == ''
-              run: |
-                  echo "::error::OpenAPI types are out of date and ghcommit-action created no commit. Run 'hogli build:openapi' locally and push the result."
-                  exit 1
             # Deterministic = the OpenAPI check step itself failed (not a transient
             # setup or commit-step failure), so a retry can't fix it. Mirrors repo-checks.
             - name: Flag deterministic failure
@@ -2543,7 +2315,6 @@ jobs:
               if: failure() && steps.openapi-check.outcome == 'failure'
               run: echo "deterministic_failure=true" >> "$GITHUB_OUTPUT"
 
-    # Mirrors cancel-backend-on-repo-check-failure, including the check-run name sync.
     cancel-backend-on-openapi-check-failure:
         needs: [check-openapi-types]
         if: >
@@ -2557,8 +2328,7 @@ jobs:
         name: Cancel Backend CI after OpenAPI check failure
         runs-on: depot-ubuntu-24.04
         steps:
-            - name: Set up Depot CLI
-              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
             - name: Cancel run
               env:
                   DEPOT_TOKEN: ${{ secrets.DEPOT_CI_CANCEL_TOKEN }}
@@ -2566,15 +2336,10 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
-                  set -euo pipefail
-                  echo "::notice title=OpenAPI check failed deterministically::A retry cannot fix this failure; push a fix to start a new run."
-                  [ -n "$DEPOT_TOKEN" ] || { echo "DEPOT_CI_CANCEL_TOKEN is not set, so the remaining Backend CI jobs keep running."; exit 0; }
-                  depot ci workflow list --repo "$REPO" --pr "$PR_NUMBER" --sha "$HEAD_SHA" --status running -o json \
-                      | jq -r '.[] | select(.workflow_path == "ci-backend.yml") | "\(.run_id) \(.workflow_id)"' > "$RUNNER_TEMP/workflows"
-                  [ -s "$RUNNER_TEMP/workflows" ] || echo "::warning::No running Backend CI workflow on Depot for $HEAD_SHA"
-                  while read -r run workflow; do
-                      depot ci cancel "$run" --workflow "$workflow"
-                  done < "$RUNNER_TEMP/workflows"
+                  echo "::notice title=OpenAPI check failed deterministically::Canceling remaining Backend CI jobs. A retry cannot fix this failure; push a fix to start a new run."
+                  depot ci workflow list --repo "$REPO" --pr "$PR_NUMBER" --status running -o json \
+                      | jq -r --arg sha "$HEAD_SHA" '.[] | select(.workflow_path == "ci-backend.yml" and .head_sha == $sha) | "\(.run_id) \(.workflow_id)"' \
+                      | while read -r run workflow; do depot ci cancel "$run" --workflow "$workflow"; done
 
     build_django_matrix:
         name: Build Django matrix
@@ -3914,8 +3679,7 @@ jobs:
         timeout-minutes: 8
         # !cancelled() collates skipped/failed matrix jobs without reporting failure on a
         # superseded run (mirrors canonical); gated on the hand-off so it doesn't
-        # spin up a lone runner when GitHub Actions kept this event. The deterministic-failure
-        # disjuncts cover this workflow cancelling itself, as on canonical.
+        # spin up a lone runner when GitHub Actions kept this event.
         if: >
             (!cancelled()
             || needs.repo-checks.outputs.deterministic_failure == 'true'
@@ -4074,28 +3838,14 @@ jobs:
                   echo "All backend and product checks passed."
     backend-coverage-report:
         name: Backend coverage report
-        needs: [wait-for-handoff, changes, turbo-tests, django_tests, turbo-discover]
+        needs: [changes, turbo-tests, django_tests, turbo-discover]
         runs-on: depot-ubuntu-24.04
-        continue-on-error: true # report-only, never block a PR
+        continue-on-error: true
         timeout-minutes: 10
-        # Pinned job-level to the workflow's read-only grants. The ambient token is the Depot
-        # Code Access installation token that every Depot job shares, so it never writes here;
-        # the comment write uses the App token minted below.
         permissions:
             contents: read
-            pull-requests: read
-        # In-repo PRs only — fork PRs get a read-only token that can't comment. Runs when either
-        # the product (turbo-tests) or core (django_tests) suite ran, so a core-only PR still
-        # gets a comment; both skip on drafts, leaving nothing to report.
-        # A narrowed run measures only the selected tests, so patch coverage would report
-        # gaps that the full suite covers. Report only when the Django matrix ran full.
-        # Security invariant: this job runs PR-head-controlled scripts (coverage_report.py,
-        # post-coverage-section.mjs). Their only token that can write is the report token below,
-        # narrowed to pull-requests: write, the grant canonical gives github.token. Never give
-        # this job a token that can write anything else.
         if: >-
             !cancelled() &&
-            needs.wait-for-handoff.outputs.handed_off == 'true' &&
             github.event_name == 'pull_request' &&
             github.event.pull_request.draft == false &&
             needs.turbo-discover.outputs.mode != 'selected' &&
@@ -4104,9 +3854,6 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  # Default pull_request checkout = the synthetic merge ref — the same tree the
-                  # coverage runs measured, so diff line numbers match. Full history for diff-cover;
-                  # blob:none keeps it light (commit graph only, blobs fetched on demand).
                   fetch-depth: 0
                   filter: blob:none
             - name: Check for coverage reporter
@@ -4121,14 +3868,14 @@ jobs:
                   fi
             - name: Download coverage artifacts
               if: steps.reporter.outputs.available == 'true'
-              continue-on-error: true # a run where no shard emitted coverage.xml is not a failure
+              continue-on-error: true
               uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
               with:
                   path: ./cov-artifacts
                   pattern: coverage-xml-*
             - name: Download core coverage artifacts
               if: steps.reporter.outputs.available == 'true'
-              continue-on-error: true # core coverage only present once the Core segment ran with --cov
+              continue-on-error: true
               uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
               with:
                   path: ./core-artifacts
@@ -4138,10 +3885,7 @@ jobs:
                   enable-cache: false
               if: steps.reporter.outputs.available == 'true'
             - name: Build coverage report
-              # diff-cover is declared inline (PEP 723) in coverage_report.py; uv provisions it.
               if: steps.reporter.outputs.available == 'true'
-              env:
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   mkdir -p cov-artifacts core-artifacts
                   git fetch --no-tags --filter=blob:none --quiet origin master
@@ -4152,34 +3896,27 @@ jobs:
                       --compare-branch origin/master \
                       --patch-json-out patch-coverage.json \
                       --out coverage-comment.md
-            - name: Mint CI report comment token
-              id: report-token
+            - name: Get app token for CI report
               if: steps.reporter.outputs.available == 'true'
-              continue-on-error: true
+              id: ci-report-app-token
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
                   permission-pull-requests: write
             - name: Set up Node.js
-              if: steps.report-token.outputs.token != ''
+              if: steps.reporter.outputs.available == 'true'
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ steps.report-token.outputs.token }}
+                  token: ${{ steps.ci-report-app-token.outputs.token }}
             - name: Post to CI report comment
-              # Runs only with the minted token. With an empty GITHUB_TOKEN, update-ci-report.mjs
-              # falls back to GH_TOKEN, and no other token may write from a Depot job.
-              if: steps.report-token.outputs.token != ''
+              if: steps.reporter.outputs.available == 'true'
               env:
-                  GITHUB_TOKEN: ${{ steps.report-token.outputs.token }}
+                  GITHUB_TOKEN: ${{ steps.ci-report-app-token.outputs.token }}
               run: |
-                  # A report writer that predates tests-posthog[bot] authorship does not adopt the
-                  # comment this token creates, so it would add a new report comment on every write.
-                  if [ -f .github/scripts/post-coverage-section.mjs ] && grep -qF 'tests-posthog[bot]' frontend/bin/ci-report/update-ci-report.mjs; then
+                  if [ -f .github/scripts/post-coverage-section.mjs ]; then
                       node .github/scripts/post-coverage-section.mjs coverage-comment.md patch-coverage.json
-                  else
-                      echo "Skipping the coverage section: the poster is missing, or update-ci-report.mjs predates tests-posthog[bot] authorship."
                   fi
             - name: Upload patch coverage payload
               if: ${{ always() && steps.reporter.outputs.available == 'true' }}
@@ -4192,8 +3929,7 @@ jobs:
                       coverage-comment.md
                   if-no-files-found: ignore
                   retention-days: 2
-                  overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
-
+                  overwrite: true
     test-selection-verdict:
         needs: [django, turbo-tests, changes, turbo-discover]
         name: Test selection verdict
@@ -4299,43 +4035,6 @@ jobs:
                   path: /tmp/verdict/
                   retention-days: 90
 
-    calculate-running-time:
-        name: Calculate running time
-        needs: [wait-for-handoff, changes, django_tests]
-        runs-on: depot-ubuntu-24.04
-        timeout-minutes: 5
-        # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
-        # !cancelled() alone would run this job when GitHub Actions kept the event, because
-        # every dependency is skipped then, so the hand-off gates it like the required gate.
-        if: >-
-            !cancelled() && github.actor != 'dependabot[bot]' && (
-            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
-            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
-            && needs.wait-for-handoff.outputs.handed_off == 'true'
-        # Depot scopes the ambient token by this block; the check-runs read needs `checks`.
-        permissions:
-            contents: read
-            checks: read
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              if: github.run_attempt == '1'
-              with:
-                  sparse-checkout: .github/scripts/capture_depot_running_time.py
-                  sparse-checkout-cone-mode: false
-            - name: Capture running time to PostHog and DevEx PostHog
-              if: github.run_attempt == '1'
-              continue-on-error: true
-              env:
-                  # A read of the check runs Depot CI posts; the ambient token never writes here.
-                  GH_TOKEN: ${{ github.token }}
-                  HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-                  # Must match this job's name, which names its check run.
-                  OWN_JOB_NAME: Calculate running time
-                  CONCLUSION: ${{ needs.django_tests.result }}
-                  POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
-                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
-              run: python3 .github/scripts/capture_depot_running_time.py
-
     capture-test-selection:
         name: Capture test selection
         needs: [turbo-discover]
@@ -4351,24 +4050,13 @@ jobs:
             && needs.turbo-discover.result == 'success'
             && needs.turbo-discover.outputs.mode != ''
         steps:
-            - name: Tag the selection with the CI engine
-              id: properties
-              continue-on-error: true
-              env:
-                  TELEMETRY: ${{ needs.turbo-discover.outputs.telemetry }}
-              run: |
-                  set -euo pipefail
-                  json=$(jq -ce '. + {ci_engine: "depot"}' <<< "$TELEMETRY")
-                  echo "json=$json" >> "$GITHUB_OUTPUT"
             - name: Capture test selection to DevEx PostHog
-              # An untagged event would count as a GitHub Actions run, so none is sent.
-              if: steps.properties.outcome == 'success'
               continue-on-error: true
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   event: 'posthog-ci-test-selection'
-                  properties: ${{ steps.properties.outputs.json }}
+                  properties: ${{ needs.turbo-discover.outputs.telemetry }}
 
     report-test-timings:
         name: Report per-test traces
@@ -4405,18 +4093,16 @@ jobs:
               id: timing-reporter
               shell: bash
               run: |
+                  # The owners resolver is a path dep of the reporter, so a base ref predating it
+                  # can't resolve its deps. A base ref from before the move to packages/owners-yaml still
+                  # carries it at tools/owners, so both locations count as available.
                   available=false
-                  # The reporter depends on owners-yaml. Accept its old path so unrebased PRs can still report.
                   if [[ -f .github/scripts/report_test_timings.py && ( -d packages/owners-yaml || -d tools/owners ) ]]; then
                     available=true
                   fi
                   # A re-run may emit only through an attempt-aware reporter: an older script would
                   # re-report every attempt-1 shard under the new attempt's resource attributes.
                   if [[ "$GITHUB_RUN_ATTEMPT" != "1" ]] && ! grep -q "def partition_run_attempt" .github/scripts/report_test_timings.py 2>/dev/null; then
-                    available=false
-                  fi
-                  # A reporter that ignores CI_ENGINE would send these spans untagged, as if GitHub Actions ran them.
-                  if ! grep -q '"ci.engine"' .github/scripts/report_test_timings.py 2>/dev/null; then
                     available=false
                   fi
                   if [[ "$available" != "true" ]]; then
@@ -4438,7 +4124,6 @@ jobs:
               if: steps.timing-reporter.outputs.available == 'true'
               continue-on-error: true
               env:
-                  CI_ENGINE: depot
                   POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   # dual emission while per-test traces migrate to the project behind POSTHOG_API_TOKEN
                   POSTHOG_CI_TRACES_EXTRA_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
@@ -4447,3 +4132,5 @@ jobs:
                   uv run --script .github/scripts/report_test_timings.py \
                       --min-duration-seconds=0.5 \
                       ./junit-artifacts
+
+    # calculate-running-time is omitted so Depot runs are not recorded as canonical CI data.
