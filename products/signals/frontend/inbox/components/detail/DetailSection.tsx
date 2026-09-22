@@ -14,6 +14,8 @@ interface DetailSectionProps {
      * anything with its own click behavior.
      */
     meta?: ReactNode
+    /** Summary below the header. A render function can adapt the summary to the section state. */
+    summary?: ReactNode | ((open: boolean) => ReactNode)
     /** Interactive controls rendered outside the collapse toggle so they stay independently clickable. */
     rightSlot?: ReactNode
     children: ReactNode
@@ -37,6 +39,7 @@ export function DetailSection({
     title,
     afterTitle,
     meta,
+    summary,
     rightSlot,
     children,
     collapsible = false,
@@ -45,6 +48,7 @@ export function DetailSection({
 }: DetailSectionProps): JSX.Element {
     const [collapsed, setCollapsed] = useState(defaultCollapsed)
     const open = !collapsible || !collapsed
+    const renderedSummary = typeof summary === 'function' ? summary(open) : summary
 
     const toggle = (): void => {
         const next = !collapsed
@@ -92,6 +96,7 @@ export function DetailSection({
                 )}
                 {rightSlot && <div className="shrink-0">{rightSlot}</div>}
             </div>
+            {renderedSummary && <div className="min-w-0">{renderedSummary}</div>}
             {open && <div>{children}</div>}
         </div>
     )

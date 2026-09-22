@@ -87,17 +87,52 @@ const VARIANT_META: Record<
 // Failed first, then in-flight, then the rest — the buckets worth a human's attention lead.
 const VARIANT_ORDER: CheckVariant[] = ['failure', 'pending', 'cancelled', 'stale', 'success', 'neutral']
 
-function CheckSummary({ variant, count }: { variant: CheckVariant; count: number }): JSX.Element | null {
+function CheckSummary({
+    variant,
+    count,
+    compact,
+}: {
+    variant: CheckVariant
+    count: number
+    compact: boolean
+}): JSX.Element | null {
     if (count === 0) {
         return null
     }
 
     const meta = VARIANT_META[variant]
+    const label = `${count} ${meta.label.toLowerCase()}`
     return (
-        <span className={`inline-flex items-center gap-1 whitespace-nowrap ${meta.summaryClassName}`}>
+        <span
+            className={`inline-flex items-center gap-1 whitespace-nowrap ${meta.summaryClassName}`}
+            aria-label={compact ? label : undefined}
+            title={compact ? label : undefined}
+        >
             <span className={`flex items-center [&_svg]:size-3 ${meta.iconClassName}`}>{meta.icon}</span>
             <span className="font-medium tabular-nums">{count}</span>
-            <span>{meta.label.toLowerCase()}</span>
+            {!compact && <span>{meta.label.toLowerCase()}</span>}
+        </span>
+    )
+}
+
+function CheckSummaryList({
+    counts,
+    compact,
+}: {
+    counts: Record<CheckVariant, number>
+    compact: boolean
+}): JSX.Element {
+    return (
+        <span
+            className={
+                compact
+                    ? 'flex w-full items-center justify-between gap-3 text-[0.6875rem]'
+                    : 'flex w-full flex-wrap items-center gap-x-2.5 gap-y-1 text-[0.6875rem]'
+            }
+        >
+            {VARIANT_ORDER.map((variant) => (
+                <CheckSummary key={variant} variant={variant} count={counts[variant]} compact={compact} />
+            ))}
         </span>
     )
 }
@@ -147,15 +182,7 @@ export function PrChecksSection({ report }: { report: SignalReport }): JSX.Eleme
             title="CI checks"
             collapsible
             defaultCollapsed={sorted.length > 0 && !hasChecksNeedingAttention}
-            meta={
-                sorted.length > 0 ? (
-                    <span className="flex items-center justify-end gap-x-2.5 gap-y-1 flex-wrap text-[0.6875rem]">
-                        {VARIANT_ORDER.map((variant) => (
-                            <CheckSummary key={variant} variant={variant} count={counts[variant]} />
-                        ))}
-                    </span>
-                ) : undefined
-            }
+            summary={sorted.length > 0 ? (open) => <CheckSummaryList counts={counts} compact={!open} /> : undefined}
         >
             {prChecksError ? (
                 <div className="rounded border border-danger bg-danger-highlight px-3 py-2.5 text-sm text-danger">
