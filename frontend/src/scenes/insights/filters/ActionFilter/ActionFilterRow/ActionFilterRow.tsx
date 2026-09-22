@@ -156,7 +156,7 @@ export function ActionFilterRow({
         duplicateSeries,
         convertToGroup,
     } = useActions(logic)
-    const { actions } = useValues(actionsModel({ shouldLoad: filter.type === EntityTypes.ACTIONS }))
+    const { actions } = useValues(actionsModel({ shouldLoad: isActionsSeriesNode(node) }))
     const { mathDefinitions } = useValues(mathsLogic)
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
     const { ensureAllTableFields } = useActions(databaseTableListLogic)
