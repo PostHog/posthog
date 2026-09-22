@@ -366,8 +366,9 @@ export function ScheduleTimeline({
                 </svg>
             </div>
             <p className="text-xs text-muted m-0">
-                The line shows how much of your audience the flag reaches. Conditions that target specific users are not
-                counted, because their reach depends on how many users match them.
+                The line shows how much of your audience the flag reaches. It does not count conditions that target
+                specific users, or conditions set to a different audience type, because their reach depends on how many
+                match them.
             </p>
         </div>
     )
