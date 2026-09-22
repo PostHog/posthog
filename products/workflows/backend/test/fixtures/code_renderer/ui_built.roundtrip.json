@@ -30,12 +30,14 @@
         {
             "id": "action_delay_0199e2c6-2a1b-7c3d-8e4f-000000000001",
             "name": "Delay",
+            "description": "Wait for 1 day.",
             "type": "delay",
             "config": { "delay_duration": "1d" }
         },
         {
             "id": "action_function_email_0199e2c6-2a1b-7c3d-8e4f-000000000002",
             "name": "Email",
+            "description": "Send an email to the user.",
             "type": "function_email",
             "config": {
                 "template_id": "template-email",
