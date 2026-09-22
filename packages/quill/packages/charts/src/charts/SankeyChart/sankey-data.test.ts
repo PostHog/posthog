@@ -61,6 +61,17 @@ describe('computeSankeyLayout', () => {
         expect([columnOf('right', 'start'), columnOf('right', 'a'), columnOf('right', 'ended')]).toEqual([0, 1, 2])
     })
 
+    it('pins a node to its own column and widens the graph to fit it', () => {
+        // A late stage with no link from the earlier stages: depth alone would put `late` in the
+        // first column, and the graph would have three columns instead of five.
+        const nodes: SankeyNodeInput[] = [...NODES, { id: 'late', column: 3 }, { id: 'last', column: 4 }]
+        const links: SankeyLinkInput[] = [...LINKS, { source: 'late', target: 'last', value: 2 }]
+        const layout = layoutOf({ nodes, links, nodeAlign: 'left' })
+        const columnOf = (id: string): number | undefined => layout.nodes.find((n) => n.id === id)?.column
+        expect([columnOf('start'), columnOf('done'), columnOf('late'), columnOf('last')]).toEqual([0, 2, 3, 4])
+        expect(layout.columnCount).toBe(5)
+    })
+
     it('resolves node colors by label and defaults link color to the source node', () => {
         const layout = layoutOf({
             nodes: [...NODES.slice(0, 3), { id: 'done', label: 'Completed', color: 'var(--success)' }],
