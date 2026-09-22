@@ -28,6 +28,7 @@ GROUP BY bucket
 ORDER BY bucket ASC
 """
 FLAG_PATH = "products.alerts.backend.evaluation.detector_history.feature_enabled_or_false"
+RETENTION_PATH = "products.alerts.backend.evaluation.detector_history.events_retention_months_for_team"
 RESTRICTIONS_PATH = (
     "products.alerts.backend.evaluation.detector_history.get_restricted_properties_with_group_type_index_for_team"
 )
@@ -164,6 +165,41 @@ class TestDetectorHistory(BaseTest):
             self._check(warehouse)
 
         # Cached buckets were aligned under the old timezone, so the new one must rebuild.
+        assert warehouse.overrides[-1] is None
+
+    def test_a_first_row_alert_is_not_served_from_the_cache(self) -> None:
+        warehouse = _Warehouse(self._dense(10))
+        first_row = HogQLAlertConfig.model_validate({**self.alert.config, "evaluation": "first_row"})
+        with time_machine.travel(NOW, tick=False), patch(FLAG_PATH, return_value=True):
+            rows = detector_rows_from_history(
+                alert=self.alert,
+                insight=self.alert.insight,
+                config=first_row,
+                min_samples=MIN_SAMPLES,
+                run_query=warehouse.run,
+            )
+
+        # first_row scores the oldest bucket, which the tail refresh never re-reads.
+        assert rows is None
+        assert warehouse.overrides == []
+
+    def test_changing_team_modifiers_discards_the_cached_series(self) -> None:
+        warehouse = _Warehouse(self._dense(10))
+        with time_machine.travel(NOW, tick=False):
+            self._check(warehouse)
+            self.team.modifiers = {"convertToProjectTimezone": False}
+            self.team.save(update_fields=["modifiers"])
+            self._check(warehouse)
+
+        assert warehouse.overrides[-1] is None
+
+    def test_a_retention_floor_change_discards_the_cached_series(self) -> None:
+        warehouse = _Warehouse(self._dense(10))
+        with time_machine.travel(NOW, tick=False):
+            self._check(warehouse)
+            with patch(RETENTION_PATH, return_value=12):
+                self._check(warehouse)
+
         assert warehouse.overrides[-1] is None
 
     def test_changing_property_access_restrictions_discards_the_cached_series(self) -> None:

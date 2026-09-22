@@ -20,10 +20,13 @@ from django.db import transaction
 from django.db.models import QuerySet
 from django.utils import timezone as django_timezone
 
-from posthog.schema import HogQLAlertConfig
+from posthog.schema import HogQLAlertConfig, HogQLAlertEvaluation, HogQLQueryModifiers
+
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
+from posthog.models.team.event_retention import events_retention_months_for_team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 
@@ -73,6 +76,9 @@ def detector_rows_from_history(
     """
     team = alert.team
     if not _flag_enabled(team):
+        return None
+    if config.evaluation != HogQLAlertEvaluation.LAST_ROW:
+        # first_row scores the head of the window, which the tail refresh never re-reads.
         return None
     matched = match_detector_series_query(insight.query, column=config.column)
     if matched is None:
@@ -152,6 +158,10 @@ def _fingerprint(matched: DetectorSeriesQuery, config: HogQLAlertConfig, team: T
     source = matched.source
     inner = source.get("source") if source.get("kind") == "DataVisualizationNode" else source
     restricted = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.id)
+    raw_modifiers = inner.get("modifiers") if isinstance(inner, dict) else None
+    modifiers = create_default_modifiers_for_team(
+        team, HogQLQueryModifiers(**raw_modifiers) if isinstance(raw_modifiers, dict) else None
+    )
     payload = json.dumps(
         {
             "query": inner.get("query") if isinstance(inner, dict) else None,
@@ -166,6 +176,11 @@ def _fingerprint(matched: DetectorSeriesQuery, config: HogQLAlertConfig, team: T
                 (r.name, str(r.property_type), -1 if r.group_type_index is None else r.group_type_index)
                 for r in restricted
             ),
+            # Effective modifiers change results without a SQL edit — persons-on-events mode is
+            # flag-driven — and the retention floor silently narrows what a full scan reads. Both
+            # sit in the HogQL cache key for the same reason.
+            "hogql_modifiers": modifiers.model_dump(mode="json"),
+            "events_retention_floor_months": events_retention_months_for_team(team, team.pk),
         },
         sort_keys=True,
     )
