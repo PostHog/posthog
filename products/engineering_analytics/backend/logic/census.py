@@ -19,7 +19,8 @@ from posthog.egress.github.transport import github_request, raise_if_github_rate
 from posthog.models.integration.github import _is_safe_github_repo_path
 from posthog.models.team import Team
 
-CENSUS_EVENT = "eng_analytics_test_census"
+from products.engineering_analytics.backend.facade.contracts import CENSUS_EVENT
+
 _GITHUB_API = "https://api.github.com"
 # owners.yaml and product.yaml are hand-written config; anything bigger is not one.
 _MAX_OWNERSHIP_FILE_BYTES = 512 * 1024
