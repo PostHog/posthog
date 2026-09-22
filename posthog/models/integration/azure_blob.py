@@ -99,17 +99,15 @@ class EndpointNotAllowedError(ValueError):
 class EndpointResolutionError(ValueError):
     """Raised when an endpoint host has no DNS answer.
 
-    Kept apart from `EndpointNotAllowedError` because this can be a transient worker DNS
-    failure, which a caller may retry, while a policy block never succeeds on a retry.
+    Kept apart from `EndpointNotAllowedError` because a worker DNS failure can succeed on a
+    retry, while a policy block never does. A host that is simply wrong also lands here, and
+    retries until the run gives up with this message.
     """
 
 
-def _endpoint_origin(endpoint: str) -> str:
-    """Return scheme and host only, so no credential in the endpoint reaches a message."""
-    parsed = urlparse.urlparse(endpoint)
-    if not parsed.scheme or not parsed.netloc:
-        return endpoint
-    return f"{parsed.scheme}://{parsed.netloc}"
+def _endpoint_host(endpoint: str) -> str:
+    """Host only, so no credential or token in the endpoint reaches a message."""
+    return urlparse.urlparse(endpoint).hostname or "unknown"
 
 
 def validate_azure_blob_connection_string(connection_string: str) -> None:
@@ -172,12 +170,13 @@ def validate_azure_blob_connection_string(connection_string: str) -> None:
         if validation_applies:
             allowed, error = is_url_allowed(endpoint)
             if not allowed:
-                origin = _endpoint_origin(endpoint)
+                host = _endpoint_host(endpoint)
                 if error == HOST_RESOLUTION_FAILED_REASON:
-                    raise EndpointResolutionError(f"Could not resolve the endpoint '{origin}' in the connection string")
-                reason = error or "the endpoint is not allowed"
+                    raise EndpointResolutionError(
+                        f"Could not resolve the endpoint host '{host}' in the connection string"
+                    )
                 raise EndpointNotAllowedError(
-                    f"The endpoint '{origin}' in the connection string is not allowed: {reason}"
+                    f"The endpoint host '{host}' in the connection string is not allowed: {error}"
                 )
 
 

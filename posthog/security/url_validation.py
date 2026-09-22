@@ -41,8 +41,7 @@ METADATA_HOSTS = {"169.254.169.254", "metadata.google.internal"}
 # Percent-encoded forms of the characters that end a URL authority ("/", "?", "#", "@")
 ENCODED_AUTHORITY_TERMINATORS = ("%2f", "%3f", "%23", "%40")
 
-# Reason returned when a host has no usable DNS answer. A caller that must tell a transient
-# resolution failure apart from a policy block compares the verdict reason against this.
+# Reason returned when a host has no usable DNS answer.
 HOST_RESOLUTION_FAILED_REASON = "Could not resolve host"
 
 # Internal domain patterns that should never be accessed

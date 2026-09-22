@@ -89,19 +89,19 @@ def test_get_manifest_key_generates_correct_path():
 async def test_blocked_endpoint_returns_a_failed_run_instead_of_crashing():
     @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
     async def activity() -> BatchExportResult:
-        raise EndpointNotAllowedError("The endpoint 'https://name.blob.example.com' is not allowed: a reason")
+        raise EndpointNotAllowedError("The endpoint host 'name.blob.example.com' is not allowed: a reason")
 
     result = await activity()
 
     assert result.error is not None
     assert result.error.type == "EndpointNotAllowedError"
-    assert "https://name.blob.example.com" in result.error.message
+    assert "name.blob.example.com" in result.error.message
 
 
 async def test_unresolvable_endpoint_still_retries():
     @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
     async def activity() -> BatchExportResult:
-        raise EndpointResolutionError("Could not resolve the endpoint 'https://name.blob.example.com'")
+        raise EndpointResolutionError("Could not resolve the endpoint host 'name.blob.example.com'")
 
     with pytest.raises(EndpointResolutionError):
         await activity()
