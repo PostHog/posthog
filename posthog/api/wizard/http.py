@@ -30,6 +30,7 @@ from posthog.llm.wizard_gateway_token import (
     wizard_limit_override,
     wizard_posture,
     wizard_product_node,
+    wizard_staff_product_node,
     wizard_tier_limits,
 )
 from posthog.models import Team, User
@@ -295,6 +296,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 "not_rolled_out", "Wizard gateway tokens are switched off for this organization.", user=user
             )
 
+        if product is None:
+            product = wizard_staff_product_node(program, email=user.email, is_email_verified=user.is_email_verified)
         # A closed set: refusing keeps every pinned node one that carries a budget.
         if product is None:
             refuse_absent_gateway(

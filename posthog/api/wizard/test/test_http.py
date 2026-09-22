@@ -786,6 +786,80 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert "npx @posthog/wizard@latest" in response.json()["detail"]
         mock_mint.assert_not_called()
 
+    def _set_user_email(self, email, is_email_verified):
+        self.user.email = email
+        self.user.is_email_verified = is_email_verified
+        self.user.save(update_fields=["email", "is_email_verified"])
+
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_verified_posthog_staff_mint_for_an_unlisted_program(
+        self, mock_authentication, mock_flag, mock_authorized, mock_mint
+    ):
+        self._mock_oauth(mock_authentication)
+        self._set_user_email("dev@posthog.com", True)
+
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL,
+            {"program": "feature-flags", "reads_refusal_reason": True},
+            headers={"authorization": "Bearer pha_test"},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert mock_mint.call_args.kwargs["product"] == "wizard:feature-flags"
+        assert mock_mint.call_args.kwargs["program"] == "feature-flags"
+
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token")
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_unlisted_program_stays_refused_for_anyone_not_verified_posthog_staff(
+        self, mock_authentication, mock_flag, mock_authorized, mock_mint
+    ):
+        refused_identities = [
+            ("dev@posthog.com", None),
+            ("dev@example.com", True),
+            ("dev@posthog.com.example.com", True),
+        ]
+        for email, is_email_verified in refused_identities:
+            with self.subTest(email=email, is_email_verified=is_email_verified):
+                self._mock_oauth(mock_authentication)
+                self._set_user_email(email, is_email_verified)
+
+                response = self.client.post(
+                    self.GATEWAY_TOKEN_URL,
+                    {"program": "feature-flags", "reads_refusal_reason": True},
+                    headers={"authorization": "Bearer pha_test"},
+                )
+
+                assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+                assert response.json()["code"] == "program_unknown"
+        mock_mint.assert_not_called()
+
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token")
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_posthog_staff_cannot_mint_for_a_malformed_program_id(
+        self, mock_authentication, mock_flag, mock_authorized, mock_mint
+    ):
+        self._set_user_email("dev@posthog.com", True)
+        for program in ("Feature Flags", "feature_flags", "wizard:integration", "a" * 65):
+            with self.subTest(program=program):
+                self._mock_oauth(mock_authentication)
+
+                response = self.client.post(
+                    self.GATEWAY_TOKEN_URL,
+                    {"program": program, "reads_refusal_reason": True},
+                    headers={"authorization": "Bearer pha_test"},
+                )
+
+                assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+                assert response.json()["code"] == "program_unknown"
+        mock_mint.assert_not_called()
+
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token")
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
