@@ -74,6 +74,15 @@ export const UnsubscribeSurveyModal = ({
     const confirmationMatches =
         !!organizationName && typedConfirmation.trim().toLowerCase() === organizationName.toLowerCase()
 
+    const confirmDisabledReason =
+        surveyResponse['$survey_response_2'].length === 0
+            ? 'Please select a reason'
+            : !textAreaNotEmpty
+              ? 'Please share your feedback'
+              : cancelsWholeSubscription && !confirmationMatches
+                ? 'Please type the organization name to confirm'
+                : undefined
+
     let action = 'Unsubscribe'
     let actionVerb = 'unsubscribing'
     if (billing?.subscription_level === 'paid') {
@@ -160,15 +169,7 @@ export const UnsubscribeSurveyModal = ({
                             </LemonButton>
                             <LemonButton
                                 type={textAreaNotEmpty ? 'primary' : 'secondary'}
-                                disabledReason={
-                                    surveyResponse['$survey_response_2'].length === 0
-                                        ? 'Please select a reason'
-                                        : !textAreaNotEmpty
-                                          ? 'Please share your feedback'
-                                          : cancelsWholeSubscription && !confirmationMatches
-                                            ? 'Please type the organization name to confirm'
-                                            : undefined
-                                }
+                                disabledReason={confirmDisabledReason}
                                 onClick={handleUnsubscribe}
                                 loading={billingLoading}
                             >
