@@ -3565,6 +3565,27 @@ class TestSurvey(APIBaseTest):
         self.assertTrue(data["next"] is not None)  # Should have next page
         self.assertTrue(data["count"] > 10)  # Total count should be more than 10
 
+    def test_pagination_over_surveys_created_at_the_same_time_returns_every_survey_once(self):
+        # `created_at` ties, so only the `id` tiebreaker gives the list a total order.
+        for index in range(5):
+            Survey.objects.create(team=self.team, name=f"Tied survey {index}", type="popover", questions=[])
+        Survey.objects.filter(team=self.team).update(created_at=datetime(2024, 1, 1, tzinfo=UTC))
+        expected_ids = {str(pk) for pk in Survey.objects.filter(team=self.team).values_list("id", flat=True)}
+
+        seen_ids: list[str] = []
+        url: str | None = f"/api/projects/{self.team.id}/surveys/?limit=2"
+        while url:
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            data = response.json()
+            seen_ids.extend(survey["id"] for survey in data["results"])
+            url = data["next"]
+
+        self.assertEqual(len(seen_ids), len(set(seen_ids)))
+        self.assertEqual(set(seen_ids), expected_ids)
+        # Tied rows fall back to descending `id`, which keeps the page boundaries stable.
+        self.assertEqual(seen_ids, sorted(seen_ids, reverse=True))
+
     def test_create_survey_in_specific_folder(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",

@@ -2288,8 +2288,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 # Search applies its own relevance ordering — don't override it.
                 queryset = self._apply_search(queryset, search)
             else:
-                # Newest first — stable order for pagination and surfaces recent surveys first in pickers.
-                queryset = queryset.order_by("-created_at")
+                # `id` breaks ties on `created_at`. Without it, tied rows can repeat or
+                # vanish across pages.
+                queryset = queryset.order_by("-created_at", "-id")
         return queryset
 
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
