@@ -2449,11 +2449,17 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
         ]
         assert rows == []
 
-    def test_object_rules_write_clears_a_rule_on_a_soft_deleted_object(self):
+    def test_object_rules_write_only_clears_rules_on_a_soft_deleted_object(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Retired", created_by=self.user, deleted=True)
         AccessControl.objects.create(
             team=self.team, resource="dashboard", resource_id=str(dashboard.id), access_level="none"
         )
+
+        res = self.client.put(
+            "/api/projects/@current/access_control_object_rules",
+            {"resource": "dashboard", "resource_id": str(dashboard.id), "access_level": "viewer"},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
 
         res = self.client.put(
             "/api/projects/@current/access_control_object_rules",
