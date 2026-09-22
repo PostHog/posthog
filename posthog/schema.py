@@ -2965,10 +2965,17 @@ class SubagentUpdateEvent(BaseModel):
     tool_call_id: str
 
 
-class SubscriptionAIContextLimit(RootModel[Literal[3]]):
-    root: Literal[3] = Field(
-        3,
-        description=("Maximum number of dashboards and insights an AI subscription may use as context."),
+class SubscriptionAIContextReadBudget(RootModel[Literal[25]]):
+    root: Literal[25] = Field(
+        25,
+        description=("Maximum number of insights one AI report delivery will read across its attached context."),
+    )
+
+
+class SubscriptionAIContextSelectionLimit(RootModel[Literal[10]]):
+    root: Literal[10] = Field(
+        10,
+        description=("Maximum number of dashboards and insights an AI subscription may attach as context."),
     )
 
 

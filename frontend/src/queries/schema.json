@@ -51959,9 +51959,14 @@
             "required": ["id", "tool_call_id", "content"],
             "type": "object"
         },
-        "SubscriptionAIContextLimit": {
-            "const": 3,
-            "description": "Maximum number of dashboards and insights an AI subscription may use as context.",
+        "SubscriptionAIContextReadBudget": {
+            "const": 25,
+            "description": "Maximum number of insights one AI report delivery will read across its attached context.",
+            "type": "number"
+        },
+        "SubscriptionAIContextSelectionLimit": {
+            "const": 10,
+            "description": "Maximum number of dashboards and insights an AI subscription may attach as context.",
             "type": "number"
         },
         "SubscriptionAIPromptMaxLength": {

@@ -50,6 +50,7 @@ from products.exports.backend.temporal.subscriptions.types import (
 )
 from products.product_analytics.backend.facade.models import Insight
 
+from ee.api.subscription import MAX_AI_SUBSCRIPTION_CONTEXTS
 from ee.api.test.base import APILicensedTest
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
@@ -3454,9 +3455,10 @@ class TestAISubscriptionAPI(APILicensedTest):
     @parameterized.expand(
         [
             (
-                "more_than_three",
+                "more_than_the_selection_cap",
                 lambda self: [
-                    {"dashboard_id": Dashboard.objects.create(team=self.team, name=str(index)).id} for index in range(4)
+                    {"dashboard_id": Dashboard.objects.create(team=self.team, name=str(index)).id}
+                    for index in range(MAX_AI_SUBSCRIPTION_CONTEXTS + 1)
                 ],
             ),
             ("duplicate", lambda self: [{"dashboard_id": self._context_dashboard().id}] * 2),
@@ -3486,6 +3488,22 @@ class TestAISubscriptionAPI(APILicensedTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"].split("__", 1)[0] == "contexts"
+
+    def test_accepts_contexts_at_the_selection_cap(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        contexts = [
+            {"dashboard_id": Dashboard.objects.create(team=self.team, name=str(index)).id}
+            for index in range(MAX_AI_SUBSCRIPTION_CONTEXTS)
+        ]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(contexts=contexts),
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert len(response.json()["contexts"]) == MAX_AI_SUBSCRIPTION_CONTEXTS
 
     def _context_dashboard(self, **kwargs) -> Dashboard:
         return Dashboard.objects.create(team=self.team, name="Context dashboard", created_by=self.user, **kwargs)

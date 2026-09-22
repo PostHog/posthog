@@ -20,7 +20,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.exports.backend.models.subscription import Subscription
-from products.exports.backend.models.subscription_context import SubscriptionContext
+from products.exports.backend.models.subscription_context import MAX_SELECTED_CONTEXTS, SubscriptionContext
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
     _TRUNCATED_CONTEXT_MARKER,
     MAX_DASHBOARD_INSIGHTS,
@@ -1265,7 +1265,7 @@ class TestResolveReportContext(NonAtomicBaseTest):
                 name=f"Context {index}",
                 query=_trends_query(f"context-{index}"),
             )
-            for index in range(4)
+            for index in range(MAX_SELECTED_CONTEXTS + 1)
         ]
         for insight in insights:
             self._add_insight_context(subscription, insight)
@@ -1276,7 +1276,7 @@ class TestResolveReportContext(NonAtomicBaseTest):
         ):
             evidence = async_to_sync(resolve_report_context)(subscription)
 
-        selected_ids = [insight.id for insight in insights[:3]]
+        selected_ids = [insight.id for insight in insights[:MAX_SELECTED_CONTEXTS]]
         assert sorted(item.id for item in evidence.insights) == sorted(selected_ids)
         assert {(item.status, item.content) for item in evidence.insights} == {
             ("failed", "Report context limit exceeded.")

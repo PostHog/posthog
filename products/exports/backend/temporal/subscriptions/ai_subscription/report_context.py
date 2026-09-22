@@ -28,7 +28,7 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.facade.auth import creator_can_query
 from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.models.subscription_context import (
-    MAX_REPORT_CONTEXTS,
+    MAX_SELECTED_CONTEXTS,
     ReportContextSelection,
     SubscriptionContext,
 )
@@ -135,7 +135,7 @@ class ReportContextEvidence:
     schema: ReportContextSchema = field(default_factory=ReportContextSchema)
 
     def __post_init__(self) -> None:
-        if len(self.dashboards) + len(self.insights) > MAX_REPORT_CONTEXTS:
+        if len(self.dashboards) + len(self.insights) > MAX_SELECTED_CONTEXTS:
             raise ValueError("Report context evidence exceeds its durable context bound")
         if len(self.formatted_evidence) > DASHBOARD_CONTEXT_CHAR_BUDGET:
             raise ValueError("Combined report context evidence exceeds its character budget")

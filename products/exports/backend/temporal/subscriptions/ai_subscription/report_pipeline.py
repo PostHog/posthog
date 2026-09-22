@@ -24,7 +24,7 @@ from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async
 
 from products.exports.backend.models.subscription import AIQueryPlanStatus
-from products.exports.backend.models.subscription_context import MAX_REPORT_CONTEXTS
+from products.exports.backend.models.subscription_context import MAX_SELECTED_CONTEXTS
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
     SPEC_INVALID_DROP_REASONS,
     ChartFailureReason,
@@ -258,7 +258,7 @@ class AiReportContexts:
     insights: tuple[AiReportInsightContext, ...] = ()
 
     def __post_init__(self) -> None:
-        if len(self.dashboards) + len(self.insights) > MAX_REPORT_CONTEXTS:
+        if len(self.dashboards) + len(self.insights) > MAX_SELECTED_CONTEXTS:
             raise ValueError("AI report contexts exceed the selection bound")
 
     @property
