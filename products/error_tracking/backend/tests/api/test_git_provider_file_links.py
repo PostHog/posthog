@@ -1,6 +1,8 @@
 import json
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -150,6 +152,29 @@ class TestGitProviderFileLinksResolve(_SourceLinksTestMixin):
 
         assert second == first
         assert len(self.api.calls) == 1
+
+    @parameterized.expand(
+        [
+            ("stored_map_read", ["../src/three.ts"], 1),
+            ("storage_outage", None, 2),
+        ]
+    )
+    def test_a_mapping_built_during_a_storage_outage_is_not_kept(
+        self, _name: str, stored_sources: list[str] | None, expected_reads: int
+    ) -> None:
+        release = self._release({"remote_url": "https://github.com/acme/app", "commit_id": COMMIT})
+        three = self._frame(self._symbol_set(), "frame-three", "../src/three.ts")
+
+        with patch(
+            "products.error_tracking.backend.logic.source_links.symbol_set_sources",
+            side_effect=[stored_sources, ["../src/three.ts"]],
+        ) as reads:
+            first = self._resolve(str(release.id), [three])
+            with time_machine.travel(datetime.now(UTC) + timedelta(minutes=6), tick=False):
+                second = self._resolve(str(release.id), [three])
+
+        assert first == second
+        assert reads.call_count == expected_reads
 
     @parameterized.expand(
         [

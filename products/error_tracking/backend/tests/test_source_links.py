@@ -1,14 +1,16 @@
+import io
 import json
 import struct
 from datetime import UTC, datetime, timedelta
 
 import time_machine
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
-import zstd
 import requests
+import zstandard
 from parameterized import parameterized
 from requests.structures import CaseInsensitiveDict
 
@@ -113,8 +115,16 @@ def _container(source: bytes, source_map: bytes, *, version: int = 2, compressed
     if version == 1:
         return header + payload
     if compressed:
-        return header + bytes([1]) + zstd.compress(payload)
+        return header + bytes([1]) + _zstd_stream(payload)
     return header + bytes([0]) + payload
+
+
+def _zstd_stream(payload: bytes) -> bytes:
+    # Cymbal writes through a streaming encoder, which leaves the content size out of the frame.
+    buffer = io.BytesIO()
+    with zstandard.ZstdCompressor().stream_writer(buffer, closefd=False) as writer:
+        writer.write(payload)
+    return buffer.getvalue()
 
 
 class TestSourceLinks(SimpleTestCase):
@@ -225,9 +235,47 @@ class TestSourceLinks(SimpleTestCase):
         with self.assertRaises(ValueError):
             read_source_map(data)
 
-    def test_source_map_sources_applies_source_root_like_the_resolver(self) -> None:
-        source_map = json.dumps({"sources": ["a.ts", "/abs.ts", "webpack://x/b.ts"], "sourceRoot": "src/"})
-        assert source_map_sources(source_map) == ["src/a.ts", "/abs.ts", "webpack://x/b.ts"]
+    @parameterized.expand(
+        [
+            ("declared_size", zstandard.compress),
+            ("streamed", _zstd_stream),
+        ]
+    )
+    def test_read_source_map_stops_a_container_that_expands_past_the_cap(self, _name: str, compress) -> None:
+        payload = struct.pack("<Q", 4096) + b"0" * 4096 + struct.pack("<Q", 2) + b"{}"
+        data = _MAGIC + struct.pack("<II", 2, 2) + bytes([1]) + compress(payload)
+
+        with patch("products.error_tracking.backend.logic.source_links.MAX_SYMBOL_SET_DECOMPRESSED_BYTES", 1024):
+            with self.assertRaises(Exception):
+                read_source_map(data)
+        assert read_source_map(data) == "{}"
+
+    @parameterized.expand(
+        [
+            (
+                "source_root",
+                {"sources": ["a.ts", "/abs.ts", "webpack://x/b.ts"], "sourceRoot": "src/"},
+                ["src/a.ts", "/abs.ts", "webpack://x/b.ts"],
+            ),
+            (
+                "indexed_map_sections",
+                {
+                    "version": 3,
+                    "sections": [
+                        {"offset": {"line": 0, "column": 0}, "map": {"sources": ["a.ts"], "sourceRoot": "web/"}},
+                        {"offset": {"line": 9, "column": 0}, "map": {"sources": ["b.ts"]}},
+                    ],
+                },
+                ["web/a.ts", "b.ts"],
+            ),
+            ("not_a_source_map", {"version": 3, "mappings": ""}, []),
+            ("root_too_long", {"sources": ["a.ts"], "sourceRoot": "r" * 4097}, []),
+            ("too_many_sources", {"sources": ["a"] * 100_001}, []),
+            ("expanded_paths_too_large", {"sources": ["a"] * 10_000, "sourceRoot": "r" * 4000}, []),
+        ]
+    )
+    def test_source_map_sources(self, _name: str, source_map: dict, expected: list[str]) -> None:
+        assert source_map_sources(json.dumps(source_map)) == expected
 
 
 @override_settings(

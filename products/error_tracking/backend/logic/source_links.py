@@ -22,9 +22,9 @@ from typing import Literal, Protocol
 from django.conf import settings
 from django.core.cache import cache
 
-import zstd
 import requests
 import structlog
+import zstandard
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError, github_request
@@ -42,7 +42,15 @@ GitProvider = Literal["github", "gitlab"]
 
 MAX_RAW_IDS_PER_REQUEST = 500
 
+# The stored container is compressed, so both the stored size and what it expands to are capped.
+# Source maps are read for their ``sources`` alone, and a real bundler writes a short ``sourceRoot``,
+# so the caps on the source list only stop a crafted map from expanding into gigabytes of paths.
 MAX_SYMBOL_SET_BYTES = 50 * 1024 * 1024
+MAX_SYMBOL_SET_DECOMPRESSED_BYTES = 100 * 1024 * 1024
+MAX_SOURCE_ROOT_LENGTH = 4096
+MAX_SOURCES = 100_000
+MAX_SOURCES_BYTES = 32 * 1024 * 1024
+MAX_SOURCE_MAP_SECTION_DEPTH = 4
 
 # A tree at a commit never changes, so it is kept for a week. Data read at a branch is trusted for
 # an hour. After that a branch tree is revalidated with its ETag, which costs no rate limit budget
@@ -285,7 +293,7 @@ def read_source_map(data: bytes) -> str:
         compression = data[offset]
         payload = bytes(data[offset + 1 :])
         if compression == _COMPRESSION_ZSTD:
-            payload = zstd.decompress(payload)
+            payload = _decompress(payload)
         elif compression != _COMPRESSION_NONE:
             raise ValueError(f"Unknown symbol set compression {compression}")
     else:
@@ -297,20 +305,55 @@ def read_source_map(data: bytes) -> str:
     return payload[start : start + map_length].decode("utf-8")
 
 
+def _decompress(payload: bytes) -> bytes:
+    # A zstd frame may declare its content size, and the decompressor then allocates that much
+    # regardless of ``max_output_size``, so the declared size is checked first. A streamed frame
+    # declares none, and the output cap stops it instead.
+    if zstandard.frame_content_size(payload) > MAX_SYMBOL_SET_DECOMPRESSED_BYTES:
+        raise ValueError("Symbol set expands past the permitted size")
+    return zstandard.ZstdDecompressor().decompress(payload, max_output_size=MAX_SYMBOL_SET_DECOMPRESSED_BYTES)
+
+
 def source_map_sources(source_map: str) -> list[str]:
-    """The ``sources`` of a source map with ``sourceRoot`` applied the way the resolver applies it."""
-    parsed = json.loads(source_map)
-    if not isinstance(parsed, dict) or not isinstance(parsed.get("sources"), list):
-        return []
-    root = parsed.get("sourceRoot")
-    root = root.rstrip("/") if isinstance(root, str) else ""
-    sources = [source for source in parsed["sources"] if isinstance(source, str) and source]
-    if not root:
-        return sources
-    return [source if source.startswith("/") or "://" in source else f"{root}/{source}" for source in sources]
+    """The ``sources`` of a source map with ``sourceRoot`` applied the way the resolver applies it.
+
+    An indexed map keeps its sources in ``sections[].map``, each with its own root. Returns an
+    empty list when the map is not a source map or when a cap is passed, since the frames' own
+    sources still give the matcher something to work with.
+    """
+    sources: list[str] = []
+    total_length = 0
+    maps = [json.loads(source_map)]
+    for _ in range(MAX_SOURCE_MAP_SECTION_DEPTH + 1):
+        sections: list[object] = []
+        for parsed in maps:
+            if not isinstance(parsed, dict):
+                continue
+            root = parsed.get("sourceRoot")
+            root = root.rstrip("/") if isinstance(root, str) else ""
+            if len(root) > MAX_SOURCE_ROOT_LENGTH:
+                return []
+            for source in parsed.get("sources") or []:
+                if not isinstance(source, str) or not source:
+                    continue
+                keep_as_is = not root or source.startswith("/") or "://" in source
+                total_length += len(source) if keep_as_is else len(root) + 1 + len(source)
+                if len(sources) >= MAX_SOURCES or total_length > MAX_SOURCES_BYTES:
+                    return []
+                sources.append(source if keep_as_is else f"{root}/{source}")
+            sections.extend(section.get("map") for section in parsed.get("sections") or [] if isinstance(section, dict))
+        if not sections:
+            break
+        maps = sections
+    return sources
 
 
-def symbol_set_sources(symbol_set: ErrorTrackingSymbolSet) -> list[str]:
+def symbol_set_sources(symbol_set: ErrorTrackingSymbolSet) -> list[str] | None:
+    """The sources of the stored map, or None when storage could not be read.
+
+    A map that is missing, too large or malformed gives an empty list, because reading it again
+    gives the same answer. A storage error gives None so the caller does not keep the result.
+    """
     if not symbol_set.storage_ptr:
         return []
     try:
@@ -319,11 +362,15 @@ def symbol_set_sources(symbol_set: ErrorTrackingSymbolSet) -> list[str]:
             logger.info("source_links_symbol_set_too_large", symbol_set_id=str(symbol_set.id))
             return []
         data = object_storage.read_bytes(symbol_set.storage_ptr)
-        if not data:
-            return []
-        return source_map_sources(read_source_map(data))
     except Exception:
         logger.warning("source_links_symbol_set_unreadable", symbol_set_id=str(symbol_set.id), exc_info=True)
+        return None
+    if not data:
+        return []
+    try:
+        return source_map_sources(read_source_map(data))
+    except Exception:
+        logger.info("source_links_symbol_set_rejected", symbol_set_id=str(symbol_set.id), exc_info=True)
         return []
 
 
@@ -669,10 +716,15 @@ def github_paths_for_symbol_set(
     tree = github_tree(api, target)
     if tree is None:
         return {}
-    sources = list(dict.fromkeys([*symbol_set_sources(symbol_set), *frame_sources]))
+    stored_sources = symbol_set_sources(symbol_set)
+    sources = list(dict.fromkeys([*(stored_sources or []), *frame_sources]))
     matched = match_sources(tree, sources)
     mapping: dict[str, str | None] = {source: matched.get(source) for source in sources}
-    cache.set(key, mapping, PINNED_TTL_SECONDS if target.pinned else BRANCH_TTL_SECONDS)
+    if stored_sources is None:
+        ttl = NEGATIVE_TTL_SECONDS
+    else:
+        ttl = PINNED_TTL_SECONDS if target.pinned else BRANCH_TTL_SECONDS
+    cache.set(key, mapping, ttl)
     return mapping
 
 
