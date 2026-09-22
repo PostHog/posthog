@@ -31,6 +31,8 @@ from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Literal, TypeVar
 
+from django.conf import settings
+
 import grpc
 import dagster
 import psycopg2
@@ -945,7 +947,7 @@ SCHEDULED_RUN_CONFIG = {
 # queues more rows than one run can drain.
 person_pg_cleanup_drain_schedule = dagster.ScheduleDefinition(
     job=person_pg_cleanup_drain_job,
-    cron_schedule="0 2 * * *",
+    cron_schedule=settings.PERSON_PG_CLEANUP_DRAIN_SCHEDULE,
     execution_timezone="UTC",
     name="person_pg_cleanup_drain_schedule",
     run_config=SCHEDULED_RUN_CONFIG,
