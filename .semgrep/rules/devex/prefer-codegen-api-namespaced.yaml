@@ -987,6 +987,8 @@ rules:
       pattern-either:
           - pattern: api.conversations.$METHOD(...)
           - pattern: api.conversations.$MEMBER.$METHOD(...)
+          - pattern: api.coreMemory.$METHOD(...)
+          - pattern: api.coreMemory.$MEMBER.$METHOD(...)
       paths:
           include:
               - '/products/posthog_ai/frontend/'

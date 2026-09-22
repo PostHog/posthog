@@ -28,7 +28,8 @@ const f = await api.errorTracking.symbolSets.bulkDelete(ids)
 // ok: prefer-codegen-api-namespaced-signals
 const g = await api.signalTeamConfig.get()
 
-// ok: prefer-codegen-api-namespaced-signals
+// A namespace whose routes the generated clients gained is enforced from then on.
+// ruleid: prefer-codegen-api-namespaced-posthog_ai
 const h = await api.coreMemory.get()
 
 // The bare verbs are the other rule's job.
