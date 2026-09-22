@@ -64,6 +64,8 @@ class TestOauthIntegrationModel(BaseTest):
         "LINKEDIN_APP_CLIENT_SECRET": "linkedin-client-secret",
         "TIKTOK_ADS_CLIENT_ID": "tiktok-app-id",
         "TIKTOK_ADS_CLIENT_SECRET": "tiktok-secret",
+        "LINEAR_APP_CLIENT_ID": "linear-client-id",
+        "LINEAR_APP_CLIENT_SECRET": "linear-client-secret",
     }
 
     def create_integration(
@@ -146,6 +148,17 @@ class TestOauthIntegrationModel(BaseTest):
                 url
                 == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fadwords+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&redirect_uri=https%3A%2F%2Flocalhost%3A8010%2Fintegrations%2Fgoogle-ads%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest%26token%3Dstate_token&access_type=offline&prompt=consent"
             )
+
+    def test_linear_authorize_url_forces_the_approval_screen(self):
+        # Linear only shows the workspace switcher on its approval screen, and it skips that screen
+        # for an already authorized app. Without the prompt a person with several workspaces always
+        # lands back on the first one.
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("linear", token="state_token", next="/projects/test")
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+
+            assert params["prompt"] == "consent"
+            assert params["actor"] == "application"
 
     def test_authorize_url_google_calendar(self):
         with self.settings(**self.mock_settings):
