@@ -60,6 +60,8 @@ export function newDestinationForm(type: CreatableDestinationType = DEFAULT_TYPE
 export interface destinationModalLogicValues {
     integrations: IntegrationType[] | null // integrationsLogic
     currentTeamId: number | null // teamLogic
+    availableIntegrations: IntegrationType[]
+    definition: WarehouseDestinationDefinition
     destinationForm: DestinationFormValues
     destinationFormAllErrors: Record<string, any>
     destinationFormChanged: boolean
@@ -74,8 +76,6 @@ export interface destinationModalLogicValues {
     isDestinationFormSubmitting: boolean
     isDestinationFormValid: boolean
     isOpen: boolean
-    availableIntegrations: IntegrationType[]
-    definition: WarehouseDestinationDefinition
     showDestinationFormErrors: boolean
 }
 
@@ -94,12 +94,6 @@ export interface destinationModalLogicActions {
     openForEdit: (destination: ExternalDataDestinationApi) => {
         destination: ExternalDataDestinationApi
     }
-    setDestinationType: (type: CreatableDestinationType) => {
-        type: CreatableDestinationType
-    }
-    setIntegrationKind: (kind: IntegrationKind) => {
-        kind: IntegrationKind
-    }
     resetDestinationForm: (values?: DestinationFormValues) => {
         values?: DestinationFormValues
     }
@@ -115,6 +109,56 @@ export interface destinationModalLogicActions {
     }
     setDestinationFormValues: (values: DeepPartial<DestinationFormValues>) => {
         values: DeepPartial<DestinationFormValues>
+    }
+    setDestinationType: (type: CreatableDestinationType) => {
+        type: CreatableDestinationType
+    }
+    setIntegrationKind: (kind: IntegrationKind) => {
+        kind:
+            | 'apns'
+            | 'aws-redshift'
+            | 'aws-s3'
+            | 'azure-blob'
+            | 'bing-ads'
+            | 'clickup'
+            | 'customerio-app'
+            | 'customerio-track'
+            | 'customerio-webhook'
+            | 'databricks'
+            | 'email'
+            | 'firebase'
+            | 'github'
+            | 'gitlab'
+            | 'google-ads'
+            | 'google-analytics'
+            | 'google-calendar'
+            | 'google-cloud-service-account'
+            | 'google-cloud-storage'
+            | 'google-pubsub'
+            | 'google-search-console'
+            | 'google-sheets'
+            | 'helpscout'
+            | 'hubspot'
+            | 'instagram'
+            | 'intercom'
+            | 'jira'
+            | 'linear'
+            | 'linkedin-ads'
+            | 'meta-ads'
+            | 'pardot'
+            | 'pinterest-ads'
+            | 'postgresql'
+            | 'reddit-ads'
+            | 's3-compatible'
+            | 'salesforce'
+            | 'slack'
+            | 'snapchat'
+            | 'snowflake'
+            | 'stripe'
+            | 'tiktok-ads'
+            | 'twilio'
+            | 'vercel'
+            | 'youtube-analytics'
     }
     submitDestinationForm: () => {
         value: boolean
@@ -141,8 +185,8 @@ export interface destinationModalLogicActions {
 export interface destinationModalLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        availableIntegrations: (integrations: any, destinationForm: any) => IntegrationType[]
         definition: (destinationForm: any) => WarehouseDestinationDefinition
+        availableIntegrations: (integrations: any, destinationForm: any) => IntegrationType[]
         editingIntegration: (editing: any, integrations: any) => IntegrationType | null
     }
 }
