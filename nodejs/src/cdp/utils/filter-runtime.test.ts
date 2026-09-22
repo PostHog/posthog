@@ -40,6 +40,8 @@ describe('filter-runtime', () => {
         expect(callables).not.toContain('arrayMap')
         expect(functions).toEqual(expect.objectContaining({ lower: [1, 1], arrayMap: [2, 2], sortableSemver: [1, 1] }))
         expect(functions).not.toHaveProperty('sleep')
+        expect(callables).not.toContain('print')
+        expect(functions).not.toHaveProperty('print')
     })
 
     it('agrees with what the VM does when asked', async () => {

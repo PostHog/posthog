@@ -449,11 +449,6 @@ class BytecodeCompiler(Visitor):
         else:
             raise QueryError(f"Constant type `{type(node.value)}` is not supported")
 
-    def _is_known_stl_function(self, name: str) -> bool:
-        if self.context.allowed_functions is not None:
-            return name in self.context.allowed_functions
-        return name in STL or name in BYTECODE_STL
-
     def _check_call_arity(self, node: ast.Call, arg_count: int) -> None:
         # The VM rejects a wrong argument count at run time, so a caller that declares its functions
         # gets the same check here, where the person writing the expression can see it.
@@ -474,7 +469,25 @@ class BytecodeCompiler(Visitor):
             message=f"Hog function `{node.name}` takes {expected} arguments, got {arg_count}",
         )
 
+    def _names_a_variable(self, name: str) -> bool:
+        return any(local.name == name for local in self.locals) or self._resolve_upvalue(name) != -1
+
+    def _check_declared_call(self, node: ast.Call) -> None:
+        # Runs before the intrinsics below lower `if`, `sql` and the like, which otherwise never reach
+        # the generic check and would accept an argument count or a name the runtime does not have.
+        if self.context.allowed_functions is None or self._names_a_variable(node.name):
+            return
+        if node.name in self.supported_functions:
+            return
+        if node.name not in self.context.allowed_functions:
+            self.context.add_error(
+                start=node.start, end=node.end, message=f"Hog function `{node.name}` is not implemented"
+            )
+            return
+        self._check_call_arity(node, len(node.params if node.params is not None else node.args))
+
     def visit_call(self, node: ast.Call):
+        self._check_declared_call(node)
         if node.name == "not" and len(node.args) == 1:
             return [*self.visit(node.args[0]), Operation.NOT]
         if node.name == "and" and len(node.args) > 1:
@@ -566,8 +579,10 @@ class BytecodeCompiler(Visitor):
                     self.context.add_notice(
                         start=node.start, end=node.end, message="Global variable: " + str(node.name)
                     )
-                elif node.name in self.supported_functions or self._is_known_stl_function(node.name):
-                    self._check_call_arity(node, len(args))
+                elif self.context.allowed_functions is not None:
+                    pass  # checked by _check_declared_call
+                elif node.name in self.supported_functions or node.name in STL or node.name in BYTECODE_STL:
+                    pass
                 else:
                     self.context.add_error(
                         start=node.start, end=node.end, message=f"Hog function `{node.name}` is not implemented"
@@ -585,6 +600,19 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit_expr_call(self, node: ast.ExprCall):
+        # `person.properties.email.startsWith('a')` parses as a call on a value. The runtime resolves
+        # the value, which is never a function, so a caller with a declared contract refuses it.
+        if (
+            self.context.allowed_functions is not None
+            and isinstance(node.expr, ast.Field)
+            and not self._names_a_variable(str(node.expr.chain[0]))
+        ):
+            self.context.add_error(
+                start=node.start,
+                end=node.end,
+                message=f"`{'.'.join(str(part) for part in node.expr.chain)}` is a value, not a function. "
+                f"Write the function name first, as in lower(properties.name)",
+            )
         response = []
         for expr in node.args:
             response.extend(self.visit(expr))

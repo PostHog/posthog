@@ -221,6 +221,27 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             response = compile_filters_bytecode(filters={"properties": [{"type": "hogql", "key": key}]}, team=self.team)
             assert expected in (response.get("bytecode_error") or ""), key
 
+    def test_filters_reject_what_the_compiler_lowers_before_the_generic_check(self):
+        for key, expected in (
+            ("if(true, true)", "`if` takes exactly 3 arguments, got 2"),
+            ("if(true, true, false, $virt_is_bot)", "`if` takes exactly 3 arguments, got 4"),
+            ("sql(event) = 1", "`sql` is not implemented"),
+            ("print(person.properties.email) = ''", "`print` is not implemented"),
+            (
+                "person.properties.email.startsWith('a')",
+                "`person.properties.email.startsWith` is a value, not a function",
+            ),
+            ("(event)()", "`event` is a value, not a function"),
+        ):
+            response = compile_filters_bytecode(filters={"properties": [{"type": "hogql", "key": key}]}, team=self.team)
+            assert expected in (response.get("bytecode_error") or ""), key
+
+        # A lambda parameter is a variable, and a variable that holds a function can be called.
+        allowed = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "arrayMap(f -> f(1), [x -> x])[1] = 1"}]}, team=self.team
+        )
+        assert "bytecode_error" not in allowed
+
     def test_filters_allow_group_globals(self):
         response = compile_filters_bytecode(
             filters={

@@ -84,13 +84,15 @@ export function describeFilterRuntime(): FilterRuntime {
     // ASYNC_STL is a separate table today, so this removes nothing. It stays because GET_GLOBAL checks
     // ASYNC_STL first: a name added to both would be async at runtime, and the filter path allows no
     // async steps, so it must not be offered as a callable.
-    const notAsync = (name: string): boolean => !Object.hasOwn(ASYNC_STL, name)
-    const callables = Object.keys(STL).filter(notAsync).sort()
+    // print writes to the process's stdout. The function body path replaces it with a logger; the
+    // filter path runs the standard library as is, so a filter must not be able to reach it.
+    const offered = (name: string): boolean => !Object.hasOwn(ASYNC_STL, name) && name !== 'print'
+    const callables = Object.keys(STL).filter(offered).sort()
     const functions: Record<string, [number, number | null]> = {}
-    for (const name of Object.keys(STL).filter(notAsync).sort()) {
+    for (const name of Object.keys(STL).filter(offered).sort()) {
         functions[name] = [STL[name].minArgs ?? 0, STL[name].maxArgs ?? null]
     }
-    for (const name of Object.keys(BYTECODE_STL).filter(notAsync).sort()) {
+    for (const name of Object.keys(BYTECODE_STL).filter(offered).sort()) {
         // The VM checks a bytecode function for exactly its declared parameters.
         functions[name] ??= [BYTECODE_STL[name][0].length, BYTECODE_STL[name][0].length]
     }
