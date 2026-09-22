@@ -3,7 +3,7 @@
 import json
 import time
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, MutableSequence
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from enum import Enum
@@ -70,6 +70,10 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
 )
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
+from products.experiments.backend.metric_conversion_window import (
+    UNITLESS_CONVERSION_WINDOW_ERROR,
+    first_unitless_conversion_window,
+)
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
@@ -885,6 +889,27 @@ class ExperimentService:
                     suffix = f" {hint}" if hint else ""
                     raise ValidationError(f"Invalid metric at index {i}: {safe_errors}.{suffix}")
 
+    @classmethod
+    def validate_conversion_window_units(
+        cls,
+        metrics: list | None,
+        unmatched_stored_metrics: MutableSequence[Any],
+        *,
+        section: str,
+    ) -> None:
+        """Reject a conversion window that arrives without the unit that gives it meaning.
+
+        Deliberately not part of `validate_experiment_metrics`: that one also runs over stored
+        metrics (the serializer field validators on every write, and the copy path), and stored
+        metrics predate this rule, so a check there would make those experiments uneditable.
+
+        Consumes the stored metrics it matches, so calling it for both sections with one list
+        holds each stored metric to the one incoming metric it excuses.
+        """
+        index = first_unitless_conversion_window(metrics, unmatched_stored_metrics)
+        if index is not None:
+            raise ValidationError(f"Invalid metric at index {index} in {section}: {UNITLESS_CONVERSION_WINDOW_ERROR}")
+
     VALID_STATS_METHODS = {"bayesian", "frequentist"}
 
     EXPERIMENT_ORDER_ALLOWLIST = {
@@ -1294,6 +1319,11 @@ class ExperimentService:
         running_time_calculation = running_time_calculation or {}
         self.validate_experiment_metrics(metrics)
         self.validate_experiment_metrics(metrics_secondary)
+        if creation_mode == "new":
+            # Duplicate and copy carry the source's stored metrics, so cloning must not be the
+            # operation that rejects a window saved before this rule.
+            self.validate_conversion_window_units(metrics, [], section="metrics")
+            self.validate_conversion_window_units(metrics_secondary, [], section="metrics_secondary")
         self.validate_metric_action_ids(metrics, self.team.id)
         self.validate_metric_action_ids(metrics_secondary, self.team.id)
         if not allow_unknown_events:
@@ -3591,6 +3621,23 @@ class ExperimentService:
         persisted_event_names, persisted_action_ids = self._extract_entity_nodes(
             [*(experiment.metrics or []), *(experiment.metrics_secondary or [])]
         )
+
+        # Conversion windows follow the same rule, matched per metric by the uuid as sent, and
+        # before _assign_uuids_to_metrics replaces it. Only sections this update rewrites count as
+        # stored: a uuid reused from a section it leaves alone is a copy, and is regenerated too.
+        # One list spans both calls, so a stored metric sent to both sections excuses only one.
+        stored_metrics_for_match = [
+            metric
+            for field in ("metrics", "metrics_secondary")
+            if field in update_data
+            for metric in (getattr(experiment, field) or [])
+        ]
+        if "metrics" in update_data:
+            self.validate_conversion_window_units(update_data["metrics"], stored_metrics_for_match, section="metrics")
+        if "metrics_secondary" in update_data:
+            self.validate_conversion_window_units(
+                update_data["metrics_secondary"], stored_metrics_for_match, section="metrics_secondary"
+            )
 
         if "metrics" in update_data:
             update_data["metrics"] = self._assign_uuids_to_metrics(update_data["metrics"], seen=seen_metric_uuids)
