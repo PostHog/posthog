@@ -66,6 +66,13 @@ MAX_SOURCES = 100_000
 MAX_SOURCES_BYTES = 32 * 1024 * 1024
 MAX_SOURCE_MAP_SECTION_DEPTH = 4
 
+# Choosing an anchor places every source under every candidate directory, so its cost is the
+# product of two numbers the map controls. A map that stays under the caps above can still make
+# that product large enough to hold a web worker for minutes, so the placements of one match are
+# capped as well. A real bundle stays far below the cap, because it names each source once and
+# its relative paths exist in few directories.
+MAX_ANCHOR_PLACEMENTS = 5_000_000
+
 # A tree at a commit never changes, so it is kept for a week. Data read at a branch is trusted for
 # an hour. After that a branch tree is revalidated with its ETag, which costs no rate limit budget
 # when the branch did not move. A negative result is kept briefly so repeated page loads of an
@@ -220,48 +227,60 @@ def match_sources(tree: RepositoryTree, sources: Iterable[str]) -> dict[str, str
     context), so they are placed as a set: every directory that holds one of the sources with the
     most common hop count is a candidate anchor, and the candidate under which the most sources
     exist wins. A source that does not fit under the winner falls back to a unique suffix match.
+
+    Raw sources that reduce to the same path are scored together, and scoring stops after
+    ``MAX_ANCHOR_PLACEMENTS`` placements, so a map with many sources cannot hold the worker.
     """
-    parsed = {raw: source for raw in dict.fromkeys(sources) if (source := parse_source(raw)) is not None}
-    if not parsed or not tree.paths:
+    by_path: dict[SourcePath, list[str]] = defaultdict(list)
+    for raw in dict.fromkeys(sources):
+        if (source := parse_source(raw)) is not None:
+            by_path[source].append(raw)
+    if not by_path or not tree.paths:
         return {}
 
     hop_counts: dict[int, int] = defaultdict(int)
-    for source in parsed.values():
-        hop_counts[source.hops] += 1
+    for source, raws in by_path.items():
+        hop_counts[source.hops] += len(raws)
     anchor_hops = min(hop_counts, key=lambda hops: (-hop_counts[hops], hops))
     candidates: set[str] = set()
-    for source in parsed.values():
+    for source in by_path:
         if source.hops != anchor_hops:
             continue
         for path in tree.paths_ending_with(source.relative):
             candidates.add(path[: -len(source.relative)].rstrip("/"))
 
-    best_anchor: str | None = None
-    best_score = 0
     # Shallower anchors first, so a tie between identical package layouts resolves the same way every time.
-    for anchor in sorted(candidates, key=lambda candidate: (candidate.count("/") if candidate else -1, candidate)):
-        score = sum(1 for source in parsed.values() if _place(anchor, anchor_hops, source) in tree)
+    ordered = sorted(candidates, key=lambda candidate: (candidate.count("/") if candidate else -1, candidate))
+    scored = max(1, MAX_ANCHOR_PLACEMENTS // len(by_path))
+    if len(ordered) > scored:
+        logger.warning("source_links_anchor_scoring_capped", candidates=len(ordered), sources=len(by_path))
+    best_anchor: list[str] | None = None
+    best_score = 0
+    for anchor in ordered[:scored]:
+        segments = anchor.split("/") if anchor else []
+        score = sum(len(raws) for source, raws in by_path.items() if _place(segments, anchor_hops, source) in tree)
         if score > best_score:
-            best_anchor, best_score = anchor, score
+            best_anchor, best_score = segments, score
 
     matched: dict[str, str] = {}
-    for raw, source in parsed.items():
+    for source, raws in by_path.items():
         placed = _place(best_anchor, anchor_hops, source) if best_anchor is not None else None
-        if placed is not None and placed in tree:
+        if placed is None or placed not in tree:
+            placed = _unique_suffix_match(tree, source)
+        if placed is None:
+            continue
+        for raw in raws:
             matched[raw] = placed
-        elif (fallback := _unique_suffix_match(tree, source)) is not None:
-            matched[raw] = fallback
     return matched
 
 
-def _place(anchor: str, anchor_hops: int, source: SourcePath) -> str | None:
-    """The path of ``source`` when sources with ``anchor_hops`` hops start at ``anchor``.
+def _place(anchor_segments: list[str], anchor_hops: int, source: SourcePath) -> str | None:
+    """The path of ``source`` when sources with ``anchor_hops`` hops start at the anchor directory.
 
     A source with fewer hops than the anchor group starts somewhere below the anchor, in a
     directory the map does not name, so it cannot be placed here.
     """
     extra_hops = source.hops - anchor_hops
-    anchor_segments = anchor.split("/") if anchor else []
     if extra_hops < 0 or extra_hops > len(anchor_segments):
         return None
     base = anchor_segments[: len(anchor_segments) - extra_hops]

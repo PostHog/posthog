@@ -225,6 +225,19 @@ class TestSourceLinks(SimpleTestCase):
         tree = RepositoryTree(["packages/web/src/a.ts", "packages/api/src/a.ts"])
         assert match_sources(tree, ["/home/ci/build/a.ts"]) == {}
 
+    def test_match_sources_scores_fewer_anchors_past_the_placement_cap(self) -> None:
+        tree = RepositoryTree([f"packages/p{index}/src/index.ts" for index in range(4)] + ["packages/p3/src/late.ts"])
+        sources = ["../src/index.ts", "../src/late.ts"]
+        assert match_sources(tree, sources) == {
+            "../src/index.ts": "packages/p3/src/index.ts",
+            "../src/late.ts": "packages/p3/src/late.ts",
+        }
+        with patch("products.error_tracking.backend.logic.source_links.MAX_ANCHOR_PLACEMENTS", 2):
+            assert match_sources(tree, sources) == {
+                "../src/index.ts": "packages/p0/src/index.ts",
+                "../src/late.ts": "packages/p3/src/late.ts",
+            }
+
     def test_match_sources_ignores_virtual_sources(self) -> None:
         tree = RepositoryTree(["src/a.ts"])
         assert match_sources(tree, ["webpack://app/webpack/runtime/x", "webpack://app/./src/a.ts"]) == {
