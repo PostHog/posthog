@@ -24,6 +24,11 @@ pub(super) async fn resolve_distinct_ids(
     let team_ids: Vec<i32> = keys.iter().map(|(t, _)| *t as i32).collect();
     let distinct_ids: Vec<String> = keys.iter().map(|(_, d)| d.clone()).collect();
 
+    // The person table is hash-partitioned on team_id. The join alone hands the
+    // planner no team_id it can evaluate before execution, so without the ANY
+    // predicate every call opens and locks every partition and its indexes,
+    // which exhausts the 16 fast-path lock slots and pushes each lock through
+    // the shared lock manager (LWLock:LockManager under load).
     let sql = format!(
         r#"
         SELECT k.team_id AS key_team_id, k.distinct_id AS key_distinct_id,
@@ -34,6 +39,7 @@ pub(super) async fn resolve_distinct_ids(
          AND pdi.is_deleted = false
         JOIN {person_table} p
           ON p.team_id = pdi.team_id AND p.id = pdi.person_id
+         AND p.team_id = ANY($1::int[])
          AND p.is_deleted = false
         "#,
         person_cols = person_columns("p"),
