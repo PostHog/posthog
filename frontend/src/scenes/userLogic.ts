@@ -23,6 +23,7 @@ import { urls } from './urls'
 export interface UserDetailsFormType {
     first_name: string
     email: string
+    current_password: string
 }
 
 type DigestProjectSettingKey =
@@ -87,6 +88,7 @@ export interface userLogicValues {
     userDetailsErrors: DeepPartialMap<Record<string, any>, ValidationErrorType>
     userDetailsHasErrors: boolean
     userDetailsManualErrors: Record<string, any>
+    userDetailsNeedsCurrentPassword: boolean
     userDetailsTouched: boolean
     userDetailsTouches: Record<string, boolean>
     userDetailsValidationErrors: DeepPartialMap<Record<string, any>, ValidationErrorType>
@@ -410,6 +412,7 @@ export interface userLogicMeta {
         otherOrganizations: (user: UserType | null) => OrganizationBasicType[]
         themeMode: (user: UserType | null, optimisticThemeMode: UserTheme | null) => UserTheme
         isUserNonTechnical: (user: UserType | null) => boolean
+        userDetailsNeedsCurrentPassword: (user: UserType | null, userDetails: UserDetailsFormType) => boolean
     }
 }
 
@@ -470,9 +473,9 @@ export const userLogic = kea<userLogicType>([
         updatePipelineNotification: (pipelineId: string, enabled: boolean) => ({ pipelineId, enabled }),
         updatePipelineNotificationForAll: (pipelineIds: string[], enabled: boolean) => ({ pipelineIds, enabled }),
     })),
-    forms(({ actions }) => ({
+    forms(({ actions, values }) => ({
         userDetails: {
-            errors: ({ first_name, email }) => ({
+            errors: ({ first_name, email, current_password }) => ({
                 first_name: !first_name
                     ? 'You need to have a name.'
                     : first_name.length > 150
@@ -483,6 +486,8 @@ export const userLogic = kea<userLogicType>([
                     : email.length > 254
                       ? 'This email is too long. Please keep it under 255 characters.'
                       : null,
+                current_password:
+                    values.userDetailsNeedsCurrentPassword && !current_password ? 'Enter your current password.' : null,
             }),
             submit: (user) => {
                 actions.updateUser(user)
@@ -575,11 +580,13 @@ export const userLogic = kea<userLogicType>([
                     first_name: user?.first_name || '',
                     last_name: user?.last_name || '',
                     email: user?.email || '',
+                    current_password: '',
                 }),
                 updateUserSuccess: (_, { user }) => ({
                     first_name: user?.first_name || '',
                     last_name: user?.last_name || '',
                     email: user?.email || '',
+                    current_password: '',
                 }),
             },
         ],
@@ -972,6 +979,13 @@ export const userLogic = kea<userLogicType>([
         },
     })),
     selectors({
+        userDetailsNeedsCurrentPassword: [
+            (s) => [s.user, s.userDetails],
+            (user: UserType | null, userDetails: UserDetailsFormType): boolean =>
+                !!user?.has_password &&
+                !!userDetails.email &&
+                userDetails.email.trim().toLowerCase() !== user.email.toLowerCase(),
+        ],
         hasAvailableFeature: [
             (s) => [s.user],
             (user: UserType | null) => {

@@ -9,7 +9,8 @@ import { EmailChangeVerificationModal } from 'scenes/settings/user/EmailChangeVe
 import { userLogic } from 'scenes/userLogic'
 
 export function UserDetails(): JSX.Element {
-    const { userLoading, isUserDetailsSubmitting, userDetailsChanged, user } = useValues(userLogic)
+    const { userLoading, isUserDetailsSubmitting, userDetailsChanged, userDetailsNeedsCurrentPassword, user } =
+        useValues(userLogic)
     const { cancelEmailChangeRequest } = useActions(userLogic)
     const { openModal } = useActions(emailChangeVerificationLogic)
 
@@ -51,6 +52,22 @@ export function UserDetails(): JSX.Element {
                         disabled={userLoading}
                     />
                 </LemonField>
+                {userDetailsNeedsCurrentPassword && (
+                    <LemonField
+                        name="current_password"
+                        label="Current password"
+                        help="Enter your current password to change your email."
+                    >
+                        <LemonInput
+                            autoComplete="current-password"
+                            type="password"
+                            className="ph-ignore-input"
+                            data-attr="settings-update-email-current-password"
+                            placeholder="••••••••••"
+                            disabled={userLoading}
+                        />
+                    </LemonField>
+                )}
                 {user?.pending_email && (
                     <div className="flex flex-row gap-2">
                         <div className="text-danger text-xs font-medium mt-1.25">

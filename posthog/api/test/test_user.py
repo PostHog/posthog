@@ -914,6 +914,7 @@ class TestUserAPI(APIBaseTest):
             "/api/users/@me/",
             {
                 "email": "beta@example.com",
+                "current_password": self.CONFIG_PASSWORD,
             },
         )
         response_data = response.json()
@@ -944,6 +945,7 @@ class TestUserAPI(APIBaseTest):
                     "/api/users/@me/",
                     {
                         "email": "beta@example.com",
+                        "current_password": self.CONFIG_PASSWORD,
                     },
                 )
             response_data = response.json()
@@ -975,6 +977,70 @@ class TestUserAPI(APIBaseTest):
                 "alpha@example.com",
                 "beta@example.com",
             )
+
+    @parameterized.expand(
+        [
+            ("email", {"email": "beta@example.com", "current_password": "testpassword12345"}, 403),
+            ("password", {"password": "a_new_password", "current_password": "testpassword12345"}, 403),
+            ("profile_field", {"first_name": "Newname"}, 200),
+        ]
+    )
+    @patch("posthog.api.email_verification.send_email_verification_code")
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    def test_token_auth_cannot_change_email_or_password(
+        self, _name: str, payload: dict, expected_status: int, _mock_is_email_available, mock_send_code
+    ):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+        key = self.create_personal_api_key_with_scopes(["user:write"])
+        self.client.logout()
+
+        response = self.client.patch(
+            "/api/users/@me/", payload, content_type="application/json", HTTP_AUTHORIZATION=f"Bearer {key}"
+        )
+
+        assert response.status_code == expected_status, response.content
+        self.user.refresh_from_db()
+        assert self.user.email == "alpha@example.com"
+        assert self.user.pending_email is None
+        assert self.user.check_password(self.CONFIG_PASSWORD)
+        mock_send_code.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("missing_password", True, {}, 400),
+            ("wrong_password", True, {"current_password": "not-my-password"}, 400),
+            ("no_usable_password", False, {}, 200),
+        ]
+    )
+    @patch("posthog.api.email_verification.send_email_verification_code")
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    def test_email_change_requires_current_password_when_user_has_one(
+        self,
+        _name: str,
+        has_password: bool,
+        extra: dict,
+        expected_status: int,
+        _mock_is_email_available,
+        mock_send_code,
+    ):
+        self.user.email = "alpha@example.com"
+        if not has_password:
+            self.user.set_unusable_password()
+        self.user.save()
+        self.client.force_login(self.user)
+
+        response = self.client.patch("/api/users/@me/", {"email": "beta@example.com", **extra})
+
+        assert response.status_code == expected_status, response.content
+        self.user.refresh_from_db()
+        if expected_status == 200:
+            assert self.user.pending_email == "beta@example.com"
+            mock_send_code.assert_called_once()
+        else:
+            assert response.json()["attr"] == "current_password"
+            assert self.user.pending_email is None
+            mock_send_code.assert_not_called()
 
     def test_email_change_rejected_when_new_email_is_plus_addressed(self):
         self.user.email = "alpha@example.com"
@@ -1019,7 +1085,9 @@ class TestUserAPI(APIBaseTest):
         self.user.email = "alpha@example.com"
         self.user.save()
 
-        response = self.client.patch("/api/users/@me/", {"email": "Beta.Gamma@Example.COM"})
+        response = self.client.patch(
+            "/api/users/@me/", {"email": "Beta.Gamma@Example.COM", "current_password": self.CONFIG_PASSWORD}
+        )
 
         assert response.status_code == status.HTTP_200_OK
         self.user.refresh_from_db()
@@ -1031,7 +1099,9 @@ class TestUserAPI(APIBaseTest):
         self.user.email = "alpha@example.com"
         self.user.save()
 
-        response = self.client.patch("/api/users/@me/", {"email": "Beta@Example.com"})
+        response = self.client.patch(
+            "/api/users/@me/", {"email": "Beta@Example.com", "current_password": self.CONFIG_PASSWORD}
+        )
 
         assert response.status_code == status.HTTP_200_OK
         self.user.refresh_from_db()
@@ -1047,7 +1117,9 @@ class TestUserAPI(APIBaseTest):
         self.user.email = "bill@josé.example"
         self.user.save()
 
-        response = self.client.patch("/api/users/@me/", {"email": "bill@JOSÉ.example"})
+        response = self.client.patch(
+            "/api/users/@me/", {"email": "bill@JOSÉ.example", "current_password": self.CONFIG_PASSWORD}
+        )
 
         assert response.status_code == status.HTTP_200_OK
         self.user.refresh_from_db()
@@ -1076,7 +1148,9 @@ class TestUserAPI(APIBaseTest):
         self.user.email = "alpha+legacy@example.com"
         self.user.save()
 
-        response = self.client.patch("/api/users/@me/", {"email": "alpha@example.com"})
+        response = self.client.patch(
+            "/api/users/@me/", {"email": "alpha@example.com", "current_password": self.CONFIG_PASSWORD}
+        )
 
         assert response.status_code == status.HTTP_200_OK
         self.user.refresh_from_db()
@@ -1120,6 +1194,7 @@ class TestUserAPI(APIBaseTest):
                     "/api/users/@me/",
                     {
                         "email": "beta@example.com",
+                        "current_password": self.CONFIG_PASSWORD,
                     },
                 )
 
@@ -1170,7 +1245,9 @@ class TestUserAPI(APIBaseTest):
             side_effect=lambda email, organization=None: "google-oauth2" if email == enforced_email else None,
         ):
             with self.is_cloud(True):
-                response = self.client.patch("/api/users/@me/", {"email": "beta@example.com"})
+                response = self.client.patch(
+                    "/api/users/@me/", {"email": "beta@example.com", "current_password": self.CONFIG_PASSWORD}
+                )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == expected_code
@@ -1203,7 +1280,9 @@ class TestUserAPI(APIBaseTest):
             ),
         ):
             with self.is_cloud(True):
-                response = self.client.patch("/api/users/@me/", {"email": "alice@example.org"})
+                response = self.client.patch(
+                    "/api/users/@me/", {"email": "alice@example.org", "current_password": self.CONFIG_PASSWORD}
+                )
 
         assert response.status_code == status.HTTP_200_OK
         self.user.refresh_from_db()
@@ -1240,7 +1319,9 @@ class TestUserAPI(APIBaseTest):
             ),
         ):
             with self.is_cloud(True):
-                response = self.client.patch("/api/users/@me/", {"email": "alice@example.net"})
+                response = self.client.patch(
+                    "/api/users/@me/", {"email": "alice@example.net", "current_password": self.CONFIG_PASSWORD}
+                )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "sso_enforced_current_email"

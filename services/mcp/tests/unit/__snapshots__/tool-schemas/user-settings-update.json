@@ -33,7 +33,7 @@
             "description": "Whether PostHog should anonymize events captured for this user when identified."
         },
         "current_password": {
-            "description": "The user's current password. Required when changing `password` if the user already has a usable password set.",
+            "description": "The user's current password. Required when changing `password` or `email` if the user already has a usable password set.",
             "type": "string"
         },
         "email": {

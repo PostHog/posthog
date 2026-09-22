@@ -66513,7 +66513,7 @@ export namespace Schemas {
       set_current_team?: string;
       /** @maxLength 128 */
       password: string;
-      /** The user's current password. Required when changing `password` if the user already has a usable password set. */
+      /** The user's current password. Required when changing `password` or `email` if the user already has a usable password set. */
       current_password?: string;
       events_column_config?: unknown;
       readonly is_2fa_enabled: boolean;
@@ -75786,7 +75786,7 @@ export namespace Schemas {
       set_current_team?: string;
       /** @maxLength 128 */
       password?: string;
-      /** The user's current password. Required when changing `password` if the user already has a usable password set. */
+      /** The user's current password. Required when changing `password` or `email` if the user already has a usable password set. */
       current_password?: string;
       events_column_config?: unknown;
       readonly is_2fa_enabled?: boolean;

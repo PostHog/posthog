@@ -245,7 +245,8 @@ class UserSerializer(serializers.ModelSerializer):
         write_only=True,
         required=False,
         help_text=(
-            "The user's current password. Required when changing `password` if the user already has a usable password set."
+            "The user's current password. Required when changing `password` or `email` if the user already has a "
+            "usable password set."
         ),
     )
     notification_settings = serializers.DictField(
@@ -647,24 +648,26 @@ class UserSerializer(serializers.ModelSerializer):
             )
         return value
 
+    def check_current_password(self, instance: User, current_password: Optional[str], required_message: str) -> None:
+        # A user without a usable password (social login or SSO only) has no password to give, so the
+        # recent-login check in TimeSensitiveActionPermission is the only proof we can ask for.
+        if not (instance.password and instance.has_usable_password()):
+            return
+        if not current_password:
+            raise serializers.ValidationError({"current_password": [required_message]}, code="required")
+        if not instance.check_password(current_password):
+            raise serializers.ValidationError(
+                {"current_password": ["Your current password is incorrect."]},
+                code="incorrect_password",
+            )
+
     def validate_password_change(
         self, instance: User, current_password: Optional[str], password: Optional[str]
     ) -> Optional[str]:
         if password:
-            if instance.password and instance.has_usable_password():
-                # If user has a password set, we check it's provided to allow updating it. We need to check that is both
-                # usable (properly hashed) and that a password actually exists.
-                if not current_password:
-                    raise serializers.ValidationError(
-                        {"current_password": ["This field is required when updating your password."]},
-                        code="required",
-                    )
-
-                if not instance.check_password(current_password):
-                    raise serializers.ValidationError(
-                        {"current_password": ["Your current password is incorrect."]},
-                        code="incorrect_password",
-                    )
+            self.check_current_password(
+                instance, current_password, "This field is required when updating your password."
+            )
             try:
                 validate_password(password, instance)
             except ValidationError as e:
@@ -713,11 +716,27 @@ class UserSerializer(serializers.ModelSerializer):
 
         # Fold both sides: `validate_email` hands back the stored address for an edit of the case
         # alone, and a legacy row can hold that address in any case.
-        if (
-            "email" in validated_data
-            and EmailNormalizer.normalize(validated_data["email"]) != EmailNormalizer.normalize(instance.email)
-            and is_email_available()
+        changes_email = "email" in validated_data and EmailNormalizer.normalize(
+            validated_data["email"]
+        ) != EmailNormalizer.normalize(instance.email)
+
+        # The login email and the password decide who can sign in to the account. A leaked personal API
+        # key or OAuth token must not be able to reset either of them and take over the account.
+        if (changes_email or "password" in validated_data) and not isinstance(
+            self.context["request"].successful_authenticator, SessionAuthentication
         ):
+            raise exceptions.PermissionDenied(
+                "You can only change your email or password from the PostHog app, not with an API key or token."
+            )
+
+        if changes_email:
+            self.check_current_password(
+                instance,
+                validated_data.get("current_password"),
+                "Enter your current password to change your email.",
+            )
+
+        if changes_email and is_email_available():
             new_email = validated_data["email"]
             # Moving between two SSO-enforced domains of the same org is a domain migration, not an SSO bypass.
             # SSO enforcement can only be set on a verified domain, so an enforced domain is always verified.
