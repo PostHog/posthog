@@ -505,6 +505,10 @@ class TestContextToolRuntime(NonAtomicBaseTest):
             ("creator_cannot_query_denied_before_object_query",),
             ("object_level_access_revoked_denied",),
             ("dashboard_soft_deleted_denied",),
+            ("insight_soft_deleted_denied",),
+            ("dashboard_access_revoked_denied",),
+            ("cross_team_dashboard_ref_denied",),
+            ("cross_team_insight_ref_denied",),
             ("all_accessible_allowed",),
         ]
     )
@@ -540,6 +544,49 @@ class TestContextToolRuntime(NonAtomicBaseTest):
             dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="Gone", deleted=True)
             with patch(_QUERY_ACCESS, return_value=True):
                 allowed = creator_can_access_report_context(subscription, dashboard_ids=(dashboard.id,), insight_ids=())
+            assert allowed is False
+            return
+
+        if case == "insight_soft_deleted_denied":
+            insight = Insight.objects.create(
+                team=self.team, created_by=self.user, name="Gone", query=_trends_query("gone event"), deleted=True
+            )
+            with patch(_QUERY_ACCESS, return_value=True):
+                allowed = creator_can_access_report_context(subscription, dashboard_ids=(), insight_ids=(insight.id,))
+            assert allowed is False
+            return
+
+        if case == "dashboard_access_revoked_denied":
+            dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="Revoked dashboard")
+            with (
+                patch(_QUERY_ACCESS, return_value=True),
+                patch(f"{_MODULE}.UserAccessControl.check_access_level_for_object", return_value=False),
+            ):
+                allowed = creator_can_access_report_context(subscription, dashboard_ids=(dashboard.id,), insight_ids=())
+            assert allowed is False
+            return
+
+        if case == "cross_team_dashboard_ref_denied":
+            other_team = Team.objects.create(organization=self.organization, name="Other team")
+            foreign_dashboard = Dashboard.objects.create(
+                team=other_team, created_by=self.user, name="Foreign dashboard"
+            )
+            with patch(_QUERY_ACCESS, return_value=True):
+                allowed = creator_can_access_report_context(
+                    subscription, dashboard_ids=(foreign_dashboard.id,), insight_ids=()
+                )
+            assert allowed is False
+            return
+
+        if case == "cross_team_insight_ref_denied":
+            other_team = Team.objects.create(organization=self.organization, name="Other team")
+            foreign_insight = Insight.objects.create(
+                team=other_team, created_by=self.user, name="Foreign insight", query=_trends_query("foreign event")
+            )
+            with patch(_QUERY_ACCESS, return_value=True):
+                allowed = creator_can_access_report_context(
+                    subscription, dashboard_ids=(), insight_ids=(foreign_insight.id,)
+                )
             assert allowed is False
             return
 
