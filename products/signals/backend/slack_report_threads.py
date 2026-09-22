@@ -10,6 +10,7 @@ Writes are best-effort: a report must still reach Slack when the link cannot be 
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 
 from django.db import IntegrityError
 
@@ -61,3 +62,16 @@ def report_id_for_slack_thread(*, team_id: int, channel: str, thread_ts: str) ->
         )
         return None
     return str(row) if row else None
+
+
+def report_team_id_for_slack_thread(*, team_ids: Sequence[int], channel: str, thread_ts: str) -> int | None:
+    """Find the report's environment among the caller's accessible Slack integration candidates."""
+    try:
+        return (
+            SignalReportSlackThread.all_teams.filter(team_id__in=team_ids, channel=channel, thread_ts=thread_ts)
+            .values_list("team_id", flat=True)
+            .first()
+        )
+    except Exception:
+        logger.exception("Failed to resolve the environment for a Slack report thread", extra={"channel": channel})
+        return None

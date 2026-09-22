@@ -1039,7 +1039,7 @@ class SignalReportGithubComment(TeamScopedRootMixin, UUIDModel):
         verbose_name_plural = "Signal report GitHub comments"
 
 
-class SignalReportSlackThread(TeamScopedRootMixin, UUIDModel):
+class SignalReportSlackThread(UUIDModel):
     """The Slack thread a report notification started, so a reply in it resolves back to the report.
 
     A notification invites the reader to reply in the thread and mention PostHog, which starts a
@@ -1047,6 +1047,7 @@ class SignalReportSlackThread(TeamScopedRootMixin, UUIDModel):
     reaches the report's own timeline.
     """
 
+    objects = EnvironmentScopedManager()
     all_teams = models.Manager()  # noqa: DJ012
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")

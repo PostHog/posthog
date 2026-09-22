@@ -58,20 +58,32 @@ def test_only_the_recorded_thread_resolves_to_the_report(team, channel, thread_t
 
 
 @pytest.mark.django_db
-def test_thread_recorded_for_another_teams_report_does_not_resolve(team):
-    # A workspace can be connected to several projects, so a mention routed to one project must
-    # never resolve another project's report.
-    other_org = Organization.objects.create(name="slack-thread-other-org")
-    other_team = Team.objects.create(organization=other_org, name="slack-thread-other-team")
+@pytest.mark.parametrize("boundary", ["organization", "parent", "sibling"])
+def test_thread_recorded_for_another_teams_report_does_not_resolve(team, boundary):
+    if boundary == "organization":
+        other_org = Organization.objects.create(name="slack-thread-other-org")
+        other_team = Team.objects.create(organization=other_org, name="slack-thread-other-team")
+        lookup_team = team
+    else:
+        other_team = Team.objects.create(organization=team.organization, name="Report environment", parent_team=team)
+        lookup_team = (
+            team
+            if boundary == "parent"
+            else Team.objects.create(organization=team.organization, name="Other environment", parent_team=team)
+        )
+    report = _report(other_team)
     record_report_slack_thread(
         team_id=other_team.id,
-        report_id=str(_report(other_team).id),
+        report_id=str(report.id),
         integration_id=_integration(other_team).id,
         channel="CTEAM",
         thread_ts="1700000000.000100",
     )
 
-    assert report_id_for_slack_thread(team_id=team.id, channel="CTEAM", thread_ts="1700000000.000100") is None
+    assert report_id_for_slack_thread(team_id=other_team.id, channel="CTEAM", thread_ts="1700000000.000100") == str(
+        report.id
+    )
+    assert report_id_for_slack_thread(team_id=lookup_team.id, channel="CTEAM", thread_ts="1700000000.000100") is None
 
 
 @pytest.mark.django_db

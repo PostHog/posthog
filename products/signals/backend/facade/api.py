@@ -177,6 +177,14 @@ def report_id_for_slack_thread(*, team_id: int, channel: str, thread_ts: str) ->
     return report_id_for_slack_thread_impl(team_id=team_id, channel=channel, thread_ts=thread_ts)
 
 
+def report_team_id_for_slack_thread(*, team_ids: Sequence[int], channel: str, thread_ts: str) -> int | None:
+    from products.signals.backend.slack_report_threads import (  # noqa: PLC0415 — avoids importing model layer at facade import time
+        report_team_id_for_slack_thread as report_team_id_for_slack_thread_impl,
+    )
+
+    return report_team_id_for_slack_thread_impl(team_ids=team_ids, channel=channel, thread_ts=thread_ts)
+
+
 def persisted_repo_selection(report_id: str) -> "RepoSelectionResult | None":
     """Facade entrypoint for a report's latest repo selection. See select_repo.persisted_repo_selection."""
     from products.signals.backend.report_generation.select_repo import (
