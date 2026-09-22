@@ -55,4 +55,20 @@ describe('ExperimentResultsWidget', () => {
             container.querySelector('[data-attr="experiment-results-widget-empty-state-select"]')
         ).not.toBeInTheDocument()
     })
+
+    it('shows an error instead of clearing a selected experiment when a run fails', () => {
+        render(
+            <ExperimentResultsWidget
+                tileId={1}
+                config={{ experimentId: 123 }}
+                error="Could not load experiment results."
+                loading={false}
+                result={null}
+                onRefresh={jest.fn()}
+            />
+        )
+
+        expect(screen.getByText("Couldn't load experiment results. Try again.")).toBeInTheDocument()
+        expect(screen.queryByText('No experiment selected')).not.toBeInTheDocument()
+    })
 })
