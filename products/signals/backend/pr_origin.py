@@ -175,18 +175,20 @@ def _cause_commit(team_id: int, report_id: str, repository: str) -> OriginLink |
     if finding is None or reviewers is None:
         return None
     commit_prefix = f"https://github.com/{repository}/commit/".lower()
-    known_commits = [
-        commit.url
+    # The stored URL is only evidence. The link is rebuilt from a validated hash, so no stored text reaches the body.
+    known_shas = [
+        full_sha
         for reviewer in reviewers.root
         for commit in reviewer.relevant_commits
         if commit.url.lower().startswith(commit_prefix)
+        and _COMMIT_SHA_RE.match(full_sha := commit.url.lower().removeprefix(commit_prefix))
     ]
     for sha in finding.relevant_commit_hashes:
         if not _COMMIT_SHA_RE.match(sha):
             continue
-        for url in known_commits:
-            if url.lower().removeprefix(commit_prefix).startswith(sha.lower()):
-                return OriginLink(label=f"`{sha[:8]}`", url=url)
+        for full_sha in known_shas:
+            if full_sha.startswith(sha.lower()):
+                return OriginLink(label=f"`{sha[:8]}`", url=f"https://github.com/{repository}/commit/{full_sha}")
     return None
 
 

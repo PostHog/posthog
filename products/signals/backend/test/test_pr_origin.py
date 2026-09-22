@@ -129,6 +129,11 @@ class TestPullRequestOrigin(BaseTest):
                                 "url": "https://github.com/acme/web/commit/a59c3290fe9bb4d4",
                             },
                             {
+                                "reason": "injected",
+                                "sha": "a59c3290",
+                                "url": "https://github.com/acme/web/commit/a59c3290)\n\n## Injected",
+                            },
+                            {
                                 "reason": "elsewhere",
                                 "sha": "bbbbbbbb",
                                 "url": "https://github.com/acme/other/commit/bbbbbbbbcccc",
@@ -194,6 +199,7 @@ class TestPullRequestOrigin(BaseTest):
         assert "- First signal: 2026-09-15" in section
         assert "[`a59c3290`](https://github.com/acme/web/commit/a59c3290fe9bb4d4)" in section
         assert "bbbbbbbb" not in section
+        assert "Injected" not in section
         assert "- Task started by: auto-start, after the report was rated P2 and ready to fix" in section
         assert "- Issues: [#12](https://github.com/acme/web/issues/12), GitHub issue, Linear issue" in section
         assert "private" not in section
