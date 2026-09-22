@@ -16,9 +16,6 @@ from django.core.cache import cache
 
 import requests
 import structlog
-from owners_yaml import OwnershipSource, OwnersResolver
-from owners_yaml.matcher import normalize_path
-from owners_yaml.resolver import teams_registry
 from requests.adapters import HTTPAdapter
 
 from posthog.dataclasses import frozen
@@ -75,8 +72,13 @@ class NoRootOwnersFile(OwnershipUnavailable):
     """The repository answers with no root owners file, which is normal for most repositories."""
 
 
-class RepoFiles(OwnershipSource, Protocol):
-    """An ownership source that also answers which paths the repository holds, in batches."""
+class RepoFiles(Protocol):
+    """An ownership source that also answers which paths the repository holds, in batches.
+
+    ``read`` is ``owners_yaml.OwnershipSource``, restated rather than inherited so that reading this
+    module does not import the ownership package. The resolver matches it structurally either way."""
+
+    def read(self, path: str) -> str | None: ...
 
     def exists_all(self, paths: list[str]) -> dict[str, bool]: ...
 
@@ -244,6 +246,11 @@ def _read_root(repository: str, files: RepoFiles) -> str:
 
 
 def _own_paths(files: RepoFiles, root: str, paths: list[str]) -> PathOwnership:
+    # This module is reached from the URL conf, which every management command resolves, so a
+    # module-level ownership import would put the package on the boot path of the whole CLI.
+    from owners_yaml import OwnersResolver  # noqa: PLC0415
+    from owners_yaml.resolver import teams_registry  # noqa: PLC0415
+
     resolver = OwnersResolver(source=files)
     files.read_all(resolver.ownership_file_paths(paths))
     owners = resolver.map(paths)
@@ -307,6 +314,8 @@ def _candidate_paths(test: QuarantinedTestFile) -> list[str]:
     Cargo names a crate, nextest reports that name, and the directory holding it need not match:
     `common-kafka` lives at rust/common/kafka.
     """
+    from owners_yaml.matcher import normalize_path  # noqa: PLC0415 — see _own_paths
+
     if test.crate:
         return [
             f"rust/{test.crate}/Cargo.toml",

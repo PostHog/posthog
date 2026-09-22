@@ -74,6 +74,46 @@ def test_django_setup_does_not_import_heavy_subsystems() -> None:
     )
 
 
+# Packages that must stay off the URLconf path. ``manage.py`` runs the system checks, which resolve
+# every URL, so a module-level import anywhere under a product's routes is an import every migration
+# and every management command pays for — and a packaging fault in one of these packages then fails
+# the whole CLI rather than one product surface. Each entry is a separately installed first-party
+# package, where a stale virtualenv can make the import fail on its own.
+FORBIDDEN_AT_URLCONF = [
+    "owners_yaml",  # code ownership — only ownership work (engineering_analytics, stamphog) needs it
+]
+
+_URLCONF_SNAPSHOT = """
+import os
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+import django
+django.setup()
+import importlib
+importlib.import_module("posthog.urls")
+import sys
+print("\\n".join(sorted(m for m in sys.modules)))
+"""
+
+
+def test_urlconf_does_not_import_standalone_packages() -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", _URLCONF_SNAPSHOT],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, f"the cold URLconf import failed:\n{result.stderr[-2000:]}"
+    loaded = set(result.stdout.splitlines())
+
+    offenders = [mod for mod in FORBIDDEN_AT_URLCONF if mod in loaded or any(m.startswith(mod + ".") for m in loaded)]
+    assert not offenders, (
+        f"These packages were imported while building the URLconf: {offenders}. "
+        "Every management command resolves URLs, so a module-level import puts them on the boot "
+        "path of the whole CLI. Defer the import into the function that does the work, or move the "
+        "annotation that needs it under TYPE_CHECKING."
+    )
+
+
 # Counterpart guard to the lazy API router: with the route aggregator off the startup path,
 # a model class only registers if its app's ``models/__init__`` imports it (importing the
 # class is what runs ``ModelBase.__new__`` -> ``apps.register_model``). A model reachable

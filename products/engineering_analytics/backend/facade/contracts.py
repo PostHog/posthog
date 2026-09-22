@@ -22,14 +22,20 @@ intentionally absent until the warehouse data that backs them lands.
 """
 
 from collections.abc import Mapping
-from dataclasses import field
+from dataclasses import (
+    dataclass as stdlib_dataclass,
+    field,
+)
 from datetime import date, datetime
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
-from owners_yaml.schema import TeamEntry
 from pydantic.dataclasses import dataclass
 
 from posthog.hogql.database.models import FieldOrTable
+
+if TYPE_CHECKING:
+    from owners_yaml.schema import TeamEntry
 
 
 class GitHubSourceNotConnectedError(Exception):
@@ -48,6 +54,10 @@ class GitHubSourceNotConnectedError(Exception):
 
 # The product's rollout flag: gates the API surface (PostHogFeatureFlagPermission) and the CI-signals sweep.
 ENGINEERING_ANALYTICS_FEATURE_FLAG = "engineering-analytics"
+
+# The daily test-file census event. The sweep that captures it and the query that reads it back both
+# name it, and they sit on opposite sides of the layer, so the name lives here rather than in either.
+CENSUS_EVENT = "eng_analytics_test_census"
 
 
 class CISignalsSyncStatus(StrEnum):
@@ -1571,7 +1581,10 @@ class WorkflowJobAggregate:
     estimated_cost_usd: float | None
 
 
-@dataclass(frozen=True)
+# A stdlib dataclass, not the pydantic one every other contract uses: pydantic resolves the
+# annotation when the class is built, which would put ``owners_yaml`` back on the import path of
+# every module that reads a contract, and so on the path of every management command.
+@stdlib_dataclass(frozen=True)
 class PathOwnership:
     """Which team owns each repository path, plus the repo's Slack registry from the root ``owners.yaml``.
     The registry rides along because the caller that asks who owns a path usually has to reach that
@@ -1582,7 +1595,7 @@ class PathOwnership:
     answer as "nobody owns this"."""
 
     team_by_path: Mapping[str, str]
-    registry: Mapping[str, TeamEntry]
+    registry: "Mapping[str, TeamEntry]"
     resolved: bool
 
 

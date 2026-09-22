@@ -5,8 +5,8 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
+from products.engineering_analytics.backend.facade.contracts import CENSUS_EVENT
 from products.engineering_analytics.backend.logic._shared import WindowedCount
-from products.engineering_analytics.backend.logic.census import CENSUS_EVENT
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import UNPAGED_SCAN_LIMIT
 
