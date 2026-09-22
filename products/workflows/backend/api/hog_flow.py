@@ -6267,17 +6267,18 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         except (Team.DoesNotExist, ValueError):
             return Response({"error": "Team not found"}, status=404)
 
-        new_status = request.data.get("status")
-        # `cancelled` is written by the resolver when it stops a run whose workflow was
-        # disabled or archived mid-run. The cancel-request route flips that status itself,
-        # so only this path needs it accepted here.
-        if new_status not in (
+        terminal_states = {
             HogFlowBatchJob.State.COMPLETED,
             HogFlowBatchJob.State.FAILED,
+            # Written by the resolver when it stops a run whose workflow was disabled or
+            # archived mid-run. The cancel-request route flips this status itself.
             HogFlowBatchJob.State.CANCELLED,
-        ):
+        }
+
+        new_status = request.data.get("status")
+        if new_status not in terminal_states:
             return Response(
-                {"error": "status must be one of: completed, failed, cancelled"},
+                {"error": f"status must be one of: {', '.join(sorted(terminal_states))}"},
                 status=400,
             )
 
@@ -6290,11 +6291,6 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             # other backends. Either way, surface as 404, not 500.
             return Response({"error": "Batch job not found"}, status=404)
 
-        terminal_states = {
-            HogFlowBatchJob.State.COMPLETED,
-            HogFlowBatchJob.State.FAILED,
-            HogFlowBatchJob.State.CANCELLED,
-        }
         if batch_job.status in terminal_states:
             # Idempotent no-op: already in a terminal state.
             return Response(

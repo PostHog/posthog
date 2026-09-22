@@ -48,15 +48,14 @@ const audienceFailureReason = (error: unknown): string => {
     return `Audience fetch failed permanently after ${MAX_RESOLVER_ATTEMPTS} attempts`
 }
 
-const terminalJobOutcome = (pendingTerminal: NonNullable<BatchResolverState['pendingTerminal']>): string => {
-    switch (pendingTerminal) {
-        case 'completed':
-            return 'completed'
-        case 'cancelled':
-            return 'canceled'
-        default:
-            return 'failed'
-    }
+type TerminalStatus = NonNullable<BatchResolverState['pendingTerminal']>
+
+// The metric's `canceled` label predates the `cancelled` state name; keep both spellings here
+// rather than renaming a label that existing dashboards read.
+const TERMINAL_JOB_OUTCOME: Record<TerminalStatus, string> = {
+    completed: 'completed',
+    failed: 'failed',
+    cancelled: 'canceled',
 }
 
 const RETRY_BACKOFF_MS = 5_000
@@ -627,7 +626,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             return
         }
 
-        counterBatchHogFlowResolverJobs.labels({ outcome: terminalJobOutcome(state.pendingTerminal) }).inc()
+        counterBatchHogFlowResolverJobs.labels({ outcome: TERMINAL_JOB_OUTCOME[state.pendingTerminal] }).inc()
 
         // Monitoring flush happens in processResolverJob's finally block so every
         // dequeue clears its own queued logs/metrics, not just terminal writes.
@@ -638,11 +637,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         })
     }
 
-    private async putBatchJobStatus(
-        teamId: number,
-        batchJobId: string,
-        status: 'completed' | 'failed' | 'cancelled'
-    ): Promise<void> {
+    private async putBatchJobStatus(teamId: number, batchJobId: string, status: TerminalStatus): Promise<void> {
         const urlPath = `/api/projects/${teamId}/internal/hog_flows/batch_jobs/${batchJobId}/status` as const
 
         const { fetchResponse, fetchError } = await this.internalFetchService.fetch({
