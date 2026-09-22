@@ -1745,9 +1745,9 @@ async fn test_etag_returns_304_when_matching() {
         .await
         .unwrap();
 
-    let etag_value = "a1b2c3d4e5f6g7h8";
+    let flag_key = "matching-flag";
     let etag_value = context
-        .populate_cache_for_team_with_etag(team.id, etag_value)
+        .populate_cache_for_team_with_etag(team.id, flag_key)
         .await
         .unwrap();
 
@@ -1786,9 +1786,9 @@ async fn test_etag_304_includes_etag_and_cache_control_headers() {
         .await
         .unwrap();
 
-    let etag_value = "abcdef1234567890";
+    let flag_key = "unchanged-flag";
     let etag_value = context
-        .populate_cache_for_team_with_etag(team.id, etag_value)
+        .populate_cache_for_team_with_etag(team.id, flag_key)
         .await
         .unwrap();
 
@@ -1835,8 +1835,9 @@ async fn test_etag_returns_200_when_not_matching() {
         .await
         .unwrap();
 
+    let flag_key = "current-flag";
     let etag_value = context
-        .populate_cache_for_team_with_etag(team.id, "current_etag_value")
+        .populate_cache_for_team_with_etag(team.id, flag_key)
         .await
         .unwrap();
 
@@ -1888,9 +1889,9 @@ async fn test_etag_200_includes_etag_header_without_if_none_match() {
         .await
         .unwrap();
 
-    let etag_value = "freshdata12345678";
+    let flag_key = "fresh-flag";
     let etag_value = context
-        .populate_cache_for_team_with_etag(team.id, etag_value)
+        .populate_cache_for_team_with_etag(team.id, flag_key)
         .await
         .unwrap();
 
@@ -1994,10 +1995,10 @@ async fn test_dedicated_redis_serves_payload_and_etag() {
 
     let (config, context, team, secret_token) = dedicated_context_and_team().await;
 
-    let etag_value = "dedicated_etag_01";
+    let flag_key = "dedicated-flag";
     let dedicated = setup_redis_client(Some(DEDICATED_REDIS_URL.to_string())).await;
     let etag_value = context
-        .populate_cache_for_team_with_etag_on(dedicated, team.id, etag_value)
+        .populate_cache_for_team_with_etag_on(dedicated, team.id, flag_key)
         .await
         .unwrap();
 
@@ -2045,16 +2046,16 @@ async fn test_dedicated_redis_ignores_shared_etag() {
 
     let (config, context, team, secret_token) = dedicated_context_and_team().await;
 
-    let shared_etag = "shared_etag_0001";
-    let dedicated_etag = "dedicated_etag_1";
+    let shared_flag_key = "shared-flag";
+    let dedicated_flag_key = "dedicated-flag";
     let shared = setup_redis_client(Some(config.redis_url.clone())).await;
     let dedicated = setup_redis_client(Some(DEDICATED_REDIS_URL.to_string())).await;
     let shared_etag = context
-        .populate_cache_for_team_with_etag_on(shared, team.id, shared_etag)
+        .populate_cache_for_team_with_etag_on(shared, team.id, shared_flag_key)
         .await
         .unwrap();
     let dedicated_etag = context
-        .populate_cache_for_team_with_etag_on(dedicated, team.id, dedicated_etag)
+        .populate_cache_for_team_with_etag_on(dedicated, team.id, dedicated_flag_key)
         .await
         .unwrap();
 
@@ -3071,10 +3072,14 @@ async fn test_cache_miss_does_not_enqueue_rebuild_when_self_heal_disabled() {
 #[rstest::rstest]
 #[case("visible_target", true)]
 #[case("omitted_target", true)]
-#[case("malformed_envelope", true)]
+#[case("missing_flags", true)]
+#[case("missing_cohorts", true)]
+#[case("missing_group_type_mapping", true)]
 #[case("visible_target", false)]
 #[case("omitted_target", false)]
-#[case("malformed_envelope", false)]
+#[case("missing_flags", false)]
+#[case("missing_cohorts", false)]
+#[case("missing_group_type_mapping", false)]
 #[tokio::test]
 async fn test_definitions_provenance_rollout_and_rebuilt_aliases_are_stable(
     #[case] scenario: &str,
@@ -3082,7 +3087,10 @@ async fn test_definitions_provenance_rollout_and_rebuilt_aliases_are_stable(
 ) {
     use feature_flags::{
         config::{Config, FlexBool},
-        utils::test_utils::{dummy_s3_client, setup_redis_client, TestContext},
+        utils::test_utils::{
+            clear_flag_definitions_rebuild_requests, dummy_s3_client, setup_redis_client,
+            TestContext,
+        },
     };
     use serde_json::json;
 
@@ -3113,8 +3121,8 @@ async fn test_definitions_provenance_rollout_and_rebuilt_aliases_are_stable(
     ], "cohorts": {}, "group_type_mapping": {}});
     if scenario == "omitted_target" {
         unsafe_body["flags"].as_array_mut().unwrap().remove(0);
-    } else if scenario == "malformed_envelope" {
-        unsafe_body = serde_json::Value::Null;
+    } else if let Some(field) = scenario.strip_prefix("missing_") {
+        unsafe_body.as_object_mut().unwrap().remove(field);
     }
     let unsafe_body = unsafe_body.to_string();
     let old_etag = common_hypercache::writer::compute_etag(&unsafe_body);
@@ -3124,7 +3132,14 @@ async fn test_definitions_provenance_rollout_and_rebuilt_aliases_are_stable(
         "/api/feature_flag/local_evaluation",
         "/api/feature_flag/local_evaluation/",
     ] {
+        clear_flag_definitions_rebuild_requests(&config.redis_url).await;
         redis.del(proof_key.clone()).await.unwrap();
+        if scenario.starts_with("missing_") {
+            redis
+                .set(proof_key.clone(), json!({"etag": old_etag}).to_string())
+                .await
+                .unwrap();
+        }
         redis
             .set(cache_key.clone(), unsafe_body.clone())
             .await
@@ -3143,8 +3158,13 @@ async fn test_definitions_provenance_rollout_and_rebuilt_aliases_are_stable(
                 .get(&url)
                 .header("Authorization", format!("Bearer {secret}"))
         };
+        let client_etag = if require_provenance && scenario.starts_with("missing_") {
+            "different-body"
+        } else {
+            &old_etag
+        };
         let response = request()
-            .header("If-None-Match", format!("W/\"{old_etag}\""))
+            .header("If-None-Match", format!("W/\"{client_etag}\""))
             .send()
             .await
             .unwrap();
@@ -3316,10 +3336,21 @@ async fn test_unverifiable_redis_pair_falls_back_to_the_object_storage_pair(
         .await
         .unwrap();
 
+    redis
+        .set_bytes(
+            format!("{cache_key}:etag"),
+            serde_pickle::to_vec(&"stale".to_string(), Default::default()).unwrap(),
+            None,
+        )
+        .await
+        .unwrap();
+
     let payload = json!({"flags": [{"key": "healthy", "filters": {"groups": []}}], "cohorts": {}, "group_type_mapping": {}}).to_string();
     let stored_etag = common_hypercache::writer::compute_etag(&payload);
     let mut s3 = MockS3Client::new();
+    let reads_started = Arc::new(tokio::sync::Barrier::new(2));
     s3.expect_get_string().returning(move |_, key| {
+        let reads_started = reads_started.clone();
         let result = if key.ends_with("flags_with_cohorts.provenance.json") {
             Ok(json!({"etag": stored_etag}).to_string())
         } else if key.ends_with("flags_with_cohorts.json") {
@@ -3327,7 +3358,10 @@ async fn test_unverifiable_redis_pair_falls_back_to_the_object_storage_pair(
         } else {
             Err(S3Error::NotFound(key.to_string()))
         };
-        Box::pin(async move { result })
+        Box::pin(async move {
+            reads_started.wait().await;
+            result
+        })
     });
     let server = common::ServerHandle::for_config_with_s3(config.clone(), Some(Arc::new(s3))).await;
 

@@ -198,11 +198,20 @@ pub async fn flags_definitions(
 
     let client_etag = extract_etag_from_header(headers.get("if-none-match"));
     let team_key = KeyType::team(team.clone());
-    let current_etag = match state
-        .flags_with_cohorts_hypercache_reader
-        .get_etag(&team_key)
-        .await
-    {
+    let require_provenance = *state.config.flag_definitions_require_provenance;
+    let (etag_result, redis_proof) = tokio::join!(
+        state
+            .flags_with_cohorts_hypercache_reader
+            .get_etag(&team_key),
+        async {
+            if require_provenance {
+                read_proven_etag_from_redis(&state, &team_key).await
+            } else {
+                Ok(None)
+            }
+        }
+    );
+    let current_etag = match etag_result {
         Ok(Some(etag)) => Some(etag),
         Ok(None) => {
             // Redis answered and held no ETag key for this team. Counted apart from a
@@ -239,12 +248,6 @@ pub async fn flags_definitions(
     //
     // Both values are read from Redis. Pairing proof with a body from the other tier could
     // combine two generations of the cache — see `get_from_cache` for the S3 pair.
-    let require_provenance = *state.config.flag_definitions_require_provenance;
-    let redis_proof = if require_provenance {
-        read_proven_etag_from_redis(&state, &team_key).await
-    } else {
-        Ok(None)
-    };
     let current_etag = current_etag.filter(|etag| {
         !require_provenance || matches!(redis_proof.as_ref(), Ok(Some(proven)) if proven == etag)
     });
@@ -302,9 +305,9 @@ pub async fn flags_definitions(
 
 /// Read the ETag a guarded publication recorded for this team, from Redis only.
 ///
-/// `Ok(None)` means Redis answered and held no provenance: an entry no guarded producer
-/// has published, which must not be served. An error is kept distinct so a degraded tier
-/// is not read as an unproven entry.
+/// `Ok(None)` means Redis held the missing-value sentinel or a record without a string
+/// ETag. An absent key returns `CacheMiss`. Other errors stay distinct so a degraded
+/// tier is not mistaken for an unproven entry.
 async fn read_proven_etag_from_redis(
     state: &AppState,
     team_key: &KeyType,
@@ -529,9 +532,12 @@ async fn get_from_cache(
             Ok(data) => Ok((data, CacheSource::Redis)),
             Err(redis_error) => {
                 let s3_result = async {
-                    let proven_etag = read_proven_etag_from_s3(state, team_key).await?;
-                    let raw = reader.get_typed_from_s3::<Box<RawValue>>(team_key).await?;
-                    verify_against_proof(&raw, &proven_etag)
+                    let (proven_etag, raw) = tokio::join!(
+                        read_proven_etag_from_s3(state, team_key),
+                        reader.get_typed_from_s3::<Box<RawValue>>(team_key)
+                    );
+                    let proven_etag = proven_etag?;
+                    verify_against_proof(&raw?, &proven_etag)
                 }
                 .await;
                 match s3_result {
