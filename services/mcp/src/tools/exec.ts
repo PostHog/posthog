@@ -15,7 +15,7 @@ import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 import { formatResponse } from '@/lib/response'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
-import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
+import { type ExecLearnCatalog } from './exec-learn'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
@@ -164,26 +164,9 @@ export interface ExecCommandMeta {
 
 export type ExecCommandTracker = (meta: ExecCommandMeta) => void
 
-/**
- * Session-scoped skill-usage markers backing the skills-first gate. Product
- * `call`s in a session that ran no `learn` load are rejected with a retryable
- * instruction — interaction-time enforcement of the SKILLS FIRST prompt section,
- * which agents demonstrably rationalize their way past when it is advisory only.
- * `call --no-skills` acknowledges that no skill applies and opens the gate for
- * the rest of the session.
- */
-export interface SkillsSessionState {
-    hasLearned(): Promise<boolean>
-    markLearned(): Promise<void>
-    hasAcknowledgedNoSkills(): Promise<boolean>
-    markAcknowledgedNoSkills(): Promise<void>
-}
-
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
     learnCatalog?: ExecLearnCatalog
-    /** Present only when skill distribution is enabled and the client has a session. */
-    skillsSession?: SkillsSessionState
     /**
      * Client is an inline-exec UI-app host that renders MCP UI apps on the exec
      * response (Claude Code, Cowork). Gets the same UI-app payload treatment as the
@@ -214,10 +197,7 @@ export interface ExecToolOptions {
     builtInSkillHint?: BuiltInSkillHint
 }
 
-const CALL_USAGE = 'Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>'
-
-const SKILLS_GATE_MESSAGE =
-    'No skills loaded this session. Run `learn -s "<task keywords>"`, then load a result with `learn posthog:<skill>` or `learn project:<skill>` using its exact qualified name. Searching alone does not load a skill. `skill-get` and `skill-list` do not satisfy this gate. After loading, retry the original call. If no skill applies, re-run this exact command as `call --no-skills ...`.'
+const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> <json_input>'
 
 /**
  * Plain errors out of the learn catalog are agent mistakes — unknown names, bad
@@ -231,58 +211,6 @@ function classifyLearnError(error: unknown): unknown {
     }
     const reason: ExecCommandErrorReason = error.message.startsWith('Unknown ') ? 'unknown_learn_topic' : 'usage'
     return new ExecCommandError(error.message, reason)
-}
-
-/**
- * True when a `learn` input loads skill content (a qualified `source:skill` read,
- * including file reads within a skill). Generic guide reads, listings, searches,
- * and describes don't count — a guide is not a skill, and opening the gate on
- * `learn analytics` would restore exactly the bypass the gate exists to catch.
- *
- * Uses the dispatcher's quote-aware tokenizer so a quoted flag (`learn '-s' ...`)
- * or quoted identifier (`learn 'posthog:x'`) resolves the same way it dispatches —
- * a naive whitespace split disagrees on both. An unterminated quote can't be a
- * skill load (and `execute` would have thrown first), so it returns false.
- */
-function isSkillLoad(rest: string): boolean {
-    let tokens: string[]
-    try {
-        tokens = tokenizeLearnInput(rest)
-    } catch {
-        return false
-    }
-    if (tokens[0] === 'skills' || tokens[0] === '-s' || tokens[0] === '-d') {
-        return false
-    }
-    return tokens.some((token) => QUALIFIED_IDENTIFIER.test(token))
-}
-
-/**
- * Returns the gate rejection message, or undefined when the call may proceed.
- * A session-store hiccup opens the gate — enforcement must never break tools.
- */
-async function resolveSkillsGate(
-    session: SkillsSessionState | undefined,
-    noSkillsFlag: boolean
-): Promise<string | undefined> {
-    if (!session) {
-        return undefined
-    }
-    try {
-        if (noSkillsFlag) {
-            await session.markAcknowledgedNoSkills()
-            return undefined
-        }
-        if (await session.hasLearned()) {
-            return undefined
-        }
-        if (await session.hasAcknowledgedNoSkills()) {
-            return undefined
-        }
-        return SKILLS_GATE_MESSAGE
-    } catch {
-        return undefined
-    }
 }
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
@@ -379,11 +307,10 @@ function batchedCommandMessage(commands: string[]): string {
     ].join('\n')
 }
 
-function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; noSkills: boolean; rest: string } {
+function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; rest: string } {
     let rest = input.trim()
     let forceJson = false
     let confirmed = false
-    let noSkills = false
 
     while (rest) {
         const parsed = parseCommand(rest)
@@ -398,14 +325,14 @@ function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean
             continue
         }
         if (parsed.verb === '--no-skills') {
-            noSkills = true
+            // Ignore for backward compatibility with clients that still send this flag.
             rest = parsed.rest
             continue
         }
         break
     }
 
-    return { forceJson, confirmed, noSkills, rest }
+    return { forceJson, confirmed, rest }
 }
 
 // Extracts the inner tool name from an exec `call` command, e.g.
@@ -1634,11 +1561,6 @@ export function createExecTool(
                     } catch (error) {
                         throw classifyLearnError(error)
                     }
-                    // Only skill loads count as "learned" — a search whose results are
-                    // then ignored is exactly the bypass the gate exists to catch.
-                    if (options.skillsSession && isSkillLoad(rest)) {
-                        await options.skillsSession.markLearned().catch(() => undefined)
-                    }
                     return learnResult
                 }
 
@@ -1852,16 +1774,12 @@ export function createExecTool(
                         // belongs in the `internal` bucket its siblings are kept out of.
                         throw new Error('Cannot call PostHog tools without an API context')
                     }
-                    const { forceJson, confirmed, noSkills, rest: callArgs } = parseCallFlags(rest)
+                    const { forceJson, confirmed, rest: callArgs } = parseCallFlags(rest)
                     if (!callArgs) {
                         throw new ExecCommandError(CALL_USAGE, 'usage')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
                     const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, toolName)
-                    const gateMessage = await resolveSkillsGate(options.skillsSession, noSkills)
-                    if (gateMessage) {
-                        throw new ExecCommandError(gateMessage, 'skills_gate')
-                    }
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new ExecCommandError(
                             `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`,

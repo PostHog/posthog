@@ -50,7 +50,7 @@ class DataForSEOSource(ResumableSource[DataForSEOSourceConfig, DataForSEOResumeC
 
 Find your API login and password on the [DataForSEO API access page](https://app.dataforseo.com/api-access).
 
-Note: DataForSEO bills per API request, so every sync consumes account credits. The backlinks summary table also requires an active Backlinks API subscription.""",
+Note: DataForSEO bills per API request, so syncing these tables consumes account credits. The location and category lookup tables are free. The backlinks tables also need an active Backlinks API subscription.""",
             iconPath="/static/services/dataforseo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/dataforseo",
             fields=cast(

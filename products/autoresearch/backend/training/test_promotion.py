@@ -4,6 +4,8 @@ import hashlib
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -242,7 +244,17 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
         # different model.
         reformatted = ANCHORED_FEATURE_SQL.replace(" FROM ", "\n  FROM ") + "\n"
         bundle = ArtifactBundle(train_py="pass", predict_py="pass", features_sql=reformatted)
-        with patch("products.autoresearch.backend.training.artifacts.read_bundle", return_value=bundle):
+
+        def read_under_the_run_lock(prefix: str) -> ArtifactBundle:
+            # The artifact endpoints write under the run row lock, so a bundle read before it
+            # can be replaced before the champion points at it.
+            assert any("FOR UPDATE" in q["sql"] for q in queries.captured_queries)
+            return bundle
+
+        with (
+            CaptureQueriesContext(connection) as queries,
+            patch("products.autoresearch.backend.training.artifacts.read_bundle", side_effect=read_under_the_run_lock),
+        ):
             result = complete_training_run(run)
 
         assert result["promoted"] is True
@@ -284,18 +296,22 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
         assert result["promoted"] is True
         assert self._champion().holdout_score == 0.105
 
-    def test_bundle_sql_without_anchors_blocks_promotion(self):
-        # The uploaded features.sql is what fitting runs, so SQL without {anchors} reads the
-        # outcome window whatever the iteration recorded.
+    @parameterized.expand(
+        [
+            # SQL without {anchors} reads the outcome window whatever the iteration recorded.
+            ("no_anchors", "SELECT person_id AS distinct_id, count() AS c FROM events GROUP BY person_id"),
+            # Recording accepts a trailing LIMIT, but the fit appends its own and refuses the query,
+            # which would leave the champion without a model.
+            ("trailing_limit", ANCHORED_FEATURE_SQL + " LIMIT 10"),
+        ]
+    )
+    def test_bundle_sql_the_fit_cannot_run_blocks_promotion(self, _name, features_sql):
+        # The uploaded features.sql is what fitting runs.
         run = self._run()
-        self._iteration(run, number=0, holdout=0.8)
+        self._iteration(run, number=0, holdout=0.8, feature_sql=features_sql)
 
-        leaky = ArtifactBundle(
-            train_py="pass",
-            predict_py="pass",
-            features_sql="SELECT person_id AS distinct_id, count() AS c FROM events GROUP BY person_id",
-        )
-        with patch("products.autoresearch.backend.training.artifacts.read_bundle", return_value=leaky):
+        bundle = ArtifactBundle(train_py="pass", predict_py="pass", features_sql=features_sql)
+        with patch("products.autoresearch.backend.training.artifacts.read_bundle", return_value=bundle):
             with self.assertRaises(PromotionError):
                 complete_training_run(run)
 

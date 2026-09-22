@@ -41,7 +41,6 @@ from posthog.api.tagged_item import (
     BulkUpdateTagsUUIDResponseSerializer,
     TaggedItemSerializerMixin,
     TaggedItemViewSetMixin,
-    normalize_tag_names,
     set_tags_on_object,
 )
 from posthog.dataclasses import frozen
@@ -1907,7 +1906,6 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             rich_content=data.get("rich_content"),
             distinct_id=distinct_id,
             creator_id=request.user.id if request.user and request.user.is_authenticated else None,
-            tags=normalize_tag_names(data.get("tags") or []),
         )
         assert fingerprint is not None
         guarded = reply_dedupe.create_ticket_deduplicated(fingerprint, create_ticket)
