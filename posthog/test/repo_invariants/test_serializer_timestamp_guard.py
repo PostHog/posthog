@@ -69,6 +69,9 @@ WRITE_METHODS = frozenset({"POST", "PUT", "PATCH"})
 # every other entry records a value a client is supposed to set. Nothing is inferred,
 # so a field missing from here fails the build until a person classifies it.
 REVIEWED_WRITABLE: dict[str, str] = {
+    "products.cdp.backend.api.hog_function.HogFunctionSerializer.base_updated_at": "Optimistic-concurrency guard: the client echoes the timestamp it loaded, and the view pops it before save",
+    "products.managed_migrations.backend.api.batch_imports.BatchImportDateRangeSourceCreateSerializer.start_date": "Client picks the import window; write-only input, never stored on the model",
+    "products.managed_migrations.backend.api.batch_imports.BatchImportDateRangeSourceCreateSerializer.end_date": "Client picks the import window; write-only input, never stored on the model",
     "ee.api.subscription.SubscriptionSerializer.start_date": "Client sets when delivery starts",
     "ee.api.subscription.SubscriptionSerializer.until_date": "Client sets when delivery stops, or null for indefinite",
     "ee.api.subscription.SubscriptionWriteSerializer.start_date": "Client sets when delivery starts",
@@ -78,22 +81,22 @@ REVIEWED_WRITABLE: dict[str, str] = {
     "posthog.api.advanced_activity_logs.viewset.ActivityLogSerializer.created_at": "TODO: server-owned audit timestamp, make read-only",
     "posthog.api.event_definition.EventDefinitionSerializer.created_at": "TODO: server-owned, set when ingestion first sees the event",
     "posthog.api.event_definition.EventDefinitionSerializer.last_seen_at": "TODO: server-owned ingestion telemetry, make read-only",
-    "posthog.api.health_issue.HealthIssueSerializer.snoozed_until": "Client snoozes until this time, or passes null to unsnooze",
+    "posthog.api.health_issue.HealthIssueSerializer.snoozed_until": "TODO: server-derived. SnoozeDurationField accepts only a relative duration such as '7d' and computes the stored instant",
     "posthog.api.my_notifications.MyNotificationsSerializer.created_at": "TODO: server-owned activity log timestamp, make read-only",
     "posthog.api.web_experiment.WebExperimentsAPISerializer.created_at": "TODO: server-owned creation timestamp, make read-only",
     "posthog.session_recordings.session_recording_api.SessionRecordingSharedSerializer.end_time": "TODO: server-owned, derived from the ingested replay events",
     "posthog.session_recordings.session_recording_api.SessionRecordingSharedSerializer.start_time": "TODO: server-owned, derived from the ingested replay events",
     "products.actions.backend.api.action.ActionSerializer.last_calculated_at": "TODO: server-owned, written by the action calculation job",
-    "products.actions.backend.api.action.ActionSerializer.pinned_at": "Clients pin an action by writing a timestamp and unpin it by writing null",
-    "products.alerts.backend.presentation.views.alert.AlertSerializer.snoozed_until": "Client snoozes until this time, or passes null to unsnooze",
+    "products.actions.backend.api.action.ActionSerializer.pinned_at": "TODO: server-derived on pin. update() discards the supplied value and stores its own now(); only the null that unpins is the client's",
+    "products.alerts.backend.presentation.views.alert.AlertSerializer.snoozed_until": "TODO: server-derived. The client sends a relative date string and update() resolves it to the stored instant",
     "products.annotations.backend.api.annotation.AnnotationSerializer.date_marker": "Client sets when the annotation happened, to place it on a chart",
     "products.batch_exports.backend.api.batch_export.BatchExportBackfillSerializer.adjusted_start_at": "TODO: server-owned, the backfill derives it from the earliest available data",
     "products.batch_exports.backend.api.batch_export.BatchExportBackfillSerializer.end_at": "Client requests the data interval to backfill",
     "products.batch_exports.backend.api.batch_export.BatchExportBackfillSerializer.finished_at": "TODO: server-owned, written by the backfill workflow when it ends",
     "products.batch_exports.backend.api.batch_export.BatchExportBackfillSerializer.start_at": "Client requests the data interval to backfill",
-    "products.batch_exports.backend.api.batch_export.BatchExportRunSerializer.data_interval_end": "Response-only: the runs viewset is read-only, so no request body is deserialized through it",
-    "products.batch_exports.backend.api.batch_export.BatchExportRunSerializer.data_interval_start": "Response-only: the runs viewset is read-only, so no request body is deserialized through it",
-    "products.batch_exports.backend.api.batch_export.BatchExportRunSerializer.finished_at": "Response-only: the runs viewset is read-only, so no request body is deserialized through it",
+    "products.batch_exports.backend.api.batch_export.BatchExportRunSerializer.data_interval_end": "Response shape for the POST cancel and retry actions, which take no request body",
+    "products.batch_exports.backend.api.batch_export.BatchExportRunSerializer.data_interval_start": "Response shape for the POST cancel and retry actions, which take no request body",
+    "products.batch_exports.backend.api.batch_export.BatchExportRunSerializer.finished_at": "Response shape for the POST cancel and retry actions, which take no request body",
     "products.batch_exports.backend.api.batch_export.BatchExportSerializer.end_at": "Client-supplied bound, runs after it are not triggered",
     "products.batch_exports.backend.api.batch_export.BatchExportSerializer.last_paused_at": "TODO: written by the pause action, make read-only",
     "products.batch_exports.backend.api.batch_export.BatchExportSerializer.start_at": "Client-supplied bound, runs before it are not triggered",
@@ -455,19 +458,24 @@ def collect_violations() -> tuple[dict[str, str], dict[str, str]]:
         for name, field in fields.items():
             if not isinstance(field, serializers.DateTimeField) or field.read_only:
                 continue
+            key = f"{_dotted_name(serializer_class)}.{name}"
             try:
                 model_field = model._meta.get_field(field.source or name)
             except FieldDoesNotExist:
+                # A declared field backed by no column of its own: a write-only input, or
+                # a dotted source into a related model. It still takes a client value on a
+                # write route, so it needs a reason rather than a silent skip.
+                writable[key] = "no model column"
                 continue
             if not isinstance(model_field, models.DateTimeField):
                 continue
-            writable[f"{_dotted_name(serializer_class)}.{name}"] = model.__name__
+            writable[key] = model.__name__
     return writable, problems
 
 
 def test_every_writable_timestamp_has_been_reviewed() -> None:
     writable, _ = collect_violations()
-    unreviewed = sorted(f"{key} (on {model})" for key, model in writable.items() if key not in REVIEWED_WRITABLE)
+    unreviewed = sorted(f"{key} ({model})" for key, model in writable.items() if key not in REVIEWED_WRITABLE)
     assert not unreviewed, (
         "These write routes expose a timestamp nobody has classified. If the backend owns the "
         "value, add a generated field to read_only_fields on Meta; a field the serializer declares "
