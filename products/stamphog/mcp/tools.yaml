@@ -138,7 +138,7 @@ tools:
             lifecycle `status`, final `verdict`, an allowlisted `gate_result` (gate_blocked, final_verdict), and the
             reviewer's `reasoning` (its explanation, the showstoppers that blocked approval, the review text stamphog
             posts on GitHub, and a plain-language change summary). The reasoning fields are null until the reviewer has
-            run. Poll this after `stamphog-review-runs-request` until `status` is completed, gated, failed, or
+            run. Poll this after `stamphog-review-runs-create` until `status` is completed, gated, failed, or
             superseded. The raw reviewer transcript, PR payload, patches, and policy contents are not exposed.
         feature_flag: stamphog
     stamphog-review-runs-list:
@@ -163,8 +163,8 @@ tools:
             exclude:
                 - output
                 - reasoning
-    stamphog-review-runs-request:
-        operation: stamphog_review_runs_request_review_create
+    stamphog-review-runs-create:
+        operation: stamphog_review_runs_create
         enabled: true
         scopes:
             - stamphog:write

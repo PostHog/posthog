@@ -492,10 +492,7 @@ class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
         request=ReviewRequestSerializer,
         responses={200: ReviewRequestResponseSerializer, 201: ReviewRequestResponseSerializer},
     )
-    @action(detail=False, methods=["POST"], url_path="request_review", required_scopes=["stamphog:write"])
-    def request_review(self, request: Request, **kwargs) -> Response:
-        # Custom action names fall outside the default read/write action classification, so without
-        # explicit required_scopes this write would be reachable with no scope check at all.
+    def create(self, request: Request, **kwargs) -> Response:
         serializer = ReviewRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:

@@ -125,7 +125,7 @@ export const StamphogRepoConfigsSyncInstallationCreateBody = /* @__PURE__ */ zod
  * History of stamphog review runs, filterable by repository, PR number, and status, plus manual review requests.
  */
 
-export const StamphogReviewRunsRequestReviewCreateBody = /* @__PURE__ */ zod
+export const StamphogReviewRunsCreateBody = /* @__PURE__ */ zod
     .object({
         repository: zod
             .string()

@@ -593,16 +593,6 @@ class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["results"] == []
 
-    def test_readonly_viewset_rejects_writes(self) -> None:
-        # ReviewRun is created by the webhook/task pipeline, never directly
-        # by API clients; the viewset must stay read-only.
-        response = self.client.post(
-            self.url,
-            {"repository": "PostHog/posthog", "pr_number": 1, "pr_url": "x", "head_sha": "abc"},
-            format="json",
-        )
-        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
-
     def test_output_excludes_raw_repo_content(self) -> None:
         # run.output holds the full PR payload, changed-file patches, default-branch policy files, and
         # raw reviewer stdout. A project member without repo access can read this endpoint, so the API
@@ -679,9 +669,7 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         return {**pr, **overrides}
 
     def _request(self) -> Any:
-        return self.client.post(
-            f"{self.url}request_review/", {"repository": "posthog/posthog", "pr_number": 5}, format="json"
-        )
+        return self.client.post(self.url, {"repository": "posthog/posthog", "pr_number": 5}, format="json")
 
     def test_request_queues_a_manual_run_past_label_mode(self) -> None:
         response = self._request()
@@ -748,7 +736,7 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         self.client.logout()
 
         response = self.client.post(
-            f"{self.url}request_review/",
+            self.url,
             {"repository": "PostHog/posthog", "pr_number": 5},
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {key_value}",

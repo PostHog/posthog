@@ -127,8 +127,7 @@ export const StamphogReviewRunsListQueryParams = () => zod.object({
 /**
  * History of stamphog review runs, filterable by repository, PR number, and status, plus manual review requests.
  */
-export const StamphogReviewRunsRetrieveParams = () => zod.object({
-    id: zod.string(),
+export const StamphogReviewRunsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -136,18 +135,7 @@ export const StamphogReviewRunsRetrieveParams = () => zod.object({
         ),
 })
 
-/**
- * History of stamphog review runs, filterable by repository, PR number, and status, plus manual review requests.
- */
-export const StamphogReviewRunsRequestReviewCreateParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const StamphogReviewRunsRequestReviewCreateBody = () => zod
+export const StamphogReviewRunsCreateBody = () => zod
     .object({
         repository: zod
             .string()
@@ -157,3 +145,15 @@ export const StamphogReviewRunsRequestReviewCreateBody = () => zod
         pr_number: zod.number().min(1).describe('Pull request number on GitHub.'),
     })
     .describe('Request body for asking stamphog to review one pull request.')
+
+/**
+ * History of stamphog review runs, filterable by repository, PR number, and status, plus manual review requests.
+ */
+export const StamphogReviewRunsRetrieveParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})

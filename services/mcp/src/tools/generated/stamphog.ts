@@ -195,18 +195,18 @@ const stamphogReviewRunsList = (): ToolBase<
     },
 })
 
-const StamphogReviewRunsRequestSchema = () => {
-    const StamphogReviewRunsRequestReviewCreateBody = orvalSchemas.StamphogReviewRunsRequestReviewCreateBody()
-    return StamphogReviewRunsRequestReviewCreateBody
+const StamphogReviewRunsCreateSchema = () => {
+    const StamphogReviewRunsCreateBody = orvalSchemas.StamphogReviewRunsCreateBody()
+    return StamphogReviewRunsCreateBody
 }
 
-const stamphogReviewRunsRequest = (): ToolBase<
-    ReturnType<typeof StamphogReviewRunsRequestSchema>,
+const stamphogReviewRunsCreate = (): ToolBase<
+    ReturnType<typeof StamphogReviewRunsCreateSchema>,
     Schemas.ReviewRequestResponse
 > => ({
-    name: 'stamphog-review-runs-request',
-    schema: StamphogReviewRunsRequestSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof StamphogReviewRunsRequestSchema>>) => {
+    name: 'stamphog-review-runs-create',
+    schema: StamphogReviewRunsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StamphogReviewRunsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.repository !== undefined) {
@@ -217,7 +217,7 @@ const stamphogReviewRunsRequest = (): ToolBase<
         }
         const result = await context.api.request<Schemas.ReviewRequestResponse>({
             method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/stamphog/review_runs/request_review/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/stamphog/review_runs/`,
             body,
         })
         return result
@@ -233,5 +233,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'stamphog-repo-configs-list': stamphogRepoConfigsList,
     'stamphog-review-runs-get': stamphogReviewRunsGet,
     'stamphog-review-runs-list': stamphogReviewRunsList,
-    'stamphog-review-runs-request': stamphogReviewRunsRequest,
+    'stamphog-review-runs-create': stamphogReviewRunsCreate,
 }

@@ -173,7 +173,7 @@ narrow:
 
 ## The manual trigger (the one exception to label mode)
 
-`request_manual_review` (the `request_review` API action and the `stamphog-review-runs-request` MCP tool) queues a review because a project member asked for it.
+`request_manual_review` (`POST review_runs/` and the `stamphog-review-runs-create` MCP tool) queues a review because a project member asked for it.
 The request stands in for the trigger label, so it bypasses `review_mode` and nothing else.
 Every other webhook-path gate still refuses: closed PRs, drafts, bot authors, untrusted author associations, and authors below write permission.
 The requester's own GitHub access is not checked; the `stamphog:write` scope and the product's access control are the gate.
