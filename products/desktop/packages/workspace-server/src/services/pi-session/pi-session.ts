@@ -86,6 +86,7 @@ interface ManagedPiSession {
   pendingMcpPermissions: Map<string, McpToolPermissionRequest>;
   runtime: PiRuntime;
   cwd: string;
+  usesSubscriptionProvider: boolean;
   state: PiPoolSessionState;
   lastUsedAt: number;
   activeRequestCount: number;
@@ -170,6 +171,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     });
     const client = runtime.client;
     const session = this.registerSession(taskId, runtime, cwd);
+    session.usesSubscriptionProvider = Boolean(input.piSubscriptionProvider);
 
     return this.startSession(taskId, client, session, async () => {
       if (input.thinkingLevel) {
@@ -200,6 +202,40 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     await this.runExclusive(input.taskContext.taskId, () =>
       this.resumeLocked(input),
     );
+  }
+
+  async switchSubscriptionSessionsToGateway(): Promise<number> {
+    const taskIds = [...this.sessions.entries()]
+      .filter(([, session]) => session.usesSubscriptionProvider)
+      .map(([taskId]) => taskId);
+
+    for (const taskId of taskIds) {
+      await this.runExclusive(taskId, async () => {
+        try {
+          await this.switchToGatewayLocked(taskId);
+        } catch (error) {
+          this.log.error("Failed to switch Pi session to the gateway", {
+            taskId,
+            error,
+          });
+        }
+      });
+    }
+    return taskIds.length;
+  }
+
+  private async switchToGatewayLocked(taskId: string): Promise<void> {
+    const session = this.sessions.get(taskId);
+    if (!session?.usesSubscriptionProvider) {
+      return;
+    }
+    const cwd = session.cwd;
+    this.log.warn("Switching Pi session to PostHog gateway after sign-out", {
+      taskId,
+    });
+
+    await this.stopLocked(taskId);
+    await this.resumeLocked({ taskContext: { taskId, cwd } });
   }
 
   private async resumeLocked(input: ResumePiSessionInput): Promise<void> {
@@ -533,6 +569,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       pendingMcpPermissions,
       runtime,
       cwd,
+      usesSubscriptionProvider: false,
       state: "starting",
       lastUsedAt: Date.now(),
       activeRequestCount: 0,

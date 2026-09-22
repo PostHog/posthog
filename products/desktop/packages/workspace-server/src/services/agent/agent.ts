@@ -105,6 +105,8 @@ import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
 import { inject, injectable, preDestroy } from "inversify";
 import { WORKSPACE_REPOSITORY } from "../../db/identifiers";
 import type { IWorkspaceRepository } from "../../db/repositories/workspace-repository";
+import { PI_SESSION_SERVICE } from "../pi-session/identifiers";
+import type { PiSessionService } from "../pi-session/pi-session";
 import { POSTHOG_PLUGIN_SERVICE } from "../posthog-plugin/identifiers";
 import type { PosthogPluginService } from "../posthog-plugin/posthog-plugin";
 import { PROCESS_TRACKING_SERVICE } from "../process-tracking/identifiers";
@@ -462,6 +464,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   private posthogPluginService: PosthogPluginService;
   private agentAuthAdapter: AgentAuthAdapter;
   private mcpAppsService: AgentMcpApps;
+  private piSessionService: PiSessionService;
   private readonly log: AgentScopedLogger;
   private readonly onAgentLog: AgentTypes.OnLogCallback;
 
@@ -478,6 +481,8 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     agentAuthAdapter: AgentAuthAdapter,
     @inject(AGENT_MCP_APPS)
     mcpAppsService: AgentMcpApps,
+    @inject(PI_SESSION_SERVICE)
+    piSessionService: PiSessionService,
     @inject(POWER_MANAGER_SERVICE)
     powerManager: IPowerManager,
     @inject(BUNDLED_RESOURCES_SERVICE)
@@ -500,6 +505,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     this.posthogPluginService = posthogPluginService;
     this.agentAuthAdapter = agentAuthAdapter;
     this.mcpAppsService = mcpAppsService;
+    this.piSessionService = piSessionService;
     this.log = loggerFactory.scope("agent-service");
     this.onAgentLog = makeOnAgentLog(loggerFactory);
 
@@ -668,6 +674,13 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     await this.piSubscriptionLogin?.cancel();
     this.piSubscriptionLogin = undefined;
     await signOutPiNativeSubscription();
+    const switched =
+      await this.piSessionService.switchSubscriptionSessionsToGateway();
+    if (switched > 0) {
+      this.log.info("Moved running Pi sessions to PostHog credits", {
+        sessions: switched,
+      });
+    }
   }
 
   async cancelPiSubscriptionLogin(): Promise<void> {

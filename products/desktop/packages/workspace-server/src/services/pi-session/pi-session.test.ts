@@ -278,6 +278,87 @@ describe("PiSessionService start", () => {
   });
 });
 
+describe("PiSessionService switchSubscriptionSessionsToGateway", () => {
+  function makeStartableClient(): PiRpcClient {
+    return {
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
+      getState: vi.fn().mockResolvedValue({
+        isStreaming: false,
+        sessionFile: "/tmp/pi-session.jsonl",
+        sessionId: "session-1",
+      }),
+      prompt: vi.fn().mockResolvedValue(undefined),
+      onMcpToolPermissionRequest: vi.fn(),
+    } as unknown as PiRpcClient;
+  }
+
+  function makeRuntimeFactory(client: PiRpcClient): PiRuntimeFactory {
+    return {
+      create: vi.fn(async () => ({
+        client,
+        process: undefined,
+        onRuntimeEvent: vi.fn(),
+        onConversationEvent: vi.fn(),
+      })),
+    } as unknown as PiRuntimeFactory;
+  }
+
+  it("recreates running subscription sessions on the gateway provider", async () => {
+    const client = makeStartableClient();
+    const runtimeFactory = makeRuntimeFactory(client);
+    const taskMetadataRepository = {
+      upsert: vi.fn(),
+      findByTaskId: vi
+        .fn()
+        .mockReturnValue({ piSessionFile: "/tmp/pi-session.jsonl" }),
+    } as unknown as ITaskMetadataRepository;
+    const processTracking = {
+      register: vi.fn(),
+      unregister: vi.fn(),
+    } as unknown as ProcessTrackingService;
+    const service = new PiSessionService(
+      runtimeFactory,
+      taskMetadataRepository,
+      processTracking,
+      { approveMcpTool: vi.fn() },
+      rootLogger,
+    );
+
+    await service.start({
+      taskContext: { taskId: "task-1", cwd: "/tmp" },
+      prompt: "hello",
+      piSubscriptionProvider: "openai-codex",
+    });
+
+    const switched = await service.switchSubscriptionSessionsToGateway();
+
+    expect(switched).toBe(1);
+    expect(client.stop).toHaveBeenCalled();
+    expect(runtimeFactory.create).toHaveBeenLastCalledWith({
+      taskContext: { taskId: "task-1", cwd: "/tmp" },
+      sessionFile: "/tmp/pi-session.jsonl",
+    });
+  });
+
+  it("reports zero when no subscription sessions are running", async () => {
+    const client = makeStartableClient();
+    const runtimeFactory = makeRuntimeFactory(client);
+    const service = new PiSessionService(
+      runtimeFactory,
+      {} as ITaskMetadataRepository,
+      {} as ProcessTrackingService,
+      { approveMcpTool: vi.fn() },
+      rootLogger,
+    );
+
+    await expect(service.switchSubscriptionSessionsToGateway()).resolves.toBe(
+      0,
+    );
+    expect(runtimeFactory.create).not.toHaveBeenCalled();
+  });
+});
+
 describe("PiSessionService extension UI", () => {
   it("streams current-session extension events and forwards responses", async () => {
     const extensionHandlers: Array<(event: PiExtensionEvent) => void> = [];
