@@ -132,6 +132,12 @@ def is_dev_mode() -> bool:
         return True
 
 
+def is_local_dev_enabled() -> bool:
+    from django.conf import settings
+
+    return is_dev_mode() and bool(getattr(settings, "MANAGED_WAREHOUSE_LOCAL_DEV_ENABLED", False))
+
+
 def is_ducklake_catalog_reset_allowed() -> bool:
     """Allow destructive catalog resets only when local startup opted in explicitly."""
     return is_dev_mode() and os.getenv(DUCKLAKE_CATALOG_RESET_ENV_VAR) == "1"
@@ -718,6 +724,7 @@ __all__ = [
     "ensure_ducklake_catalog",
     "initialize_ducklake",
     "is_ducklake_catalog_reset_allowed",
+    "is_local_dev_enabled",
     "is_version_mismatch",
     "parse_postgres_dsn",
     "is_dev_mode",
