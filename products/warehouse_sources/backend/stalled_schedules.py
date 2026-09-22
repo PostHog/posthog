@@ -220,9 +220,9 @@ def find_stalled_schemas(
         if last_run_at is None or schema.last_synced_at is None:
             continue
         # A stalled schedule is one that stopped running, not one whose source stopped changing,
-        # so `last_run_at` is what the window applies to (see the property). The window comes off
-        # the annotation so both stamps are judged against one cadence.
-        stall_window = schema.stalled_after - schema.last_synced_at
+        # so `last_run_at` is what the window applies to (see the property). The window comes back
+        # off `stalled_after`, the queryset's own annotation, rather than being recomputed here.
+        stall_window = schema.stalled_after - schema.last_synced_at  # type: ignore[attr-defined]
         if now - last_run_at <= stall_window:
             continue
         # Streaming CDC and cdc_halted are excluded here rather than in the queryset (see the
