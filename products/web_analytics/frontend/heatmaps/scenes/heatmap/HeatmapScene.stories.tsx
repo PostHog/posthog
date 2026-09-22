@@ -337,7 +337,7 @@ const emptyHeatmapMocks = (queryResults: (query: string) => unknown[]): Mocks =>
         '/api/projects/:team_id/heatmaps/': () => [200, { results: [], count: 0, next: null, previous: null }],
     },
     post: {
-        '/api/environments/:team_id/query/': async (info) => {
+        '/api/projects/:team_id/query/:query_kind/': async (info) => {
             const body = JSON.stringify(await info.request.clone().json())
             return [200, { results: queryResults(body) }]
         },
