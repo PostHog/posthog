@@ -26,6 +26,7 @@ from products.ai_observability.backend.llm.errors import (
     ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
+    OutputTokenLimitError,
     ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
@@ -455,6 +456,56 @@ class TestRunEvaluationWorkflow:
         assert result.get("applicable") is expected_applicable
         assert result.get("terminal_user_error") is not True
         assert "model" not in result
+        mock_client.complete.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "output_config,expected_verdict,expected_applicable",
+        [
+            pytest.param({}, False, None, id="without_na"),
+            pytest.param({"allows_na": True}, None, False, id="with_na"),
+        ],
+    )
+    @pytest.mark.django_db(transaction=True)
+    def test_execute_llm_judge_activity_skips_on_output_limit(
+        self, output_config, expected_verdict, expected_applicable, setup_data, active_key_config
+    ):
+        team = setup_data["team"]
+        evaluation_obj = setup_data["evaluation"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response factually accurate?"},
+            "output_type": "boolean",
+            "output_config": output_config,
+            "team_id": team.id,
+        }
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [{"role": "user", "content": "What is 2+2?"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "4"}],
+            },
+        )
+
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.complete.side_effect = OutputTokenLimitError(
+                "Could not finish the message because max_tokens or model output limit was reached."
+            )
+
+            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "output_limit_exceeded"
+        assert result["verdict"] is expected_verdict
+        assert result.get("applicable") is expected_applicable
+        assert result.get("terminal_user_error") is not True
+        # The model ran and the call was billed, so attribution stays on the result.
+        assert result["model"]
+        assert result["provider"]
         mock_client.complete.assert_called_once()
 
     @pytest.mark.asyncio

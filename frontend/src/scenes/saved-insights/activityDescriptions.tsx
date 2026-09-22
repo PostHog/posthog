@@ -88,8 +88,12 @@ function describeInsightRename(
     }
 }
 
+// `filters` is no longer a field on the insight model, but old log entries still record changes to
+// it, so the activity log reads a wider set of fields than the model now carries.
+type LoggedInsightField = keyof InsightModel | 'filters'
+
 const insightActionsMapping: Record<
-    keyof InsightModel,
+    LoggedInsightField,
     (change?: ActivityChange, logItem?: ActivityLogItem, asNotification?: boolean) => ChangeMapping | null
 > = {
     name: describeInsightRename,
@@ -280,7 +284,7 @@ function describeInsightUpdate(logItem: ActivityLogItem, asNotification?: boolea
     const mappings: ChangeMapping[] = []
     try {
         for (const change of logItem.detail.changes || []) {
-            const handler = insightActionsMapping[change.field as keyof InsightModel]
+            const handler = insightActionsMapping[change.field as LoggedInsightField]
             if (!change?.field || !handler) {
                 continue
             }

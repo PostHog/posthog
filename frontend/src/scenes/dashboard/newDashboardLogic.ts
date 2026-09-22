@@ -45,7 +45,6 @@ import {
 import { WEBSITE_METRICS_METRIC_CARD_TILES } from 'products/dashboards/frontend/websiteMetricsMetricCardTemplate'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
-import type { InsightModel } from '../../types'
 import { UNFILED_DASHBOARDS_FOLDER } from './dashboardConstants'
 
 export interface NewDashboardForm {
@@ -245,7 +244,7 @@ export interface newDashboardLogicActions {
         result: DashboardType,
         variables?: DashboardTemplateVariableType[]
     ) => {
-        result: DashboardType<InsightModel>
+        result: DashboardType
         variables: DashboardTemplateVariableType[] | undefined
     }
     touchNewDashboardField: (key: string) => {

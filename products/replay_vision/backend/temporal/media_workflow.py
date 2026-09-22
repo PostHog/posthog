@@ -13,6 +13,7 @@ with wf.unsafe.imports_passed_through():
         prepare_observation_thumbnail_activity,
     )
     from products.replay_vision.backend.temporal.media_types import (
+        MEDIA_WORKFLOW_NAME,
         ExtractThumbnailActivityOutput,
         FinalizeObservationThumbnailInputs,
         ObservationMediaInputs,
@@ -21,9 +22,18 @@ with wf.unsafe.imports_passed_through():
 
 _THUMBNAIL_TIMEOUT = dt.timedelta(minutes=5)
 _STATE_RETRY = common.RetryPolicy(maximum_attempts=3)
+# Ridden out here rather than left for the backfill sweep to rediscover fifteen minutes later.
+_THUMBNAIL_RETRY = common.RetryPolicy(
+    maximum_attempts=5,
+    initial_interval=dt.timedelta(seconds=20),
+    backoff_coefficient=3.0,
+    maximum_interval=dt.timedelta(minutes=5),
+)
+# Bounds the retry chain, so a broken render releases the child before the execution timeout.
+_THUMBNAIL_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=15)
 
 
-@wf.defn(name="replay-vision-media")
+@wf.defn(name=MEDIA_WORKFLOW_NAME)
 class ObservationMediaWorkflow(PostHogWorkflow):
     """Render the media that illustrates one succeeded observation. Today that is a single thumbnail."""
 
@@ -43,7 +53,8 @@ class ObservationMediaWorkflow(PostHogWorkflow):
             prepared.activity_input.model_dump(exclude_none=True),
             task_queue=settings.RASTERIZATION_MEDIA_TASK_QUEUE,
             start_to_close_timeout=_THUMBNAIL_TIMEOUT,
-            retry_policy=common.RetryPolicy(maximum_attempts=2),
+            schedule_to_close_timeout=_THUMBNAIL_SCHEDULE_TO_CLOSE,
+            retry_policy=_THUMBNAIL_RETRY,
         )
 
         await wf.execute_activity(

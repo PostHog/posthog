@@ -33,6 +33,7 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.llm.billing import AI_COST_MARKUP_PERCENT
 from posthog.logging.timing import timed_log
 from posthog.models import OrganizationMembership, User
 from posthog.models.ai_events.sql import TABLE_BASE_NAME as AI_EVENTS_TABLE
@@ -1728,8 +1729,6 @@ def get_teams_with_ai_event_count_in_period(
     return [(team_id, max(0, count - sponsored_by_team.get(team_id, 0))) for team_id, count in base_counts]
 
 
-# AI billing markup: 20% markup on top of cost
-AI_COST_MARKUP_PERCENT = 0.2
 # PostHog Desktop bills model costs as pure pass-through: no markup
 POSTHOG_CODE_COST_MARKUP_PERCENT = 0.0
 # Tools excluded from AI billing (traces with only these tools are not billed)
