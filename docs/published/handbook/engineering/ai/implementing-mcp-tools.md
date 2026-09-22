@@ -109,10 +109,8 @@ A missing flag evaluates as off. Development `FEATURE_FLAG_OVERRIDES` do not ena
 
 Verify the published skills archive loads, then start a new MCP session and sandbox task for an enabled user.
 Exercise `learn -s`, a qualified skill read, and a product call, and check that a disabled user retains the prior behavior.
-The skills-first gate response directs agents to search, load an exact qualified name with `learn posthog:<skill>` or `learn project:<skill>`, then retry the original call.
-Searching alone does not open the gate, and `skill-get` and `skill-list` cannot satisfy it.
-Unknown learning topics and empty search queries return recovery instructions; a failed `learn` does not open the gate.
-If no skill applies, the existing `call --no-skills ...` acknowledgement remains available.
+Skill use is advisory: a product `call` is never rejected for skipping `learn`, so stateless and session-holding clients behave the same.
+Unknown learning topics and empty search queries return recovery instructions.
 The `plugin` and `posthog-code` consumers remain excluded regardless of the flag.
 Monitor archive validation errors, catalog size, MCP memory, and task failures before expanding the release condition.
 
