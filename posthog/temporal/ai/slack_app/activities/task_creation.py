@@ -111,6 +111,22 @@ def _format_author_token(user_id: str | None, display_name: str | None) -> str:
     return name
 
 
+def _posthog_user_uuid(user: Any | None) -> str | None:
+    """The actor's PostHog uuid, or None once the task's creator is gone."""
+    return str(user.uuid) if user is not None else None
+
+
+def _with_posthog_identity(author_token: str, posthog_user_uuid: str | None) -> str:
+    """Name the actor's PostHog identity next to the Slack token that addresses them.
+
+    PostHog's own tools address org members by `user__uuid`, so the uuid is what lets the
+    agent resolve the requester rather than only ping them back. Reserved for the actor:
+    everyone else in a thread is an unauthenticated Slack participant.
+    """
+    value = (posthog_user_uuid or "").strip()
+    return f"{author_token} (posthog user {value})" if value else author_token
+
+
 def _attachment_names(msg: SlackThreadMessage) -> list[str]:
     return [attachment_display_name(file) for file in msg.files]
 
@@ -142,10 +158,32 @@ def _uploaded_attachment_ids(uploaded_artifacts: list[dict[str, Any]]) -> list[s
 
 
 def _apply_followup_prefix(user_text: str, prefix: str | None) -> str:
-    """Prefix a cross-user follow-up with the actor's name; substitute a placeholder for file-only messages."""
+    """Attribute a follow-up to the actor who sent it; substitute a placeholder for file-only messages."""
     if prefix:
         return prefix + user_text if user_text else f"{prefix}attached Slack file(s)."
     return user_text or "Attached Slack file(s)."
+
+
+def _followup_actor_prefix(slack: Any, integration: Any, slack_user_id: str, actor_user: Any | None) -> str:
+    """The attribution header naming who sent this follow-up turn.
+
+    Every turn carries one, so a thread several people speak in does not reach the agent
+    as a single unattributed stream. The display name comes from `SlackUserProfileCache`
+    via `get_slack_user_info` — the cache `collect_thread_messages` populates, so this is
+    almost always a DB hit rather than a Slack API call.
+    """
+    from products.slack_app.backend.services.slack_user_info import get_slack_user_info  # noqa: PLC0415
+
+    display_name: str | None = None
+    try:
+        profile = get_slack_user_info(slack, integration, slack_user_id).get("user", {}).get("profile", {})
+        display_name = profile.get("display_name") or profile.get("real_name") or None
+    except Exception:
+        logger.warning("slack_app_followup_display_name_lookup_failed", slack_user_id=slack_user_id)
+    if not display_name and actor_user is not None:
+        display_name = actor_user.get_full_name() or actor_user.email
+    identity = _with_posthog_identity(_format_author_token(slack_user_id, display_name), _posthog_user_uuid(actor_user))
+    return f"{identity}: "
 
 
 def _pending_attachment_state_updates(
@@ -244,6 +282,7 @@ def _build_posthog_code_task_description(
     initiator_ts: str | None,
     mentioner_slack_user_id: str | None = None,
     mentioner_display_name: str | None = None,
+    mentioner_posthog_user_uuid: str | None = None,
     fork_source_permalink: str | None = None,
     fork_source_task_id: str | None = None,
 ) -> str:
@@ -264,7 +303,9 @@ def _build_posthog_code_task_description(
     The block is prefixed with explicit "Thread author" and "Mentioner" annotations
     pointing at the two roles the agent most often needs to disambiguate: the person
     who started the discussion vs. the person who tagged the bot (and whose message
-    is the actual ask below the closing tag).
+    is the actual ask below the closing tag). The mentioner's annotation also carries
+    `mentioner_posthog_user_uuid`, which is the only PostHog identity in the block —
+    the other participants are unauthenticated Slack users.
 
     `initiator_ts` is how we identify the initiator's slot in the thread. Slack
     `app_mention` events always carry it; if it's missing, we can't safely pick a
@@ -312,7 +353,14 @@ def _build_posthog_code_task_description(
         context_entries.pop()
 
     if not context_entries:
-        return prompt
+        # A one-message thread is its own context, so the framed block would be more
+        # wrapper than content. One line names the requester without it.
+        if not mentioner_slack_user_id:
+            return prompt
+        requester = _with_posthog_identity(
+            _format_author_token(mentioner_slack_user_id, mentioner_display_name), mentioner_posthog_user_uuid
+        )
+        return f"Requested by {requester}.\n\n{prompt}"
 
     # Fall back to deriving the mentioner from `mentioner_slack_user_id` when the
     # initiator's message isn't part of the thread fetch (rare, but defensive). The
@@ -328,18 +376,21 @@ def _build_posthog_code_task_description(
     if thread_author_entry:
         role_lines.append(f"Thread started by: {thread_author_entry['author']}")
     if mentioner_entry:
+        # Compare on the bare token: the thread author carries no uuid, so comparing the
+        # rendered form would make the same person look like two.
+        mentioner_identity = _with_posthog_identity(mentioner_entry["author"], mentioner_posthog_user_uuid)
         if thread_author_entry and mentioner_entry["author"] == thread_author_entry["author"]:
             # Replace the "started by" line with a combined annotation so we don't repeat
             # the same author twice. The mentioner role is the load-bearing one — its
             # message is the actual request — so it's the form we keep.
             role_lines[-1] = (
-                f"Thread started by and tagged the PostHog app: {mentioner_entry['author']} "
-                "(their message below the closing tag is the actual request)"
+                f"Thread started by and tagged the PostHog app: {mentioner_identity}. "
+                "Their message below the closing tag is the actual request."
             )
         else:
             role_lines.append(
-                f"Tagged the PostHog app: {mentioner_entry['author']} "
-                "(their message below the closing tag is the actual request)"
+                f"Tagged the PostHog app: {mentioner_identity}. "
+                "Their message below the closing tag is the actual request."
             )
 
     if fork_source_permalink:
@@ -546,6 +597,7 @@ def create_posthog_code_task_for_repo_activity(
     model_override: SlackAppModelOverride | None = None,
 ) -> None:
     from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.user import User
 
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.services.slack_conversations import resolve_conversation_type
@@ -626,6 +678,9 @@ def create_posthog_code_task_for_repo_activity(
             thread_ts=thread_ts,
         )
 
+    mentioner_uuid = User.objects.filter(pk=user_id).values_list("uuid", flat=True).first()
+    mentioner_posthog_user_uuid = str(mentioner_uuid) if mentioner_uuid else None
+
     # On a fork the context block is the *source* thread, which the requester never
     # spoke in: there is no initiator slot to mark and no "tagged the app" role to
     # annotate, so both are withheld and the block renders as pure background.
@@ -640,6 +695,7 @@ def create_posthog_code_task_for_repo_activity(
         None if is_fork else user_message_ts,
         mentioner_slack_user_id=None if is_fork else slack_user_id,
         mentioner_display_name=None if is_fork else mentioner_display_name,
+        mentioner_posthog_user_uuid=None if is_fork else mentioner_posthog_user_uuid,
         fork_source_permalink=fork_source_permalink,
         fork_source_task_id=inputs.fork_source_task_id if is_fork else None,
     )
@@ -872,12 +928,10 @@ def forward_posthog_code_followup_activity(
     slack = SlackIntegration(integration)
 
     actor_user = mapping.task.created_by
-    followup_user_text_prefix: str | None = None
     if slack_user_id != mapping.mentioning_slack_user_id:
         # The follow-up is from a different Slack user than the one who started the
         # thread. Try to resolve them to a PostHog user with access to the same team
-        # — if so, let them participate under their own sandbox token, with their
-        # name prefixed onto the text so the agent sees who spoke.
+        # — if so, let them participate under their own sandbox token.
         resolved = resolve_slack_user(slack, integration, slack_user_id, channel, thread_ts)
         if not resolved:
             logger.info(
@@ -888,12 +942,7 @@ def forward_posthog_code_followup_activity(
                 actual=slack_user_id,
             )
             return True
-        # `slack_email` is None on the linked-user resolver path; fall through
-        # to the user's PostHog email rather than interpolating literal "None: "
-        # into the LLM-forwarded prefix when both name and slack_email are absent.
         actor_user = resolved.user
-        actor_name = resolved.user.get_full_name() or resolved.slack_email or resolved.user.email
-        followup_user_text_prefix = f"{actor_name}: "
         logger.info(
             "posthog_code_followup_cross_user_authorized",
             channel=channel,
@@ -902,6 +951,8 @@ def forward_posthog_code_followup_activity(
             actor=slack_user_id,
             actor_user_id=resolved.user.id,
         )
+
+    followup_user_text_prefix = _followup_actor_prefix(slack, integration, slack_user_id, actor_user)
 
     if block_if_team_over_quota(
         integration=integration,
