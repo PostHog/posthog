@@ -441,6 +441,24 @@ def test_generate_recording_lookup_counts_expiring_sessions_per_team(
         retention_period_days=30,
         ensure_analytics_event_in_session=False,
     )
+    # 90-day retention: started 85 days ago, so it expires in 5 days like the 30-day sessions above.
+    produce_replay_summary(
+        team_id=team.id,
+        session_id="expiring-90d",
+        first_timestamp=now - timedelta(days=85),
+        last_timestamp=now - timedelta(days=85),
+        retention_period_days=90,
+        ensure_analytics_event_in_session=False,
+    )
+    # 30-day retention started 40 days ago has already expired.
+    produce_replay_summary(
+        team_id=team.id,
+        session_id="expired",
+        first_timestamp=now - timedelta(days=40),
+        last_timestamp=now - timedelta(days=40),
+        retention_period_days=30,
+        ensure_analytics_event_in_session=False,
+    )
     # Left over from an earlier attempt of the same digest; the quiet team has no sessions.
     redis_servers.digest.set(
         team_data_key(digest.key, TeamDataKey.EXPIRING_RECORDINGS, quiet_team.id), json.dumps({"recording_count": 9})
@@ -465,7 +483,7 @@ def test_generate_recording_lookup_counts_expiring_sessions_per_team(
         raw = redis_servers.digest.get(team_data_key(digest.key, TeamDataKey.EXPIRING_RECORDINGS, for_team.id))
         return json.loads(raw) if raw else None
 
-    assert stored_count(team) == {"recording_count": 2}
+    assert stored_count(team) == {"recording_count": 3}
     assert stored_count(other_team) == {"recording_count": 1}
     assert stored_count(quiet_team) is None
 

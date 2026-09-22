@@ -3,7 +3,7 @@ import math
 import time
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, TypeVar
 from uuid import UUID
 
@@ -34,6 +34,7 @@ from posthog.models.organization_notification_lock import GovernedSetting, notif
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.ph_client import get_client as get_ph_client
+from posthog.session_recordings.data_retention import RETENTION_PERIOD_DAYS
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.tasks.email import NotificationSetting, should_send_notification
@@ -406,19 +407,42 @@ def generate_filter_lookup(input: GenerateDigestDataBatchInput) -> None:
 TTL_THRESHOLD = 10  # days
 
 
+def _expiring_recording_start_windows(now: datetime) -> list[tuple[datetime, datetime]]:
+    """Session start windows that can still hold a recording expiring within TTL_THRESHOLD days.
+
+    A recording expires `retention` days after the start of its first day, so one about to expire
+    started between `now - retention` and `now - retention + TTL_THRESHOLD`. A day of slack on each
+    side covers the day truncation. The ClickHouse retention column is null for the 30-day default,
+    which the 30-day window covers.
+    """
+    return [
+        (now - timedelta(days=retention + 1), now - timedelta(days=retention - TTL_THRESHOLD - 1))
+        for retention in sorted(set(RETENTION_PERIOD_DAYS.values()))
+    ]
+
+
 def _generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None:
     logger = _bind_batch_logger(input)
     logger.info("Generating Replay recording count batch")
 
+    now = datetime.now(UTC)
+    start_windows = _expiring_recording_start_windows(now)
+    window_parameters = {
+        f"window_{index}_{edge}": value
+        for index, window in enumerate(start_windows)
+        for edge, value in zip(("start", "end"), window)
+    }
+
     eligible_team_ids = _eligible_team_ids(input)
     tag_queries(product=Product.INTERNAL, feature=Feature.DIGEST)
     rows = sync_execute(
-        SessionReplayEvents.count_soon_to_expire_sessions_by_team_query(),
+        SessionReplayEvents.count_soon_to_expire_sessions_by_team_query(len(start_windows)),
         {
             "team_id_start": input.team_id_range.start,
             "team_id_end": input.team_id_range.end,
-            "python_now": datetime.now(UTC),
+            "python_now": now,
             "ttl_threshold": TTL_THRESHOLD,
+            **window_parameters,
         },
         workload=Workload.OFFLINE,
     )
