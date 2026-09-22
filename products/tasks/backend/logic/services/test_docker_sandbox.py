@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import subprocess
 from typing import TYPE_CHECKING, Any
@@ -15,7 +16,11 @@ from products.tasks.backend.logic.services.agent_server_launcher import (
     AGENT_SERVER_LAUNCH_CAPABILITIES,
     AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX,
 )
-from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
+from products.tasks.backend.logic.services.docker_sandbox import (
+    DockerSandbox,
+    _base_dockerfile_path,
+    _pinned_agent_version,
+)
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS, ENV_LOCAL_SKILLS_HOST_PATH
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
@@ -28,6 +33,8 @@ from products.tasks.backend.logic.services.sandbox import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from pytest_django.fixtures import Settings
 
 
@@ -1013,3 +1020,17 @@ class TestDockerSandboxIntegration:
             assert result.stdout.strip() != ""
         finally:
             DockerSandbox.delete_snapshot(snapshot_id)
+
+
+class TestPinnedAgentVersion:
+    def test_reads_a_semver_from_the_base_dockerfile(self) -> None:
+        version = _pinned_agent_version(_base_dockerfile_path())
+
+        assert version is not None
+        assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
+
+    def test_ignores_lines_that_are_not_the_arg(self, tmp_path: Path) -> None:
+        dockerfile = tmp_path / "Dockerfile"
+        dockerfile.write_text("FROM scratch\nENV AGENT_VERSION=1.2.3\n# ARG AGENT_VERSION=4.5.6\n")
+
+        assert _pinned_agent_version(str(dockerfile)) is None
