@@ -742,6 +742,7 @@ def post_scout_report_to_slack(
     thread_ts = response.get("ts")
     if thread_ts:
         record_report_slack_thread(
+            slack_workspace_id=integration.integration_id,
             team_id=report.team_id,
             report_id=str(report.id),
             integration_id=integration.id,

@@ -706,6 +706,7 @@ def _deliver_route_notification(
             # Recorded before the evidence replies, so a failure posting those still leaves the
             # thread resolvable back to the report.
             record_report_slack_thread(
+                slack_workspace_id=route.integration.integration_id,
                 team_id=report.team_id,
                 report_id=str(report.id),
                 integration_id=route.integration.id,

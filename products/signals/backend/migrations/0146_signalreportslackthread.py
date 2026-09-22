@@ -26,6 +26,7 @@ class Migration(migrations.Migration):
                         serialize=False,
                     ),
                 ),
+                ("slack_workspace_id", models.CharField(max_length=64)),
                 ("channel", models.CharField(max_length=64)),
                 ("thread_ts", models.CharField(max_length=64)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
@@ -63,7 +64,7 @@ class Migration(migrations.Migration):
                 "default_manager_name": "all_teams",
                 "constraints": [
                     models.UniqueConstraint(
-                        fields=("channel", "thread_ts"),
+                        fields=("slack_workspace_id", "channel", "thread_ts"),
                         name="signals_report_slack_thread_unique",
                     )
                 ],

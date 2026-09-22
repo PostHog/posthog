@@ -441,9 +441,12 @@ def test_dispatch_records_the_notification_thread_for_the_report(org_and_team, t
         slack_cls.return_value.client = fake_client
         dispatch_inbox_item_notifications(str(report.id), team.id)
 
-    assert report_id_for_slack_thread(team_id=team.id, channel=posted_channel, thread_ts="1700000000.000100") == str(
-        report.id
-    )
+    assert report_id_for_slack_thread(
+        slack_workspace_id=integration.integration_id,
+        team_id=team.id,
+        channel=posted_channel,
+        thread_ts="1700000000.000100",
+    ) == str(report.id)
 
 
 @pytest.mark.django_db

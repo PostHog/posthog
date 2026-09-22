@@ -185,7 +185,9 @@ class TestScoutSlackDelivery(BaseTest):
                 "| [#93147 fix(checkout): retry 500s](https://example.com/pull/93147) | ready |\n"
             ),
         )
-        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        integration = Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.SLACK, integration_id="T_SCOUTS"
+        )
         fake_client = MagicMock()
         fake_client.chat_postMessage.return_value = {"ts": "1785418710.000200", "channel": posted_channel}
         delivery_id = "01864f4c-6957-7d3f-8d85-1d775e527265"
@@ -222,7 +224,10 @@ class TestScoutSlackDelivery(BaseTest):
         assert call["blocks"][-1]["type"] == "context"
         assert fake_client.chat_postMessage.call_count == 1
         assert report_id_for_slack_thread(
-            team_id=self.team.id, channel=posted_channel, thread_ts="1785418710.000200"
+            slack_workspace_id=integration.integration_id,
+            team_id=self.team.id,
+            channel=posted_channel,
+            thread_ts="1785418710.000200",
         ) == str(report.id)
 
     def test_note_only_edit_delivers_the_note_instead_of_the_report(self) -> None:

@@ -1058,6 +1058,7 @@ class SignalReportSlackThread(UUIDModel):
         "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     # The resolved Slack channel id, so a config that names the channel differently still matches.
+    slack_workspace_id = models.CharField(max_length=64)
     channel = models.CharField(max_length=64)
     # Slack `ts` of the notification message, which is also its thread's root.
     thread_ts = models.CharField(max_length=64)
@@ -1070,7 +1071,9 @@ class SignalReportSlackThread(UUIDModel):
             # One Slack message is one thread, and a thread is about at most one report. Keyed
             # without the team so a second project connected to the same workspace cannot claim a
             # thread another project's report already owns.
-            models.UniqueConstraint(fields=["channel", "thread_ts"], name="signals_report_slack_thread_unique"),
+            models.UniqueConstraint(
+                fields=["slack_workspace_id", "channel", "thread_ts"], name="signals_report_slack_thread_unique"
+            ),
         ]
         verbose_name = "Signal report Slack thread"
         verbose_name_plural = "Signal report Slack threads"
@@ -1813,7 +1816,7 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
         ]
 
 
-class SignalReportAction(TeamScopedRootMixin, UUIDModel):
+class SignalReportAction(UUIDModel):
     """One row per (report, user, action type): a person's lightweight interaction with a report.
 
     Heavier work on a report already leaves person-attributed `SignalReportArtefact` rows (notes,
@@ -1835,8 +1838,10 @@ class SignalReportAction(TeamScopedRootMixin, UUIDModel):
         VIEW = "view"
         # The thumbs rating at the end of the report body ("Was this report useful?").
         FEEDBACK = "feedback"
+        SLACK_DISCUSSION = "slack_discussion"
 
     # See SignalReportRefund.all_teams for rationale.
+    objects = EnvironmentScopedManager()
     all_teams = models.Manager()  # noqa: DJ012
 
     # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this

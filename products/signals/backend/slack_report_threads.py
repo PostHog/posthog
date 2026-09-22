@@ -20,11 +20,12 @@ logger = logging.getLogger(__name__)
 
 
 def record_report_slack_thread(
-    *, team_id: int, report_id: str, integration_id: int | None, channel: str, thread_ts: str
+    *, team_id: int, report_id: str, integration_id: int | None, slack_workspace_id: str, channel: str, thread_ts: str
 ) -> None:
     """Record that `thread_ts` in `channel` is a notification thread for this report."""
     try:
         SignalReportSlackThread.objects.for_team(team_id).get_or_create(
+            slack_workspace_id=slack_workspace_id,
             channel=channel,
             thread_ts=thread_ts,
             defaults={"team_id": team_id, "report_id": report_id, "integration_id": integration_id},
@@ -41,7 +42,7 @@ def record_report_slack_thread(
         )
 
 
-def report_id_for_slack_thread(*, team_id: int, channel: str, thread_ts: str) -> str | None:
+def report_id_for_slack_thread(*, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str) -> str | None:
     """The report a Slack thread is about, or None when the thread is not a notification thread.
 
     Scoped to `team_id` rather than to the integration that posted: a workspace can be connected to
@@ -52,7 +53,7 @@ def report_id_for_slack_thread(*, team_id: int, channel: str, thread_ts: str) ->
     try:
         row = (
             SignalReportSlackThread.objects.for_team(team_id)
-            .filter(channel=channel, thread_ts=thread_ts)
+            .filter(slack_workspace_id=slack_workspace_id, channel=channel, thread_ts=thread_ts)
             .values_list("report_id", flat=True)
             .first()
         )
@@ -64,11 +65,15 @@ def report_id_for_slack_thread(*, team_id: int, channel: str, thread_ts: str) ->
     return str(row) if row else None
 
 
-def report_team_id_for_slack_thread(*, team_ids: Sequence[int], channel: str, thread_ts: str) -> int | None:
+def report_team_id_for_slack_thread(
+    *, team_ids: Sequence[int], slack_workspace_id: str, channel: str, thread_ts: str
+) -> int | None:
     """Find the report's environment among the caller's accessible Slack integration candidates."""
     try:
         return (
-            SignalReportSlackThread.all_teams.filter(team_id__in=team_ids, channel=channel, thread_ts=thread_ts)
+            SignalReportSlackThread.all_teams.filter(
+                team_id__in=team_ids, slack_workspace_id=slack_workspace_id, channel=channel, thread_ts=thread_ts
+            )
             .values_list("team_id", flat=True)
             .first()
         )
