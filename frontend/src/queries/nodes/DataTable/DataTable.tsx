@@ -22,6 +22,8 @@ import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/data
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
+import { QueryJourneyCommit } from '~/queries/nodes/DataNode/QueryJourneyCommit'
+import { QueryJourneySurface } from '~/queries/nodes/DataNode/QueryJourneySurface'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { SupportTracesFilters } from '~/queries/nodes/DataNode/SupportTracesFilters'
 import { TestAccountFilters } from '~/queries/nodes/DataNode/TestAccountFilters'
@@ -175,6 +177,7 @@ export function DataTable({
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
+        queryJourney: context?.queryJourney,
         key: context?.dataNodeLogicKey ?? vizKey,
         cachedResults: cachedResults,
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
@@ -1068,6 +1071,24 @@ export function DataTable({
                             ) : usedWebAnalyticsPreAggregatedTables ? (
                                 <PreAggregatedBadge variant="preagg" />
                             ) : null}
+                            {context?.queryJourney && (
+                                <>
+                                    <QueryJourneySurface logic={dataNodeLogic(dataNodeLogicProps)} />
+                                    <QueryJourneyCommit
+                                        logic={dataNodeLogic(dataNodeLogicProps)}
+                                        response={response}
+                                        ready={
+                                            !responseLoading &&
+                                            !responseError &&
+                                            !queryCancelled &&
+                                            !!response &&
+                                            'results' in response &&
+                                            Array.isArray(response.results) &&
+                                            !('error' in response && response.error)
+                                        }
+                                    />
+                                </>
+                            )}
                             <LemonTable
                                 data-attr={dataAttr}
                                 className="DataTable"

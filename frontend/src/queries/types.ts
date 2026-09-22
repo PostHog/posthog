@@ -1,7 +1,9 @@
 import { CSSProperties, ComponentType, HTMLProps } from 'react'
 
+import type { CustomerJourneyInsightType } from 'lib/customerJourneys/createCustomerJourney'
 import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
 
+import type { QueryJourneyDescriptor } from '~/queries/nodes/DataNode/queryJourney'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import {
     CurrencyCode,
@@ -18,6 +20,7 @@ import { DataTableRow } from './nodes/DataTable/dataTableLogic'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
+    queryJourney?: QueryJourneyDescriptor
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
     tableLayout?: 'auto' | 'fixed'
@@ -94,6 +97,15 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
      * (e.g. the Error tracking insights tab) and the suggestions would not be actionable.
      */
     suppressSlowQuerySuggestions?: boolean
+    /** Dashboard manual-refresh response whose exact result must reach a committed visualization. */
+    dashboardJourneyRenderReadiness?: {
+        attemptId: string
+        tileId: number
+        insightShortId: string
+        insightType: CustomerJourneyInsightType
+        expectedResult: unknown
+    }
+    onDashboardJourneyRenderCommitted?: (attemptId: string, tileId: number) => void
     /**
      * Let this table's event pickers offer events whose data is moving out of the `events` table.
      * Set it where the pick is thrown away with the page. A surface whose query gets saved (an

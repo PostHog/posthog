@@ -592,6 +592,11 @@ def sync_execute(
             # the queue wait.
             execute_start_time = perf_counter()
             try:
+                span = trace.get_current_span()
+                if query_id:
+                    span.set_attribute("clickhouse.query_id", query_id)
+                if tags.client_query_id:
+                    span.set_attribute("clickhouse.client_query_id", tags.client_query_id)
                 result = client.execute(
                     prepared_sql,
                     params=prepared_args,
