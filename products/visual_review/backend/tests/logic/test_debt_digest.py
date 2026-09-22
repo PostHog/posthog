@@ -28,7 +28,7 @@ from products.visual_review.backend.facade.contracts import (
 )
 from products.visual_review.backend.facade.enums import RunType
 from products.visual_review.backend.logic import artifact_store, debt_digest, quarantine, repos, runs, story_index
-from products.visual_review.backend.models import ToleratedHash
+from products.visual_review.backend.models import Run, ToleratedHash
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 _PRODUCT_PATH = "products/visual_review/"
@@ -514,7 +514,22 @@ class TestCollectAndSend:
         runs.finish_processing(run.id)
         return run
 
-    def _pile_up(self, repo, identifier=_IDENTIFIER, baseline_hashes=("old_hash",) * 3, reason="human", age=None):
+    def _pile_up(
+        self,
+        repo,
+        identifier=_IDENTIFIER,
+        baseline_hashes=("old_hash",) * 3,
+        reason="human",
+        age=None,
+        source_run_type=None,
+    ):
+        source_run = (
+            Run.objects.create(
+                repo=repo, team_id=repo.team_id, run_type=source_run_type, commit_sha="def", branch="feature"
+            )
+            if source_run_type
+            else None
+        )
         for index, baseline_hash in enumerate(baseline_hashes):
             ToleratedHash.objects.create(
                 repo=repo,
@@ -523,26 +538,29 @@ class TestCollectAndSend:
                 baseline_hash=baseline_hash,
                 alternate_hash=f"variant_{index}",
                 reason=reason,
+                source_run=source_run,
             )
         if age is not None:
             # created_at is auto_now_add, so backdating takes a second write.
             ToleratedHash.objects.filter(repo=repo, identifier=identifier).update(created_at=timezone.now() - age)
 
     @pytest.mark.parametrize(
-        "baseline_hashes,reason,age,expected",
+        "baseline_hashes,reason,age,source_run_type,expected",
         [
-            (("older_hash", "old_hash", "old_hash"), "human", timedelta(days=1), [_IDENTIFIER]),
-            (("old_hash",) * 3, "agent", timedelta(days=1), [_IDENTIFIER]),
-            (("old_hash",) * 3, "human", timedelta(days=TOLERATION_PILEUP_WINDOW_DAYS + 1), []),
-            (("old_hash",) * 3, "auto_threshold", timedelta(days=1), []),
-            (("old_hash",) * 2, "human", timedelta(days=1), []),
+            (("older_hash", "old_hash", "old_hash"), "human", timedelta(days=1), None, [_IDENTIFIER]),
+            (("old_hash",) * 3, "agent", timedelta(days=1), None, [_IDENTIFIER]),
+            (("old_hash",) * 3, "human", timedelta(days=TOLERATION_PILEUP_WINDOW_DAYS + 1), None, []),
+            (("old_hash",) * 3, "auto_threshold", timedelta(days=1), None, []),
+            (("old_hash",) * 2, "human", timedelta(days=1), None, []),
+            (("old_hash",) * 3, "human", timedelta(days=1), RunType.STORYBOOK, [_IDENTIFIER]),
+            (("old_hash",) * 3, "human", timedelta(days=1), RunType.PLAYWRIGHT, []),
         ],
     )
     def test_a_pile_up_counts_recent_intentional_tolerations_across_baselines(
-        self, repo, mocker, baseline_hashes, reason, age, expected
+        self, repo, mocker, baseline_hashes, reason, age, source_run_type, expected
     ):
         self._completed_run(repo, mocker)
-        self._pile_up(repo, baseline_hashes=baseline_hashes, reason=reason, age=age)
+        self._pile_up(repo, baseline_hashes=baseline_hashes, reason=reason, age=age, source_run_type=source_run_type)
 
         with _with_index(_INDEX):
             debt = debt_digest.collect_debt(repo, timezone.now())

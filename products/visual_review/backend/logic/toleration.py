@@ -148,29 +148,34 @@ def count_recent_intentional_tolerations(
     dropping to zero while the tolerations go on.
 
     Only identities on the newest default-branch runs are counted, so a deleted story drops out.
-    A toleration row carries no run type, so its count applies to each run type that has the
-    identifier. Only non-zero counts are returned.
+    A toleration row has no run type of its own, so it takes the run type of the run it was
+    decided in. A row whose run the retention sweep already deleted counts for every run type
+    that has the identifier. Only non-zero counts are returned.
     """
     baseline_hash_by_key = _current_baseline_hashes(repo_id, newest_run_by_type)
     if not baseline_hash_by_key:
         return {}
 
-    count_by_identifier = dict(
+    keys_by_identifier: dict[str, list[SnapshotKey]] = {}
+    for key in baseline_hash_by_key:
+        keys_by_identifier.setdefault(key.identifier, []).append(key)
+
+    counts: dict[SnapshotKey, int] = {}
+    for identifier, run_type, count in (
         ToleratedHash.objects.filter(
             repo_id=repo_id,
-            identifier__in=list({key.identifier for key in baseline_hash_by_key}),
+            identifier__in=list(keys_by_identifier),
             reason__in=INTENTIONAL_TOLERATE_REASONS,
             created_at__gte=since,
         )
-        .values_list("identifier")
+        .values_list("identifier", "source_run__run_type")
         .annotate(c=Count("id"))
-        .values_list("identifier", "c")
-    )
-    return {
-        key: count_by_identifier[key.identifier]
-        for key in baseline_hash_by_key
-        if key.identifier in count_by_identifier
-    }
+        .values_list("identifier", "source_run__run_type", "c")
+    ):
+        for key in keys_by_identifier[identifier]:
+            if run_type in (None, key.run_type):
+                counts[key] = counts.get(key, 0) + count
+    return counts
 
 
 def _current_baseline_hashes(
