@@ -356,6 +356,15 @@ describe('heatmapLogic', () => {
             expect(logic.values.generatingScreenshot).toBe(false)
         })
 
+        it('keeps the unavailable error when the viewport width changes', async () => {
+            await mountWith({ status: 'completed', has_content: false })
+            const error = logic.values.screenshotError
+            logic.actions.setWindowWidthOverride(768)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.screenshotError).toBe(error)
+            expect(logic.values.screenshotUrl).toBeNull()
+        })
+
         it('holds the ready metric until the image decodes', async () => {
             await mountWith({ status: 'completed', has_content: true })
             expect(logic.values.screenshotUrl).not.toBeNull()

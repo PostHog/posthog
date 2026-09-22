@@ -562,7 +562,14 @@ export const heatmapLogic = kea<heatmapLogicType>([
         },
         // React to viewport width changes by updating the image URL directly
         setWindowWidthOverride: async ({ widthOverride }) => {
-            if (values.previewType !== 'screenshot' || !values.heatmapId || values.generatingScreenshot) {
+            // With no URL there is no loaded image to re-point, and the screenshot may be unavailable.
+            // Re-pointing would clear that terminal error and load an image that cannot render.
+            if (
+                values.previewType !== 'screenshot' ||
+                !values.heatmapId ||
+                values.generatingScreenshot ||
+                !values.screenshotUrl
+            ) {
                 return
             }
             const w = widthOverride ?? DEFAULT_HEATMAP_WIDTH
