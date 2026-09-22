@@ -391,10 +391,8 @@ class ComposeFingerprint:
     channel, recipient, subject, first message, and resolved person link. ``build`` returns None
     for anything this guard must not collapse.
 
-    Tags are deliberately excluded from the identity. The system adds tags to the ticket after it
-    is created (plan tier at creation, then triage), so a retry's request tags would never equal
-    the ticket's live tags — including them made ``matches`` reject the just-created ticket as
-    stale and open a duplicate on every retry.
+    Tags are not part of the identity. The system tags a ticket after it is created (plan tier at
+    creation, then triage), so the ticket's live tags outgrow the request's and cannot identify it.
     """
 
     team_id: int

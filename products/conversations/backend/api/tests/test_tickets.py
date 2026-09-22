@@ -2350,9 +2350,8 @@ class TestComposeTicketAPI(APIBaseTest):
         assert Ticket.objects.filter(team=self.team).count() == 2
 
     def test_compose_same_content_with_different_tags_is_deduplicated(self, mock_on_commit):
-        # Tags are not part of the dedupe identity. A retry that carries different tags is still a
-        # replay of the same content to the same recipient, so it returns the first ticket rather
-        # than opening a second. A replay does not re-tag, so the first ticket's tags stand.
+        # Tags are not part of the dedupe identity, so the same content to the same recipient
+        # replays the first ticket. A replay does not re-tag, so the first ticket's tags stand.
         base = {
             "recipient_email": "pitch@test.com",
             "email_config_id": str(self.email_config.id),
@@ -2372,9 +2371,7 @@ class TestComposeTicketAPI(APIBaseTest):
 
     def test_compose_replays_after_the_ticket_gains_a_system_tag(self, mock_on_commit):
         # The system tags a composed ticket after it is created (plan tier at creation, then
-        # triage). A retry must still replay the original ticket. When tags were part of the
-        # fingerprint, the request's tags no longer matched the ticket's grown tag set, so matches()
-        # rejected the just-created ticket as stale and every retry opened a duplicate.
+        # triage). A retry must still replay the original ticket, not open a duplicate.
         payload = {
             "recipient_email": "pitch@test.com",
             "email_config_id": str(self.email_config.id),
