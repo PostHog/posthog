@@ -4,6 +4,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
+import requests
+
 from products.managed_warehouse.backend.facade.api import get_duckgres_query_server_config
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTrinoConnection,
@@ -48,17 +50,21 @@ def connect_managed_warehouse_trino(organization_id: str) -> Iterator[Connection
     from trino.dbapi import connect  # noqa: PLC0415 -- keeps the optional driver off startup paths
 
     config = resolve_managed_warehouse_trino_connection(organization_id)
-    connection = connect(
-        host=config.host,
-        port=config.port,
-        user=config.username,
-        catalog=config.catalog,
-        http_scheme="https",
-        auth=BasicAuthentication(config.username, config.password),
-        request_timeout=60,
-        verify=True,
-    )
-    try:
-        yield connection
-    finally:
-        connection.close()
+    with requests.Session() as http_session:
+        # The control plane owns this endpoint; only this trusted client bypasses environment proxies.
+        http_session.trust_env = False
+        connection = connect(
+            host=config.host,
+            port=config.port,
+            user=config.username,
+            catalog=config.catalog,
+            http_scheme="https",
+            auth=BasicAuthentication(config.username, config.password),
+            request_timeout=60,
+            verify=True,
+            http_session=http_session,
+        )
+        try:
+            yield connection
+        finally:
+            connection.close()

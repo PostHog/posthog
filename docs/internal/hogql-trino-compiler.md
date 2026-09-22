@@ -76,6 +76,10 @@ Call `resolve_managed_warehouse_trino_connection(...)` through the managed-wareh
 
 Call `connect_managed_warehouse_trino(...)` to open the Python Trino client with basic authentication, HTTPS, certificate verification, and a bounded request timeout. The connector has no Duckgres fallback. A disabled target, non-ready state, organization mismatch, malformed endpoint, or missing stored credential fails before opening a socket.
 
+The managed connector uses a dedicated HTTP session with `trust_env=False` to connect directly to the control-plane-provided endpoint.
+It ignores environment proxy settings for this connection only, keeps certificate verification enabled, and closes the session when the connection scope exits.
+Other HTTP clients retain their environment proxy settings.
+
 The Django `DuckgresServer` row remains the transitional owner of the existing root secret; it does not become the source of truth for Trino placement. Trino cell assignment, endpoint identity, and catalog naming stay in the control plane. No second Django model or copied control-plane status is required.
 
 For supported string, array, and map arguments, `empty(x)` returns true when the value is NULL or has zero length. `notEmpty(x)` requires a non-NULL value with nonzero length. String predicates use an empty-string comparison; arrays and maps use `cardinality`.
