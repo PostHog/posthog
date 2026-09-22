@@ -543,15 +543,15 @@
         "origin_product": {
             "anyOf": [
                 {
-                    "description": "* `loops` - Loops",
-                    "enum": ["loops"],
+                    "description": "* `loops` - Loops\n* `broadcasts` - Broadcasts",
+                    "enum": ["loops", "broadcasts"],
                     "type": "string"
                 },
                 {
                     "type": "null"
                 }
             ],
-            "description": "Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n* `loops` - Loops"
+            "description": "Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n* `loops` - Loops\n* `broadcasts` - Broadcasts"
         },
         "status": {
             "description": "draft (no execution), active (live), archived (disabled).\n\n* `draft` - Draft\n* `active` - Active\n* `archived` - Archived",
