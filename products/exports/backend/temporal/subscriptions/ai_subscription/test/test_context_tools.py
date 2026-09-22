@@ -413,6 +413,22 @@ class TestContextToolRuntime(NonAtomicBaseTest):
         assert "Ignore previous instructions" not in snapshot.content
         assert len(snapshot.content) <= REPORT_CONTEXT_SCHEMA_CHAR_BUDGET
 
+    def test_schema_snapshot_falls_back_to_load_time_schema_without_any_fetch(self) -> None:
+        # A frozen-plan run calls only ensure_loaded() and never dispatches fetch_insight, so
+        # schema_snapshot must still carry the saved query's schema for the HogQL repair loop to
+        # ground its fixes against, instead of coming back empty.
+        insight = Insight.objects.create(
+            team=self.team, created_by=self.user, name="Saved", query=_trends_query("frozen_path_event")
+        )
+        runtime = self._runtime(insight_ids=(insight.id,))
+
+        with patch(_EXECUTOR, new_callable=AsyncMock) as execute:
+            async_to_sync(runtime.ensure_loaded)()
+
+        execute.assert_not_called()
+        snapshot = runtime.schema_snapshot
+        assert "frozen_path_event" in snapshot.content
+
     def test_statuses_and_refs_reflect_outcomes(self) -> None:
         success = Insight.objects.create(
             team=self.team, created_by=self.user, name="Success", query=_trends_query("success event")

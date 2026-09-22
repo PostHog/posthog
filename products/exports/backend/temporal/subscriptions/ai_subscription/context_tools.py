@@ -241,6 +241,7 @@ class ContextToolRuntime:
         self._memo: dict[_RegistrationKey, str] = {}
         self._insight_fetch_status: dict[_RegistrationKey, ReportContextStatus] = {}
         self._schema_parts: list[str] = []
+        self._fallback_schema_parts: list[str] = []
 
     async def ensure_loaded(self) -> None:
         # Runs the lazy load exactly once with no fetches, so a selected ref that is already
@@ -250,7 +251,34 @@ class ContextToolRuntime:
             async with self._load_lock:
                 if not self._loaded:
                     await database_sync_to_async(self._load, thread_sensitive=False)()
+                    await self._populate_fallback_schema_parts()
                     self._loaded = True
+
+    async def _populate_fallback_schema_parts(self) -> None:
+        # A frozen-plan run reconstructs its spec from the saved plan and never dispatches
+        # fetch_insight/fetch_dashboard, so `_schema_parts` (only populated by a fetch) stays
+        # empty and the HogQL repair loop loses its saved-query grounding. Precompute a
+        # fetch-free schema for every registered context here; `schema_snapshot` only reaches
+        # for it when no fetch-derived parts exist.
+        contexts = list(self._standalone_contexts.values())
+        for tile_contexts in self._dashboard_tile_contexts.values():
+            contexts.extend(tile_contexts.values())
+        if not contexts:
+            return
+
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_CONTEXT_FETCHES)
+
+        async def format_one(context: InsightContext) -> str | None:
+            async with semaphore:
+                try:
+                    schema_text = await context.format_schema()
+                except Exception as err:
+                    capture_exception(err)
+                    return None
+            return strip_llm_framing_markers(schema_text, max_len=len(schema_text))
+
+        results = await asyncio.gather(*(format_one(context) for context in contexts))
+        self._fallback_schema_parts = [part for part in results if part]
 
     async def dispatch(self, tool_name: str, args: dict[str, Any]) -> str:
         await self.ensure_loaded()
@@ -353,7 +381,7 @@ class ContextToolRuntime:
 
     @property
     def schema_snapshot(self) -> ReportContextSchema:
-        parts = self._schema_parts
+        parts = self._schema_parts or self._fallback_schema_parts
         if not parts:
             return ReportContextSchema()
         per_part_budget = max(0, (REPORT_CONTEXT_SCHEMA_CHAR_BUDGET - 2 * (len(parts) - 1)) // len(parts))

@@ -6,19 +6,23 @@ through three in-process tools: `list_selected_contexts`, `fetch_insight`, and `
 
 `ContextToolRuntime` enforces the allowlist, viewer access, and read budget inside the tools
 themselves, never through prompt instructions. Only dashboards and insights attached to the
-subscription resolve, and each fetch re-checks the creator's current viewer access before running
-the query.
+subscription resolve. Viewer access is checked at two points, not on every fetch: once when the
+runtime loads, before any tool call runs, and again at delivery time (see below). A viewer access
+revocation that happens mid-generation is caught by the delivery-time recheck before the recipient
+sees the result.
 
-`MAX_SELECTED_CONTEXTS` bounds how many dashboards and insights a subscription may attach.
-`MAX_CONTEXT_READ_BUDGET` separately bounds how many of them one report generation may actually
-fetch, regardless of how many tool calls the model makes.
+`MAX_SELECTED_CONTEXTS` bounds how many dashboards and insights a subscription may attach. A
+selection over that cap fails every attached context closed rather than silently using the first
+`MAX_SELECTED_CONTEXTS` of them. `MAX_CONTEXT_READ_BUDGET` separately bounds how many of them one
+report generation may actually fetch, regardless of how many tool calls the model makes.
 
 HogQL repair never receives saved result rows. It gets a schema-only snapshot built from each
 successfully fetched context's `format_schema()`, carrying table, field, event, property, and
 group names only.
 
-Each dashboard's and insight's status (id, name, success/failed/truncated) persists compactly on
-the delivery snapshot; no fetched content is stored alongside it.
+Each dashboard's and insight's status (id, name, success/failed) persists compactly on the
+delivery snapshot; no fetched content is stored alongside it. A third status, `truncated`, exists
+only for historical rows written before that status stopped being produced.
 
 The tool loop's own limits are round and concurrency caps, not time bounds: `MAX_TOOL_ROUNDS` on
 the loop and `MAX_CONCURRENT_CONTEXT_FETCHES` on tiles fetched within one `fetch_dashboard` call.
