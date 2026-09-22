@@ -122,6 +122,7 @@ export const Narrow: Story = {
         ),
     ],
 }
+export const FilesNarrow: Story = { args: { tab: 'files' }, decorators: Narrow.decorators }
 export const Dark: Story = { globals: { theme: 'dark' } }
 export const FilesDark: Story = { args: { tab: 'files' }, globals: { theme: 'dark' } }
 export const EmptyStarred: Story = {

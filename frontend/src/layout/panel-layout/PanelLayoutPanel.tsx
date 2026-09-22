@@ -101,10 +101,17 @@ export function PanelLayoutPanel({
             >
                 {searchField || filterDropdown || sortDropdown ? (
                     <>
-                        <div className="flex flex-wrap gap-1 p-1 items-center justify-between">
-                            {searchField ?? null}
+                        <div
+                            className={cn(
+                                'flex gap-1 p-1 items-center justify-between',
+                                layout === 'panel' && 'flex-wrap'
+                            )}
+                        >
+                            <div className={layout === 'inline' ? 'flex-1 min-w-0' : 'contents'}>
+                                {searchField ?? null}
+                            </div>
 
-                            <div className="flex gap-px">
+                            <div className="flex gap-px shrink-0">
                                 {filterDropdown || sortDropdown ? (
                                     <div className="flex gap-px">
                                         {filterDropdown ?? null}

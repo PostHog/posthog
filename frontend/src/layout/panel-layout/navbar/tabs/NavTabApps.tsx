@@ -19,10 +19,11 @@ export function NavTabApps(): JSX.Element {
 
     return (
         <div className="flex flex-col h-full min-h-0 group/colorful-product-icons colorful-product-icons-true">
-            <div className="px-2 pt-2 pb-1">
+            <div className="p-1">
                 <LemonInput
                     type="search"
-                    size="xsmall"
+                    size="small"
+                    className="min-h-[30px]"
                     placeholder="Search apps"
                     aria-label="Search apps"
                     value={search}

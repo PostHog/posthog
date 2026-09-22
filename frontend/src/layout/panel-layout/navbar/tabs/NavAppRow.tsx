@@ -44,7 +44,7 @@ export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
     const iconType = item.iconType ?? (item.type as FileSystemIconType | undefined)
 
     return (
-        <div className="group/app-row flex items-center gap-px min-w-0">
+        <div className="group/app-row relative flex items-center gap-px min-w-0">
             <Link
                 to={disabledReason ? undefined : href}
                 disabledReason={disabledReason}
@@ -59,7 +59,7 @@ export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
                 tooltipPlacement="right"
                 onClick={() => reportNavItemClicked(item.path, 'tools')}
             >
-                <span className="size-4 shrink-0">
+                <span className="size-4 shrink-0 group-hover/app-row:opacity-0 group-focus-within/app-row:opacity-0">
                     {CustomIcon ? (
                         <ProductIconWrapper type={iconType} colorOverride={item.iconColor}>
                             <CustomIcon />
@@ -116,11 +116,7 @@ export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
             <LemonButton
                 size="xsmall"
                 icon={shortcut ? <IconStarFilled /> : <IconStar />}
-                className={
-                    shortcut
-                        ? 'shrink-0'
-                        : 'shrink-0 opacity-0 group-hover/app-row:opacity-100 focus-visible:opacity-100'
-                }
+                className="absolute left-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/app-row:opacity-100 group-focus-within/app-row:opacity-100"
                 tooltip={shortcut ? 'Remove from starred' : 'Add to starred'}
                 aria-label={`${shortcut ? 'Unstar' : 'Star'} ${label}`}
                 data-attr="nav-apps-star"

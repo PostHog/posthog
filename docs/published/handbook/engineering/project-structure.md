@@ -48,9 +48,12 @@ The PostHog web application, built with React and TypeScript. Uses [Kea](https:/
 - `src/toolbar` – Code for the [PostHog Toolbar](https://posthog.com/docs/user-guides/toolbar)
 
 The sidebar lives in `src/layout/panel-layout/navbar`.
+Global search sits beside the project menu as a compact button with its keyboard shortcut.
 Apps lists all available product and data pages from the product manifests, with feature flags and access controls applied.
 Users can star apps and saved files for quick access; starred items use the existing project shortcuts.
+The app icon becomes a star button on hover or keyboard focus, so starring does not reserve space beside the app name.
 Files contains the project file tree, including search, filtering, sorting, folders, and recent items.
+The Files filter, sort, and action menus sit beside its search field.
 Chat keeps the conversation list in its own tab.
 Add navigation destinations to the product manifest so they appear in Apps automatically.
 

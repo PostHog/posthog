@@ -31,7 +31,7 @@ import {
 } from '~/layout/panel-layout/panelLayoutLogic'
 import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 
-import { NavSearchBar, NavSearchButton } from '../../../lib/components/NavSearchButton/NavSearchButton'
+import { NavSearchButton } from '../../../lib/components/NavSearchButton/NavSearchButton'
 import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
 import { NavBarFooter } from './NavBarFooter'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
@@ -167,22 +167,15 @@ export function NavBar(): JSX.Element {
                     )}
                 >
                     <div
-                        className={cn('flex gap-1 rounded-md w-full px-2 pt-2 pb-1', {
+                        className={cn('flex items-center gap-1 rounded-md w-full px-2 pt-2 pb-1', {
                             'flex-col items-center pt-2 pb-0': isLayoutNavCollapsed,
                         })}
                     >
                         <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
 
-                        {/* Collapsed nav has no room for the search bar, so it keeps the icon-only trigger */}
-                        {isLayoutNavCollapsed && <NavSearchButton toggleCommand={toggleCommand} />}
+                        <NavSearchButton toggleCommand={toggleCommand} showShortcut={!isLayoutNavCollapsed} />
                     </div>
                 </div>
-
-                {!isLayoutNavCollapsed && (
-                    <div className="px-2 py-1">
-                        <NavSearchBar toggleCommand={toggleCommand} />
-                    </div>
-                )}
 
                 <Tabs.Root
                     className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-hidden"
