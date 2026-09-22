@@ -1343,6 +1343,27 @@ class TestGetTaskProcessingContextActivity:
 
         assert decision.use_vm_sandbox is True
 
+    def test_modal_vm_sandbox_custom_template_forces_gvisor_over_default_base(self):
+        # A rollout that names the run's origin cannot move a custom-template run onto the VM
+        # image, which carries none of the template's tooling; the flag is not consulted.
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"default_base_origin_products": ["autoresearch"]}',
+        ) as payload_mock:
+            assert (
+                _resolve_modal_vm_sandbox(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product="autoresearch",
+                    allowed_domains=None,
+                    state={"sandbox_template": "autoresearch_base"},
+                ).use_vm_sandbox
+                is False
+            )
+
+        payload_mock.assert_not_called()
+
     def test_modal_vm_sandbox_false_state_override_forces_gvisor_over_default_base(self):
         # A trusted server-set use_modal_vm_sandbox=False forces gVisor even when the org's payload
         # would place this origin on the VM base; the bool override also skips the flag fetch.

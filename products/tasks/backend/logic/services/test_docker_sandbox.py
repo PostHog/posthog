@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import re
 import shlex
+import hashlib
+import tempfile
 import subprocess
 from typing import TYPE_CHECKING, Any
 
@@ -364,18 +366,29 @@ class TestDockerSandboxUnit:
         # Surfaced before `docker run` is ever attempted, so no doomed pull happens.
         assert not any("run" in call.args[0] for call in mock_run.call_args_list)
 
-    @parameterized.expand([("base_changed", "sha256:old", True), ("base_unchanged", "sha256:new", False)])
+    @parameterized.expand(
+        [
+            ("base_changed", "sha256:old", "current", True),
+            ("dockerfile_changed", "sha256:new", "stale", True),
+            ("both_unchanged", "sha256:new", "current", False),
+        ]
+    )
     @patch.object(DockerSandbox, "_build_image_if_needed")
     @patch.object(DockerSandbox, "_run")
-    def test_derived_image_rebuilds_only_when_the_base_image_changed(
-        self, _name, built_on, expect_force, mock_run, mock_build
+    def test_derived_image_rebuilds_only_when_an_input_changed(
+        self, _name, built_on, built_from, expect_force, mock_run, mock_build
     ):
-        mock_run.side_effect = [
-            MagicMock(stdout="sha256:new\n", returncode=0),  # current base image id
-            MagicMock(stdout=f"{built_on}\n", returncode=0),  # label on the derived image
-        ]
+        with tempfile.NamedTemporaryFile("w", suffix=".Dockerfile") as dockerfile:
+            dockerfile.write("RUN true\n")
+            dockerfile.flush()
+            current_sha = hashlib.sha256(b"RUN true\n").hexdigest()
+            stamped_sha = current_sha if built_from == "current" else "0" * 64
+            mock_run.side_effect = [
+                MagicMock(stdout="sha256:new\n", returncode=0),  # current base image id
+                MagicMock(stdout=f"{built_on} {stamped_sha}\n", returncode=0),  # labels on the derived image
+            ]
 
-        DockerSandbox._build_derived_image_if_needed("posthog-sandbox-autoresearch", "/Dockerfile")
+            DockerSandbox._build_derived_image_if_needed("posthog-sandbox-autoresearch", dockerfile.name)
 
         assert mock_build.call_args.kwargs["force"] is expect_force
         assert mock_build.call_args.kwargs["labels"] == {"com.posthog.sandbox.base-image-id": "sha256:new"}

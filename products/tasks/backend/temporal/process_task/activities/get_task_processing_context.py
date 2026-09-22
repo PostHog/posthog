@@ -684,6 +684,17 @@ def _resolve_modal_vm_sandbox(
         )
         return VmSandboxDecision(use_vm_sandbox=False)
 
+    requested_template = (state or {}).get("sandbox_template")
+    if requested_template not in (None, SandboxTemplate.DEFAULT_BASE.value):
+        # The VM image carries none of a custom template's tooling, so a rollout that names
+        # the run's origin must not move it off the template it asked for.
+        log_with_activity_context(
+            "modal_vm_sandbox_skipped_custom_template",
+            run_id=run_id,
+            use_modal_vm_sandbox=False,
+        )
+        return VmSandboxDecision(use_vm_sandbox=False)
+
     # A trusted, server-set per-run override (image builders) forces the runtime
     # decision without consulting the flag; any non-bool value is ignored.
     raw_state_override = (state or {}).get("use_modal_vm_sandbox")

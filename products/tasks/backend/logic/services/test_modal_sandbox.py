@@ -423,9 +423,9 @@ class TestLocalModalBuildContext:
         _template_image_cache.clear()
 
         assert image is base.dockerfile_commands.return_value
-        commands = base.dockerfile_commands.call_args.args[0]
-        assert any(line.startswith("RUN pip install") for line in commands)
-        assert not any(line.startswith(("FROM ", "ARG BASE_IMAGE")) for line in commands)
+        (body,) = base.dockerfile_commands.call_args.args
+        assert "RUN pip install --break-system-packages --no-cache-dir \\\n    numpy==" in body
+        assert not any(line.startswith(("FROM ", "ARG BASE_IMAGE")) for line in body.splitlines())
 
     def test_notebook_context_carries_the_baked_kernel_package(self):
         # DEBUG builds the notebook image from this trimmed context, not the repo root, so a

@@ -334,23 +334,33 @@ class DockerSandbox(AgentServerLaunchMixin):
 
     @staticmethod
     def _build_derived_image_if_needed(image_name: str, dockerfile_path: str) -> None:
-        """Build an image layered on ``posthog-sandbox-base``; rebuild it when the base changed.
+        """Build an image layered on ``posthog-sandbox-base``; rebuild it when either input changed.
 
         ``_build_image_if_needed`` only checks that the image exists, so a derived image would
-        keep a stale base forever after ``ensure_fresh_base_image`` rebuilt it. The base image
-        id is stamped as a label at build time and compared on every call.
+        keep a stale base forever after ``ensure_fresh_base_image`` rebuilt it, or a stale layer
+        after its own Dockerfile changed. Both are stamped as labels at build time and compared
+        on every call.
         """
         base_id = DockerSandbox._run(["docker", "images", "-q", "--no-trunc", DEFAULT_IMAGE_NAME]).stdout.strip()
+        with open(dockerfile_path, "rb") as dockerfile:
+            dockerfile_sha = hashlib.sha256(dockerfile.read()).hexdigest()
         inspect = DockerSandbox._run(
-            ["docker", "image", "inspect", image_name, "-f", f'{{{{index .Config.Labels "{_BASE_IMAGE_ID_LABEL}"}}}}']
+            [
+                "docker",
+                "image",
+                "inspect",
+                image_name,
+                "-f",
+                f'{{{{index .Config.Labels "{_BASE_IMAGE_ID_LABEL}"}}}} {{{{index .Config.Labels "{_DOCKERFILE_SHA_LABEL}"}}}}',
+            ]
         )
-        built_on = inspect.stdout.strip() if inspect.returncode == 0 else ""
+        built_on, _, built_from = inspect.stdout.strip().partition(" ") if inspect.returncode == 0 else ("", "", "")
         DockerSandbox._build_image_if_needed(
             image_name,
             dockerfile_path,
             build_args={"BASE_IMAGE": DEFAULT_IMAGE_NAME},
             labels={_BASE_IMAGE_ID_LABEL: base_id},
-            force=bool(base_id) and built_on != base_id,
+            force=bool(base_id) and (built_on != base_id or built_from != dockerfile_sha),
         )
 
     @staticmethod
