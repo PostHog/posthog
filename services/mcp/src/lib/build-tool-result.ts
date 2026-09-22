@@ -2,7 +2,7 @@ import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 
 import { getDiscoveryHint } from '@/lib/discovery-hints'
 import { estimateTokens } from '@/lib/estimate-tokens'
-import { formatResponse } from '@/lib/response'
+import { formatResponse, unwrapPaginatedResponse } from '@/lib/response'
 import { isPrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
 import { APP_DATA_META_KEY, type AnalyticsMetadata, type WithAnalytics } from '@/ui-apps/types'
@@ -217,7 +217,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
     const body = structuredContentOnly
         ? STRUCTURED_CONTENT_ONLY_TEXT
         : ((includeAppData && useJson ? undefined : formattedResults) ??
-          (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult)))
+          (useJson ? JSON.stringify(unwrapPaginatedResponse(rawResult)) : formatResponse(rawResult)))
 
     const footers: string[] = []
 
