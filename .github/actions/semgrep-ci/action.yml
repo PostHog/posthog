@@ -13,10 +13,10 @@ inputs:
     args:
         description: >
             Arguments for `semgrep ci` (--config, --include/--exclude, --exclude-rule,
-            --jobs, ...). Split on whitespace, so values must not contain spaces or
-            quotes. Anchor --include/--exclude patterns with a leading slash
-            (--include /bin); unanchored patterns also match same-named nested
-            directories anywhere in the tree.
+            --jobs, ...). Split on whitespace, so values must not contain spaces,
+            quotes or `#` (see the guard in the step below). Anchor --include/--exclude
+            patterns with a leading slash (--include /bin); unanchored patterns also
+            match same-named nested directories anywhere in the tree.
         required: true
 
 runs:
@@ -35,6 +35,27 @@ runs:
           # auth from .git/config, and safe.directory because the workspace is
           # owned by the runner user while the container runs as root.
           run: |
+              # A `#` anywhere in SEMGREP_ARGS silently truncates the scan.
+              # Callers write the value as a YAML block scalar (`args: >-`), and
+              # inside one a `#` is data, not a YAML comment. It survives into
+              # this variable, which the last line splices UNQUOTED into the
+              # `sh -c "..."` string. That inner shell re-parses the string --
+              # which is what performs the documented whitespace split into
+              # flags -- and the same tokenizer reads `#` as starting a comment,
+              # discarding every flag after it. Semgrep then loads fewer configs
+              # and the job still exits 0, so nothing looks wrong.
+              # Quoting is NOT the fix: `$SEMGREP_ARGS` already sits inside
+              # double quotes, and quoting it again collapses every flag into a
+              # single argument. `hogli lint:workflows` (WF012) rejects a literal
+              # `#` in a caller's args; this catches one that a GitHub expression
+              # interpolates in, which the linter cannot see.
+              case "$SEMGREP_ARGS" in
+                  *'#'*)
+                      echo "::error title=semgrep-ci::args contain '#', which the container shell reads as a comment and would silently drop every flag after it"
+                      exit 1
+                      ;;
+              esac
+
               docker run --rm \
                 -v "$GITHUB_WORKSPACE:/src" -w /src \
                 -v "$GITHUB_EVENT_PATH:/github-event.json:ro" \

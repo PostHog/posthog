@@ -28,7 +28,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 ## What the linters already enforce
 
 Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI, and they (not this list) are the source of truth for what's enforced.
-Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, required-check gate hygiene, secrets a reusable workflow reads being declared and passed by its callers, runner labels that name an OS version rather than a floating `-latest` alias, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
+Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, required-check gate hygiene, secrets a reusable workflow reads being declared and passed by its callers, runner labels that name an OS version rather than a floating `-latest` alias, `#`-free values for the action inputs an inner shell re-parses, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
 Third-party action digests are bumped by Renovate.
 
 ## Check what a condition does before you push it
@@ -281,6 +281,24 @@ Measured checkout-step durations, from the GitHub API on real runs:
 - **Node version comes from `.nvmrc`** — `node-version-file: .nvmrc`, never a hardcoded `node-version:`.
   Sparse-checkout `.nvmrc` if the job has no checkout.
 - **Pin `setup-uv`'s `version:`** — an unpinned `setup-uv` calls the GitHub API on every job and burns the rate limit.
+
+## A `#` in an input a composite action re-parses
+
+`.github/actions/semgrep-ci` builds `sh -c "... semgrep ci ... $SEMGREP_ARGS"`, so the container's `sh` re-parses the value — that re-parse is what performs the documented whitespace split into flags.
+Inside a YAML block scalar (`args: >-`) a `#` is **data**, not a YAML comment, and `>-` folds the block onto one line, so a `#` note written in the block comments out every flag after it and the job still exits 0.
+Measured on [#101671](https://github.com/PostHog/posthog/pull/101671): `semgrep-go` loaded 5 of the 7 configs it lists, `semgrep-rust` 5 of 7, `semgrep-general` 4 of 6, and the `--exclude-rule` / `--include` scopes below the comment went with them.
+Quoting is not the fix: the value already sits inside double quotes, so a second pair collapses every flag into one argument.
+Put the note above the key instead, where YAML strips it:
+
+```yaml
+with:
+  # p/python is off until the trailofbits overlap is sorted
+  args: >-
+    --config p/security-audit
+```
+
+`WF012` rejects a literal `#` in any input its `SHELL_SPLIT_INPUTS` table lists, and the action itself rejects one that arrives through a `${{ }}` expansion, which the linter cannot see.
+`#` stays fine in every other input — `dorny/paths-filter` `filters:`, `actions/github-script` `script:`, a webhook `payload:` — so the rule is per-input, never blanket.
 
 ## Network fetches
 

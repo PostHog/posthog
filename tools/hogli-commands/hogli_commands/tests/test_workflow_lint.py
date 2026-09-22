@@ -34,6 +34,11 @@ from hogli_commands.workflow_lint.checks.pr_event_fanout import PrEventFanoutChe
 from hogli_commands.workflow_lint.checks.required_gates import RequiredGateCheck
 from hogli_commands.workflow_lint.checks.reusable_secret_passthrough import ReusableSecretPassthroughCheck
 from hogli_commands.workflow_lint.checks.semgrep_services_coverage import SemgrepServicesCoverageCheck
+from hogli_commands.workflow_lint.checks.shell_split_action_args import (
+    SHELL_SPLIT_INPUTS,
+    ShellSplitActionArgsCheck,
+    derive_shell_split_inputs,
+)
 from hogli_commands.workflow_lint.cli import cmd_lint_workflows
 from hogli_commands.workflow_lint.model import PR_TRIGGERS, Workflow, WorkflowParseError, read_workflows
 
@@ -2198,3 +2203,180 @@ class TestReusableSecretPassthroughCheck:
         )
         issues = ReusableSecretPassthroughCheck().run(_read_all(tmp_path)).issues
         assert issues == [], [i.render() for i in issues]
+
+
+# ---------------------------------------------------------------------------
+# ShellSplitActionArgsCheck
+# ---------------------------------------------------------------------------
+
+
+def _write_table_actions(repo_root: Path, *, declared: bool = True) -> None:
+    """Write a satisfying ``action.yml`` for every ``SHELL_SPLIT_INPUTS`` entry.
+
+    Without it every table entry also reports as drift and drowns the
+    assertion under test. Built from the table rather than hardcoded so a
+    second entry does not break these tests.
+    """
+    for action, names in SHELL_SPLIT_INPUTS.items():
+        directory = repo_root / action
+        directory.mkdir(parents=True, exist_ok=True)
+        declarations = sorted(names) if declared else ["renamed"]
+        lines = ["name: A", "description: A", "inputs:"]
+        lines += [f"  {name}:\n    description: d\n    required: true" for name in declarations]
+        lines += ["runs:", "  using: composite", "  steps:", "    - shell: bash", "      env:"]
+        lines += [f"        {name.upper()}: ${{{{ inputs.{name} }}}}" for name in declarations]
+        refs = " ".join(f"${name.upper()}" for name in declarations)
+        lines += [f'      run: sh -c "echo {refs}"']
+        (directory / "action.yml").write_text("\n".join(lines) + "\n")
+
+
+def _caller(args: str, *, uses: str = "./.github/actions/semgrep-ci") -> str:
+    return f"""
+    name: Security
+    on: [pull_request]
+    jobs:
+      semgrep:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+          - uses: {uses}
+            with:
+              image: semgrep/semgrep:1.0.0
+              args: >-
+                {args}
+    """
+
+
+class TestShellSplitActionArgsCheck:
+    @staticmethod
+    def _run(repo_root: Path, workflow: str) -> list[str]:
+        workflows_dir = repo_root / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True, exist_ok=True)
+        _write(workflows_dir, "ci-security.yaml", workflow)
+        check = ShellSplitActionArgsCheck(repo_root=repo_root)
+        return [issue.render() for issue in check.run(_read_all(workflows_dir)).issues]
+
+    def test_flags_a_hash_in_a_listed_input(self, tmp_path: Path) -> None:
+        _write_table_actions(tmp_path)
+        [issue] = self._run(
+            tmp_path,
+            _caller("--config p/security-audit\n                # temporarily off\n                --config p/python"),
+        )
+        assert "with.args" in issue, issue
+        assert "'#'" in issue and "comment" in issue, issue
+
+    def test_allows_a_value_with_no_hash(self, tmp_path: Path) -> None:
+        _write_table_actions(tmp_path)
+        assert self._run(tmp_path, _caller("--config p/python\n                --include /posthog")) == []
+
+    def test_ignores_an_input_the_table_does_not_list(self, tmp_path: Path) -> None:
+        _write_table_actions(tmp_path)
+        workflows_dir = tmp_path / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True)
+        _write(
+            workflows_dir,
+            "ci-security.yaml",
+            """
+            name: Security
+            on: [pull_request]
+            jobs:
+              semgrep:
+                runs-on: ubuntu-24.04
+                timeout-minutes: 5
+                steps:
+                  - uses: ./.github/actions/semgrep-ci
+                    with:
+                      image: semgrep/semgrep@sha256:abc # pinned
+                      args: --config p/python
+            """,
+        )
+        check = ShellSplitActionArgsCheck(repo_root=tmp_path)
+        assert check.run(_read_all(workflows_dir)).issues == []
+
+    def test_ignores_an_action_the_table_does_not_list(self, tmp_path: Path) -> None:
+        # 38 `with:` inputs in this repo carry a `#` legitimately, so the rule
+        # has to stay per-input rather than blanket.
+        _write_table_actions(tmp_path)
+        workflows_dir = tmp_path / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True)
+        _write(
+            workflows_dir,
+            "ci-other.yml",
+            """
+            name: Other
+            on: [pull_request]
+            jobs:
+              changes:
+                runs-on: ubuntu-24.04
+                timeout-minutes: 5
+                steps:
+                  - uses: dorny/paths-filter@v3
+                    with:
+                      filters: |
+                        # the backend tree, minus docs
+                        backend:
+                          - 'posthog/**'
+                  - uses: actions/github-script@v7
+                    with:
+                      script: |
+                        // #1 in the queue
+                        core.info('ok')
+            """,
+        )
+        check = ShellSplitActionArgsCheck(repo_root=tmp_path)
+        assert check.run(_read_all(workflows_dir)).issues == []
+
+    def test_matches_a_repo_qualified_uses(self, tmp_path: Path) -> None:
+        _write_table_actions(tmp_path)
+        issues = self._run(
+            tmp_path,
+            _caller("--config p/python # off", uses="PostHog/posthog/.github/actions/semgrep-ci@abc123"),
+        )
+        assert len(issues) == 1, issues
+
+    def test_reports_an_action_missing_from_the_table(self, tmp_path: Path) -> None:
+        _write_table_actions(tmp_path)
+        made_up = tmp_path / ".github" / "actions" / "made-up"
+        made_up.mkdir(parents=True)
+        (made_up / "action.yml").write_text(
+            "name: M\ndescription: M\ninputs:\n  flags:\n    description: d\n    required: true\n"
+            "runs:\n  using: composite\n  steps:\n    - shell: bash\n      env:\n"
+            '        FLAGS: ${{ inputs.flags }}\n      run: sh -c "tool $FLAGS"\n'
+        )
+        [issue] = self._run(tmp_path, _caller("--config p/python"))
+        assert ".github/actions/made-up" in issue, issue
+        assert "missing from SHELL_SPLIT_INPUTS" in issue, issue
+
+    def test_reports_a_table_entry_whose_action_was_renamed_away(self, tmp_path: Path) -> None:
+        issues = self._run(tmp_path, _caller("--config p/python"))
+        assert len(issues) == len(SHELL_SPLIT_INPUTS), issues
+        assert all("no action there" in issue for issue in issues), issues
+
+    def test_reports_a_table_input_the_action_no_longer_declares(self, tmp_path: Path) -> None:
+        _write_table_actions(tmp_path, declared=False)
+        issues = self._run(tmp_path, _caller("--config p/python"))
+        assert any("no longer declares" in issue for issue in issues), issues
+
+    def test_derivation_reads_only_the_shell_c_operand(self, tmp_path: Path) -> None:
+        # Harvesting the whole run body would derive `image` too and fire a
+        # drift alarm on a correctly written action.
+        action = tmp_path / ".github" / "actions" / "runner"
+        action.mkdir(parents=True)
+        (action / "action.yml").write_text(
+            "name: R\ndescription: R\ninputs:\n  args:\n    description: d\n  image:\n    description: d\n"
+            "runs:\n  using: composite\n  steps:\n    - shell: bash\n      env:\n"
+            "        A: ${{ inputs.args }}\n        I: ${{ inputs.image }}\n"
+            '      run: |\n        docker run "$I" sh -c "tool $A"\n'
+        )
+        assert derive_shell_split_inputs(tmp_path) == {".github/actions/runner": frozenset({"args"})}
+
+    def test_live_tree_is_clean(self) -> None:
+        from hogli.manifest import REPO_ROOT
+
+        workflows_dir = REPO_ROOT / ".github" / "workflows"
+        if not workflows_dir.exists():
+            pytest.skip("no .github/workflows directory in this checkout")
+        check = ShellSplitActionArgsCheck(repo_root=REPO_ROOT)
+        issues = check.run(list(read_workflows(workflows_dir))).issues
+        assert issues == [], [issue.render() for issue in issues]
+        assert derive_shell_split_inputs(REPO_ROOT) == SHELL_SPLIT_INPUTS
