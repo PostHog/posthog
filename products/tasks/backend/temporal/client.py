@@ -17,10 +17,17 @@ from posthog.models.team.team import Team
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.constants import AGENT_OTEL_TELEMETRY_STATE_KEY, SANDBOX_EVENT_INGEST_FEATURE_FLAG
+from products.tasks.backend.constants import (
+    AGENT_OTEL_TELEMETRY_STATE_KEY,
+    AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
+    MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
+    OVERLAP_CLONE_BOOT_FEATURE_FLAG,
+    SANDBOX_EVENT_INGEST_FEATURE_FLAG,
+)
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled, is_native_steering_signals_enabled
 from products.tasks.backend.logic.services.dev_stack_image import DEV_STACK_IMAGE_NAME
+from products.tasks.backend.logic.services.run_actor import get_actor_distinct_id, get_task_run_credential_user
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.metrics import AGENT_OTEL_TELEMETRY_STAMPED_TOTAL, observe_task_run_workflow_start
 from products.tasks.backend.models import Task, TaskRun
@@ -41,6 +48,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _PRE_START_STATUSES: tuple[str, ...] = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED)
+
+_BOOT_ROLLOUT_FLAGS: tuple[tuple[str, str], ...] = (
+    ("agent_proxy_keep_stream_open", AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG),
+    ("overlap_clone_boot_enabled", OVERLAP_CLONE_BOOT_FEATURE_FLAG),
+    ("use_modal_network_allowlist", MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG),
+)
 
 
 def _normalize_slack_context(slack_thread_context: Optional[Any]) -> Optional[dict[str, Any]]:
@@ -119,6 +132,33 @@ def _get_task_run_for_metrics(run_id: str) -> TaskRun | None:
         return None
 
 
+def _evaluate_boot_rollout_flag(
+    flag_key: str,
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    task_id: str,
+) -> bool:
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                flag_key,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        logger.warning(
+            "boot_rollout_capture_flag_failed",
+            extra={"run_id": run_id, "task_id": task_id, "flag_key": flag_key, "error": str(e)},
+        )
+        return False
+
+
 def _capture_run_feature_flags(run_id: str) -> None:
     """Evaluate per-run rollout flags once at dispatch and stamp them into run state.
 
@@ -133,7 +173,12 @@ def _capture_run_feature_flags(run_id: str) -> None:
     state = task_run.state or {}
     need_event_ingest = not isinstance(state.get("sandbox_event_ingest_enabled"), bool)
     need_otel_telemetry = not isinstance(state.get(AGENT_OTEL_TELEMETRY_STATE_KEY), bool)
-    if not need_event_ingest and not need_otel_telemetry:
+    pending_boot_flags = [
+        (state_key, flag_key)
+        for state_key, flag_key in _BOOT_ROLLOUT_FLAGS
+        if not isinstance(state.get(state_key), bool)
+    ]
+    if not need_event_ingest and not need_otel_telemetry and not pending_boot_flags:
         return
 
     task = task_run.task
@@ -141,6 +186,8 @@ def _capture_run_feature_flags(run_id: str) -> None:
     distinct_id = (
         task.created_by.distinct_id if task.created_by and task.created_by.distinct_id else "process_task_workflow"
     )
+    actor_user = get_task_run_credential_user(task, state)
+    boot_distinct_id = get_actor_distinct_id(actor_user) if actor_user else distinct_id
 
     event_ingest_enabled = False
     if need_event_ingest:
@@ -163,12 +210,25 @@ def _capture_run_feature_flags(run_id: str) -> None:
     otel_telemetry_enabled = need_otel_telemetry and is_agent_otel_telemetry_enabled(
         distinct_id=distinct_id, organization_id=organization_id
     )
+    boot_flag_values: dict[str, bool] = {
+        state_key: _evaluate_boot_rollout_flag(
+            flag_key,
+            distinct_id=boot_distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+            task_id=str(task.id),
+        )
+        for state_key, flag_key in pending_boot_flags
+    }
 
     def _stamp_flags(latest_state: dict[str, Any]) -> None:
         if need_event_ingest and not isinstance(latest_state.get("sandbox_event_ingest_enabled"), bool):
             latest_state["sandbox_event_ingest_enabled"] = event_ingest_enabled
         if need_otel_telemetry and not isinstance(latest_state.get(AGENT_OTEL_TELEMETRY_STATE_KEY), bool):
             latest_state[AGENT_OTEL_TELEMETRY_STATE_KEY] = otel_telemetry_enabled
+        for state_key, value in boot_flag_values.items():
+            if not isinstance(latest_state.get(state_key), bool):
+                latest_state[state_key] = value
 
     captured_state = TaskRun.mutate_state_atomic(task_run.id, _stamp_flags)
     if need_otel_telemetry:
@@ -182,6 +242,7 @@ def _capture_run_feature_flags(run_id: str) -> None:
             "task_id": str(task.id),
             "sandbox_event_ingest_enabled": captured_state.get("sandbox_event_ingest_enabled"),
             "agent_otel_telemetry_enabled": captured_state.get(AGENT_OTEL_TELEMETRY_STATE_KEY),
+            **{state_key: captured_state.get(state_key) for state_key, _ in _BOOT_ROLLOUT_FLAGS},
         },
     )
 
