@@ -25,6 +25,7 @@ ask for each piece.
 | `posthog:execute-sql`                        | Query events, errors, and page views in session            |
 | `posthog:query-error-tracking-issues-list`   | Find error tracking issues linked to the session           |
 | `posthog:vision-observations-list`           | Check for an existing Replay Vision AI summary             |
+| `posthog:vision-observations-retrieve`       | Read one observation in full (`scanner_result`)            |
 | `posthog:vision-scanners-inline-scan-create` | Generate an AI summary of the session (slow, optional)     |
 | `posthog:vision-scanners-list`               | Find saved summarizer scanners (`scanner_type=summarizer`) |
 | `posthog:vision-scanners-scan-session`       | Run a saved summarizer scanner on the session (slow)       |
@@ -175,15 +176,17 @@ a scanner can only observe a given session once.
    }
    ```
 
-   Look for an observation where `scanner_snapshot.scanner_type` is `summarizer`
-   and `status` is `succeeded`. If found, read `scanner_result.model_output`
-   (`title`, `summary`, `intent`, `outcome`, `friction_points`, `keywords`) — done,
-   no new scan needed.
+   The rows come back narrowed to `id`, `session_id`, `status`, `summary_line` and
+   `scanner_id`. Look for one whose `status` is `succeeded`, then read it in full with
+   `vision-observations-retrieve` for that `id`: its `scanner_snapshot.scanner_type`
+   tells you whether it is a `summarizer`, and `scanner_result.model_output` carries
+   `title`, `summary`, `intent`, `outcome`, `friction_points` and `keywords`. If you
+   find one, you are done — no new scan needed.
 
 2. **Generate one** with an inline scan. Pass this exact config: inline scans are
    keyed by a fingerprint of the whole config, so the config below reuses the same
-   scanner row the Summarize button in the replay player uses, while a different
-   prompt or `length` mints a separate scanner and a separate summary.
+   scanner row the player's Summarize button uses on its built-in prompt, while a
+   different prompt or `length` mints a separate scanner and a separate summary.
 
    ```json
    posthog:vision-scanners-inline-scan-create
@@ -197,10 +200,14 @@ a scanner can only observe a given session once.
 
    Leave `model` out so the server default applies. Warn the user this is async and
    takes several minutes (rasterize + LLM). Nothing is scheduled and there is
-   nothing to clean up: the scanner an inline scan mints never sweeps on its own.
+   nothing to clean up: the scanner an inline scan mints never sweeps on its own. A
+   400 here usually means the organization has not approved AI data processing yet.
 
-3. **Retrieve the result** by polling `vision-observations-list` (step 1) until the
-   new observation reaches `succeeded`.
+3. **Read `results[0].scan_outcome` before polling.** `started` means poll
+   `vision-observations-list` (step 1) until the new observation reaches `succeeded`.
+   `already_scanned` means a terminal observation already exists — read it via step 1,
+   and if its status is `failed` or `ineligible` say so rather than polling. A null
+   `scan_id` or `skipped_quota` means nothing ran: report the quota, do not poll.
 
 ### The project already has a summarizer scanner
 

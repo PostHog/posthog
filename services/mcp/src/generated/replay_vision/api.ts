@@ -1077,7 +1077,8 @@ export const VisionScannersEstimateCreateBody = () => zod
  * the observations it already has, while a different question about the same session gets its own.
  *
  * With `scanner_type` set to `summarizer`, this is how you get PostHog's own AI summary for a
- * recording ID, the same summary the Summarize button in the replay player produces.
+ * recording ID. It resolves to the Summarize button's own scanner only when the prompt and
+ * `scanner_config` match what the button sends, since the config is what the key fingerprints.
  */
 export const VisionScannersInlineScanCreateParams = () => zod.object({
     project_id: zod
@@ -1117,7 +1118,7 @@ export const VisionScannersInlineScanCreateBody = () => zod
             )
             .default(visionScannersInlineScanCreateBodyScannerTypeDefault)
             .describe(
-                "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording, the same summary the Summarize button in the replay player produces.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer"
+                "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer"
             ),
         scanner_config: zod
             .unknown()

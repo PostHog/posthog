@@ -1527,7 +1527,8 @@ export const getVisionScannersInlineScanCreateUrl = (projectId: string) => {
  * the observations it already has, while a different question about the same session gets its own.
  *
  * With `scanner_type` set to `summarizer`, this is how you get PostHog's own AI summary for a
- * recording ID, the same summary the Summarize button in the replay player produces.
+ * recording ID. It resolves to the Summarize button's own scanner only when the prompt and
+ * `scanner_config` match what the button sends, since the config is what the key fingerprints.
  */
 export const visionScannersInlineScanCreate = async (
     projectId: string,
