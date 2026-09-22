@@ -684,8 +684,10 @@ class _SpanTreeNodeSerializer(serializers.Serializer):
 
     name = serializers.CharField(help_text="Span name for this node.")
     service_name = serializers.CharField(help_text="Service that emitted the spans.")
-    parent_name = serializers.CharField(help_text="Parent node's span name. Empty at the root.")
-    parent_service = serializers.CharField(help_text="Parent node's service. Empty at the root.")
+    parent_name = serializers.CharField(
+        help_text="Parent node's span name. The literal `<ROOT>` for a root node, which is how a client finds the roots."
+    )
+    parent_service = serializers.CharField(help_text="Parent node's service. Empty string at the root.")
     count = serializers.IntegerField(help_text="Spans aggregated into this node.")
     error_count = serializers.IntegerField(help_text="How many of them reported an error status.")
     total_duration_nano = serializers.FloatField(help_text="Sum of durations in nanoseconds.")
