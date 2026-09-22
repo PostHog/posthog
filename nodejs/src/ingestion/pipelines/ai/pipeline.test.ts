@@ -217,7 +217,7 @@ describe('AiIngestionPipeline', () => {
         expect(parseJSON(emitted.properties).$ai_input_tokens).toBeNull()
     })
 
-    it('gives an unlisted $ai_* event the full AI treatment', async () => {
+    it('admits an unlisted $ai_* event and splits, strips and bills it like a listed one', async () => {
         await runPipeline([
             createMessage('$ai_custom_step', {
                 $ai_input: 'large input',
