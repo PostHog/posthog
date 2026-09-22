@@ -23,7 +23,7 @@ initMetrics()
 
 const log = createLogger()
 
-installUnhandledRejectionGuard(log)
+installUnhandledRejectionGuard(log, () => RasterizationMetrics.incrementUnhandledRejection())
 
 // Route Temporal SDK logs through our JSON logger so all output is structured.
 Runtime.install({
