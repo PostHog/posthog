@@ -233,9 +233,14 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
         publish.assert_not_called()
 
     def test_splits_the_rpc_by_distinct_id_budget(self):
-        persons = [create_person(team=self.team, distinct_ids=[f"d{i}"], properties={}) for i in range(3)]
+        persons = [create_person(team=self.team, distinct_ids=[f"d{i}a", f"d{i}b"], properties={}) for i in range(3)]
         with (
-            patch("posthog.models.person.bulk_delete.QUEUED_DELETION_DISTINCT_IDS_PER_BATCH", 2),
+            patch("posthog.models.person.bulk_delete.QUEUED_DELETION_DISTINCT_IDS_PER_BATCH", 3),
+            # Sizing reads the distinct IDs the resolve loaded, so a failed fetch cannot shrink a person to one.
+            patch(
+                "posthog.models.person.bulk_delete._batched_get_distinct_ids_for_persons",
+                side_effect=RuntimeError("personhog down"),
+            ),
             patch(
                 "posthog.models.person.bulk_delete.tombstone_persons_in_postgres",
                 return_value=PersonTombstones(tombstones=[], newly_tombstoned=0),
@@ -244,10 +249,7 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
         ):
             delete_persons_profile(self.team.pk, persons, actor=self.user)
 
-        assert [call.args[1] for call in rpc.call_args_list] == [
-            [persons[0].uuid, persons[1].uuid],
-            [persons[2].uuid],
-        ]
+        assert [call.args[1] for call in rpc.call_args_list] == [[p.uuid] for p in persons]
 
 
 class ProcessQueuedPersonDeletionTests(BaseTest):

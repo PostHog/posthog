@@ -208,17 +208,20 @@ def delete_persons_profile(
         queue_person_training_deletion(
             team_id, [distinct_id for person in persons for distinct_id in person.distinct_ids]
         )
-    # A missing map entry (or a failed batch fetch) passes None below, making delete_person
-    # fall back to its own per-person lookup so failure isolation is preserved.
     distinct_ids_by_person: dict[int, builtins.list[DistinctIdForPerson]] = {}
-    try:
-        distinct_ids_by_person = personhog_call(
-            "get_distinct_ids_for_deletion",
-            lambda: _batched_get_distinct_ids_for_persons(team_id, [person.pk for person in persons]),
-            caller_tag="persons/deletion-distinct-ids",
-        )
-    except Exception:
-        logger.exception("Batched distinct-id fetch failed, falling back to per-person lookups")
+    # The tombstone path gets the distinct IDs and their versions back from personhog, and it
+    # sizes its calls from the distinct IDs the resolve loaded, so only delete_person needs these.
+    if not settings.PERSON_DELETE_TOMBSTONE:
+        # A missing map entry (or a failed batch fetch) passes None below, making delete_person
+        # fall back to its own per-person lookup so failure isolation is preserved.
+        try:
+            distinct_ids_by_person = personhog_call(
+                "get_distinct_ids_for_deletion",
+                lambda: _batched_get_distinct_ids_for_persons(team_id, [person.pk for person in persons]),
+                caller_tag="persons/deletion-distinct-ids",
+            )
+        except Exception:
+            logger.exception("Batched distinct-id fetch failed, falling back to per-person lookups")
 
     result = _tombstone_and_delete_persons(
         team_id,
@@ -503,7 +506,7 @@ def _tombstone_and_delete_persons(
     """
     failures: builtins.list[PersonDeletionFailure] = []
     if settings.PERSON_DELETE_TOMBSTONE:
-        deleted = _tombstone_persons_at_exact_versions(team_id, persons, distinct_ids_for, failures)
+        deleted = _tombstone_persons_at_exact_versions(team_id, persons, failures)
     else:
         deleted = _tombstone_then_hard_delete_persons(team_id, persons, distinct_ids_for, failures)
 
@@ -591,7 +594,6 @@ def _tombstone_then_hard_delete_persons(
 def _tombstone_persons_at_exact_versions(
     team_id: int,
     persons: builtins.list[Person],
-    distinct_ids_for: Callable[[Person], builtins.list[DistinctIdForPerson] | None],
     failures: builtins.list[PersonDeletionFailure],
 ) -> builtins.list[Person]:
     """Tombstone Postgres first, then publish ClickHouse tombstones at the versions it wrote.
@@ -602,7 +604,7 @@ def _tombstone_persons_at_exact_versions(
     """
     deleted: builtins.list[Person] = []
     person_by_uuid = {person.uuid: person for person in persons}
-    for batch in _batches_by_distinct_id_count(persons, distinct_ids_for):
+    for batch in _batches_by_distinct_id_count(persons):
         try:
             tombstones = tombstone_persons_in_postgres(team_id, [person.uuid for person in batch]).tombstones
         except Exception as exc:
@@ -632,20 +634,17 @@ def _tombstone_persons_at_exact_versions(
     return deleted
 
 
-def _batches_by_distinct_id_count(
-    persons: builtins.list[Person],
-    distinct_ids_for: Callable[[Person], builtins.list[DistinctIdForPerson] | None],
-) -> Iterator[builtins.list[Person]]:
+def _batches_by_distinct_id_count(persons: builtins.list[Person]) -> Iterator[builtins.list[Person]]:
     """Group persons so one RPC carries at most QUEUED_DELETION_DISTINCT_IDS_PER_BATCH distinct IDs.
 
-    A person whose distinct IDs are unknown counts as one; a single person wider than the
-    budget goes alone.
+    Every caller resolves persons with their distinct IDs loaded, and Person.distinct_ids raises
+    when they are not, so a person never counts as narrower than it is. A single person wider than
+    the budget goes alone.
     """
     batch: builtins.list[Person] = []
     count = 0
     for person in persons:
-        distinct_ids = distinct_ids_for(person)
-        width = len(distinct_ids) if distinct_ids is not None else 1
+        width = len(person.distinct_ids)
         if batch and count + width > QUEUED_DELETION_DISTINCT_IDS_PER_BATCH:
             yield batch
             batch, count = [], 0
