@@ -93,6 +93,12 @@ The demo does not send feedback anywhere automatically.
 
 `services/hogql-language-service/cmd/demo/catalog.go` defines a hand-maintained subset of the public HogQL schema shapes for `events`, `persons`, `sessions`, and `groups`.
 It also defines invented `postgres.demo.orders` and `demo_customers` warehouse tables, event/person/session/group property namespaces, and 35 `demo_property_*` names for pagination.
+The **CTE join and boolean filters** example joins daily event counts to an invented `demo_rules` table.
+It exercises two CTEs, projected fields, and `TRUE` and `FALSE` filters.
+Load it and validate, then complete after `counts.` or `rules.` to inspect the projected fields.
+The starting cursor is before `day`, so selecting another suggestion replaces that field without making the initial query incomplete.
+To test clause suggestions, add a blank line after the JOIN condition and before ORDER BY; completion there includes WHERE.
+The catalog supplies physical field types only; computed result types may remain unknown, and the Go service does not return Python metadata notices.
 Only names and types are present; there are no event rows, person records, customer examples, or production schema exports.
 The sidebar and `/api/catalog` display the exact catalog published to the service.
 To change it, edit `catalog.go` and restart the command.

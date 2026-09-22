@@ -69,9 +69,27 @@ export interface InstructionsContext {
  */
 export class InstructionsFormatter {
     private knowledgeFirstSections(ctx: InstructionsContext): string[] {
-        return ctx.tools?.some(({ name }) => name === 'business-knowledge-documents-search' || name === 'docs-search')
-            ? [BUSINESS_KNOWLEDGE_FIRST]
-            : []
+        const docsSearchEnabled = ctx.tools?.some(({ name }) => name === 'docs-search')
+        const businessKnowledgeSearchEnabled = ctx.tools?.some(
+            ({ name }) => name === 'business-knowledge-documents-search'
+        )
+        return this.knowledgeFirstSectionsForCapabilities({ docsSearchEnabled, businessKnowledgeSearchEnabled })
+    }
+
+    private knowledgeFirstSectionsForCapabilities(opts: {
+        docsSearchEnabled?: boolean
+        businessKnowledgeSearchEnabled?: boolean
+    }): string[] {
+        if (!opts.docsSearchEnabled) {
+            return []
+        }
+        return [
+            formatPrompt(BUSINESS_KNOWLEDGE_FIRST, {
+                business_knowledge_search: opts.businessKnowledgeSearchEnabled
+                    ? "- First, call `business-knowledge-documents-search` with a short, broad query based on the user's topic. If `business-knowledge-document-window-retrieve` is also available, use it when a result needs more context."
+                    : '',
+            }),
+        ]
     }
 
     /** Artifact-choice guidance: notebook vs dashboard vs insight, plus the
@@ -134,11 +152,18 @@ export class InstructionsFormatter {
      *  The skills mandate LEADS the description: it is the only signal that reaches
      *  an agent before its first tool call, and agents that answer PostHog-behavior
      *  questions by cloning the public repo never make a call for the gate to catch. */
-    buildExecToolDescription(opts: { skillsEnabled?: boolean; knowledgeSearchEnabled?: boolean } = {}): string {
-        const hasMandate = opts.skillsEnabled || opts.knowledgeSearchEnabled
+    buildExecToolDescription(
+        opts: {
+            skillsEnabled?: boolean
+            docsSearchEnabled?: boolean
+            businessKnowledgeSearchEnabled?: boolean
+        } = {}
+    ): string {
+        const knowledgeSections = this.knowledgeFirstSectionsForCapabilities(opts)
+        const hasMandate = opts.skillsEnabled || knowledgeSections.length > 0
         return [
             ...(opts.skillsEnabled ? [SKILLS_FIRST] : []),
-            ...(opts.knowledgeSearchEnabled ? [BUSINESS_KNOWLEDGE_FIRST] : []),
+            ...knowledgeSections,
             hasMandate ? EXEC_TOOL_BLURB_COMPACT : EXEC_TOOL_BLURB,
         ]
             .map((section) => section.trim())

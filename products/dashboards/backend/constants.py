@@ -53,3 +53,16 @@ WIDGET_DATE_FROM_LABELS: dict[str, str] = {
     "-30d": "Last 30 days",
     "-90d": "Last 90 days",
 }
+
+# `optimized` run_insights output is read by agents with a limited context window, so each tile's
+# formatted table is held to this many characters unless the caller asks for more.
+RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS = 2000
+
+# Ceiling on the whole `optimized` run_insights response. Tiles past it are not run.
+RUN_INSIGHTS_MAX_TOTAL_CHARS = 30000
+
+# Below this, a tile can only carry a sliced header, so it is reported as not run instead.
+RUN_INSIGHTS_MIN_TILE_CHARS = 200
+
+# The marker list grows with the dashboard, so it gets a ceiling of its own.
+RUN_INSIGHTS_MAX_UNRUN_TILES = 25

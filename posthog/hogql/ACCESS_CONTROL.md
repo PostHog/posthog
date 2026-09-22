@@ -70,6 +70,10 @@ Each access-controlled system table declares an `access_scope` (e.g. `system.das
 
 At schema build time, `_compute_system_table_access_decision()` checks `UserAccessControl.access_level_for_resource(access_scope)` for each scoped table and removes denied ones from the schema (`Database._apply_system_table_access()`).
 
+`system.data_deletion_requests` uses the dedicated `data_deletion` resource.
+The resource defaults to no access for project members, while organization admins retain their standard highest access.
+Admins can delegate resource-level access, but the table does not support per-request access rules.
+
 Removed tables are tracked in `Database._denied_tables`, so referencing one raises a clear error instead of pretending the table doesn't exist — that way the user knows the table is there and can request access from an admin if they need it:
 
 ```text
@@ -183,6 +187,10 @@ They're masked when the query is printed to ClickHouse SQL, so a restricted read
 - **Whole-blob reads** (`SELECT properties` or `SELECT *`) have the restricted keys stripped from the returned JSON via `JSONDropKeys(...)` — `ClickHousePrinter._maybe_apply_json_drop_keys()` in `posthog/hogql/printer/clickhouse.py`.
 
 Group restrictions retain their group type index, so a same-named property on another group type stays readable. The masking also applies to the Postgres-backed `system.groups.group_properties` field.
+
+Native event JSON keeps parsing diagnostics in `$unparseable_properties`, which can embed raw property values as a string. If an event or person property is restricted, the shared restriction resolver also restricts that class's diagnostic marker. Blob reads omit it, and direct or JSON-extraction reads cannot retrieve it. Unrestricted readers retain diagnostic access.
+
+Native reads of a parent containing restricted children use the masked JSON document instead of a raw subcolumn. This also covers multi-key `JSONHas` calls with computed keys. Unrestricted siblings remain readable.
 
 The restriction set is loaded once per query in `prepare_ast_for_printing()` and cached per `(team_id, user_id)` for the request lifetime.
 

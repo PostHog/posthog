@@ -1254,6 +1254,11 @@
         "params": [],
         "scope": "project"
     },
+    "precomputeDebug": {
+        "template": "/debug/precompute",
+        "params": [],
+        "scope": "project"
+    },
     "preflight": {
         "template": "/preflight",
         "params": [],
@@ -1712,6 +1717,11 @@
     "visualReviewSnapshotOverview": {
         "template": "/visual_review/repos/{repoId}/snapshots",
         "params": ["repoId"],
+        "scope": "project"
+    },
+    "warehouseDestinations": {
+        "template": "/data-management/warehouse-destinations",
+        "params": [],
         "scope": "project"
     },
     "warehouseProperties": {
