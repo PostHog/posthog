@@ -151,7 +151,6 @@ const TWO_FACTOR_ENABLED_MOCKS = {
                 has_passkeys: false,
                 passkeys_enabled_for_2fa: false,
                 backup_codes_remaining: 7,
-                backup_codes: ['a1b2c3d4', 'e5f6g7h8', 'i9j0k1l2', 'm3n4o5p6', 'q7r8s9t0', 'u1v2w3x4', 'y5z6a7b8'],
             },
         ],
     },

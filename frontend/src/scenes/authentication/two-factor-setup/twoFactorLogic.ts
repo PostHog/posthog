@@ -132,12 +132,12 @@ export interface twoFactorLogicActions {
         errorObject?: any
     }
     loadStatusSuccess: (
-        status: TwoFactorStatusApi | null,
+        status: TwoFactorStatusApi,
         payload?: {
             value: true
         }
     ) => {
-        status: TwoFactorStatusApi | null
+        status: TwoFactorStatusApi
         payload?: {
             value: true
         }

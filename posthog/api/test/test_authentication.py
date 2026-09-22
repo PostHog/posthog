@@ -2354,11 +2354,6 @@ class TestTimeSensitivePermissions(APIBaseTest):
             ("github_start", "post", "/api/users/@me/integrations/github/start/"),
             ("github_prepare_callback", "post", "/api/users/@me/integrations/github/prepare_callback/"),
             ("github_disconnect", "delete", "/api/users/@me/integrations/github/123/"),
-            (
-                "github_install_request_cancel",
-                "delete",
-                "/api/users/@me/integrations/github/install_requests/00000000-0000-0000-0000-000000000001/",
-            ),
             ("slack_start", "post", "/api/users/@me/integrations/slack/start/"),
             ("slack_disconnect", "delete", "/api/users/@me/integrations/slack/U0123ABC/"),
         ]
@@ -2376,6 +2371,11 @@ class TestTimeSensitivePermissions(APIBaseTest):
             ("connected_app_list", "get", "/api/oauth/connected-apps"),
             ("personal_integration_list", "get", "/api/users/@me/integrations/"),
             ("github_repos_refresh", "post", "/api/users/@me/integrations/github/123/repos/refresh/"),
+            (
+                "github_install_request_cancel",
+                "delete",
+                "/api/users/@me/integrations/github/install_requests/00000000-0000-0000-0000-000000000001/",
+            ),
         ]
     )
     def test_credential_reads_do_not_require_recent_authentication(self, _name, method, url):

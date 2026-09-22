@@ -304,8 +304,8 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
 
     authentication_classes = [OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, TimeSensitiveActionPermission]
-    # Refreshing the cached repository list changes no access.
-    time_sensitive_exclude_actions = ["github_repos_refresh"]
+    # Refreshing the cached repository list and dismissing a pending install request change no access.
+    time_sensitive_exclude_actions = ["github_repos_refresh", "github_install_requests_destroy"]
     http_method_names = ["get", "post", "delete"]
     serializer_class = UserGitHubIntegrationItemSerializer
 
