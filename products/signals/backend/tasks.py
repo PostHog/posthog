@@ -635,12 +635,26 @@ def move_merged_report_signals(team_id: int, survivor_report_id: str, source_rep
 
     team = Team.objects.get(pk=team_id)
     for source_report_id in source_report_ids:
-        moved = reassign_report_signals(
-            source_report_id=source_report_id,
-            survivor_report_id=survivor_report_id,
-            team_id=team_id,
-            team=team,
-        )
+        try:
+            moved = reassign_report_signals(
+                source_report_id=source_report_id,
+                survivor_report_id=survivor_report_id,
+                team_id=team_id,
+                team=team,
+            )
+        except SoftTimeLimitExceeded:
+            # Celery's own termination signal. Swallowing it would defeat the soft time limit.
+            raise
+        except Exception:
+            # Each source is an independent ClickHouse read plus its own emissions, and the task
+            # does not retry, so one source's failure must not strand the sources after it.
+            logger.exception(
+                "signals_merged_report_signals_move_failed",
+                team_id=team_id,
+                survivor_report_id=survivor_report_id,
+                source_report_id=source_report_id,
+            )
+            continue
         logger.info(
             "signals_merged_report_signals_moved",
             team_id=team_id,

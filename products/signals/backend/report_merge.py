@@ -54,9 +54,11 @@ MAX_MERGE_REASON_LENGTH = 500
 # `duplicate_of` link redirects signals.
 MERGE_DISMISSAL_REASON = "merged"
 
-# A resolved or already-archived report has had its verdict, and folding it in would undo that
-# verdict silently.
-MERGEABLE_SOURCE_STATUSES = frozenset(
+# Both ends of a merge must be a live report. A resolved or already-archived source has had its
+# verdict, and folding it in would undo that verdict silently. A resolved survivor is terminal for
+# new signals, so it would take the sources' signals somewhere the pipeline never looks at again
+# while archiving those sources for good.
+MERGEABLE_STATUSES = frozenset(
     {
         SignalReport.Status.POTENTIAL,
         SignalReport.Status.CANDIDATE,
@@ -365,7 +367,7 @@ def _requested_source_ids(source_ids: list[str], *, survivor_id: str) -> list[st
 def _mergeable_source(report: SignalReport | None, requested_id: str) -> SignalReport:
     if report is None:
         raise ReportMergeError(f"Report {requested_id} was not found in this project.")
-    if report.status not in MERGEABLE_SOURCE_STATUSES:
+    if report.status not in MERGEABLE_STATUSES:
         raise ReportMergeError(
             f"Report {requested_id} is {report.status} and cannot be merged. Only a live report can be a source."
         )
@@ -382,8 +384,8 @@ def merge_reports(
 ) -> MergeResult:
     """Fold every source report into `survivor`, atomically.
 
-    Raises `ReportMergeError` when a source is not a live report of this team, or names the
-    survivor itself. Either the whole call applies or none of it does, so a caller never has to
+    Raises `ReportMergeError` when the survivor or a source is not a live report of this team, or
+    when a source names the survivor itself. Either the whole call applies or none of it does, so a caller never has to
     reason about a half-merged pair.
     """
     ordered_ids = _requested_source_ids(source_ids, survivor_id=str(survivor.id))
@@ -399,6 +401,11 @@ def merge_reports(
         if str(survivor.id) not in locked:
             raise ReportMergeError("The report to merge into was not found in this project.")
         survivor = locked[str(survivor.id)]
+        if survivor.status not in MERGEABLE_STATUSES:
+            raise ReportMergeError(
+                f"The report to merge into is {survivor.status} and cannot take on duplicates. "
+                "Only a live report can be the survivor."
+            )
         sources = [_mergeable_source(locked.get(source_id), source_id) for source_id in ordered_ids]
 
         try:

@@ -2459,9 +2459,9 @@ class SignalReportViewSet(
             404: OpenApiResponse(description="The surviving report was not found in this project."),
             409: OpenApiResponse(
                 description=(
-                    "A source could not be merged: it is the survivor itself, it is not a live "
-                    "report in this project, or it is already resolved, archived or deleted. "
-                    "Nothing is applied."
+                    "Both ends of a merge must be a live report of this project. Returned when "
+                    "the survivor is resolved, or when a source is the survivor itself, is "
+                    "already resolved or archived, or belongs to another project. Nothing is applied."
                 )
             ),
         },

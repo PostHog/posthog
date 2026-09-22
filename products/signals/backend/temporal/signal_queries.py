@@ -155,6 +155,12 @@ def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None
         )
 
 
+# The move neither pages nor retries, so a source past this many live signals keeps the remainder
+# pointing at itself while the survivor's counters already include them. Hitting the cap is logged
+# rather than handled, so an affected merge is findable.
+REASSIGN_SIGNAL_ROW_CAP = 5000
+
+
 def reassign_report_signals(*, source_report_id: str, survivor_report_id: str, team_id: int, team: Team) -> int:
     """Re-emit a report's live ClickHouse signals under another report's id, and return how many.
 
@@ -165,7 +171,7 @@ def reassign_report_signals(*, source_report_id: str, survivor_report_id: str, t
     """
     result = execute_hogql_query(
         query_type="SignalsReassignForReport",
-        query=_signals_for_report_query(limit=5000),
+        query=_signals_for_report_query(limit=REASSIGN_SIGNAL_ROW_CAP),
         team=team,
         placeholders=_report_placeholders(source_report_id),
     )
@@ -188,6 +194,14 @@ def reassign_report_signals(*, source_report_id: str, survivor_report_id: str, t
             metadata=metadata,
         )
         moved += 1
+    if moved >= REASSIGN_SIGNAL_ROW_CAP:
+        logger.warning(
+            "signals_reassign_hit_row_cap",
+            team_id=team_id,
+            source_report_id=source_report_id,
+            survivor_report_id=survivor_report_id,
+            moved=moved,
+        )
     return moved
 
 
