@@ -2,6 +2,8 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { register } from 'prom-client'
 
+import { ASYNC_STL, BYTECODE_STL, STL } from '@posthog/hogvm'
+
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent } from '../../types'
@@ -294,21 +296,25 @@ describe('hog-function-filtering', () => {
         }
 
         // roots are pinned to the type above; they only resolve when the runtime supplies them.
-        // callables resolve out of an empty globals object, which is the property worth asserting.
-        it('lists only callables the VM resolves', async () => {
-            const unresolvable: string[] = []
-            for (const name of shared().callables as string[]) {
-                if (!(await resolves(name))) {
-                    unresolvable.push(name)
-                }
-            }
-            expect(unresolvable).toEqual([])
+        // callables resolve out of an empty globals object, so both directions are assertable.
+        it('lists every callable the VM resolves, and no others', () => {
+            const resolvable = [...Object.keys(STL), ...Object.keys(BYTECODE_STL)].filter(
+                // The filter path runs with maxAsyncSteps 0, so an async name can never run.
+                (name) => !Object.hasOwn(ASYNC_STL, name)
+            )
+            expect([...new Set(resolvable)].sort()).toEqual([...shared().callables].sort())
         })
 
-        it('rejects a name the VM cannot resolve', async () => {
-            // The inverse direction. Without it the file could list everything and pass above.
+        it('agrees with what the VM does when asked', async () => {
+            // The list above is the VM's own tables. This checks the tables mean what we think.
+            for (const name of ['lower', 'arrayMap', 'toString']) {
+                expect(await resolves(name)).toBe(true)
+            }
             expect(await resolves('definitelyNotAGlobal')).toBe(false)
-            // sleep is resolvable but async, and the filter path runs with maxAsyncSteps 0.
+        })
+
+        it('excludes the async name', () => {
+            expect(Object.keys(ASYNC_STL)).toContain('sleep')
             expect(shared().callables).not.toContain('sleep')
         })
     })
