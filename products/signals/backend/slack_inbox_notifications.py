@@ -690,8 +690,10 @@ def _deliver_route_notification(
             repository=repository,
         )
         # Added here rather than inside the block builder, which stays free of the integration so it
-        # can be tested without one. Consent is enforced before a report is generated.
-        if invite := slack_followup_invite(route.integration, utm_tags=_INBOX_INVITE_UTM_TAGS, ai_enabled=True):
+        # can be tested without one. Approval is read now, not assumed from generation time: a
+        # reviewer can be added to a retained report after the org has revoked it.
+        ai_enabled = bool(report.team.organization.is_ai_data_processing_approved)
+        if invite := slack_followup_invite(route.integration, utm_tags=_INBOX_INVITE_UTM_TAGS, ai_enabled=ai_enabled):
             blocks.append(invite)
         response = slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=text)
         delivered = True
