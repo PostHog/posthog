@@ -169,6 +169,8 @@ env:
     CLICKHOUSE_TEST_CLUSTER_SECURE: 'False'
     CLICKHOUSE_TEST_CLUSTER_VERIFY: 'False'
     TEST: 1
+    # The root conftest ends pytest with os._exit once every report is written.
+    POSTHOG_PYTEST_HARD_EXIT: '1'
     # Depot CI runners expose OTEL_SERVICE_NAME=ci-worker ambient; GitHub Actions test steps do not.
     # Left set, it leaks into settings.OTEL_SERVICE_NAME (personhog metric client_name label) and
     # diverges from test assertions. Blank it to match the GHA environment. Depot also injects
@@ -1204,7 +1206,7 @@ jobs:
             - name: Register Temporal search attributes
               run: |
                   bin/wait-for-docker temporal
-                  python manage.py register_temporal_search_attributes
+                  python manage.py register_temporal_search_attributes --skip-checks
             - name: Restore test durations from cache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:

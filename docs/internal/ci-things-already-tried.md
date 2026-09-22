@@ -100,6 +100,17 @@ Measure the setup cost first. Then you know what a scope change can win.
 
 _Also asked as:_ session-scoped database fixture, build the test database once, why is the first test so slow
 
+### Collapse the warehouse-sources parametrized tests
+
+**Verdict: rejected** · Sep 2026 · measured, not built ([PR run](https://github.com/PostHog/posthog/actions/runs/35767882260), [master run](https://github.com/PostHog/posthog/actions/runs/35768184399))
+
+warehouse-sources collects about 58,000 tests. About 56,000 of them take less than 20 ms, and pytest-split puts almost all of them in one shard.
+Their cost was not the count. They took 89 s on master and 202 s on PR runs, because turbo removed `COVERAGE_CORE` and coverage used its slow tracer.
+Four functions that run once per source give 5,392 tests and 15 s. Collapsing them saves little.
+The larger fixed cost is collection: each shard of the product collects all 58,000 tests, which takes about 90 s, before pytest-split selects its group.
+
+_Also asked as:_ too many parametrized tests, trim the warehouse-sources suite, delete per-source tests, why is the last warehouse-sources shard slow
+
 ### Shard the Playwright E2E suite
 
 **Verdict: reverted** · Feb 2026 · [#46774](https://github.com/PostHog/posthog/pull/46774), reverted by [#46853](https://github.com/PostHog/posthog/pull/46853)
@@ -233,7 +244,11 @@ Read this entry before you try a different solution for the pytest cleanup cost.
 That call is necessary. [#62707](https://github.com/PostHog/posthog/pull/62707) added it after the Temporal shards stopped with a segmentation fault and exit code 139. CI made the same crash again on #88759.
 Frozen objects do not get the final cyclic collections of `Py_FinalizeEx`. Thus their finalizers run late in the teardown, after Python removes the extension modules.
 
-_Also asked as:_ pytest teardown is slow, reduce gc.collect at session end, speed up pytest cleanup, why does the shard hang after the tests pass
+Backend CI now skips this teardown. With `POSTHOG_PYTEST_HARD_EXIT=1`, the root conftest runs the `atexit` handlers and calls `os._exit` after pytest writes its reports.
+No finalizers run, so the crash cannot occur. Each shard saves 8 to 29 seconds ([before](https://github.com/PostHog/posthog/actions/runs/35777473197), [after](https://github.com/PostHog/posthog/actions/runs/35777464934)).
+Local runs keep the normal exit, and they still need the `gc.unfreeze()`.
+
+_Also asked as:_ pytest teardown is slow, reduce gc.collect at session end, speed up pytest cleanup, why does the shard hang after the tests pass, os.\_exit after pytest
 
 ## Python and pytest runtime
 
@@ -429,6 +444,16 @@ The large Python and frontend test jobs do not use it. Their checkout is complet
 If you propose this again, name the jobs and prove that each one reads only the included paths. A test job can read more of the tree than an exclusion list expects.
 
 _Also asked as:_ sparse-checkout, partial clone, do not check out the whole repo, speed up the checkout step
+
+### Check out the PR head by SHA in the Django test shards
+
+**Verdict: rejected** · Sep 2026 · [before](https://github.com/PostHog/posthog/actions/runs/35777473197), [after](https://github.com/PostHog/posthog/actions/runs/35781233592)
+
+The Django test shards check out `pull_request.head.ref` and spend about 22 s. The product shards check out the merge commit and spend about 6 s.
+The difference is in the `git fetch --depth=1`, and on master pushes the same Django checkout takes about 7 s.
+A checkout of `pull_request.head.sha` also took 21 to 22 s, so the refspec is not the cause. The cause is not known.
+
+_Also asked as:_ slow checkout in the Django shards, head.ref or head.sha, why is the Django checkout slower than the product checkout
 
 ### Jest reports the Rust snapshots as obsolete
 
