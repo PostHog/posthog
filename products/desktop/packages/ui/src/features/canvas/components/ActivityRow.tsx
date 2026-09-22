@@ -180,7 +180,7 @@ export function ActivityRow({
             {presentation.spaceLabel && (
               <Badge
                 variant="default"
-                className="min-w-0 shrink rounded-xs bg-muted/70 p-0"
+                className="ml-auto min-w-0 shrink rounded-xs bg-muted/70 p-0"
                 title={presentation.spaceLabel}
               >
                 <span className="truncate">{presentation.spaceLabel}</span>
