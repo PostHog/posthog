@@ -105,12 +105,13 @@ function CheckSummary({
     return (
         <span
             className={`inline-flex items-center gap-1 whitespace-nowrap ${meta.summaryClassName}`}
-            aria-label={compact ? label : undefined}
             title={compact ? label : undefined}
         >
-            <span className={`flex items-center [&_svg]:size-3 ${meta.iconClassName}`}>{meta.icon}</span>
+            <span aria-hidden className={`flex items-center [&_svg]:size-3 ${meta.iconClassName}`}>
+                {meta.icon}
+            </span>
             <span className="font-medium tabular-nums">{count}</span>
-            {!compact && <span>{meta.label.toLowerCase()}</span>}
+            <span className={compact ? 'sr-only' : undefined}>{meta.label.toLowerCase()}</span>
         </span>
     )
 }

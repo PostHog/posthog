@@ -22,16 +22,21 @@ describe('DetailSection', () => {
             </DetailSection>
         )
 
+        const toggle = screen.getByText('Example section').closest('button')
+        if (!toggle) {
+            throw new Error('Expected section title to be inside a button')
+        }
+
         expect(screen.getByText('Closed summary')).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: /Example section/i })).toHaveTextContent('Closed summary')
+        expect(toggle).toHaveTextContent('Closed summary')
         expect(screen.queryByText('Open summary')).not.toBeInTheDocument()
         expect(screen.queryByText('Section body')).not.toBeInTheDocument()
 
-        await user.click(screen.getByRole('button', { name: /Example section/i }))
+        await user.click(toggle)
 
         expect(screen.getByText('Open summary')).toBeInTheDocument()
         expect(screen.queryByText('Closed summary')).not.toBeInTheDocument()
-        expect(screen.getByRole('button', { name: /Example section/i })).not.toHaveTextContent('Open summary')
+        expect(toggle).not.toHaveTextContent('Open summary')
         expect(screen.getByText('Section body')).toBeInTheDocument()
     })
 })
