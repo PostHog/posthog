@@ -72,4 +72,4 @@ MLHog's `models/kev/load_generator.py` produced the throughput row: a closed loo
 uv run --group dev pytest
 ```
 
-These run on a CPU without vLLM: the row layout, the readout math, and the request-to-answer mapping. The vLLM classes are exercised by the parity run on a GPU. This package is not part of the monorepo's uv workspace or its CI test matrix.
+These run on a CPU without vLLM: the row layout, the readout math, and the request-to-answer mapping. The vLLM classes are exercised by the parity run on a GPU. This package is its own uv project, outside the monorepo's workspace and root pytest: production installs it with `--no-deps` into the vLLM image, so its runtime pins are vLLM's, and the export environment's torch conflicts with the monorepo's. CI runs these tests and ruff from `.github/workflows/ci-ml-inference.yml` with this package's lock.
