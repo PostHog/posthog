@@ -37,7 +37,6 @@ from products.wizard.backend.logic import (
     sessions,
 )
 from products.wizard.backend.logic.artifacts import service as artifacts
-from products.wizard.backend.logic.runs.lifecycle import UpdateWizardRunTaskListInput
 from products.wizard.backend.logic.sessions import pubsub
 
 
@@ -137,7 +136,7 @@ def update_run_status(
 
 def update_run_task_list(
     team_id: int, run_id: UUID, tasks: tuple[UpdateWizardRunTaskInput, ...]
-) -> UpdateWizardRunTaskListInput:
+) -> tuple[UpdateWizardRunTaskInput, ...]:
     return run_service.update_run_task_list(team_id, run_id, tasks)
 
 
