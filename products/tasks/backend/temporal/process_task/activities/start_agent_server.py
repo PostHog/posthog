@@ -2,6 +2,7 @@ import json
 import time
 import shlex
 import threading
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -42,6 +43,7 @@ from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
     increment_agent_server_readiness_retry,
+    record_agent_server_boot_phases_ms,
     record_agent_server_session_init_ms,
     record_agent_server_step_ms,
     record_boot_total_ms,
@@ -60,6 +62,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_user_mcp_server_configs,
     loop_mcp_installation_allowlist,
     mark_sandbox_mcp_session,
+    mcp_exclude_tools_from_state,
 )
 
 from .get_task_processing_context import TaskProcessingContext
@@ -67,6 +70,8 @@ from .get_task_processing_context import TaskProcessingContext
 logger = get_logger(__name__)
 
 AGENT_SERVER_SHADOW_FEATURE_FLAG = "agent-server-shadow-observer"
+
+PROTECTED_BASE_BRANCH_JOIN_TIMEOUT_SECONDS = 30.0
 
 
 def _emit_agentsh_log_tail(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
@@ -395,7 +400,46 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
     return not task.internal
 
 
+def _start_protected_base_branch_lookup(
+    ctx: TaskProcessingContext,
+) -> tuple[ThreadPoolExecutor, Future[str | None]] | None:
+    if not ctx.branch or not ctx.repository or not ctx.has_github_credentials:
+        return None
+
+    def _resolve() -> str | None:
+        try:
+            return _resolve_protected_base_branch(ctx)
+        finally:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"protected-base-branch-{ctx.run_id}")
+    return executor, executor.submit(_resolve)
+
+
+def _join_protected_base_branch_lookup(
+    ctx: TaskProcessingContext, lookup: tuple[ThreadPoolExecutor, Future[str | None]] | None
+) -> str | None:
+    if lookup is None:
+        return _resolve_protected_base_branch(ctx)
+
+    executor, future = lookup
+    try:
+        return future.result(timeout=PROTECTED_BASE_BRANCH_JOIN_TIMEOUT_SECONDS)
+    except TimeoutError:
+        logger.warning("resolve_protected_base_branch_timed_out", task_id=ctx.task_id, run_id=ctx.run_id)
+        return ctx.branch
+    except Exception:
+        logger.warning("resolve_protected_base_branch_failed", task_id=ctx.task_id, run_id=ctx.run_id, exc_info=True)
+        return ctx.branch
+    finally:
+        executor.shutdown(wait=False)
+
+
 def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbox_id: str) -> _LaunchParams:
+    protected_base_branch_lookup = _start_protected_base_branch_lookup(ctx)
     task = retry_on_db_connection_drop(lambda: Task.objects.select_related("created_by", "team").get(id=ctx.task_id))
     try:
         actor_user = get_task_run_credential_user(task, ctx.state)
@@ -448,6 +492,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         slack_reply_context=ctx.slack_reply_context,
         task_id=str(ctx.task_id),
         origin_product=task.origin_product,
+        exclude_tools=mcp_exclude_tools_from_state(ctx.state),
     )
     include_personal = _include_personal_mcp_for_task(task)
     user_mcp_configs = get_user_mcp_server_configs(
@@ -514,7 +559,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
             f"Sandbox environment '{environment_name}' grants full network access; starting without agentsh restrictions",
         )
 
-    protected_base_branch = _resolve_protected_base_branch(ctx)
+    protected_base_branch = _join_protected_base_branch_lookup(ctx, protected_base_branch_lookup)
 
     return _LaunchParams(
         mcp_configs=mcp_configs,
@@ -793,6 +838,13 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             record_agent_server_session_init_ms(
                 session_init_ms, boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
             )
+        record_agent_server_boot_phases_ms(
+            boot_phases_ms,
+            input.boot_path,
+            used_snapshot=input.used_snapshot,
+            origin_product=ctx.origin_product,
+            runtime=runtime,
+        )
 
         boot_total_ms = _record_boot_total(input)
 
@@ -993,6 +1045,13 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
             record_agent_server_session_init_ms(
                 session_init_ms, boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
             )
+        record_agent_server_boot_phases_ms(
+            boot_phases_ms,
+            input.boot_path,
+            used_snapshot=input.used_snapshot,
+            origin_product=ctx.origin_product,
+            runtime=runtime,
+        )
 
         boot_total_ms = _record_boot_total(input)
 

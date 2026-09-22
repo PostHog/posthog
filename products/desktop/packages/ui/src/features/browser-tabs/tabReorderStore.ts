@@ -1,17 +1,34 @@
 import { create } from "zustand";
 
-/**
- * Transient view state for an in-flight tab drag-reorder. Holds the previewed
- * *stored* order (pin-agnostic ids) so the strip can shift pills aside under
- * the cursor without touching the domain snapshot mirror — the drop is what
- * finally persists. Not persisted; cleared the moment the drag ends or cancels.
- */
-interface TabReorderStore {
+export type TabDragSource = "strip" | "tile";
+
+interface TabDrag {
   previewOrder: string[] | null;
-  setPreviewOrder: (order: string[] | null) => void;
+  draggingTabId: string | null;
+  dragSource: TabDragSource | null;
+  detached: boolean;
 }
 
-export const useTabReorderStore = create<TabReorderStore>((set) => ({
+interface TabReorderStore extends TabDrag {
+  beginDrag: (
+    drag: Omit<TabDrag, "previewOrder" | "detached"> & Partial<TabDrag>,
+  ) => void;
+  endDrag: () => void;
+  setPreviewOrder: (order: string[] | null) => void;
+  setDetached: (detached: boolean) => void;
+}
+
+const idle: TabDrag = {
   previewOrder: null,
+  draggingTabId: null,
+  dragSource: null,
+  detached: false,
+};
+
+export const useTabReorderStore = create<TabReorderStore>((set) => ({
+  ...idle,
+  beginDrag: (drag) => set({ ...idle, ...drag }),
+  endDrag: () => set(idle),
   setPreviewOrder: (previewOrder) => set({ previewOrder }),
+  setDetached: (detached) => set({ detached }),
 }));

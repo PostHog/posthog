@@ -55,7 +55,7 @@ The lead names the team and the week, and counts each condition that has items, 
 Under it, one thread reply per condition that has items: a line saying what to do about that condition, then one section per item with the single action that resolves it on a button beside it.
 Theme variants of one story list as one entry when the reader would see the same facts for each.
 A merged expiring quarantine links to the flakiness page searched to that story, and a merged unowned file keeps its file button.
-Pile-ups never merge, because a baseline resets one snapshot at a time.
+Pile-ups never merge, because each theme variant carries its own toleration count.
 The last reply says when the next digest comes.
 A team that owns nothing gets no message at all.
 
@@ -66,15 +66,14 @@ Two conditions, and nothing else:
   The extra day is overlap: two weekly runs can fall slightly more than seven days apart, and a quarantine expiring in that gap would otherwise never be reported.
   The flakiness page keeps the plain seven days.
   It clears when somebody extends it past the window, lifts it, or lets it lapse.
-- **N accepted variants of the current baseline.**
-  `VARIANT_PILEUP_MIN` or more active intentional tolerations recorded against the hash the baseline currently holds, with no quarantine already covering the identity.
-  This is not the ninety-day tolerated count on the baselines page, which measures how often somebody accepted drift in a window.
-  This count has no window, because an accepted variant keeps matching without a new record.
-  It clears when the tolerations are removed, or when the baseline changes.
-
-A baseline change invalidates the tolerations recorded against the old baseline: they can never match again, so the count drops to zero.
-That is not evidence the story recovered.
-Reminders about retained exceptions repeat until they are removed or no longer apply.
+- **Tolerated N times in 30 days.**
+  `VARIANT_PILEUP_MIN` or more tolerations by a person or agent in the last `TOLERATION_PILEUP_WINDOW_DAYS`, with no quarantine already covering the identity.
+  It matches the manual half of the rule the Tolerate dialog uses to suggest a quarantine.
+  The count spans every baseline.
+  A flaky story's baseline often moves between tolerations, and a count scoped to the current baseline would drop to zero at each move while the tolerations go on.
+  Automatic tolerations do not count: they absorb renderings under the diff thresholds, which never block anybody.
+  It clears when the tolerations age out of the window.
+  Reminders about retained exceptions repeat until they are removed or no longer apply.
 
 Attribution runs through the story index of the newest default-branch Storybook run, and then through `owners.yaml`.
 `vr run upload --storybook-index <index.json> --storybook-root <dir>` turns the build's `index.json` into a story-to-file map, and each default-branch run records the map's SHA-256 in `metadata["story_index_hash"]`.
@@ -228,6 +227,7 @@ Working end to end: CI upload → async diff → GitHub Check → web review →
 **Tolerated hashes** — when the diff classifies a snapshot as below-threshold noise, it caches the `(identifier, baseline_hash, alternate_hash)` tuple.
 Future runs skip diffing entirely for cached pairs.
 Developers can also manually tolerate a snapshot from the UI.
+When a snapshot already has 3 manual or agent tolerations, or 10 automatic ones, in the last 30 days, the Tolerate button offers a quarantine first, because another toleration covers only that one rendering.
 
 **Row alignment** — a panel that grows by a pixel moves everything below it down, which a top-aligned pixel diff reads as a page-wide change.
 Before thresholding, the diff pairs the rows that exist in both images, so the classifier sees only what actually changed.
@@ -237,14 +237,20 @@ The cap is measured against the committed baseline on every run, so absorbed shi
 
 **Quarantine** — known-flaky identifiers can be quarantined per repo and run type.
 Quarantined snapshots are still captured and diffed but excluded from gating.
-A quarantined snapshot is not committed to the baseline, with one exception: a quarantined `new` snapshot that a person approved by identifier.
-This is the way to give a story a baseline entry when it has none and the quarantine must stay, because every run without the entry classifies the story `new`, and lifting the quarantine first fails every run until the entry lands.
-The procedure is: open a PR that renders the story, approve the `new` snapshot on that run by identifier (the API or the `visual-review-runs-approve-create` MCP tool; "Approve all" skips quarantined snapshots), finalize the run so the entry is committed to the PR branch, then merge the PR.
+A quarantined snapshot reaches the baseline only when a person approves it by identifier, because "Approve all" skips quarantined snapshots.
+This is how a quarantined story's entry keeps up with the story.
+The story still renders on every run, so a code change to it makes the entry stale while the quarantine hides the drift, and every run fails on the day the quarantine is lifted or expires.
+It is also how a story gets an entry when it has none and the quarantine must stay, because every run without the entry classifies the story `new`, and lifting the quarantine first fails every run until the entry lands.
+The procedure is: open a PR that renders the story, approve the `changed` or `new` snapshot on that run by identifier (the API or the `visual-review-runs-approve-create` MCP tool), finalize the run so the entry is committed to the PR branch, then merge the PR.
+A PR renders only the stories its diff affects, so a story the PR does not touch needs the full matrix: add the `run-ci-frontend` label before the push that should render it.
+The label only widens a Storybook run that happens anyway, so the PR must also change a path the Storybook workflow watches.
 
-Keep the quarantine on after the merge.
-An entry on the default branch does not reach a branch that forked before it, and healing cannot supply it either: healing reads the merge-base, which for such a branch also predates the entry.
-So every open branch still renders the story with no entry for it, and lifting the quarantine turns those runs `new` and reds their gate.
-Lift it once the open branches that render the story carry the entry, which they do after they merge the default branch.
+Lift the quarantine after the merge.
+A lift records the default branch's head commit, and a run whose commit does not contain that commit still treats the story as quarantined.
+That matters because an entry on the default branch does not reach a branch that forked before it, and healing cannot supply it either: healing reads the merge-base, which for such a branch also predates the entry.
+So an older branch keeps the quarantine until it merges the default branch, and the lift cannot red its gate.
+The scope lasts `LIFT_SCOPE_DAYS` from the lift, and after that the lift applies to every branch.
+A quarantine that expires on its own date records no commit, so its end applies to every branch at once.
 
 **Flakiness tab** — scores each snapshot identity on the share of the last 7 days of default-branch runs that rendered it differently from its baseline.
 The share is split in two, because the two cost different things: a `hard` run failed the gate and blocked whoever was merging, and a `soft` run was absorbed by a toleration and blocked nobody.

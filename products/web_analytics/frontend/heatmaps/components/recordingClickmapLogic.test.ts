@@ -34,7 +34,7 @@ describe('recordingClickmapLogic', () => {
                 mode: 'exact' as const,
                 expectedProperty: {
                     key: '$current_url',
-                    value: '^https\\:\\/\\/example\\.com\\/blog\\/.*$',
+                    value: '^https\\:\\/\\/example\\.com\\/blog\\/.+$',
                     operator: 'regex',
                     type: 'event',
                 },

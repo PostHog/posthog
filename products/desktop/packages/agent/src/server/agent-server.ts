@@ -242,6 +242,21 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function budgetSnapshotFromUsageUpdate(
+  message: unknown,
+): Record<string, unknown> | undefined {
+  if (typeof message !== "object" || message === null) return undefined;
+  const { method, params } = message as {
+    method?: unknown;
+    params?: { budget?: unknown };
+  };
+  if (method !== POSTHOG_NOTIFICATIONS.USAGE_UPDATE) return undefined;
+  const budget = params?.budget;
+  return typeof budget === "object" && budget !== null
+    ? (budget as Record<string, unknown>)
+    : undefined;
+}
+
 export function isTurnCompleteNotification(message: unknown): boolean {
   return (
     typeof message === "object" &&
@@ -1370,6 +1385,7 @@ export class AgentServer {
           const promptMeta: Record<string, unknown> = {
             ...(builtPrompt.meta ?? {}),
             ...(messageId ? { messageId } : {}),
+            budgetSteerMode: this.budgetSteerMode(),
             ...(hostContext.length > 0
               ? { prContext: hostContext.join("\n\n") }
               : {}),
@@ -1956,6 +1972,9 @@ export class AgentServer {
 
     this.runUsage = new RunUsageAccumulator();
     this.runUsageRunId = payload.run_id;
+    this.lastBudgetSnapshot = undefined;
+    this.lastPersistedBudgetKey = undefined;
+    this.budgetPersistInFlightKey = undefined;
     seedRunUsage(this.runUsage, preTaskRun?.state.token_usage);
     this.prewarmedRun = preTaskRun?.state.prewarmed === true;
     this.prewarmedStartupTurnPending = this.prewarmedRun;
@@ -2208,6 +2227,7 @@ export class AgentServer {
       jsonSchema: preTask?.json_schema ?? null,
       permissionMode: initialPermissionMode,
       ...(channelMode && { channelMode: true }),
+      budgetSteer: { mode: this.budgetSteerMode() },
       posthogExecPermissionRegex: this.posthogExecPermissionRegexSource,
       ...(preTask?.origin_product && {
         taskOriginProduct: preTask.origin_product,
@@ -4242,6 +4262,10 @@ export class AgentServer {
     );
   }
 
+  private budgetSteerMode(): "publish" | "wrap_up" {
+    return this.shouldAutoPublishCloudChanges() ? "publish" : "wrap_up";
+  }
+
   /**
    * Apply settings from run state before the first turn when launch config is
    * incomplete, and return the host-context blocks that prompt needs for them.
@@ -5444,6 +5468,9 @@ export class AgentServer {
     // with a different run_id) must not inherit the previous run's totals.
     this.runUsage = new RunUsageAccumulator();
     this.runUsageRunId = null;
+    this.lastBudgetSnapshot = undefined;
+    this.lastPersistedBudgetKey = undefined;
+    this.budgetPersistInFlightKey = undefined;
     this.session = null;
   }
 
@@ -5491,10 +5518,53 @@ export class AgentServer {
       payload.task_id,
       payload.run_id,
       this.logger,
+      this.lastBudgetSnapshot && { budget_guard: this.lastBudgetSnapshot },
     );
   }
 
+  private lastBudgetSnapshot: Record<string, unknown> | undefined;
+  private lastPersistedBudgetKey: string | undefined;
+  private budgetPersistInFlightKey: string | undefined;
+
+  private persistBudgetSnapshotIfChanged(
+    budget: Record<string, unknown>,
+  ): void {
+    const payload = this.session?.payload;
+    if (!payload) return;
+    const key = JSON.stringify([payload.run_id, budget.stage, budget.steers]);
+    if (
+      key === this.lastPersistedBudgetKey ||
+      key === this.budgetPersistInFlightKey
+    ) {
+      return;
+    }
+    this.budgetPersistInFlightKey = key;
+    this.posthogAPI
+      .updateTaskRun(
+        payload.task_id,
+        payload.run_id,
+        { state: { budget_guard: budget } },
+        AbortSignal.timeout(30_000),
+      )
+      .then(() => {
+        this.lastPersistedBudgetKey = key;
+      })
+      .catch((error: unknown) => {
+        this.logger.debug("Failed to persist the budget snapshot", { error });
+      })
+      .finally(() => {
+        if (this.budgetPersistInFlightKey === key) {
+          this.budgetPersistInFlightKey = undefined;
+        }
+      });
+  }
+
   private handleAcpTransportMessage(message: unknown, eventId?: string): void {
+    const budget = budgetSnapshotFromUsageUpdate(message);
+    if (budget) {
+      this.lastBudgetSnapshot = budget;
+      this.persistBudgetSnapshotIfChanged(budget);
+    }
     if (isTurnCompleteNotification(message)) {
       if (this.suppressAdapterTurnComplete) {
         return;
@@ -5572,7 +5642,7 @@ export class AgentServer {
       this.session?.sseController ?? this.initializingSseController;
     if (controller) {
       this.sendSseEvent(controller, event);
-    } else {
+    } else if (!this.eventStreamSender) {
       // Buffers events raised before a session exists yet (e.g. an MCP relay
       // request fired the instant the client subprocess starts, ahead of
       // `this.session` assignment) or before its SSE controller attaches.

@@ -1,6 +1,7 @@
 import json
 import time
 from collections.abc import Callable
+from datetime import timedelta
 from typing import Any, Optional, cast
 
 import pytest
@@ -21,8 +22,10 @@ from common.hogvm.python.stl import _MAX_SEQUENCE_LENGTH, STL, _guard_sequence_l
 from common.hogvm.python.utils import (
     COST_PER_UNIT,
     MAX_MEMORY,
+    MAX_REGEX_PATTERN_LENGTH,
     HogVMException,
     HogVMMemoryExceededException,
+    HogVMRuntimeExceededException,
     UncaughtHogVMException,
 )
 
@@ -142,6 +145,49 @@ class TestBytecodeExecute:
             execute_bytecode(bytecode, globals_dict)
 
         assert expected_message in str(exc_info.value)
+
+    @pytest.mark.parametrize(
+        "expression, expected",
+        [
+            ("match(input, pattern)", True),
+            ("extractRegex(input, pattern)", "needle"),
+            ("like(input, pattern)", True),
+            ("ilike(input, pattern)", True),
+            ("notLike(input, pattern)", False),
+            ("notILike(input, pattern)", False),
+            ("input like pattern", True),
+            ("input ilike pattern", True),
+            ("input not like pattern", False),
+            ("input not ilike pattern", False),
+            ("input =~ pattern", True),
+            ("input !~ pattern", False),
+            ("input =~* pattern", True),
+            ("input !~* pattern", False),
+        ],
+    )
+    @pytest.mark.parametrize("oversized_pattern", [False, True])
+    def test_matching_accepts_large_subjects_but_bounds_patterns(
+        self, expression: str, expected: bool | str, oversized_pattern: bool
+    ) -> None:
+        bytecode = create_bytecode(parse_expr(expression)).bytecode
+        globals_dict = {
+            "input": "z" * (8 * 1024 * 1024) + "needle",
+            "pattern": "z" * (MAX_REGEX_PATTERN_LENGTH + 1) if oversized_pattern else "needle",
+        }
+
+        if oversized_pattern:
+            with pytest.raises(HogVMException, match=f"exceeds {MAX_REGEX_PATTERN_LENGTH} characters"):
+                execute_bytecode(bytecode, globals_dict, timeout=60)
+        else:
+            assert execute_bytecode(bytecode, globals_dict, timeout=60).result == expected
+
+    @pytest.mark.parametrize("function_name", ["match", "extractRegex", "like", "ilike"])
+    def test_regex_pattern_limit_is_inclusive(self, function_name: str) -> None:
+        bytecode = create_bytecode(parse_expr(f"{function_name}(input, pattern)")).bytecode
+        pattern = "z" * MAX_REGEX_PATTERN_LENGTH
+        result = execute_bytecode(bytecode, {"input": "z", "pattern": pattern}, timeout=60).result
+
+        assert result == ("" if function_name == "extractRegex" else False)
 
     def test_nested_value(self):
         my_dict = {
@@ -371,6 +417,33 @@ class TestBytecodeExecute:
         _guard_sequence_length(_MAX_SEQUENCE_LENGTH)
         with pytest.raises(HogVMMemoryExceededException):
             _guard_sequence_length(_MAX_SEQUENCE_LENGTH + 1)
+
+    @parameterized.expand([("range(0, 200)",), ("(range)(0, 200)",)])
+    def test_range_checks_remaining_memory_before_allocating(self, expression: str) -> None:
+        bytecode = create_bytecode(parse_program("let retained := '" + "x" * 1000 + "'; return " + expression)).bytecode
+        with patch("common.hogvm.python.stl.list", side_effect=AssertionError("Allocated range"), create=True):
+            with pytest.raises(HogVMMemoryExceededException):
+                execute_bytecode(bytecode, memory_limit=2048)
+
+    @parameterized.expand([("range(7)", 7), ("range(3, 10)", 7), ("range(-1)", 0), ("range(10, 3)", 0)])
+    def test_range_within_memory_limit(self, expression: str, expected_length: int) -> None:
+        bytecode = create_bytecode(parse_expr(expression)).bytecode
+        response = execute_bytecode(bytecode, memory_limit=64)
+        assert len(response.result) == expected_length
+
+    @parameterized.expand([(op.RETURN,), (None,), ()])
+    def test_peak_memory_includes_temporary_values(self, *ending: op | None) -> None:
+        bytecode = [_H, VERSION, op.INTEGER, 7, op.CALL_GLOBAL, "range", 1, op.CALL_GLOBAL, "length", 1, *ending]
+        response = execute_bytecode(bytecode, memory_limit=64)
+        assert response.result == 7
+        assert response.max_memory_used == 64
+
+    @parameterized.expand([("length('hello')",), ("(length)('hello')",)])
+    def test_stl_call_cannot_return_after_deadline(self, expression: str) -> None:
+        bytecode = create_bytecode(parse_expr(expression)).bytecode
+        with patch("common.hogvm.python.execute.time.monotonic", side_effect=[0.0, 0.0, 0.0, 2.0]):
+            with pytest.raises(HogVMRuntimeExceededException):
+                execute_bytecode(bytecode, timeout=timedelta(seconds=1))
 
     def test_functions(self):
         def stringify(*args):

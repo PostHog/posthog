@@ -89,21 +89,47 @@ def test_docker_sandbox_does_not_combine_agent_server_start_and_health(sandbox: 
 
 def test_read_agent_server_boot_metrics_includes_process_milestones(sandbox: DockerSandbox):
     response = ExecutionResult(
-        stdout='{"sessionInitMs":90,"boot":{"totalMs":140,"httpReadyMs":12,"launcherToProcessMs":8,"phasesMs":{"context_fetch":40,"secret":1}}}',
+        stdout=(
+            '{"sessionInitMs":90,"bootMs":900,"boot":{"contractVersion":1,"totalMs":140,"httpReadyMs":12,'
+            '"launcherToProcessMs":8,"phasesMs":{"context_fetch":40,"acp_initialize":5,"repository_ready":60,'
+            '"session_dependencies":7,"session_create":25,"secret":1}}}'
+        ),
         stderr="",
         exit_code=0,
     )
     with patch.object(sandbox, "execute", return_value=response):
         assert sandbox.read_agent_server_boot_metrics() == (
             90,
-            {"context_fetch": 40, "server_total": 140, "http_ready": 12, "launcher_to_process": 8},
+            {
+                "context_fetch": 40,
+                "acp_initialize": 5,
+                "repository_ready": 60,
+                "session_dependencies": 7,
+                "session_create": 25,
+                "server_total": 140,
+                "http_ready": 12,
+                "launcher_to_process": 8,
+                "process_total": 900,
+            },
         )
 
 
-def test_read_agent_server_boot_metrics_uses_pi_boot_total(sandbox: DockerSandbox):
-    response = ExecutionResult(stdout='{"sessionInitMs":90,"bootMs":140}', stderr="", exit_code=0)
+@pytest.mark.parametrize(
+    ("stdout", "expected_phases"),
+    [
+        ('{"sessionInitMs":90,"bootMs":140}', {"process_total": 140}),
+        (
+            '{"sessionInitMs":90,"bootMs":140,"boot":{"totalMs":140,"launcherToProcessMs":8}}',
+            {"process_total": 140, "launcher_to_process": 8},
+        ),
+    ],
+)
+def test_read_agent_server_boot_metrics_without_phase_contract_keeps_server_total_unset(
+    sandbox: DockerSandbox, stdout: str, expected_phases: dict[str, int]
+):
+    response = ExecutionResult(stdout=stdout, stderr="", exit_code=0)
     with patch.object(sandbox, "execute", return_value=response):
-        assert sandbox.read_agent_server_boot_metrics() == (90, {"server_total": 140})
+        assert sandbox.read_agent_server_boot_metrics() == (90, expected_phases)
 
 
 def test_build_agent_server_command_gates_connected_project_operations(sandbox: DockerSandbox):

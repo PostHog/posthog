@@ -52,6 +52,14 @@ class TestIsTransientObjectStoreError:
                 True,
             ),
             (
+                # A bare botocore connection failure reaching our own bucket endpoint (e.g.
+                # `ensure_bucket_exists`'s `head_bucket` hitting a still-booting local object store) —
+                # never an OSError subclass, so only the type check catches it.
+                "bare_endpoint_connection_error",
+                botocore.exceptions.EndpointConnectionError(endpoint_url="http://objectstorage:19000/data-warehouse"),
+                True,
+            ),
+            (
                 # aiobotocore's session bootstrap (e.g. inside `aget_s3_client`) opens botocore's own
                 # bundled endpoints.json before any network call is made - a full fd table fails that
                 # local open the same way it fails a socket connect, so it needs the same transient

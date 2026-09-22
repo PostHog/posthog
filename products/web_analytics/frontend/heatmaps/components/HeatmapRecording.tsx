@@ -43,10 +43,11 @@ function UrlSearchHeader(): JSX.Element {
 
     return (
         <div className="mt-2 w-full">
-            <LemonLabel>Heatmap data URL</LemonLabel>
+            <LemonLabel htmlFor="heatmap-recording-data-url">Heatmap data URL</LemonLabel>
             <div className="text-xs text-muted mb-1">Add * for wildcards to aggregate data from multiple pages</div>
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInput
+                    id="heatmap-recording-data-url"
                     value={replayIframeData?.url}
                     onChange={(s) => setReplayIframeDataURL(s)}
                     className="truncate flex-1 min-w-60"

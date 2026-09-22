@@ -49,4 +49,25 @@ describe('ObservationDockCard', () => {
         await waitFor(() => expect(scannerRetrieveCalls).toBe(0))
         expect(router.values.location.pathname).toBe(startPath)
     })
+
+    // A monitor verdict is meaningless without its question, so the prompt must stay on the card and not
+    // hide behind the details page.
+    it('shows the prompt beside a monitor verdict', async () => {
+        const monitor = {
+            id: 'obs-2',
+            scanner_id: 'inline-scanner-2',
+            session_id: 'sess-1',
+            status: 'succeeded',
+            scanner_snapshot: {
+                name: '',
+                scanner_type: 'monitor',
+                scanner_config: { prompt: 'Did the user complete checkout?' },
+            },
+            scanner_result: { model_output: { scanner_type: 'monitor', verdict: 'yes' } },
+        } as unknown as ReplayObservationApi
+
+        render(<ObservationDockCard observation={monitor} />)
+
+        await screen.findByText('Did the user complete checkout?')
+    })
 })

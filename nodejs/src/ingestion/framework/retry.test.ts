@@ -1,4 +1,5 @@
 import { captureException } from '~/common/utils/posthog'
+import { sleep } from '~/common/utils/utils'
 
 import { ChunkProcessingStep } from './base-chunk-pipeline'
 import { newChunkPipelineBuilder, newPipelineBuilder } from './builders'
@@ -19,7 +20,14 @@ jest.mock('~/common/utils/posthog', () => ({
     captureException: jest.fn(),
 }))
 
+// Skip the retry backoff sleeps, and record what they would have been.
+jest.mock('~/common/utils/utils', () => ({
+    ...jest.requireActual('~/common/utils/utils'),
+    sleep: jest.fn(() => Promise.resolve()),
+}))
+
 const mockCaptureException = captureException as jest.MockedFunction<typeof captureException>
+const mockSleep = sleep as jest.MockedFunction<typeof sleep>
 
 class RetriableError extends Error {
     isRetriable = true
@@ -148,6 +156,28 @@ describe('retry', () => {
             )
             expect(mockCaptureException).not.toHaveBeenCalled()
             expect(await getRetryAttempts('retry_site', 'exhausted')).toEqual({ count: 1, sum: 3 })
+        })
+
+        it('forwards the whole retry schedule to retryIfRetriable', async () => {
+            let attempts = 0
+            const script = (): void => {
+                attempts++
+                if (attempts < 5) {
+                    throw new RetriableError('Temporary failure')
+                }
+            }
+
+            const results = await variant.run(script, {
+                name: 'retry_site',
+                tries: 5,
+                sleepMs: 100,
+                jitter: 0,
+                backoffFactor: 4,
+                maxSleepMs: 1000,
+            })
+
+            expect(results.every(isOkResult)).toBe(true)
+            expect(mockSleep.mock.calls.map(([ms]) => ms)).toEqual([100, 400, 1000, 1000])
         })
 
         it('defaults the metric name to the step name', async () => {
