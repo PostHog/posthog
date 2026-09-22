@@ -48,6 +48,7 @@ export class TerminalSession {
         select: (selected: boolean) => void,
         paste: () => void
     ) {
+        // Shell commands and project data must stay out of autocapture and session replay.
         this.element.className = 'h-full min-w-0 bg-black ph-no-capture ph-replay-block'
         this.element.dataset.shortcutsIgnore = 'ctrl'
         this.element.dataset.shortcutsAllowKeys = '` ~'

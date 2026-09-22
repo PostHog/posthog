@@ -277,6 +277,7 @@ describe('PostHog terminal commands', () => {
 
     it('discovers connected MCP tools and exposes their schemas as files', async () => {
         const tools = await commands.execute(['tools', 'echo'], cwd)
+        // The fixture declares readOnlyHint, which the terminal must not repeat as a safety claim.
         expect(tools).toEqual([{ name: 'example/echo', description: 'Echo arguments', readOnly: false }])
         const schema = filesystem.root.children!.get('tools')!.children!.get('example%2Fecho.json')!
         expect(

@@ -27,6 +27,9 @@ def download(url: str, algorithm: str, expected: str) -> bytes:
 def normalized(info: tarfile.TarInfo) -> tarfile.TarInfo:
     info.uid = info.gid = info.mtime = 0
     info.uname = info.gname = ""
+    # The source modes follow the build host: the umask decides what mkdir and write_text produce,
+    # and Linux reports every symlink as 0o777 because the kernel stores no symlink permissions.
+    # Fix the modes here so the same inputs give the same archive on every machine.
     info.mode = 0o755 if info.isdir() or info.issym() or info.mode & 0o111 else 0o644
     return info
 
