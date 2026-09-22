@@ -205,7 +205,7 @@ def _validate_hogql(definition: dict, team: Team, user: Optional[User]) -> tuple
                 f"The query uses a placeholder '{{{name}}}' that the definition does not supply.",
                 f"Add '{name}' to 'values', or remove the placeholder from the query.",
             )
-        _fail(f"Could not expand a query placeholder: {message}", "Check the query's placeholders against 'values'.")
+        _fail("Could not expand a query placeholder.", "Check the query's placeholders against 'values'.")
     except ResolutionError as e:
         capture_exception(e)
         _fail("Could not resolve a table or field in the query.", "Check table and column names.")
