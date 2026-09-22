@@ -11,7 +11,9 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb, DataModelingEdge, DataModelingNode, DataWarehouseSavedQuery } from '~/types'
 
-import type { DataModelingNodeType } from '../../types'
+import { MATERIALIZING_TYPES } from 'products/data_modeling/frontend/freshness'
+
+import type { NodeTypeEnumApi } from '../../../../products/data_modeling/frontend/generated/api.schemas'
 
 export const NODE_DETAIL_SCENE_TABS = ['query', 'lineage', 'materialization', 'tests', 'history'] as const
 export type NodeDetailSceneTab = (typeof NODE_DETAIL_SCENE_TABS)[number]
@@ -50,7 +52,7 @@ export interface nodeDetailSceneLogicValues {
     lineageModalOpen: boolean
     node: DataModelingNode | null
     nodeLoading: boolean
-    nodeType: DataModelingNodeType | null
+    nodeType: NodeTypeEnumApi | null
     savedQuery: DataWarehouseSavedQuery | null
     savedQueryError: boolean
     savedQueryLoading: boolean
@@ -170,7 +172,7 @@ export interface nodeDetailSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         breadcrumbs: (node: DataModelingNode | null) => Breadcrumb[]
-        nodeType: (node: DataModelingNode | null) => DataModelingNodeType | null
+        nodeType: (node: DataModelingNode | null) => NodeTypeEnumApi | null
         sceneResolved: (node: DataModelingNode | null, savedQuerySettled: boolean) => boolean
         availableTabs: (
             node: DataModelingNode | null,
@@ -331,7 +333,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                     return []
                 }
                 const tabs: NodeDetailSceneTab[] = []
-                if (node.type !== 'table') {
+                if (node.saved_query_id) {
                     tabs.push('query')
                 }
                 tabs.push('lineage')
@@ -361,13 +363,13 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 if (savedQuery) {
                     return !!savedQuery.is_materialized
                 }
-                return node?.type === 'matview' || node?.type === 'endpoint'
+                return MATERIALIZING_TYPES.has(node?.type ?? 'table')
             },
         ],
         defaultTab: [
             (s) => [s.node, s.isMaterialized],
             (node: DataModelingNode | null, isMaterialized: boolean): NodeDetailSceneTab => {
-                if (node?.type === 'table') {
+                if (!node?.saved_query_id) {
                     return 'lineage'
                 }
                 // An endpoint's saved query is always materialized, but its materialization panel

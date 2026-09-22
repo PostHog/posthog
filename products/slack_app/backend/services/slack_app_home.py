@@ -37,6 +37,7 @@ from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache, UntaggedFollowupMode
 from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_from_candidates
 from products.slack_app.backend.services.model_catalogue import (
+    COST_BASELINE_MODEL,
     REASONING_EFFORT_DISPLAY_NAMES,
     RUNTIME_ADAPTER_DISPLAY_NAMES,
     available_model_choices,
@@ -165,6 +166,7 @@ class PickerModel:
     value: str
     label: str
     supported_efforts: tuple[PickerEffort, ...]
+    cost_description: str | None = None
 
 
 @dataclass(frozen=True)
@@ -172,6 +174,13 @@ class PickerAdapter:
     value: str
     label: str
     models: tuple[PickerModel, ...]
+
+
+def _describe_cost(cost_multiplier: str | None) -> str | None:
+    """Slack has no tooltip to hide the baseline in, so the comparison names it outright."""
+    if not cost_multiplier:
+        return None
+    return f"Cost per token vs {display_name_for_model(COST_BASELINE_MODEL)}: {cost_multiplier}"
 
 
 def get_picker_choices() -> tuple[PickerAdapter, ...]:
@@ -189,6 +198,7 @@ def get_picker_choices() -> tuple[PickerAdapter, ...]:
                         PickerEffort(value=e, label=label_for(e, REASONING_EFFORT_DISPLAY_NAMES))
                         for e in choice.supported_efforts
                     ),
+                    cost_description=_describe_cost(choice.cost_multiplier),
                 )
                 for choice in group.choices
             ),
@@ -197,11 +207,11 @@ def get_picker_choices() -> tuple[PickerAdapter, ...]:
     )
 
 
-def _models_for(runtime_adapter: str) -> tuple[tuple[str, str], ...]:
-    """Return `(value, label)` pairs for the modal's model dropdown."""
+def _models_for(runtime_adapter: str) -> tuple[PickerModel, ...]:
+    """The models the modal's model dropdown offers for one runtime."""
     for adapter in get_picker_choices():
         if adapter.value == runtime_adapter:
-            return tuple((m.value, m.label) for m in adapter.models)
+            return adapter.models
     return ()
 
 
@@ -688,7 +698,7 @@ def _linked_accounts_section_blocks(
     section and renders `actions` blocks full width, so a row apiece is the
     only layout that keeps each button next to the account it acts on.
     The PostHog row only appears when `is_slack_app_oauth_enabled` returned
-    True; the GitHub row is independent of that flag.
+    True; the GitHub row is independent of that gate.
     """
     rows: list[dict] = []
 
@@ -1330,10 +1340,15 @@ def render_edit_modal(
     if current.runtime_adapter:
         model_options = [
             {
-                "text": {"type": "plain_text", "text": label, "emoji": True},
-                "value": value,
+                "text": {"type": "plain_text", "text": model.label, "emoji": True},
+                "value": model.value,
+                **(
+                    {"description": {"type": "plain_text", "text": model.cost_description}}
+                    if model.cost_description
+                    else {}
+                ),
             }
-            for value, label in _models_for(current.runtime_adapter)
+            for model in _models_for(current.runtime_adapter)
         ]
         if model_options:
             model_element: dict[str, Any] = {
@@ -1766,7 +1781,7 @@ def _drop_invalidated_selections(
     effort. The scoped block ids stop Slack handing those back on the next interaction;
     this stops the view we render from the same payload showing them in the meantime.
     """
-    if model and model not in {value for value, _ in _models_for(runtime_adapter or "")}:
+    if model and model not in {offered.value for offered in _models_for(runtime_adapter or "")}:
         model = None
     if reasoning_effort and reasoning_effort not in (_supported_efforts(runtime_adapter, model) or ()):
         reasoning_effort = None
@@ -2210,6 +2225,9 @@ def _resolve_run_defaults_state(
         logger.exception("slack_app_home_run_defaults_resolution_failed", slack_user_id=slack_user_id)
         return RunDefaultsState(settings_url=settings_url)
 
+    if resolved.runtime != ai_run_defaults.ACP:
+        return RunDefaultsState(settings_url=settings_url)
+
     return RunDefaultsState(
         model=resolved.model,
         reasoning_effort=resolved.reasoning_effort,
@@ -2358,6 +2376,10 @@ def _accessible_integrations(integration: Integration, slack_user_id: str) -> li
     build plus three queries, and all three cards want the same answer. It is also the
     authorization boundary for the whole tab, so it should have exactly one definition.
     """
+    # Deliberately not health-filtered, unlike the mention path. There, dropping an
+    # install with a dead token lets resolution fall through to the next candidate; here
+    # it would blank the whole tab whenever `auth.test` is unreachable, since every card
+    # hangs off this list.
     return _filter_accessible_integrations(
         integration, slack_user_id, _workspace_integrations(integration.integration_id)
     )
@@ -2373,8 +2395,7 @@ def _resolve_stats_state(
 ) -> StatsState | None:
     """Workspace activity aggregates, or None when the card shouldn't render at all.
 
-    Admin-only, and rides the same `slack-app-home` gate as the rest of the tab — the
-    callers already returned early when that flag is off.
+    Admin-only: every other card on the tab renders for any viewer.
 
     Scoped to the projects this admin can already reach: being a Slack workspace admin
     says nothing about PostHog org membership, so the card must never widen what its
@@ -2451,23 +2472,23 @@ def _resolve_project_state(
 def _filter_accessible_integrations(
     integration: Integration, slack_user_id: str, candidates: list[Integration]
 ) -> list[Integration]:
-    # Falls back to the full candidate list when we can't identify the user —
-    # hiding the picker would mean an unidentified user has no way to change
-    # their routing at all.
-    profile = SlackUserProfileCache.objects.filter(integration_id=integration.id, slack_user_id=slack_user_id).first()
-    if profile is None or not profile.email:
-        return candidates
-    membership = (
-        OrganizationMembership.objects.filter(
-            user__email=profile.email,
-            organization_id__in={c.team.organization_id for c in candidates},
-        )
-        .select_related("user")
-        .first()
-    )
-    if membership is None:
-        return candidates
-    permissions = UserPermissions(user=membership.user)
+    """The candidates this Slack identity can reach.
+
+    A viewer we cannot identify is narrowed to the one project the tab is already being
+    rendered for, rather than shown the whole list. A Slack workspace can carry several
+    organizations, so the old behaviour of returning every candidate published the
+    project and organization names of orgs the viewer has no membership in to anyone in
+    the workspace. Narrowing keeps every card working and the routing picker usable,
+    which is what returning the full list was protecting, without that disclosure.
+
+    `_apply_project_pick` gates on this too, so the same narrowing stops an unidentified
+    viewer saving a personal default for any team in the workspace, which the old
+    behaviour allowed. Such a default is rejected on the mention path anyway.
+    """
+    user = _resolve_home_user(integration, slack_user_id)
+    if user is None:
+        return [c for c in candidates if c.id == integration.id]
+    permissions = UserPermissions(user=user)
     return [c for c in candidates if permissions.team(c.team).effective_membership_level is not None]
 
 

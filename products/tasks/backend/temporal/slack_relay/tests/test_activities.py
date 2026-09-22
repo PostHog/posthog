@@ -81,15 +81,7 @@ class TestRelaySlackMessage(TestCase):
     @parameterized.expand(
         [
             ("no_reaction_emoji", "relay-1", "Which license should I use?", None, "Which license should I use?"),
-            ("only_objects", "relay-only-objects", '<hogql title="Hidden">SELECT 1</hogql>', None, ""),
             ("explicit_reaction_emoji", "relay-2", "Could not deliver follow-up", "x", "Could not deliver follow-up"),
-            (
-                "object_elements",
-                "relay-objects",
-                'Before <insight id="1">hidden label</insight><hogql display="block" title="Hidden title">SELECT 123</hogql> after.',
-                None,
-                "Before  after.",
-            ),
         ]
     )
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
@@ -117,14 +109,8 @@ class TestRelaySlackMessage(TestCase):
         )
 
         mock_delete_progress.assert_called_once()
-        if expected_text:
-            mock_post.assert_called_once()
-            assert expected_text in mock_post.call_args.args[0]
-            assert "hidden label" not in mock_post.call_args.args[0]
-            assert "Hidden title" not in mock_post.call_args.args[0]
-            assert "SELECT 123" not in mock_post.call_args.args[0]
-        else:
-            mock_post.assert_not_called()
+        mock_post.assert_called_once()
+        assert expected_text in mock_post.call_args.args[0]
         if reaction_emoji is None:
             mock_update.assert_not_called()
         else:
@@ -162,6 +148,26 @@ class TestRelaySlackMessage(TestCase):
         )
 
         assert mock_post.call_args.args[0].endswith(self._RICH_ANSWER)
+
+    @override_settings(SITE_URL="https://us.posthog.com")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_object_tags_reach_slack_as_links_into_the_runs_project(self, mock_delete_progress, mock_post):
+        # Slack renders none of the tags, so dropping one takes the agent's own label with it and
+        # a bullet that holds only a citation posts empty. The link also has to carry the run's
+        # project, or it opens somewhere the reader cannot follow.
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id="relay-object-tags",
+                text='- <insight id="geFISqzd">Sandbox 2.0</insight>\n- <hogql label="signups">SELECT 1</hogql>',
+            )
+        )
+
+        posted = mock_post.call_args.args[0]
+        base = f"https://us.posthog.com/project/{self.team.id}"
+        assert f"- [Sandbox 2.0]({base}/insights/geFISqzd?unfurl=false)" in posted
+        assert f"- [signups]({base}/sql?open_query=SELECT%201&unfurl=false)" in posted
 
     @parameterized.expand(
         [

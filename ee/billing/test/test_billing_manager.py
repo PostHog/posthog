@@ -22,6 +22,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.logs.backend.models import LogsRetentionRule
+
 from ee.billing.billing_manager import (
     BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER,
     BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION,
@@ -573,6 +575,12 @@ class TestBillingManager(BaseTest):
         organization.save()
         self.team.logs_settings = {"retention_days": 30}
         self.team.save()
+        rule = LogsRetentionRule.objects.create(
+            team=self.team,
+            name="keep api logs",
+            enabled=True,
+            config={"retention_days": 90, "filter_group": {"type": "AND", "values": []}},
+        )
 
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key123::key123",
@@ -592,6 +600,10 @@ class TestBillingManager(BaseTest):
         self.team.refresh_from_db()
         assert organization.available_product_features == [{"key": "surveys", "name": "Surveys"}]
         assert self.team.logs_settings == {"retention_days": 14}
+        rule.refresh_from_db()
+        assert rule.config == {"retention_days": 14, "filter_group": {"type": "AND", "values": []}}
+        assert rule.enabled is True
+        assert rule.version == 2
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_update_available_product_features_reconciles_events_retention(self, mock_get: MagicMock):
