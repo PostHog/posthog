@@ -14,5 +14,3 @@ __all__ = [
 ]
 
 type AnyFilter = Filter | PathFilter | RetentionFilter | StickinessFilter | PropertiesTimelineFilter
-
-type AnyInsightFilter = Filter | PathFilter | RetentionFilter | StickinessFilter
