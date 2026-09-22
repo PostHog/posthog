@@ -72,9 +72,12 @@ cr auth status                   # confirms the session and the organization
 3. Run the review, scoped to the branch's base:
 
    ```sh
-   cr review --agent --base master
+   cr review --deep --agent --base master
    ```
 
+   `--deep` applies the full pull request review policy, so the findings match what the bot would post.
+   Only the pre-merge checks stay PR-only.
+   Without it the CLI applies a narrower policy than the bot.
    `--agent` emits structured findings for an agent to read.
    Drop it when a person reads the output.
    `cr review findings` reprints the last run's findings, so re-reading them costs no review.
