@@ -31,10 +31,10 @@ export const MlInferenceDecisionsDecideCreateBody = /* @__PURE__ */ zod.object({
                     ),
                 instructions: zod.string().describe('The question to ask about the state, phrased for the model.'),
                 criteria: zod
-                    .record(zod.string(), zod.string().describe('What this option means.'))
+                    .union([zod.record(zod.string(), zod.string()), zod.array(zod.string())])
                     .optional()
                     .describe(
-                        'For a multiple choice question, the options keyed by name. Omitted for other question types.'
+                        'For a multiple choice question, the options keyed by name. For a rating question, the scale labels in order from lowest to highest, at least two. Omitted for a yes\/no question.'
                     ),
             })
         )

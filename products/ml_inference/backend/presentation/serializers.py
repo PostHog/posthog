@@ -1,7 +1,34 @@
+from typing import Any
+
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from ..facade.contracts import DEFAULT_DECISION_MODEL
 from ..facade.enums import DecisionQuestionType
+
+
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "object", "additionalProperties": {"type": "string"}},
+            {"type": "array", "items": {"type": "string"}},
+        ]
+    }
+)
+class CriteriaField(serializers.Field):
+    def to_internal_value(self, data: Any) -> dict[str, str] | list[str]:
+        if isinstance(data, dict) and all(
+            isinstance(key, str) and isinstance(value, str) for key, value in data.items()
+        ):
+            return data
+        if isinstance(data, list) and all(isinstance(value, str) for value in data):
+            return data
+        raise serializers.ValidationError(
+            "Criteria must be an object of option names to meanings, or a list of scale labels."
+        )
+
+    def to_representation(self, value: dict[str, str] | list[str]) -> dict[str, str] | list[str]:
+        return value
 
 
 class DecisionQuestionSerializer(serializers.Serializer):
@@ -12,11 +39,24 @@ class DecisionQuestionSerializer(serializers.Serializer):
     instructions = serializers.CharField(
         help_text="The question to ask about the state, phrased for the model.",
     )
-    criteria = serializers.DictField(
-        child=serializers.CharField(help_text="What this option means."),
+    criteria = CriteriaField(
         required=False,
-        help_text="For a multiple choice question, the options keyed by name. Omitted for other question types.",
+        help_text=(
+            "For a multiple choice question, the options keyed by name. For a rating question, the scale labels "
+            "in order from lowest to highest, at least two. Omitted for a yes/no question."
+        ),
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        criteria = attrs.get("criteria")
+        match attrs["type"]:
+            case DecisionQuestionType.SCORE if not (isinstance(criteria, list) and len(criteria) >= 2):
+                raise serializers.ValidationError({"criteria": "A rating question needs at least two scale labels."})
+            case DecisionQuestionType.CHOICE if not (isinstance(criteria, dict) and criteria):
+                raise serializers.ValidationError({"criteria": "A multiple choice question needs its options."})
+            case DecisionQuestionType.NOUL if isinstance(criteria, list):
+                raise serializers.ValidationError({"criteria": "A yes/no question does not take scale labels."})
+        return attrs
 
 
 class DecideRequestSerializer(serializers.Serializer):

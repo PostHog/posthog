@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
 from rest_framework import status
 
 from products.ml_inference.backend.facade.contracts import (
@@ -21,6 +22,25 @@ QUESTIONS = {
 
 
 class TestDecideRequestValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("score_with_a_scale", "score", ["calm", "irritated", "angry"], True),
+            ("score_with_options_keyed_by_name", "score", {"calm": "not upset"}, False),
+            ("score_with_one_label", "score", ["calm"], False),
+            ("choice_with_a_list", "choice", ["billing", "support"], False),
+            ("choice_without_options", "choice", None, False),
+            ("noul_with_a_list", "noul", ["yes", "no"], False),
+            ("noul_without_criteria", "noul", None, True),
+        ]
+    )
+    def test_criteria_shape_follows_the_question_type(self, _name, question_type, criteria, valid) -> None:
+        question = {"type": question_type, "instructions": "How is it?"}
+        if criteria is not None:
+            question["criteria"] = criteria
+        serializer = DecideRequestSerializer(data={"state": "text", "questions": {"q": question}})
+
+        assert serializer.is_valid() == valid, serializer.errors
+
     def test_rejects_an_unknown_question_type(self) -> None:
         serializer = DecideRequestSerializer(
             data={"state": "text", "questions": {"q": {"type": "essay", "instructions": "Write one"}}}

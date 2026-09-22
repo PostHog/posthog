@@ -6,7 +6,14 @@ function percent(value: number | null | undefined): string {
     return value === null || value === undefined ? '' : `${Math.round(value * 100)}%`
 }
 
-export function DecisionAnswerCell({ answer }: { answer: DecisionAnswerApi }): JSX.Element {
+export function DecisionAnswerCell({
+    answer,
+    scaleLabels,
+}: {
+    answer: DecisionAnswerApi
+    /** For a score answer, the label of each scale point in order, so probabilities read as words rather than indexes. */
+    scaleLabels?: string[]
+}): JSX.Element {
     if (answer.type === 'noul') {
         const yes = answer.probability ?? 0
         return (
@@ -16,6 +23,7 @@ export function DecisionAnswerCell({ answer }: { answer: DecisionAnswerApi }): J
             </div>
         )
     }
+    const labelOf = (option: string): string => scaleLabels?.[Number(option)] ?? option
     const ranked = Object.entries(answer.probabilities ?? {}).sort(([, a], [, b]) => b - a)
     return (
         <div className="flex flex-col gap-1">
@@ -26,7 +34,7 @@ export function DecisionAnswerCell({ answer }: { answer: DecisionAnswerApi }): J
                 <span className="text-secondary">{percent(answer.confidence)} confidence</span>
             </div>
             <div className="text-secondary text-xs">
-                {ranked.map(([option, probability]) => `${option} ${percent(probability)}`).join(' · ')}
+                {ranked.map(([option, probability]) => `${labelOf(option)} ${percent(probability)}`).join(' · ')}
             </div>
         </div>
     )

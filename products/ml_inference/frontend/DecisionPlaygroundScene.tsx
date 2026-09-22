@@ -1,8 +1,17 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonLabel, LemonSelect, LemonTable, LemonTextArea } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonLabel,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonTable,
+    LemonTextArea,
+} from '@posthog/lemon-ui'
 
+import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -10,7 +19,13 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { DecisionAnswerCell } from './DecisionAnswerCell'
-import { PlaygroundQuestion, PlaygroundQuestionType, decisionPlaygroundLogic } from './decisionPlaygroundLogic'
+import {
+    PlaygroundQuestion,
+    PlaygroundQuestionType,
+    QuestionsView,
+    decisionPlaygroundLogic,
+    parseScale,
+} from './decisionPlaygroundLogic'
 import type { DecisionAnswerApi } from './generated/api.schemas'
 
 export const scene: SceneExport = {
@@ -24,16 +39,35 @@ const QUESTION_TYPE_OPTIONS: { value: PlaygroundQuestionType; label: string }[] 
     { value: 'score', label: 'Rating scale' },
 ]
 
+const QUESTIONS_VIEW_OPTIONS: { value: QuestionsView; label: string }[] = [
+    { value: 'form', label: 'Form' },
+    { value: 'json', label: 'JSON' },
+]
+
 export function DecisionPlaygroundScene(): JSX.Element {
-    const { state, questions, decision, decisionLoading, askDisabledReason } = useValues(decisionPlaygroundLogic)
-    const { setState, addQuestion, removeQuestion, updateQuestion, askDecision } = useActions(decisionPlaygroundLogic)
+    const {
+        state,
+        questions,
+        questionsView,
+        questionsJson,
+        questionsJsonError,
+        decision,
+        decisionLoading,
+        askDisabledReason,
+    } = useValues(decisionPlaygroundLogic)
+    const { setState, addQuestion, removeQuestion, updateQuestion, setQuestionsView, setQuestionsJson, askDecision } =
+        useActions(decisionPlaygroundLogic)
 
     const answerRows = decision
-        ? Object.entries(decision.answers).map(([key, answer]) => ({
-              key,
-              question: questions.find((question) => question.key === key)?.instructions ?? key,
-              answer: answer as DecisionAnswerApi,
-          }))
+        ? Object.entries(decision.answers).map(([key, answer]) => {
+              const question = questions.find((candidate) => candidate.key === key)
+              return {
+                  key,
+                  question: question?.instructions ?? key,
+                  scaleLabels: question?.type === 'score' ? parseScale(question.criteria) : undefined,
+                  answer: answer as DecisionAnswerApi,
+              }
+          })
         : []
 
     return (
@@ -52,27 +86,50 @@ export function DecisionPlaygroundScene(): JSX.Element {
                     data-attr="decision-playground-state"
                 />
             </SceneSection>
-            <SceneSection title="Questions">
-                <div className="flex flex-col gap-2">
-                    {questions.map((question) => (
-                        <QuestionRow
-                            key={question.key}
-                            question={question}
-                            onChange={(patch) => updateQuestion(question.key, patch)}
-                            onRemove={() => removeQuestion(question.key)}
+            <SceneSection
+                title="Questions"
+                actions={
+                    <LemonSegmentedButton
+                        size="small"
+                        value={questionsView}
+                        onChange={setQuestionsView}
+                        options={QUESTIONS_VIEW_OPTIONS}
+                        data-attr="decision-playground-questions-view"
+                    />
+                }
+            >
+                {questionsView === 'json' ? (
+                    <div className="flex flex-col gap-1">
+                        <CodeEditorResizeable
+                            language="json"
+                            value={questionsJson}
+                            onChange={(value) => setQuestionsJson(value ?? '')}
+                            minHeight="8rem"
                         />
-                    ))}
-                    <div>
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconPlus />}
-                            onClick={addQuestion}
-                            data-attr="decision-playground-add-question"
-                        >
-                            Add question
-                        </LemonButton>
+                        {questionsJsonError && <p className="text-danger text-xs m-0">{questionsJsonError}</p>}
                     </div>
-                </div>
+                ) : (
+                    <div className="flex flex-col gap-2">
+                        {questions.map((question) => (
+                            <QuestionRow
+                                key={question.key}
+                                question={question}
+                                onChange={(patch) => updateQuestion(question.key, patch)}
+                                onRemove={() => removeQuestion(question.key)}
+                            />
+                        ))}
+                        <div>
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconPlus />}
+                                onClick={addQuestion}
+                                data-attr="decision-playground-add-question"
+                            >
+                                Add question
+                            </LemonButton>
+                        </div>
+                    </div>
+                )}
             </SceneSection>
             <div>
                 <LemonButton
@@ -96,7 +153,9 @@ export function DecisionPlaygroundScene(): JSX.Element {
                                 {
                                     title: 'Answer',
                                     key: 'answer',
-                                    render: (_, { answer }) => <DecisionAnswerCell answer={answer} />,
+                                    render: (_, { answer, scaleLabels }) => (
+                                        <DecisionAnswerCell answer={answer} scaleLabels={scaleLabels} />
+                                    ),
                                 },
                             ]}
                         />
@@ -153,7 +212,7 @@ function QuestionRow({
                     data-attr="decision-playground-remove-question"
                 />
             </div>
-            {question.type !== 'noul' && (
+            {question.type === 'choice' && (
                 <div>
                     <LemonLabel>Options, one per line as name: what it means</LemonLabel>
                     <LemonTextArea
@@ -161,6 +220,17 @@ function QuestionRow({
                         onChange={(criteria) => onChange({ criteria })}
                         minRows={2}
                         placeholder={'billing: payments, invoices, refunds\nsupport: product questions and bugs'}
+                    />
+                </div>
+            )}
+            {question.type === 'score' && (
+                <div>
+                    <LemonLabel>Scale labels, one per line from lowest to highest</LemonLabel>
+                    <LemonTextArea
+                        value={question.criteria}
+                        onChange={(criteria) => onChange({ criteria })}
+                        minRows={2}
+                        placeholder={'calm\nirritated\nangry'}
                     />
                 </div>
             )}

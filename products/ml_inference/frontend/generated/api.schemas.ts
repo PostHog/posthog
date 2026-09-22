@@ -21,9 +21,9 @@ export const DecisionQuestionTypeEnumApi = {
 } as const
 
 /**
- * For a multiple choice question, the options keyed by name. Omitted for other question types.
+ * For a multiple choice question, the options keyed by name. For a rating question, the scale labels in order from lowest to highest, at least two. Omitted for a yes/no question.
  */
-export type DecisionQuestionApiCriteria = { [key: string]: string }
+export type DecisionQuestionApiCriteria = { [key: string]: string } | string[]
 
 export interface DecisionQuestionApi {
     /** What kind of answer to produce: a yes/no probability, one of the given options, or a rating.
@@ -34,7 +34,7 @@ export interface DecisionQuestionApi {
     type: DecisionQuestionTypeEnumApi
     /** The question to ask about the state, phrased for the model. */
     instructions: string
-    /** For a multiple choice question, the options keyed by name. Omitted for other question types. */
+    /** For a multiple choice question, the options keyed by name. For a rating question, the scale labels in order from lowest to highest, at least two. Omitted for a yes/no question. */
     criteria?: DecisionQuestionApiCriteria
 }
 

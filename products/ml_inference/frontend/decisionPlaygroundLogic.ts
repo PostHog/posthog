@@ -1,21 +1,22 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import { teamLogic } from 'scenes/teamLogic'
 
 import { mlInferenceDecisionsDecideCreate } from './generated/api'
 import type { DecideRequestApi, DecideResponseApi } from './generated/api.schemas'
 
 export type PlaygroundQuestionType = 'noul' | 'choice' | 'score'
+export type QuestionsView = 'form' | 'json'
+
+const QUESTION_TYPES: PlaygroundQuestionType[] = ['noul', 'choice', 'score']
 
 export interface PlaygroundQuestion {
     /** Doubles as the question id on the wire, so it must stay stable while the question is edited. */
     key: string
     type: PlaygroundQuestionType
     instructions: string
-    /** One option per line as `name: what it means`; only read for choice and score questions. */
+    /** One line per option as `name: what it means` for a choice question, or one scale label per line for a score question. */
     criteria: string
 }
 
@@ -47,19 +48,90 @@ export function parseCriteria(criteria: string): Record<string, string> | undefi
     return entries.length > 0 ? Object.fromEntries(entries) : undefined
 }
 
+function buildQuestions(questions: PlaygroundQuestion[]): DecideRequestApi['questions'] {
+    return Object.fromEntries(
+        questions.map((question) => [
+            question.key,
+            {
+                type: question.type,
+                instructions: question.instructions,
+                ...(question.type === 'noul' ? {} : { criteria: wireCriteria(question) }),
+            },
+        ])
+    )
+}
+
+export function parseScale(criteria: string): string[] {
+    return criteria
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+}
+
+function wireCriteria(question: PlaygroundQuestion): Record<string, string> | string[] | undefined {
+    switch (question.type) {
+        case 'noul':
+            return undefined
+        case 'choice':
+            return parseCriteria(question.criteria)
+        case 'score':
+            return parseScale(question.criteria)
+    }
+}
+
 export function buildDecideRequest(state: string, questions: PlaygroundQuestion[]): DecideRequestApi {
-    return {
-        state,
-        questions: Object.fromEntries(
-            questions.map((question) => [
-                question.key,
-                {
-                    type: question.type,
-                    instructions: question.instructions,
-                    ...(question.type === 'noul' ? {} : { criteria: parseCriteria(question.criteria) }),
-                },
-            ])
-        ),
+    return { state, questions: buildQuestions(questions) }
+}
+
+export function questionsToJson(questions: PlaygroundQuestion[]): string {
+    return JSON.stringify(buildQuestions(questions), null, 2)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** Throws with a message a person can act on when the text is not a questions object. */
+export function questionsFromJson(text: string): PlaygroundQuestion[] {
+    const parsed: unknown = JSON.parse(text)
+    if (!isRecord(parsed)) {
+        throw new Error('The JSON must be an object keyed by question id')
+    }
+    return Object.entries(parsed).map(([key, question]) => {
+        if (!isRecord(question)) {
+            throw new Error(`Question "${key}" must be an object with a type and instructions`)
+        }
+        const { type, instructions, criteria } = question
+        if (typeof type !== 'string' || !QUESTION_TYPES.includes(type as PlaygroundQuestionType)) {
+            throw new Error(`Question "${key}" needs a type of noul, choice or score`)
+        }
+        if (typeof instructions !== 'string') {
+            throw new Error(`Question "${key}" needs instructions`)
+        }
+        let criteriaLines: string[]
+        if (criteria === undefined || criteria === null) {
+            criteriaLines = []
+        } else if (type === 'score' && Array.isArray(criteria)) {
+            criteriaLines = criteria.map(String)
+        } else if (type !== 'score' && isRecord(criteria)) {
+            criteriaLines = Object.entries(criteria).map(([name, meaning]) => `${name}: ${String(meaning)}`)
+        } else {
+            throw new Error(
+                type === 'score'
+                    ? `Question "${key}" criteria must be a list of scale labels`
+                    : `Question "${key}" criteria must be an object of option names to meanings`
+            )
+        }
+        return { key, type: type as PlaygroundQuestionType, instructions, criteria: criteriaLines.join('\n') }
+    })
+}
+
+function questionsJsonProblem(text: string): string | null {
+    try {
+        questionsFromJson(text)
+        return null
+    } catch (error) {
+        return error instanceof Error ? error.message : String(error)
     }
 }
 
@@ -70,6 +142,9 @@ export interface decisionPlaygroundLogicValues {
     decision: DecideResponseApi | null
     decisionLoading: boolean
     questions: PlaygroundQuestion[]
+    questionsJson: string
+    questionsJsonError: string | null
+    questionsView: QuestionsView
     requestBody: DecideRequestApi
     state: string
 }
@@ -97,6 +172,15 @@ export interface decisionPlaygroundLogicActions {
     removeQuestion: (key: string) => {
         key: string
     }
+    setQuestions: (questions: PlaygroundQuestion[]) => {
+        questions: PlaygroundQuestion[]
+    }
+    setQuestionsJson: (json: string) => {
+        json: string
+    }
+    setQuestionsView: (view: QuestionsView) => {
+        view: QuestionsView
+    }
     setState: (state: string) => {
         state: string
     }
@@ -113,7 +197,13 @@ export interface decisionPlaygroundLogicActions {
 export interface decisionPlaygroundLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         requestBody: (state: string, questions: PlaygroundQuestion[]) => DecideRequestApi
-        askDisabledReason: (state: string, questions: PlaygroundQuestion[], decisionLoading: boolean) => string | null
+        questionsJsonError: (questionsView: QuestionsView, questionsJson: string) => string | null
+        askDisabledReason: (
+            state: string,
+            questions: PlaygroundQuestion[],
+            decisionLoading: boolean,
+            questionsJsonError: string | null
+        ) => string | null
     }
 }
 
@@ -132,6 +222,9 @@ export const decisionPlaygroundLogic = kea<decisionPlaygroundLogicType>([
         addQuestion: true,
         removeQuestion: (key: string) => ({ key }),
         updateQuestion: (key: string, patch: Partial<PlaygroundQuestion>) => ({ key, patch }),
+        setQuestions: (questions: PlaygroundQuestion[]) => ({ questions }),
+        setQuestionsView: (view: QuestionsView) => ({ view }),
+        setQuestionsJson: (json: string) => ({ json }),
     }),
     loaders(({ values }) => ({
         decision: [
@@ -163,19 +256,35 @@ export const decisionPlaygroundLogic = kea<decisionPlaygroundLogicType>([
                 removeQuestion: (questions, { key }) => questions.filter((question) => question.key !== key),
                 updateQuestion: (questions, { key, patch }) =>
                     questions.map((question) => (question.key === key ? { ...question, ...patch } : question)),
+                setQuestions: (_, { questions }) => questions,
             },
         ],
+        questionsView: ['form' as QuestionsView, { setQuestionsView: (_, { view }) => view }],
+        questionsJson: ['', { setQuestionsJson: (_, { json }) => json }],
     }),
     selectors({
         requestBody: [
             (s) => [s.state, s.questions],
             (state: string, questions: PlaygroundQuestion[]): DecideRequestApi => buildDecideRequest(state, questions),
         ],
+        questionsJsonError: [
+            (s) => [s.questionsView, s.questionsJson],
+            (questionsView: QuestionsView, questionsJson: string): string | null =>
+                questionsView === 'json' ? questionsJsonProblem(questionsJson) : null,
+        ],
         askDisabledReason: [
-            (s) => [s.state, s.questions, s.decisionLoading],
-            (state: string, questions: PlaygroundQuestion[], decisionLoading: boolean): string | null => {
+            (s) => [s.state, s.questions, s.decisionLoading, s.questionsJsonError],
+            (
+                state: string,
+                questions: PlaygroundQuestion[],
+                decisionLoading: boolean,
+                questionsJsonError: string | null
+            ): string | null => {
                 if (decisionLoading) {
                     return 'Asking the model'
+                }
+                if (questionsJsonError) {
+                    return 'Fix the questions JSON first'
                 }
                 if (!state.trim()) {
                     return 'Enter some text to ask about'
@@ -186,13 +295,25 @@ export const decisionPlaygroundLogic = kea<decisionPlaygroundLogicType>([
                 if (questions.some((question) => !question.instructions.trim())) {
                     return 'Every question needs some text'
                 }
+                if (
+                    questions.some((question) => question.type === 'score' && parseScale(question.criteria).length < 2)
+                ) {
+                    return 'A rating scale needs at least two labels'
+                }
                 return null
             },
         ],
     }),
-    listeners({
-        askDecisionFailure: ({ error }) => {
-            lemonToast.error(error || 'The decision model could not answer. Try again in a moment.')
+    listeners(({ actions, values }) => ({
+        setQuestionsView: ({ view }) => {
+            if (view === 'json') {
+                actions.setQuestionsJson(questionsToJson(values.questions))
+            }
         },
-    }),
+        setQuestionsJson: ({ json }) => {
+            if (questionsJsonProblem(json) === null) {
+                actions.setQuestions(questionsFromJson(json))
+            }
+        },
+    })),
 ])

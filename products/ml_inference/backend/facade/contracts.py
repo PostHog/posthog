@@ -32,7 +32,17 @@ class DecisionGatewayError(Exception):
 class DecisionQuestion:
     type: DecisionQuestionType
     instructions: str
-    criteria: dict[str, str] | None = None
+    criteria: dict[str, str] | list[str] | None = None
+
+    def __post_init__(self) -> None:
+        if self.type == DecisionQuestionType.SCORE and not (
+            isinstance(self.criteria, list) and len(self.criteria) >= 2
+        ):
+            raise ValueError("a score question needs a list of at least two scale labels as criteria")
+        if self.type == DecisionQuestionType.CHOICE and not (isinstance(self.criteria, dict) and self.criteria):
+            raise ValueError("a choice question needs its options as criteria, keyed by name")
+        if self.type == DecisionQuestionType.NOUL and isinstance(self.criteria, list):
+            raise ValueError("a yes/no question takes criteria keyed by name, not a list")
 
 
 @dataclass(frozen=True)
