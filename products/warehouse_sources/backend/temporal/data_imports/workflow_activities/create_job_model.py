@@ -15,6 +15,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import delete_external_data_schedule
@@ -73,6 +74,16 @@ def is_pipeline_v3_enabled(team_id: int, source_type: str) -> bool:
 
 
 LOGGER = get_logger(__name__)
+
+
+class SourceOrSchemaDeletedError(NonReportableError):
+    """The source or schema was deleted while its sync schedule was still live.
+
+    Deletion cancels the schedule, but a run Temporal already started keeps going, so this
+    activity can find the rows gone. The run must still fail, because there is no schema left
+    to create a job for. It is not a defect either, so subclassing ``NonReportableError`` keeps
+    the race out of error tracking instead of opening an issue per orphaned run.
+    """
 
 
 def _statistics_stale(team_id: int, table: DataWarehouseTable | None) -> bool:
@@ -312,14 +323,16 @@ def create_external_data_job_model_activity(
 
     close_old_connections()
 
+    # Kept out of the try below so the generic handler does not log a stack trace for a
+    # deletion race that the activity handles.
+    source_exists = ExternalDataSource.objects.filter(id=inputs.source_id).exclude(deleted=True).exists()
+    schema_exists = ExternalDataSchema.objects.filter(id=inputs.schema_id).exclude(deleted=True).exists()
+    if not source_exists or not schema_exists:
+        delete_external_data_schedule(str(inputs.schema_id))
+        logger.info("Source or schema no longer exists, deleted the sync schedule")
+        raise SourceOrSchemaDeletedError("Source or schema no longer exists - deleted temporal schedule")
+
     try:
-        source_exists = ExternalDataSource.objects.filter(id=inputs.source_id).exclude(deleted=True).exists()
-        schema_exists = ExternalDataSchema.objects.filter(id=inputs.schema_id).exclude(deleted=True).exists()
-
-        if not source_exists or not schema_exists:
-            delete_external_data_schedule(str(inputs.schema_id))
-            raise Exception("Source or schema no longer exists - deleted temporal schedule")
-
         schema = ExternalDataSchema.objects.get(team_id=inputs.team_id, id=inputs.schema_id)
 
         source: ExternalDataSource = schema.source
