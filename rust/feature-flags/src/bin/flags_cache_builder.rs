@@ -1303,6 +1303,72 @@ mod tests {
         )
     }
 
+    #[tokio::test]
+    async fn build_once_persists_the_team_without_its_unsupported_flags() {
+        use common_hypercache::writer::HyperCacheWriter;
+        use common_redis::{MockRedisClient, MockRedisValue};
+        use common_s3::MockS3Client;
+        use feature_flags::flags::cache_writer::make_cache_config;
+        use feature_flags::flags::flag_models::{FeatureFlagRow, HypercacheFlagsWrapper};
+        use feature_flags::utils::test_utils::TestContext;
+        use std::sync::Arc;
+
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        for (key, filters) in [
+            (
+                "v1-flag",
+                serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
+            ),
+            (
+                "v2-flag",
+                serde_json::json!({"version": 2, "return_type": "boolean", "default_value": false, "rules": []}),
+            ),
+        ] {
+            context
+                .insert_flag(
+                    team.id,
+                    Some(FeatureFlagRow {
+                        team_id: team.id,
+                        key: key.to_string(),
+                        name: Some(String::new()),
+                        filters,
+                        active: true,
+                        evaluation_runtime: Some("all".to_string()),
+                        ..Default::default()
+                    }),
+                )
+                .await
+                .unwrap();
+        }
+        let mut s3 = MockS3Client::new();
+        s3.expect_put_string()
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+        let redis = Arc::new(MockRedisClient::new());
+        let writer = HyperCacheWriter::new(
+            redis.clone(),
+            Arc::new(s3),
+            make_cache_config("us-east-1", "test-bucket", None),
+        );
+
+        let outcome = super::build_once(&context.non_persons_reader, &writer, team.id, 60)
+            .await
+            .unwrap_or_else(|failure| panic!("{}", failure.message));
+
+        let written = redis
+            .get_calls()
+            .into_iter()
+            .find(|call| call.op == "pipeline_setex" && call.key.ends_with("/flags.json"))
+            .expect("payload write");
+        let MockRedisValue::StringWithTTLAndFormat(payload, _, _) = written.value else {
+            panic!("unexpected write {:?}", written.value)
+        };
+        let wrapper: HypercacheFlagsWrapper = serde_json::from_str(&payload).unwrap();
+        let keys: Vec<&str> = wrapper.flags.iter().map(|f| f.key.as_str()).collect();
+        assert_eq!(keys, vec!["v1-flag"]);
+        assert!(!outcome.etag.is_empty());
+    }
+
     #[test]
     fn coalesce_keeps_oldest_emitted_at_regardless_of_arrival_order() {
         // Same team, timestamps arriving newest-first: the oldest must still win,
