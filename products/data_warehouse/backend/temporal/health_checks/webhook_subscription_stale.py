@@ -64,17 +64,13 @@ class WebhookSubscriptionStaleCheck(HealthCheck):
         from products.data_warehouse.backend.logic.external_data_source.webhooks import get_webhook_url
         from products.warehouse_sources.backend.facade.source_management import SourceRegistry, WebhookSource
 
-        stale_schemas = (
-            ExternalDataSchema.objects.filter(
-                team_id__in=team_ids,
-                deleted=False,
-                should_sync=True,
-                sync_type=ExternalDataSchema.SyncType.WEBHOOK,
-                last_synced_at__isnull=True,
-            )
-            .select_related("source")
-            .order_by("id")
-        )
+        stale_schemas = ExternalDataSchema.objects.filter(
+            team_id__in=team_ids,
+            deleted=False,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+            last_synced_at__isnull=True,
+        ).select_related("source")
 
         schemas_by_source: dict[str, list[ExternalDataSchema]] = {}
         sources: dict[str, ExternalDataSource] = {}
