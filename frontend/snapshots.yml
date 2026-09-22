@@ -8428,6 +8428,22 @@ snapshots:
         hash: v1.k794b7964.5906be874698c680dc921921cd28097b9567d94edccd183b4bec1bd20ff8ef5a.wh3QTvGjeN9sTOwhCa3ywx6DkOzDvEf2uX7cimZ6EoQ
     scenes-app-features--not-found-early-access--light:
         hash: v1.k794b7964.7c4c60522de8d6fd84b4334d53ed790c4094d4023de4d5defc07b613281bec68.zLhf-ChR2B4M8Gd-vTYGILy2agvAsBni1SFLC81icb0
+    scenes-app-files--folder--dark:
+        hash: v1.k794b7964.45cc8cf59cd8b897fe3291f58539e52d380acb59ee791d15ac20fa3f4d035e9a.CFUlQtyS7jBKX3o3QXiGm3uHwMLaRnzL1wxvAybM4Xs
+    scenes-app-files--folder--light:
+        hash: v1.k794b7964.989df5b185b5ea838de882e2191fdd728b9da6f9f9f793377daad5ad29bb9a39.Y5uv2I9EWNkMdIMA9WV8as-78tZ5zw8XF2o4BD9y3u8
+    scenes-app-files--long-folder--dark:
+        hash: v1.k794b7964.ed667e6feaa110372303685473302f35df77d45ff7de8a8cf543c05fd5fb1b6d.pCp00dSRWiBYosznbnBy2gzp8FZ5iXNJEsgNsGJKtf8
+    scenes-app-files--long-folder--light:
+        hash: v1.k794b7964.0b8bb505988ecbe57fa789dbd7d0073341763ee1e35c6cfbc4bfd40e779f06eb.hBgPFclIa3Cne5_ZvZA937Go9s7W5sUS9Ed1fYME3YU
+    scenes-app-files--narrow--dark:
+        hash: v1.k794b7964.45cc8cf59cd8b897fe3291f58539e52d380acb59ee791d15ac20fa3f4d035e9a.gKkgRjBg6P65BJtwztV_6JL5fviPqD9mxKDOfXmIyvQ
+    scenes-app-files--narrow--light:
+        hash: v1.k794b7964.989df5b185b5ea838de882e2191fdd728b9da6f9f9f793377daad5ad29bb9a39.1TPmTEz_T-kDDK4huEj9dr3BAc4uq9Fy52ro91x7-7w
+    scenes-app-files--project-root--dark:
+        hash: v1.k794b7964.7093dc52c6325983bee00a9ab02d8101fb5c3b3ccb5974cb93b61ed8043aded4.RzSXW9G1Q5j8DHcZ8-nfXKpuq8SGRbQf7S2dDmZpaww
+    scenes-app-files--project-root--light:
+        hash: v1.k794b7964.9e29a239402911a20b8b5b7b259b3d434fe39550240312148ebb3be6a6c915c8.wdCgvTqJnZqgXfLartdxgHQFfYId3wpTkmNfydud6ro
     scenes-app-health-tables--data-modeling-default--dark:
         hash: v1.k794b7964.52c292fdf2f68fd4caa39f6c1825ee7d8cdf3ac790ee0ad9e5ea3a1b7fcaddc6.c0rsHMyyO3K0Gr88BeHsb_PQO4J4XSRhvs16OLp1PDo
     scenes-app-health-tables--data-modeling-default--light:
