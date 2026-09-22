@@ -43,7 +43,7 @@ _SAME_RUN_LOOKBACK = timedelta(hours=1)
 
 
 def sync_timeseries_recalculation(
-    experiment_id: int, *, run_started_at: datetime, now: datetime | None = None
+    experiment_id: int, *, team_id: int, run_started_at: datetime, now: datetime | None = None
 ) -> str | None:
     """Copy the timeseries points written between run_started_at and now into this daily run's recalculation.
 
@@ -53,17 +53,17 @@ def sync_timeseries_recalculation(
     the frontend sees the gap and heals it. Metric types the daily run cannot compute are left out of the row.
     """
     now = now or timezone.now()
-    try:
-        experiment = Experiment.objects.get(id=experiment_id, deleted=False)
-    except Experiment.DoesNotExist:
-        return None
-    if experiment.start_date is None:
-        return None
+    with team_scope(team_id, canonical=True), transaction.atomic():
+        try:
+            experiment = Experiment.objects.get(id=experiment_id, team_id=team_id, deleted=False)
+        except Experiment.DoesNotExist:
+            return None
+        if experiment.start_date is None:
+            return None
 
-    with team_scope(experiment.team_id, canonical=True), transaction.atomic():
         # Same lock as request_recalculation and the calc result write; the two hourly workflows serialize here
         # so they see each other's row and share it instead of creating two.
-        Experiment.objects.select_for_update(no_key=True).filter(id=experiment_id).exists()
+        Experiment.objects.select_for_update(no_key=True).filter(id=experiment_id, team_id=team_id).exists()
 
         stats_method = get_experiment_stats_method(experiment)
         metric_uuids: list[str] = []

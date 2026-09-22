@@ -26,20 +26,23 @@ MAX_CONCURRENT_METRICS = 10
 
 
 async def _create_recalculations_from_timeseries(
-    experiment_ids: set[int], run_started_at: datetime, semaphore: asyncio.Semaphore
+    experiments: set[tuple[int, int]], run_started_at: datetime, semaphore: asyncio.Semaphore
 ) -> int:
-    """One activity per experiment this run touched; returns how many recalculation rows gained copies."""
+    """One activity per (experiment, team) this run touched; returns how many recalculation rows gained copies."""
 
-    async def _sync_experiment(experiment_id: int) -> str | None:
+    async def _sync_experiment(experiment_id: int, team_id: int) -> str | None:
         async with semaphore:
             return await temporalio.workflow.execute_activity(
                 create_recalculation_from_timeseries,
-                args=[experiment_id, run_started_at.isoformat()],
+                args=[experiment_id, team_id, run_started_at.isoformat()],
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
-    results = await asyncio.gather(*[_sync_experiment(eid) for eid in sorted(experiment_ids)], return_exceptions=True)
+    results = await asyncio.gather(
+        *[_sync_experiment(experiment_id, team_id) for experiment_id, team_id in sorted(experiments)],
+        return_exceptions=True,
+    )
     return sum(1 for result in results if isinstance(result, str))
 
 
@@ -104,7 +107,9 @@ class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
         recalculations_synced = 0
         if temporalio.workflow.patched("experiment-timeseries-recalculation-sync-2026-09"):
             recalculations_synced = await _create_recalculations_from_timeseries(
-                {em.experiment_id for em in experiment_metrics}, run_started_at, semaphore
+                {(em.experiment_id, em.team_id) for em in experiment_metrics if em.team_id is not None},
+                run_started_at,
+                semaphore,
             )
 
         # Step 4: Summarize
@@ -189,7 +194,9 @@ class ExperimentSavedMetricsWorkflow(PostHogWorkflow):
         recalculations_synced = 0
         if temporalio.workflow.patched("experiment-timeseries-recalculation-sync-2026-09"):
             recalculations_synced = await _create_recalculations_from_timeseries(
-                {em.experiment_id for em in experiment_metrics}, run_started_at, semaphore
+                {(em.experiment_id, em.team_id) for em in experiment_metrics if em.team_id is not None},
+                run_started_at,
+                semaphore,
             )
 
         # Step 4: Summarize

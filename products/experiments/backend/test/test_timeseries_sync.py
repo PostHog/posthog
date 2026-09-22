@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest
 
 from django.utils import timezone
@@ -49,6 +50,7 @@ def _retention_metric(uuid: str) -> dict:
 
 
 @pytest.mark.django_db(transaction=True)
+@time_machine.travel("2026-03-01T02:10:00Z", tick=False)
 class TestSyncTimeseriesRecalculation(BaseTest):
     def _experiment(self, flag_key: str, metrics: list[dict]) -> Experiment:
         flag = FeatureFlag.objects.create(
@@ -99,7 +101,7 @@ class TestSyncTimeseriesRecalculation(BaseTest):
         now: datetime = LATER_IN_RUN + timedelta(minutes=1),
         run_started_at: datetime = RUN_STARTED_AT,
     ) -> str | None:
-        return sync_timeseries_recalculation(exp.id, run_started_at=run_started_at, now=now)
+        return sync_timeseries_recalculation(exp.id, team_id=self.team.id, run_started_at=run_started_at, now=now)
 
     def _link_saved_metric(self, exp: Experiment, metric_uuid: str) -> None:
         saved = ExperimentSavedMetric.objects.create(team=self.team, name=metric_uuid, query=_mean_metric(metric_uuid))

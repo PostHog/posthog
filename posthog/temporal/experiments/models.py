@@ -20,6 +20,8 @@ class ExperimentRegularMetricInput:
     experiment_id: int
     metric_uuid: str
     fingerprint: str
+    # Defaulted so histories recorded before the field existed still decode during replay.
+    team_id: int | None = None
 
 
 @dataclasses.dataclass
@@ -47,6 +49,7 @@ class ExperimentSavedMetricInput:
     experiment_id: int
     metric_uuid: str
     fingerprint: str
+    team_id: int | None = None
 
 
 @dataclasses.dataclass

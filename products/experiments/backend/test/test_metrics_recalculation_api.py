@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
@@ -283,6 +284,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             result={"ok": True},
         )
 
+    @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
     def test_get_latest_returns_timeseries_fallback_on_cold_start(self):
         # No real recalc row, but a completed timeseries point exists → 200 with source=timeseries_fallback.
         exp = self._launched_experiment(flag_key="ts-fallback")
@@ -296,6 +298,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert len(body["results"]) == 1
         assert body["results"][0]["result"] == {"ok": True}
 
+    @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
     def test_get_latest_prefers_timeseries_fallback_over_first_active_run(self):
         # Reload during the first-ever run: the pending run has no results yet, so returning it would blank
         # out the timeseries data on screen. The fallback keeps the results visible while active_run rides
@@ -316,6 +319,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         resp = self.client.get(self._latest_url(exp.id))
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
+    @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
     @mock.patch("products.experiments.backend.presentation.views.sync_connect")
     def test_get_latest_fallback_does_not_start_a_workflow(self, mock_connect):
         # GET stays a pure read: the fallback path must never connect to Temporal.

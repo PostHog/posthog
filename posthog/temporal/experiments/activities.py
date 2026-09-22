@@ -95,6 +95,7 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
                     experiment_id=experiment.id,
                     metric_uuid=metric_uuid,
                     fingerprint=fingerprint,
+                    team_id=experiment.team_id,
                 )
             )
 
@@ -381,6 +382,7 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
                     experiment_id=experiment.id,
                     metric_uuid=metric_uuid,
                     fingerprint=fingerprint,
+                    team_id=experiment.team_id,
                 )
             )
 
@@ -633,15 +635,17 @@ async def calculate_experiment_saved_metric(
 
 
 @database_sync_to_async
-def _create_recalculation_from_timeseries_sync(experiment_id: int, run_started_at: str) -> str | None:
+def _create_recalculation_from_timeseries_sync(experiment_id: int, team_id: int, run_started_at: str) -> str | None:
     close_old_connections()
-    return sync_timeseries_recalculation(experiment_id, run_started_at=datetime.fromisoformat(run_started_at))
+    return sync_timeseries_recalculation(
+        experiment_id, team_id=team_id, run_started_at=datetime.fromisoformat(run_started_at)
+    )
 
 
 @temporalio.activity.defn
-async def create_recalculation_from_timeseries(experiment_id: int, run_started_at: str) -> str | None:
+async def create_recalculation_from_timeseries(experiment_id: int, team_id: int, run_started_at: str) -> str | None:
     """Assemble a completed metrics recalculation from the timeseries points this run wrote for one experiment."""
-    return await _create_recalculation_from_timeseries_sync(experiment_id, run_started_at)
+    return await _create_recalculation_from_timeseries_sync(experiment_id, team_id, run_started_at)
 
 
 @temporalio.activity.defn

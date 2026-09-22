@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -420,6 +421,7 @@ class TestRecalculationService(BaseTest):
 
 
 @pytest.mark.django_db(transaction=True)
+@time_machine.travel("2026-09-01T12:00:00Z", tick=False)
 class TestTimeseriesColdStartPayload(BaseTest):
     def _flag(self, key: str) -> FeatureFlag:
         return FeatureFlag.objects.create(
