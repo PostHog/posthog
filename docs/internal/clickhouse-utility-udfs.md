@@ -77,7 +77,6 @@ Native-event queries derive `$active_feature_flags` from the `$feature_flags` ma
 
 Feature-flag scalar reads still use JSON string encoding when requested: a `control` variant
 becomes `"control"` through `toJSONString`, and `JSONExtractString` returns `control`.
-The virtual `$active_feature_flags` array contains sorted map keys whose values are neither empty nor `false`.
 
 ### Benchmarking the cleaner
 

@@ -559,8 +559,15 @@ def _restricted_feature_flag_keys(field_type: ast.FieldType, context: HogQLConte
     return sorted(_physical_feature_flag_key(key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX), context) for key in keys)
 
 
-def _not_in_lambda_values(name: str, values: list[str]) -> ast.Call:
-    return _call("notIn", [_lambda_string_arg(name), ast.Tuple(exprs=[_const(value) for value in values])])
+def _not_in_lambda_values(name: str, values: list[str], *, is_sensitive: bool = False) -> ast.Call:
+    """`name NOT IN (values)`; restricted flag names are sensitive so display SQL redacts them."""
+    return _call(
+        "notIn",
+        [
+            _lambda_string_arg(name),
+            ast.Tuple(exprs=[ast.Constant(value=value, is_sensitive=is_sensitive or None) for value in values]),
+        ],
+    )
 
 
 def _filter_feature_flags(feature_flags: ast.Expr, restricted_keys: list[str]) -> ast.Expr:
@@ -568,7 +575,10 @@ def _filter_feature_flags(feature_flags: ast.Expr, restricted_keys: list[str]) -
         return feature_flags
     return _call(
         "mapFilter",
-        [ast.Lambda(args=["key", "value"], expr=_not_in_lambda_values("key", restricted_keys)), feature_flags],
+        [
+            ast.Lambda(args=["key", "value"], expr=_not_in_lambda_values("key", restricted_keys, is_sensitive=True)),
+            feature_flags,
+        ],
     )
 
 
@@ -614,7 +624,7 @@ def _nonempty_container_json(value: ast.Expr, empty_json: str) -> ast.Expr:
 def _active_feature_flag_keys(feature_flags: ast.Expr, restricted_keys: list[str] | None = None) -> ast.Expr:
     predicates: list[ast.Expr] = [_not_in_lambda_values("value", ["", "false"])]
     if restricted_keys:
-        predicates.append(_not_in_lambda_values("key", restricted_keys))
+        predicates.append(_not_in_lambda_values("key", restricted_keys, is_sensitive=True))
     predicate = predicates[0] if len(predicates) == 1 else _call("and", predicates)
     # ClickHouse map storage order cannot reproduce the SDK's feature flag evaluation order.
     return _call(

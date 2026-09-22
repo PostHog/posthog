@@ -276,7 +276,7 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 False,
                 {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
                 PropertyGroupsMode.OPTIMIZED,
-                ("mapFilter(",),
+                ("mapFilter(", "_sensitive)s"),
                 ("has(events.properties_group_feature_flags",),
             ),
             (
@@ -286,7 +286,7 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 True,
                 {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
                 None,
-                ("mapFilter(", "and("),
+                ("mapFilter(", "and(", "_sensitive)s"),
                 ("has(events.properties.`$feature_flags`",),
             ),
             (
