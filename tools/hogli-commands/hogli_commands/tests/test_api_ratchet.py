@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+import yaml
 from click.testing import CliRunner, Result
 from hogli_commands import api_ratchet
 from hogli_commands.api_ratchet import ApiRequestResolver, Ratchet, cmd_lint_api_ratchet, read_baseline
@@ -377,6 +378,29 @@ class TestBaselineFixModes:
         assert result.exit_code == 0
         assert "grandfathers new debt" in result.output
         assert runner.invoke(cmd_lint_api_ratchet, []).exit_code == 0
+class TestSemgrepPatterns:
+    # The generated block sits inside a YAML list, so a write that loses the
+    # indentation of its end marker makes the whole rule file unparseable.
+    def test_written_block_keeps_the_rule_file_valid(self, tmp_path: Path) -> None:
+        _write_repo(tmp_path)
+        rule = tmp_path / api_ratchet.SEMGREP_RULE
+        rule.parent.mkdir(parents=True)
+        rule.write_text(
+            "rules:\n"
+            "    - id: prefer-codegen-api-namespaced\n"
+            "      pattern-either:\n"
+            f"{api_ratchet.SEMGREP_BEGIN}\n"
+            f"{api_ratchet.SEMGREP_END}\n"
+            "      severity: WARNING\n"
+        )
+        count = api_ratchet.write_semgrep_patterns(tmp_path, Ratchet(tmp_path))
+        parsed = yaml.safe_load(rule.read_text())
+        assert count == 2
+        assert parsed["rules"][0]["pattern-either"] == [
+            {"pattern": "api.hogFlows.$METHOD(...)"},
+            {"pattern": "api.signalReports.$METHOD(...)"},
+        ]
+        assert parsed["rules"][0]["severity"] == "WARNING"
 
 
 class TestCommand:

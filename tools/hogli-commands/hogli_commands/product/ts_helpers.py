@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from hogli_commands.api_ratchet import namespaces_owned_by
+
 _EXPORTED_ASYNC_RE = re.compile(r"^export\s+const\s+(\w+)\s*=\s*async\s*\(", re.MULTILINE)
 
 
@@ -87,18 +89,31 @@ _VERB_TO_METHOD = {
 }
 
 
+def owned_namespace_pattern(frontend_dir: Path) -> re.Pattern[str] | None:
+    """Regex over `api.<namespace>.<method>(` for the namespaces this product owns.
+
+    A namespace counts as owned when an `ApiRequest` path method behind it builds
+    a URL this product's generated client already emits, which `lint:api-ratchet`
+    decides. Returns None when the product owns none.
+    """
+    owned = namespaces_owned_by(frontend_dir.parent.name)
+    if not owned:
+        return None
+    alternatives = "|".join(sorted(owned))
+    return re.compile(rf"\bapi\.({alternatives})\.(\w+)\s*(?:<[^(]*>)?\s*\(")
+
+
 def count_manual_api_calls(frontend_dir: Path) -> int:
-    """Count manual HTTP calls via the shared api object.
+    """Count manual API calls via the shared api object.
 
-    Only counts direct HTTP verb calls: api.get(, api.post(, api.create(,
-    api.update(, api.delete(, api.patch(, api.put(.
-
-    Does NOT count api.<namespace>.<method>( — those are shared platform
-    utilities (api.integrations.authorizeUrl, api.comments.create, etc.)
-    that belong to other products and aren't replaceable by this product's
-    generated client.
+    Counts direct HTTP verb calls (api.get(, api.post(, api.create(, ...) and
+    `api.<namespace>.<method>(` where the namespace belongs to this product -
+    the generated client already covers those URLs, so they are this product's
+    debt. A namespace owned by another product, or by none, is not counted:
+    api.comments.create is not this product's call to migrate.
     """
     generated_dir = frontend_dir / "generated"
+    namespaced = owned_namespace_pattern(frontend_dir)
     total = 0
 
     for ts_file in _collect_ts_files(frontend_dir):
@@ -114,6 +129,8 @@ def count_manual_api_calls(frontend_dir: Path) -> int:
         if not has_api_import:
             continue
         total += len(_HTTP_VERBS.findall(content))
+        if namespaced is not None:
+            total += len(namespaced.findall(content))
 
     return total
 
@@ -160,6 +177,9 @@ class ManualCallSite:
     url: str
     method: str
     generated_equivalent: str | None
+    # A call on a namespace this product owns. The call site carries no URL, so the
+    # covering generated function is unknown, but one exists.
+    namespaced: bool = False
 
 
 def _normalize_url(url: str) -> str:
@@ -216,12 +236,15 @@ def _parse_generated_url_map(api_ts: Path) -> dict[tuple[str, str], str]:
 def codegen_call_sites(frontend_dir: Path) -> list[ManualCallSite]:
     """Find all manual API call sites and match them to generated equivalents.
 
-    Returns a list of ManualCallSite objects with file, line, verb, url,
-    and the matched generated function name (or None if no match).
+    Returns a list of ManualCallSite objects with file, line, verb, url, and the
+    matched generated function name (or None if no match). A call on a namespace
+    this product owns carries no URL at the call site, so it names the client that
+    covers it instead of a function.
     """
     api_ts = frontend_dir / "generated" / "api.ts"
     generated_map = _parse_generated_url_map(api_ts)
     generated_dir = frontend_dir / "generated"
+    namespaced = owned_namespace_pattern(frontend_dir)
 
     sites: list[ManualCallSite] = []
 
@@ -261,6 +284,21 @@ def codegen_call_sites(frontend_dir: Path) -> list[ManualCallSite]:
                     url=raw_url,
                     method=method,
                     generated_equivalent=equivalent,
+                )
+            )
+
+        if namespaced is None:
+            continue
+        for m in namespaced.finditer(content):
+            sites.append(
+                ManualCallSite(
+                    file=rel_path,
+                    line=content[: m.start()].count("\n") + 1,
+                    verb=f"{m.group(1)}.{m.group(2)}",
+                    url="",
+                    method="",
+                    generated_equivalent=None,
+                    namespaced=True,
                 )
             )
 
