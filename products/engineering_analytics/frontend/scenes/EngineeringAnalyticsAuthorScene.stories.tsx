@@ -112,6 +112,13 @@ const TIMELINES: PullRequestTimelinesApi = {
     jobs_available: true,
     merge_queue_state_available: true,
     generated_at: NOW,
+    merged_pr_count: 3,
+    red_seconds_per_merged_pr: [
+        { kind: 'red_fixed_by_push', seconds_per_merged_pr: 1440 },
+        { kind: 'red_passed_on_rerun', seconds_per_merged_pr: 2520 },
+        { kind: 'red_master_broken', seconds_per_merged_pr: 600 },
+        { kind: 'red_not_provable', seconds_per_merged_pr: 900 },
+    ],
     truncated: false,
     limit: 200,
     items: [
