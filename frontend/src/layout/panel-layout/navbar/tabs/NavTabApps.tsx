@@ -8,13 +8,17 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { ProjectTree } from '../../ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
+import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
 import { NavAppRow } from './NavAppRow'
 import { APPS_STARRED_TREE_KEY, navAppsTabLogic } from './navAppsTabLogic'
 
 export function NavTabApps(): JSX.Element {
     const { search, groupedItems } = useValues(navAppsTabLogic)
     const { setSearch } = useActions(navAppsTabLogic)
-    const { shortcutData, shortcutDataHasLoaded } = useValues(projectTreeDataLogic)
+    const { shortcutDataHasLoaded } = useValues(projectTreeDataLogic)
+    const { fullFileSystemFiltered: starredApps } = useValues(
+        projectTreeLogic({ key: APPS_STARRED_TREE_KEY, root: 'shortcuts://', shortcutScope: 'apps' })
+    )
     const { setActivePanelIdentifier, showLayoutPanel } = useActions(panelLayoutLogic)
 
     return (
@@ -54,15 +58,16 @@ export function NavTabApps(): JSX.Element {
                 </div>
                 {!shortcutDataHasLoaded ? (
                     <Spinner className="m-2" />
-                ) : shortcutData.length > 0 ? (
+                ) : starredApps.length > 0 ? (
                     <ProjectTree
                         root="shortcuts://"
+                        shortcutScope="apps"
                         logicKey={APPS_STARRED_TREE_KEY}
                         onlyTree
                         showShortcutHelp={false}
                     />
                 ) : (
-                    <p className="text-xs text-tertiary px-2 py-1 mb-0">Star apps or files to keep them here.</p>
+                    <p className="text-xs text-tertiary px-2 py-1 mb-0">Star apps to keep them here.</p>
                 )}
                 {groupedItems.map((group) => (
                     <section key={group.label} aria-label={group.label}>

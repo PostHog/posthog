@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { RefObject, useEffect, useRef, useState } from 'react'
+import { ReactNode, RefObject, useEffect, useRef, useState } from 'react'
 
 import { IconCheckbox, IconChevronRight, IconEllipsis, IconFolderPlus, IconPlusSmall, IconStar } from '@posthog/icons'
 
@@ -41,9 +41,11 @@ import { calculateMovePath } from './utils'
 
 interface ProjectTreeBaseProps {
     layout?: 'panel' | 'inline'
+    beforeTree?: ReactNode
     showShortcutHelp?: boolean
     logicKey?: string // key override?
     root?: string
+    shortcutScope?: 'apps' | 'files'
     showRecents?: boolean // whether to show recents in the tree
     searchPlaceholder?: string
     treeSize?: LemonTreeSize
@@ -112,6 +114,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
     const {
         logicKey,
         root,
+        shortcutScope,
         onlyTree = false,
         disableScroll = onlyTree,
         searchPlaceholder,
@@ -126,7 +129,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems, shortcutEntryIdMap } = useValues(projectTreeDataLogic)
     const { reorderShortcutByDrag } = useActions(projectTreeDataLogic)
-    const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root, isActiveInPanel }
+    const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root, shortcutScope, isActiveInPanel }
     const {
         fullFileSystemFiltered,
         lastViewedId,
@@ -717,6 +720,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 </>
             )}
 
+            {props.beforeTree}
             {tree}
         </PanelLayoutPanel>
     )

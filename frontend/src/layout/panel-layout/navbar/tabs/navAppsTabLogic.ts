@@ -48,7 +48,7 @@ export const navAppsTabLogic = kea<navAppsTabLogicType>([
     path(['layout', 'panel-layout', 'navbar', 'tabs', 'navAppsTabLogic']),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], projectTreeDataLogic, ['groupItems']],
-        logic: [projectTreeLogic({ key: APPS_STARRED_TREE_KEY, root: 'shortcuts://' })],
+        logic: [projectTreeLogic({ key: APPS_STARRED_TREE_KEY, root: 'shortcuts://', shortcutScope: 'apps' })],
     })),
     actions({ setSearch: (search: string) => ({ search }) }),
     reducers({ search: ['', { setSearch: (_, { search }) => search }] }),
@@ -98,7 +98,11 @@ export const navAppsTabLogic = kea<navAppsTabLogicType>([
     }),
     listeners({
         setSearch: ({ search }) => {
-            projectTreeLogic({ key: APPS_STARRED_TREE_KEY, root: 'shortcuts://' }).actions.setSearchTerm(search)
+            projectTreeLogic({
+                key: APPS_STARRED_TREE_KEY,
+                root: 'shortcuts://',
+                shortcutScope: 'apps',
+            }).actions.setSearchTerm(search)
         },
     }),
 ])

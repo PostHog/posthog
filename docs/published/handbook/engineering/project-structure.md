@@ -56,6 +56,8 @@ Global search sits beside the project menu as a compact button with its keyboard
 Apps lists all available product and data pages from the product manifests, with feature flags and access controls applied.
 When enabled, Self-driving appears between Home and Activity with a beta label.
 Users can star apps and saved files for quick access; starred items use the existing project shortcuts.
+Apps shows only starred apps, while Files shows starred files and folders between its search bar and the project file tree.
+Apps uses the catalog order and has no A-Z/recent sort control.
 Row menus appear on hover or keyboard focus and include Add to starred or Remove from starred.
 Existing app and file menus keep their actions, with starring last below a separator.
 Files contains the project file tree, including search, filtering, sorting, folders, and recent items.

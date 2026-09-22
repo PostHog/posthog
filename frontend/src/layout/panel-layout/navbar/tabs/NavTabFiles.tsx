@@ -1,11 +1,21 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+
+import { IconEllipsis } from '@posthog/icons'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { ProjectTree } from '../../ProjectTree/ProjectTree'
+import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
+import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
 import { FlatNavRecents } from './flat-nav/FlatNavRecents'
 
 export function NavTabFiles(): JSX.Element {
     const { navExperimentActiveTab } = useValues(panelLayoutLogic)
+    const { shortcutDataHasLoaded } = useValues(projectTreeDataLogic)
+    const { fullFileSystemFiltered: starredFiles } = useValues(
+        projectTreeLogic({ key: 'navbar-files-starred', root: 'shortcuts://', shortcutScope: 'files' })
+    )
+    const { setActivePanelIdentifier, showLayoutPanel } = useActions(panelLayoutLogic)
     return (
         <div className="flex flex-col h-full min-h-0">
             <div className="flex-1 min-h-0">
@@ -16,6 +26,42 @@ export function NavTabFiles(): JSX.Element {
                     searchPlaceholder="Search files"
                     showRecents
                     layout="inline"
+                    beforeTree={
+                        <>
+                            <div className="max-h-1/3 overflow-y-auto px-1 pb-2">
+                                <div className="flex items-center justify-between px-2 pt-1">
+                                    <span className="text-xs font-semibold text-secondary">Starred</span>
+                                    <LemonButton
+                                        size="xsmall"
+                                        icon={<IconEllipsis />}
+                                        tooltip="Manage starred items"
+                                        aria-label="Manage starred items"
+                                        data-attr="nav-files-manage-starred"
+                                        onClick={() => {
+                                            setActivePanelIdentifier('Shortcuts')
+                                            showLayoutPanel(true)
+                                        }}
+                                    />
+                                </div>
+                                {!shortcutDataHasLoaded ? (
+                                    <Spinner className="m-2" />
+                                ) : starredFiles.length > 0 ? (
+                                    <ProjectTree
+                                        root="shortcuts://"
+                                        shortcutScope="files"
+                                        logicKey="navbar-files-starred"
+                                        onlyTree
+                                        showShortcutHelp={false}
+                                    />
+                                ) : (
+                                    <p className="text-xs text-tertiary px-2 py-1 mb-0">
+                                        Star files or folders to keep them here.
+                                    </p>
+                                )}
+                            </div>
+                            <h3 className="px-3 pt-1 pb-1 mb-0 text-xs font-semibold text-secondary">Files</h3>
+                        </>
+                    }
                     isActiveInPanel={navExperimentActiveTab === 'files'}
                 />
             </div>

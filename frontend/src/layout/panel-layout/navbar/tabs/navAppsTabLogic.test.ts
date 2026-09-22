@@ -71,11 +71,33 @@ describe('navAppsTabLogic', () => {
         ).toEqual('/groups/0')
     })
 
-    it('filters existing starred folders and files with the app search', async () => {
-        const starredTree = projectTreeLogic({ key: APPS_STARRED_TREE_KEY, root: 'shortcuts://' })
+    it('filters starred apps with the app search', async () => {
+        const starredTree = projectTreeLogic({
+            key: APPS_STARRED_TREE_KEY,
+            root: 'shortcuts://',
+            shortcutScope: 'apps',
+        })
         await expectLogic(navAppsTabLogic, () => navAppsTabLogic.actions.setSearch('onboarding')).toDispatchActions([
             starredTree.actionTypes.setSearchTerm,
         ])
         expect(starredTree.values.searchTerm).toEqual('onboarding')
+    })
+    it.each([
+        ['apps', ['Product analytics']],
+        ['files', ['Overview', 'Research']],
+        [undefined, ['Product analytics', 'Overview', 'Research']],
+    ] as const)('keeps starred items in their own section: %s', (shortcutScope, expected) => {
+        projectTreeDataLogic.actions.loadShortcutsSuccess([
+            { id: 'app', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
+            { id: 'file', path: 'Overview', type: 'dashboard', ref: '1', href: '/dashboard/1' },
+            { id: 'folder', path: 'Research', type: 'folder', ref: 'Research' },
+        ])
+        const tree = projectTreeLogic({ key: `scoped-${shortcutScope}`, root: 'shortcuts://', shortcutScope })
+        tree.mount()
+        expect(tree.values.fullFileSystemFiltered.map((item) => item.name)).toEqual(expected)
+        tree.actions.setSearchTerm('Product analytics')
+        expect(tree.values.fullFileSystemFiltered.map((item) => item.name)).toEqual(
+            shortcutScope === 'files' ? [] : ['Product analytics']
+        )
     })
 })

@@ -129,3 +129,8 @@ export const EmptyStarred: Story = {
     args: { empty: true },
     decorators: [mswDecorator({ get: { '/api/environments/:team_id/file_system_shortcut/': [200, { results: [] }] } })],
 }
+
+export const FilesEmptyStarred: Story = {
+    ...EmptyStarred,
+    args: { tab: 'files', empty: true },
+}
