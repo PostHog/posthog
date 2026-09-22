@@ -202,7 +202,10 @@ const repeatedTolerations = {
 // A snapshot tolerated three times this month keeps changing. Clicking Tolerate offers a quarantine first.
 export const TolerateSuggestsQuarantine: StoryObj = {
     parameters: {
-        testOptions: { waitForSelector: '[data-attr="visual-review-tolerate-nudge-quarantine"]' },
+        testOptions: {
+            waitForSelector: '[data-attr="visual-review-tolerate-nudge-quarantine"]',
+            snapshotTargetSelector: '.LemonModal',
+        },
     },
     decorators: [
         mswDecorator({
