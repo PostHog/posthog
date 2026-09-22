@@ -1000,7 +1000,9 @@ class TestGetClientSessionSettings:
 class TestTranslateError:
     def test_matches_substring_inside_long_error(self):
         msg = "Code: 516. DB::Exception: Authentication failed for user 'default'"
-        assert ClickHouseSource._translate_error(msg) == "Invalid user or password"
+        translated = ClickHouseSource._translate_error(msg)
+        assert translated is not None
+        assert "rejected the username or password" in translated
 
     def test_unknown_database_names_the_field_to_fix(self):
         # A wrong database name is the common cause, so the message must point at that field
@@ -1194,7 +1196,7 @@ class TestSourceClassValidateCredentials:
                     valid, msg = source.validate_credentials(config, team_id=1)
 
         assert valid is False
-        assert msg == "Invalid user or password"
+        assert msg is not None and "rejected the username or password" in msg
 
     def test_url_in_host_field_returns_actionable_message_without_reflecting_input(self):
         from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module

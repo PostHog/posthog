@@ -488,11 +488,12 @@
          "posthog_tag"."team_id"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE "posthog_taggeditem"."action_id" IN (1,
-                                             2,
-                                             3,
-                                             4,
-                                             5 /* ... */)
+  WHERE ("posthog_taggeditem"."content_type_id" = 99999
+         AND "posthog_taggeditem"."object_id" IN (1,
+                                                  2,
+                                                  3,
+                                                  4,
+                                                  5 /* ... */))
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.17
@@ -1126,11 +1127,12 @@
          "posthog_tag"."team_id"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE "posthog_taggeditem"."action_id" IN (1,
-                                             2,
-                                             3,
-                                             4,
-                                             5 /* ... */)
+  WHERE ("posthog_taggeditem"."content_type_id" = 99999
+         AND "posthog_taggeditem"."object_id" IN (1,
+                                                  2,
+                                                  3,
+                                                  4,
+                                                  5 /* ... */))
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.3

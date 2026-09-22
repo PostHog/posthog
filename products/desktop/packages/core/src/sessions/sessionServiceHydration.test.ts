@@ -94,6 +94,19 @@ function consoleLog(ts: number): AcpMessage {
   };
 }
 
+function refreshSessionCall(ts: number): AcpMessage {
+  return {
+    type: "acp_message",
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      id: 7,
+      method: "_posthog/refresh_session",
+      params: { mcpServers: [] },
+    },
+  };
+}
+
 function storedEntry(event: AcpMessage): StoredLogEntry {
   return {
     type: "notification",
@@ -124,30 +137,35 @@ describe("resume hydration reconciliation", () => {
     ).toEqual([]);
   });
 
-  it("discards both halves of a chunk run split by a server-internal notification", () => {
-    // The writer keeps one chunk buffer across a diagnostic, so the durable
-    // log holds one message where the live tail holds two chunk runs.
-    const diagnostic = consoleLog(20);
-    const completion = turnComplete(40);
-    const hydratedEvents = [
-      prompt(1, "ask", 10),
-      diagnostic,
-      agentMessage("dashboards still use that filter", 30),
-      completion,
-    ];
+  it.each([
+    { label: "a server-internal notification", interloper: consoleLog(20) },
+    { label: "a host control call", interloper: refreshSessionCall(20) },
+  ])(
+    "discards both halves of a chunk run split by $label",
+    ({ interloper }) => {
+      // The writer keeps one chunk buffer across these, so the durable log holds
+      // one message where the live tail holds two chunk runs.
+      const completion = turnComplete(40);
+      const hydratedEvents = [
+        prompt(1, "ask", 10),
+        interloper,
+        agentMessage("dashboards still use that filter", 30),
+        completion,
+      ];
 
-    expect(
-      reconcileLiveEventsWithHydratedEvents(
-        [
-          agentMessageChunk("dashboards still", 21),
-          { ...diagnostic, ts: 22 },
-          agentMessageChunk(" use that filter", 23),
-          { ...completion, ts: 41 },
-        ],
-        hydratedEvents,
-      ),
-    ).toEqual([]);
-  });
+      expect(
+        reconcileLiveEventsWithHydratedEvents(
+          [
+            agentMessageChunk("dashboards still", 21),
+            { ...interloper, ts: 22 },
+            agentMessageChunk(" use that filter", 23),
+            { ...completion, ts: 41 },
+          ],
+          hydratedEvents,
+        ),
+      ).toEqual([]);
+    },
+  );
 
   it("preserves a new assistant response after an overlapping tool boundary", () => {
     const boundary = toolCall("tool-1", 30);

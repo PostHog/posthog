@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { STRUCTURED_CONTENT_ONLY_TEXT, type ToolResultPayload, UI_APP_RENDER_NOTE } from '@/lib/build-tool-result'
 import { handleToolError, PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
+import { formatResponse } from '@/lib/response'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
@@ -104,13 +105,13 @@ describe('exec tool', () => {
                     projectAvailable: false,
                     commands: [
                         'learn skills',
-                        'learn -s <query>',
+                        'learn -s "<up to 8 keywords>"',
                         'learn -d <source>:<skill> [...]',
                         'learn posthog:<skill> [path]',
                         'learn project:<skill> [path]',
                         'learn <source>:<skill> <path> [path...]',
                         'learn <source>:<skill> [<source>:<skill>...]',
-                        'learn <source>:<skill> <path> -s <query>',
+                        'learn <source>:<skill> <path> -s "<up to 8 keywords>"',
                         'learn <source>:<skill> <path> --lines <start>:<end>',
                     ],
                 },
@@ -392,6 +393,21 @@ describe('exec tool', () => {
             expect(result).toContain('name: test')
             expect(result).not.toBe(JSON.stringify({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] }))
         })
+
+        it.each(['call mock-tool', 'call --json mock-tool'])(
+            'uses the requested pagination format for %s',
+            async (command) => {
+                const results = [{ id: 1, name: 'example' }]
+                const handlerResult = { results, next: null, count: 1, previous: null }
+                const exec = createExec([makeMockTool({ handler: async () => handlerResult })])
+
+                const result = await exec.handler(mockContext, { command })
+
+                expect(result).toBe(
+                    command.includes('--json') ? JSON.stringify(handlerResult) : formatResponse(results)
+                )
+            }
+        )
 
         it('returns raw JSON when --json flag is passed in command', async () => {
             const exec = createExec()
@@ -2050,7 +2066,11 @@ describe('exec tool', () => {
             const execTool = createExecTool(
                 v2Tools,
                 context,
-                formatter.buildExecToolDescription({ skillsEnabled: true, knowledgeSearchEnabled: true }),
+                formatter.buildExecToolDescription({
+                    skillsEnabled: true,
+                    docsSearchEnabled: true,
+                    businessKnowledgeSearchEnabled: true,
+                }),
                 commandReference,
                 undefined
             )
@@ -2287,14 +2307,14 @@ describe('exec tool', () => {
                 expect(message).toContain('resend them as {"query": {"orderBy": ..., "limit": ...}}')
             })
 
-            it('names only wrapper fields, so an undeclared key cannot reach the message', () => {
-                // The rendered shape is returned to the caller and recorded as the
-                // analytics error message, so every key in it has to come from the
-                // tool's own schema rather than the caller's payload.
+            it('builds the shape from wrapper fields, and names the key that fits none of them', () => {
+                // The rendered shape is the tool's own vocabulary, so a key the schema
+                // never declared cannot appear inside it. Naming it alongside is what
+                // stops the caller resending the same unaccepted key.
                 const message = formatFor({ limit: 10, sneaky_key: 'x' })
 
-                expect(message).toContain('{"query": {"limit": ...}}')
-                expect(message).not.toContain('sneaky_key')
+                expect(message).toContain('resend them as {"query": {"limit": ...}}')
+                expect(message).toContain('not fields of query, so remove or rename them: "sneaky_key"')
             })
 
             it('caps the fields it names so a large payload cannot inflate the message', () => {
@@ -2429,6 +2449,22 @@ describe('exec tool', () => {
                 )
             })
 
+            it('keeps a top-level sibling in the shape it tells the caller to resend', () => {
+                // A caller that copies a shape without `baselineDateRange` diffs against the
+                // default baseline, so the retry answers a different question.
+                const tool = GENERATED_TOOL_MAP['logs-patterns-diff']!()
+                const input = {
+                    serviceNames: ['api'],
+                    dateRange: { date_from: '-1d' },
+                    baselineDateRange: { date_from: '-2d', date_to: '-1d' },
+                }
+                const result = tool.schema.safeParse(input, { reportInput: true })
+
+                expect(formatInputValidationError('logs-patterns-diff', result.error!, input, tool.schema)).toContain(
+                    '"baselineDateRange": ...'
+                )
+            })
+
             describe('rewrapping it into the call the caller meant', () => {
                 const rewrapFor = (schema: ZodObjectAny, input: unknown): Record<string, unknown> | undefined => {
                     const result = schema.safeParse(input, { reportInput: true })
@@ -2480,6 +2516,83 @@ describe('exec tool', () => {
                     const input = { serviceNames: ['api'], dateRagne: { date_from: '-7d' } }
 
                     expect(rewrapFor(tool.schema, input)).toBeUndefined()
+                })
+
+                // Flattening the payload usually flattens the window one level further, and
+                // `{date_from, limit}` is the single most common rejected shape on these tools.
+                it.each([
+                    ['a window sent as loose snake_case keys', { date_from: '-1h', limit: 10 }],
+                    ['the camelCase spelling of the same keys', { dateFrom: '-1h', limit: 10 }],
+                ])("folds %s into the wrapper's own dateRange", (_label, input) => {
+                    const tool = GENERATED_TOOL_MAP['query-logs']!()
+
+                    expect(rewrapFor(tool.schema, input)).toMatchObject({
+                        query: { dateRange: { date_from: '-1h' }, limit: 10 },
+                    })
+                })
+
+                it('carries both ends of the window across', () => {
+                    const tool = GENERATED_TOOL_MAP['query-apm-spans']!()
+
+                    expect(rewrapFor(tool.schema, { date_from: '-1d', date_to: '-1h' })).toMatchObject({
+                        query: { dateRange: { date_from: '-1d', date_to: '-1h' } },
+                    })
+                })
+
+                it('places a loose field in whichever object declares it', () => {
+                    // Nothing about this is specific to a window: `compare` belongs to
+                    // `compareFilter` the same way `date_from` belongs to `dateRange`.
+                    const tool = GENERATED_TOOL_MAP['apm-spans-aggregate']!()
+                    const input = { serviceNames: ['api'], compare: true, date_from: '-1d' }
+
+                    expect(rewrapFor(tool.schema, input)).toMatchObject({
+                        query: {
+                            serviceNames: ['api'],
+                            compareFilter: { compare: true },
+                            dateRange: { date_from: '-1d' },
+                        },
+                    })
+                })
+
+                it('reads a field the caller spelled in the other case convention', () => {
+                    // These schemas mix the two: a query's own fields are camelCase while a
+                    // window's fields are snake_case, and `query-metrics` names its own window
+                    // `dateFrom`. A caller cannot tell which without reading the schema.
+                    const tool = GENERATED_TOOL_MAP['query-metrics']!()
+                    const input = { metricName: 'http_requests', date_from: '2026-09-01T00:00:00Z' }
+
+                    expect(rewrapFor(tool.schema, input)).toMatchObject({
+                        query: { metricName: 'http_requests', dateFrom: '2026-09-01T00:00:00Z' },
+                    })
+                })
+
+                it.each([
+                    ['two spellings of one field', { date_from: '-1h', dateFrom: '-7d' }],
+                    [
+                        'two spellings of one object',
+                        { dateRange: { date_from: '-1h' }, date_range: { date_from: '-7d' } },
+                    ],
+                ])('leaves a payload alone when it carries %s', (_label, input) => {
+                    // Both keys answer to the same place, so placing them would keep one value
+                    // and drop the other without telling the caller which.
+                    const tool = GENERATED_TOOL_MAP['query-logs']!()
+
+                    expect(rewrapFor(tool.schema, input)).toBeUndefined()
+                })
+
+                it('leaves a loose date key alone when the caller also sent a dateRange', () => {
+                    // Two windows in one call is a caller that means something we cannot read,
+                    // and picking either one runs a query over a range it did not ask for.
+                    const tool = GENERATED_TOOL_MAP['query-logs']!()
+                    const input = { dateRange: { date_from: '-1h' }, date_from: '-7d' }
+
+                    expect(rewrapFor(tool.schema, input)).toBeUndefined()
+                })
+
+                it('leaves a loose date key alone when the wrapper holds no window', () => {
+                    expect(
+                        rewrapFor(z.object({ query: z.object({ limit: z.number() }) }), { date_from: '-1h', limit: 10 })
+                    ).toBeUndefined()
                 })
 
                 it('leaves a rejection that names more than the missing wrapper alone', () => {
