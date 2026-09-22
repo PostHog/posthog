@@ -29,6 +29,20 @@ JWKS_URI = "https://login.botframework.com/v1/.well-known/keys"
 SERVICE_URL = "https://smba.trafficmanager.net/teams/"
 
 
+JOINED_TEAMS_PAGE_2 = "https://graph.microsoft.com/v1.0/me/joinedTeams?$skiptoken=PAGE2"
+CHANNELS_PAGE_2 = "https://graph.microsoft.com/v1.0/teams/t-1/channels?$skiptoken=PAGE2"
+
+
+def _graph_page(value: list[dict[str, Any]], next_link: str | None = None) -> MagicMock:
+    resp = MagicMock()
+    resp.status_code = 200
+    body: dict[str, Any] = {"value": value}
+    if next_link:
+        body["@odata.nextLink"] = next_link
+    resp.json.return_value = body
+    return resp
+
+
 def _make_activity(
     *,
     activity_type: str = "message",
@@ -403,6 +417,66 @@ class TestTeamsChannelsEndpoints(APIBaseTest):
 
     @patch("products.conversations.backend.api.teams_channels.requests.get")
     @patch("products.conversations.backend.support_teams.refresh_graph_token", return_value="fresh-token")
+    def test_list_teams_follows_next_link(self, _mock_refresh, mock_get):
+        mock_get.side_effect = [
+            _graph_page([{"id": "team-1", "displayName": "Engineering"}], next_link=JOINED_TEAMS_PAGE_2),
+            _graph_page([{"id": "team-2", "displayName": "Support"}]),
+        ]
+
+        response = self.client.post("/api/conversations/v1/teams/teams")
+
+        assert response.status_code == 200
+        assert [t["id"] for t in response.json()["teams"]] == ["team-1", "team-2"]
+        assert mock_get.call_args_list[1][0][0] == JOINED_TEAMS_PAGE_2
+
+    @patch("products.conversations.backend.api.teams_channels.requests.get")
+    @patch("products.conversations.backend.support_teams.refresh_graph_token", return_value="fresh-token")
+    def test_list_channels_follows_next_link(self, _mock_refresh, mock_get):
+        mock_get.side_effect = [
+            _graph_page([{"id": "ch-1", "displayName": "General"}], next_link=CHANNELS_PAGE_2),
+            _graph_page([{"id": "ch-2", "displayName": "Support"}]),
+        ]
+
+        response = self.client.post(
+            "/api/conversations/v1/teams/channels",
+            data=json.dumps({"team_id": "00000000-0000-0000-0000-000000000001"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert [c["id"] for c in response.json()["channels"]] == ["ch-1", "ch-2"]
+
+    @patch("products.conversations.backend.api.teams_channels.requests.get")
+    @patch("products.conversations.backend.support_teams.refresh_graph_token", return_value="fresh-token")
+    def test_list_teams_later_page_failure_returns_502(self, _mock_refresh, mock_get):
+        failed_page = MagicMock()
+        failed_page.status_code = 503
+        mock_get.side_effect = [
+            _graph_page([{"id": "team-1", "displayName": "Engineering"}], next_link=JOINED_TEAMS_PAGE_2),
+            failed_page,
+        ]
+
+        response = self.client.post("/api/conversations/v1/teams/teams")
+
+        assert response.status_code == 502
+
+    @patch("products.conversations.backend.api.teams_channels.requests.get")
+    @patch("products.conversations.backend.support_teams.refresh_graph_token", return_value="fresh-token")
+    def test_list_teams_stops_at_off_graph_next_link(self, _mock_refresh, mock_get):
+        mock_get.side_effect = [
+            _graph_page(
+                [{"id": "team-1", "displayName": "Engineering"}],
+                next_link="https://evil.example.com/v1.0/me/joinedTeams",
+            ),
+        ]
+
+        response = self.client.post("/api/conversations/v1/teams/teams")
+
+        assert response.status_code == 200
+        assert mock_get.call_count == 1
+
+    @patch("products.conversations.backend.api.teams_channels.requests.get")
+    @patch("products.conversations.backend.support_teams.refresh_graph_token", return_value="fresh-token")
     def test_list_teams_graph_failure_returns_502(self, _mock_refresh, mock_get):
         mock_resp = MagicMock()
         mock_resp.status_code = 403
@@ -555,6 +629,31 @@ class TestTeamsSelectChannelMultiChannel(APIBaseTest):
         self.team.refresh_from_db()
         assert self.team.conversations_settings["teams_channel_id"] == "ch-1"
         assert self.team.conversations_settings["teams_team_id"] == team_uuid
+
+    @patch("products.conversations.backend.api.teams_channels.requests.get")
+    @patch("products.conversations.backend.support_teams.refresh_graph_token", return_value="fresh-token")
+    def test_add_channel_from_later_graph_page(self, _mock_refresh, mock_get):
+        team_uuid = "00000000-0000-0000-0000-000000000002"
+        mock_get.side_effect = [
+            _graph_page(
+                [{"id": "00000000-0000-0000-0000-000000000001", "displayName": "Engineering"}],
+                next_link=JOINED_TEAMS_PAGE_2,
+            ),
+            _graph_page([{"id": team_uuid, "displayName": "Support"}]),
+            _graph_page([{"id": "ch-1", "displayName": "General"}], next_link=CHANNELS_PAGE_2),
+            _graph_page([{"id": "ch-2", "displayName": "Escalations"}]),
+        ]
+
+        response = self.client.post(
+            "/api/conversations/v1/teams/select-channel",
+            data=json.dumps({"action": "add", "team_id": team_uuid, "channel_id": "ch-2"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        entry = response.json()["teams_channels"][0]
+        assert entry["team_name"] == "Support"
+        assert entry["channel_name"] == "Escalations"
 
     @patch("products.conversations.backend.api.teams_channels.requests.get")
     @patch("products.conversations.backend.support_teams.refresh_graph_token", return_value="fresh-token")

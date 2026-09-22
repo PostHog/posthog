@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 from django.db import transaction
 
 import requests
@@ -21,6 +23,55 @@ from products.conversations.backend.support_teams import get_graph_token
 logger = structlog.get_logger(__name__)
 
 GRAPH_API_BASE = "https://graph.microsoft.com/v1.0"
+GRAPH_API_HOST = "graph.microsoft.com"
+GRAPH_REQUEST_TIMEOUT_SECONDS = 15
+# A tenant with more teams or channels than this keeps the extra items out of the
+# picker, but the cap stops one setup call from walking an unbounded page chain.
+GRAPH_MAX_PAGES = 20
+
+
+class GraphStatusError(Exception):
+    """A Graph request completed with a status other than 200."""
+
+    def __init__(self, status_code: int) -> None:
+        super().__init__(f"Graph returned status {status_code}")
+        self.status_code = status_code
+
+
+def _fetch_graph_collection(url: str, token: str) -> list[dict]:
+    """Return every item of a Graph collection, over as many pages as Graph reports."""
+    headers = {"Authorization": f"Bearer {token}"}
+    items: list[dict] = []
+    next_url: str | None = url
+    pages = 0
+
+    while next_url and pages < GRAPH_MAX_PAGES:
+        pages += 1
+        resp = requests.get(next_url, headers=headers, timeout=GRAPH_REQUEST_TIMEOUT_SECONDS)
+        if resp.status_code != 200:
+            raise GraphStatusError(resp.status_code)
+
+        data = resp.json()
+        items.extend(data.get("value") or [])
+
+        next_url = data.get("@odata.nextLink")
+        # The page link carries the bearer token, so never follow it off Graph.
+        if next_url and urlparse(next_url).hostname != GRAPH_API_HOST:
+            logger.warning("teams_graph_page_link_rejected", url=url)
+            break
+
+    if next_url:
+        logger.warning("teams_graph_page_limit_reached", url=url, pages=pages)
+
+    return items
+
+
+def _fetch_joined_teams(token: str) -> list[dict]:
+    return _fetch_graph_collection(f"{GRAPH_API_BASE}/me/joinedTeams", token)
+
+
+def _fetch_team_channels(token: str, teams_team_id: str) -> list[dict]:
+    return _fetch_graph_collection(f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels", token)
 
 
 class TeamsChannelRequestSerializer(serializers.Serializer):
@@ -49,25 +100,18 @@ class TeamsTeamsView(APIView):
             return Response({"error": "Failed to get Teams access token"}, status=400)
 
         try:
-            resp = requests.get(
-                f"{GRAPH_API_BASE}/me/joinedTeams",
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=15,
-            )
-            if resp.status_code != 200:
-                logger.warning("teams_list_teams_failed", status=resp.status_code)
-                return Response({"error": "Failed to list Teams"}, status=502)
-
-            data = resp.json()
-            teams_list = [
-                {"id": t.get("id"), "name": t.get("displayName")}
-                for t in data.get("value", [])
-                if t.get("id") and t.get("displayName")
-            ]
-            return Response({"teams": teams_list})
+            joined = _fetch_joined_teams(token)
+        except GraphStatusError as err:
+            logger.warning("teams_list_teams_failed", status=err.status_code)
+            return Response({"error": "Failed to list Teams"}, status=502)
         except Exception:
             logger.exception("teams_list_teams_error")
             return Response({"error": "Failed to list Teams"}, status=502)
+
+        teams_list = [
+            {"id": t.get("id"), "name": t.get("displayName")} for t in joined if t.get("id") and t.get("displayName")
+        ]
+        return Response({"teams": teams_list})
 
 
 class TeamsChannelsView(APIView):
@@ -93,32 +137,27 @@ class TeamsChannelsView(APIView):
             return Response({"error": "Failed to get Teams access token"}, status=400)
 
         try:
-            resp = requests.get(
-                f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels",
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=15,
-            )
-            if resp.status_code != 200:
-                logger.warning("teams_list_channels_failed", status=resp.status_code, teams_team_id=teams_team_id)
-                return Response({"error": "Failed to list channels"}, status=502)
-
-            data = resp.json()
-            channels = [
-                {
-                    "id": c.get("id"),
-                    "name": c.get("displayName"),
-                    # "standard" | "shared" | "private" — drives shared-channel
-                    # polling and the picker badge. Absent fields are treated as
-                    # standard downstream.
-                    "membership_type": c.get("membershipType"),
-                }
-                for c in data.get("value", [])
-                if c.get("id") and c.get("displayName")
-            ]
-            return Response({"channels": channels})
+            graph_channels = _fetch_team_channels(token, teams_team_id)
+        except GraphStatusError as err:
+            logger.warning("teams_list_channels_failed", status=err.status_code, teams_team_id=teams_team_id)
+            return Response({"error": "Failed to list channels"}, status=502)
         except Exception:
             logger.exception("teams_list_channels_error")
             return Response({"error": "Failed to list channels"}, status=502)
+
+        channels = [
+            {
+                "id": c.get("id"),
+                "name": c.get("displayName"),
+                # "standard" | "shared" | "private" — drives shared-channel
+                # polling and the picker badge. Absent fields are treated as
+                # standard downstream.
+                "membership_type": c.get("membershipType"),
+            }
+            for c in graph_channels
+            if c.get("id") and c.get("displayName")
+        ]
+        return Response({"channels": channels})
 
 
 class TeamsInstallAppView(APIView):
@@ -337,19 +376,14 @@ class TeamsSelectChannelView(APIView):
 
         # Validate team access
         try:
-            resp = requests.get(
-                f"{GRAPH_API_BASE}/me/joinedTeams",
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=15,
-            )
+            joined = _fetch_joined_teams(token)
+        except GraphStatusError as err:
+            logger.warning("teams_select_channel_joined_teams_failed", status=err.status_code)
+            return Response({"error": "graph_error"}, status=502)
         except Exception:
             logger.exception("teams_select_channel_joined_teams_error")
             return Response({"error": "graph_network_error"}, status=502)
-        if resp.status_code != 200:
-            logger.warning("teams_select_channel_joined_teams_failed", status=resp.status_code)
-            return Response({"error": "graph_error"}, status=502)
 
-        joined = resp.json().get("value", []) or []
         team_match = next((t for t in joined if str(t.get("id", "")) == teams_team_id), None)
         if not team_match:
             return Response({"error": "team_not_accessible"}, status=400)
@@ -357,19 +391,14 @@ class TeamsSelectChannelView(APIView):
 
         # Validate channel access
         try:
-            resp = requests.get(
-                f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels",
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=15,
-            )
+            channels = _fetch_team_channels(token, teams_team_id)
+        except GraphStatusError as err:
+            logger.warning("teams_select_channel_channels_failed", status=err.status_code)
+            return Response({"error": "graph_error"}, status=502)
         except Exception:
             logger.exception("teams_select_channel_channels_error")
             return Response({"error": "graph_network_error"}, status=502)
-        if resp.status_code != 200:
-            logger.warning("teams_select_channel_channels_failed", status=resp.status_code)
-            return Response({"error": "graph_error"}, status=502)
 
-        channels = resp.json().get("value", []) or []
         channel_match = next((c for c in channels if str(c.get("id", "")) == teams_channel_id), None)
         if not channel_match:
             return Response({"error": "channel_not_accessible"}, status=400)
@@ -527,19 +556,14 @@ class TeamsSelectChannelView(APIView):
 
         if teams_team_id:
             try:
-                resp = requests.get(
-                    f"{GRAPH_API_BASE}/me/joinedTeams",
-                    headers={"Authorization": f"Bearer {token}"},
-                    timeout=15,
-                )
+                joined = _fetch_joined_teams(token)
+            except GraphStatusError as err:
+                logger.warning("teams_select_channel_joined_teams_failed", status=err.status_code)
+                return Response({"error": "graph_error"}, status=502)
             except Exception:
                 logger.exception("teams_select_channel_joined_teams_error")
                 return Response({"error": "graph_network_error"}, status=502)
-            if resp.status_code != 200:
-                logger.warning("teams_select_channel_joined_teams_failed", status=resp.status_code)
-                return Response({"error": "graph_error"}, status=502)
 
-            joined = resp.json().get("value", []) or []
             match = next((t for t in joined if str(t.get("id", "")) == teams_team_id), None)
             if not match:
                 return Response({"error": "team_not_accessible"}, status=400)
@@ -547,19 +571,14 @@ class TeamsSelectChannelView(APIView):
 
         if teams_channel_id and teams_team_id:
             try:
-                resp = requests.get(
-                    f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels",
-                    headers={"Authorization": f"Bearer {token}"},
-                    timeout=15,
-                )
+                channels = _fetch_team_channels(token, teams_team_id)
+            except GraphStatusError as err:
+                logger.warning("teams_select_channel_channels_failed", status=err.status_code)
+                return Response({"error": "graph_error"}, status=502)
             except Exception:
                 logger.exception("teams_select_channel_channels_error")
                 return Response({"error": "graph_network_error"}, status=502)
-            if resp.status_code != 200:
-                logger.warning("teams_select_channel_channels_failed", status=resp.status_code)
-                return Response({"error": "graph_error"}, status=502)
 
-            channels = resp.json().get("value", []) or []
             match = next((c for c in channels if str(c.get("id", "")) == teams_channel_id), None)
             if not match:
                 return Response({"error": "channel_not_accessible"}, status=400)
