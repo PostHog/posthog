@@ -1214,7 +1214,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'replay-ad-blocker-impact',
                 title: 'Ad blocker impact',
                 description:
-                    'See how many of your sessions an ad blocker stopped PostHog from recording. Blocked sessions produce no recording and no client-side events.',
+                    'See how many of your sessions an ad blocker stopped PostHog from recording. The recorder script never loads on those sessions, so they produce no recording.',
                 docsUrl: 'https://posthog.com/docs/advanced/proxy',
                 component: <AdBlockedCaptureRate />,
                 keywords: ['ad blocker', 'blocked', 'missing', 'proxy', 'loss'],

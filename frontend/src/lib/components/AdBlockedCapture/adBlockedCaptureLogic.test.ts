@@ -86,5 +86,30 @@ describe('adBlockedCaptureLogic', () => {
         await expectLogic(logic).toNotHaveDispatchedActions(['loadAdBlockedCaptureStatsFailure'])
         expect(logic.values.adBlockedCaptureStats).toBeNull()
         expect(logic.values.hasSignificantAdBlockedCapture).toBeNull()
+        // A failure reads differently from a measured zero, so the settings row can say so.
+        expect(logic.values.adBlockedCaptureFailed).toBe(true)
+
+        await measure([[120, 1000]])
+
+        expect(logic.values.adBlockedCaptureFailed).toBe(false)
+    })
+
+    // Each environment has its own loss rate, so a cached measurement must not follow the user
+    // into another one.
+    it('measures again when the current team changes', async () => {
+        await measure([[120, 1000]])
+        const appContext = window.POSTHOG_APP_CONTEXT as any
+        const originalTeam = appContext.current_team
+        appContext.current_team = { ...originalTeam, id: originalTeam.id + 1 }
+
+        try {
+            queryResponse = [200, { results: [[10, 1000]] }]
+            logic.actions.loadAdBlockedCaptureStats()
+            await expectLogic(logic).toDispatchActions(['loadAdBlockedCaptureStatsSuccess'])
+
+            expect(logic.values.adBlockedCaptureShare).toEqual(0.01)
+        } finally {
+            appContext.current_team = originalTeam
+        }
     })
 })

@@ -745,7 +745,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                             message: `Ad blockers stopped PostHog from loading on ${percentage(
                                 adBlockedCaptureShare ?? 0,
                                 0
-                            )} of your sessions in the last ${AD_BLOCKED_CAPTURE_WINDOW_DAYS} days. Those sessions have no recording and no client-side events. Set up a reverse proxy to route data through your own domain and get them back.`,
+                            )} of your sessions in the last ${AD_BLOCKED_CAPTURE_WINDOW_DAYS} days. Those sessions have no recording. Set up a reverse proxy to route data through your own domain and record them.`,
                             type: 'info',
                             action: {
                                 to: urls.settings('organization-proxy'),

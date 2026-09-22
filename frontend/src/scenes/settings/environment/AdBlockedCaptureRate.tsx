@@ -12,7 +12,7 @@ import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 export function AdBlockedCaptureRate(): JSX.Element {
-    const { adBlockedCaptureStats, adBlockedCaptureStatsLoading, adBlockedCaptureShare } =
+    const { adBlockedCaptureStats, adBlockedCaptureStatsLoading, adBlockedCaptureShare, adBlockedCaptureFailed } =
         useValues(adBlockedCaptureLogic)
     const { loadAdBlockedCaptureStats } = useActions(adBlockedCaptureLogic)
 
@@ -22,6 +22,10 @@ export function AdBlockedCaptureRate(): JSX.Element {
 
     if (adBlockedCaptureStatsLoading) {
         return <LemonSkeleton className="h-8 w-60" />
+    }
+
+    if (adBlockedCaptureFailed && !adBlockedCaptureStats) {
+        return <p>The measurement did not load. Reload the page to try again.</p>
     }
 
     if (!adBlockedCaptureStats || adBlockedCaptureStats.totalSessions === 0 || adBlockedCaptureShare === null) {
