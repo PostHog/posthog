@@ -1615,6 +1615,21 @@ def collect_task_run_state_metrics(
 # --- Writes ---
 
 
+def link_slack_task_to_report(*, team_id: int, task_id: str, report_id: str, user_id: int) -> None:
+    """Link only a saved Slack task; a repeated activity must not add another discussion entry."""
+    from products.signals.backend.facade.api import record_slack_report_discussion
+
+    with transaction.atomic():
+        task = Task.objects.select_for_update().get(
+            team_id=team_id, id=task_id, origin_product=Task.OriginProduct.SLACK, created_by_id=user_id
+        )
+        if task.signal_report_id is not None:
+            return
+        record_slack_report_discussion(team_id=team_id, report_id=report_id, task_id=task_id, user_id=user_id)
+        task.signal_report_id = UUID(report_id)
+        task.save(update_fields=["signal_report_id", "updated_at"])
+
+
 def create_and_run_task(
     *,
     team,
@@ -1651,6 +1666,7 @@ def create_and_run_task(
 
     ``scheduled_at`` creates the run in NOT_STARTED and defers its workflow until the dispatcher
     materializes it at or after that time. The run still stores its complete execution settings.
+
     """
     # create_pr=False sessions (research, repo selection, custom agents) can never open the
     # billable PR, so the quota gate must not block them.
