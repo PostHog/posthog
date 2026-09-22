@@ -13,7 +13,6 @@ from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
 from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
-from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models import Team
 from posthog.models.integration import Integration
 from posthog.redis import get_client
@@ -36,6 +35,7 @@ from products.signals.backend.tasks import (
     deliver_scout_slack_thread_replies,
     enqueue_scout_slack_delivery,
 )
+from products.slack_app.backend.facade.testing import REQUIRED_SLACK_SCOPES
 
 
 class FakeSlackResponse(dict):

@@ -15,7 +15,6 @@ from slack_sdk.web import SlackResponse, WebClient
 
 from posthog.dataclasses import frozen
 from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
-from posthog.helpers.slack_subscription_explore import build_explore_hint_text
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.redis import get_client
 
@@ -37,6 +36,7 @@ from products.signals.backend.slack_formatting import (
     split_markdown_by_headings,
     strip_chart_references,
 )
+from products.slack_app.backend.facade.api import slack_followup_invite_text
 
 logger = structlog.get_logger(__name__)
 
@@ -179,7 +179,7 @@ def _post_scout_slack_reply(
     # Passed as enabled rather than read from the organization, unlike the subscription callers.
     # An organization receives a scout report only after it approves AI data processing, so the
     # report this reply hangs under is already the nudge that gate exists to withhold.
-    hint = build_explore_hint_text(integration, utm_tags=_SCOUT_EXPLORE_UTM_TAGS, ai_enabled=True)
+    hint = slack_followup_invite_text(integration, utm_tags=_SCOUT_EXPLORE_UTM_TAGS, ai_enabled=True)
     if hint is None:
         return
     try:

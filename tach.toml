@@ -41,6 +41,8 @@ utility = true
 [[modules]]
 path = "ee"
 depends_on = [
+    # Facade-only: a Slack subscription asks whether the bot can answer a follow-up on its report.
+    "products.slack_app",
     "products.cohorts",
     "posthog",
     "products.access_control",
@@ -816,6 +818,9 @@ layer = "modules"
 [[modules]]
 path = "products.signals"
 depends_on = [
+    # Facade-only: a scout report asks whether the bot can answer a follow-up on it. products.slack_app
+    # depends on products.signals in turn, so both directions stay facade-only to keep the pair honest.
+    "products.slack_app",
     "ee",
     "products.cohorts",
     "posthog",
@@ -1497,7 +1502,8 @@ from = [
 
 [[modules]]
 path = "products.exports"
-depends_on = ["posthog", "products.actions", "products.dashboards", "ee", "products.annotations", "products.ai_observability", "products.posthog_ai", "products.product_analytics", "products.access_control"]
+# products.slack_app is facade-only: an AI subscription asks whether the bot can answer a follow-up.
+depends_on = ["posthog", "products.actions", "products.dashboards", "ee", "products.annotations", "products.ai_observability", "products.posthog_ai", "products.product_analytics", "products.access_control", "products.slack_app"]
 layer = "modules"
 
 [[modules]]
