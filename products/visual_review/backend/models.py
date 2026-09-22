@@ -345,6 +345,9 @@ class ToleratedHash(ProductTeamModel):
         ]
         indexes = [
             models.Index(fields=["repo", "identifier", "baseline_hash"], name="tolerated_lookup"),
+            # Recency reads (pile-ups, digest, the baselines page's windowed counts) scan only the
+            # window instead of every toleration the repo ever recorded.
+            models.Index(fields=["repo", "created_at"], name="tolerated_repo_created"),
         ]
 
     def __str__(self) -> str:
