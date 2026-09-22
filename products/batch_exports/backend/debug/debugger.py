@@ -16,6 +16,7 @@ import pyarrow.fs as fs
 import pyarrow.ipc as ipc
 from rich.console import Console
 
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.integration import DatabricksIntegration
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
@@ -49,6 +50,7 @@ from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
+    native_events_export_query,
 )
 from products.batch_exports.backend.temporal.sql.persons import SELECT_FROM_PERSONS, SELECT_FROM_PERSONS_BACKFILL
 
@@ -389,9 +391,11 @@ class BatchExportsDebugger:
     ) -> collections.abc.Generator[pa.RecordBatch]:
         team_id = batch_export_run.parent.team.id
         full_range = (batch_export_run.data_interval_start, batch_export_run.data_interval_end)
-        parameters = {"team_id": team_id, "interval_end": full_range[1].strftime("%Y-%m-%d %H:%M:%S.%f")}
-        if full_range[0]:
-            parameters["interval_start"] = full_range[0].strftime("%Y-%m-%d %H:%M:%S.%f")
+        parameters: dict[str, typing.Any] = {
+            "team_id": team_id,
+            "interval_start": full_range[0].strftime("%Y-%m-%d %H:%M:%S.%f") if full_range[0] else None,
+            "interval_end": full_range[1].strftime("%Y-%m-%d %H:%M:%S.%f"),
+        }
 
         extra_query_parameters: dict[str, str] = {}
         filters = batch_export_run.parent.filters
@@ -469,10 +473,12 @@ class BatchExportsDebugger:
 
             query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
 
-            if filters_str:
-                filters_str = f"AND {filters_str}"
-
-            query = query_template.safe_substitute(fields=query_fields, filters=filters_str, order="")
+            if query_template is SELECT_FROM_EVENTS_VIEW_BACKFILL and use_new_events_schema(team_id):
+                query = native_events_export_query(query_fields, filters_str)
+            else:
+                if filters_str:
+                    filters_str = f"AND {filters_str}"
+                query = query_template.safe_substitute(fields=query_fields, filters=filters_str, order="")
 
         parameters = {**parameters, **extra_query_parameters}
 

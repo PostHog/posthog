@@ -68,4 +68,25 @@ describe('CheckRunsTable', () => {
         expect(screen.getByText('Unknown column signups')).toBeInTheDocument()
         expect(screen.queryByText('Observed value')).not.toBeInTheDocument()
     })
+
+    it('shows a freshness run as how old its newest row is', () => {
+        initKeaTests()
+        render(
+            <CheckRunsTable
+                subjectType="table"
+                runs={[
+                    metricRun({
+                        subject_type: 'table',
+                        check_type: 'freshness',
+                        column_name: 'last_updated_time',
+                        check_config: { max_age_minutes: 2160 },
+                        status: 'failed',
+                        failed_row_count: 1,
+                        observed_value: 147117,
+                    }),
+                ]}
+            />
+        )
+        expect(screen.getByText('1d 16h old')).toBeInTheDocument()
+    })
 })
