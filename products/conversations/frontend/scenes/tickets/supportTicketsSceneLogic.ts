@@ -2,6 +2,7 @@ import {
     MakeLogicType,
     actions,
     afterMount,
+    beforeUnmount,
     isBreakpoint,
     kea,
     key,
@@ -976,6 +977,11 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             if (props.distinctIds?.length) {
                 return
             }
+            // kea-router replays the current URL when the scene mounts. The replay is not a
+            // navigation, so it must not detach the saved view restored from the last session.
+            // afterMount owns the initial state instead.
+            const isMountReplay = !cache.urlHandled
+            cache.urlHandled = true
             // A URL change we wrote ourselves already matches state — re-applying it would
             // clobber filters not encoded in the URL. External navigations don't set this.
             if (cache.selfNavigating) {
@@ -994,7 +1000,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 }
                 return
             }
-            const leavingSavedView = !!values.activeView || !!cache.latestViewShortId
+            const leavingSavedView = !isMountReplay && (!!values.activeView || !!cache.latestViewShortId)
             if (
                 leavingSavedView ||
                 (hasFilterParams(searchParams) && !urlFiltersMatchState(searchParams, values.currentFilters))
@@ -1006,8 +1012,14 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
     afterMount(({ actions, values, props }) => {
         const embedded = !!props.distinctIds?.length
         const { searchParams } = router.values
-        if (!embedded && searchParams.view) {
-            actions.loadSavedView(String(searchParams.view))
+        // A bare URL falls back to the view the user had open last, which persists across
+        // sessions, so opening the inbox from the sidebar keeps the view attached. Loading it
+        // by short_id also picks up renames, filter edits and deletions made since.
+        const viewShortId = embedded
+            ? undefined
+            : (searchParams.view ?? (hasFilterParams(searchParams) ? undefined : values.activeView?.short_id))
+        if (viewShortId) {
+            actions.loadSavedView(String(viewShortId))
             return
         }
         if (!embedded) {
@@ -1029,5 +1041,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             }
         }
         actions.loadTickets()
+    }),
+    beforeUnmount(({ cache }) => {
+        // kea keeps the cache when the scene unmounts, so the next mount must start again
+        // with no URL handled.
+        cache.urlHandled = false
     }),
 ])

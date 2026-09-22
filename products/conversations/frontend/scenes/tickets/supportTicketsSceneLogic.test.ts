@@ -261,6 +261,39 @@ describe('supportTicketsSceneLogic', () => {
             expect(router.values.searchParams.view).toBeUndefined()
         })
 
+        it('reopens the inbox on the saved view the user last had applied', async () => {
+            const mocks = {
+                get: {
+                    '/api/projects/:team_id/conversations/tickets/': () => [200, { count: 0, results: [] }],
+                    '/api/projects/:team_id/conversations/views/:short_id/': () => [
+                        200,
+                        makeSavedView('view-a', { status: ['open'] }),
+                    ],
+                },
+            }
+            useMocks(mocks)
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            await expectLogic(logic, () => {
+                logic.actions.applyView(makeSavedView('view-a', { status: ['open'] }))
+            }).toFinishAllListeners()
+            logic.unmount()
+
+            // A new browser session rebuilds the kea context but keeps the persisted state,
+            // and the sidebar link carries no query params.
+            initKeaTests()
+            useMocks(mocks)
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.activeView?.short_id).toBe('view-a')
+            expect(logic.values.statusFilter).toEqual(['open'])
+            expect(router.values.searchParams.view).toBe('view-a')
+        })
+
         it('ignores a saved view response after navigating to explicit filters', async () => {
             const pending: Record<string, { resolve: (view: SavedTicketView) => void }> = {}
             useMocks({
