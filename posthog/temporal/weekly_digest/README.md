@@ -10,6 +10,9 @@ The digest is generated and sent via two Temporal workflows:
 2. **SendWeeklyDigestWorkflow** - Reads from Redis and sends personalized emails
 
 Team-level generation keeps at most 100 activities pending per workflow to stay below Temporal's pending-activity limit.
+Activities are sync bodies wrapped in `@asyncify`, so each one runs on its own worker thread with its own database connection.
+Django's async ORM and `database_sync_to_async` default to one shared thread per process, which serializes every database call across all concurrent activities.
+A body that runs on the event loop also trips Django's async-unsafe guard as soon as a helper such as `should_send_notification` queries the database.
 Every team range and report generator must finish before organization aggregation starts.
 A Temporal patch marker preserves the activity scheduling behavior when replaying older histories.
 
