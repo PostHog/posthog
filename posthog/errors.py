@@ -1044,10 +1044,11 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
 # Transient ClickHouse infrastructure errors that are safe to retry.
 # This can be used in things like celery `autoretry_for` to increase resiliency.
 # Capacity errors (codes 202/439) are wrapped as ClickHouseAtCapacity by wrap_clickhouse_query_error.
-# Every entry is raised before ClickHouse accepted the work, so a retry cannot repeat a write. Keep
-# it that way: this tuple is shared with write callers such as calculate_cohort_ch, whose INSERT INTO
-# cohortpeople appends rows at a version it does not delete first, so a repeated write duplicates the
-# membership rows of a live cohort version.
+# For every entry the client knows the query did not complete. Either it never reached the server, or
+# the client holds the server's own error for that query. Keep it that way: this tuple is shared with
+# write callers such as calculate_cohort_ch, whose INSERT INTO cohortpeople appends rows at a version
+# it does not delete first. An error that leaves the outcome unknown must not go in here. A repeated
+# write duplicates the membership rows of a live cohort version.
 # CHQueryErrorQueryWasCancelled (394) is deliberately absent: a deploy cancelling in-flight queries
 # and an operator or user deliberately killing one are indistinguishable at this layer, so callers
 # that want the deploy case retried opt in themselves (see COHORT_RECALCULATION_TRANSIENT_ERRORS).

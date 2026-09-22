@@ -657,23 +657,41 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         assert UnknownPacketFromServerError in autoretry_for
         assert UnknownPacketFromServerError not in CH_TRANSIENT_ERRORS
 
+    @parameterized.expand(
+        [
+            (
+                "unknown_packet",
+                UnknownPacketFromServerError,
+                "sync_feature_flag_last_called.UnknownPacketFromServerError",
+            ),
+            ("unknown_table", CHQueryErrorUnknownTable, None),
+        ]
+    )
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.tasks.tasks.capture_exception")
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
-    def test_unknown_packet_error_reports_a_stable_fingerprint(
-        self, mock_get_client: MagicMock, mock_sync_execute: MagicMock, mock_capture_exception: MagicMock
+    def test_failure_fingerprint_is_set_only_for_the_desynced_socket(
+        self,
+        _name: str,
+        error_cls: type[Exception],
+        expected_fingerprint: str | None,
+        mock_get_client: MagicMock,
+        mock_sync_execute: MagicMock,
+        mock_capture_exception: MagicMock,
     ) -> None:
         mock_get_client.return_value = mock_redis_client()
         # The driver names the packet it did not expect, and the number moves between
         # occurrences. Without a fixed fingerprint every occurrence opens its own issue.
-        mock_sync_execute.side_effect = UnknownPacketFromServerError("Unknown packet 42 from server host:9000")
+        # Every other failure keeps the automatic grouping, so one triaged issue cannot
+        # swallow an unrelated one.
+        mock_sync_execute.side_effect = error_cls("boom")
 
-        with self.assertRaises(UnknownPacketFromServerError):
+        with self.assertRaises(error_cls):
             sync_feature_flag_last_called()
 
         properties = mock_capture_exception.call_args.kwargs["additional_properties"]
-        assert properties["$exception_fingerprint"] == "sync_feature_flag_last_called.UnknownPacketFromServerError"
+        assert properties.get("$exception_fingerprint") == expected_fingerprint
 
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
@@ -698,4 +716,16 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         finally:
             sync_feature_flag_last_called.pop_request()
 
+        assert (REGISTRY.get_sample_value(recoveries_metric) or 0.0) == recoveries_before + 1
+
+        cache.clear()
+        mock_sync_execute.side_effect = CHQueryErrorUnknownTable("boom")
+        sync_feature_flag_last_called.push_request(retries=1)
+        try:
+            with self.assertRaises(CHQueryErrorUnknownTable):
+                sync_feature_flag_last_called()
+        finally:
+            sync_feature_flag_last_called.pop_request()
+
+        # A retry that fails is not a recovery
         assert (REGISTRY.get_sample_value(recoveries_metric) or 0.0) == recoveries_before + 1
