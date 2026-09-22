@@ -67,3 +67,11 @@ The `ManyColumns` story in `AccountsTab.stories.tsx` covers six added custom pro
 Its browser assertions check content-dependent widths, the 200px cap, horizontal scrolling, and the row expansion control.
 At narrow widths, it also covers custom-property inline editing: the input fits the available column width, and Save and Cancel stay together below it when needed, aligned to the right.
 The row grows without widening the column.
+
+## Relationship member pickers
+
+Each editable single-holder relationship cell mounts a member picker.
+Closed pickers render the selected label but defer the searchable option list until opened.
+Opening still loads members and keeps the current user first.
+Closing through a selection, the trigger, or an outside click clears the search so the next open starts fresh.
+Mounting another closed cell does not clear an active picker's search.
