@@ -494,6 +494,145 @@ export interface PaginatedAutoresearchRunListApi {
 }
 
 /**
+ * * `try_next` - Try next
+ * * `consider` - Consider
+ */
+export type AutoresearchSuggestionPriorityEnumApi =
+    (typeof AutoresearchSuggestionPriorityEnumApi)[keyof typeof AutoresearchSuggestionPriorityEnumApi]
+
+export const AutoresearchSuggestionPriorityEnumApi = {
+    TryNext: 'try_next',
+    Consider: 'consider',
+} as const
+
+/**
+ * * `queued` - Queued
+ * * `picked_up` - Picked up
+ * * `acted_on` - Acted on
+ * * `dismissed` - Dismissed
+ */
+export type AutoresearchSuggestionStatusEnumApi =
+    (typeof AutoresearchSuggestionStatusEnumApi)[keyof typeof AutoresearchSuggestionStatusEnumApi]
+
+export const AutoresearchSuggestionStatusEnumApi = {
+    Queued: 'queued',
+    PickedUp: 'picked_up',
+    ActedOn: 'acted_on',
+    Dismissed: 'dismissed',
+} as const
+
+/**
+ * * `user` - User
+ * * `agent` - Agent
+ */
+export type AutoresearchSuggestionSourceEnumApi =
+    (typeof AutoresearchSuggestionSourceEnumApi)[keyof typeof AutoresearchSuggestionSourceEnumApi]
+
+export const AutoresearchSuggestionSourceEnumApi = {
+    User: 'user',
+    Agent: 'agent',
+} as const
+
+export interface AutoresearchSuggestionApi {
+    /** Unique UUID of this suggestion. */
+    readonly id: string
+    /** Pipeline this suggestion targets. */
+    pipeline: string
+    /** Free-text hypothesis or direction for the agent to explore. */
+    prompt: string
+    /** 'try_next' instructs the agent to act on this before other iterations; 'consider' is advisory.
+     *
+     * * `try_next` - Try next
+     * * `consider` - Consider */
+    priority?: AutoresearchSuggestionPriorityEnumApi
+    /** Lifecycle status: 'queued' (awaiting pickup), 'picked_up' (agent is applying as a constraint), 'acted_on' (agent spawned iterations), 'dismissed' (agent rejected with rationale).
+     *
+     * * `queued` - Queued
+     * * `picked_up` - Picked up
+     * * `acted_on` - Acted on
+     * * `dismissed` - Dismissed */
+    readonly status: AutoresearchSuggestionStatusEnumApi
+    /** 'user' for human-submitted suggestions; 'agent' for agent-generated hypotheses.
+     *
+     * * `user` - User
+     * * `agent` - Agent */
+    readonly source: AutoresearchSuggestionSourceEnumApi
+    /** Agent's note on how the suggestion was interpreted and acted upon. Populated after pickup. */
+    readonly agent_response: string
+    /** The user who submitted it; null for an agent-authored suggestion. */
+    readonly created_by: UserBasicApi | null
+    /** UUIDs of iterations spawned from this suggestion. */
+    readonly linked_iteration_ids: readonly string[]
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedAutoresearchSuggestionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AutoresearchSuggestionApi[]
+}
+
+/**
+ * * `try_next` - try_next
+ * * `consider` - consider
+ */
+export type CreateSuggestionPriorityEnumApi =
+    (typeof CreateSuggestionPriorityEnumApi)[keyof typeof CreateSuggestionPriorityEnumApi]
+
+export const CreateSuggestionPriorityEnumApi = {
+    TryNext: 'try_next',
+    Consider: 'consider',
+} as const
+
+export interface CreateSuggestionApi {
+    /**
+     * Free-text hypothesis or direction for the agent to explore, e.g. 'try a tree-based model' or 'remove recency features, I suspect leakage'.
+     * @maxLength 2000
+     */
+    prompt: string
+    /** 'try_next' asks the agent to act on this before other autonomous iterations; 'consider' is advisory context.
+     *
+     * * `try_next` - try_next
+     * * `consider` - consider */
+    priority?: CreateSuggestionPriorityEnumApi
+}
+
+/**
+ * * `picked_up` - picked_up
+ * * `acted_on` - acted_on
+ * * `dismissed` - dismissed
+ */
+export type RespondToSuggestionStatusEnumApi =
+    (typeof RespondToSuggestionStatusEnumApi)[keyof typeof RespondToSuggestionStatusEnumApi]
+
+export const RespondToSuggestionStatusEnumApi = {
+    PickedUp: 'picked_up',
+    ActedOn: 'acted_on',
+    Dismissed: 'dismissed',
+} as const
+
+/**
+ * Input for the agent to record how it interpreted a steering suggestion.
+ */
+export interface RespondToSuggestionApi {
+    /** How the agent handled the suggestion: 'picked_up' (applied as a search constraint), 'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response).
+     *
+     * * `picked_up` - picked_up
+     * * `acted_on` - acted_on
+     * * `dismissed` - dismissed */
+    status: RespondToSuggestionStatusEnumApi
+    /**
+     * Plain-English note on how the suggestion was interpreted and acted upon. A dismissal needs a note, sent now or recorded earlier. Omit it to keep the note already recorded; send an empty string to clear it.
+     * @maxLength 2000
+     */
+    agent_response?: string
+}
+
+/**
  * One iteration referenced from a run summary's ladder or dead-ends list.
  */
 export interface TrainingRunSummaryLadderItemApi {
@@ -680,6 +819,76 @@ export interface OpenTrainingRunApi {
      * @maximum 500
      */
     iteration_budget?: number
+}
+
+/**
+ * The relative paths present in a training run's bundle.
+ */
+export interface ArtifactListApi {
+    /** Relative paths of every file stored under this training run's bundle prefix. */
+    paths: string[]
+    /** Number of files in the bundle. */
+    count: number
+}
+
+/**
+ * Input for fetching or deleting one bundle file by path.
+ */
+export interface ArtifactPathApi {
+    /**
+     * Relative path of the file within the bundle, e.g. 'train.py'.
+     * @maxLength 500
+     */
+    path: string
+}
+
+/**
+ * Whether a delete removed an existing file.
+ */
+export interface ArtifactDeleteResultApi {
+    /** Relative path targeted for deletion. */
+    path: string
+    /** True if a file existed and was removed; False if nothing was there. */
+    deleted: boolean
+}
+
+/**
+ * A single bundle file's content, base64-encoded.
+ */
+export interface ArtifactContentApi {
+    /** Relative path of the file within the bundle. */
+    path: string
+    /** File size in bytes. */
+    size_bytes: number
+    /** SHA-256 hex digest of the file content. */
+    sha256: string
+    /** File contents, base64-encoded. */
+    content_base64: string
+}
+
+/**
+ * Input for uploading one file of a training run's artifact bundle.
+ */
+export interface ArtifactUploadApi {
+    /**
+     * Relative path within the bundle, e.g. 'train.py', 'predict.py', 'features.sql', or 'eda/iter-3-gbm.ipynb'. Segments are limited to [A-Za-z0-9_.-]; absolute paths and '..' traversal are rejected.
+     * @maxLength 500
+     */
+    path: string
+    /** File contents, base64-encoded. Decoded server-side and written to object storage. Max 10 MB decoded. */
+    content_base64: string
+}
+
+/**
+ * Result of an upload: where the file landed and its content hash.
+ */
+export interface StoredArtifactApi {
+    /** Relative path the file was stored at. */
+    path: string
+    /** Decoded file size in bytes. */
+    size_bytes: number
+    /** SHA-256 hex digest of the decoded file content. */
+    sha256: string
 }
 
 /**
@@ -877,6 +1086,36 @@ export interface AutoresearchIterationApi {
      */
     parent_suggestion?: string | null
     readonly created_at: string
+}
+
+/**
+ * Input for materializing the labeled training feature matrix into the run's sandbox.
+ */
+export interface MaterializeFeaturesRequestApi {
+    /** Your HogQL feature query, using the {anchors}/{lookback_days} contract. Must be a read-only SELECT keyed on person_id (aliased to distinct_id), one row per user. The backend runs it server-side against the labeled training population — no 500-row cap — and writes the resulting train/holdout feature and label parquet files into your sandbox. */
+    features_sql: string
+}
+
+/**
+ * The local sandbox paths and shape of the materialized training matrix.
+ */
+export interface MaterializeFeaturesResponseApi {
+    /** Sandbox path to the training feature matrix parquet (distinct_id + numeric feature columns). */
+    train_features_path: string
+    /** Sandbox path to the training labels parquet (distinct_id + __label). */
+    train_labels_path: string
+    /** Sandbox path to the holdout feature matrix parquet (same columns as train_features). */
+    holdout_features_path: string
+    /** Sandbox path to the holdout labels parquet (distinct_id + __label). */
+    holdout_labels_path: string
+    /** Number of rows in the training split. */
+    n_train: number
+    /** Number of rows in the holdout split. */
+    n_holdout: number
+    /** Number of numeric feature columns produced by features_sql. */
+    n_features: number
+    /** The numeric feature column names (excludes distinct_id, __label, __fold). */
+    feature_cols: string[]
 }
 
 /**
@@ -1321,6 +1560,17 @@ export type AutoresearchModelsListParams = {
 }
 
 export type AutoresearchRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type AutoresearchSuggestionsListParams = {
     /**
      * Number of results to return per page.
      */

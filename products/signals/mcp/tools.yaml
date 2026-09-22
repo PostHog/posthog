@@ -285,6 +285,35 @@ tools:
                 - assignee
                 - created_at
                 - updated_at
+    inbox-reports-merge:
+        operation: signals_reports_merge_create
+        enabled: false
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        enrich_url: '{id}'
+        title: Merge duplicate reports into one
+        description: >
+            Fold duplicate inbox reports into the one report that survives them, when the same issue landed in more than
+            one report. The URL names the survivor and `source_report_ids` (1–10) names the duplicates. Pick the
+            survivor deliberately: prefer the older report, and prefer the one holding an open implementation PR or an
+            active claim. The sources' signals, work-log artefacts, pull requests, task runs and checks move onto the
+            survivor, the survivor's signal counters take theirs on, and each source is archived with a 'duplicate of'
+            link back. A source's open pull request stays open, because the survivor holds it after the move; any active
+            claim on a source is released first, so re-claim the survivor if you were working on one. Titles and
+            summaries are NOT combined, so follow with `inbox-reports-update` if the survivor needs a rewrite. Both ends
+            must be a live report, and the whole call applies or none of it does: 409 and no writes when the survivor is
+            resolved, or when a source is the survivor itself, is resolved or archived, is still being researched
+            (`in_progress`), or carries more signals than one merge can move. A merged report keeps its URL but can
+            never be restored, so merge only reports you are confident are the same issue, and use an
+            `inbox-report-artefacts-create` `related_to` link when they are merely related.
+        param_overrides:
+            id:
+                aliases:
+                    - survivor_report_id
     inbox-reports-retrieve:
         operation: signals_reports_retrieve
         enabled: true
@@ -1006,10 +1035,10 @@ tools:
         title: List a scout run's emitted findings
         description: >
             Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit with its
-            `description` (the finding text as surfaced), `confidence`, `severity`, `tags`, and the deterministic
-            `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal. Use this to see
-            *what* a run actually surfaced, not just how many (`emitted_count`) or which ids (`emitted_finding_ids`).
-            Strictly team-scoped — a run UUID belonging to another team returns 404.
+            `description` (the finding text as surfaced), `severity`, `tags`, and the deterministic `source_id`
+            (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal. Use this to see *what* a run
+            actually surfaced, not just how many (`emitted_count`) or which ids (`emitted_finding_ids`). Strictly
+            team-scoped — a run UUID belonging to another team returns 404.
     scout-runs-findings-summary:
         operation: signals_scout_runs_findings_summary
         enabled: false
@@ -1051,12 +1080,12 @@ tools:
         description: >
             Return the team's recently emitted scout findings across *every* `SignalScoutRun`, newest first — the
             cross-run counterpart to `scout-runs-emissions-list` (which is scoped to one run). Each row carries its
-            `run_id`, `description` (the finding text as surfaced), `confidence`, `severity`, `tags`, and the
-            deterministic `source_id` (`run:<run_id>:finding:<finding_id>`). Use this to answer "what has the fleet
-            surfaced lately?" in one call instead of listing runs and fanning out an emissions request per run. Pass
-            `skill_name` to scope to a single scout, and `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive
-            upper bound on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to
-            walk back past the cap. Capped at 200 rows (default 50). Strictly team-scoped.
+            `run_id`, `description` (the finding text as surfaced), `severity`, `tags`, and the deterministic
+            `source_id` (`run:<run_id>:finding:<finding_id>`). Use this to answer "what has the fleet surfaced lately?"
+            in one call instead of listing runs and fanning out an emissions request per run. Pass `skill_name` to scope
+            to a single scout, and `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on
+            `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to walk back past
+            the cap. Capped at 200 rows (default 50). Strictly team-scoped.
     scout-runs-retrieve:
         operation: signals_scout_runs_retrieve
         enabled: true
