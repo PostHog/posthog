@@ -1,7 +1,14 @@
 """Azure Blob Storage integration."""
 
+import urllib.parse as urlparse
+
 from posthog.models.user import User
-from posthog.security.url_validation import _dev_bypass_enabled, _test_bypass_enabled, is_url_allowed
+from posthog.security.url_validation import (
+    HOST_RESOLUTION_FAILED_REASON,
+    _dev_bypass_enabled,
+    _test_bypass_enabled,
+    is_url_allowed,
+)
 
 from . import model
 
@@ -89,6 +96,22 @@ class EndpointNotAllowedError(ValueError):
     """Distinct error raised when an endpoint is not allowed."""
 
 
+class EndpointResolutionError(ValueError):
+    """Raised when an endpoint host has no DNS answer.
+
+    Kept apart from `EndpointNotAllowedError` because this can be a transient worker DNS
+    failure, which a caller may retry, while a policy block never succeeds on a retry.
+    """
+
+
+def _endpoint_origin(endpoint: str) -> str:
+    """Return scheme and host only, so no credential in the endpoint reaches a message."""
+    parsed = urlparse.urlparse(endpoint)
+    if not parsed.scheme or not parsed.netloc:
+        return endpoint
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
 def validate_azure_blob_connection_string(connection_string: str) -> None:
     """Validate an Azure Blob connection string.
 
@@ -149,7 +172,13 @@ def validate_azure_blob_connection_string(connection_string: str) -> None:
         if validation_applies:
             allowed, error = is_url_allowed(endpoint)
             if not allowed:
-                raise EndpointNotAllowedError("Invalid endpoint found in connection string")
+                origin = _endpoint_origin(endpoint)
+                if error == HOST_RESOLUTION_FAILED_REASON:
+                    raise EndpointResolutionError(f"Could not resolve the endpoint '{origin}' in the connection string")
+                reason = error or "the endpoint is not allowed"
+                raise EndpointNotAllowedError(
+                    f"The endpoint '{origin}' in the connection string is not allowed: {reason}"
+                )
 
 
 def strip_leading_whitespace(conn_str: str) -> str:
