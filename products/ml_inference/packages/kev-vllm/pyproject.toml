@@ -35,6 +35,9 @@ kev = "kev_vllm.plugin:io_processor"
 dev = ["pytest>=8", "ruff>=0.14"]
 
 [tool.uv]
+exclude-newer = "7 days"
+# peft 0.21 shipped on 2026-09-18 and the export path needs it; drop this exemption after 2026-09-25 and re-lock.
+exclude-newer-package = { peft = false }
 conflicts = [[{ extra = "serve" }, { extra = "export" }]]
 environments = ["sys_platform == 'linux'", "sys_platform == 'darwin'"]
 

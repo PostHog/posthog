@@ -17,6 +17,7 @@ from pathlib import Path
 
 def post(url: str, payload: dict) -> dict:
     req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
+    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected the URL comes from the --base-url flag
     with urllib.request.urlopen(req, timeout=120) as resp:
         return json.load(resp)
 

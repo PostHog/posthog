@@ -18,7 +18,7 @@ PACKAGE_DIR=$(cd "$(dirname "$0")/.." && pwd)
 
 command -v nvidia-smi >/dev/null || { echo "no nvidia-smi: not a CUDA box" >&2; exit 1; }
 nvidia-smi -L
-command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
+command -v uv >/dev/null || python3 -m pip install --user --quiet uv
 export PATH="$HOME/.local/bin:$PATH"
 
 case "$CHECKPOINT" in
@@ -26,7 +26,7 @@ case "$CHECKPOINT" in
     mkdir -p "$MODEL_DIR"
     command -v aws >/dev/null || uv tool install awscli >/dev/null
     aws s3 sync "$CHECKPOINT" "$MODEL_DIR" --only-show-errors ;;
-  http://*|https://*)
+  https://*)
     mkdir -p "$MODEL_DIR"
     curl -fsSL "$CHECKPOINT" | tar -xz -C "$MODEL_DIR" ;;
   *)
