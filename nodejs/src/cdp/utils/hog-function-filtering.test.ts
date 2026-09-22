@@ -1,14 +1,7 @@
-import { readFileSync } from 'fs'
-import { join } from 'path'
 import { register } from 'prom-client'
-
-import { ASYNC_STL, BYTECODE_STL, STL } from '@posthog/hogvm'
-
-import { parseJSON } from '~/common/utils/json-parse'
 
 import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent } from '../../types'
 import { HogFunctionFilterGlobals, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { execHog } from './hog-exec'
 import {
     convertClickhouseRawEventToFilterGlobals,
     convertToHogFunctionFilterGlobal,
@@ -246,79 +239,6 @@ describe('hog-function-filtering', () => {
             expect(result.elements_chain_texts).toEqual(['Click me'])
             expect(result.elements_chain_ids).toEqual(['button1'])
             expect(result.elements_chain_elements).toEqual(['a', 'button'])
-        })
-    })
-
-    describe('Filter globals', () => {
-        // Django rejects a filter whose globals the runtime cannot resolve, and reads the set from
-        // this file, which sits in its package so it ships with the image that needs it. A Record over the type makes tsc fail when a global is added and not listed,
-        // so the file cannot go stale in either direction.
-        const EVERY_GLOBAL: Record<keyof HogFunctionFilterGlobals, true> = {
-            $group_0: true,
-            $group_1: true,
-            $group_2: true,
-            $group_3: true,
-            $group_4: true,
-            cohort_ids: true,
-            distinct_id: true,
-            elements_chain: true,
-            elements_chain_elements: true,
-            elements_chain_href: true,
-            elements_chain_ids: true,
-            elements_chain_texts: true,
-            event: true,
-            group_0: true,
-            group_1: true,
-            group_2: true,
-            group_3: true,
-            group_4: true,
-            pdi: true,
-            person: true,
-            properties: true,
-            timestamp: true,
-            uuid: true,
-            variables: true,
-        }
-
-        const shared = (): any =>
-            parseJSON(readFileSync(join(__dirname, '../../../../posthog/cdp/filter_globals.json'), 'utf8'))
-
-        it('accounts for every global the type declares', () => {
-            // Split rather than merged: Django allows roots, and refuses the caller-specific ones
-            // because nothing it compiles for is evaluated with them.
-            const accounted = [...shared().roots, ...shared().caller_specific_roots]
-            expect(Object.keys(EVERY_GLOBAL).sort()).toEqual(accounted.sort())
-        })
-
-        // Ask the VM itself rather than mirroring its tables: this is the property Django relies on,
-        // and it stays true however the standard library is organised internally.
-        const resolves = async (name: string): Promise<boolean> => {
-            const { error, execResult } = await execHog(['_H', 1, 32, name, 1, 1], { globals: {} })
-            const message = String(error ?? execResult?.error ?? '')
-            return !message.includes('Global variable not found')
-        }
-
-        // roots are pinned to the type above; they only resolve when the runtime supplies them.
-        // callables resolve out of an empty globals object, so both directions are assertable.
-        it('lists every callable the VM resolves, and no others', () => {
-            const resolvable = [...Object.keys(STL), ...Object.keys(BYTECODE_STL)].filter(
-                // The filter path runs with maxAsyncSteps 0, so an async name can never run.
-                (name) => !Object.hasOwn(ASYNC_STL, name)
-            )
-            expect([...new Set(resolvable)].sort()).toEqual([...shared().callables].sort())
-        })
-
-        it('agrees with what the VM does when asked', async () => {
-            // The list above is the VM's own tables. This checks the tables mean what we think.
-            for (const name of ['lower', 'arrayMap', 'toString']) {
-                expect(await resolves(name)).toBe(true)
-            }
-            expect(await resolves('definitelyNotAGlobal')).toBe(false)
-        })
-
-        it('excludes the async name', () => {
-            expect(Object.keys(ASYNC_STL)).toContain('sleep')
-            expect(shared().callables).not.toContain('sleep')
         })
     })
 
