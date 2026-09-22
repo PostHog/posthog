@@ -137,7 +137,7 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
         if is_reserved_proxy_domain(value):
             view = self.context.get("view")
             organization_id = getattr(getattr(view, "organization", None), "id", None)
-            if organization_id is None or not org_may_register_reserved_domain(organization_id):
+            if organization_id is None or not org_may_register_reserved_domain(organization_id, value):
                 raise serializers.ValidationError("This domain belongs to PostHog. Enter a domain you own instead.")
         return value
 
@@ -490,7 +490,9 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         # The row can predate this check (created before it shipped, or written directly
         # by the ORM), so retry has to refuse re-dispatching provisioning for a reserved
         # domain rather than trusting a value validate_domain would reject on write today.
-        if is_reserved_proxy_domain(record.domain) and not org_may_register_reserved_domain(record.organization_id):
+        if is_reserved_proxy_domain(record.domain) and not org_may_register_reserved_domain(
+            record.organization_id, record.domain
+        ):
             return Response(
                 {"detail": "This domain belongs to PostHog and cannot be provisioned as a proxy domain."},
                 status=status.HTTP_400_BAD_REQUEST,

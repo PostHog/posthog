@@ -1,5 +1,7 @@
 import re
+from uuid import UUID
 
+from django.conf import settings
 from django.db import models
 
 from posthog.models import Organization
@@ -93,17 +95,28 @@ def is_reserved_proxy_domain(domain: str) -> bool:
     return any(domain == reserved or domain.endswith(f".{reserved}") for reserved in RESERVED_PROXY_DOMAINS)
 
 
-def org_may_register_reserved_domain(organization_id) -> bool:
-    """Whether `organization_id` is one of PostHog's own orgs, allowlisted per environment via
-    `PROXY_RESERVED_DOMAIN_ALLOWED_ORG_IDS`, and may therefore register a reserved,
-    PostHog-owned proxy domain (for example an internal proxy on posthog.com).
+# The only reserved apex an allowlisted org may still register under: PostHog's own
+# customer-facing domain, for internal proxies such as internal-*.posthog.com. Every other
+# reserved entry (the shared Cloudflare/legacy CNAME targets other tenants already point at,
+# and PostHog's other apexes) stays unclaimable by everyone, so an allowlisted org cannot grab
+# a shared proxy hostname.
+RESERVED_PROXY_DOMAIN_EXCEPTION_APEXES = frozenset({"posthog.com"})
 
-    This is the only exception to `is_reserved_proxy_domain`: every org not in the allowlist is
-    still refused, so the hostnames other tenants' and PostHog's own traffic depend on stay
-    unclaimable. The allowlist is empty by default, which keeps the guard on everywhere.
+
+def org_may_register_reserved_domain(organization_id: str | UUID, domain: str) -> bool:
+    """Whether `organization_id` may register the reserved `domain`.
+
+    `is_reserved_proxy_domain` keeps every org from claiming a PostHog-owned hostname. This is
+    its only exception: an org allowlisted via `PROXY_RESERVED_DOMAIN_ALLOWED_ORG_IDS` (PostHog's
+    own org, set per environment) may register a domain under
+    `RESERVED_PROXY_DOMAIN_EXCEPTION_APEXES` — i.e. a posthog.com subdomain, for internal
+    proxies. A domain under any other reserved apex, and every non-allowlisted org, is still
+    refused. The allowlist is empty by default, so the guard stays fully on everywhere unless a
+    deployment opts a specific org in.
     """
-    from django.conf import settings
-
+    domain = domain.lower()
+    if not any(domain == apex or domain.endswith(f".{apex}") for apex in RESERVED_PROXY_DOMAIN_EXCEPTION_APEXES):
+        return False
     return str(organization_id) in settings.PROXY_RESERVED_DOMAIN_ALLOWED_ORG_IDS
 
 

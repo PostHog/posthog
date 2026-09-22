@@ -4,7 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.db import DatabaseError
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -367,6 +367,57 @@ class TestProxyRecordAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not ProxyRecord.objects.filter(organization=self.organization, domain=domain).exists()
         mock_sync_connect.assert_not_called()
+
+    @patch("posthog.api.proxy_record.sync_connect")
+    @patch("posthoganalytics.capture")
+    def test_allowlisted_org_can_create_reserved_posthog_domain(self, mock_capture, mock_sync_connect):
+        mock_sync_connect.return_value = AsyncMock()
+
+        with override_settings(PROXY_RESERVED_DOMAIN_ALLOWED_ORG_IDS=[str(self.organization.id)]):
+            response = self.client.post(
+                f"/api/organizations/{self.organization.id}/proxy_records/",
+                {"domain": "internal-cf.posthog.com"},
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert ProxyRecord.objects.filter(organization=self.organization, domain="internal-cf.posthog.com").exists()
+
+    @patch("posthog.api.proxy_record.sync_connect")
+    def test_allowlisted_org_still_cannot_create_shared_proxy_target(self, mock_sync_connect):
+        # The exception is scoped to posthog.com; shared Cloudflare/legacy CNAME targets stay
+        # unclaimable even for an allowlisted org.
+        with override_settings(PROXY_RESERVED_DOMAIN_ALLOWED_ORG_IDS=[str(self.organization.id)]):
+            response = self.client.post(
+                f"/api/organizations/{self.organization.id}/proxy_records/",
+                {"domain": "cf-prod-eu-proxy.europehog.com"},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not ProxyRecord.objects.filter(domain="cf-prod-eu-proxy.europehog.com").exists()
+        mock_sync_connect.assert_not_called()
+
+    @patch("posthog.api.proxy_record.sync_connect")
+    @patch("posthoganalytics.capture")
+    def test_allowlisted_org_can_retry_reserved_posthog_domain(self, mock_capture, mock_sync_connect):
+        mock_temporal = AsyncMock()
+        mock_sync_connect.return_value = mock_temporal
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="internal-cf.posthog.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=ProxyRecord.Status.ERRORING,
+        )
+
+        with override_settings(PROXY_RESERVED_DOMAIN_ALLOWED_ORG_IDS=[str(self.organization.id)]):
+            response = self.client.post(
+                f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        record.refresh_from_db()
+        assert record.status == ProxyRecord.Status.WAITING
+        mock_temporal.start_workflow.assert_called_once()
 
     @patch("posthog.api.proxy_record.sync_connect")
     def test_create_cleans_up_on_temporal_failure(self, mock_sync_connect):
