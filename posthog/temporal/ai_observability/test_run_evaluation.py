@@ -2769,9 +2769,9 @@ class TestSendEvaluationDisabledEmailActivity:
     @pytest.mark.django_db(transaction=True)
     async def test_does_not_email_a_member_who_turned_the_notification_off(self, setup_data):
         team = setup_data["team"]
-        user = await sync_to_async(lambda: setup_data["organization"].members.get())()
 
         def _opt_out() -> None:
+            user = setup_data["organization"].members.get()
             user.partial_notification_settings = {"ai_evaluation_disabled": False}
             user.save(update_fields=["partial_notification_settings"])
 
