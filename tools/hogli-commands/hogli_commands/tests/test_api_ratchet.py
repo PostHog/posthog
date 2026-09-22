@@ -18,6 +18,18 @@ export class ApiRequest {
         return this
     }
 
+    public organizations(): ApiRequest {
+        return this.addPathComponent('organizations')
+    }
+
+    public current(): ApiRequest {
+        return this.addPathComponent('@current')
+    }
+
+    public organizationMembers(): ApiRequest {
+        return this.organizations().current().addPathComponent('members')
+    }
+
     public projects(): ApiRequest {
         return this.addPathComponent('projects')
     }
@@ -40,6 +52,19 @@ export class ApiRequest {
 
     public propertyDefinitions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('property_definitions')
+    }
+
+    public signalReportSimilar(id: SignalReport['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.signalReports(teamId).addPathComponent(`${id}/similar`)
+    }
+
+    public signalScoutRuns(kind?: string, teamId?: TeamType['id']): ApiRequest {
+        const request = this.projectsDetail(teamId).addPathComponent('signals')
+        if (!kind) {
+            return request
+        }
+        request.addPathComponent('scout')
+        return request.addPathComponent(kind)
     }
 
     public hogFlows(): ApiRequest {
@@ -112,6 +137,12 @@ GENERATED_CORE = """\
 export const propertyDefinitionsList = (projectId: string) => {
     return apiMutator({ url: `/api/projects/${projectId}/property_definitions/`, method: 'GET' })
 }
+export const organizationMembersList = (organizationId: string) => {
+    return apiMutator({ url: `/api/organizations/${organizationId}/members/`, method: 'GET' })
+}
+export const remindersList = () => {
+    return apiMutator({ url: `/api/reminders/`, method: 'GET' })
+}
 """
 
 
@@ -128,10 +159,44 @@ def _write_repo(root: Path, api_ts: str = API_TS_FIXTURE, baseline: str | None =
         (root / api_ratchet.BASELINE).write_text(baseline)
 
 
+# Baseline lines carry the route, so the fixtures build them from the resolver.
+_FIXTURE_ROUTES = {
+    "signalReports": "projects/{}/signals/reports",
+    "signalReport": "projects/{}/signals/reports/{}",
+    "hogFlows": "projects/{}/hog_flows",
+    "propertyDefinitions": "projects/{}/property_definitions",
+    "organizationMembers": "organizations/{}/members",
+}
+
+
+def _baseline_lines(*names: str) -> str:
+    return "".join(f"{name} {_FIXTURE_ROUTES[name]}\n" for name in names)
+
+
 class TestApiRequestResolver:
     @parameterized.expand(
         [
             ("literal chain off projectsDetail", "signalReports", ["projects/{}/signals/reports"]),
+            # The prototype collapsed the whole template literal to one hole, which
+            # resolved this to the detail route and called it covered.
+            (
+                "a template literal keeps its literal segments",
+                "signalReportSimilar",
+                ["projects/{}/signals/reports/{}/similar"],
+            ),
+            # organizations().current() passes through another path method, and reading
+            # only the component builders dropped the @current segment.
+            (
+                "a chain through a path helper keeps its segments",
+                "organizationMembers",
+                ["organizations/@current/members"],
+            ),
+            # The second return reads a chain the first branch did not see.
+            (
+                "a mutation between two returns reaches the later one",
+                "signalScoutRuns",
+                ["projects/{}/signals", "projects/{}/signals/scout/{}"],
+            ),
             ("dynamic component becomes a hole", "signalReport", ["projects/{}/signals/reports/{}"]),
             ("environments alias is kept until normalization", "hogFlows", ["environments/{}/hog_flows"]),
             (
@@ -173,6 +238,7 @@ class TestRatchet:
             "signalReport": ["signals"],
             "hogFlows": ["workflows"],
             "propertyDefinitions": ["core"],
+            "organizationMembers": ["core"],
         }
 
     def test_namespaces_lists_only_those_calling_a_redundant_method(self, tmp_path: Path) -> None:
@@ -183,19 +249,50 @@ class TestRatchet:
         }
 
 
+class TestBaselineIdentity:
+    # Keyed on the name alone, a method that keeps its name and moves to another
+    # generated route would stay grandfathered.
+    def test_a_method_on_another_route_is_new_debt(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _write_repo(
+            tmp_path,
+            baseline=_baseline_lines("hogFlows", "propertyDefinitions", "organizationMembers", "signalReport")
+            + "signalReports projects/{}/signals/old_reports\n",
+        )
+        monkeypatch.setattr(api_ratchet, "REPO_ROOT", tmp_path)
+        result = runner.invoke(cmd_lint_api_ratchet, [])
+        assert result.exit_code == 1
+        assert "signalReports" in result.output
+
+    # A short template is not automatically plumbing: the generated clients really do
+    # emit routes such as /api/reminders/.
+    def test_only_the_scoping_prefixes_are_exempt(self, tmp_path: Path) -> None:
+        api_ts = API_TS_FIXTURE.replace(
+            "    public projects(): ApiRequest {",
+            "    public reminders(): ApiRequest {\n"
+            "        return this.addPathComponent('reminders')\n"
+            "    }\n\n"
+            "    public projects(): ApiRequest {",
+        )
+        _write_repo(tmp_path, api_ts=api_ts)
+        redundant = Ratchet(tmp_path).redundant
+        assert "reminders" in redundant
+        assert "projects" not in redundant
+        assert "organizations" not in redundant
+
+
 class TestBaselineFixModes:
     # Guards the fix path: --update-baseline here would grandfather the new duplicate.
     def test_prune_drops_stale_entries_and_leaves_new_debt_failing(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _write_repo(tmp_path, baseline="hogFlows\nlongGoneMethod\n")
+        _write_repo(tmp_path, baseline=_baseline_lines("hogFlows") + "longGoneMethod gone/route\n")
         monkeypatch.setattr(api_ratchet, "REPO_ROOT", tmp_path)
         assert runner.invoke(cmd_lint_api_ratchet, ["--prune-baseline"]).exit_code == 0
-        assert read_baseline(tmp_path) == {"hogFlows"}
+        assert read_baseline(tmp_path) == {"hogFlows projects/{}/hog_flows"}
         assert runner.invoke(cmd_lint_api_ratchet, []).exit_code == 1
 
     def test_update_warns_that_it_grandfathers_new_debt(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        _write_repo(tmp_path, baseline="hogFlows\n")
+        _write_repo(tmp_path, baseline=_baseline_lines("hogFlows"))
         monkeypatch.setattr(api_ratchet, "REPO_ROOT", tmp_path)
         result = runner.invoke(cmd_lint_api_ratchet, ["--update-baseline"])
         assert result.exit_code == 0
@@ -209,7 +306,7 @@ class TestCommand:
         return runner.invoke(cmd_lint_api_ratchet, list(args))
 
     def test_fails_on_a_method_missing_from_the_baseline(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        _write_repo(tmp_path, baseline="signalReport\nsignalReports\n")
+        _write_repo(tmp_path, baseline=_baseline_lines("signalReport", "signalReports"))
         result = self._run(monkeypatch, tmp_path)
         assert result.exit_code == 1
         assert "hogFlows" in result.output
@@ -217,16 +314,33 @@ class TestCommand:
     def test_passes_when_every_redundant_method_is_grandfathered(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _write_repo(tmp_path, baseline="hogFlows\npropertyDefinitions\nsignalReport\nsignalReports\n")
+        _write_repo(
+            tmp_path,
+            baseline=_baseline_lines(
+                "hogFlows", "propertyDefinitions", "organizationMembers", "signalReport", "signalReports"
+            ),
+        )
         assert self._run(monkeypatch, tmp_path).exit_code == 0
 
     def test_reports_a_stale_entry_without_failing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        _write_repo(tmp_path, baseline="hogFlows\npropertyDefinitions\nsignalReport\nsignalReports\nlongGoneMethod\n")
+        _write_repo(
+            tmp_path,
+            baseline=_baseline_lines(
+                "hogFlows", "propertyDefinitions", "organizationMembers", "signalReport", "signalReports"
+            )
+            + "longGoneMethod gone/route\n",
+        )
         result = self._run(monkeypatch, tmp_path)
         assert result.exit_code == 0
         assert "longGoneMethod" in result.output
 
     def test_update_baseline_drops_stale_and_adds_new(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        _write_repo(tmp_path, baseline="longGoneMethod\n")
+        _write_repo(tmp_path, baseline="longGoneMethod gone/route\n")
         assert self._run(monkeypatch, tmp_path, "--update-baseline").exit_code == 0
-        assert read_baseline(tmp_path) == {"signalReports", "signalReport", "hogFlows", "propertyDefinitions"}
+        assert read_baseline(tmp_path) == {
+            "signalReports projects/{}/signals/reports",
+            "signalReport projects/{}/signals/reports/{}",
+            "hogFlows projects/{}/hog_flows",
+            "propertyDefinitions projects/{}/property_definitions",
+            "organizationMembers organizations/{}/members",
+        }
