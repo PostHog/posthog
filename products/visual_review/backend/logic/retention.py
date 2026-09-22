@@ -162,9 +162,20 @@ class RetentionSweep:
         )
 
     def _expired_superseded_run_ids(self, limit: int) -> list[UUID]:
+        merge_queue = Q(branch__startswith=MERGE_QUEUE_BRANCH_PREFIX)
         expired = (
-            _PROTECTED_HISTORY & Q(created_at__lt=self.now - timedelta(days=DEFAULT_BRANCH_RUN_RETENTION_DAYS))
-        ) | (~_PROTECTED_HISTORY & Q(created_at__lt=self.now - timedelta(days=SUPERSEDED_RUN_RETENTION_DAYS)))
+            (_PROTECTED_HISTORY & Q(created_at__lt=self.now - timedelta(days=DEFAULT_BRANCH_RUN_RETENTION_DAYS)))
+            | (
+                ~_PROTECTED_HISTORY
+                & ~merge_queue
+                & Q(created_at__lt=self.now - timedelta(days=SUPERSEDED_RUN_RETENTION_DAYS))
+            )
+            | (
+                ~_PROTECTED_HISTORY
+                & merge_queue
+                & Q(created_at__lt=self.now - timedelta(days=MERGE_QUEUE_RUN_RETENTION_DAYS))
+            )
+        )
         return list(
             self._runs()
             .filter(Q(superseded_by__isnull=False) & expired)
@@ -237,6 +248,9 @@ class RetentionSweep:
                 break
             with transaction.atomic(using=WRITER_DB):
                 # A quarantine can name the run after the candidate query read it.
+                # Its insert takes a key-share lock on the run row, so locking the
+                # row first makes the check and the delete see the same quarantines.
+                list(self._runs().select_for_update().filter(id=run_id).values_list("id", flat=True))
                 if self._runs().filter(self._source_of_active_quarantine(), id=run_id).exists():
                     continue
                 self._splice_out_of_chain(run_id)
