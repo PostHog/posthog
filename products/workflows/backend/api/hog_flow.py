@@ -838,15 +838,6 @@ BROADCAST_TRIGGER_TYPE = "batch"
 BROADCAST_ALLOWED_ACTION_TYPES = frozenset({"trigger", "function_email", "exit"})
 
 
-def is_broadcast_shaped(trigger_config: dict, actions: list[dict]) -> bool:
-    # The conditions _validate_broadcast_shape enforces, as a plain predicate.
-    if trigger_config.get("type") != BROADCAST_TRIGGER_TYPE:
-        return False
-    if any(a.get("type") not in BROADCAST_ALLOWED_ACTION_TYPES for a in actions):
-        return False
-    return len([a for a in actions if a.get("type") == "function_email"]) == 1
-
-
 def _json_path(path: str) -> models.Func:
     # A jsonpath bind parameter. Postgres types a plain parameter as text and the jsonb_path_*
     # functions take jsonpath, so the cast has to be spelled out.
@@ -863,8 +854,8 @@ def _jsonb_path_exists(path: str) -> models.Func:
 
 
 def annotate_broadcast_shape(queryset: QuerySet) -> QuerySet:
-    # The parts of is_broadcast_shaped, evaluated in Postgres so a list can filter on the graph
-    # without loading every row's actions. The trigger comes from the trigger action, where
+    # The conditions _validate_broadcast_shape enforces, evaluated in Postgres so a list can filter
+    # on the graph without loading every row's actions. The trigger comes from the trigger action, where
     # mask_trigger_config reads it: the `trigger` column is a legacy copy and rows exist where the
     # two disagree. jsonpath runs in lax mode, so a row whose `actions` is not an array yields no
     # matches rather than an error.

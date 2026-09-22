@@ -60,7 +60,7 @@ export interface BroadcastRowDetails {
 const BROADCAST_TRIGGER_TYPE = 'batch'
 const BROADCAST_ALLOWED_ACTION_TYPES = ['trigger', 'function_email', 'exit']
 
-// Mirrors is_broadcast_shaped in the workflows API; the two have to stay in step.
+// Mirrors annotate_broadcast_shape in the workflows API; the two have to stay in step.
 export function isBroadcastShaped(flow: { trigger?: unknown; actions?: unknown }): boolean {
     const trigger = flow.trigger as { type?: string } | null | undefined
     if (trigger?.type !== BROADCAST_TRIGGER_TYPE) {
