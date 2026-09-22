@@ -2,10 +2,8 @@ import os
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
 
-# Claude Code sends a one-token message to the gateway before it accepts a model switch,
-# and the agent switches from its launch alias to the resolved model id on every new session.
+# Claude Code checks each model switch with a max_tokens=1 message, and the agent switches models on every new session.
 MODEL_CHECK_REPLY = {
     "id": "msg_workflow_test",
     "type": "message",
@@ -58,7 +56,7 @@ def main() -> None:
                 self.rfile.read(int(self.headers.get("Content-Length", "0")))
                 if self.path == f"{run_path}append_log/":
                     self.respond(200, run)
-                elif urlparse(self.path).path.endswith("/v1/messages"):
+                elif self.path.partition("?")[0].endswith("/v1/messages"):
                     self.respond(200, MODEL_CHECK_REPLY)
                 else:
                     self.respond(404, {"detail": "Unexpected test API request"})

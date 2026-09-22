@@ -182,8 +182,7 @@ class TestProcessTaskWorkflow:
 
     @pytest.fixture
     def sandbox_task_api(self, settings, test_task_run: TaskRun) -> Callable[[SandboxBase], None]:
-        settings.SANDBOX_API_URL = "http://127.0.0.1:8765"
-        settings.SANDBOX_LLM_GATEWAY_URL = "http://127.0.0.1:8765"
+        settings.SANDBOX_API_URL = settings.SANDBOX_LLM_GATEWAY_URL = "http://127.0.0.1:8765"
         test_task_run.state = {"prewarmed": True, "await_user_message": True}
         test_task_run.save(update_fields=["state"])
         task = test_task_run.task
