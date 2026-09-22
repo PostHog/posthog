@@ -33,7 +33,7 @@ describe('createRedisV2PoolFromConfig()', () => {
         acquire.mockRejectedValue(new Error('pool exhausted'))
         const redis = buildRedis()
 
-        await expect(redis.useClient({ name: 'ping', timeout: 100 }, async () => 'unused')).rejects.toThrow(
+        await expect(redis.useClient({ name: 'ping', timeout: 100 }, () => Promise.resolve('unused'))).rejects.toThrow(
             'pool exhausted'
         )
         jest.runOnlyPendingTimers()
@@ -47,7 +47,9 @@ describe('createRedisV2PoolFromConfig()', () => {
         acquire.mockResolvedValue(client)
         const redis = buildRedis()
 
-        await expect(redis.useClient({ name: 'ping', timeout: 100 }, async () => 'value')).resolves.toBe('value')
+        await expect(redis.useClient({ name: 'ping', timeout: 100 }, () => Promise.resolve('value'))).resolves.toBe(
+            'value'
+        )
         jest.runOnlyPendingTimers()
 
         expect(captureExceptionSpy).not.toHaveBeenCalled()
