@@ -30,6 +30,9 @@ export enum DashboardsTab {
     Templates = 'templates',
 }
 
+/** What the dashboards list region resolves to, once loading and failure are taken into account. */
+export type DashboardsListState = 'loading' | 'load-failed' | 'populated' | 'empty-filtered' | 'empty-tab' | 'empty'
+
 const DEFAULT_SORTING: Sorting = { columnKey: 'name', order: 1 }
 
 export interface DashboardsFilters {
@@ -88,10 +91,12 @@ export interface dashboardsLogicValues {
     currentTab: DashboardsTab
     dashboards: DashboardBasicType[]
     dashboardsById: Record<string, DashboardBasicType>
+    emptyListMessage: string
     filedDashboardIds: Set<number>
     filters: DashboardsFilters
     hasMoreTagResults: boolean
     isFiltering: boolean
+    listState: DashboardsListState
     searchedDashboards: DashboardBasicType[] | null
     searchedDashboardsLoading: boolean
     showTagPopover: boolean
@@ -250,6 +255,14 @@ export interface dashboardsLogicMeta {
         ) => DashboardBasicType[]
         dashboardsById: (dashboards: DashboardBasicType[]) => Record<string, DashboardBasicType>
         filedDashboardIds: (dashboards: DashboardBasicType[]) => Set<number>
+        listState: (
+            dashboardsLoading: boolean,
+            loadDashboardsFailed: boolean,
+            dashboards: DashboardBasicType[],
+            isFiltering: boolean,
+            currentTab: DashboardsTab
+        ) => DashboardsListState
+        emptyListMessage: (listState: DashboardsListState, currentTab: DashboardsTab) => string
     }
 }
 
@@ -487,6 +500,52 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             },
         ],
 
+        listState: [
+            (s) => [
+                dashboardsModel.selectors.dashboardsLoading,
+                dashboardsModel.selectors.loadDashboardsFailed,
+                s.dashboards,
+                s.isFiltering,
+                s.currentTab,
+            ],
+            (
+                dashboardsLoading: boolean,
+                loadDashboardsFailed: boolean,
+                dashboards: DashboardBasicType[],
+                isFiltering: boolean,
+                currentTab: DashboardsTab
+            ): DashboardsListState => {
+                // A failed load leaves dashboardsLoading true for good, so it has to be read first.
+                if (loadDashboardsFailed) {
+                    return 'load-failed'
+                }
+                if (dashboardsLoading) {
+                    return 'loading'
+                }
+                if (dashboards.length > 0) {
+                    return 'populated'
+                }
+                if (isFiltering) {
+                    return 'empty-filtered'
+                }
+                return currentTab === DashboardsTab.Yours || currentTab === DashboardsTab.Pinned ? 'empty-tab' : 'empty'
+            },
+        ],
+        emptyListMessage: [
+            (s) => [s.listState, s.currentTab],
+            (listState: DashboardsListState, currentTab: DashboardsTab): string => {
+                if (listState === 'empty-filtered') {
+                    return 'No dashboards match your filters. Clear them to see the rest.'
+                }
+                if (currentTab === DashboardsTab.Yours) {
+                    return "You haven't created a dashboard yet. Create one, or open All dashboards to see what the rest of the project has."
+                }
+                if (currentTab === DashboardsTab.Pinned) {
+                    return 'No pinned dashboards yet. Pin one from All dashboards to keep it here.'
+                }
+                return 'This project has no dashboards yet. Create one to get started.'
+            },
+        ],
         dashboardsById: [
             (s) => [s.dashboards],
             (dashboards: DashboardBasicType[]): Record<string, DashboardBasicType> =>

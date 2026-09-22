@@ -149,6 +149,7 @@ class TeamManager(models.Manager):
             name="Your starter dashboard",
             pinned=True,
             team=team,
+            created_by=initiating_user,
             description=template.dashboard_description or "",
         )
         create_from_template(dashboard, template)
