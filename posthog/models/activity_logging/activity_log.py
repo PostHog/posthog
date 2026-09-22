@@ -511,6 +511,7 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
 # Activity visibility restrictions - controls which users can see certain activity logs
 # Used to hide sensitive activities (e.g., impersonated logins, user account changes) from non-staff users
 activity_visibility_restrictions: list[dict[str, Any]] = [
+    {"scope": "Integration", "activities": ["github_diagnostic"], "allow_staff": True},
     {
         "scope": "User",
         "activities": ["logged_in", "logged_out"],
@@ -1516,7 +1517,7 @@ def load_activity(
     if item_ids is not None:
         activity_query = activity_query.filter(item_id__in=item_ids)
 
-    return get_activity_page(activity_query, limit, page)
+    return get_activity_page(apply_activity_visibility_restrictions(activity_query, None), limit, page)
 
 
 def load_all_activity(scope_list: list[ActivityScope], team_id: int, limit: int = 10, page: int = 1):
@@ -1524,7 +1525,7 @@ def load_all_activity(scope_list: list[ActivityScope], team_id: int, limit: int 
         ActivityLog.objects.select_related("user").filter(team_id=team_id, scope__in=scope_list).order_by("-created_at")
     )
 
-    return get_activity_page(activity_query, limit, page)
+    return get_activity_page(apply_activity_visibility_restrictions(activity_query, None), limit, page)
 
 
 @receiver(post_save, sender=ActivityLog)

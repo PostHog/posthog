@@ -49,6 +49,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, GitHubIntegrationError, Integration
+from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user import User
 from posthog.models.user_integration import GitHubInstallRequest, UserGitHubIntegration, UserIntegration
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission
@@ -425,16 +426,27 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         if integration is None:
             raise exceptions.NotFound("No GitHub integration found for this installation.")
 
-        # Notify GitHub to uninstall the App, but only if no other PostHog team or user
-        # still relies on this installation (uninstalling breaks it for everyone sharing it).
+        audit = GitHubAudit.personal(integration, user)
+        remaining = UserGitHubIntegration.installation_reference_count(
+            installation_id, exclude_user_integration_id=integration.id
+        )
+        audit.record("disconnect_started", last_reference=remaining == 0)
         try:
-            UserGitHubIntegration.uninstall_if_last_reference(
-                installation_id, exclude_user_integration_id=integration.id
+            outcome = (
+                UserGitHubIntegration.uninstall_app_installation_status(installation_id)
+                if remaining == 0
+                else "skipped"
             )
+            audit.record("uninstall_completed", outcome=outcome)
         except Exception as e:
             capture_exception(e)
-
-        integration.delete()
+            audit.record("uninstall_completed", outcome="failed", failure_type=type(e).__name__)
+        try:
+            integration.delete()
+        except Exception as exc:
+            audit.record("disconnect_failed", stage="personal_deletion", failure_type=type(exc).__name__)
+            raise
+        audit.record("credential_deleted", after_commit=True, reason="personal_disconnect")
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(

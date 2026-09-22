@@ -1,15 +1,20 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import apiReal, { ApiError } from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { IntegrationKind, IntegrationType } from '~/types'
+
+import * as integrationsApi from 'products/integrations/frontend/generated/api'
+import type { GitHubAvailableInstallationsResponseApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import { integrationsLogic } from './integrationsLogic'
 
@@ -39,6 +44,11 @@ describe('integrationsLogic', () => {
         // Handlers reset after every test, so register them per test.
         useMocks({
             get: {
+                '/api/projects/:team_id/integrations/github/available_installations/': {
+                    installations: [],
+                    personal_github_connected: false,
+                    personal_discovery_status: 'not_connected',
+                },
                 '/api/projects/:team_id/integrations/': () => [200, { results: integrationsPayload }],
                 '/api/projects/:team_id/integrations/:id/github_repos/': ({ params, request }) => {
                     const offset = new URL(request.url).searchParams.get('offset') ?? '0'
@@ -63,6 +73,83 @@ describe('integrationsLogic', () => {
     afterEach(() => {
         jest.useRealTimers()
         jest.restoreAllMocks()
+    })
+
+    describe('GitHub discovery freshness', () => {
+        const discovery = (id: string): GitHubAvailableInstallationsResponseApi => ({
+            discovery_id: id,
+            discovered_at: new Date().toISOString(),
+            personal_github_connected: true,
+            personal_github_login: 'synthetic-reader',
+            personal_discovery_status: 'ok',
+            installations: [
+                {
+                    installation_id: id,
+                    account_name: 'synthetic-owner',
+                    account_type: 'Organization',
+                    source_team_id: null,
+                    source_team_name: null,
+                },
+            ],
+        })
+
+        it.each(['invalidate', 'newer response', 'project switch'])(
+            'rejects a delayed response after %s',
+            async (change) => {
+                let resolve!: (response: GitHubAvailableInstallationsResponseApi) => void
+                const pending = new Promise<GitHubAvailableInstallationsResponseApi>((done) => {
+                    resolve = done
+                })
+                const request = jest
+                    .spyOn(integrationsApi, 'integrationsGithubAvailableInstallationsRetrieve')
+                    .mockReturnValueOnce(pending)
+                logic.actions.loadGithubAvailableInstallations()
+                if (change === 'invalidate') {
+                    logic.actions.invalidateGithubSuggestions()
+                } else if (change === 'newer response') {
+                    request.mockResolvedValueOnce(discovery('new'))
+                    logic.actions.loadGithubAvailableInstallations()
+                    await waitFor(() =>
+                        expect(logic.values.githubAvailableInstallations?.[0].installation_id).toBe('new')
+                    )
+                } else {
+                    teamLogic.actions.loadCurrentTeamSuccess({ ...teamLogic.values.currentTeam!, id: 999 })
+                }
+                resolve(discovery('old'))
+                await pending
+                await new Promise<void>((done) => queueMicrotask(done))
+                expect(logic.values.githubAvailableInstallations?.[0]?.installation_id ?? null).toBe(
+                    change === 'newer response' ? 'new' : null
+                )
+            }
+        )
+
+        it('hides invalidated suggestions and exposes refresh failure for retry', async () => {
+            const request = jest
+                .spyOn(integrationsApi, 'integrationsGithubAvailableInstallationsRetrieve')
+                .mockResolvedValueOnce(discovery('old'))
+            logic.actions.loadGithubAvailableInstallations()
+            await waitFor(() => expect(logic.values.githubAvailableInstallations).toHaveLength(1))
+            request.mockRejectedValueOnce(new Error('synthetic failure'))
+            logic.actions.loadGithubAvailableInstallations()
+            expect(logic.values.githubAvailableInstallations).toBeNull()
+            await waitFor(() => expect(logic.values.githubDiscoveryFailed).toBe(true))
+            expect(logic.values.githubAvailableInstallationsResponseLoading).toBe(false)
+        })
+
+        it('refreshes suggestions when polling sees changed GitHub connections', async () => {
+            const request = jest
+                .spyOn(integrationsApi, 'integrationsGithubAvailableInstallationsRetrieve')
+                .mockResolvedValue(discovery('fresh'))
+            logic.actions.startPolling()
+            integrationsPayload = [githubIntegration()]
+            await expectLogic(logic, () => logic.actions.loadIntegrations()).toDispatchActions([
+                'loadIntegrationsSuccess',
+                'loadGithubAvailableInstallations',
+            ])
+            expect(request).toHaveBeenCalled()
+            logic.actions.stopPolling()
+        })
     })
 
     describe('GitHub repositories', () => {
@@ -136,6 +223,39 @@ describe('integrationsLogic', () => {
 
             expect(dialogProps.title).toBe('Disconnect GitHub?')
             expect(dialogProps.description).toBe(description)
+        })
+
+        it.each([false, true])('refreshes suggestions after disconnect with failure=%s', async (fails) => {
+            integrationsPayload = [githubIntegration()]
+            await expectLogic(logic, () => logic.actions.loadIntegrations()).toDispatchActions([
+                'loadIntegrationsSuccess',
+            ])
+            const discoveryRequest = jest
+                .spyOn(integrationsApi, 'integrationsGithubAvailableInstallationsRetrieve')
+                .mockResolvedValue({
+                    installations: [],
+                    personal_github_connected: false,
+                    personal_discovery_status: 'not_connected',
+                    personal_github_login: null,
+                    discovery_id: 'fresh',
+                    discovered_at: new Date().toISOString(),
+                })
+            let finish!: () => void
+            const deletion = new Promise<IntegrationType>((resolve, reject) => {
+                finish = () => (fails ? reject(new ApiError('synthetic failure', 500)) : resolve(githubIntegration()))
+            })
+            jest.spyOn(apiReal.integrations, 'delete').mockReturnValue(deletion)
+            jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
+            logic.actions.deleteIntegration(42)
+            const click = dialogProps.primaryButton.onClick()
+            expect(logic.values.githubAvailableInstallations).toBeNull()
+            expect(logic.values.githubAvailableInstallationsResponseLoading).toBe(true)
+            logic.actions.loadGithubAvailableInstallations()
+            expect(discoveryRequest).not.toHaveBeenCalled()
+            finish()
+            await click
+            await waitFor(() => expect(discoveryRequest).toHaveBeenCalledTimes(1))
+            await waitFor(() => expect(logic.values.githubAvailableInstallationsResponseLoading).toBe(false))
         })
 
         it('treats a 404 on delete as already disconnected and reloads', async () => {

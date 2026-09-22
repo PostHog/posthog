@@ -26,6 +26,7 @@ import { EmailIntegrationDomainGroupedType, IntegrationKind, IntegrationType } f
 import {
     integrationsGithubAvailableInstallationsRetrieve,
     integrationsGithubReposRetrieve,
+    integrationsGithubLinkExistingCreate,
     integrationsList,
     integrationsRequestAccessCreate,
 } from 'products/integrations/frontend/generated/api'
@@ -34,6 +35,7 @@ import type {
     GitHubAvailableInstallationsResponseApi,
     GitHubRepoApi,
     InstallationStatusEnumApi,
+    IntegrationConfigApi,
     IntegrationKindEnumApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 import { ChannelType } from 'products/workflows/frontend/Channels/MessageChannels'
@@ -126,6 +128,10 @@ export interface integrationsLogicValues {
     githubAvailableInstallations: GitHubAvailableInstallationApi[] | null
     githubAvailableInstallationsResponse: GitHubAvailableInstallationsResponseApi | null
     githubAvailableInstallationsResponseLoading: boolean
+    githubDisconnecting: boolean
+    githubDiscoveryFailed: boolean
+    githubDiscoveryGeneration: number
+    githubDiscoveryProjectId: number | string | null
     githubIntegrations: IntegrationType[]
     githubPersonalConnected: boolean | null
     githubRepositories: Record<number, GitHubRepoApi[]>
@@ -134,7 +140,7 @@ export interface integrationsLogicValues {
     integrations: IntegrationType[] | null
     integrationsLoading: boolean
     linearIntegrations: IntegrationType[]
-    linkedGithubInstallation: IntegrationType | null
+    linkedGithubInstallation: IntegrationConfigApi | null
     linkedGithubInstallationLoading: boolean
     newIntegrationModalId: string | null
     newIntegrationModalKind: IntegrationKind | null
@@ -159,6 +165,13 @@ export interface integrationsLogicActions {
     markTaskAsCompleted: (taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]) => {
         taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]
     } // globalSetupLogic
+    loadCurrentTeamSuccess: (
+        currentTeam: null | import('~/types').TeamPublicType,
+        payload?: any
+    ) => {
+        currentTeam: null | import('~/types').TeamPublicType
+        payload?: any
+    } // teamLogic
     closeNewIntegrationModal: () => {
         value: true
     }
@@ -219,6 +232,9 @@ export interface integrationsLogicActions {
             | 'youtube-analytics'
         searchParams: any
     }
+    invalidateGithubSuggestions: () => {
+        value: true
+    }
     linkExistingGithubInstallation: (installationId?: string) => string
     linkExistingGithubInstallationFailure: (
         error: string,
@@ -228,10 +244,10 @@ export interface integrationsLogicActions {
         errorObject?: any
     }
     linkExistingGithubInstallationSuccess: (
-        linkedGithubInstallation: IntegrationType,
+        linkedGithubInstallation: IntegrationConfigApi,
         payload?: string
     ) => {
-        linkedGithubInstallation: IntegrationType
+        linkedGithubInstallation: IntegrationConfigApi
         payload?: string
     }
     loadGitHubRepositories: (integrationId: number) => {
@@ -258,22 +274,10 @@ export interface integrationsLogicActions {
         repositories: GitHubRepoApi[]
         total: number | null
     }
-    loadGithubAvailableInstallations: () => any
-    loadGithubAvailableInstallationsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
+    loadGithubAvailableInstallations: () => {
+        value: true
     }
-    loadGithubAvailableInstallationsSuccess: (
-        githubAvailableInstallationsResponse: GitHubAvailableInstallationsResponseApi,
-        payload?: any
-    ) => {
-        githubAvailableInstallationsResponse: GitHubAvailableInstallationsResponseApi
-        payload?: any
-    }
-    loadIntegrations: () => any
+    loadIntegrations: (_?: any) => any
     loadIntegrationsFailure: (
         error: string,
         errorObject?: any
@@ -601,6 +605,18 @@ export interface integrationsLogicActions {
     setAccessRequestReason: (reason: string) => {
         reason: string
     }
+    setGithubDisconnecting: (disconnecting: boolean) => {
+        disconnecting: boolean
+    }
+    setGithubDiscovery: (
+        response: GitHubAvailableInstallationsResponseApi | null,
+        projectId: number | string,
+        failed: boolean
+    ) => {
+        failed: boolean
+        projectId: number | string
+        response: GitHubAvailableInstallationsResponseApi | null
+    }
     startPolling: () => {
         value: true
     }
@@ -616,7 +632,9 @@ export interface integrationsLogicMeta {
         githubIntegrations: (integrations: IntegrationType[] | null) => IntegrationType[]
         linearIntegrations: (integrations: IntegrationType[] | null) => IntegrationType[]
         githubAvailableInstallations: (
-            githubAvailableInstallationsResponse: GitHubAvailableInstallationsResponseApi | null
+            githubAvailableInstallationsResponse: GitHubAvailableInstallationsResponseApi | null,
+            githubDiscoveryProjectId: number | string | null,
+            currentProjectId: number | string
         ) => GitHubAvailableInstallationApi[] | null
         githubPersonalConnected: (
             githubAvailableInstallationsResponse: GitHubAvailableInstallationsResponseApi | null
@@ -696,7 +714,14 @@ export const integrationsLogic = kea<integrationsLogicType>([
     path(['lib', 'integrations', 'integrationsLogic']),
     connect(() => ({
         values: [preflightLogic, ['siteUrlMisconfigured', 'preflight'], teamLogic, ['currentProjectId']],
-        actions: [globalSetupLogic, ['markTaskAsCompleted'], eventUsageLogic, ['reportIntegrationConnectRejected']],
+        actions: [
+            globalSetupLogic,
+            ['markTaskAsCompleted'],
+            eventUsageLogic,
+            ['reportIntegrationConnectRejected'],
+            teamLogic,
+            ['loadCurrentTeamSuccess'],
+        ],
     })),
 
     actions({
@@ -707,6 +732,14 @@ export const integrationsLogic = kea<integrationsLogicType>([
             callback,
         }),
         deleteIntegration: (id: number) => ({ id }),
+        invalidateGithubSuggestions: true,
+        setGithubDisconnecting: (disconnecting: boolean) => ({ disconnecting }),
+        loadGithubAvailableInstallations: true,
+        setGithubDiscovery: (
+            response: GitHubAvailableInstallationsResponseApi | null,
+            projectId: number | string,
+            failed: boolean
+        ) => ({ response, projectId, failed }),
         openNewIntegrationModal: (kind: IntegrationKind, id: string) => ({ kind, id }),
         closeNewIntegrationModal: true,
         openSetupModal: (integration?: IntegrationType, channelType?: ChannelType) => ({ integration, channelType }),
@@ -730,6 +763,43 @@ export const integrationsLogic = kea<integrationsLogicType>([
         stopPolling: true,
     }),
     reducers({
+        integrations: [null as IntegrationType[] | null, { loadCurrentTeamSuccess: () => null }],
+        githubDisconnecting: [false, { setGithubDisconnecting: (_, { disconnecting }) => disconnecting }],
+        githubDiscoveryGeneration: [
+            0,
+            {
+                invalidateGithubSuggestions: (state) => state + 1,
+                loadGithubAvailableInstallations: (state) => state + 1,
+            },
+        ],
+        githubDiscoveryProjectId: [
+            null as number | string | null,
+            { setGithubDiscovery: (_, { projectId }) => projectId },
+        ],
+        githubAvailableInstallationsResponse: [
+            null as GitHubAvailableInstallationsResponseApi | null,
+            {
+                invalidateGithubSuggestions: () => null,
+                loadGithubAvailableInstallations: () => null,
+                setGithubDiscovery: (_, { response }) => response,
+            },
+        ],
+        githubAvailableInstallationsResponseLoading: [
+            false,
+            {
+                invalidateGithubSuggestions: () => true,
+                loadGithubAvailableInstallations: () => true,
+                setGithubDiscovery: () => false,
+            },
+        ],
+        githubDiscoveryFailed: [
+            false,
+            {
+                loadGithubAvailableInstallations: () => false,
+                invalidateGithubSuggestions: () => false,
+                setGithubDiscovery: (_, { failed }) => failed,
+            },
+        ],
         newIntegrationModalId: [
             null as string | null,
             {
@@ -831,12 +901,14 @@ export const integrationsLogic = kea<integrationsLogicType>([
         integrations: [
             null as IntegrationType[] | null,
             {
-                loadIntegrations: async () => {
+                loadIntegrations: async (_ = undefined, breakpoint) => {
+                    const projectId = values.currentProjectId
                     const integrations: IntegrationType[] = []
                     let offset = 0
                     let hasNext = true
                     while (hasNext) {
-                        const res = await integrationsList(String(values.currentProjectId), { limit: 100, offset })
+                        const res = await integrationsList(String(projectId), { limit: 100, offset })
+                        await breakpoint()
                         for (const integration of res.results) {
                             // The API serves kinds this union does not name yet, and consumers such as
                             // PosthogConnect read them, so every result is kept and only the icon is optional.
@@ -901,7 +973,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             },
         ],
         linkedGithubInstallation: [
-            null as IntegrationType | null,
+            null as IntegrationConfigApi | null,
             {
                 // Reuse a GitHub App installation already connected to another project in the same
                 // org. A GitHub App installs once per org, so a second project can't reinstall; this
@@ -911,22 +983,23 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 linkExistingGithubInstallation: async (installationId?: string) => {
                     // The global kea-loaders failure handler shows the API detail. Do not add a
                     // local toast here because the rejected loader would then show both messages.
-                    const integration = await api.integrations.githubLinkExisting(
-                        installationId ? { installation_id: installationId } : {}
-                    )
+                    const discoveryId = values.githubAvailableInstallationsResponse?.discovery_id
+                    const projectId = values.currentProjectId
+                    actions.invalidateGithubSuggestions()
+                    let integration
+                    try {
+                        integration = await integrationsGithubLinkExistingCreate(String(projectId), {
+                            installation_id: installationId,
+                            discovery_id: discoveryId,
+                        })
+                    } finally {
+                        if (values.currentProjectId === projectId) {
+                            actions.loadGithubAvailableInstallations()
+                        }
+                    }
                     lemonToast.success('Linked the existing GitHub installation to this project.')
                     actions.loadIntegrations()
                     return integration
-                },
-            },
-        ],
-        githubAvailableInstallationsResponse: [
-            null as GitHubAvailableInstallationsResponseApi | null,
-            {
-                // The org's other GitHub installations, so the UI can offer a picker when there's
-                // more than one, rather than failing the auto-resolve link as ambiguous.
-                loadGithubAvailableInstallations: async () => {
-                    return await integrationsGithubAvailableInstallationsRetrieve(String(values.currentProjectId))
                 },
             },
         ],
@@ -950,6 +1023,45 @@ export const integrationsLogic = kea<integrationsLogicType>([
         ],
     })),
     listeners(({ actions, values, cache }) => ({
+        loadCurrentTeamSuccess: () => {
+            actions.invalidateGithubSuggestions()
+            actions.loadIntegrations()
+            if (values.pollingSubscribers > 0) {
+                actions.loadGithubAvailableInstallations()
+            }
+        },
+        loadGithubAvailableInstallations: async () => {
+            if (values.githubDisconnecting) {
+                return
+            }
+            const projectId = values.currentProjectId
+            const generation = values.githubDiscoveryGeneration
+            try {
+                const response = await integrationsGithubAvailableInstallationsRetrieve(String(projectId))
+                if (projectId === values.currentProjectId && generation === values.githubDiscoveryGeneration) {
+                    actions.setGithubDiscovery(response, projectId, false)
+                }
+            } catch {
+                if (projectId === values.currentProjectId && generation === values.githubDiscoveryGeneration) {
+                    actions.setGithubDiscovery(null, projectId, true)
+                }
+            }
+        },
+        loadIntegrationsSuccess: ({ integrations }) => {
+            const fingerprint = JSON.stringify(
+                integrations
+                    ?.filter((row) => row.kind === 'github')
+                    .map((row) => [row.id, row.config?.installation_id, row.config?.account, row.installation_status])
+            )
+            if (
+                cache.githubConnectionFingerprint !== undefined &&
+                cache.githubConnectionFingerprint !== fingerprint &&
+                values.pollingSubscribers > 0
+            ) {
+                actions.loadGithubAvailableInstallations()
+            }
+            cache.githubConnectionFingerprint = fingerprint
+        },
         loadGitHubRepositories: ({ integrationId }) => {
             actions.loadGitHubRepositoriesPage(integrationId, 0)
         },
@@ -989,7 +1101,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
             }, 'poll')
             cache.disposables.add(
                 () => {
-                    const onFocus = (): void => actions.loadIntegrations()
+                    const onFocus = (): void => {
+                        actions.loadIntegrations()
+                        actions.loadGithubAvailableInstallations()
+                    }
                     window.addEventListener('focus', onFocus)
                     return () => window.removeEventListener('focus', onFocus)
                 },
@@ -1119,6 +1234,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     children: 'Disconnect',
                     status: 'danger',
                     onClick: async () => {
+                        if (integration.kind === 'github') {
+                            actions.setGithubDisconnecting(true)
+                            actions.invalidateGithubSuggestions()
+                        }
                         try {
                             await api.integrations.delete(id)
                             actions.loadIntegrations()
@@ -1128,6 +1247,11 @@ export const integrationsLogic = kea<integrationsLogicType>([
                                 actions.loadIntegrations()
                             } else {
                                 toastApiError(e)
+                            }
+                        } finally {
+                            if (integration.kind === 'github') {
+                                actions.setGithubDisconnecting(false)
+                                actions.loadGithubAvailableInstallations()
                             }
                         }
                     },
@@ -1176,9 +1300,13 @@ export const integrationsLogic = kea<integrationsLogicType>([
             },
         ],
         githubAvailableInstallations: [
-            (s) => [s.githubAvailableInstallationsResponse],
-            (response: GitHubAvailableInstallationsResponseApi | null): GitHubAvailableInstallationApi[] | null => {
-                return response?.installations ?? null
+            (s) => [s.githubAvailableInstallationsResponse, s.githubDiscoveryProjectId, s.currentProjectId],
+            (
+                response: GitHubAvailableInstallationsResponseApi | null,
+                projectId: number | string | null,
+                currentProjectId: number | string
+            ): GitHubAvailableInstallationApi[] | null => {
+                return projectId === currentProjectId ? (response?.installations ?? null) : null
             },
         ],
         githubPersonalConnected: [

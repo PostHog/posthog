@@ -36,6 +36,7 @@ def _authorization(gh_id: int = 99, gh_login: str = "octocat") -> GitHubUserAuth
     return GitHubUserAuthorization(
         gh_id=gh_id,
         gh_login=gh_login,
+        identity_verified_at=123,
         access_token="gho_access",
         refresh_token="ghr_refresh",
         access_token_expires_in=28800,
@@ -296,9 +297,9 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         response = self.client.delete("/api/users/@me/integrations/github/99999/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation")
+    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation_status")
     def test_delete_last_reference_calls_github_uninstall(self, mock_uninstall):
-        mock_uninstall.return_value = True
+        mock_uninstall.return_value = "uninstalled"
         _create_user_integration(self.user, integration_id="12345")
 
         response = self.client.delete("/api/users/@me/integrations/github/12345/")
@@ -307,7 +308,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         mock_uninstall.assert_called_once_with("12345")
         self.assertFalse(UserIntegration.objects.filter(integration_id="12345").exists())
 
-    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation")
+    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation_status")
     def test_delete_skips_uninstall_when_team_reference_exists(self, mock_uninstall):
         _create_user_integration(self.user, integration_id="12345")
         Integration.objects.create(
@@ -320,7 +321,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         mock_uninstall.assert_not_called()
         self.assertFalse(UserIntegration.objects.filter(user=self.user, integration_id="12345").exists())
 
-    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation")
+    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation_status")
     def test_delete_skips_uninstall_when_other_user_reference_exists(self, mock_uninstall):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
         _create_user_integration(self.user, integration_id="12345")
@@ -1078,10 +1079,12 @@ class TestUserGitHubIntegration(APIBaseTest):
         }
         mock_post.return_value = mock_response
 
-        gh = self._make_integration()
+        gh = self._make_integration(credential_version="synthetic-old-version", identity_verified_at=123)
         gh.refresh_user_access_token()
 
         gh.integration.refresh_from_db()
+        self.assertNotEqual(gh.integration.config["credential_version"], "synthetic-old-version")
+        self.assertEqual(gh.integration.config["identity_verified_at"], 123)
         self.assertEqual(gh.user_access_token, "gho_new")
         self.assertEqual(gh.user_refresh_token, "ghr_new")
 
@@ -1196,6 +1199,7 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
         self.assertEqual(integration.sensitive_config["access_token"], "ghs_install")
         self.assertEqual(integration.sensitive_config["user_access_token"], "gho_access")
         self.assertEqual(integration.sensitive_config["user_refresh_token"], "ghr_refresh")
+        self.assertEqual(integration.config["identity_verified_at"], 123)
 
     def test_different_installation_creates_second_integration(self):
         _create_user_integration(self.user)

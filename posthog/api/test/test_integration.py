@@ -7,6 +7,7 @@ from typing import Any, cast
 from urllib.parse import quote, urlencode
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
@@ -41,6 +42,12 @@ from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
 from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
 from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.models.activity_logging.activity_log import (
+    ActivityLog,
+    apply_activity_visibility_restrictions,
+    load_activity,
+    load_all_activity,
+)
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
@@ -62,7 +69,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.user_integration import GitHubInstallRequest, UserIntegration
+from posthog.models.user_integration import GitHubInstallRequest, UserGitHubIntegration, UserIntegration
 from posthog.models.utils import hash_key_value
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.team_notifications.slack import is_shared_channel
@@ -4344,6 +4351,53 @@ class TestGitHubTeamIntegrationComplete:
         assert installations[0]["account_name"] == "acme"
         assert installations[0]["account_type"] == "Organization"
         assert installations[0]["source_team_id"] == first.pk
+        assert installations[0]["source_team_name"] == "Org Project"
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_list_org_github_installations_never_labels_an_install_with_a_persons_login(self, mock_client_request):
+        # An install whose account metadata never arrived used to be labelled with the login of
+        # whoever connected it, so a reader saw a colleague's handle where a GitHub account belongs
+        # and read it as a stranger's account. The heal path runs first; when GitHub still can't
+        # answer, the name stays empty so the caller falls back to the installation id.
+        mock_client_request.return_value = MagicMock(status_code=503, json=lambda: {"message": "unavailable"})
+        sibling = Team.objects.create(organization=self.organization, name="Org Project")
+        Integration.objects.create(
+            team=sibling,
+            kind="github",
+            integration_id="111",
+            config={"installation_id": "111", "connecting_user_github_login": "octocat"},
+            sensitive_config={"access_token": "ghs_a"},
+        )
+
+        installations = list_org_github_installations(
+            user=self.user, organization=self.organization, exclude_team_id=self.team.pk
+        )
+
+        assert installations[0]["account_name"] is None
+        assert installations[0]["source_team_name"] == "Org Project"
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_list_org_github_installations_heals_a_placeholder_account_name(self, mock_client_request):
+        # The picker is where a missing account name is read, so it heals the placeholder rather
+        # than showing the numeric installation id it was stored as.
+        mock_client_request.return_value = MagicMock(
+            status_code=200, json=lambda: {"account": {"login": "acme", "type": "Organization"}}
+        )
+        sibling = Team.objects.create(organization=self.organization, name="Org Project")
+        Integration.objects.create(
+            team=sibling,
+            kind="github",
+            integration_id="111",
+            config={"installation_id": "111", "account": {"name": "111", "type": None}},
+            sensitive_config={"access_token": "ghs_a"},
+        )
+
+        installations = list_org_github_installations(
+            user=self.user, organization=self.organization, exclude_team_id=self.team.pk
+        )
+
+        assert installations[0]["account_name"] == "acme"
+        assert installations[0]["account_type"] == "Organization"
 
     def _org_member_with_access_control(self) -> User:
         self.organization.available_product_features = [
@@ -4707,6 +4761,7 @@ class TestGitHubTeamIntegrationComplete:
         assert set(by_id.keys()) == {"111", "222"}
         assert by_id["111"]["source_team_id"] == sibling.team_id
         assert by_id["222"]["source_team_id"] is None
+        assert by_id["222"]["source_team_name"] is None
         assert by_id["222"]["account_name"] == "coderabbitai"
         assert by_id["222"]["account_type"] == "Organization"
 
@@ -6458,11 +6513,11 @@ class TestGitHubIntegrationUninstall:
             created_by=self.user,
         )
 
-    @patch("posthog.api.integration.GitHubIntegration.uninstall_app_installation")
+    @patch("posthog.api.integration.GitHubIntegration.uninstall_app_installation_status")
     def test_destroy_github_uninstalls_and_cleans_up_personal_when_last_team_reference(
         self, mock_uninstall, client: HttpClient
     ):
-        mock_uninstall.return_value = True
+        mock_uninstall.return_value = "uninstalled"
         integration = self._create_github_integration("12345")
         personal = UserIntegration.objects.create(
             user=self.user, kind="github", integration_id="12345", config={}, sensitive_config={}
@@ -6477,7 +6532,7 @@ class TestGitHubIntegrationUninstall:
         # Last team reference removed → the App is uninstalled, so personal integrations go too.
         assert not UserIntegration.objects.filter(id=personal.id).exists()
 
-    @patch("posthog.api.integration.GitHubIntegration.uninstall_app_installation")
+    @patch("posthog.api.integration.GitHubIntegration.uninstall_app_installation_status")
     def test_destroy_github_skips_uninstall_when_other_team_reference_exists(self, mock_uninstall, client: HttpClient):
         integration = self._create_github_integration("12345")
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
@@ -6498,7 +6553,7 @@ class TestGitHubIntegrationUninstall:
         assert UserIntegration.objects.filter(id=personal.id).exists()
 
     @patch(
-        "posthog.api.integration.GitHubIntegration.uninstall_app_installation",
+        "posthog.api.integration.GitHubIntegration.uninstall_app_installation_status",
         side_effect=Exception("GitHub API error"),
     )
     def test_destroy_github_still_deletes_when_uninstall_fails(self, _mock_uninstall, client: HttpClient):
@@ -6510,12 +6565,13 @@ class TestGitHubIntegrationUninstall:
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not Integration.objects.filter(id=integration.id).exists()
 
-    @patch("posthog.api.integration.GitHubIntegration.uninstall_app_installation")
+    @patch("posthog.api.integration.GitHubIntegration.uninstall_app_installation_status")
     @patch("posthog.api.integration.count_in_progress_runs_for_github_integration")
     def test_destroy_github_blocked_while_background_agent_runs_in_progress(
         self, mock_count, _mock_uninstall, client: HttpClient
     ):
         integration = self._create_github_integration("12345")
+        _mock_uninstall.return_value = "uninstalled"
         mock_count.return_value = 2
 
         client.force_login(self.user)
@@ -7273,3 +7329,140 @@ class TestIntegrationSerializerFilesWriteRequestable(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["files_write_requestable"] is expected
+
+
+@time_machine.travel("2026-01-15T12:00:00Z", tick=False)
+class TestGitHubDiscoveryAudit(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.memberships.filter(user=self.user).update(level=OrganizationMembership.Level.ADMIN)
+
+    @patch("posthog.api.github_callback.personal_state.github_request")
+    def test_discovery_records_the_usable_credential_and_keeps_siblings_on_failure(
+        self, github_request_mock: MagicMock
+    ) -> None:
+        older = UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="9001",
+            config={"github_user": {"login": "synthetic-reader", "id": 101}, "credential_version": "version-a"},
+            sensitive_config={"user_access_token": "synthetic-private-token"},
+        )
+        UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="9002",
+            config={},
+            sensitive_config={"access_token": "synthetic-unusable-token"},
+        )
+        sibling = Team.objects.create(organization=self.organization, name="Synthetic project")
+        Integration.objects.create(
+            team=sibling,
+            kind="github",
+            integration_id="9003",
+            config={"installation_id": "9003", "account": {"name": "synthetic-owner"}},
+        )
+        github_request_mock.return_value = MagicMock(
+            status_code=200,
+            headers={"X-GitHub-Request-Id": "synthetic-request"},
+            json=lambda: {
+                "installations": [{"id": 9004, "account": {"login": "synthetic-external", "type": "Organization"}}]
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/integrations/github/available_installations/")
+        assert response.status_code == 200
+        assert response["Cache-Control"] == "private, no-store"
+        assert response.json()["personal_github_login"] == "synthetic-reader"
+        assert response.json()["personal_discovery_status"] == "ok"
+        logs = list(ActivityLog.objects.filter(activity="github_diagnostic"))
+        selected = next(
+            log
+            for log in logs
+            if log.detail and log.detail["trigger"]["payload"]["event"] == "discovery_credential_selected"
+        )
+        assert selected.detail is not None
+        assert selected.detail["trigger"]["payload"]["personal_integration_id"] == str(older.pk)
+        assert "synthetic-private-token" not in json.dumps([log.detail for log in logs])
+        completed = next(
+            log for log in logs if log.detail and log.detail["trigger"]["payload"]["event"] == "discovery_completed"
+        )
+        assert completed.detail is not None
+        assert completed.detail["trigger"]["payload"]["response"] == response.json()
+        github_request_mock.return_value.status_code = 503
+        response = self.client.get(f"/api/projects/{self.team.id}/integrations/github/available_installations/")
+        assert response.json()["personal_discovery_status"] == "unavailable"
+        assert [row["installation_id"] for row in response.json()["installations"]] == ["9003"]
+
+    @parameterized.expand([("uninstalled",), ("already_absent",), ("skipped",), ("failed",)])
+    @patch("posthog.api.integration.GitHubIntegration.uninstall_app_installation_status")
+    @patch("posthog.models.integration.github.GitHubIntegration.fetch_installation_access")
+    def test_connection_history_survives_disconnect_without_exposing_diagnostics(
+        self, outcome: str, fetch: MagicMock, uninstall: MagicMock
+    ) -> None:
+        fetch.return_value = GitHubInstallationAccess(
+            installation_id="9005",
+            installation_info={"account": {"login": "synthetic-owner", "type": "Organization"}},
+            access_token="synthetic-installation-secret",
+            token_expires_at=(timezone.now() + timedelta(hours=1)).isoformat(),
+            repository_selection="selected",
+        )
+        uninstall.return_value = outcome
+        with self.captureOnCommitCallbacks(execute=True):
+            integration = GitHubIntegration.integration_from_installation_id("9005", self.team.id, self.user)
+        integration_id = integration.pk
+        target = Team.objects.create(organization=self.organization, name="Synthetic target")
+        discovered = self.client.get(f"/api/projects/{target.id}/integrations/github/available_installations/")
+        assert [item["installation_id"] for item in discovered.json()["installations"]] == ["9005"]
+        with self.captureOnCommitCallbacks(execute=True), capture_logs() as diagnostic_logs:
+            response = self.client.delete(f"/api/projects/{self.team.id}/integrations/{integration_id}/")
+        assert response.status_code == 204
+        assert not Integration.objects.filter(pk=integration_id).exists()
+        logs = ActivityLog.objects.filter(scope="Integration", item_id=str(integration_id))
+        assert set(logs.values_list("activity", flat=True)) == {"created", "deleted", "github_diagnostic"}
+        uninstall_log = next(
+            log for log in logs if log.detail and log.detail["trigger"]["payload"]["event"] == "uninstall_completed"
+        )
+        assert uninstall_log.detail is not None
+        assert uninstall_log.detail["trigger"]["payload"]["outcome"] == outcome
+        assert "synthetic-installation-secret" not in json.dumps([log.detail for log in logs])
+        assert "synthetic-installation-secret" not in json.dumps(diagnostic_logs, default=str)
+        self.user.is_staff = False
+        assert set(apply_activity_visibility_restrictions(logs, self.user).values_list("activity", flat=True)) == {
+            "created",
+            "deleted",
+        }
+        self.user.is_staff = True
+        assert apply_activity_visibility_restrictions(logs, self.user).count() == logs.count()
+        assert {row.activity for row in load_activity("Integration", self.team.id).results} == {"created", "deleted"}
+        assert {row.activity for row in load_all_activity(["Integration"], self.team.id).results} == {
+            "created",
+            "deleted",
+        }
+        refreshed = self.client.get(f"/api/projects/{target.id}/integrations/github/available_installations/")
+        assert refreshed.json()["installations"] == []
+
+    @patch("posthog.cdp.internal_events.produce_internal_event")
+    def test_invalid_credential_discard_is_private_and_retained(self, produce: MagicMock) -> None:
+        integration = UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="9006",
+            config={
+                "originating_organization_id": str(self.organization.id),
+                "github_user": {"id": 101, "login": "synthetic-reader"},
+                "user_refresh_token_expires_at": 1,
+            },
+            sensitive_config={"user_access_token": "synthetic-private-secret"},
+        )
+        integration_id = str(integration.pk)
+        with self.captureOnCommitCallbacks(execute=True):
+            with self.assertRaises(Exception):
+                UserGitHubIntegration(integration).get_usable_user_access_token()
+        log = ActivityLog.objects.get(item_id=integration_id, activity="github_diagnostic")
+        assert log.team_id is None
+        assert log.organization_id == self.organization.id
+        assert log.detail is not None
+        assert log.detail["trigger"]["payload"]["event"] == "credential_deleted"
+        assert not UserIntegration.objects.filter(pk=integration_id).exists()
+        assert "synthetic-private-secret" not in json.dumps(log.detail)
+        produce.assert_not_called()

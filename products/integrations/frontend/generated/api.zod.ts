@@ -310,6 +310,7 @@ export const IntegrationsDomainConnectApplyUrlCreateBody = /* @__PURE__ */ zod
  * Reuse a GitHub installation already linked to a sibling team in the same organization.
  */
 export const IntegrationsGithubLinkExistingCreateBody = /* @__PURE__ */ zod.object({
+    discovery_id: zod.uuid().nullish().describe('Discovery response ID for diagnostics only; grants no authority.'),
     source_team_id: zod
         .number()
         .nullish()
