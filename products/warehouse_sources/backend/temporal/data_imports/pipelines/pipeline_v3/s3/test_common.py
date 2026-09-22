@@ -64,7 +64,7 @@ class TestEnsureBucket:
     def test_refused_bucket_check_is_not_retried(self, _name: str, response: dict, mock_ensure) -> None:
         # ensure_bucket_exists has already retried this refusal, so the raw ClientError only made
         # the activity retry a configuration failure and report a fresh exception on every attempt.
-        mock_ensure.side_effect = ClientError(response, "HeadBucket")
+        mock_ensure.side_effect = ClientError(response, "HeadBucket")  # type: ignore[arg-type]
 
         with pytest.raises(NonRetryableException):
             ensure_bucket()
