@@ -276,8 +276,6 @@ class TestQueriedAccessControlledResources(BaseTest):
         ]
     )
     def test_view_definitions_are_walked(self, _name, views, sql, expected):
-        # A view expands to its definition at execution, and a cache hit skips the access check on the
-        # system tables that definition reads, so their scopes must partition a query on the view.
         for name, definition in views.items():
             DataWarehouseSavedQuery.objects.create(
                 team=self.team, name=name, query={"kind": "HogQLQuery", "query": definition}

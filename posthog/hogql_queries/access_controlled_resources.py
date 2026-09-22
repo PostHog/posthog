@@ -209,10 +209,8 @@ def queried_access_controlled_resources(
                 # A cache hit skips that resolution, so fold warehouse_table denials into the key too —
                 # otherwise a user denied an underlying table could be served a cached view result.
                 scopes.add("warehouse_table")
-            # The same holds for the access-controlled system tables a view definition reads: the caller's
-            # access to them is checked when the view expands, and a cache hit skips that. Every view is
-            # walked, because a materialized one still expands to its definition when the query does not
-            # read materialized views.
+            # A cache hit also skips the access check on the system tables a definition reads. Materialized
+            # views are walked too, since they expand to their definition unless the query reads materialized views.
             for view_name, view_query in views:
                 if view_name in _seen_views:
                     continue

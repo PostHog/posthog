@@ -1789,9 +1789,8 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
     def test_shared_link_viewer_partitions_only_on_scopes_a_table_carries(
         self, _name, sql, expected_restricted, same_key_as_user
     ):
-        # A shared-link viewer bypasses warehouse access control, so on a synced table it must share the
-        # unrestricted user's entry. A system table that carries the source scope is denied to it, as is
-        # the system table a saved view reads, so there it must keep its own entry.
+        # A shared-link viewer bypasses warehouse access control, so on a synced table it shares the unrestricted
+        # user's entry, while a system table it cannot read, directly or through a view, keeps it on its own.
         DataWarehouseTable.objects.create(
             team=self.team,
             name="warehouse_orders",
