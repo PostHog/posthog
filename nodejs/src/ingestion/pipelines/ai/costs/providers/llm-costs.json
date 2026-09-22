@@ -61,9 +61,9 @@
         "model": "~deepseek/deepseek-pro-latest",
         "cost": {
             "default": {
-                "prompt_token": 5.4912e-7,
-                "completion_token": 0.00000164736,
-                "cache_read_token": 1.7472e-8
+                "prompt_token": 5.4516e-7,
+                "completion_token": 0.00000163548,
+                "cache_read_token": 1.8172e-8
             }
         }
     },
@@ -135,10 +135,10 @@
         "model": "~openai/gpt-luna-latest",
         "cost": {
             "default": {
-                "prompt_token": 2e-7,
-                "completion_token": 0.0000012,
-                "cache_read_token": 2e-8,
-                "cache_write_token": 2.5e-7,
+                "prompt_token": 1e-7,
+                "completion_token": 5e-7,
+                "cache_read_token": 1e-8,
+                "cache_write_token": 1.25e-7,
                 "web_search": 0.01
             }
         }
@@ -2240,9 +2240,9 @@
         "model": "deepseek/deepseek-v4-pro",
         "cost": {
             "default": {
-                "prompt_token": 9.1089e-7,
-                "completion_token": 0.00000182178,
-                "cache_read_token": 7.59075e-8
+                "prompt_token": 9.0741e-7,
+                "completion_token": 0.00000181482,
+                "cache_read_token": 7.56175e-8
             },
             "alibaba-fp8": {
                 "prompt_token": 0.000001416,
@@ -8318,6 +8318,228 @@
                 "completion_token": 0.000025,
                 "cache_read_token": 5e-7,
                 "cache_write_token": 0.00000625,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-6-luna",
+        "cost": {
+            "default": {
+                "prompt_token": 1e-7,
+                "completion_token": 5e-7,
+                "cache_read_token": 1e-8,
+                "cache_write_token": 1.25e-7,
+                "web_search": 0.01
+            },
+            "amazon-bedrock-us-east-1": {
+                "prompt_token": 1.1e-7,
+                "completion_token": 5.5e-7,
+                "cache_read_token": 1.1e-8,
+                "cache_write_token": 1.375e-7,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 1e-7,
+                "completion_token": 5e-7,
+                "cache_read_token": 1e-8,
+                "cache_write_token": 1.25e-7,
+                "web_search": 0.01
+            },
+            "openai-fast": {
+                "prompt_token": 2e-7,
+                "completion_token": 0.000001,
+                "cache_read_token": 2e-8,
+                "cache_write_token": 2.5e-7,
+                "web_search": 0.01
+            },
+            "openai-flex": {
+                "prompt_token": 5e-8,
+                "completion_token": 2.5e-7,
+                "cache_read_token": 5e-9,
+                "cache_write_token": 6.25e-8,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-6-luna-pro",
+        "cost": {
+            "default": {
+                "prompt_token": 1e-7,
+                "completion_token": 5e-7,
+                "cache_read_token": 1e-8,
+                "cache_write_token": 1.25e-7,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 1e-7,
+                "completion_token": 5e-7,
+                "cache_read_token": 1e-8,
+                "cache_write_token": 1.25e-7,
+                "web_search": 0.01
+            },
+            "openai-fast": {
+                "prompt_token": 2e-7,
+                "completion_token": 0.000001,
+                "cache_read_token": 2e-8,
+                "cache_write_token": 2.5e-7,
+                "web_search": 0.01
+            },
+            "openai-flex": {
+                "prompt_token": 5e-8,
+                "completion_token": 2.5e-7,
+                "cache_read_token": 5e-9,
+                "cache_write_token": 6.25e-8,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-6-luna-pro:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 5e-8,
+                "completion_token": 2.5e-7,
+                "cache_read_token": 5e-9,
+                "cache_write_token": 6.25e-8,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 5e-8,
+                "completion_token": 2.5e-7,
+                "cache_read_token": 5e-9,
+                "cache_write_token": 6.25e-8,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-6-luna:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 5e-8,
+                "completion_token": 2.5e-7,
+                "cache_read_token": 5e-9,
+                "cache_write_token": 6.25e-8,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 5e-8,
+                "completion_token": 2.5e-7,
+                "cache_read_token": 5e-9,
+                "cache_write_token": 6.25e-8,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-6-sol",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000002,
+                "completion_token": 0.00001,
+                "cache_read_token": 2e-7,
+                "cache_write_token": 0.0000025,
+                "web_search": 0.01
+            },
+            "amazon-bedrock-us-east-1": {
+                "prompt_token": 0.0000022,
+                "completion_token": 0.000011,
+                "cache_read_token": 2.2e-7,
+                "cache_write_token": 0.00000275,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.000002,
+                "completion_token": 0.00001,
+                "cache_read_token": 2e-7,
+                "cache_write_token": 0.0000025,
+                "web_search": 0.01
+            },
+            "openai-fast": {
+                "prompt_token": 0.000004,
+                "completion_token": 0.00002,
+                "cache_read_token": 4e-7,
+                "cache_write_token": 0.000005,
+                "web_search": 0.01
+            },
+            "openai-flex": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000005,
+                "cache_read_token": 1e-7,
+                "cache_write_token": 0.00000125,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-6-sol-pro",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000002,
+                "completion_token": 0.00001,
+                "cache_read_token": 2e-7,
+                "cache_write_token": 0.0000025,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.000002,
+                "completion_token": 0.00001,
+                "cache_read_token": 2e-7,
+                "cache_write_token": 0.0000025,
+                "web_search": 0.01
+            },
+            "openai-fast": {
+                "prompt_token": 0.000004,
+                "completion_token": 0.00002,
+                "cache_read_token": 4e-7,
+                "cache_write_token": 0.000005,
+                "web_search": 0.01
+            },
+            "openai-flex": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000005,
+                "cache_read_token": 1e-7,
+                "cache_write_token": 0.00000125,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-6-sol-pro:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000005,
+                "cache_read_token": 1e-7,
+                "cache_write_token": 0.00000125,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000005,
+                "cache_read_token": 1e-7,
+                "cache_write_token": 0.00000125,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-6-sol:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000005,
+                "cache_read_token": 1e-7,
+                "cache_write_token": 0.00000125,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000005,
+                "cache_read_token": 1e-7,
+                "cache_write_token": 0.00000125,
                 "web_search": 0.01
             }
         }
