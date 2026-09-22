@@ -17,6 +17,7 @@ import type {
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowBatchJobCancelResponseApi,
+    HogFlowCodeApi,
     HogFlowInvocationApi,
     HogFlowPublishRequestApi,
     HogFlowPublishResponseApi,
@@ -477,6 +478,21 @@ export const hogFlowsBatchJobsCancelCreate = async (
             method: 'POST',
         }
     )
+}
+
+export const getHogFlowsCodeRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/code/`
+}
+
+export const hogFlowsCodeRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFlowCodeApi> => {
+    return apiMutator<HogFlowCodeApi>(getHogFlowsCodeRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getHogFlowsDiscardDraftCreateUrl = (projectId: string, id: string) => {
