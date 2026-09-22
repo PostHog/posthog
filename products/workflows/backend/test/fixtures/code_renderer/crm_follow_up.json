@@ -65,7 +65,7 @@
         {
             "id": "tell_the_crm",
             "name": "Tell the CRM",
-            "description": "",
+            "description": "Push the deal to the CRM.",
             "on_error": null,
             "filters": null,
             "type": "function",
@@ -97,7 +97,7 @@
         {
             "id": "which_plan",
             "name": "Which plan?",
-            "description": "",
+            "description": "Split the path on the plan the person is on.",
             "on_error": null,
             "filters": null,
             "type": "conditional_branch",
@@ -148,7 +148,7 @@
         {
             "id": "tell_the_crm_2",
             "name": "Tell the CRM",
-            "description": "",
+            "description": "Push the deal to the CRM.",
             "on_error": null,
             "filters": null,
             "type": "function",

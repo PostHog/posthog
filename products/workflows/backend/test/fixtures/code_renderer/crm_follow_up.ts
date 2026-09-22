@@ -5,6 +5,7 @@ import { branch, delay, eventProperty, onEvent, path, person, secret, webhook, w
 
 const tellTheCrm = webhook({
     name: 'Tell the CRM',
+    description: 'Push the deal to the CRM.',
     url: 'https://example.com/hooks/crm',
     body: { distinct_id: '{event.distinct_id}', plan: '{person.properties.plan}' },
     signingSecret: secret('TELL_THE_CRM_SIGNING_SECRET'),
@@ -22,6 +23,7 @@ export const crmFollowUp = workflow({
         tellTheCrm,
         branch({
             name: 'Which plan?',
+            description: 'Split the path on the plan the person is on.',
             branches: [
                 {
                     name: 'Paid plan',

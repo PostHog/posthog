@@ -364,6 +364,15 @@ class _Renderer:
         name = action.get("name")
         return name if isinstance(name, str) and name else action["id"]
 
+    @classmethod
+    def _base_options(cls, action: dict[str, Any]) -> dict[str, Any]:
+        """The options every step constructor opens with, in the order `emit.ts` writes them."""
+        options: dict[str, Any] = {"name": cls._name(action)}
+        description = action.get("description")
+        if _is_set(description):
+            options["description"] = description
+        return options
+
     @staticmethod
     def _flatten(placements: tuple[_Placement, ...]) -> Iterator[_Placement]:
         # The order `emit.ts` hands out ids in: a branch, then its arms, then the step after it.
@@ -411,8 +420,6 @@ class _Renderer:
 
     def warn_step_settings(self, action: dict[str, Any]) -> None:
         name = self._name(action)
-        if _is_set(action.get("description")):
-            self.warn(action["id"], f'The description of "{name}" is dropped. A step has no description in {PACKAGE}.')
         filters = action.get("filters")
         if isinstance(filters, dict) and any(
             filters.get(key) for key in ("events", "actions", "properties", "filter_test_accounts")
@@ -451,7 +458,7 @@ class _Renderer:
                 f'"{self._name(action)}" waits for "{duration}", which {PACKAGE} refuses at push. Write a positive amount up to 60s, 60m, 24h or 30d.',
             )
         self.warn_extra_config(action, config, frozenset({"delay_duration"}))
-        return _Call(self.use("delay"), (duration, {"name": self._name(action)}))
+        return _Call(self.use("delay"), (duration, self._base_options(action)))
 
     def secret_base(self, action: dict[str, Any]) -> str:
         """The id a secret's variable is named after.
@@ -504,7 +511,7 @@ class _Renderer:
         webhook = self.render_webhook(action, values) if template_id == "template-webhook" else None
         if webhook is not None:
             return webhook
-        return _Call(self.use("fn"), ({"name": self._name(action), "templateId": template_id, "inputs": values},))
+        return _Call(self.use("fn"), ({**self._base_options(action), "templateId": template_id, "inputs": values},))
 
     def render_webhook(self, action: dict[str, Any], values: dict[str, Any]) -> _Call | None:
         """`webhook()` when every input is one it writes, else None so `fn()` keeps the exact inputs."""
@@ -520,7 +527,7 @@ class _Renderer:
             return None
         if signing_secret is not None and not isinstance(signing_secret, _Call):
             return None
-        options: dict[str, Any] = {"name": self._name(action), "url": values["url"]}
+        options: dict[str, Any] = {**self._base_options(action), "url": values["url"]}
         if method != "POST":
             options["method"] = method
         if body:
@@ -564,7 +571,7 @@ class _Renderer:
                 from_options[key] = sender[key]
 
         options: dict[str, Any] = {
-            "name": name,
+            **self._base_options(action),
             "from": from_options,
             "to": to,
             "subject": message.get("subject", ""),
@@ -660,7 +667,7 @@ class _Renderer:
         if not arms:
             return None
         self.kept_arms[action["id"]] = kept
-        return _Call(self.use("branch"), ({"name": self._name(action), "branches": arms},))
+        return _Call(self.use("branch"), ({**self._base_options(action), "branches": arms},))
 
     def hoist_repeats(self, placements: tuple[_Placement, ...]) -> None:
         """Turns a step placed more than once into one const, following the `_2` rule of `emit.ts`.
@@ -703,12 +710,15 @@ class _Renderer:
     def with_id(call: _Call, action: dict[str, Any]) -> _Call:
         # `emit.ts` derives the id from the name, so the id is written only when it differs.
         options = call.args[-1]
-        name = options["name"]
-        if action["id"] == _slug(name):
+        if action["id"] == _slug(options["name"]):
             return call
+        leading = {key: options[key] for key in ("name", "description") if key in options}
         return _Call(
             call.name,
-            (*call.args[:-1], {"name": name, "id": action["id"], **{k: v for k, v in options.items() if k != "name"}}),
+            (
+                *call.args[:-1],
+                {**leading, "id": action["id"], **{k: v for k, v in options.items() if k not in leading}},
+            ),
         )
 
     def node_for(self, placement: _Placement) -> Any:
