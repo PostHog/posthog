@@ -285,8 +285,10 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         // A workflow disabled or archived mid-run stops the resolver here, so no further
         // audience page is queried and no further child run is enqueued. The sibling hogflow
         // consumer already cancels children that wake while the workflow is not active, so
-        // this changes cost, not delivery. Checked on every page, so re-enabling before the
-        // next dequeue lets the remaining pages run.
+        // this changes cost, not delivery. The stop is final: re-enabling the workflow does
+        // not resume a run that already reached this branch, because the next dequeue writes
+        // the terminal status. Re-enabling within a page, before this branch is reached,
+        // leaves the run untouched.
         if (hogFlow.status !== 'active') {
             logger.info('⏭️', `${this.name} - workflow is no longer active, stopping resolver`, {
                 hogFlowId: state.hogFlowId,
