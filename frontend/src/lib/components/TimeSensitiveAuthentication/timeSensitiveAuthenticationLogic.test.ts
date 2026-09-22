@@ -174,6 +174,25 @@ describe('timeSensitiveAuthenticationLogic', () => {
         })
     })
 
+    describe('SSO re-authentication in a popup', () => {
+        it.each([
+            ['success', null, true],
+            ['failure', 'reauth_user_mismatch', false],
+        ])('on %s, settles the waiting write: %s', async (_, errorCode, settled) => {
+            const onSuccess = jest.fn()
+            apiStatusLogic.actions.setTimeSensitiveAuthenticationRequired([onSuccess, jest.fn()])
+
+            const popup = new BroadcastChannel('posthog-sso-reauth')
+            popup.postMessage({ type: 'sso_reauth_complete', error_code: errorCode })
+            popup.close()
+            await expectLogic(logic).toDispatchActions(['ssoReauthenticationFinished'])
+
+            expect(onSuccess).toHaveBeenCalledTimes(settled ? 1 : 0)
+            expect(logic.values.showAuthenticationModal).toBe(!settled)
+            expect(lemonToast.error).toHaveBeenCalledTimes(settled ? 0 : 1)
+        })
+    })
+
     describe('failed SSO re-authentication', () => {
         it('should report the error the backend sent back and drop it from the URL', async () => {
             router.actions.push('/settings/user', { error_code: 'reauth_user_mismatch' })

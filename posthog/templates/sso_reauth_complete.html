@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>PostHog</title>
+        <style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue', helvetica, arial, sans-serif;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+                margin: 0;
+                background: #fafaf9;
+                color: #1d1f27;
+            }
+
+            @media (prefers-color-scheme: dark) {
+                body {
+                    background: #1d1f27;
+                    color: #fff;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <p>You can close this window and go back to PostHog.</p>
+        {{ error_code|json_script:"sso-reauth-error-code" }}
+        <script nonce="{{ request.csp_nonce }}">
+            const errorCode = JSON.parse(document.getElementById('sso-reauth-error-code').textContent)
+            const channel = new BroadcastChannel('{{ channel_name }}')
+            channel.postMessage({ type: 'sso_reauth_complete', error_code: errorCode })
+            channel.close()
+            window.close()
+        </script>
+    </body>
+</html>
