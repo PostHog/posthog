@@ -46,6 +46,7 @@ class TestExperimentMigrateEndpoint(APILicensedTest):
 
         migrated = Experiment.objects.get(pk=response.json()["id"])
         assert migrated.id != self.experiment.id
+        assert migrated.metrics is not None
         [migrated_metric] = migrated.metrics
         assert migrated_metric["kind"] == "ExperimentMetric"
         assert migrated_metric["metric_type"] == "mean"
@@ -53,6 +54,8 @@ class TestExperimentMigrateEndpoint(APILicensedTest):
         assert migrated.feature_flag_id == self.experiment.feature_flag_id
 
         self.experiment.refresh_from_db()
+        assert self.experiment.stats_config is not None
+        assert migrated.stats_config is not None
         assert self.experiment.stats_config["migrated_to"] == migrated.id
         assert migrated.stats_config["migrated_from"] == self.experiment.id
 
@@ -62,6 +65,7 @@ class TestExperimentMigrateEndpoint(APILicensedTest):
         assert link.saved_metric.query["kind"] == "ExperimentMetric"
 
         self.shared_metric.refresh_from_db()
+        assert self.shared_metric.metadata is not None
         assert self.shared_metric.metadata["migrated_to"] == link.saved_metric_id
 
     def test_migrated_metrics_are_reachable_through_the_ordering_arrays(self) -> None:
@@ -69,6 +73,7 @@ class TestExperimentMigrateEndpoint(APILicensedTest):
         migrated = Experiment.objects.get(pk=self._migrate().json()["id"])
         link = ExperimentToSavedMetric.objects.get(experiment=migrated)
 
+        assert migrated.metrics is not None
         assert migrated.primary_metrics_ordered_uuids == [migrated.metrics[0]["uuid"]]
         assert migrated.secondary_metrics_ordered_uuids == [link.saved_metric.query["uuid"]]
         assert migrated.metrics[0]["fingerprint"]

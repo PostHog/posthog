@@ -66,11 +66,11 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
-from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
-from products.experiments.backend.legacy_migration import (
+from products.experiments.backend.facade.legacy_migration import (
     LegacyMigrationError,
     migrate_experiment as migrate_legacy_experiment,
 )
+from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
 # TODO: Route through facade instead of direct import

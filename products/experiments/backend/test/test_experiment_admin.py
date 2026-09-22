@@ -92,11 +92,14 @@ class TestExperimentAdmin(BaseTest):
         request = RequestFactory().post("/")
         request.user = self.user
         request.session = SessionStore()
-        request._messages = FallbackStorage(request)
+        request._messages = FallbackStorage(request)  # type: ignore[attr-defined]
 
         response = self.model_admin.migrate_experiment(request, str(self.draft.pk))
 
         self.draft.refresh_from_db()
+        assert self.draft.stats_config is not None
         migrated_to = self.draft.stats_config["migrated_to"]
         assert str(migrated_to) in response.url
-        assert Experiment.objects.get(pk=migrated_to).metrics[0]["kind"] == "ExperimentMetric"
+        migrated_metrics = Experiment.objects.get(pk=migrated_to).metrics
+        assert migrated_metrics is not None
+        assert migrated_metrics[0]["kind"] == "ExperimentMetric"
