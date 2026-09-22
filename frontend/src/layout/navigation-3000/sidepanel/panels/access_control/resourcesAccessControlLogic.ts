@@ -169,6 +169,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                 const allResources = [
                     AccessControlResourceType.Action,
                     AccessControlResourceType.ActivityLog,
+                    AccessControlResourceType.Canvas,
                     AccessControlResourceType.CustomerAnalytics,
                     AccessControlResourceType.Dashboard,
                     AccessControlResourceType.EarlyAccessFeature,

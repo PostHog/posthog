@@ -91,6 +91,8 @@ describe("TaskLinkService", () => {
       expect(listener).toHaveBeenCalledWith({
         taskId: "task-123",
         taskRunId: undefined,
+        comment: undefined,
+        artifact: undefined,
       });
     });
 
@@ -103,6 +105,8 @@ describe("TaskLinkService", () => {
       expect(listener).toHaveBeenCalledWith({
         taskId: "task-123",
         taskRunId: "run-456",
+        comment: undefined,
+        artifact: undefined,
       });
     });
 
@@ -129,9 +133,59 @@ describe("TaskLinkService", () => {
           taskId: "task-123",
           taskRunId: undefined,
           comment: expected,
+          artifact: undefined,
         });
       },
     );
+
+    it.each([
+      [
+        "an artifact scope without a comment",
+        "scope=task_artifact&item=artifact-9",
+        { itemId: "artifact-9" },
+      ],
+      [
+        "a canvas scope without a comment",
+        "scope=desktop_canvas&item=c-1",
+        undefined,
+      ],
+      ["an artifact scope with no item", "scope=task_artifact", undefined],
+      ["an item with no scope", "item=artifact-9", undefined],
+    ])("opens %s as an artifact anchor", (_name, query, expected) => {
+      const listener = vi.fn();
+      service.on(TaskLinkEvent.OpenTask, listener);
+
+      mockDeepLink._invoke("task", "task-123", query);
+
+      expect(listener).toHaveBeenCalledWith({
+        taskId: "task-123",
+        taskRunId: undefined,
+        comment: undefined,
+        artifact: expected,
+      });
+    });
+
+    it("lets a comment anchor take precedence over a bare artifact open", () => {
+      const listener = vi.fn();
+      service.on(TaskLinkEvent.OpenTask, listener);
+
+      mockDeepLink._invoke(
+        "task",
+        "task-123",
+        "comment=thread-1&scope=task_artifact&item=artifact-9",
+      );
+
+      expect(listener).toHaveBeenCalledWith({
+        taskId: "task-123",
+        taskRunId: undefined,
+        comment: {
+          threadId: "thread-1",
+          scope: "task_artifact",
+          itemId: "artifact-9",
+        },
+        artifact: undefined,
+      });
+    });
 
     it("ignores a second path segment that is not 'run'", () => {
       const listener = vi.fn();
@@ -142,6 +196,8 @@ describe("TaskLinkService", () => {
       expect(listener).toHaveBeenCalledWith({
         taskId: "task-123",
         taskRunId: undefined,
+        comment: undefined,
+        artifact: undefined,
       });
     });
 
@@ -171,6 +227,8 @@ describe("TaskLinkService", () => {
       expect(service.consumePendingDeepLink()).toEqual({
         taskId: "task-123",
         taskRunId: "run-456",
+        comment: undefined,
+        artifact: undefined,
       });
     });
 
