@@ -391,19 +391,15 @@ def process_scheduled_changes() -> None:
                     # errors — invalid payload, unsupported operation, mismatched variant data, or
                     # a missing bound ChangeRequest — indicate either a broken payload or a data
                     # integrity issue, and should stay visible in error tracking.
+                    expected_failure = None
                     if orphaned_target:
-                        logger.info(
-                            "Scheduled change skipped: target record not found",
-                            scheduled_change_id=scheduled_change.id,
-                            model_name=scheduled_change.model_name,
-                            record_id=scheduled_change.record_id,
-                            team_id=scheduled_change.team_id,
-                            error=str(e),
-                            error_type=e.__class__.__name__,
-                        )
+                        expected_failure = "Scheduled change skipped: target record not found"
                     elif isinstance(e, FlagDependencyConflict):
+                        expected_failure = "Scheduled change refused: flag dependency conflict"
+
+                    if expected_failure:
                         logger.info(
-                            "Scheduled change refused: flag dependency conflict",
+                            expected_failure,
                             scheduled_change_id=scheduled_change.id,
                             model_name=scheduled_change.model_name,
                             record_id=scheduled_change.record_id,
