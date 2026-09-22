@@ -2142,7 +2142,6 @@ jobs:
                       echo "  hogli build:openapi"
                       echo ""
                       echo "Then commit the updated generated files."
-                      echo "needs-commit=false" >> "$GITHUB_OUTPUT"
                       exit 1
                   fi
 
@@ -2170,16 +2169,14 @@ jobs:
                       fi
                   done
 
-                  jq -s '.' "$additions" > "$RUNNER_TEMP/openapi-additions.json"
-                  jq -s '.' "$deletions" > "$RUNNER_TEMP/openapi-deletions.json"
                   jq -n \
                       --arg repository "$GITHUB_REPOSITORY" \
                       --argjson pull_request "$PR_NUMBER" \
                       --arg branch "$BRANCH" \
                       --arg head_sha "$HEAD_SHA" \
-                      --slurpfile additions "$RUNNER_TEMP/openapi-additions.json" \
-                      --slurpfile deletions "$RUNNER_TEMP/openapi-deletions.json" \
-                      '{version: 1, repository: $repository, pull_request: $pull_request, branch: $branch, head_sha: $head_sha, additions: $additions[0], deletions: $deletions[0]}' \
+                      --slurpfile additions "$additions" \
+                      --slurpfile deletions "$deletions" \
+                      '{version: 1, repository: $repository, pull_request: $pull_request, branch: $branch, head_sha: $head_sha, additions: $additions, deletions: $deletions}' \
                       > "$RUNNER_TEMP/openapi-update.json"
                   echo "Prepared ${#DRIFTED_FILES[@]} generated file update(s)"
                   echo "needs-commit=true" >> "$GITHUB_OUTPUT"
@@ -3538,17 +3535,15 @@ jobs:
                       fi
                   done
 
-                  jq -s '.' "$additions" > "$RUNNER_TEMP/snapshot-additions.json"
-                  jq -s '.' "$deletions" > "$RUNNER_TEMP/snapshot-deletions.json"
                   jq -n \
                       --arg repository "$GITHUB_REPOSITORY" \
                       --argjson pull_request "$PR_NUMBER" \
                       --arg branch "$BRANCH" \
                       --arg head_sha "$HEAD_SHA" \
                       --argjson changes "$changes" \
-                      --slurpfile additions "$RUNNER_TEMP/snapshot-additions.json" \
-                      --slurpfile deletions "$RUNNER_TEMP/snapshot-deletions.json" \
-                      '{version: 1, repository: $repository, pull_request: $pull_request, branch: $branch, head_sha: $head_sha, changes: $changes, additions: $additions[0], deletions: $deletions[0]}' \
+                      --slurpfile additions "$additions" \
+                      --slurpfile deletions "$deletions" \
+                      '{version: 1, repository: $repository, pull_request: $pull_request, branch: $branch, head_sha: $head_sha, changes: $changes, additions: $additions, deletions: $deletions}' \
                       > "$RUNNER_TEMP/snapshot-update.json"
                   echo "changed=true" >> "$GITHUB_OUTPUT"
 
