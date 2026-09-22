@@ -2708,6 +2708,14 @@ SQL
     column "trace_flags_arr" {
       type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Int32))"
     }
+    column "timestamp_min" {
+      type  = "DateTime64(6)"
+      alias = "arrayMin(timestamp_arr)"
+    }
+    column "timestamp_max" {
+      type  = "DateTime64(6)"
+      alias = "arrayMax(timestamp_arr)"
+    }
     index "idx_metric_type_set" {
       expr        = "metric_type"
       type        = "set(10)"
@@ -2715,6 +2723,16 @@ SQL
     }
     index "idx_time_bucket_minmax" {
       expr        = "time_bucket"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "idx_timestamp_min_minmax" {
+      expr        = "timestamp_min"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "idx_timestamp_max_minmax" {
+      expr        = "timestamp_max"
       type        = "minmax"
       granularity = 1
     }

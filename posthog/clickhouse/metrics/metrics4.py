@@ -1,6 +1,6 @@
 """Define the metrics4 ClickHouse tables and materialized views.
 
-`metrics4_samples` groups points by series, hour, and expiry date. A complete
+`metrics4_samples` groups points by series, day, and expiry date. A complete
 merge produces one row for each key. The table stores each point field in a
 parallel array. The insert view and background merges keep at most 10,000 points
 in each row. Readers combine partial rows and sort the points by timestamp. The
@@ -47,7 +47,7 @@ WRITABLE_METRICS4_SAMPLES_TABLE_NAME = "writable_metrics4_samples"
 WRITABLE_METRICS4_SERIES_TABLE_NAME = "writable_metrics4_series"
 WRITABLE_METRICS4_NAMES_TABLE_NAME = "writable_metrics4_names"
 WRITABLE_METRICS4_ATTRIBUTES_TABLE_NAME = "writable_metrics4_attributes"
-METRICS4_MAX_SAMPLES_PER_SERIES_HOUR = 10_000
+METRICS4_MAX_SAMPLES_PER_SERIES_BUCKET = 10_000
 
 # Each tuple maps an input column to its metrics4 array element type.
 METRICS4_POINT_ARRAY_COLUMNS: tuple[tuple[str, str], ...] = (
@@ -110,7 +110,7 @@ ENGINE = {Distributed(data_table=data_table_name, cluster=settings.CLICKHOUSE_LO
 
 def WRITABLE_METRICS4_SAMPLES_TABLE_SQL() -> str:
     arrays = ",\n".join(
-        f"    `{name}_arr` SimpleAggregateFunction(groupArrayArray({METRICS4_MAX_SAMPLES_PER_SERIES_HOUR}), Array({element_type}))"
+        f"    `{name}_arr` SimpleAggregateFunction(groupArrayArray({METRICS4_MAX_SAMPLES_PER_SERIES_BUCKET}), Array({element_type}))"
         for name, element_type in METRICS4_POINT_ARRAY_COLUMNS
     )
     return _writable_table_sql(
@@ -187,14 +187,17 @@ def WRITABLE_METRICS4_ATTRIBUTES_TABLE_SQL() -> str:
 
 def METRICS4_SAMPLES_TABLE_SQL() -> str:
     arrays = ",\n".join(
-        f"    `{name}_arr` SimpleAggregateFunction(groupArrayArray({METRICS4_MAX_SAMPLES_PER_SERIES_HOUR}), Array({element_type})){_ARRAY_CODECS.get(name, '')}"
+        f"    `{name}_arr` SimpleAggregateFunction(groupArrayArray({METRICS4_MAX_SAMPLES_PER_SERIES_BUCKET}), Array({element_type})){_ARRAY_CODECS.get(name, '')}"
         for name, element_type in METRICS4_POINT_ARRAY_COLUMNS
     )
-    # One merged row contains up to 10,000 points for one series-hour and expiry date.
+    # One merged row contains up to 10,000 points for one series-day and expiry date.
     # A 128-row granule can contain many series from one insert.
     # A primary-key filter cannot skip individual rows in that granule.
     # The granule can contain multiple metric names and time buckets.
-    # The time_bucket minmax index lets an hour filter skip the complete granule.
+    # The time_bucket minmax index lets a day filter skip the complete granule.
+    # A row gives no bound on the point timestamps in its arrays. The alias
+    # columns supply that bound, and their minmax indexes let a filter that is
+    # narrower than one day skip the complete granule.
     # The metrics2 table uses idx_timestamp_minmax for the same purpose.
     return f"""
 CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
@@ -215,8 +218,12 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
     `histogram_bounds` SimpleAggregateFunction(anyLast, Array(Float64)),
     `_topic` SimpleAggregateFunction(any, LowCardinality(String)),
 {arrays},
+    `timestamp_min` DateTime64(6) ALIAS arrayMin(timestamp_arr),
+    `timestamp_max` DateTime64(6) ALIAS arrayMax(timestamp_arr),
     INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
     INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
+    INDEX idx_timestamp_min_minmax timestamp_min TYPE minmax GRANULARITY 1,
+    INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1,
     INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1
 )
 ENGINE = {AggregatingMergeTree(METRICS4_SAMPLES_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
@@ -311,18 +318,19 @@ SETTINGS
 """
 
 
-def METRICS4_INPUT_TO_METRICS4_SAMPLES_MV() -> str:
+def METRICS4_INPUT_TO_METRICS4_SAMPLES_MV_SELECT() -> str:
     db = _db()
     group_arrays = ",\n".join(
-        f"    groupArray({METRICS4_MAX_SAMPLES_PER_SERIES_HOUR})({name}) AS {name}_arr"
+        f"    groupArray({METRICS4_MAX_SAMPLES_PER_SERIES_BUCKET})({name}) AS {name}_arr"
         for name, _ in METRICS4_POINT_ARRAY_COLUMNS
     )
-    return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{METRICS4_SAMPLES_TABLE_NAME} TO {db}.{WRITABLE_METRICS4_SAMPLES_TABLE_NAME}
-AS SELECT
+    # A day bucket keeps time_bucket in the sort key but stops it from separating
+    # the rows of one day. The timestamp_min and timestamp_max indexes of
+    # metrics4_samples give a narrower time filter its granule bounds.
+    return f"""SELECT
     team_id,
     metric_name,
-    toDateTime(toStartOfHour(timestamp)) AS time_bucket,
+    toDateTime(toDate(timestamp)) AS time_bucket,
     series_fingerprint,
     toDate32(original_expiry_timestamp) AS original_expiry_date,
     any(resource_fingerprint) AS resource_fingerprint,
@@ -343,6 +351,14 @@ GROUP BY
     time_bucket,
     series_fingerprint,
     original_expiry_date
+"""
+
+
+def METRICS4_INPUT_TO_METRICS4_SAMPLES_MV() -> str:
+    db = _db()
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{METRICS4_SAMPLES_TABLE_NAME} TO {db}.{WRITABLE_METRICS4_SAMPLES_TABLE_NAME}
+AS {METRICS4_INPUT_TO_METRICS4_SAMPLES_MV_SELECT()}
 """
 
 

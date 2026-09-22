@@ -1716,7 +1716,7 @@ SQL
 SELECT
   team_id,
   metric_name,
-  toDateTime(toStartOfHour(timestamp)) AS time_bucket,
+  toDateTime(toDate(timestamp)) AS time_bucket,
   series_fingerprint,
   toDate32(original_expiry_timestamp) AS original_expiry_date,
   any(resource_fingerprint) AS resource_fingerprint,
