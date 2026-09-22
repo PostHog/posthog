@@ -22,6 +22,7 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 
 from ee.billing.quota_limiting import (
     INFORMATIONAL_USAGE_RESOURCES,
+    MOBILE_RECORDINGS_QUOTA_ENFORCEMENT_FLAG,
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
     OrganizationUsageInfo,
     QuotaLimitingCaches,
@@ -259,8 +260,12 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"@posthog/quota-limits/survey_responses", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/rows_exported", 0, -1) == []
 
+    @patch(
+        "posthoganalytics.feature_enabled",
+        side_effect=lambda key, *_args, **_kwargs: key == MOBILE_RECORDINGS_QUOTA_ENFORCEMENT_FLAG,
+    )
     @time_machine.travel("2021-01-25T23:59:59Z", tick=False)
-    def test_quota_limiting_limits_mobile_sessions_under_the_mobile_resource(self) -> None:
+    def test_quota_limiting_limits_mobile_sessions_under_the_mobile_resource(self, _patch_flag) -> None:
         # Mobile sessions meter against their own quota resource: billing converts the combined
         # $ limit into separate web/mobile unit counts, so mobile volume must never be summed
         # into the web `recordings` meter (the web limit is in ratio-adjusted base units, so
@@ -299,8 +304,12 @@ class TestQuotaLimiting(BaseTest):
         )
         assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
 
+    @patch(
+        "posthoganalytics.feature_enabled",
+        side_effect=lambda key, *_args, **_kwargs: key == MOBILE_RECORDINGS_QUOTA_ENFORCEMENT_FLAG,
+    )
     @time_machine.travel("2021-01-25T23:59:59Z", tick=False)
-    def test_quota_limiting_keeps_web_and_mobile_meters_independent(self) -> None:
+    def test_quota_limiting_keeps_web_and_mobile_meters_independent(self, _patch_flag) -> None:
         # A web-heavy org over only the web limit must not be limited by its (below-limit)
         # mobile volume, and vice versa: each resource reads only its own sessions.
         with self.settings(USE_TZ=False):
@@ -329,6 +338,24 @@ class TestQuotaLimiting(BaseTest):
         org_id = str(self.organization.id)
         assert result.quota_limited_orgs["recordings"] == {org_id: 1612137599}
         assert result.quota_limited_orgs["mobile_recordings"] == {}
+
+    @time_machine.travel("2021-01-25T00:00:00Z", tick=False)
+    def test_quota_limiting_mobile_recordings_reuses_the_recordings_trust_score(self) -> None:
+        # Billing trusts the session replay product as one, so orgs have no `mobile_recordings`
+        # trust score. An org trusted on `recordings` must keep that grace period under the
+        # mobile limit instead of being cut off with no score of its own.
+        self.organization.usage = {
+            "mobile_recordings": {"usage": 1101, "limit": 100},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.customer_trust_scores = {QuotaResource.RECORDINGS.value: 10}
+        self.organization.save()
+
+        result = org_quota_limited_until(self.organization, QuotaResource.MOBILE_RECORDINGS, [])
+        assert result == {
+            "quota_limited_until": None,
+            "quota_limiting_suspended_until": 1611878400,  # grace period 3 days, from the recordings score
+        }
 
     def test_billing_rate_limit_not_set_if_missing_org_usage(self) -> None:
         with self.settings(USE_TZ=False):

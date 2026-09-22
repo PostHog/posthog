@@ -56,6 +56,10 @@ logger = structlog.get_logger(__name__)
 
 QUOTA_LIMIT_DATA_RETENTION_FLAG = "retain-data-past-quota-limit"
 
+# Off by default: mobile replay limiting turns on per org, so the new meter lands as a staged
+# rollout once billing syncs real mobile limits rather than evaluating every org at once.
+MOBILE_RECORDINGS_QUOTA_ENFORCEMENT_FLAG = "mobile-recordings-quota-enforcement"
+
 QUOTA_LIMIT_MEDIUM_TRUST_GRACE_PERIOD_DAYS = 1
 QUOTA_LIMIT_MEDIUM_HIGH_TRUST_GRACE_PERIOD_DAYS = 3
 QUOTA_LIMIT_HIGH_TRUST_GRACE_PERIOD_DAYS = 5
@@ -400,7 +404,11 @@ def org_quota_limited_until(
     # - customer_trust_scores in posthog_organization use usage_key values (matching QuotaResource values)
     # - The billing service stores trust scores by product_key, but billing_manager.py translates them to usage_key
     #   when syncing billing_customer to posthog_organization
+    # - Billing trusts the session replay product as a whole, so `mobile_recordings` has no score
+    #   of its own: reuse the `recordings` score to keep the grace period orgs already have.
     trust_score = organization.customer_trust_scores.get(resource.value) if organization.customer_trust_scores else 0
+    if resource == QuotaResource.MOBILE_RECORDINGS and organization.customer_trust_scores:
+        trust_score = organization.customer_trust_scores.get(QuotaResource.RECORDINGS.value)
 
     # Flow for checking quota limits:
     # 1. ignore the limits
@@ -731,7 +739,19 @@ def update_org_billing_quotas(organization: Organization):
     }
     recordings_transitioned_team_ids: set[int] = set()
 
+    # Mobile replay limiting stages behind a flag so the new meter can be rolled out per org
+    # once billing sends real mobile limits, instead of evaluating every org at once. The
+    # check is cheap (org-keyed, cached) and runs once per org, not per resource.
+    mobile_recordings_enforcement_enabled = posthoganalytics.feature_enabled(
+        MOBILE_RECORDINGS_QUOTA_ENFORCEMENT_FLAG,
+        str(organization.id),
+        groups={"organization": str(organization.id)},
+        group_properties={"organization": {"id": str(organization.id)}},
+    )
+
     for resource in QuotaResource:
+        if resource == QuotaResource.MOBILE_RECORDINGS and not mobile_recordings_enforcement_enabled:
+            continue
         previously_quota_limited_team_tokens = list_limited_team_attributes(
             resource,
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
@@ -1383,7 +1403,18 @@ def update_all_orgs_billing_quotas(
 
                 org_is_limited = False
                 org_is_suspended = False
+                # Same staged-rollout flag as `update_org_billing_quotas`: keep mobile limiting
+                # off for orgs the flag has not reached, so the new meter never evaluates every
+                # org at once when billing starts sending mobile limits.
+                mobile_recordings_enforcement_enabled = posthoganalytics.feature_enabled(
+                    MOBILE_RECORDINGS_QUOTA_ENFORCEMENT_FLAG,
+                    str(org.id),
+                    groups={"organization": str(org.id)},
+                    group_properties={"organization": {"id": str(org.id)}},
+                )
                 for resource in QuotaResource:
+                    if resource == QuotaResource.MOBILE_RECORDINGS and not mobile_recordings_enforcement_enabled:
+                        continue
                     field = resource.value
                     # for each organization, we check if the current usage + today's unreported usage is over the limit
                     result = org_quota_limited_until(org, resource, previously_quota_limited_team_tokens[field])

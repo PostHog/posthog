@@ -2095,3 +2095,50 @@ async fn test_mobile_recordings_quota_limiter_ignores_other_sources() {
     let body: Value = serde_json::from_str(&response.text().await).unwrap();
     assert!(body.get("quota_limited").is_none());
 }
+
+#[tokio::test]
+async fn test_mobile_recordings_quota_limiter_limits_a_batch_by_its_first_event() {
+    // Ingestion stamps the whole batch with the first event's `$snapshot_source` and billing
+    // meters the session off that stamp, so a mobile batch whose later events carry no source
+    // must still drop as mobile, not partially pass.
+    let token = "test_token_mobile_batch_stamp";
+    let (router, _sink) =
+        setup_router_with_limits(token, CaptureMode::Recordings, false, vec![QuotaResource::MobileRecordings]).await;
+    let client = TestClient::new(router);
+
+    let payload = serde_json::json!([
+        {
+            "event": "$snapshot",
+            "api_key": token,
+            "distinct_id": "test_user_id",
+            "properties": {
+                "$session_id": "01983d9b-8639-78fa-ac26-b9e7bf716521",
+                "$window_id": "01983d90-31f6-78cf-86c8-b26d0bdaaff0",
+                "$snapshot_source": "mobile",
+                "$snapshot_data": [{"type": 2, "data": {"id": 1}, "timestamp": 1753379299184u64}]
+            }
+        },
+        {
+            "event": "$snapshot",
+            "api_key": token,
+            "distinct_id": "test_user_id",
+            "properties": {
+                "$session_id": "01983d9b-8639-78fa-ac26-b9e7bf716521",
+                "$window_id": "01983d90-31f6-78cf-86c8-b26d0bdaaff0",
+                "$snapshot_data": [{"type": 2, "data": {"id": 2}, "timestamp": 1753379299185u64}]
+            }
+        }
+    ])
+    .to_string();
+
+    let response = client
+        .post("/s")
+        .body(payload)
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_str(&response.text().await).unwrap();
+    assert_eq!(body["quota_limited"], serde_json::json!(["recordings"]));
+}
