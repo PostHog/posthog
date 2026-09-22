@@ -36,10 +36,9 @@ on:
         # so every unrelated label re-ran these matrices against a commit CI had
         # already covered. A label here takes effect from the next push, or from
         # ready_for_review.
-        # The `test-new-events-schema` label opts a PR into the doubled matrices that
-        # rerun everything with CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=true; unlabeled
-        # PRs run legacy-schema only (master coverage of the new schema is paused for
-        # CI cost — see build-product-test-matrix).
+        # Every run doubles the test matrices to cover both events schemas
+        # (CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA off and on); the switch is
+        # RUN_NEW_EVENTS_SCHEMA on the two matrix builders.
         types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
@@ -843,17 +842,16 @@ jobs:
               id: build
               env:
                   PRODUCT_MATRIX_JSON: ${{ needs.turbo-discover.outputs.matrix }}
-                  # The new-events-schema variants double the matrix, so they only run on
-                  # PRs opted in via the test-new-events-schema label and on manual dispatch.
-                  # Master skips them for CI cost until the schema nears prod testing;
-                  # re-enable master + PR coverage together when that starts.
-                  RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') || github.event_name == 'workflow_dispatch' }}
+                  # The new-events-schema variants double the matrix. They run on every PR
+                  # and master run so a change that breaks the native-JSON events table
+                  # fails before it merges; set this to 'false' to pause them.
+                  RUN_NEW_EVENTS_SCHEMA: 'true'
               run: |
                   if [[ "$RUN_NEW_EVENTS_SCHEMA" == "true" ]]; then
                       schema_modes='[false, true]'
                   else
                       schema_modes='[false]'
-                      echo "Skipping new-events-schema variants (add the test-new-events-schema label to run them)"
+                      echo "Skipping new-events-schema variants (RUN_NEW_EVENTS_SCHEMA is off)"
                   fi
                   include=$(jq -cn --argjson matrix "$PRODUCT_MATRIX_JSON" --argjson schema_modes "$schema_modes" '
                     [
@@ -2611,11 +2609,10 @@ jobs:
                   IS_DRAFT: ${{ github.event.pull_request.draft && !startsWith(github.head_ref, 'trunk-merge/') }}
                   IS_PR_RUN: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
-                  # The new-events-schema variants double the matrix, so they only run on
-                  # PRs opted in via the test-new-events-schema label and on manual dispatch.
-                  # Master skips them for CI cost until the schema nears prod testing;
-                  # re-enable master + PR coverage together when that starts.
-                  RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') || github.event_name == 'workflow_dispatch' }}
+                  # The new-events-schema variants double the matrix. They run on every PR
+                  # and master run so a change that breaks the native-JSON events table
+                  # fails before it merges; set this to 'false' to pause them.
+                  RUN_NEW_EVENTS_SCHEMA: 'true'
               run: |
                   # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
                   # Consult #team-devex before changing.
@@ -2886,10 +2883,9 @@ jobs:
                   fi
 
                   if [[ "$RUN_NEW_EVENTS_SCHEMA" != "true" ]]; then
-                      # Unlabeled PRs skip the doubled schema matrix; their snapshot
-                      # bot commits leave *.new_events_schema.ambr files untouched, so
-                      # those only refresh on labeled PRs / dispatch and stay stale between.
-                      echo "Skipping new-events-schema variants (add the test-new-events-schema label to run them)"
+                      # With the schema copies paused, snapshot bot commits leave
+                      # *.new_events_schema.ambr files untouched, so those go stale.
+                      echo "Skipping new-events-schema variants (RUN_NEW_EVENTS_SCHEMA is off)"
                       core_new_events_schema="[]"
                       core_persons_on_events_new_schema="[]"
                       temporal_new_events_schema="[]"
