@@ -90,7 +90,6 @@ def execute_trino_shadow_materialization(
     team_id: int,
     saved_query_id: str | UUID,
     source_query: object,
-    table_name: str,
 ) -> DuckLakeTableResult:
     from products.managed_warehouse.backend.trino_materialization import (  # noqa: PLC0415 -- keeps the optional Trino driver off startup paths
         execute_trino_shadow_materialization as execute_shadow,
@@ -101,7 +100,6 @@ def execute_trino_shadow_materialization(
         team_id=team_id,
         saved_query_id=saved_query_id,
         source_query=source_query,
-        table_name=table_name,
     )
 
 

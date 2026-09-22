@@ -3,8 +3,9 @@ from uuid import UUID
 from posthog.hogql.escape_sql import escape_trino_identifier
 from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
-from products.managed_warehouse.backend.common import duckgres_data_modeling_schema
+from products.managed_warehouse.backend.common import ducklake_data_modeling_schema
 from products.managed_warehouse.backend.facade.contracts import DuckLakeTableResult
+from products.managed_warehouse.backend.table_binding import get_data_modeling_table_names
 from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
 from products.managed_warehouse.backend.view_translation_status import get_current_trino_translation
 
@@ -15,7 +16,6 @@ def execute_trino_shadow_materialization(
     team_id: int,
     saved_query_id: str | UUID,
     source_query: object,
-    table_name: str,
 ) -> DuckLakeTableResult:
     compiled = get_current_trino_translation(
         organization_id=organization_id,
@@ -27,7 +27,9 @@ def execute_trino_shadow_materialization(
         raise ValueError("No current Trino conversion exists for this saved query. Run its translation again.")
 
     sql, parameters = convert_pyformat_placeholders(compiled.sql, compiled.values)
-    schema_name = duckgres_data_modeling_schema(team_id)
+    schema_name = ducklake_data_modeling_schema(team_id)
+    query_id = UUID(str(saved_query_id))
+    table_name = get_data_modeling_table_names(team_id, [query_id])[query_id]
     with connect_managed_warehouse_trino(organization_id) as connection:
         schema = f"{escape_trino_identifier(connection.catalog)}.{escape_trino_identifier(schema_name)}"
         table = f"{schema}.{escape_trino_identifier(table_name)}"

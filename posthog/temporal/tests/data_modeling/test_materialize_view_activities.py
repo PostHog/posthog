@@ -139,7 +139,6 @@ class TestMaterializeViewManagedWarehouseActivity:
             team_id=ateam.pk,
             saved_query_id=asaved_query.id,
             source_query=executable_query,
-            table_name=asaved_query.normalized_name,
         )
         legacy_execute.assert_not_called()
         await database_sync_to_async(ajob.refresh_from_db)()

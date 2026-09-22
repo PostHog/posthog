@@ -24,6 +24,8 @@ from products.data_modeling.backend.facade.models import (
 from products.endpoints.backend.facade.temporal import prepare_executable_query
 from products.managed_warehouse.backend.facade.api import (
     duckgres_data_modeling_schema,
+    ducklake_data_modeling_schema,
+    get_data_modeling_table_name,
     has_provisioned_warehouse,
     is_data_modeling_shadow_ready,
     is_dev_mode,
@@ -220,15 +222,8 @@ async def _materialize_view_managed_warehouse(
     node = objects.node
     saved_query = objects.saved_query
     bind_data_modeling_log_context(inputs.team_id, saved_query.id)
-    schema_name = duckgres_data_modeling_schema(team.pk)
-    table_name = saved_query.normalized_name
-
-    await logger.ainfo(
-        "Starting managed warehouse shadow materialization",
-        node_name=node.name,
-        schema_name=schema_name,
-        table_name=table_name,
-    )
+    schema_name = ducklake_data_modeling_schema(team.pk) if inputs.use_trino else duckgres_data_modeling_schema(team.pk)
+    table_name = "" if inputs.use_trino else saved_query.normalized_name
 
     start_time = time.monotonic()
     sql: str = ""
@@ -241,12 +236,19 @@ async def _materialize_view_managed_warehouse(
         )
 
         if inputs.use_trino:
+            table_name = await database_sync_to_async_pool(get_data_modeling_table_name)(team.pk, saved_query.id)
+        await logger.ainfo(
+            "Starting managed warehouse shadow materialization",
+            node_name=node.name,
+            schema_name=schema_name,
+            table_name=table_name,
+        )
+        if inputs.use_trino:
             result = await database_sync_to_async_pool(execute_trino_shadow_materialization)(
                 organization_id=str(team.organization_id),
                 team_id=team.pk,
                 saved_query_id=saved_query.id,
                 source_query=saved_query.query,
-                table_name=table_name,
             )
         else:
             hogql_query = typing.cast(dict, saved_query.query)["query"]

@@ -1,4 +1,4 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -7,19 +7,23 @@ from parameterized import parameterized
 
 from posthog.models import Team
 
+from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.managed_warehouse.backend.facade.client import execute_trino_shadow_materialization
-from products.managed_warehouse.backend.facade.contracts import DuckLakeTableResult
+from products.managed_warehouse.backend.facade.contracts import DuckLakeTableResult, ManagedWarehouseTableNames
 from products.managed_warehouse.backend.models import (
     ManagedWarehouseViewTranslationJob,
     ManagedWarehouseViewTranslationResult,
 )
+from products.managed_warehouse.backend.table_binding import build_trino_table_locators
 from products.managed_warehouse.backend.view_translation_status import source_query_hash
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 class TestTrinoShadowMaterialization(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.saved_query_id = uuid4()
+        self.saved_query_id = UUID("12345678-1234-5678-1234-567812345678")
         self.query = {"kind": "HogQLQuery", "query": "SELECT name FROM orders WHERE name = 'example'"}
         self.job = ManagedWarehouseViewTranslationJob.objects.create(
             organization=self.organization, status=ManagedWarehouseViewTranslationJob.Status.COMPLETED
@@ -44,7 +48,6 @@ class TestTrinoShadowMaterialization(BaseTest):
             team_id=team_id or self.team.pk,
             saved_query_id=self.saved_query_id,
             source_query=self.query,
-            table_name='orders"summary',
         )
 
     @parameterized.expand([(False,), (True,)])
@@ -73,15 +76,15 @@ class TestTrinoShadowMaterialization(BaseTest):
             else:
                 result = self.execute()
                 assert result.row_count == 12
-                assert result.schema_name == f"shadow_{self.team.pk}_models"
-                assert result.table_name == 'orders"summary'
+                assert result.schema_name == f"posthog_data_modeling_team_{self.team.pk}"
+                assert result.table_name == f"model_{self.saved_query_id.hex}"
 
         connect.assert_called_once_with(str(self.organization.pk))
         assert self.cursor.execute.call_args_list[0].args == (
-            f'CREATE SCHEMA IF NOT EXISTS "org_""catalog"."shadow_{self.team.pk}_models"',
+            f'CREATE SCHEMA IF NOT EXISTS "org_""catalog"."posthog_data_modeling_team_{self.team.pk}"',
         )
         assert self.cursor.execute.call_args_list[1].args == (
-            f'CREATE OR REPLACE TABLE "org_""catalog"."shadow_{self.team.pk}_models"."orders""summary" '
+            f'CREATE OR REPLACE TABLE "org_""catalog"."posthog_data_modeling_team_{self.team.pk}"."model_{self.saved_query_id.hex}" '
             'AS SELECT name FROM "org_catalog"."imports"."orders" WHERE name = ? LIMIT 12',
             ["example' OR 1=1 --"],
         )
@@ -110,3 +113,37 @@ class TestTrinoShadowMaterialization(BaseTest):
                     organization_id=str(uuid4()) if reason == "organization" else None,
                 )
         connect.assert_not_called()
+
+    @parameterized.expand([(None,), ("legacy_orders",)])
+    def test_materialized_dependency_matches_downstream_locator(self, model_label: str | None) -> None:
+
+        backing_table = DataWarehouseTable.objects.create(
+            team=self.team, name="orders", format="Parquet", url_pattern="https://example.com/orders/*.parquet"
+        )
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            id=self.saved_query_id,
+            team=self.team,
+            name="orders",
+            query=self.query,
+            is_materialized=True,
+            table=backing_table,
+        )
+        if model_label:
+            DataWarehouseModelPath.objects.create(team=self.team, saved_query=saved_query, path=[model_label])
+        with patch(
+            "products.managed_warehouse.backend.trino_materialization.connect_managed_warehouse_trino"
+        ) as connect:
+            connect.return_value.__enter__.return_value = self.connection
+            written = self.execute()
+        database = MagicMock()
+        with patch("products.managed_warehouse.backend.team_state.cp_teams.list_org_teams", return_value=[]):
+            locators = build_trino_table_locators(
+                database,
+                self.team.pk,
+                catalog_name=self.connection.catalog,
+                table_names=ManagedWarehouseTableNames(
+                    events_table="events", persons_table="persons", data_imports_schema="imports"
+                ),
+            )
+        assert locators["orders"] == (self.connection.catalog, written.schema_name, written.table_name)
+        assert written.table_name == (model_label or f"model_{self.saved_query_id.hex}")

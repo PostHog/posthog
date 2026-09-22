@@ -198,8 +198,15 @@ The shadow activity executes the most recent matching conversion's stored `trino
 It checks the source hash again when the activity runs and fails the shadow job if no current conversion exists; rerun translation after editing the saved query.
 It does not recompile the query or fall back to DuckDB on failure.
 
-Trino atomically replaces the output table in the organization's catalog under `shadow_<team_id>_models`.
-ClickHouse materialization and publication continue independently, and a failed shadow write preserves the previous shadow table.
+Trino replaces the output table in the organization's catalog under `posthog_data_modeling_team_<team_id>`, using the sanitized model-path label or saved-query UUID.
+The compiler and materializer share this naming policy, so stored translations can read upstream model outputs directly.
+The legacy Duckgres path retains `shadow_<team_id>_models` and normalized saved-query names.
+ClickHouse materialization and publication continue independently.
+The DAG waits for upstream Trino builds and skips dependent Trino builds when an upstream model fails or has no eligible translation, even if ClickHouse succeeds.
+Skipped managed warehouse jobs record the upstream node IDs. Existing Temporal histories retain their previous dependency behavior.
+Run upstream materialized models before their dependents when selecting a subset of the DAG.
+Do not run the legacy DuckLake model-copy workflow against the same destinations while Trino owns their refreshes.
+Publication uses the DuckLake connector's atomic `CREATE OR REPLACE TABLE` operation, so a failed write preserves the previous table.
 The shadow row count comes from Trino's write result; storage size metrics are unavailable and remain zero.
 Existing Temporal histories retain their legacy execution path through a workflow patch.
 Explicit `managed_warehouse_only` runs without flag eligibility also retain the legacy path.
