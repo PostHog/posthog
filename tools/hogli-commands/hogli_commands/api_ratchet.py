@@ -42,6 +42,8 @@ from typing import Final
 import click
 from hogli.manifest import REPO_ROOT
 
+from posthog.dataclasses import frozen
+
 API_TS: Final = Path("frontend/src/lib/api.ts")
 CORE_GENERATED: Final = Path("frontend/src/generated/core/api.ts")
 PRODUCT_GENERATED_GLOB: Final = "products/*/frontend/generated/api.ts"
@@ -229,10 +231,19 @@ def _blocks_with_return(lines: list[str], paths: list[tuple[int, ...]]) -> froze
     return frozenset(has_return)
 
 
+@frozen
+class SameLevelIfGuard:
+    """A same-level if-block found before a return, and the variable it guards on."""
+
+    block_id: int
+    name: str
+    negated: bool
+
+
 def _nearest_same_level_if(
     lines: list[str], paths: list[tuple[int, ...]], opened_at: dict[int, int], index: int
-) -> tuple[int, str, bool] | None:
-    """The nearest same-level closed if-block before ``index``, as (block id, name, negated)."""
+) -> SameLevelIfGuard | None:
+    """The nearest same-level closed if-block before ``index``."""
     level = paths[index]
     for position in range(index - 1, -1, -1):
         if paths[position] != level:
@@ -246,7 +257,7 @@ def _nearest_same_level_if(
         block_id = next((bid for bid, opened_line in opened_at.items() if opened_line == position), None)
         if block_id is None:
             return None
-        return (block_id, name, bool(negated))
+        return SameLevelIfGuard(block_id=block_id, name=name, negated=bool(negated))
     return None
 
 
@@ -262,10 +273,9 @@ def _fallthrough_guard(
     found = _nearest_same_level_if(lines, paths, opened_at, index)
     if found is None:
         return None
-    block_id, name, negated = found
-    if block_id not in has_return:
+    if found.block_id not in has_return:
         return None
-    return (name, negated)
+    return (found.name, found.negated)
 
 
 def _return_guard(
@@ -295,11 +305,10 @@ def _optional_mutation(
     found = _nearest_same_level_if(lines, paths, opened_at, index)
     if found is None:
         return None
-    block_id, name, negated = found
-    if block_id in has_return:
+    if found.block_id in has_return:
         return None
-    block_lines = [line for position, line in enumerate(lines) if block_id in paths[position]]
-    return (name, not negated), block_lines
+    block_lines = [line for position, line in enumerate(lines) if found.block_id in paths[position]]
+    return (found.name, not found.negated), block_lines
 
 
 def _split_returns(body: str) -> list[ReturnStatement]:
