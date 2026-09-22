@@ -66,6 +66,11 @@ function present(value: string | null | undefined): value is string {
     return value !== undefined && value !== null && value !== ''
 }
 
+// An empty variable counts as unset, so `POSTHOG_CLI_API_KEY=` does not hide `POSTHOG_CLI_TOKEN`.
+function firstPresent(...values: readonly (string | null | undefined)[]): string | undefined {
+    return values.find(present)
+}
+
 function trimHost(host: string | null | undefined): string | undefined {
     return present(host) ? host.replace(/\/+$/, '') : undefined
 }
@@ -97,7 +102,7 @@ function assertSecureHost(host: string, source: string): string {
             status: 'insecure_host',
             message: `${host} is not an https URL.`,
             why: `Every request sends the API key as a bearer token, so a plain-HTTP host outside this machine would send the key in clear text. The host came from ${source}.`,
-            fix: 'Use https for a remote PostHog. Plain http is only allowed for localhost and 127.0.0.1.',
+            fix: 'Use https for a remote PostHog. Plain http is only allowed for localhost, 127.0.0.1 and [::1].',
         })
     }
     return host
@@ -142,22 +147,25 @@ export function resolveCredentials(
     homeDir: string,
     overrides: CredentialOverrides = {}
 ): Credentials | null {
-    const host = secureHost(overrides.host, '--host') ?? secureHost(env.POSTHOG_CLI_HOST, 'POSTHOG_CLI_HOST')
-    const apiKey = env.POSTHOG_CLI_API_KEY ?? env.POSTHOG_CLI_TOKEN
-    const projectId = overrides.project ?? env.POSTHOG_CLI_PROJECT_ID ?? env.POSTHOG_CLI_ENV_ID
+    // Resolved only once a key is found: a host is validated when a request will carry the key
+    // to it, so an offline check does not fail on a host it never contacts.
+    const host = (): string | undefined =>
+        secureHost(overrides.host, '--host') ?? secureHost(env.POSTHOG_CLI_HOST, 'POSTHOG_CLI_HOST')
+    const apiKey = firstPresent(env.POSTHOG_CLI_API_KEY, env.POSTHOG_CLI_TOKEN)
+    const projectId = firstPresent(overrides.project, env.POSTHOG_CLI_PROJECT_ID, env.POSTHOG_CLI_ENV_ID)
 
-    if (present(apiKey) && present(projectId)) {
-        return { apiKey, projectId, host: host ?? DEFAULT_HOST, source: describeSource('the environment', overrides) }
+    if (apiKey !== undefined && projectId !== undefined) {
+        return { apiKey, projectId, host: host() ?? DEFAULT_HOST, source: describeSource('the environment', overrides) }
     }
 
     const path = credentialsPath(env, homeDir)
     const file = readFile(path)
-    const fileProjectId = overrides.project ?? file?.env_id
-    if (present(file?.token) && present(fileProjectId)) {
+    const fileProjectId = firstPresent(overrides.project, file?.env_id)
+    if (present(file?.token) && fileProjectId !== undefined) {
         return {
             apiKey: file.token,
             projectId: fileProjectId,
-            host: host ?? secureHost(file.host, shown(path, homeDir)) ?? DEFAULT_HOST,
+            host: host() ?? secureHost(file.host, shown(path, homeDir)) ?? DEFAULT_HOST,
             source: describeSource(shown(path, homeDir), overrides),
         }
     }

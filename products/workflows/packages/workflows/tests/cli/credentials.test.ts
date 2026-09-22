@@ -78,9 +78,9 @@ describe('credentials', () => {
         })
     })
 
-    it('takes the older names for the key and the project', () => {
+    it('takes the older names for the key and the project, also past an empty newer one', () => {
         const credentials = resolveCredentials(
-            { POSTHOG_CLI_TOKEN: 'phx_from_env', POSTHOG_CLI_ENV_ID: '2' },
+            { POSTHOG_CLI_API_KEY: '', POSTHOG_CLI_TOKEN: 'phx_from_env', POSTHOG_CLI_ENV_ID: '2' },
             homeWithCredentials('')
         )
 
@@ -123,6 +123,12 @@ describe('credentials', () => {
             () => resolveCredentials({ POSTHOG_CLI_HOST: 'posthog.example.com' }, home),
             refusal('invalid_host')
         )
+    })
+
+    it('leaves an insecure host alone when there is no key to send to it', () => {
+        const empty = mkdtempSync(join(tmpdir(), 'empty-'))
+
+        assert.equal(resolveCredentials({ POSTHOG_CLI_HOST: 'http://posthog.example.com' }, empty), null)
     })
 
     it('resolves nothing when neither source is complete', () => {

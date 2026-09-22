@@ -124,7 +124,11 @@ function printFooter(
         // A pull request from a fork cannot read a repository secret, so check has to say which
         // half ran. Without these two lines "all valid" reads as "nothing would change".
         io.out('diff skipped: no PostHog credentials in this environment, so the file was validated offline.')
-        io.out('Set POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID to compare against a project.')
+        io.out(
+            options.project === undefined
+                ? 'Set POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID to compare against a project.'
+                : `Set POSTHOG_CLI_API_KEY to compare against project ${options.project}.`
+        )
         return
     }
     const verb = options.command === 'check' ? 'compared against' : 'pushed to'

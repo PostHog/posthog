@@ -113,9 +113,8 @@ export class Client {
     }
 
     private async request(method: string, path: string, body?: unknown): Promise<StoredWorkflow> {
-        let response: Response
         try {
-            response = await fetch(`${this.credentials.host}${path}`, {
+            const response = await fetch(`${this.credentials.host}${path}`, {
                 method,
                 headers: {
                     Authorization: `Bearer ${this.credentials.apiKey}`,
@@ -127,7 +126,16 @@ export class Client {
                 // CI job until the runner's own timeout kills it, with no line saying why.
                 signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
             })
+            // The signal also governs the body read, so it stays inside the try.
+            const text = await response.text()
+            if (!response.ok) {
+                throw new WorkflowError(describeFailure(response.status, text))
+            }
+            return JSON.parse(text) as StoredWorkflow
         } catch (error) {
+            if (error instanceof WorkflowError) {
+                throw error
+            }
             if (error instanceof Error && error.name === 'TimeoutError') {
                 throw new WorkflowError({
                     status: 'timeout',
@@ -143,10 +151,6 @@ export class Client {
                 fix: 'Check that the host is reachable from here, then run the command again.',
             })
         }
-        if (!response.ok) {
-            throw new WorkflowError(describeFailure(response.status, await response.text()))
-        }
-        return (await response.json()) as StoredWorkflow
     }
 
     /**
