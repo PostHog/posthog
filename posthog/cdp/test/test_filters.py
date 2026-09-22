@@ -270,6 +270,18 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         assert "$virt_traffic_type" in own["bytecode_error"]
         assert "$virt_is_bot" in own["bytecode_error"]
 
+        # Both sources reading the same field must still name both, or the next save fails the same way.
+        shared = compile_filters_bytecode(
+            {"filter_test_accounts": True, "properties": [{"type": "hogql", "key": "$virt_is_bot = true"}]},
+            self.team,
+        )
+        assert _normalize_error(shared["bytecode_error"]) == (
+            "Your internal/test user filters read $virt_is_bot, which real-time filters cannot read. "
+            "Those exist when a query runs, not while an event is being processed. "
+            "This destination's own filters also read $virt_is_bot. "
+            "Update your filters at: SETTINGS_URL#internal-user-filtering"
+        )
+
     def test_filters_allow_group_globals(self):
         response = compile_filters_bytecode(
             filters={

@@ -409,7 +409,11 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
             team_exprs = _build_test_account_filters(filters, team)
             from_team = _unknown_filter_globals(_combine_expressions(team_exprs)) if team_exprs else []
             if from_team:
-                own = [name for name in unknown if name not in from_team]
+                # Compile the destination's own filters alone rather than subtracting the team's
+                # roots: a field that both sources read drops out of the difference and goes unnamed.
+                own = _unknown_filter_globals(
+                    compile_filters_expr({**filters, "filter_test_accounts": False}, team, actions)
+                )
                 raise Exception(
                     f"Your internal/test user filters read {', '.join(from_team)}, which real-time filters "
                     f"cannot read. Those exist when a query runs, not while an event is being processed. "
