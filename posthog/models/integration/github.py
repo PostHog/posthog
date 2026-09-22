@@ -41,7 +41,18 @@ _GITHUB_LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,3
 # Upper bound on the diff text we return, to keep a pathological diff (generated/vendored
 # files) from bloating the JSON response and worker memory. ~1 MB of text.
 _MAX_DIFF_CHARS = 1_000_000
+
+
 _MAX_FILE_CONTENTS_BYTES = 10 * 1024 * 1024
+
+
+def _bounded_diff_result(diff_text: str) -> dict[str, Any]:
+    """Cap a raw unified diff, with a marker so the consumer can tell the diff was cut rather than
+    silently showing a partial diff."""
+    truncated = len(diff_text) > _MAX_DIFF_CHARS
+    if truncated:
+        diff_text = diff_text[:_MAX_DIFF_CHARS] + "\n\n… diff truncated (too large to display in full) …\n"
+    return {"success": True, "diff": diff_text, "truncated": truncated}
 
 
 def _is_safe_github_repo_path(repo_path: str) -> bool:
@@ -834,14 +845,37 @@ class GitHubIntegration(GitHubIntegrationBase):
             return {"success": False, "error": "Could not reach GitHub.", "status_code": 502}
         if response.status_code != 200:
             return {"success": False, "error": response.text, "status_code": response.status_code}
-        # Cap the diff we return: a branch touching generated/vendored files can produce a diff of
-        # many MB, which would bloat the JSON response and worker memory. Truncate with a marker so
-        # the consumer can tell the diff was cut rather than silently showing a partial diff.
-        diff_text = response.text
-        truncated = len(diff_text) > _MAX_DIFF_CHARS
-        if truncated:
-            diff_text = diff_text[:_MAX_DIFF_CHARS] + "\n\n… diff truncated (too large to display in full) …\n"
-        return {"success": True, "diff": diff_text, "truncated": truncated}
+        return _bounded_diff_result(response.text)
+
+    def get_pull_request_diff(self, repository: str, pr_number: int) -> dict[str, Any]:
+        """Return the unified diff of a pull request, read by its number.
+
+        A pull request outlives its head branch: GitHub deletes the branch on merge but keeps
+        serving the pull request's diff, while a compare against the deleted branch answers 404.
+        Callers that hold a pull request number must prefer this over ``get_diff``.
+
+        Uses the pull request API with the ``diff`` media type, so the response body is raw
+        unified-diff text. ``repository`` may be ``owner/name`` or a bare name (resolved against
+        the installation's org), and is validated before interpolation.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        if not _is_safe_github_repo_path(repo_path):
+            return {"success": False, "error": f"Invalid repository '{repository}'.", "status_code": 400}
+
+        try:
+            response = self.api_request(
+                "GET",
+                f"/repos/{repo_path}/pulls/{pr_number}",
+                endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+                headers={"Accept": "application/vnd.github.diff"},
+            )
+        except GitHubIntegrationError:
+            # Don't let a slow/unreachable GitHub hang a worker or 500 the caller.
+            return {"success": False, "error": "Could not reach GitHub.", "status_code": 502}
+        if response.status_code != 200:
+            return {"success": False, "error": response.text, "status_code": response.status_code}
+        return _bounded_diff_result(response.text)
 
     def update_file(
         self, repository: str, file_path: str, content: str, commit_message: str, branch: str, sha: str | None = None

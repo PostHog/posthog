@@ -842,7 +842,7 @@ export const getSignalsReportArtefactsDiffUrl = (projectId: string, reportId: st
 }
 
 /**
- * Fetch the unified diff of a `commit` artefact's branch against the repository default branch via the team's GitHub integration — using the branch's current tip so the diff reflects the latest state of the work, not just the single recorded commit.
+ * Fetch the unified diff of a `commit` artefact via the team's GitHub integration. The report's pull request supplies the diff when the artefact has one, because a pull request stays readable after its head branch is merged and deleted. Before a pull request exists, the artefact's branch is compared against the repository default branch, at the branch's current tip.
  * @summary Fetch the diff for a commit artefact
  */
 export const signalsReportArtefactsDiff = async (

@@ -301,6 +301,20 @@ class TestGitHubIntegrationModel(BaseTest):
             assert result["success"] is True
             assert "/compare/def456a...abc123f" in mock_get.call_args.args[1]
 
+    def test_get_pull_request_diff_reads_the_pull_request_by_number(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200, text="diff --git a b")
+        with patch.object(github, "api_request", return_value=mock_response) as mock_get:
+            result = github.get_pull_request_diff("PostHog/posthog", 103903)
+            assert result == {
+                "success": True,
+                "diff": "diff --git a b",
+                "truncated": False,
+            }
+            assert "/pulls/103903" in mock_get.call_args.args[1]
+            assert mock_get.call_args.kwargs["headers"]["Accept"] == "application/vnd.github.diff"
+
     def test_get_diff_maps_upstream_error(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)

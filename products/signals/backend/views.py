@@ -4965,11 +4965,53 @@ class SignalReportArtefactViewSet(
             transaction.on_commit(partial(self._capture_canonical_reviewer_state, report_id))
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @staticmethod
+    def _repositories_match(artefact_repository: str, pr_repository: str) -> bool:
+        """Artefact content carries either `owner/name` or a bare `name`, so compare what both sides hold."""
+        artefact_parts = artefact_repository.lower().split("/")
+        pr_parts = pr_repository.lower().split("/")
+        if len(artefact_parts) == 1:
+            return artefact_parts[0] == pr_parts[-1]
+        return artefact_parts == pr_parts
+
+    def _linked_pull_request_number(
+        self,
+        artefact: SignalReportArtefact,
+        repository: str,
+        branch: str,
+        github: GitHubIntegration,
+    ) -> int | None:
+        """The number of the report's pull request that carries this commit artefact, or None.
+
+        The number is the durable handle on the change: it still resolves after the head branch is
+        merged and deleted. A report with one pull request in the repository needs no further work;
+        a stack links several, so the head branch says which one carries this commit.
+        """
+        report_id = str(artefact.report_id)
+        prs = fetch_implementation_prs_for_reports([report_id], team_id=self.team.id).get(report_id, [])
+        numbers: list[int] = []
+        for pr in prs:
+            parsed = GitHubIntegration.parse_pull_request_url(pr.url)
+            if parsed is None or not self._repositories_match(repository, parsed.repository):
+                continue
+            if parsed.number not in numbers:
+                numbers.append(parsed.number)
+        if len(numbers) == 1:
+            return numbers[0]
+        for number in numbers:
+            try:
+                details = github.get_pull_request(repository, number)
+            except Exception:  # noqa: BLE001 — a failed lookup falls back to the branch compare
+                return None
+            if details.get("success") and details.get("head_branch") == branch:
+                return number
+        return None
+
     @extend_schema(
         responses={
             200: OpenApiResponse(
                 response=CommitDiffResponseSerializer,
-                description="The branch's unified diff against the repository default branch.",
+                description="The unified diff of the pull request, or of the branch against the repository default branch.",
             ),
             400: OpenApiResponse(description="Artefact is not a commit, or is missing repository/branch."),
             404: OpenApiResponse(description="Artefact not found, or no GitHub integration can access the repository."),
@@ -4977,9 +5019,11 @@ class SignalReportArtefactViewSet(
         },
         summary="Fetch the diff for a commit artefact",
         description=(
-            "Fetch the unified diff of a `commit` artefact's branch against the repository default "
-            "branch via the team's GitHub integration — using the branch's current tip so the diff "
-            "reflects the latest state of the work, not just the single recorded commit."
+            "Fetch the unified diff of a `commit` artefact via the team's GitHub integration. The "
+            "report's pull request supplies the diff when the artefact has one, because a pull "
+            "request stays readable after its head branch is merged and deleted. Before a pull "
+            "request exists, the artefact's branch is compared against the repository default "
+            "branch, at the branch's current tip."
         ),
         parameters=[_REPORT_ID_PARAMETER],
         operation_id="signals_report_artefacts_diff",
@@ -5021,12 +5065,18 @@ class SignalReportArtefactViewSet(
                 {"error": f"No GitHub integration can access '{repository}'."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        pr_number = self._linked_pull_request_number(artefact, repository, str(branch), github)
         try:
-            # Diff the commit's branch against the repo default branch, using each branch's current
-            # tip (no SHA pinning) so the diff stays useful as the branch keeps moving after the
-            # commit was recorded — e.g. after PR babysitting or customer tweaks.
-            base_branch = github.get_default_branch(repository)
-            result = github.get_diff(repository, target_branch=str(branch), base_branch=base_branch)
+            if pr_number is not None:
+                # Read the diff from the pull request, which outlives its head branch: GitHub
+                # deletes the branch on merge but keeps serving the pull request.
+                result = github.get_pull_request_diff(repository, pr_number)
+            else:
+                # No pull request yet, so compare the commit's branch against the repo default
+                # branch, using each branch's current tip (no SHA pinning) so the diff stays useful
+                # as the branch keeps moving after the commit was recorded.
+                base_branch = github.get_default_branch(repository)
+                result = github.get_diff(repository, target_branch=str(branch), base_branch=base_branch)
         except GitHubRateLimitError as e:
             return github_rate_limited_response(e)
         except Exception:  # noqa: BLE001 — never let an upstream GitHub failure 500 this endpoint
@@ -5034,27 +5084,30 @@ class SignalReportArtefactViewSet(
                 "signals branch diff fetch errored",
                 repository=repository,
                 branch=branch,
+                pr_number=pr_number,
             )
             return Response(
                 {"error": "GitHub could not produce the diff for this branch."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         if not result.get("success"):
-            # Surface a clean message rather than the raw GitHub error body. A 404 from the
-            # compare API means the branch (or repo) isn't on the remote — most often a branch
-            # that was merged-and-deleted or force-rewritten away.
+            # Surface a clean message rather than the raw GitHub error body. A 404 means the
+            # pull request, the branch, or the repo isn't on the remote.
             if result.get("status_code") == 404:
-                return Response(
-                    {
-                        "error": f"Branch '{branch}' or repository '{repository}' was not found on GitHub — "
+                missing = (
+                    f"Pull request #{pr_number} was not found in '{repository}' on GitHub."
+                    if pr_number is not None
+                    else (
+                        f"Branch '{branch}' or repository '{repository}' was not found on GitHub — "
                         "the branch may have been deleted or merged away."
-                    },
-                    status=status.HTTP_404_NOT_FOUND,
+                    )
                 )
+                return Response({"error": missing}, status=status.HTTP_404_NOT_FOUND)
             logger.warning(
                 "signals branch diff fetch failed",
                 repository=repository,
                 branch=branch,
+                pr_number=pr_number,
                 status_code=result.get("status_code"),
             )
             return Response(

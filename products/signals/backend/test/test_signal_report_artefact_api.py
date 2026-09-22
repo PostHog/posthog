@@ -30,6 +30,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
+    SignalReportPullRequest,
 )
 from products.signals.backend.reviewer_correction_notes import ForwardedCorrectionNotes
 
@@ -1834,6 +1835,64 @@ class TestSignalReportCommitDiff(APIBaseTest):
         github.return_value.get_default_branch.return_value = "master"
         github.return_value.get_diff.return_value = result
         return github
+
+    def _link_pull_request(self, report: SignalReport, number: int) -> SignalReportPullRequest:
+        pr = SignalReportPullRequest.objects.create(
+            team=self.team,
+            repository="PostHog/posthog",
+            number=number,
+            url=f"https://github.com/PostHog/posthog/pull/{number}",
+            state="merged",
+        )
+        artefact = SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
+            content=json.dumps({"url": pr.url}),
+        )
+        SignalReportArtefact.objects.filter(id=artefact.id).update(pull_request=pr)
+        return pr
+
+    def test_diff_of_a_linked_pr_survives_the_head_branch_being_deleted(self):
+        # GitHub deletes the head branch when a PR merges, so the branch compare 404s while the
+        # pull request still serves its diff.
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report)
+        self._link_pull_request(report, 103903)
+        github = self._mock_github({"success": False, "error": "Not Found", "status_code": 404})
+        github.return_value.get_pull_request_diff.return_value = {
+            "success": True,
+            "diff": "diff --git a b",
+            "truncated": False,
+        }
+
+        response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"diff": "diff --git a b", "truncated": False}
+        github.return_value.get_pull_request_diff.assert_called_once_with("PostHog/posthog", 103903)
+        github.return_value.get_diff.assert_not_called()
+
+    def test_diff_picks_the_stacked_pr_whose_head_is_the_artefact_branch(self):
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report)
+        self._link_pull_request(report, 1)
+        self._link_pull_request(report, 2)
+        github = self._mock_github({"success": True, "diff": "branch compare", "truncated": False})
+        github.return_value.get_pull_request.side_effect = lambda _repository, number: {
+            "success": True,
+            "head_branch": "posthog-code/fix-foo" if number == 2 else "posthog-code/other",
+        }
+        github.return_value.get_pull_request_diff.return_value = {
+            "success": True,
+            "diff": "diff --git a b",
+            "truncated": False,
+        }
+
+        response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
+
+        assert response.status_code == status.HTTP_200_OK
+        github.return_value.get_pull_request_diff.assert_called_once_with("PostHog/posthog", 2)
 
     def test_diff_success_returns_diff_and_truncated(self):
         report = self._create_report()
