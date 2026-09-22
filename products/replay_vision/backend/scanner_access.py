@@ -83,9 +83,15 @@ def accessible_observations(
     The accessible set comes from the team's experiments, which are few and indexed. The snapshot
     path has no index, so reading the ids off the observations instead scans the whole scanner or team.
     """
-    accessible = set(
-        access.filter_queryset_by_access_level(Experiment.objects.filter(team_id=team_id)).values_list("id", flat=True)
-    )
+    team_experiment_ids = set(Experiment.objects.filter(team_id=team_id).values_list("id", flat=True))
+    accessible = _accessible_experiment_ids(access, team_id, team_experiment_ids)
+    if accessible == team_experiment_ids:
+        # Nothing on the team is restricted, so the predicate below can only ever drop a row whose
+        # snapshot names an experiment outside the team. A snapshot records the scanner's own
+        # targeting and a scanner is team-scoped, and experiments are soft-deleted rather than
+        # removed, so no such row exists. Skipping the filter keeps the unindexed JSON path — and
+        # the snapshot detoast it forces on every candidate row — off the common read path.
+        return observations
     # Keep rows whose snapshot names no experiment (untargeted, unrestricted) OR an accessible one.
     # Phrased positively rather than `.exclude(path__in=inaccessible)`: on a nullable JSON path, exclude
     # negates to `NOT (path IN (...))`, which is NULL — and therefore false — for untargeted rows, so it
