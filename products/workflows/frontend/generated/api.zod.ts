@@ -2452,7 +2452,7 @@ export const HogFlowsProposalsCreateBody = /* @__PURE__ */ zod.object({
         .max(hogFlowsProposalsCreateBodyStepIdMax)
         .nullish()
         .describe(
-            "The step this is about, when it is about one. Both the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest."
+            "The step this is about. Send it for a change to one step: both the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest. Leave it out only for a change that spans the workflow, such as its exit condition or a step being taken out, which is measured on the workflow's own numbers."
         ),
     source_id: zod
         .string()
