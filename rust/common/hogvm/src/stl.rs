@@ -116,6 +116,9 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "values")?;
                 let arg = args[0].deref(&vm.heap)?;
                 match arg {
+                    // A null array reads as empty, so the bytecode array helpers built on values()
+                    // see no elements instead of failing the whole program.
+                    HogLiteral::Null => Ok(HogLiteral::Array(vec![]).into()),
                     // Arrays and tuples both yield a plain array of their elements (reference: [...obj]).
                     HogLiteral::Array(a) | HogLiteral::Tuple(a) => {
                         Ok(HogLiteral::Array(a.clone()).into())
@@ -141,6 +144,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "length")?;
                 let arg = args[0].deref(&vm.heap)?;
                 match arg {
+                    HogLiteral::Null => Ok(HogLiteral::Null.into()),
                     HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         Ok(HogLiteral::Number(arr.len().into()).into())
                     }
@@ -491,7 +495,11 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             "upper",
             native_func(|vm, args| {
                 assert_argc(&args, 1, "upper")?;
-                let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+                let subject = args[0].deref(&vm.heap)?;
+                if matches!(subject, HogLiteral::Null) {
+                    return Ok(HogLiteral::Null.into());
+                }
+                let s: &str = subject.try_as()?;
                 Ok(HogLiteral::from(s.to_uppercase()).into())
             }),
         ),
@@ -500,6 +508,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             native_func(|vm, args| {
                 assert_argc(&args, 1, "reverse")?;
                 match args[0].deref(&vm.heap)? {
+                    HogLiteral::Null => Ok(HogLiteral::Null.into()),
                     HogLiteral::String(s) => {
                         Ok(HogLiteral::from(s.chars().rev().collect::<String>()).into())
                     }
@@ -769,7 +778,11 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             "replaceOne",
             native_func(|vm, args| {
                 assert_argc(&args, 3, "replaceOne")?;
-                let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+                let subject = args[0].deref(&vm.heap)?;
+                if matches!(subject, HogLiteral::Null) {
+                    return Ok(HogLiteral::Null.into());
+                }
+                let s: &str = subject.try_as()?;
                 let from: &str = args[1].deref(&vm.heap)?.try_as()?;
                 let to: &str = args[2].deref(&vm.heap)?.try_as()?;
                 Ok(HogLiteral::from(s.replacen(from, to, 1)).into())
@@ -779,7 +792,11 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             "replaceAll",
             native_func(|vm, args| {
                 assert_argc(&args, 3, "replaceAll")?;
-                let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+                let subject = args[0].deref(&vm.heap)?;
+                if matches!(subject, HogLiteral::Null) {
+                    return Ok(HogLiteral::Null.into());
+                }
+                let s: &str = subject.try_as()?;
                 let from: &str = args[1].deref(&vm.heap)?.try_as()?;
                 let to: &str = args[2].deref(&vm.heap)?.try_as()?;
                 Ok(HogLiteral::from(s.replace(from, to)).into())
@@ -2005,7 +2022,11 @@ fn trim_impl(vm: &HogVM, args: Vec<HogValue>, side: TrimSide) -> Result<HogValue
             "trim takes 1 or 2 arguments".to_string(),
         ));
     }
-    let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+    let subject = args[0].deref(&vm.heap)?;
+    if matches!(subject, HogLiteral::Null) {
+        return Ok(HogLiteral::Null.into());
+    }
+    let s: &str = subject.try_as()?;
     let result = if args.len() == 2 {
         let chars: Vec<char> = match args[1].deref(&vm.heap)? {
             HogLiteral::String(c) => c.chars().collect(),
