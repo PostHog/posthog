@@ -258,7 +258,7 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         assert result["bytecode"] is None
         assert _normalize_error(result["bytecode_error"]) == (
             "Your internal/test user filters read $virt_is_bot, which real-time filters cannot read. "
-            "Those exist when a query runs, not while an event is being processed. "
+            "Check the spelling, or use a field or function that real-time filters support. "
             "Update your filters at: SETTINGS_URL#internal-user-filtering"
         )
 
@@ -270,7 +270,7 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
         assert _normalize_error(own["bytecode_error"]) == (
             "Your internal/test user filters read $virt_is_bot, which real-time filters cannot read. "
-            "Those exist when a query runs, not while an event is being processed. "
+            "Check the spelling, or use a field or function that real-time filters support. "
             "This destination's own filters also read $virt_traffic_type. "
             "Update your filters at: SETTINGS_URL#internal-user-filtering"
         )
@@ -282,7 +282,7 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
         assert _normalize_error(shared["bytecode_error"]) == (
             "Your internal/test user filters read $virt_is_bot, which real-time filters cannot read. "
-            "Those exist when a query runs, not while an event is being processed. "
+            "Check the spelling, or use a field or function that real-time filters support. "
             "This destination's own filters also read $virt_is_bot. "
             "Update your filters at: SETTINGS_URL#internal-user-filtering"
         )

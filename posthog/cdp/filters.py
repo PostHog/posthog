@@ -416,7 +416,7 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
                 )
                 raise Exception(
                     f"Your internal/test user filters read {', '.join(from_team)}, which real-time filters "
-                    f"cannot read. Those exist when a query runs, not while an event is being processed. "
+                    f"cannot read. Check the spelling, or use a field or function that real-time filters support. "
                     + (f"This destination's own filters also read {', '.join(own)}. " if own else "")
                     + f"Update your filters at: {_internal_user_settings_url(team.id)}"
                 )
