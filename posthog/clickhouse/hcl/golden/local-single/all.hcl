@@ -5943,9 +5943,10 @@ SQL
   }
 
   table "logs_volume_buckets" {
-    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
+    primary_key  = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
+    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "retention_days"]
     partition_by = "toDate(time_bucket)"
-    ttl          = "time_bucket + toIntervalDay(42)"
+    ttl          = "time_bucket + toIntervalDay(greatest(42, retention_days))"
     settings = {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
@@ -5968,6 +5969,9 @@ SQL
     }
     column "severity_text" {
       type = "LowCardinality(String)"
+    }
+    column "retention_days" {
+      type = "UInt16"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
@@ -5997,6 +6001,9 @@ SQL
     }
     column "severity_text" {
       type = "LowCardinality(String)"
+    }
+    column "retention_days" {
+      type = "UInt16"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
@@ -21812,6 +21819,7 @@ SELECT
   namespace,
   environment,
   severity_text,
+  retention_days,
   sumSimpleState(1) AS log_count
 FROM
   (
@@ -21833,11 +21841,14 @@ FROM
           resource_attributes['env']
         )
       ) AS environment,
-      lower(severity_text) AS severity_text
+      lower(severity_text) AS severity_text,
+      toUInt16(
+        least(greatest(dateDiff('day', observed_timestamp, original_expiry_timestamp), 0), 3650)
+      ) AS retention_days
     FROM posthog.logs34
   )
 GROUP BY
-  team_id, time_bucket, service_name, namespace, environment, severity_text
+  team_id, time_bucket, service_name, namespace, environment, severity_text, retention_days
 SQL
 
     column "team_id" {
@@ -21857,6 +21868,9 @@ SQL
     }
     column "severity_text" {
       type = "LowCardinality(String)"
+    }
+    column "retention_days" {
+      type = "UInt16"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"

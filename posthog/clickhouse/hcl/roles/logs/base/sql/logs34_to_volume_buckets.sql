@@ -5,6 +5,7 @@ SELECT
   namespace,
   environment,
   severity_text,
+  retention_days,
   sumSimpleState(1) AS log_count
 FROM
   (
@@ -26,8 +27,11 @@ FROM
           resource_attributes['env']
         )
       ) AS environment,
-      lower(severity_text) AS severity_text
+      lower(severity_text) AS severity_text,
+      toUInt16(
+        least(greatest(dateDiff('day', observed_timestamp, original_expiry_timestamp), 0), 3650)
+      ) AS retention_days
     FROM posthog.logs34
   )
 GROUP BY
-  team_id, time_bucket, service_name, namespace, environment, severity_text
+  team_id, time_bucket, service_name, namespace, environment, severity_text, retention_days
