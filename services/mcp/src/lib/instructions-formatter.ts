@@ -41,6 +41,14 @@ import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
 import { type ExecLearnGuide, LEARN_COMMAND_LINE } from '@/tools/exec-learn'
 
+/** The `docs-search` tool is feature-, scope-, and denylist-gated, so the
+ *  "check what's new" advice has to follow what the connection actually holds.
+ *  Naming a command the catalog does not resolve sends the agent down a path it
+ *  cannot take. */
+const WHATS_NEW_WITH_DOCS_SEARCH =
+    "Check what's new via the `docs-search` tool or the changelog (https://posthog.com/changelog.md)."
+const WHATS_NEW_CHANGELOG_ONLY = "Check what's new in the changelog (https://posthog.com/changelog.md)."
+
 export interface InstructionsContext {
     guidelines: string
     groupTypes?: GroupType[] | undefined
@@ -68,12 +76,21 @@ export interface InstructionsContext {
  * modes live in a single file, so prose can't drift.
  */
 export class InstructionsFormatter {
+    /** Whether `docs-search` is advertised to this client. Sections that name the
+     *  tool are gated on it, so the prompt never advertises a command that
+     *  `search` and `call` cannot resolve. */
+    private hasDocsSearch(ctx: InstructionsContext): boolean {
+        return ctx.tools?.some(({ name }) => name === 'docs-search') ?? false
+    }
+
     private knowledgeFirstSections(ctx: InstructionsContext): string[] {
-        const docsSearchEnabled = ctx.tools?.some(({ name }) => name === 'docs-search')
         const businessKnowledgeSearchEnabled = ctx.tools?.some(
             ({ name }) => name === 'business-knowledge-documents-search'
         )
-        return this.knowledgeFirstSectionsForCapabilities({ docsSearchEnabled, businessKnowledgeSearchEnabled })
+        return this.knowledgeFirstSectionsForCapabilities({
+            docsSearchEnabled: this.hasDocsSearch(ctx),
+            businessKnowledgeSearchEnabled,
+        })
     }
 
     private knowledgeFirstSectionsForCapabilities(opts: {
@@ -327,7 +344,7 @@ export class InstructionsFormatter {
         // probe claude.ai's per-tool size cap (it silently drops oversized entries);
         // agents still discover domains at runtime via the `search` command, and
         // `instructions`-honoring clients keep the compact domain index there.
-        return this.compose(sections, renderCtx, { compact: false })
+        return this.compose(sections, renderCtx, { compact: false, docsSearchEnabled: this.hasDocsSearch(ctx) })
     }
 
     private compose(
@@ -339,6 +356,8 @@ export class InstructionsFormatter {
             extraCommands?: string
             /** Character budget for the domain index; it collapses sub-families to fit. */
             toolDomainsMaxChars?: number
+            /** Override for callers whose render context drops `tools` on purpose. */
+            docsSearchEnabled?: boolean
         }
     ): string {
         const renderToolDomains =
@@ -357,6 +376,10 @@ export class InstructionsFormatter {
             query_tools: ctx.queryTools ? buildQueryToolsBlock(ctx.queryTools) : '',
             entity_schema_discovery: ENTITY_SCHEMA_DISCOVERY.trim(),
             extra_commands: opts.extraCommands ?? '',
+            whats_new_check:
+                (opts.docsSearchEnabled ?? this.hasDocsSearch(ctx))
+                    ? WHATS_NEW_WITH_DOCS_SEARCH
+                    : WHATS_NEW_CHANGELOG_ONLY,
         }
         const body = sections
             .map((s) => s.trim())
