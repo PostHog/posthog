@@ -70,7 +70,7 @@ export function MenuItems({
     showSelectMenuOption = true,
 }: MenuItemsProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
-    const { shortcutNonFolderPaths } = useValues(projectTreeDataLogic)
+    const { shortcutData, shortcutEntryIdMap, shortcutDataLoading } = useValues(projectTreeDataLogic)
     const { deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
     const { groupTypes } = useValues(groupAnalyticsConfigLogic)
     const { deleteGroupType } = useActions(groupAnalyticsConfigLogic)
@@ -156,7 +156,16 @@ export function MenuItems({
 
     const isItemAFolder = item.record?.type === 'folder'
     const itemShortcutPath = joinPath([splitPath(item.record?.path).pop() ?? 'Unnamed'])
-    const isItemAlreadyInShortcut = !isItemAFolder && shortcutNonFolderPaths.has(itemShortcutPath)
+    const shortcutId =
+        shortcutEntryIdMap.get(item.id) ??
+        shortcutData.find((entry) =>
+            isItemAFolder
+                ? entry.type === 'folder' && entry.ref === item.record?.path
+                : entry.type !== 'folder' &&
+                  (item.record?.ref
+                      ? entry.type === item.record.type && entry.ref === item.record.ref
+                      : entry.path === itemShortcutPath)
+        )?.id
 
     return (
         <>
@@ -184,7 +193,6 @@ export function MenuItems({
                         MenuItem={MenuItem}
                         resetPanelLayout={resetPanelLayout}
                     />
-                    <MenuSeparator />
                 </>
             ) : null}
 
@@ -240,47 +248,6 @@ export function MenuItems({
                     <MenuSeparator />
                 </>
             ) : null}
-            {item.record?.path ? (
-                (root === 'shortcuts://' || root === 'custom-products://') &&
-                (item.id.startsWith('shortcuts://') || item.id.startsWith('shortcuts/')) ? (
-                    <MenuItem
-                        asChild
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            if (item.record) {
-                                deleteShortcut(item.record?.id)
-                            }
-                        }}
-                        data-attr="tree-item-menu-remove-from-shortcuts-button"
-                    >
-                        <ButtonPrimitive menuItem variant="danger" forceVariant>
-                            <IconStar className="size-4 text-inherit" /> Remove from starred
-                        </ButtonPrimitive>
-                    </MenuItem>
-                ) : isItemAlreadyInShortcut ? (
-                    <MenuItem asChild disabled={true} data-attr="tree-item-menu-add-to-shortcuts-disabled-button">
-                        <ButtonPrimitive menuItem disabled={true}>
-                            <IconStar className="size-4 text-tertiary" /> Already starred
-                        </ButtonPrimitive>
-                    </MenuItem>
-                ) : root !== 'custom-products://' ? (
-                    <MenuItem
-                        asChild
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            if (item.record) {
-                                addShortcutItem(item.record as FileSystemEntry)
-                            }
-                        }}
-                        data-attr="tree-item-menu-add-to-shortcuts-button"
-                    >
-                        <ButtonPrimitive menuItem>
-                            <IconStar className="size-4 text-tertiary" /> Add to starred
-                        </ButtonPrimitive>
-                    </MenuItem>
-                ) : null
-            ) : null}
-
             {root === 'custom-products://' && !item.id.startsWith('shortcuts://') ? (
                 <MenuItem
                     asChild
@@ -453,6 +420,37 @@ export function MenuItems({
                 >
                     <ButtonPrimitive menuItem>Delete group type</ButtonPrimitive>
                 </MenuItem>
+            ) : null}
+            {item.record?.path && (shortcutId || root !== 'custom-products://') ? (
+                <>
+                    {(!isItemAFolder || !shortcutEntryIdMap.has(item.id) || checkedItemCountNumeric > 0) && (
+                        <MenuSeparator />
+                    )}
+                    <MenuItem
+                        asChild
+                        disabled={shortcutDataLoading}
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            if (!shortcutDataLoading && item.record) {
+                                if (shortcutId) {
+                                    deleteShortcut(shortcutId)
+                                } else {
+                                    addShortcutItem(item.record as FileSystemEntry)
+                                }
+                            }
+                        }}
+                        data-attr={
+                            shortcutId
+                                ? 'tree-item-menu-remove-from-shortcuts-button'
+                                : 'tree-item-menu-add-to-shortcuts-button'
+                        }
+                    >
+                        <ButtonPrimitive menuItem disabled={shortcutDataLoading}>
+                            <IconStar className="size-4 text-tertiary" />
+                            <span>{shortcutId ? 'Remove from starred' : 'Add to starred'}</span>
+                        </ButtonPrimitive>
+                    </MenuItem>
+                </>
             ) : null}
         </>
     )

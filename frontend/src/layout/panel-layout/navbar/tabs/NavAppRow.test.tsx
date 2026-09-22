@@ -43,7 +43,7 @@ describe('NavAppRow', () => {
         const row = container.querySelector<HTMLButtonElement>('[data-attr="nav-apps-item"]')
         expect(row?.disabled).toBe(true)
         expect(row?.hasAttribute('href')).toBe(false)
-        expect(getByLabelText('Star Feature flags').getAttribute('aria-disabled')).toBe('true')
+        expect(getByLabelText('Open Feature flags menu').getAttribute('aria-disabled')).toBe('true')
     })
 
     it('adds and removes a star through the existing shortcut API', async () => {
@@ -56,18 +56,23 @@ describe('NavAppRow', () => {
             post: { '/api/environments/:team_id/file_system_shortcut/': create },
             delete: { '/api/environments/:team_id/file_system_shortcut/star-test/': remove },
         })
-        const { getByLabelText } = render(
+        const { getByLabelText, getByText, findByText } = render(
             <NavAppRow
                 item={{ path: 'Feature flags', type: 'feature_flag', iconType: 'feature_flag', href: '/feature_flags' }}
             />
         )
         await waitFor(() => expect(projectTreeDataLogic.values.shortcutDataLoading).toBe(false))
-        fireEvent.click(getByLabelText('Star Feature flags'))
-        fireEvent.click(getByLabelText('Star Feature flags'))
-        await waitFor(() => expect(getByLabelText('Unstar Feature flags')).toBeTruthy())
+        fireEvent.click(getByLabelText('Open Feature flags menu'))
+        const add = await findByText('Add to starred')
+        fireEvent.click(add)
+        fireEvent.click(add)
+        await waitFor(() => expect(projectTreeDataLogic.values.shortcutData).toHaveLength(1))
         expect(create).toHaveBeenCalledTimes(1)
-        fireEvent.click(getByLabelText('Unstar Feature flags'))
-        await waitFor(() => expect(getByLabelText('Star Feature flags')).toBeTruthy())
+        fireEvent.click(getByLabelText('Open Feature flags menu'))
+        fireEvent.click(await findByText('Remove from starred'))
+        await waitFor(() => expect(projectTreeDataLogic.values.shortcutData).toHaveLength(0))
         expect(remove).toHaveBeenCalledTimes(1)
+        fireEvent.click(getByLabelText('Open Feature flags menu'))
+        expect(getByText('Add to starred')).toBeTruthy()
     })
 })
