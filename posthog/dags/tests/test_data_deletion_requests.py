@@ -10,7 +10,6 @@ import pytest
 from unittest.mock import Mock, patch
 
 from django.conf import settings as django_settings
-from django.test import override_settings
 from django.utils import timezone
 
 import dagster
@@ -2794,7 +2793,7 @@ def test_property_removal_where_omits_event_filter_when_delete_all_events():
 
 
 def _profile_result_with_unpublished_tombstone(
-    person_uuid: UUID, step: PersonDeletionStep = PersonDeletionStep.TOMBSTONE_CLICKHOUSE
+    person_uuid: UUID, step: PersonDeletionStep = PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE
 ) -> PersonProfileDeletionResult:
     return PersonProfileDeletionResult(
         deleted_count=1,
@@ -2804,14 +2803,14 @@ def _profile_result_with_unpublished_tombstone(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "tombstone_setting,failed_step,republish_calls",
+    "failed_step,republish_calls",
     [
-        (True, PersonDeletionStep.TOMBSTONE_CLICKHOUSE, 1),
-        (True, PersonDeletionStep.DELETE_POSTGRES, 1),
-        (False, PersonDeletionStep.TOMBSTONE_CLICKHOUSE, 0),
+        (PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE, 1),
+        (PersonDeletionStep.TOMBSTONE_POSTGRES, 1),
+        (PersonDeletionStep.TOMBSTONE_CLICKHOUSE, 0),
     ],
 )
-def test_delete_person_profiles_op_republishes_unpublished_tombstones(tombstone_setting, failed_step, republish_calls):
+def test_delete_person_profiles_op_republishes_unpublished_tombstones(failed_step, republish_calls):
     p_uuid = str(uuid4())
     create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
     ctx = PersonRemovalContext(
@@ -2824,7 +2823,6 @@ def test_delete_person_profiles_op_republishes_unpublished_tombstones(tombstone_
         drop_recordings=False,
     )
     with (
-        override_settings(PERSON_DELETE_TOMBSTONE=tombstone_setting),
         patch("posthog.dags.data_deletion_requests.TOMBSTONE_REPUBLISH_BACKOFF_SECONDS", (0, 0)),
         patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter,
         patch("posthog.dags.data_deletion_requests.republish_tombstones", return_value=[]) as republish,
@@ -2853,7 +2851,6 @@ def test_delete_person_profiles_op_fails_when_tombstones_stay_unpublished():
     )
     op_context = build_op_context()
     with (
-        override_settings(PERSON_DELETE_TOMBSTONE=True),
         patch("posthog.dags.data_deletion_requests.TOMBSTONE_REPUBLISH_BACKOFF_SECONDS", (0, 0)),
         patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter,
         patch("posthog.dags.data_deletion_requests.republish_tombstones", return_value=[UUID(p_uuid)]) as republish,

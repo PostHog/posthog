@@ -39,7 +39,12 @@ logger = structlog.get_logger(__name__)
 
 
 class PersonDeletionStep(StrEnum):
-    """The steps of a person deletion, in the order they run. Each failure names exactly one."""
+    """The steps of a person deletion, in the order they run. Each failure names exactly one.
+
+    TOMBSTONE_CLICKHOUSE and DELETE_POSTGRES belong to the order without PERSON_DELETE_TOMBSTONE,
+    and TOMBSTONE_POSTGRES and PUBLISH_CLICKHOUSE_TOMBSTONE to the order with it. Each value has
+    one meaning, so a consumer can act on a failure without reading the setting.
+    """
 
     RESOLVE_PERSONS = "resolve_persons"
     FETCH_DISTINCT_IDS = "fetch_distinct_ids"
@@ -47,6 +52,8 @@ class PersonDeletionStep(StrEnum):
     QUEUE_RECORDING_DELETION = "queue_recording_deletion"
     TOMBSTONE_CLICKHOUSE = "tombstone_clickhouse"
     DELETE_POSTGRES = "delete_postgres"
+    TOMBSTONE_POSTGRES = "tombstone_postgres"
+    PUBLISH_CLICKHOUSE_TOMBSTONE = "publish_clickhouse_tombstone"
     LOG_ACTIVITY = "log_activity"
 
 
@@ -574,7 +581,7 @@ def _tombstone_persons_at_exact_versions(
         except Exception as exc:
             _record_step_failure(
                 failures,
-                step=PersonDeletionStep.DELETE_POSTGRES,
+                step=PersonDeletionStep.TOMBSTONE_POSTGRES,
                 team_id=team_id,
                 exc=exc,
                 person_uuids=[person.uuid for person in batch],
@@ -590,7 +597,7 @@ def _tombstone_persons_at_exact_versions(
             except Exception as exc:
                 _record_step_failure(
                     failures,
-                    step=PersonDeletionStep.TOMBSTONE_CLICKHOUSE,
+                    step=PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE,
                     team_id=team_id,
                     exc=exc,
                     person_uuids=[person.uuid],
@@ -638,7 +645,7 @@ def _republish_tombstones(
         tombstones = tombstone_persons_in_postgres(team_id, person_uuids)
     except Exception as exc:
         _record_step_failure(
-            failures, step=PersonDeletionStep.DELETE_POSTGRES, team_id=team_id, exc=exc, person_uuids=person_uuids
+            failures, step=PersonDeletionStep.TOMBSTONE_POSTGRES, team_id=team_id, exc=exc, person_uuids=person_uuids
         )
         return
     for tombstone in tombstones:
@@ -647,7 +654,7 @@ def _republish_tombstones(
         except Exception as exc:
             _record_step_failure(
                 failures,
-                step=PersonDeletionStep.TOMBSTONE_CLICKHOUSE,
+                step=PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE,
                 team_id=team_id,
                 exc=exc,
                 person_uuids=[tombstone.uuid],
@@ -655,7 +662,7 @@ def _republish_tombstones(
 
 
 def unpublished_tombstone_uuids(failures: builtins.list[PersonDeletionFailure]) -> builtins.list[uuid_lib.UUID]:
-    """Persons that can be tombstoned in Postgres with no ClickHouse tombstone, under PERSON_DELETE_TOMBSTONE.
+    """Persons that can be tombstoned in Postgres with no ClickHouse tombstone.
 
     A failed tombstone call can still commit, for example when the response is lost after the
     replica wrote the rows. A tombstoned person no longer resolves, so a repeat request cannot
@@ -666,7 +673,7 @@ def unpublished_tombstone_uuids(failures: builtins.list[PersonDeletionFailure]) 
     return [
         failure.person_uuid
         for failure in failures
-        if failure.step in (PersonDeletionStep.TOMBSTONE_CLICKHOUSE, PersonDeletionStep.DELETE_POSTGRES)
+        if failure.step in (PersonDeletionStep.TOMBSTONE_POSTGRES, PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE)
         and failure.person_uuid is not None
     ]
 

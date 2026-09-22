@@ -302,10 +302,10 @@ class PersonBulkDeleteResponseSerializer(serializers.Serializer):
         help_text="Persons whose deletion did not fully complete in this request. Each entry contains 'person_uuid' "
         "and 'step', the deletion step that failed for that person. Failures are reported here rather than as an "
         "error status, so a 202 with entries means those persons were not deleted and the request should be "
-        "retried for them, except entries whose step is 'log_activity': that person was deleted, but the "
-        "activity log entry was not written. "
-        "A 'tombstone_clickhouse' step means the person was removed from the database but analytics "
-        "was not told, so it stays visible there until the next repair. "
+        "retried for them. Three steps are exceptions. For 'log_activity', the person was deleted, but the "
+        "activity log entry was not written. For 'tombstone_postgres' and 'publish_clickhouse_tombstone', "
+        "don't retry: PostHog finishes the deletion in the background, and until then the person can still "
+        "show in analytics. "
         "Always empty when the deletion was queued (see persons_queued_for_deletion). "
         "Contact support if this persists.",
     )
@@ -980,12 +980,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for failure in result.failures
                 if failure.person_uuid is not None
             ]
-            if settings.PERSON_DELETE_TOMBSTONE:
-                # A tombstoned person no longer resolves, so a repeat request cannot reach it.
-                # This includes a failed tombstone call, because the call can commit before it fails.
-                unpublished = unpublished_tombstone_uuids(result.failures)
-                if unpublished:
-                    republish_person_tombstones.delay(team_id=self.team_id, person_uuids=[str(u) for u in unpublished])
+            # A tombstoned person no longer resolves, so a repeat request cannot reach it.
+            # This includes a failed tombstone call, because the call can commit before it fails.
+            unpublished = unpublished_tombstone_uuids(result.failures)
+            if unpublished:
+                republish_person_tombstones.delay(team_id=self.team_id, person_uuids=[str(u) for u in unpublished])
 
         if delete_events:
             queue_person_event_deletion(self.team_id, persons, actor=cast(User, request.user))

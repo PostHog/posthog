@@ -211,7 +211,9 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
 
         # The Postgres tombstone is the deletion; the failed publish is reported on its own step.
         assert result.deleted_count == 1
-        assert [(f.step, f.person_uuid) for f in result.failures] == [(PersonDeletionStep.TOMBSTONE_CLICKHOUSE, p.uuid)]
+        assert [(f.step, f.person_uuid) for f in result.failures] == [
+            (PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE, p.uuid)
+        ]
         assert ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", item_id=str(p.pk)).exists()
 
     def test_reports_a_failed_tombstone_rpc_against_the_postgres_step(self):
@@ -226,7 +228,7 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
             result = delete_persons_profile(self.team.pk, [p], actor=self.user)
 
         assert result.deleted_count == 0
-        assert [(f.step, f.person_uuid) for f in result.failures] == [(PersonDeletionStep.DELETE_POSTGRES, p.uuid)]
+        assert [(f.step, f.person_uuid) for f in result.failures] == [(PersonDeletionStep.TOMBSTONE_POSTGRES, p.uuid)]
         publish.assert_not_called()
 
     def test_splits_the_rpc_by_distinct_id_budget(self):

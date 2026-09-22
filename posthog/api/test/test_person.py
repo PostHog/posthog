@@ -613,13 +613,15 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("publish_failed", PersonDeletionStep.TOMBSTONE_CLICKHOUSE, 1, status.HTTP_202_ACCEPTED),
-            ("tombstone_call_failed", PersonDeletionStep.DELETE_POSTGRES, 0, status.HTTP_503_SERVICE_UNAVAILABLE),
-            ("published", None, 1, status.HTTP_202_ACCEPTED),
+            ("publish_failed", PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE, 1, 1, status.HTTP_202_ACCEPTED),
+            ("tombstone_call_failed", PersonDeletionStep.TOMBSTONE_POSTGRES, 0, 1, status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("legacy_clickhouse_failed", PersonDeletionStep.TOMBSTONE_CLICKHOUSE, 1, 0, status.HTTP_202_ACCEPTED),
+            ("published", None, 1, 0, status.HTTP_202_ACCEPTED),
         ]
     )
-    @override_settings(PERSON_DELETE_TOMBSTONE=True)
-    def test_delete_person_hands_unpublished_tombstones_to_celery(self, _name, failed_step, deleted, expected_status):
+    def test_delete_person_hands_unpublished_tombstones_to_celery(
+        self, _name, failed_step, deleted, delay_calls, expected_status
+    ):
         person = _create_person(team=self.team, distinct_ids=["person_1"], immediate=True)
         failures = (
             [PersonDeletionFailure(step=failed_step, person_uuid=person.uuid, error="down")] if failed_step else []
@@ -634,7 +636,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             response = self.client.delete(f"/api/person/{person.uuid}/")
 
         self.assertEqual(response.status_code, expected_status)
-        delay_calls = 1 if failed_step else 0
         self.assertEqual(task.delay.call_count, delay_calls)
         if delay_calls:
             task.delay.assert_called_once_with(team_id=self.team.pk, person_uuids=[str(person.uuid)])

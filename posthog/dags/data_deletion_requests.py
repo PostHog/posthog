@@ -1547,11 +1547,11 @@ def delete_person_profiles_op(
     `POST /api/projects/:id/persons/bulk_delete/` endpoint and avoids flipping the whole
     request to FAILED after upstream events/recordings ops have already done their work.
 
-    With PERSON_DELETE_TOMBSTONE off, a failed batch Postgres delete raises so the request
-    finalizes as FAILED. With it on, a failed Postgres tombstone call can still have committed,
-    and a tombstoned person no longer resolves, so a follow-up request cannot reach it. Those
-    persons and any failed ClickHouse publish go through the republish backoff instead, and the
-    op raises only for the persons that still fail after it.
+    A failed batch Postgres delete raises so the request finalizes as FAILED. With
+    PERSON_DELETE_TOMBSTONE on, a failed Postgres tombstone call can still have committed, and a
+    tombstoned person no longer resolves, so a follow-up request cannot reach it. Those persons
+    and any failed ClickHouse publish go through the republish backoff instead, and the op
+    raises only for the persons that still fail after it.
     """
     if not person_removal.drop_profiles:
         context.log.info("drop_profiles=False, skipping profile deletion")
@@ -1575,7 +1575,7 @@ def delete_person_profiles_op(
         context.log.warning(f"Person profile deletion had {len(result.errors)} per-person failures")
         metadata["error_uuids"] = dagster.MetadataValue.text(", ".join(str(u) for u in result.errors))
     postgres_failures = [f for f in result.failures if f.step is PersonDeletionStep.DELETE_POSTGRES]
-    if postgres_failures and not django_settings.PERSON_DELETE_TOMBSTONE:
+    if postgres_failures:
         raise dagster.Failure(
             description=(
                 f"Deletion request {person_removal.request_id}: the Postgres delete failed for "
@@ -1584,7 +1584,7 @@ def delete_person_profiles_op(
             metadata=metadata,
         )
 
-    unpublished = unpublished_tombstone_uuids(result.failures) if django_settings.PERSON_DELETE_TOMBSTONE else []
+    unpublished = unpublished_tombstone_uuids(result.failures)
     for delay in TOMBSTONE_REPUBLISH_BACKOFF_SECONDS:
         if not unpublished:
             break
