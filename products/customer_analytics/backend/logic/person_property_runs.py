@@ -12,6 +12,10 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 
+from products.customer_analytics.backend.logic.custom_property_source_health import (
+    record_sync_failure,
+    record_sync_success,
+)
 from products.customer_analytics.backend.models import (
     CustomPropertySource,
     CustomPropertySyncRun,
@@ -21,9 +25,6 @@ from products.customer_analytics.backend.models import (
 from products.warehouse_sources.backend.facade.hooks import BINDING_KIND_SAVED_QUERY, PersonPropertySyncRunRecord
 
 logger = structlog.get_logger(__name__)
-
-# Auto-disable a source after this many consecutive failures, matching the account sync path.
-MAX_CONSECUTIVE_SYNC_FAILURES = 5
 
 # A run row is reconciled only within its own pipeline: the backfill path reads the whole table from
 # S3, the sync path rides a warehouse import job. Keeping them apart means a scheduled sync can't
@@ -121,7 +122,7 @@ def record_sync_run(record: PersonPropertySyncRunRecord) -> None:
                 setattr(run, attr, value)
             run.save()
         else:
-            CustomPropertySyncRun.objects.for_team(record.team_id).create(
+            run = CustomPropertySyncRun.objects.for_team(record.team_id).create(
                 team_id=record.team_id, source=source, **fields
             )
 
@@ -134,10 +135,7 @@ def record_sync_run(record: PersonPropertySyncRunRecord) -> None:
         if succeeded:
             # Idempotent: safe to fold onto the source again if a prior attempt failed then a retry
             # succeeded — resets the failure streak and stamps the last-synced time.
-            source.last_synced_at = finished_at
-            source.last_sync_error = None
-            source.consecutive_failures = 0
-            source.save(update_fields=["last_synced_at", "last_sync_error", "consecutive_failures", "updated_at"])
+            record_sync_success(source, finished_at=finished_at)
             log.info(
                 "person-property run recorded: completed",
                 rows_read=record.rows_read,
@@ -147,13 +145,13 @@ def record_sync_run(record: PersonPropertySyncRunRecord) -> None:
                 skipped_missing_person=record.skipped_missing_person,
             )
         else:
-            if not already_failed:
-                source.consecutive_failures = (source.consecutive_failures or 0) + 1
-            source.last_sync_error = record.error
-            auto_disabled = source.consecutive_failures >= MAX_CONSECUTIVE_SYNC_FAILURES
-            if auto_disabled:
-                source.is_enabled = False
-            source.save(update_fields=["consecutive_failures", "last_sync_error", "is_enabled", "updated_at"])
+            auto_disabled = record_sync_failure(
+                source,
+                error=record.error,
+                # A backfill carries no job id, so the run row identifies the disablement instead.
+                disable_event_id=record.job_id or str(run.id),
+                count_failure=not already_failed,
+            )
             log.warning(
                 "person-property run recorded: failed",
                 consecutive_failures=source.consecutive_failures,

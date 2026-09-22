@@ -130,6 +130,8 @@ A run that reads rows but shows `existing: 0` is the wrong-key-column case almos
   update" is answered by the table's sync frequency.
 - A source that fails repeatedly is **disabled automatically** after five consecutive failures. Re-enabling it
   resets the streak and triggers a fresh backfill.
+- When that happens, the person who created the source gets a notification and an assigned Customer analytics
+  task to fix it. The task reaches email only if that person has turned the task digest on.
 - "Sync now" runs the underlying table, which for a synced table is a real, billable warehouse sync, and for a
   materialized view is a materialization. It is not a cheap no-op — do not call it to "check" a mapping when
   `custom-property-sources-runs-list` answers the question for free.
