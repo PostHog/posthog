@@ -219,6 +219,13 @@ def _build_and_send_for_org(org_id: str, dry_run: bool = False) -> OrgDigestCoun
         counts.skipped_reason = "org_not_found"
         return counts
 
+    # The app and the API refuse a deactivated or pending-deletion organization, so mail must too:
+    # every link in the digest would land on the block page. Only an explicit False deactivates,
+    # because `is_active` is nullable and a null means the organization was never deactivated.
+    if org.is_pending_deletion or org.is_active is False:
+        counts.skipped_reason = "org_blocked"
+        return counts
+
     teams_by_id = _project_teams(org_id)
     if not teams_by_id:
         counts.skipped_reason = "no_teams"

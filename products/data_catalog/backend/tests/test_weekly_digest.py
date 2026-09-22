@@ -200,6 +200,23 @@ class TestBuildAndSendForOrg(APIBaseTest):
 
         assert counts.sent == expected_sent
 
+    @parameterized.expand(
+        [
+            ("open", {}, 1),
+            ("never_deactivated", {"is_active": None}, 1),
+            ("deactivated", {"is_active": False}, 0),
+            ("pending_deletion", {"is_pending_deletion": True}, 0),
+        ]
+    )
+    def test_an_organization_the_app_blocks_receives_nothing(self, _name, fields, expected_sent) -> None:
+        for field, value in fields.items():
+            setattr(self.organization, field, value)
+        self.organization.save()
+
+        counts = _build_and_send_for_org(str(self.organization.id))
+
+        assert counts.sent == expected_sent
+
     @parameterized.expand([("this_org", 0), ("other_org", 1)])
     def test_only_the_sending_organization_locks_its_own_digest(self, locking_org: str, expected_sent: int) -> None:
         other_org = Organization.objects.create(name="Other")
