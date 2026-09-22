@@ -30,6 +30,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
     post_scout_emission_to_slack,
 )
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
+from products.signals.backend.slack_report_threads import report_id_for_slack_thread
 from products.signals.backend.tasks import (
     deliver_scout_slack_output,
     deliver_scout_slack_thread_replies,
@@ -161,7 +162,17 @@ class TestScoutSlackDelivery(BaseTest):
         assert fake_client.chat_postMessage.call_count == 1
         assert call["blocks"][-1]["type"] == "actions"
 
-    def test_posts_report_with_safe_markdown_and_delivery_id(self) -> None:
+    @parameterized.expand(
+        [
+            ("channel", "CSCOUTS|#scout-findings", "CSCOUTS", "CSCOUTS"),
+            # Posting to a member id opens a direct message, so Slack answers with the `D…`
+            # conversation. An inbound mention names that conversation, not the member id.
+            ("direct_message", "U123ABC45|@andy", "U123ABC45", "D123ABC45"),
+        ]
+    )
+    def test_posts_report_with_safe_markdown_and_delivery_id(
+        self, _name, channel_config, sent_channel, posted_channel
+    ) -> None:
         emission = self._make_emission()
         report = SignalReport.objects.create(
             team=self.team,
@@ -174,9 +185,11 @@ class TestScoutSlackDelivery(BaseTest):
                 "| [#93147 fix(checkout): retry 500s](https://example.com/pull/93147) | ready |\n"
             ),
         )
-        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        integration = Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.SLACK, integration_id="T_SCOUTS"
+        )
         fake_client = MagicMock()
-        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000200"}
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000200", "channel": posted_channel}
         delivery_id = "01864f4c-6957-7d3f-8d85-1d775e527265"
 
         with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
@@ -188,11 +201,11 @@ class TestScoutSlackDelivery(BaseTest):
                 str(emission.scout_run_id),
                 delivery_id,
                 integration.id,
-                "CSCOUTS|#scout-findings",
+                channel_config,
             )
 
         call = fake_client.chat_postMessage.call_args_list[0].kwargs
-        assert call["channel"] == "CSCOUTS"
+        assert call["channel"] == sent_channel
         assert call["client_msg_id"] == delivery_id
         assert "thread_ts" not in call
         markdown = call["blocks"][2]["text"]
@@ -210,6 +223,12 @@ class TestScoutSlackDelivery(BaseTest):
         )
         assert call["blocks"][-1]["type"] == "context"
         assert fake_client.chat_postMessage.call_count == 1
+        assert report_id_for_slack_thread(
+            slack_workspace_id=integration.integration_id,
+            team_id=self.team.id,
+            channel=posted_channel,
+            thread_ts="1785418710.000200",
+        ) == str(report.id)
 
     def test_note_only_edit_delivers_the_note_instead_of_the_report(self) -> None:
         # Without the edit_note branch a note-only edit re-posts the full report message, which is
