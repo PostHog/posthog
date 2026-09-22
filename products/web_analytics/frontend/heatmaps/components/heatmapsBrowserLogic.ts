@@ -739,10 +739,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
         applyRecordingUrlFilter: () => {
             const filter = values.recordingUrlFilter
-            if (filter) {
-                actions.setHref(filter.href)
-                actions.setHrefMatchType(filter.matchType)
-            }
+            actions.setHref(filter?.href ?? '')
+            actions.setHrefMatchType(filter?.matchType ?? 'exact')
         },
 
         setDataUrl: ({ url }) => {

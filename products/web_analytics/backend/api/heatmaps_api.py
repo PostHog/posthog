@@ -1368,11 +1368,8 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
 
 
-_URL_PATTERN_CHARS = set("*+?^${}()|[]\\")
-
-
 def _reject_url_wildcards(value: str) -> None:
-    if any(c in _URL_PATTERN_CHARS for c in value):
+    if "*" in value:
         raise serializers.ValidationError("Wildcards are not allowed in the page URL.")
 
 
