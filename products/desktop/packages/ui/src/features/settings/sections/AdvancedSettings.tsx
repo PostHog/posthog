@@ -1,6 +1,5 @@
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
-import { Button as QuillButton, Switch as QuillSwitch } from "@posthog/quill";
 import {
   BACKGROUND_AGENT_LOGS_FLAG,
   ONBOARDING_TEST_TOOLS_FLAG,
@@ -10,6 +9,7 @@ import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingSt
 import {
   SettingsCard,
   SettingsCardRow,
+  SettingsSection,
 } from "@posthog/ui/features/settings/components/SettingsCard";
 import {
   DEV_MODE_CLIENT,
@@ -59,6 +59,32 @@ export function AdvancedSettings() {
   return (
     <div className="flex flex-col gap-7">
       <SettingsBackup />
+      <SettingsSection
+        label="Computer use"
+        description="Manage how local agents use other applications on your computer"
+      >
+        <SettingsCard>
+          <SettingsCardRow
+            label="Google Chrome"
+            description="Let local agents use tabs you approve. Requires the Playwright browser extension."
+          >
+            <div className="flex items-center gap-3">
+              <Button
+                size="1"
+                variant="soft"
+                onClick={() => openExternalUrl(PLAYWRIGHT_EXTENSION_URL)}
+              >
+                Install extension
+              </Button>
+              <Switch
+                checked={browserIntegrationEnabled}
+                onCheckedChange={setBrowserIntegrationEnabled}
+                size="1"
+              />
+            </div>
+          </SettingsCardRow>
+        </SettingsCard>
+      </SettingsSection>
       <SettingsCard>
         <SettingsCardRow
           label="Always create pull requests for cloud runs"
@@ -69,24 +95,6 @@ export function AdvancedSettings() {
             onCheckedChange={setAutoPublishCloudRuns}
             size="1"
           />
-        </SettingsCardRow>
-        <SettingsCardRow
-          label="Chrome browser access"
-          description="Let local agents use tabs you choose in Chrome. This requires the Playwright extension."
-        >
-          <div className="flex items-center gap-3">
-            <QuillButton
-              size="sm"
-              variant="outline"
-              onClick={() => openExternalUrl(PLAYWRIGHT_EXTENSION_URL)}
-            >
-              Install extension
-            </QuillButton>
-            <QuillSwitch
-              checked={browserIntegrationEnabled}
-              onCheckedChange={setBrowserIntegrationEnabled}
-            />
-          </div>
         </SettingsCardRow>
         <SettingsCardRow
           label="Compress command output"
