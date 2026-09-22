@@ -2347,8 +2347,8 @@ class TestCSPMiddleware(APIBaseTest):
     def test_admin_pages_enforce_the_policy_and_follow_the_reporting_default(self, _name, overrides, expects_reporting):
         # The admin policy is enforced, not report-only, and builds its own Reporting-Endpoints
         # header, so it can drift from the app policy unnoticed. A non-staff request redirects but
-        # still carries that policy, because the middleware picks its branch by path.
-        with override_settings(CSP_REPORT_ENDPOINT=None, **overrides):
+        # still carries that policy, because the middleware picks its branch by path once the portal is on.
+        with override_settings(CSP_REPORT_ENDPOINT=None, ADMIN_PORTAL_ENABLED=True, **overrides):
             response = self.client.get("/admin/")
         policy = response["Content-Security-Policy"]
         # Only the admin policy forbids framing outright; the non-HTML fallback is default-src alone.
@@ -2367,6 +2367,15 @@ class TestCSPMiddleware(APIBaseTest):
             assert "report-uri" not in policy
             assert "report-to" not in policy
             assert "Reporting-Endpoints" not in response
+
+    @override_settings(ADMIN_PORTAL_ENABLED=False)
+    def test_admin_path_gets_the_app_policy_when_the_portal_is_off(self):
+        # Without the portal, `/admin/` is an app page, and the app keeps running in that document
+        # after it navigates away. The admin policy there would refuse every request the app makes
+        # to another origin.
+        response = self.client.get("/admin/")
+        assert "frame-ancestors 'none'" not in response["Content-Security-Policy"]
+        assert "connect-src 'self'" in response["Content-Security-Policy-Report-Only"]
 
     @parameterized.expand(
         [
