@@ -1234,6 +1234,8 @@ def posthog_feature_flag_value(
 
     org_id = str(organization_id)
     caller = dict(caller_properties or {})
+    # Caller context is merged in last so a caller-supplied property cannot claim to be the app.
+    person = {**(person_properties or {}), **caller}
     groups: dict[str, str] = {"organization": org_id}
     group_properties: dict[str, dict[str, str]] = {"organization": {**caller, "id": org_id}}
     if team_id is not None:
@@ -1245,9 +1247,8 @@ def posthog_feature_flag_value(
         flag,
         distinct_id,
         groups=groups,
-        person_properties=caller or None,
         group_properties=group_properties,
-        person_properties=person_properties,
+        person_properties=person or None,
         only_evaluate_locally=only_evaluate_locally,
         send_feature_flag_events=False,
     )
