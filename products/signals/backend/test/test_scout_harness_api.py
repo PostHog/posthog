@@ -287,7 +287,6 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
 def _make_emission(team: Team, run: SignalScoutRun, *, finding_id: str, **overrides) -> SignalScoutEmission:
     defaults: dict = {
         "description": "Checkout 500s post-deploy",
-        "confidence": 0.85,
         "severity": "P1",
         "source_id": f"run:{run.id}:finding:{finding_id}",
     }
@@ -311,7 +310,7 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
         assert first["run_id"] == str(run.id)
         assert first["description"] == "Checkout 500s post-deploy"
         assert "weight" not in first
-        assert first["confidence"] == 0.85
+        assert "confidence" not in first
         assert first["severity"] == "P1"
         assert first["tags"] == ["cost-spike"]
         assert first["source_id"] == f"run:{run.id}:finding:{newer.finding_id}"
@@ -807,7 +806,6 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
     def _payload(self, **overrides) -> dict:
         body: dict = {
             "description": "Checkout 500s spike correlates with payment-flag rollout",
-            "confidence": 0.7,
             "evidence": [
                 {
                     "source_product": "error_tracking",
@@ -859,30 +857,18 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_emit.assert_not_called()
 
-    def test_emit_finding_without_confidence_leaves_it_unset(self) -> None:
-        # `confidence` is retired from the emit contract: an emit that omits it succeeds, keeps the
-        # key out of the signal's `extra`, and records NULL on the emission row.
-        run = _make_run(self.team)
-        payload = self._payload()
-        payload.pop("confidence")
-        with patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock) as mock_emit:
-            response = self.client.post(self._emit_signal_url(str(run.id)), data=payload, format="json")
-        assert response.status_code == status.HTTP_200_OK
-        assert mock_emit.await_args is not None
-        assert "confidence" not in mock_emit.await_args.kwargs["extra"]
-        assert SignalScoutEmission.objects.get(scout_run=run).confidence is None
-
-    @parameterized.expand([("below_range", -0.1), ("above_range", 1.1)])
-    def test_emit_finding_rejects_out_of_range_confidence(self, _name: str, confidence: float) -> None:
-        # A custom scout still sending the retired field gets the same error it got before, not a
-        # silently accepted value.
+    @parameterized.expand([("in_range", 0.7), ("out_of_range", 1.1)])
+    def test_emit_finding_ignores_retired_confidence_field(self, _name: str, confidence: float) -> None:
+        # A custom scout still sending the retired field must keep emitting: the serializer drops the
+        # unknown key, so no value reaches the signal's `extra`, whatever it holds.
         run = _make_run(self.team)
         with patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock) as mock_emit:
             response = self.client.post(
                 self._emit_signal_url(str(run.id)), data=self._payload(confidence=confidence), format="json"
             )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        mock_emit.assert_not_called()
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_emit.await_args is not None
+        assert "confidence" not in mock_emit.await_args.kwargs["extra"]
 
     def test_emit_finding_rejects_non_in_progress_run(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")

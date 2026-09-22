@@ -2711,9 +2711,6 @@ class SignalScoutEmission(TeamScopedRootMixin, UUIDModel):
     # upstream by `MAX_FINDING_DESCRIPTION_LENGTH` on the emit serializer and the emit_signal
     # token cap, so it stays well clear of row-size concerns.
     description = models.TextField()
-    # Deprecated: the emit contract no longer asks for a confidence score, so new rows are NULL.
-    # Retained until emits carrying one have tailed off.
-    confidence = models.FloatField(null=True, blank=True)
     severity = models.CharField(max_length=20, null=True, blank=True)
     # Slug tags the scout attached to the finding (normalized lowercase kebab-case, capped at
     # emit). This row is what feeds the per-scout tag-vocabulary feedback loop in the run prompt
