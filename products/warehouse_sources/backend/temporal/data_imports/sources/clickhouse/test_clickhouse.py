@@ -1000,7 +1000,9 @@ class TestGetClientSessionSettings:
 class TestTranslateError:
     def test_matches_substring_inside_long_error(self):
         msg = "Code: 516. DB::Exception: Authentication failed for user 'default'"
-        assert "rejected the username or password" in ClickHouseSource._translate_error(msg)
+        translated = ClickHouseSource._translate_error(msg)
+        assert translated is not None
+        assert "rejected the username or password" in translated
 
     def test_unknown_database_names_the_field_to_fix(self):
         # A wrong database name is the common cause, so the message must point at that field
