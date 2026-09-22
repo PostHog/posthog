@@ -11,6 +11,8 @@ from django.apps import apps
 from django.db import IntegrityError
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models import Organization, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
@@ -18,6 +20,7 @@ from posthog.models.scoping import team_scope
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalScratchpad
 from products.signals.backend.scout_harness.runner import _finalize_run_row
 from products.signals.backend.scout_harness.tools.emit import _record_emit
+from products.tasks.backend.facade import api as tasks_facade
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -290,11 +293,33 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
         # The derived-metadata stamp saves the same row moments later, so it would advance
         # `updated_at` on its own and hide a summary write that carries no timestamp.
         with patch("products.signals.backend.scout_harness.runner.stamp_derived_metadata"):
-            _finalize_run_row(run_id=run.id, team_id=self.team.id, summary="Nothing to report.")
+            _finalize_run_row(run_id=run.id, team_id=self.team.id, summary="Nothing to report.", task_run=run.task_run)
 
         run.refresh_from_db()
         assert run.summary == "Nothing to report."
         assert run.updated_at is not None and run.updated_at > stale
+
+    @parameterized.expand(
+        [
+            ("within_the_cap", "Verdict: two flag rollouts stalled.", "Verdict: two flag rollouts stalled."),
+            # This path calls the facade directly, so the serializer that caps an agent's own
+            # `task_summary_update` never runs and only the slice keeps a long close-out in the
+            # length the surfaces reading it are sized for.
+            (
+                "over_the_cap",
+                "x" * (tasks_facade.TASK_RUN_SUMMARY_MAX_CHARS + 500),
+                "x" * tasks_facade.TASK_RUN_SUMMARY_MAX_CHARS,
+            ),
+        ]
+    )
+    def test_close_out_lands_on_the_linked_task_run(self, _name: str, summary: str, expected: str) -> None:
+        run, _ = self._run_with_stale_updated_at()
+
+        with patch("products.signals.backend.scout_harness.runner.stamp_derived_metadata"):
+            _finalize_run_row(run_id=run.id, team_id=self.team.id, summary=summary, task_run=run.task_run)
+
+        run.task_run.refresh_from_db()
+        assert run.task_run.state[tasks_facade.TASK_RUN_SUMMARY_STATE_KEY] == expected
 
     def test_signal_scratchpad_round_trip(self) -> None:
         run = SignalScoutRun.objects.create(

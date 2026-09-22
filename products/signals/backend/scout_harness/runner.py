@@ -907,6 +907,7 @@ async def _spawn_and_run(
             run_id=run_id,
             team_id=team.parent_team_id or team.id,
             summary=result.summary,
+            task_run=session.task_run,
         )
         return result.summary, str(session.task_run.id)
     finally:
@@ -1581,7 +1582,7 @@ def _capture_run_finished(
         )
 
 
-def _finalize_run_row(*, run_id: Any, team_id: int, summary: str) -> None:
+def _finalize_run_row(*, run_id: Any, team_id: int, summary: str, task_run: TaskRun) -> None:
     # Targeted UPDATE rather than `.save()` — the row's other fields are untouched
     # by the agent's close-out, and `update()` skips the full model refresh. `updated_at` is stamped
     # by hand because `auto_now` runs in `save()`, which this path deliberately skips.
@@ -1592,6 +1593,32 @@ def _finalize_run_row(*, run_id: Any, team_id: int, summary: str) -> None:
     # run's settled output, in the same hop that persists the close-out. Best-effort inside, so
     # a stamp failure never costs the summary write that already landed above.
     stamp_derived_metadata(run_id=run_id, team_id=team_id)
+    _mirror_summary_to_task_run(task_run=task_run, summary=summary)
+
+
+def _mirror_summary_to_task_run(*, task_run: TaskRun, summary: str) -> None:
+    """Write the run's close-out to the linked TaskRun as its agent-maintained summary.
+
+    Deterministic rather than a prompt nudge: a scout run is one turn, so the close-out it already
+    writes is the whole summary a reader wants, and asking the agent for it a second time spends a
+    tool call on text it has in hand. The trade is that the task summary appears only at run end,
+    which a one-turn run makes moot.
+
+    Best-effort like the derived-metadata stamp above: the run's real output has already committed,
+    so a failure here is logged instead of failing the run.
+    """
+    try:
+        tasks_facade.set_task_run_summary(
+            task_run.id,
+            task_run.task_id,
+            task_run.team_id,
+            # The HTTP endpoint the agent would have called caps the summary at the same length,
+            # and the surfaces that render it are sized for that, so a long close-out is cut
+            # rather than allowed through a path that skips the serializer.
+            summary=summary[: tasks_facade.TASK_RUN_SUMMARY_MAX_CHARS],
+        )
+    except Exception:
+        logger.exception("signals_scout: failed to mirror close-out onto task run %s", task_run.id)
 
 
 def _step_name(skill: LoadedSkill) -> str:

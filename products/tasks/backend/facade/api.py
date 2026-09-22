@@ -310,6 +310,8 @@ __all__ = [
     "select_repository_for_message",
     "set_task_run_output",
     "set_task_run_summary",
+    "TASK_RUN_SUMMARY_MAX_CHARS",
+    "TASK_RUN_SUMMARY_STATE_KEY",
     "set_task_title",
     "slack_actor_state_updates",
     "signal_report_queryset",

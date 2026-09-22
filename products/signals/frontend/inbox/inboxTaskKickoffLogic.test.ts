@@ -493,6 +493,18 @@ describe('inboxTaskKickoffLogic', () => {
             expect(prompt).toContain('Answer this question')
             expect(prompt).not.toContain('carry the action out')
         })
+
+        // Both framings end on a reply somebody reads from the report's Runs row rather than by
+        // opening the chat, so both carry the summary nudge. Dropping it from one branch is the
+        // regression: that branch's runs go back to leaving the summary empty.
+        it.each([
+            ['an action-capable report', makeReport({ status: SignalReportStatus.READY })],
+            ['an answer-only report', makeReport({ status: SignalReportStatus.RESOLVED })],
+        ])('asks for a summary recap of the exchange on %s', (_name, report) => {
+            const prompt = buildDiscussReportPrompt(report, url, 'Why is this report here?')
+            expect(prompt).toContain('task_summary_update')
+            expect(prompt).toContain('what was asked, what you found, and what is still open')
+        })
     })
 
     describe('buildCreatePrReportPrompt', () => {

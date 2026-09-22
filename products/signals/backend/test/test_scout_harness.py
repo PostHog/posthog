@@ -1410,6 +1410,10 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aer
     # Agent close-out is persisted on the bridge row so future runs can dedupe
     # against non-emitting runs via the runs-list ILIKE filter.
     assert bridge.summary == "I would investigate /checkout 500s next."
+    # The same text is mirrored onto the linked TaskRun, so the fleet's task list shows the
+    # verdict without the scout spending a `task_summary_update` call on text it already wrote.
+    task_run = await database_sync_to_async(TaskRun.objects.get)(id=session.task_run.id)
+    assert task_run.state[tasks_facade.TASK_RUN_SUMMARY_STATE_KEY] == "I would investigate /checkout 500s next."
     config = await database_sync_to_async(SignalScoutConfig.objects.get)(team=ateam, skill_name="signals-scout-errors")
     # Auto-created configs default to enabled (the dogfood flag is the team-level gate).
     assert config.enabled is True
