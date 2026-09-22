@@ -155,10 +155,9 @@ pub enum StashedRequest {
 pub struct Changelog {
     /// Number of records appended (the HWM).
     pub len: u8,
-    /// The pod whose transactional producer the broker currently accepts,
-    /// under `Variant::EpochFenced` (production: the latest
-    /// `init_transactions` wins and every earlier producer is fenced out).
-    /// Always `None` under `Current`, which has no broker-side fence.
+    /// The pod whose transactional producer the broker currently accepts:
+    /// the latest `init_transactions` wins and every earlier producer is
+    /// fenced out.
     ///
     /// This is an owner rather than an epoch number because nothing
     /// compares epochs for order — the single consumer asks whether *this*

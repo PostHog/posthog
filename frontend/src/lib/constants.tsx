@@ -243,7 +243,6 @@ export const FEATURE_FLAGS = {
     SURVEYS_TRANSLATIONS: 'surveys-translations', // owner: #team-surveys
     TRACK_DETACHED_ELEMENTS: 'track-detached-elements', // owner: @pauldambra #team-replay
     TRACK_MEMORY_USAGE: 'track-memory-usage', // owner: @pauldambra #team-replay
-    TRACK_REACT_FRAMERATE: 'track-react-framerate', // owner: @pauldambra #team-replay
     WEB_ANALYTICS_API: 'web-analytics-api', // owner: #team-web-analytics
     WEB_ANALYTICS_FOR_MOBILE: 'web-analytics-for-mobile', // owner: #team-web-analytics
     WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS: 'web-analytics-path-cleaning-suggestions', // owner: @lricoy #team-web-analytics
@@ -285,7 +284,6 @@ export const FEATURE_FLAGS = {
     CUSTOMER_ANALYTICS_FEATURE_REQUESTS: 'customer-analytics-feature-requests',
     CUSTOMER_ANALYTICS_JOURNEYS: 'customer-analytics-journeys', // owner: @arthurdedeus #team-customer-analytics
     CUSTOMER_ANALYTICS_TRACK_RULES: 'customer-analytics-track-rules', // owner: @arthurdedeus #team-customer-analytics
-    DASHBOARD_AUTO_PREVIEW_LIMIT: 'dashboard-auto-preview-limit', // owner: @pauldambra #team-product-analytics
     DASHBOARD_EXPORT_NUDGE: 'dashboard-export-nudge', // owner: #team-analytics-platform multivariate=control,test, nudges people who just exported a dashboard toward a recurring subscription
     DASHBOARD_LAYOUT_DISCARD_PROMPT: 'dashboard-layout-discard-prompt', // owner: @cory.s #team-analytics-platform
     DASHBOARD_TEMPLATE_CHOOSER_EXPERIMENT: 'dashboard-template-chooser-experiment', // owner: @mattp #team-analytics-platform multivariate=control,simple,new
@@ -316,7 +314,6 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_RECOMMENDATIONS: 'error-tracking-recommendations', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RELATED_ISSUES: 'error-tracking-related-issues', // owner: #team-error-tracking
     ERROR_TRACKING_WEEKLY_DIGEST: 'error-tracking-weekly-digest', // owner: #team-error-tracking
-    EVENT_MEDIA_PREVIEWS: 'event-media-previews', // owner: @alexlider
     EXPERIMENT_BEHAVIOR_COMPARISON: 'experiment-behavior-comparison', // owner: @mp-hog #team-experiments
     EXPERIMENT_METRIC_EVENT_BREAKDOWNS: 'experiment-metric-event-breakdowns', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_DW_AA_TEST: 'experiments-dw-aa-test', // owner: @rodrigoi #team-experiments
@@ -332,7 +329,7 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAG_EARLY_EXIT: 'feature-flag-early-exit', // owner: @gustavo #team-feature-flags
     FEATURE_FLAG_NOTIFICATIONS: 'feature-flag-notifications', // owner: @reecejones #team-platform-features
     FEATURE_FLAG_REQUEST_USAGE: 'feature-flag-request-usage', // owner: #team-feature-flags
-    FIELD_NOTES: 'field-notes', // owner: @adamleith
+    FIELD_NOTES: 'field-notes', // owner: @adamleithp
     FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dmarticus #team-feature-flags
     FLAGGED_FEATURE_INDICATOR: 'flagged-feature-indicator', // owner: @benjackwhite
     FLAT_NAV: 'flat-nav', // owner: @rafaeelaudibert #team-growth multivariate=control,test, swaps the tree-based Browse tab for the flat sidebar, see FlatNavBrowse.tsx
@@ -443,8 +440,10 @@ export const FEATURE_FLAGS = {
     POSTHOG_CODE_BILLING: 'posthog-code-billing', // owner: #team-desktop
     POSTHOG_CONNECT: 'posthog-connect', // owner: @Gilbert09, gates the "connect another PostHog project" personal integration
     POSTHOG_DESKTOP_CLOUD_COMPUTE_BILLING: 'posthog-desktop-cloud-compute-billing', // owner: #team-desktop
+    PRODUCT_ANALYTICS_CHART_ALTERNATIVES: 'product-analytics-chart-alternatives', // owner: #team-product-analytics
     PRODUCT_ANALYTICS_DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS: 'product-analytics-dashboard-modal-smart-defaults', // owner: @sam #team-product-analytics
+    PRODUCT_ANALYTICS_HOME_TAB: 'product-analytics-home-tab', // owner: #team-product-analytics
     PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
     PRODUCT_ANALYTICS_PATHS_STRIP_QUERY_STRING: 'paths-strip-query-string', // owner: #team-product-analytics, gates the "Ignore URL query strings" switch on paths insights
     PRODUCT_ANALYTICS_PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
@@ -468,6 +467,7 @@ export const FEATURE_FLAGS = {
     QUILL_DATE_PICKER: 'quill-date-picker', // owner: @pauldambra, flips the lib/components/DatePicker seam from LemonUI to Quill
     REAL_TIME_NOTIFICATIONS: 'real-time-notifications', // owner: #team-platform-features
     REALTIME_COHORT_FLAG_TARGETING: 'realtime-cohort-flag-targeting', // owner: @dmarticus #team-feature-flags
+    REALTIME_COHORTS: 'realtime-cohorts', // owner: #team-feature-flags, links the cohorts list waitlist banner to its early access feature
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
     REMOTE_CONFIG: 'remote-config', // owner: #team-platform-features
     REPLAY_COLLAPSE_INSPECTOR_ITEMS: 'replay-collapse-inspector-items', // owner: @fasyy612 #team-replay
@@ -507,7 +507,6 @@ export const FEATURE_FLAGS = {
     SSO_SETTINGS_REDESIGN: 'sso-settings-redesign', // owner: @reecejones #team-platform-features
     STREAMLIT_APPS: 'streamlit-apps', // owner: @sakce
     SUBSCRIPTION_AI_PROMPT: 'ai-subscriptions', // owner: #team-analytics-platform, gates AI prompt-based subscriptions
-    SUBSCRIPTION_CREATION_WIZARD: 'subscription-creation-wizard', // owner: #team-analytics-platform, experiment=control,test
     SUBSCRIPTION_SLACK_GALLERY: 'subscription-slack-gallery', // owner: #team-analytics-platform, enables gallery delivery after the worker rollout completes
     SURVEY_HEADLINE_SUMMARY: 'survey-headline-summary', // owner: @adboio #team-surveys
     SURVEYS_ERROR_TRACKING_CROSS_SELL: 'surveys-in-error-tracking', // owner: @adboio #team-surveys
@@ -521,6 +520,7 @@ export const FEATURE_FLAGS = {
     TASKS_STREAM_VIA_PROXY: 'tasks-stream-via-proxy', // owner: #team-ai-observability
     TAXONOMIC_FILTER_MENU_REBUILD: 'taxonomic-filter-menu-rebuild', // owner: @adamleith, opt-in to the rebuilt TaxonomicFilter — headless filter panel + new popover menu (column / preview-pane)
     TEXT_CARD_WORD_ART: 'text-card-word-art', // owner: @jonmcwest, gates the word art insert button in dashboard text cards
+    TOOLBAR_PAID_HEATMAPS: 'toolbar-paid-heatmaps', // owner: #team-web-analytics
     TRACING: 'tracing', // owner: #team-apm (@jonmcwest, @frankh)
     TRACING_FACET_RAIL: 'tracing-facet-rail', // owner: #team-apm — gates the facet rail (faceted filter sidebar) in tracing
     TRACING_LATENCY_HEATMAP: 'tracing-latency-heatmap', // owner: #team-apm — gates the latency-over-time heatmap chart in tracing
@@ -528,6 +528,7 @@ export const FEATURE_FLAGS = {
     TRACING_OPERATIONS_VIEW: 'tracing-operations-view', // owner: #team-apm — gates the Operations (per-operation aggregate) tab in tracing
     TRACING_SAVED_VIEWS: 'tracing-saved-views', // owner: #team-apm — gates saved views (saved filter sets) in tracing
     TRACING_SESSION_PERSON_LINKS: 'tracing-session-person-links', // owner: #team-apm — gates span attribute links to session replay and persons, plus the tracing correlation settings
+    TRACING_UI_V2: 'tracing-ui-v2',
     TRAFFIC_TYPE_VIRTUAL_PROPERTIES: 'traffic-type-virtual-properties', // owner: #team-web-analytics
     UI_CUSTOMIZATION: 'ui-customization-enabled', // owner: @fercgomes #team-self-driving, gates sidebar/homepage UI customization
     UNIFIED_APM_PRODUCT: 'unified-apm-product', // owner: #team-apm (@jonmcwest, @frankh), gates the shared APM product backing logs, tracing, and metrics

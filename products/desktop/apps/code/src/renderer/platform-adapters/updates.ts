@@ -24,7 +24,7 @@ const store = updateStore.getState;
 
 function showToast(menuToast: MenuCheckToast): void {
   if (menuToast.kind === "success") {
-    toast.success(menuToast.message);
+    toast.success(menuToast.message, { alwaysShow: true });
     return;
   }
   toast.error(

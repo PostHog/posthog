@@ -11,11 +11,16 @@ import { Query } from '~/queries/Query/Query'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
+import { buildExploreAgentContext } from '../activityAgentContext'
 import { eventsSceneLogic } from './eventsSceneLogic'
 
 export function EventsScene(): JSX.Element {
     const { query } = useValues(eventsSceneLogic())
     const { setQuery } = useActions(eventsSceneLogic())
+
+    useAttachedContext(buildExploreAgentContext(ActivityTab.ExploreEvents, query))
 
     return (
         <SceneContent>

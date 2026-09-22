@@ -42,6 +42,7 @@ from products.wizard.backend.logic.runs.fingerprints import create_run_request_f
 from products.wizard.backend.logic.runs.repository_access import authorize_git_repository_access
 from products.wizard.backend.logic.runs.transitions import transition
 from products.wizard.backend.observability.service import wizard_observability as run_observability
+from products.wizard.backend.observability.tracing import annotate_run_span, wizard_span
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ def create_run(params: CreateWizardRunInput) -> WizardRunDTO:
     return create_run_with_result(params).run
 
 
+@wizard_span("wizard.run.create")
 def create_run_with_result(params: CreateWizardRunInput) -> WizardRunCreationResult:
     match params.environment, params.workspace:
         case WizardRunEnvironment.LOCAL, LocalFolderWorkspace():
@@ -74,6 +76,7 @@ def create_run_with_result(params: CreateWizardRunInput) -> WizardRunCreationRes
             if store.get_request_fingerprint(params.team_id, existing.id) != request_fingerprint:
                 raise WizardRunIdempotencyConflictError
 
+            annotate_run_span(params.team_id, existing.id)
             return WizardRunCreationResult(run=existing, created=False)
 
     user = User.objects.only("distinct_id").get(id=params.created_by_id)
@@ -112,6 +115,7 @@ def create_run_with_result(params: CreateWizardRunInput) -> WizardRunCreationRes
             idempotency_key=params.idempotency_key,
             request_fingerprint=request_fingerprint,
         )
+        annotate_run_span(params.team_id, result.run.id)
 
         if not result.created and store.get_request_fingerprint(params.team_id, result.run.id) != request_fingerprint:
             raise WizardRunIdempotencyConflictError

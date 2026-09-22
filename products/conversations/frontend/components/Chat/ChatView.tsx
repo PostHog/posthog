@@ -4,7 +4,14 @@ import { LemonCard } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketChannel, TicketStatus } from '../../types'
+import type {
+    AITriageSource,
+    AiReplyFeedbackRating,
+    ChatMessage,
+    Ticket,
+    TicketChannel,
+    TicketStatus,
+} from '../../types'
 import { MessageInput } from './MessageInput'
 import { MessageList, type TimelineExtra } from './MessageList'
 
@@ -81,6 +88,10 @@ export interface ChatViewProps {
     onCancelEdit?: () => void
     fullEmailLoadingMessageId?: string | null
     onViewFullEmail?: (messageId: string) => void
+    composerPrefillAt?: number
+    aiSources?: AITriageSource[]
+    aiDraftApplying?: boolean
+    onApplyAiDraft?: (message: ChatMessage) => void
 }
 
 export function ChatView({
@@ -127,6 +138,10 @@ export function ChatView({
     onCancelEdit,
     fullEmailLoadingMessageId,
     onViewFullEmail,
+    composerPrefillAt,
+    aiSources,
+    aiDraftApplying,
+    onApplyAiDraft,
 }: ChatViewProps): JSX.Element {
     const listMinHeight = minHeight ?? (fillParent ? '0' : '400px')
     const listMaxHeight = maxHeight ?? (fillParent ? 'none' : '600px')
@@ -160,6 +175,9 @@ export function ChatView({
                 onDeleteMessage={onDeleteMessage}
                 fullEmailLoadingMessageId={fullEmailLoadingMessageId}
                 onViewFullEmail={onViewFullEmail}
+                aiSources={aiSources}
+                aiDraftApplying={aiDraftApplying}
+                onApplyAiDraft={onApplyAiDraft}
             />
             <div className="border-t pt-3 shrink-0">
                 <MessageInput
@@ -183,6 +201,7 @@ export function ChatView({
                     onCancelEdit={onCancelEdit}
                     collapseUntilActive={collapseUntilActive}
                     threadId={threadId}
+                    composerPrefillAt={composerPrefillAt}
                 />
             </div>
         </LemonCard>

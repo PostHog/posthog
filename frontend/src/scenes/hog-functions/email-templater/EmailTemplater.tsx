@@ -216,7 +216,7 @@ function DestinationEmailTemplaterForm({
                         </div>
                     </>
                 ) : (
-                    <LemonField name="html" className="flex relative flex-col">
+                    <LemonField name="html" className="flex relative flex-col flex-1">
                         {({ value }: ChildFunctionProps) => (
                             <>
                                 <div
@@ -233,7 +233,14 @@ function DestinationEmailTemplaterForm({
                                     />
                                 </div>
 
-                                <iframe srcDoc={value} sandbox="" title="Email template preview" className="flex-1" />
+                                {/* The floor keeps the preview readable where the host gives it no
+                                    spare height to grow into */}
+                                <iframe
+                                    srcDoc={value}
+                                    sandbox=""
+                                    title="Email template preview"
+                                    className="flex-1 min-h-40"
+                                />
                             </>
                         )}
                     </LemonField>
@@ -735,7 +742,7 @@ function NativeEmailTemplaterForm({
                         </div>
                     </>
                 ) : (
-                    <LemonField name="html" className="flex relative flex-col">
+                    <LemonField name="html" className="flex relative flex-col flex-1">
                         {({ value }: ChildFunctionProps) => (
                             <>
                                 <div
@@ -752,7 +759,14 @@ function NativeEmailTemplaterForm({
                                     />
                                 </div>
 
-                                <iframe srcDoc={value} sandbox="" title="Email template preview" className="flex-1" />
+                                {/* The floor keeps the preview readable where the host gives it no
+                                    spare height to grow into */}
+                                <iframe
+                                    srcDoc={value}
+                                    sandbox=""
+                                    title="Email template preview"
+                                    className="flex-1 min-h-40"
+                                />
                             </>
                         )}
                     </LemonField>
