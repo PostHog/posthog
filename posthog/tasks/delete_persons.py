@@ -44,6 +44,16 @@ def _retry_countdown(retries: int) -> int:
     return min(RETRY_BACKOFF_SECONDS * 2**retries, RETRY_BACKOFF_MAX_SECONDS)
 
 
+# The republish is idempotent and cheap, so it waits out a Kafka or personhog outage for about
+# two hours (60 s doubling to a 30 minute cap, 8 retries) before the persons reach the alert.
+REPUBLISH_MAX_RETRIES = 8
+REPUBLISH_BACKOFF_MAX_SECONDS = 30 * 60
+
+
+def _republish_countdown(retries: int) -> int:
+    return min(RETRY_BACKOFF_SECONDS * 2**retries, REPUBLISH_BACKOFF_MAX_SECONDS)
+
+
 def _chunks(items: list[str], size: int) -> Iterator[list[str]]:
     for i in range(0, len(items), size):
         yield items[i : i + size]
@@ -189,7 +199,7 @@ def delete_persons_async(
     queue=CeleryQueue.LONG_RUNNING.value,
     acks_late=True,
     reject_on_worker_lost=True,
-    max_retries=MAX_DELETION_RETRIES,
+    max_retries=REPUBLISH_MAX_RETRIES,
 )
 @skip_team_scope_audit
 def republish_person_tombstones(self: Task, team_id: int, person_uuids: list[str]) -> None:
@@ -199,7 +209,7 @@ def republish_person_tombstones(self: Task, team_id: int, person_uuids: list[str
         return
     retries = self.request.retries
     remaining = [str(u) for u in unpublished]
-    if retries >= MAX_DELETION_RETRIES:
+    if retries >= REPUBLISH_MAX_RETRIES:
         report_unpublished_tombstones(team_id, remaining, path="sync")
         return
-    raise self.retry(kwargs={"team_id": team_id, "person_uuids": remaining}, countdown=_retry_countdown(retries))
+    raise self.retry(kwargs={"team_id": team_id, "person_uuids": remaining}, countdown=_republish_countdown(retries))

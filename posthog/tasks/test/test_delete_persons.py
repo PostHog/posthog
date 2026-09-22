@@ -11,6 +11,7 @@ from prometheus_client import REGISTRY
 from posthog.models.person import Person
 from posthog.models.person.bulk_delete import PersonDeletionFailure, PersonDeletionStep, PersonProfileDeletionResult
 from posthog.tasks.delete_persons import (
+    REPUBLISH_MAX_RETRIES,
     PersonDeletionIncomplete,
     delete_persons_async,
     queue_person_deletion,
@@ -207,16 +208,17 @@ class TestRepublishPersonTombstones(SimpleTestCase):
         retry.assert_not_called()
         assert not raised
 
-    def test_retries_with_only_the_unpublished_uuids(self) -> None:
+    @parameterized.expand([("first_attempt", 0, 60), ("past_the_deletion_retries", 3, 480), ("capped", 7, 1800)])
+    def test_retries_with_only_the_unpublished_uuids(self, _name: str, retries: int, countdown: int) -> None:
         remaining = uuid4()
-        _, retry, raised = self._run([remaining])
+        _, retry, raised = self._run([remaining], retries=retries)
         assert raised
         assert retry.call_args.kwargs["kwargs"] == {"team_id": 1, "person_uuids": [str(remaining)]}
-        assert retry.call_args.kwargs["countdown"] == 60
+        assert retry.call_args.kwargs["countdown"] == countdown
 
     def test_gives_up_after_the_last_retry(self) -> None:
         before = _unpublished_reported("sync")
-        _, retry, raised = self._run([uuid4()], retries=3)
+        _, retry, raised = self._run([uuid4()], retries=REPUBLISH_MAX_RETRIES)
         assert not raised
         retry.assert_not_called()
         assert _unpublished_reported("sync") - before == 1

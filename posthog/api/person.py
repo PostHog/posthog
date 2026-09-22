@@ -304,8 +304,9 @@ class PersonBulkDeleteResponseSerializer(serializers.Serializer):
         "error status, so a 202 with entries means those persons were not deleted and the request should be "
         "retried for them. Three steps are exceptions. For 'log_activity', the person was deleted, but the "
         "activity log entry was not written. For 'tombstone_postgres' and 'publish_clickhouse_tombstone', "
-        "don't retry: PostHog finishes the deletion in the background, and until then the person can still "
-        "show in analytics. "
+        "don't retry the request, because it can no longer find these persons. PostHog retries the deletion "
+        "in the background for up to two hours. If it still fails, the PostHog team is alerted and completes "
+        "it. Until then, the person can still show in analytics. "
         "Always empty when the deletion was queued (see persons_queued_for_deletion). "
         "Contact support if this persists.",
     )
