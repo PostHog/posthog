@@ -18,6 +18,7 @@ from django.db.models import BooleanField, Case, Exists, OuterRef, Prefetch, Q, 
 from django.utils.text import slugify
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
+from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -36,6 +37,7 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
 )
+from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.organization import OrganizationMembership
@@ -1555,10 +1557,14 @@ class EnterpriseExperimentsViewSet(
         return Response(ExperimentSetupContextResponseSerializer(context).data)
 
     def _setup_context_enabled(self) -> bool:
+        # In a loginas impersonation session request.user is the customer. The flag is evaluated for the staff
+        # user, so support can read a customer's setup context without the flag being on for that customer.
+        # OAuth impersonation (MCP) has no session, so it keeps the customer's flag, which also gates the tool.
+        flag_user = get_original_user_from_session(self.request) if is_impersonated_session(self.request) else None
         try:
             return posthog_feature_flag_enabled(
                 EXPERIMENT_SETUP_CONTEXT_FLAG,
-                str(cast(User, self.request.user).distinct_id),
+                str((flag_user or cast(User, self.request.user)).distinct_id),
                 organization_id=self.organization_id,
                 team_id=self.team.id,
             )
