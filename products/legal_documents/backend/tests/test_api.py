@@ -86,10 +86,18 @@ class TestLegalDocumentAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("startup_with_boost", "Startup", {"boost"}, False, status.HTTP_403_FORBIDDEN),
-            ("startup_without_addon", "Startup", set(), False, status.HTTP_403_FORBIDDEN),
-            ("startup_with_override_flag", "Startup", {"boost"}, True, status.HTTP_201_CREATED),
-            ("yc", "YC", {"boost"}, False, status.HTTP_201_CREATED),
+            ("startup_with_boost", "Startup", {"boost"}, False, status.HTTP_403_FORBIDDEN, "startup program credits"),
+            ("startup_without_addon", "Startup", set(), False, status.HTTP_403_FORBIDDEN, "startup program credits"),
+            (
+                "startup_with_override_without_addon",
+                "Startup",
+                set(),
+                True,
+                status.HTTP_403_FORBIDDEN,
+                "Boost, Scale, or Enterprise",
+            ),
+            ("startup_with_override_flag", "Startup", {"boost"}, True, status.HTTP_201_CREATED, None),
+            ("yc", "YC", {"boost"}, False, status.HTTP_201_CREATED, None),
         ]
     )
     @patch("products.legal_documents.backend.logic.get_feature_flag_or_none")
@@ -101,6 +109,7 @@ class TestLegalDocumentAPI(APIBaseTest):
         addons: set[str],
         override_enabled: bool,
         expected_status: int,
+        expected_error: str | None,
         mock_manager_cls: MagicMock,
         mock_flag: MagicMock,
     ) -> None:
@@ -111,8 +120,8 @@ class TestLegalDocumentAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, expected_status, response.json())
         created = LegalDocument.objects.filter(document_type="BAA").exists()
-        if expected_status == status.HTTP_403_FORBIDDEN:
-            self.assertIn("startup program credits", response.json()["detail"])
+        if expected_error is not None:
+            self.assertIn(expected_error, response.json()["detail"])
             self.assertFalse(created)
         else:
             self.assertTrue(created)
