@@ -51612,7 +51612,7 @@ export namespace Schemas {
          * @maxLength 20000
          */
       prompt: string;
-      /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt.
+      /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.
        *
        * * `monitor` - Monitor
        * * `classifier` - Classifier
