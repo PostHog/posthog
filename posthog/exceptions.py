@@ -90,11 +90,7 @@ class ClickHouseAtCapacity(APIException):
 
 
 class ClickHouseConnectionLost(APIException):
-    """The ClickHouse connection dropped while the query results were being read.
-
-    `clickhouse_driver` raises a bare builtin `EOFError` from its buffered reader for this, which no
-    ClickHouse error code covers, so it gets a named class here instead.
-    """
+    """The ClickHouse connection dropped while the query results were being read."""
 
     user_safe = True
     status_code = 503

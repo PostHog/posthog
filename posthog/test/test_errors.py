@@ -87,8 +87,7 @@ class TestWrapClickhouseQueryError:
         assert not isinstance(wrapped, ExposedCHQueryError)
 
     def test_eof_while_reading_wraps_as_transient_connection_lost(self) -> None:
-        # clickhouse_driver raises a bare builtin EOFError when a pooled socket closes mid-result.
-        # Without this branch it stays unclassified, so retrying callers skip it and the caller gets
+        # Unclassified, a mid-result socket drop skips every retry path and reaches the caller as
         # an unhandled 500.
         err = EOFError("Unexpected EOF while reading bytes")
 
