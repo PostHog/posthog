@@ -18,6 +18,7 @@ import urllib.parse
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import field
 from typing import Literal, Protocol
 
 from django.conf import settings
@@ -31,6 +32,7 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError, github_request
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, GitLabIntegration, Integration
+from posthog.security.url_validation import is_url_allowed
 from posthog.storage import object_storage
 
 from products.error_tracking.backend.models import ErrorTrackingRelease, ErrorTrackingStackFrame, ErrorTrackingSymbolSet
@@ -766,12 +768,23 @@ def github_paths_for_symbol_set(
 # GitLab keeps the search-based resolution: its tree endpoint pages a hundred entries at a time,
 # which does not scale to a whole repository on page load.
 
+GITLAB_SEARCH_TIMEOUT_SECONDS = 10
+GITLAB_BATCH_DEADLINE_SECONDS = 15
+
 
 def prepare_gitlab_search_query(query: str | None) -> str:
     if not query:
         return ""
     cleaned = ["" if char in ".,:;/\\=*!?#$&+^|~<>(){}[]\"'`" else char for char in query]
     return " ".join("".join(cleaned).split())
+
+
+@frozen
+class GitLabCredential:
+    """A token and the GitLab host it is for, with no trailing slash on the host."""
+
+    host_url: str
+    token: str = field(repr=False)
 
 
 @frozen
@@ -783,44 +796,97 @@ class GitLabHit:
     path: str
 
 
+@frozen
+class GitLabLookup:
+    """What one search needs from a frame. Frames that share both fields share one search."""
+
+    file_name: str
+    code_sample: str
+
+
+def _host_of(url: str) -> str:
+    return (urllib.parse.urlparse(url).hostname or "").lower()
+
+
+def gitlab_credentials(team_id: int, repository: Repository) -> list[GitLabCredential]:
+    """The shared token first, then the team's integrations on the repository's host.
+
+    An integration on another host never receives the search, since the code sample is source
+    code and the host cannot hold the repository.
+    """
+    credentials: list[GitLabCredential] = []
+    if settings.GITLAB_TOKEN and repository.host == "gitlab.com":
+        credentials.append(GitLabCredential(host_url="https://gitlab.com", token=settings.GITLAB_TOKEN))
+    for integration in Integration.objects.filter(team_id=team_id, kind="gitlab"):
+        try:
+            gitlab = GitLabIntegration(integration)
+            hostname = gitlab.hostname.rstrip("/")
+            token = gitlab.integration.sensitive_config.get("access_token")
+        except Exception:
+            logger.warning("source_links_gitlab_integration_failed", integration_id=integration.id, exc_info=True)
+            continue
+        if token and _host_of(hostname) == repository.host:
+            credentials.append(GitLabCredential(host_url=hostname, token=token))
+    return credentials
+
+
 def gitlab_search(
-    code_sample: str, token: str, repository: Repository, file_name: str, gitlab_url: str
+    lookup: GitLabLookup, credential: GitLabCredential, repository: Repository, ref: str | None
 ) -> GitLabHit | None:
-    """The first search hit whose path holds the file name."""
+    """The first search hit whose file name is the frame's, at ``ref`` when the release recorded one."""
     project = urllib.parse.quote(repository.path, safe="")
-    headers = {"PRIVATE-TOKEN": token, "Content-Type": "application/json"}
+    url = f"{credential.host_url}/api/v4/projects/{project}/search"
+    allowed, error = is_url_allowed(url)
+    if not allowed:
+        logger.warning("source_links_gitlab_host_rejected", host=credential.host_url, error=error)
+        return None
+    headers = {"PRIVATE-TOKEN": credential.token, "Content-Type": "application/json"}
 
     # Search behavior varies with repository visibility and plan, so both the raw line and the
     # sanitized query are tried.
-    for query in dict.fromkeys([code_sample.strip(), prepare_gitlab_search_query(code_sample)]):
+    for query in dict.fromkeys([lookup.code_sample.strip(), prepare_gitlab_search_query(lookup.code_sample)]):
         if not query:
             continue
-        search = urllib.parse.quote(query)
-        url = f"{gitlab_url}/api/v4/projects/{project}/search?scope=blobs&search={search}"
+        params = {"scope": "blobs", "search": query, **({"ref": ref} if ref else {})}
         try:
-            response = requests.get(url, headers=headers, timeout=10)
+            response = requests.get(
+                url, params=params, headers=headers, timeout=GITLAB_SEARCH_TIMEOUT_SECONDS, allow_redirects=False
+            )
             if response.status_code != 200:
                 continue
             for item in response.json() or []:
-                item_path = item.get("path", "")
-                ref = item.get("ref", "")
-                if file_name in item_path and ref and item_path:
-                    return GitLabHit(host_url=gitlab_url, ref=ref, path=item_path)
+                item_path = item.get("path") if isinstance(item, dict) else None
+                item_ref = item.get("ref") if isinstance(item, dict) else None
+                if not isinstance(item_path, str) or item_path.rsplit("/", 1)[-1] != lookup.file_name:
+                    continue
+                hit_ref = ref or (item_ref if isinstance(item_ref, str) else "")
+                if hit_ref:
+                    return GitLabHit(host_url=credential.host_url, ref=hit_ref, path=item_path)
         except Exception as error:
             logger.exception("gitlab_code_search_request_failed", error=str(error))
     return None
 
 
-def _gitlab_hit_for_frame(team_id: int, repository: Repository, frame: ErrorTrackingStackFrame) -> GitLabHit | None:
-    context = frame.context or {}
-    code_sample = (context.get("line") or {}).get("line") if isinstance(context, dict) else None
-    source = frame.contents.get("source") or ""
-    file_name = source.rsplit("/", 1)[-1]
-    if not code_sample or not file_name:
+def _gitlab_lookup(frame: ErrorTrackingStackFrame) -> GitLabLookup | None:
+    context = frame.context if isinstance(frame.context, dict) else {}
+    code_sample = (context.get("line") or {}).get("line")
+    file_name = (frame.contents.get("source") or "").rsplit("/", 1)[-1]
+    if not isinstance(code_sample, str) or not code_sample.strip() or not file_name:
         return None
+    return GitLabLookup(file_name=file_name, code_sample=code_sample)
 
+
+def _gitlab_hit(
+    team_id: int,
+    repository: Repository,
+    ref: str | None,
+    credentials: list[GitLabCredential],
+    lookup: GitLabLookup,
+    deadline: float,
+) -> GitLabHit | None:
     key = (
-        f"error_tracking:source_links:gitlab:{team_id}:{repository.path}:{file_name}:{zlib.crc32(code_sample.encode())}"
+        f"error_tracking:source_links:gitlab:{team_id}:{repository.path}@{ref or ''}:"
+        f"{lookup.file_name}:{zlib.crc32(lookup.code_sample.encode())}"
     )
     cached = cache.get(key)
     if cached == "":
@@ -829,19 +895,13 @@ def _gitlab_hit_for_frame(team_id: int, repository: Repository, frame: ErrorTrac
         return cached
 
     hit: GitLabHit | None = None
-    if settings.GITLAB_TOKEN:
-        hit = gitlab_search(code_sample, settings.GITLAB_TOKEN, repository, file_name, "https://gitlab.com")
-    if hit is None:
-        for integration in Integration.objects.filter(team_id=team_id, kind="gitlab"):
-            try:
-                gitlab = GitLabIntegration(integration)
-                token = gitlab.integration.sensitive_config.get("access_token")
-                if token:
-                    hit = gitlab_search(code_sample, token, repository, file_name, gitlab.hostname)
-            except Exception:
-                logger.warning("source_links_gitlab_integration_failed", integration_id=integration.id, exc_info=True)
-            if hit is not None:
-                break
+    for credential in credentials:
+        # Past the deadline the answer is unknown rather than negative, so nothing is cached.
+        if time.time() > deadline:
+            return None
+        hit = gitlab_search(lookup, credential, repository, ref)
+        if hit is not None:
+            break
     cache.set(key, hit if hit is not None else "", BRANCH_TTL_SECONDS if hit else NEGATIVE_TTL_SECONDS)
     return hit
 
@@ -921,7 +981,7 @@ def resolve_source_links(team_id: int, release_id: str, raw_ids: list[str]) -> l
     if not frames:
         return []
     if repository.provider == "gitlab":
-        return _gitlab_links(team_id, repository, frames)
+        return _gitlab_links(team_id, repository, git.commit_id, frames)
 
     api = github_api_for(team_id, repository)
     if api is None:
@@ -959,16 +1019,44 @@ def resolve_source_links(team_id: int, release_id: str, raw_ids: list[str]) -> l
     return links
 
 
-def _gitlab_links(team_id: int, repository: Repository, frames: list[ErrorTrackingStackFrame]) -> list[SourceLink]:
+def _gitlab_links(
+    team_id: int, repository: Repository, commit: str | None, frames: list[ErrorTrackingStackFrame]
+) -> list[SourceLink]:
+    """Searches GitLab once per distinct file name and code line, within one deadline for the batch.
+
+    Vendor frames are skipped: each search is a live request, and their files are not in the
+    repository. Lookups that the deadline cuts off get no link on this load.
+    """
+    ref = commit if commit and _COMMIT_SHA_RE.fullmatch(commit) else None
+    lookups: dict[GitLabLookup, list[ErrorTrackingStackFrame]] = defaultdict(list)
+    for frame in frames:
+        if frame.contents.get("in_app") is False:
+            continue
+        lookup = _gitlab_lookup(frame)
+        if lookup is not None:
+            lookups[lookup].append(frame)
+    if not lookups:
+        return []
+    credentials = gitlab_credentials(team_id, repository)
+    deadline = time.time() + GITLAB_BATCH_DEADLINE_SECONDS
+
     links: list[SourceLink] = []
-    with ThreadPoolExecutor(max_workers=min(len(frames), 5)) as executor:
-        hits = executor.map(lambda frame: _gitlab_hit_for_frame(team_id, repository, frame), frames)
-        for frame, hit in zip(frames, hits):
+    with ThreadPoolExecutor(max_workers=min(len(lookups), 5)) as executor:
+        hits = executor.map(
+            lambda lookup: _gitlab_hit(team_id, repository, ref, credentials, lookup, deadline), lookups
+        )
+        for lookup_frames, hit in zip(lookups.values(), hits):
             if hit is None:
                 continue
-            url = f"{hit.host_url}/{repository.path}/-/blob/{hit.ref}/{hit.path}"
-            line = frame_line_number(frame)
-            if line:
-                url = f"{url}#L{line}"
-            links.append(SourceLink(raw_id=_frame_raw_id(frame), provider="gitlab", url=url, path=hit.path))
+            url = f"{hit.host_url}/{repository.path}/-/blob/{urllib.parse.quote(hit.ref, safe='')}/{urllib.parse.quote(hit.path)}"
+            for frame in lookup_frames:
+                line = frame_line_number(frame)
+                links.append(
+                    SourceLink(
+                        raw_id=_frame_raw_id(frame),
+                        provider="gitlab",
+                        url=f"{url}#L{line}" if line else url,
+                        path=hit.path,
+                    )
+                )
     return links
