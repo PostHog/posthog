@@ -449,6 +449,11 @@ class BytecodeCompiler(Visitor):
         else:
             raise QueryError(f"Constant type `{type(node.value)}` is not supported")
 
+    def _is_known_stl_function(self, name: str) -> bool:
+        if self.context.allowed_functions is not None:
+            return name in self.context.allowed_functions
+        return name in STL or name in BYTECODE_STL
+
     def visit_call(self, node: ast.Call):
         if node.name == "not" and len(node.args) == 1:
             return [*self.visit(node.args[0]), Operation.NOT]
@@ -533,7 +538,7 @@ class BytecodeCompiler(Visitor):
                     self.context.add_notice(
                         start=node.start, end=node.end, message="Global variable: " + str(node.name)
                     )
-                elif node.name in self.supported_functions or node.name in STL or node.name in BYTECODE_STL:
+                elif node.name in self.supported_functions or self._is_known_stl_function(node.name):
                     pass
                 else:
                     self.context.add_error(

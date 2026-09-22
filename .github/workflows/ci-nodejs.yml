@@ -132,6 +132,9 @@ jobs:
                         # Django reads this to decide which filter globals it accepts, and the only
                         # check that it still matches the runtime type is a jest test.
                         - 'posthog/cdp/filter_globals.json'
+                        # The tables that file is generated from. A standard-library change
+                        # must run the parity test that shows the file went stale.
+                        - 'common/hogvm/typescript/src/**'
                         # Compose files only, no Dockerfile glob: these jobs run the suites from
                         # source via pnpm and the compose stack's only build contexts are rust/,
                         # so no app image is built here. Dockerfile.node is gated separately in
@@ -155,6 +158,7 @@ jobs:
                       node_full:
                         # readFileSync, so jest cannot reach the parity test through --findRelatedTests.
                         - 'posthog/cdp/filter_globals.json'
+                        - 'common/hogvm/typescript/src/**'
                         - '.github/scripts/jest-retries.cjs'
                         - 'patches/jest-junit@16.0.0.patch'
                         - 'nodejs/jest*.config.js'
