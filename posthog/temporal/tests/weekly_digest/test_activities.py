@@ -401,6 +401,10 @@ def test_generate_recording_lookup_counts_expiring_sessions_per_team(
         retention_period_days=30,
         ensure_analytics_event_in_session=False,
     )
+    # Left over from an earlier attempt of the same digest; the quiet team has no sessions.
+    redis_servers.digest.set(
+        team_data_key(digest.key, TeamDataKey.EXPIRING_RECORDINGS, quiet_team.id), json.dumps({"recording_count": 9})
+    )
     produce_replay_summary(
         team_id=other_team.id,
         session_id="other-expiring",
@@ -675,6 +679,34 @@ def test_send_weekly_digest_batch_stops_sending_once_the_activity_is_cancelled(
     assert MessagingRecord.objects.get(campaign_key=digest.key).sent_at is None
 
 
+@pytest.mark.django_db
+def test_send_weekly_digest_batch_leaves_organization_unsent_after_failed_upload(
+    organization, team, redis_servers, common_input, digest
+):
+    subscribed = create_user(organization, "subscribed@example.com")
+    redis_servers.digest.set(org_digest_key(digest.key, organization.id), _org_digest_json(organization, team))
+    redis_servers.digest.sadd(user_data_key(digest.key, UserDataKey.NOTIFY_TEAMS, subscribed.id), team.id)
+    ph_client = MagicMock()
+
+    def make_client(**kwargs: Any) -> MagicMock:
+        # The SDK reports a failed upload through on_error while flush drains the queue.
+        def flush(**_: Any) -> None:
+            kwargs["on_error"](
+                RuntimeError("upload failed"), [{"properties": {"organization_id": str(organization.id)}}]
+            )
+
+        ph_client.flush.side_effect = flush
+        return ph_client
+
+    with patch("posthog.temporal.weekly_digest.activities.get_ph_client", side_effect=make_client):
+        run_sync(send_weekly_digest_batch, _send_input(organization, digest, common_input, dry_run=False))
+
+    assert ph_client.capture.call_count == 1
+    assert ph_client.shutdown.called
+    record = MessagingRecord.objects.get(campaign_key=digest.key)
+    assert record.sent_at is None
+
+
 @pytest.mark.parametrize(
     "current,previous,expected_direction,expected_change_pct,expected_has_baseline",
     [
@@ -743,6 +775,8 @@ def test_generate_usage_trends_lookup_queries_only_teams_with_events(
     _create_event(team=team, event="$pageview", distinct_id="a", timestamp=digest.period_end - timedelta(days=1))
     _create_event(team=idle_team, event="$pageview", distinct_id="b", timestamp=digest.period_start - timedelta(days=1))
     flush_persons_and_events()
+    # Left over from an earlier attempt of the same digest; the idle team has no events this week.
+    redis_servers.digest.set(team_data_key(digest.key, TeamDataKey.USAGE_TRENDS, idle_team.id), '{"metrics": []}')
 
     with patch(
         "posthog.temporal.weekly_digest.activities._query_team_usage_trends", wraps=_query_team_usage_trends

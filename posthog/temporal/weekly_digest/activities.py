@@ -419,23 +419,22 @@ def _generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None:
     )
 
     # Teams without expiring recordings get no key; aggregation defaults the count to zero.
-    items: list[tuple[str, str]] = []
+    payload_by_team: dict[int, str] = {}
     recording_count = 0
     for team_id, count in rows:
         if team_id not in eligible_team_ids:
             continue
         expiring_recordings = RecordingCount(recording_count=int(count))
-        key = team_data_key(input.digest.key, TeamDataKey.EXPIRING_RECORDINGS, team_id)
-        items.append((key, expiring_recordings.model_dump_json()))
+        payload_by_team[team_id] = expiring_recordings.model_dump_json()
         recording_count += expiring_recordings.recording_count
 
     with _digest_redis(input.common) as r:
-        _setex_many(r, input.common.redis_ttl, items)
+        _store_team_data(r, input, TeamDataKey.EXPIRING_RECORDINGS, payload_by_team, eligible_team_ids)
 
     logger.info(
         "Finished generating Replay recording count batch",
         recording_count=recording_count,
-        team_count=len(items),
+        team_count=len(payload_by_team),
     )
 
 
@@ -563,35 +562,31 @@ def _generate_usage_trends_lookup(input: GenerateDigestDataBatchInput) -> None:
     logger = _bind_batch_logger(input)
     logger.info("Generating usage trends batch")
 
-    team_count = 0
     attempted = 0
     error_count = 0
 
-    active_team_ids = _active_team_ids(input) & set(_teams_in_range(input).values_list("id", flat=True))
+    eligible_team_ids = _eligible_team_ids(input)
+    active_team_ids = _active_team_ids(input) & eligible_team_ids
     # execute_hogql_query reads several team columns, so load the active teams in full rather than
     # through the trimmed digest queryset.
     active_teams = Team.objects.filter(id__in=active_team_ids).order_by("id")
 
-    with _digest_redis(input.common) as r:
-        for team in active_teams:
-            attempted += 1
-            try:
-                usage_trends = _query_team_usage_trends(team, input.digest.period_start, input.digest.period_end)
-            except Exception as e:
-                error_count += 1
-                logger.warning(
-                    f"Failed to generate usage trends for team {team.id}, skipping...",
-                    error=str(e),
-                    team_id=team.id,
-                )
-                continue
+    payload_by_team: dict[int, str] = {}
+    for team in active_teams:
+        attempted += 1
+        try:
+            usage_trends = _query_team_usage_trends(team, input.digest.period_start, input.digest.period_end)
+        except Exception as e:
+            error_count += 1
+            logger.warning(
+                f"Failed to generate usage trends for team {team.id}, skipping...",
+                error=str(e),
+                team_id=team.id,
+            )
+            continue
 
-            if usage_trends is None:
-                continue
-
-            key = team_data_key(input.digest.key, TeamDataKey.USAGE_TRENDS, team.id)
-            r.setex(key, input.common.redis_ttl, usage_trends.model_dump_json())
-            team_count += 1
+        if usage_trends is not None:
+            payload_by_team[team.id] = usage_trends.model_dump_json()
 
     # A malformed query (or an offline-cluster outage) fails for every team, which would
     # otherwise look identical to "no active teams" and silently ship an empty section for
@@ -599,7 +594,10 @@ def _generate_usage_trends_lookup(input: GenerateDigestDataBatchInput) -> None:
     if attempted > 0 and error_count == attempted:
         raise RuntimeError(f"Usage trends query failed for all {attempted} teams in batch")
 
-    logger.info("Finished generating usage trends batch", team_count=team_count, error_count=error_count)
+    with _digest_redis(input.common) as r:
+        _store_team_data(r, input, TeamDataKey.USAGE_TRENDS, payload_by_team, eligible_team_ids)
+
+    logger.info("Finished generating usage trends batch", team_count=len(payload_by_team), error_count=error_count)
 
 
 @activity.defn(name="generate-usage-trends-lookup")
@@ -909,128 +907,149 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
     empty_org_digest_count = 0
     empty_user_digest_count = 0
 
+    # The SDK marks a batch done whether or not its upload succeeded, so this callback is the only
+    # delivery signal. Every event carries organization_id in its payload.
+    failed_organization_ids: set[str] = set()
+
+    def on_upload_error(error: Exception, items: list[dict[str, Any]]) -> None:
+        failed_organization_ids.update(str(item.get("properties", {}).get("organization_id")) for item in items)
+        logger.warning("Failed to upload digest events", error=str(error), event_count=len(items))
+
     # Only US deployment forwards email events to customer.io
-    ph_client: Posthog | None = get_ph_client(region="US")
+    ph_client: Posthog | None = get_ph_client(region="US", on_error=on_upload_error)
 
     if not ph_client and not input.dry_run:
         logger.error("Failed to set up Posthog client")
         return
 
-    messaging_record_batch: list[MessagingRecord] = []
+    messaging_record_batch: list[tuple[str, MessagingRecord]] = []
 
-    def record_sent(records: list[MessagingRecord]) -> None:
-        # sent_at is the "delivery attempted" checkpoint, so every queued event must leave the
-        # client's buffer before the records are stamped. Unbounded, because a timed-out flush
-        # returns with events still queued and would checkpoint them as sent.
+    def record_sent(records: list[tuple[str, MessagingRecord]]) -> None:
+        # Every queued event must leave the client's buffer before any record is stamped, so the
+        # flush is unbounded: a timed-out flush returns with events still queued. An organization
+        # whose events failed to upload keeps sent_at empty, so the next attempt resends it.
         if ph_client is not None:
             ph_client.flush(timeout_seconds=None)
-        MessagingRecord.objects.bulk_update(records, ["sent_at"])
+        delivered = [record for organization_id, record in records if organization_id not in failed_organization_ids]
+        if len(delivered) < len(records):
+            logger.warning(
+                "Leaving organizations unsent after failed uploads", organization_count=len(records) - len(delivered)
+            )
+        MessagingRecord.objects.bulk_update(delivered, ["sent_at"])
 
-    with _digest_redis(input.common) as r:
-        batch_start, batch_end = input.batch
-        for organization in query_orgs_for_digest()[batch_start:batch_end]:
-            _raise_if_cancelled()
-            partial = False
-            try:
-                raw_digest: str | None = r.get(org_digest_key(input.digest.key, organization.id))
+    try:
+        with _digest_redis(input.common) as r:
+            batch_start, batch_end = input.batch
+            for organization in query_orgs_for_digest()[batch_start:batch_end]:
+                _raise_if_cancelled()
+                partial = False
+                try:
+                    raw_digest: str | None = r.get(org_digest_key(input.digest.key, organization.id))
 
-                if not raw_digest:
-                    logger.warning("Missing digest data for organization, skipping...", organization_id=organization.id)
-                    continue
-
-                org_digest: OrganizationDigest = OrganizationDigest.model_validate_json(raw_digest)
-
-                if org_digest.is_empty() or org_digest.count_items() < DIGEST_ITEM_COUNT_THRESHOLD:
-                    logger.warning("Got empty digest for organization, skipping...", organization_id=organization.id)
-                    empty_org_digest_count += 1
-                    continue
-
-                messaging_record, created = MessagingRecord.objects.get_or_create(
-                    raw_email=f"org_{organization.id}", campaign_key=input.digest.key
-                )
-
-                if not created and messaging_record.sent_at and not input.allow_already_sent:
-                    logger.info("Digest already sent for organization, skipping...", organization_id=organization.id)
-                    continue
-
-                members = list(query_org_members(organization))
-                with r.pipeline(transaction=False) as pipe:
-                    for member in members:
-                        pipe.smembers(user_data_key(input.digest.key, UserDataKey.NOTIFY_TEAMS, member.user.id))
-                        pipe.get(user_data_key(input.digest.key, UserDataKey.PRODUCT_SUGGESTION, member.user.id))
-                    member_data = pipe.execute()
-
-                for index, member in enumerate(members):
-                    _raise_if_cancelled()
-                    user = member.user
-                    user_notify_teams: set[int] = set(map(int, member_data[index * 2]))
-
-                    # Load user-specific context
-                    product_suggestion: DigestProductSuggestion | None = None
-                    raw_suggestion: str | None = member_data[index * 2 + 1]
-                    if raw_suggestion:
-                        try:
-                            product_suggestion = DigestProductSuggestion.model_validate_json(raw_suggestion)
-                        except ValidationError:
-                            logger.warning(
-                                "Failed to parse product suggestion, skipping...",
-                                user_id=user.id,
-                            )
-
-                    user_context = UserDigestContext(product_suggestion=product_suggestion)
-                    digest_for_user = org_digest.for_user(user_notify_teams, user_context)
-
-                    if digest_for_user.is_empty() or digest_for_user.count_items() < DIGEST_ITEM_COUNT_THRESHOLD:
+                    if not raw_digest:
                         logger.warning(
-                            "Got empty digest for user, skipping...",
-                            organization_id=organization.id,
-                            user_id=user.id,
+                            "Missing digest data for organization, skipping...", organization_id=organization.id
                         )
-                        empty_user_digest_count += 1
                         continue
 
-                    payload = digest_for_user.render_payload(input.digest)
+                    org_digest: OrganizationDigest = OrganizationDigest.model_validate_json(raw_digest)
 
-                    if input.dry_run:
+                    if org_digest.is_empty() or org_digest.count_items() < DIGEST_ITEM_COUNT_THRESHOLD:
+                        logger.warning(
+                            "Got empty digest for organization, skipping...", organization_id=organization.id
+                        )
+                        empty_org_digest_count += 1
+                        continue
+
+                    messaging_record, created = MessagingRecord.objects.get_or_create(
+                        raw_email=f"org_{organization.id}", campaign_key=input.digest.key
+                    )
+
+                    if not created and messaging_record.sent_at and not input.allow_already_sent:
                         logger.info(
-                            "DRY RUN - would send digest",
-                            digest=payload,
-                            user_email=user.email,
+                            "Digest already sent for organization, skipping...", organization_id=organization.id
                         )
-                    elif ph_client is not None:
-                        partial = True
-                        ph_client.capture(
-                            distinct_id=user.distinct_id,
-                            event="transactional email",
-                            properties=payload,
-                            groups={
-                                "organization": str(organization.id),
-                                "instance": settings.SITE_URL,
-                            },
-                        )
+                        continue
 
-                    sent_digest_count += 1
-            except Exception as e:
-                logger.warning(
-                    f"Failed to send weekly digest for organization {organization.id}, skipping...",
-                    error=str(e),
-                    organization_id=organization.id,
-                )
-                continue
-            finally:
-                if not input.dry_run and partial:
-                    messaging_record.sent_at = timezone.now()
-                    messaging_record_batch.append(messaging_record)
+                    members = list(query_org_members(organization))
+                    with r.pipeline(transaction=False) as pipe:
+                        for member in members:
+                            pipe.smembers(user_data_key(input.digest.key, UserDataKey.NOTIFY_TEAMS, member.user.id))
+                            pipe.get(user_data_key(input.digest.key, UserDataKey.PRODUCT_SUGGESTION, member.user.id))
+                        member_data = pipe.execute()
 
-                if len(messaging_record_batch) >= RECORD_BATCH_SIZE:
-                    record_sent(messaging_record_batch)
-                    messaging_record_batch = []
+                    for index, member in enumerate(members):
+                        _raise_if_cancelled()
+                        user = member.user
+                        user_notify_teams: set[int] = set(map(int, member_data[index * 2]))
 
-    if len(messaging_record_batch) > 0:
-        record_sent(messaging_record_batch)
+                        # Load user-specific context
+                        product_suggestion: DigestProductSuggestion | None = None
+                        raw_suggestion: str | None = member_data[index * 2 + 1]
+                        if raw_suggestion:
+                            try:
+                                product_suggestion = DigestProductSuggestion.model_validate_json(raw_suggestion)
+                            except ValidationError:
+                                logger.warning(
+                                    "Failed to parse product suggestion, skipping...",
+                                    user_id=user.id,
+                                )
 
-    if ph_client is not None:
-        ph_client.shutdown()
+                        user_context = UserDigestContext(product_suggestion=product_suggestion)
+                        digest_for_user = org_digest.for_user(user_notify_teams, user_context)
+
+                        if digest_for_user.is_empty() or digest_for_user.count_items() < DIGEST_ITEM_COUNT_THRESHOLD:
+                            logger.warning(
+                                "Got empty digest for user, skipping...",
+                                organization_id=organization.id,
+                                user_id=user.id,
+                            )
+                            empty_user_digest_count += 1
+                            continue
+
+                        payload = digest_for_user.render_payload(input.digest)
+
+                        if input.dry_run:
+                            logger.info(
+                                "DRY RUN - would send digest",
+                                digest=payload,
+                                user_email=user.email,
+                            )
+                        elif ph_client is not None:
+                            partial = True
+                            ph_client.capture(
+                                distinct_id=user.distinct_id,
+                                event="transactional email",
+                                properties=payload,
+                                groups={
+                                    "organization": str(organization.id),
+                                    "instance": settings.SITE_URL,
+                                },
+                            )
+
+                        sent_digest_count += 1
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to send weekly digest for organization {organization.id}, skipping...",
+                        error=str(e),
+                        organization_id=organization.id,
+                    )
+                    continue
+                finally:
+                    if not input.dry_run and partial:
+                        messaging_record.sent_at = timezone.now()
+                        messaging_record_batch.append((str(organization.id), messaging_record))
+
+                    if len(messaging_record_batch) >= RECORD_BATCH_SIZE:
+                        record_sent(messaging_record_batch)
+                        messaging_record_batch = []
+
+        if len(messaging_record_batch) > 0:
+            record_sent(messaging_record_batch)
+
+    finally:
+        if ph_client is not None:
+            ph_client.shutdown()
 
     logger.info(
         "Finished sending weekly digest batch",
