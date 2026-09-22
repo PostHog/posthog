@@ -290,3 +290,12 @@ async def test_the_registered_schedule_is_live_on_the_weekly_digest_queue() -> N
 
 def test_an_inputless_manual_run_does_not_send() -> None:
     assert DataCatalogWeeklyDigestWorkflow.parse_inputs([]).dry_run is True
+
+
+def test_a_mistyped_scope_key_fails_instead_of_widening_the_run() -> None:
+    with pytest.raises(TypeError):
+        DataCatalogWeeklyDigestWorkflow.parse_inputs(['{"org_idz": ["abc"], "dry_run": false}'])
+
+    parsed = DataCatalogWeeklyDigestWorkflow.parse_inputs(['{"org_ids": ["abc"], "dry_run": false}'])
+    assert parsed.org_ids == ["abc"]
+    assert parsed.dry_run is False

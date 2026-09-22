@@ -27,14 +27,10 @@ TEST_WORKFLOW_NAME = "data-catalog-weekly-digest-test"
 
 @workflow.defn(name=WORKFLOW_NAME)
 class DataCatalogWeeklyDigestWorkflow(PostHogWorkflow):
-    @staticmethod
-    def parse_inputs(inputs: list[str]) -> DataCatalogWeeklyDigestInput:
-        if inputs:
-            data = json.loads(inputs[0])
-            return DataCatalogWeeklyDigestInput(
-                **{f.name: data[f.name] for f in dataclasses.fields(DataCatalogWeeklyDigestInput) if f.name in data}
-            )
-        return DataCatalogWeeklyDigestInput()
+    # The base parse_inputs rejects a key that is not a field. A typo in the scope therefore fails
+    # the command, instead of dropping the scope and running over every organization.
+    inputs_cls = DataCatalogWeeklyDigestInput
+    inputs_optional = True
 
     @workflow.run
     async def run(self, input: DataCatalogWeeklyDigestInput | None = None) -> dict:
