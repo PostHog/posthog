@@ -612,6 +612,44 @@ def open_implementation_pr_for_review(team_id: int, report_id: str, pr_url: str)
     open_pull_request_ready_for_review(team_id=team_id, report_id=report_id, pr_url=pr_url)
 
 
+@shared_task(
+    name="products.signals.backend.tasks.move_merged_report_signals",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def move_merged_report_signals(team_id: int, survivor_report_id: str, source_report_ids: list[str]) -> None:
+    """Re-emit every merged-away report's ClickHouse signals under the surviving report's id.
+
+    Runs on a worker because the merge's own transaction must not wait on a ClickHouse read plus
+    one embedding emission per signal. The Postgres half of the merge is already committed and the
+    survivor's counters were taken from the source rows, so the report is consistent while this is
+    in flight; what the move buys is semantic search and future grouping pointing at the survivor.
+    Best-effort, so this never retries: grouping follows the merge pointer in the meantime
+    (`report_merge.merge_survivor`), which is what keeps a signal from re-attaching to the
+    duplicate before the rows land.
+    """
+    from products.signals.backend.temporal.signal_queries import (  # noqa: PLC0415 — keeps the temporal and hogql deps off the import path
+        reassign_report_signals,
+    )
+
+    team = Team.objects.get(pk=team_id)
+    for source_report_id in source_report_ids:
+        moved = reassign_report_signals(
+            source_report_id=source_report_id,
+            survivor_report_id=survivor_report_id,
+            team_id=team_id,
+            team=team,
+        )
+        logger.info(
+            "signals_merged_report_signals_moved",
+            team_id=team_id,
+            survivor_report_id=survivor_report_id,
+            source_report_id=source_report_id,
+            signal_count=moved,
+        )
+
+
 def _capture_refund_sync_event(refund: SignalReportRefund, event: str, extra: dict[str, object]) -> None:
     organization = refund.team.organization
     with ph_scoped_capture() as capture:

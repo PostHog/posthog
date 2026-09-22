@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urlencode
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -23,7 +24,7 @@ from social_django.models import UserSocialAuth
 from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.models import OAuthApplication
+from posthog.models import OAuthApplication, User
 from posthog.models.integration import GitHubIntegration
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
@@ -40,21 +41,34 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from products.signals.backend.artefact_schemas import ChannelAssignment
+from products.signals.backend.artefact_schemas import (
+    ChannelAssignment,
+    Dismissal,
+    NoteArtefact,
+    PriorityAssessment,
+    PullRequestLink,
+    ReportLink,
+)
+from products.signals.backend.enums import ReportLinkKind, ReportPriority
 from products.signals.backend.implementation_pr import (
     ImplementationPr,
     fetch_implementation_pr_state_for_reports,
     fetch_implementation_pr_urls_for_reports,
+    implementation_pr_needed_by_another_report,
 )
 from products.signals.backend.models import (
     ArtefactAttribution,
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
+    SignalReportPullRequest,
     SignalReportTask,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.report_assignments import create_claim
+from products.signals.backend.report_claims import get_active_claim
+from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
 from products.signals.backend.signal_metadata import ReportSignalMeta
 from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_IMPLEMENTATION,
@@ -2771,6 +2785,185 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert report.status == SignalReport.Status.READY
         assert report.title == "Original title"
         assert report.summary == "Original summary"
+
+
+class TestSignalReportMergeAPI(APIBaseTest):
+    def _merge_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/merge/"
+
+    def _state_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/state/"
+
+    def _report(self, *, team=None, report_status=SignalReport.Status.READY, **kwargs) -> SignalReport:
+        return SignalReport.objects.create(
+            team=team or self.team,
+            status=report_status,
+            title=kwargs.pop("title", "A report"),
+            summary=kwargs.pop("summary", "A summary"),
+            **kwargs,
+        )
+
+    def _merge(self, survivor: SignalReport, *sources: SignalReport, reason: str | None = None):
+        body: dict = {"source_report_ids": [str(source.id) for source in sources]}
+        if reason is not None:
+            body["reason"] = reason
+        with self.captureOnCommitCallbacks(execute=False):
+            return self.client.post(
+                self._merge_url(str(survivor.id)), data=json.dumps(body), content_type="application/json"
+            )
+
+    def test_merge_moves_the_work_log_and_archives_the_source(self):
+        survivor = self._report(signal_count=3, total_weight=1.5)
+        source = self._report(signal_count=2, total_weight=0.5, title="The twin")
+        SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(source.id),
+            content=NoteArtefact(note="research found the root cause"),
+            attribution=ArtefactAttribution.system(),
+        )
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(source.id),
+            content=PriorityAssessment(priority=ReportPriority.P0, explanation="the source thought it urgent"),
+            attribution=ArtefactAttribution.system(),
+        )
+
+        response = self._merge(survivor, source, reason="same support ticket")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        payload = response.json()
+        assert payload["sources"] == [
+            {"id": str(source.id), "artefacts_moved": 1, "signals_moved": 2, "released_claim": False}
+        ]
+
+        survivor.refresh_from_db()
+        source.refresh_from_db()
+        assert survivor.signal_count == 5
+        assert survivor.total_weight == pytest.approx(2.0)
+        # The source keeps its counters as the record of what it collected.
+        assert (source.signal_count, source.status) == (2, SignalReport.Status.SUPPRESSED)
+
+        moved = SignalReportArtefact.objects.filter(report_id=survivor.id, type="note").values_list(
+            "content", flat=True
+        )
+        assert any("root cause" in content for content in moved)
+        # A status artefact is latest-wins, so moving it would override the survivor's own verdict.
+        assert SignalReportArtefact.objects.filter(report_id=survivor.id, type="priority_judgment").count() == 0
+        assert SignalReportArtefact.objects.filter(report_id=source.id, type="priority_judgment").count() == 1
+
+        link = SignalReportArtefact.objects.get(report_id=source.id, type="report_link")
+        parsed = ReportLink.model_validate_json(link.content)
+        assert (parsed.kind, parsed.report_id, parsed.reason) == (
+            ReportLinkKind.DUPLICATE_OF,
+            str(survivor.id),
+            "same support ticket",
+        )
+        dismissal = SignalReportArtefact.objects.get(report_id=source.id, type="dismissal")
+        assert Dismissal.model_validate_json(dismissal.content).reason == MERGE_DISMISSAL_REASON
+
+    def test_merge_moves_the_pull_request_so_the_dismissal_leaves_it_open(self):
+        survivor = self._report()
+        source = self._report()
+        pr = SignalReportPullRequest.objects.create(
+            team=self.team,
+            repository="posthog/posthog",
+            number=4242,
+            url="https://github.com/PostHog/posthog/pull/4242",
+        )
+        artefact = SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(source.id),
+            content=PullRequestLink(url=pr.url),
+            attribution=ArtefactAttribution.system(),
+        )
+        SignalReportArtefact.objects.filter(id=artefact.id).update(pull_request=pr)
+
+        assert self._merge(survivor, source).status_code == status.HTTP_200_OK
+
+        assert SignalReportArtefact.objects.get(id=artefact.id).report_id == survivor.id
+        assert implementation_pr_needed_by_another_report(team_id=self.team.id, report_id=str(source.id), pr_url=pr.url)
+
+    def test_merge_releases_another_actors_claim_before_moving(self):
+        survivor = self._report()
+        source = self._report()
+        other = User.objects.create_and_join(self.organization, "someone-else@posthog.com", None)
+        create_claim(source, ArtefactAttribution.from_user(other.id))
+
+        response = self._merge(survivor, source)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        assert response.json()["sources"][0]["released_claim"] is True
+        assert get_active_claim(team_id=self.team.id, report_id=str(source.id)) is None
+        assert get_active_claim(team_id=self.team.id, report_id=str(survivor.id)) is None
+
+    @parameterized.expand(
+        [
+            ("self_merge", "self", "cannot be merged into itself"),
+            ("resolved_source", SignalReport.Status.RESOLVED, "cannot be merged"),
+            ("suppressed_source", SignalReport.Status.SUPPRESSED, "cannot be merged"),
+            ("other_team_source", "other_team", "was not found"),
+        ]
+    )
+    def test_merge_refuses_a_source_it_cannot_fold_in(self, _name, source_spec, expected_error):
+        survivor = self._report(signal_count=3)
+        if source_spec == "self":
+            source = survivor
+        elif source_spec == "other_team":
+            other_team = Team.objects.create(organization=self.organization, name="Other")
+            source = self._report(team=other_team)
+        else:
+            source = self._report(report_status=source_spec)
+
+        response = self._merge(survivor, source)
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert expected_error in response.json()["error"]
+        survivor.refresh_from_db()
+        assert survivor.signal_count == 3
+
+    def test_one_bad_source_leaves_the_whole_merge_unapplied(self):
+        survivor = self._report(signal_count=1)
+        good = self._report(signal_count=2)
+        bad = self._report(signal_count=4, report_status=SignalReport.Status.RESOLVED)
+
+        assert self._merge(survivor, good, bad).status_code == status.HTTP_409_CONFLICT
+
+        survivor.refresh_from_db()
+        good.refresh_from_db()
+        assert survivor.signal_count == 1
+        assert good.status == SignalReport.Status.READY
+
+    def test_a_merged_report_cannot_be_restored(self):
+        survivor = self._report()
+        source = self._report()
+        assert self._merge(survivor, source).status_code == status.HTTP_200_OK
+
+        response = self.client.post(
+            self._state_url(str(source.id)), data=json.dumps({"state": "potential"}), content_type="application/json"
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        source.refresh_from_db()
+        assert source.status == SignalReport.Status.SUPPRESSED
+
+    def test_merge_schedules_the_signal_move_once_committed(self):
+        survivor = self._report()
+        source = self._report()
+
+        with patch("products.signals.backend.tasks.move_merged_report_signals.delay") as move:
+            with self.captureOnCommitCallbacks(execute=True):
+                assert (
+                    self.client.post(
+                        self._merge_url(str(survivor.id)),
+                        data=json.dumps({"source_report_ids": [str(source.id)]}),
+                        content_type="application/json",
+                    ).status_code
+                    == status.HTTP_200_OK
+                )
+
+        move.assert_called_once_with(
+            team_id=self.team.id, survivor_report_id=str(survivor.id), source_report_ids=[str(source.id)]
+        )
 
 
 class TestAvailableReviewersAPI(APIBaseTest):

@@ -65,6 +65,7 @@ _underlying detail_ — pair them when the user wants to dig in.
 | `inbox-report-artefacts-retrieve`     | Full detail for a single artefact (read-only)                                                                 |
 | `inbox-reports-set-state`             | Resolve (`resolved`), dismiss (`suppressed`), or snooze (`potential`) a single report                         |
 | `inbox-reports-bulk-set-state`        | Same transition for 1–100 reports in one call (per-id result)                                                 |
+| `inbox-reports-merge`                 | Fold duplicate reports into the one report that survives them                                                 |
 | `inbox-source-configs-list`           | Configured signal sources (which products feed the inbox)                                                     |
 | `inbox-source-configs-retrieve`       | Full record for a single source config                                                                        |
 | `inbox-source-configs-partial-update` | Toggle a source's `enabled` flag (or adjust its `config`)                                                     |
@@ -74,7 +75,9 @@ The `inbox-reports-*-list` / `-retrieve`, `inbox-report-artefacts-list` / `-retr
 `inbox-source-configs-*-list` / `-retrieve` tools are read-only. The exposed writes are `inbox-reports-set-state` (resolve / dismiss / snooze a single report),
 `inbox-reports-bulk-set-state` (the same transition for 1–100 reports in one call),
 `inbox-reports-claim` (claim / release / attach a PR), see
-_Workflow: resolve, dismiss, or snooze a report_ — and `inbox-source-configs-partial-update`, which flips a
+_Workflow: resolve, dismiss, or snooze a report_; `inbox-reports-merge`, which folds duplicate reports into
+the one that survives them and is the right tool when the same issue landed in two live reports; and
+`inbox-source-configs-partial-update`, which flips a
 source's `enabled` flag on or off (e.g. `{enabled: false}` to stop a source feeding the inbox);
 `-create` / `-update` exist too for standing a source up or replacing it wholesale. Pausing
 processing is not exposed via MCP.

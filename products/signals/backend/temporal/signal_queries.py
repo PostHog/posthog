@@ -155,6 +155,42 @@ def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None
         )
 
 
+def reassign_report_signals(*, source_report_id: str, survivor_report_id: str, team_id: int, team: Team) -> int:
+    """Re-emit a report's live ClickHouse signals under another report's id, and return how many.
+
+    The same trick as `soft_delete_report_signals`: keep each row's `document_id` and timestamp so
+    the re-emission replaces the original in its ReplacingMergeTree partition instead of adding a
+    second copy. Only live rows move, because a deleted signal is already retracted from semantic
+    search and moving it would resurrect it under the survivor.
+    """
+    result = execute_hogql_query(
+        query_type="SignalsReassignForReport",
+        query=_signals_for_report_query(limit=5000),
+        team=team,
+        placeholders=_report_placeholders(source_report_id),
+    )
+
+    moved = 0
+    for row in result.results or []:
+        document_id, content, metadata_str, timestamp_raw, _inserted_at_raw = row
+        metadata = json.loads(metadata_str)
+        metadata["report_id"] = survivor_report_id
+
+        emit_embedding_request(
+            content=content,
+            team_id=team_id,
+            product=SIGNAL_DOCUMENT_PRODUCT,
+            document_type=SIGNAL_DOCUMENT_TYPE,
+            rendering=SIGNAL_DOCUMENT_RENDERING,
+            document_id=document_id,
+            models=[m.value for m in EmbeddingModelName],
+            timestamp=_ensure_tz_aware(timestamp_raw),
+            metadata=metadata,
+        )
+        moved += 1
+    return moved
+
+
 # ---------------------------------------------------------------------------
 # fetch_signal_type_examples_activity
 # ---------------------------------------------------------------------------

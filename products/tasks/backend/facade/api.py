@@ -302,6 +302,7 @@ __all__ = [
     "record_comment_activity",
     "signal_task_run_client_activity",
     "redispatch_task_run",
+    "reassign_signal_report_tasks",
     "relay_task_run_message",
     "resolve_slack_thread_context",
     "resume_task_run_in_cloud",
@@ -981,6 +982,18 @@ def task_exists(task_id: str | UUID, team_id: int) -> bool:
 def task_channel_id(task_id: str | UUID, team_id: int) -> UUID | None:
     """The channel a (non-deleted) task is filed in, or None."""
     return Task.objects.filter(id=task_id, team_id=team_id, deleted=False).values_list("channel_id", flat=True).first()
+
+
+def reassign_signal_report_tasks(*, team_id: int, source_report_id: str, survivor_report_id: str) -> int:
+    """Point every task that names one signal report at another one, and return how many moved.
+
+    Called when the Signals inbox merges a duplicate report into the report that survives it. The
+    tasks are the same work either way, and the surviving report is the one that answers for it
+    now, so the implementation runs reached through this column have to follow.
+    """
+    return Task.objects.filter(team_id=team_id, signal_report_id=source_report_id).update(
+        signal_report_id=survivor_report_id
+    )
 
 
 def signal_report_pipeline_stage(task_id: str | UUID, team_id: int) -> str | None:
