@@ -133,7 +133,13 @@ export function PiSubscriptionSettings(): ReactElement | null {
               Cancel
             </Button>
           ) : (
-            <Button variant="outline" size="sm" onClick={() => login.mutate()}>
+            <Button
+              variant="outline"
+              size="sm"
+              loading={login.isPending}
+              disabled={login.isPending}
+              onClick={() => login.mutate()}
+            >
               Connect ChatGPT account
             </Button>
           )}
