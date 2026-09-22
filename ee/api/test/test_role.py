@@ -227,7 +227,7 @@ class TestRoleAPI(APILicensedTest):
             Role.objects.create(id=role_id, name=f"Role {index}", organization=self.organization)
         Role.objects.filter(organization=self.organization).update(created_at=timezone.now())
 
-        paged_ids = []
+        paged_ids: list[str] = []
         for offset in range(0, len(role_ids), 2):
             res = self.client.get(f"/api/organizations/@current/roles?limit=2&offset={offset}")
             self.assertEqual(res.status_code, status.HTTP_200_OK)
