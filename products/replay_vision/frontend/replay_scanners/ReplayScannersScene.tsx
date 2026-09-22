@@ -35,15 +35,12 @@ import { FilterPill } from '../components/FilterPill'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
-import { ScanningPausedBanner } from '../components/ScanningPausedBanner'
 import { replayVisionEmptyState } from '../emptyState/replayVisionEmptyState'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { ObservationSearch } from '../search/ObservationSearch'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../utils/credits'
 import { CreateScannerButton } from './components/CreateScannerButton'
-import { EnabledScannersCard } from './components/EnabledScannersCard'
-import { ObservationsOverTimeCard } from './components/ObservationsOverTimeCard'
 import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
 import { WatchFeedTab } from './components/WatchFeedTab'
@@ -151,11 +148,8 @@ export function ReplayScannersScene(): JSX.Element {
         hasActiveFilters,
         scannerStats,
         scannerStatsLoading,
-        chartDateFrom,
-        chartDateTo,
     } = useValues(replayScannersLogic)
-    const { loadScanners, toggleScannerEnabled, setScannersFilters, clearFilters, setChartDateRange } =
-        useActions(replayScannersLogic)
+    const { loadScanners, toggleScannerEnabled, setScannersFilters, clearFilters } = useActions(replayScannersLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
     const { showUsd } = useValues(visionQuotaLogic)
@@ -322,28 +316,7 @@ export function ReplayScannersScene(): JSX.Element {
                 <VisionUsageTab />
             ) : (
                 <>
-                    {isRedesign ? (
-                        <>
-                            <ScanningPausedBanner />
-                            {(scannerStats?.total ?? 0) > 0 ? (
-                                <div className="@container">
-                                    <div className="grid grid-cols-1 @xl:grid-cols-2 gap-4">
-                                        <ObservationsOverTimeCard
-                                            dateFrom={chartDateFrom}
-                                            dateTo={chartDateTo}
-                                            onDateChange={setChartDateRange}
-                                            className="border min-h-80"
-                                        />
-                                        <EnabledScannersCard />
-                                    </div>
-                                </div>
-                            ) : scannerStatsLoading ? (
-                                <div className="flex items-center justify-center h-72 bg-bg-light rounded">
-                                    <Spinner className="text-2xl" />
-                                </div>
-                            ) : null}
-                        </>
-                    ) : (scannerStats?.total ?? 0) > 0 ? (
+                    {(scannerStats?.total ?? 0) > 0 ? (
                         <VisionMetrics />
                     ) : scannerStatsLoading ? (
                         <div className="flex items-center justify-center h-72 bg-bg-light rounded">
