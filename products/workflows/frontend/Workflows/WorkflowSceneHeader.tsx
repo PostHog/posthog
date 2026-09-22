@@ -46,8 +46,11 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
         publishDisabledReason,
         discardDisabledReason,
         showDraftActions,
+        copyCodePending,
+        copyCodeDisabledReason,
     } = useValues(workflowLogic)
     const {
+        copyWorkflowCode,
         saveWorkflowPartial,
         submitWorkflow,
         setWorkflowValue,
@@ -193,6 +196,18 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                 renameDebounceMs={200}
                 actions={
                     <>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconCopy />}
+                            onClick={() => copyWorkflowCode()}
+                            loading={copyCodePending}
+                            disabledReason={copyCodeDisabledReason}
+                            tooltip="Copy this workflow as @posthog/workflows TypeScript"
+                            data-attr="workflow-copy-code"
+                        >
+                            Copy code
+                        </LemonButton>
                         {isManualWorkflow && <HogFlowManualTriggerButton {...props} />}
                         {isSavedWorkflow && (
                             <>
