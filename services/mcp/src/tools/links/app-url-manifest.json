@@ -254,6 +254,21 @@
         "params": [],
         "scope": "project"
     },
+    "broadcast": {
+        "template": "/workflows/broadcasts/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "broadcastNew": {
+        "template": "/workflows/broadcasts/new",
+        "params": [],
+        "scope": "project"
+    },
+    "broadcasts": {
+        "template": "/workflows/broadcasts",
+        "params": [],
+        "scope": "project"
+    },
     "businessKnowledge": {
         "template": "/business-knowledge",
         "params": [],
@@ -1278,6 +1293,11 @@
         "template": "/organization/create-project",
         "params": [],
         "scope": "global"
+    },
+    "projectFiles": {
+        "template": "/files",
+        "params": [],
+        "scope": "project"
     },
     "projectHomepage": {
         "template": "/home",
