@@ -1251,7 +1251,9 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 and not instance.deleted
                 and evaluation_supports_reports(instance.output_type, instance.target, instance.output_config)
             ):
-                EvaluationReport.objects.get_or_create(evaluation=instance, team_id=self.team_id)
+                report, created = EvaluationReport.objects.get_or_create(evaluation=instance, team_id=self.team_id)
+                if not created:
+                    report.restart_reporting()
 
         # Track appropriate event
         if is_deletion:

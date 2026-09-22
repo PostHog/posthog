@@ -104,12 +104,18 @@ class TestEvaluationTargetLoading(BaseTest):
 
 
 @pytest.mark.parametrize(
-    ("output_type", "evaluation_target"),
-    [("sentiment", "generation"), ("boolean", "trace")],
+    ("output_type", "evaluation_target", "output_config"),
+    [
+        ("sentiment", "generation", {}),
+        ("boolean", "trace", {}),
+        ("numeric", "generation", {}),
+        ("numeric", "generation", None),
+        ("numeric", "generation", {"passing_rule": {"operator": "gte", "threshold": 8}}),
+    ],
 )
 @pytest.mark.asyncio
 async def test_run_agent_activity_loads_target_and_forwards_output_type(
-    output_type: str, evaluation_target: str
+    output_type: str, evaluation_target: str, output_config: dict | None
 ) -> None:
     @asynccontextmanager
     async def noop_heartbeater():
@@ -125,6 +131,7 @@ async def test_run_agent_activity_loads_target_and_forwards_output_type(
         evaluation_prompt="",
         evaluation_type="sentiment",
         output_type=output_type,
+        output_config=output_config or {},
         period_start="2026-07-01T00:00:00+00:00",
         period_end="2026-07-02T00:00:00+00:00",
         previous_period_start="2026-06-30T00:00:00+00:00",
@@ -151,15 +158,29 @@ async def test_run_agent_activity_loads_target_and_forwards_output_type(
         ) as load_detectors,
         patch(
             "posthog.temporal.ai_observability.eval_reports.activities._load_numeric_output_configs",
-            return_value={},
+            return_value={"evaluation-id": {"passing_rule": {"operator": "gte", "threshold": 7}}}
+            if output_config is not None
+            else {},
         ),
     ):
+        if output_config is None:
+            with pytest.raises(ApplicationError) as error:
+                await run_eval_report_agent_activity(inputs)
+            assert error.value.type == "ReportNotEligible"
+            assert error.value.non_retryable
+            run_agent.assert_not_called()
+            return
         result = await run_eval_report_agent_activity(inputs)
 
     assert result.content["metrics"]["output_type"] == output_type
     assert result.content["evaluation_target"] == evaluation_target
     assert result.generation_status == "completed"
-    assert run_agent.call_args.args[0] is inputs
+    if output_type == "numeric":
+        assert run_agent.call_args.args[0].output_config == (
+            output_config or {"passing_rule": {"operator": "gte", "threshold": 7}}
+        )
+    else:
+        assert run_agent.call_args.args[0] is inputs
     assert run_agent.call_args.kwargs["evaluation_target"] == evaluation_target
     assert run_agent.call_args.kwargs["detector_evaluation_ids"] == ["detector-id"]
     load_target.assert_called_once_with(inputs.team_id, inputs.evaluation_id)

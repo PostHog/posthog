@@ -354,7 +354,7 @@ class TestTargetAwareEvalResults(SimpleTestCase):
     def test_sentiment_list_omits_classifier_reasoning(self, mock_execute_hogql):
         mock_execute_hogql.side_effect = [
             [[1]],
-            [[_VALID_GEN_ID, "negative", None, 0.91, "identical classifier reasoning"]],
+            [[_VALID_GEN_ID, "negative", None, 0.9123456789, "identical classifier reasoning"]],
         ]
 
         result = _list_all_eval_results_fn(state=self._state("generation", "sentiment"))

@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -6,6 +7,7 @@ from unittest.mock import Mock, patch
 
 from django.db import IntegrityError, transaction
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from drf_spectacular.plumbing import get_override
 from parameterized import parameterized
@@ -146,8 +148,8 @@ class TestTargetConfigFieldSchema(SimpleTestCase):
 
 
 class TestEvaluationConfigsApi(APIBaseTest):
-    @parameterized.expand([(True,), (False,)])
-    def test_numeric_passing_rule_controls_report_creation_and_scheduling(self, enabled: bool) -> None:
+    @parameterized.expand([(True, "scheduled"), (False, "scheduled"), (True, "every_n")])
+    def test_numeric_passing_rule_controls_report_creation_and_scheduling(self, enabled: bool, frequency: str) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/",
             {
@@ -175,6 +177,27 @@ class TestEvaluationConfigsApi(APIBaseTest):
         response = self.client.patch(url, {"output_config": {"passing_rule": None}})
         self.assertEqual(response.status_code, 200, response.json())
         self.assertFalse(EvaluationReport.objects.reportable().filter(id=report.id).exists())
+        old_delivery = timezone.now() - timedelta(days=90)
+        EvaluationReport.objects.filter(id=report.id).update(
+            frequency=frequency,
+            rrule="FREQ=DAILY",
+            starts_at=old_delivery,
+            last_delivered_at=old_delivery,
+            next_delivery_date=old_delivery + timedelta(days=1),
+        )
+        resumed_at = timezone.now()
+        response = self.client.patch(url, {"output_config": {"passing_rule": {"operator": "gte", "threshold": 7}}})
+        self.assertEqual(response.status_code, 200, response.json())
+        report.refresh_from_db()
+        self.assertIsNone(report.last_delivered_at)
+        if frequency == "scheduled":
+            assert report.next_delivery_date is not None
+            self.assertGreater(report.next_delivery_date, resumed_at)
+            self.assertEqual(report.starts_at, old_delivery)
+        else:
+            assert report.starts_at is not None
+            self.assertGreaterEqual(report.starts_at, resumed_at)
+            self.assertIsNone(report.next_delivery_date)
         response = self.client.patch(url, {"output_type": "boolean"})
         self.assertEqual(response.status_code, 400)
 

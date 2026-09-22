@@ -152,6 +152,13 @@ class EvaluationReport(UUIDTModel):
         )
         self.next_delivery_date = occurrences[0] if occurrences else None
 
+    def restart_reporting(self) -> None:
+        self.last_delivered_at = None
+        if self.is_count_triggered:
+            self.starts_at = timezone.now()
+        self.set_next_delivery_date()
+        self.save(update_fields=["last_delivered_at", "starts_at", "next_delivery_date"])
+
     def save(self, *args, **kwargs):
         recalc = not self.id or not self.next_delivery_date
         old = None

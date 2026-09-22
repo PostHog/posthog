@@ -3,6 +3,7 @@
 import time
 import datetime as dt
 from collections import defaultdict
+from dataclasses import replace
 from itertools import batched
 from typing import TYPE_CHECKING, Any, NamedTuple
 from zoneinfo import ZoneInfo
@@ -700,12 +701,22 @@ async def run_eval_report_agent_activity(
             from posthog.temporal.ai_observability.eval_reports.report_agent import run_eval_report_agent
 
             evaluation_target = _load_evaluation_target(inputs.team_id, inputs.evaluation_id)
+            numeric_output_configs = _load_numeric_output_configs(inputs.team_id)
+            agent_inputs = inputs
+            if inputs.output_type == "numeric" and not inputs.output_config:
+                # Older workflow payloads omit the rule snapshot.
+                output_config = numeric_output_configs.get(inputs.evaluation_id, {})
+                if not evaluation_supports_reports("numeric", evaluation_target, output_config):
+                    raise ApplicationError(
+                        "This evaluation no longer supports reports.", type="ReportNotEligible", non_retryable=True
+                    )
+                agent_inputs = replace(inputs, output_config=output_config)
             return (
                 run_eval_report_agent(
-                    inputs,
+                    agent_inputs,
                     evaluation_target=evaluation_target,
                     detector_evaluation_ids=_load_detector_evaluation_ids(inputs.team_id),
-                    numeric_output_configs=_load_numeric_output_configs(inputs.team_id),
+                    numeric_output_configs=numeric_output_configs,
                 ),
                 evaluation_target,
             )

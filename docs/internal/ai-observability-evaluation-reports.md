@@ -24,12 +24,15 @@ The execution budget limits query work; it does not discard older results or gua
 Numeric evaluations need a passing rule to generate reports.
 Adding the first passing rule creates its default report if none exists, including while the evaluation is paused.
 Delivery waits until the evaluation is enabled.
+Restoring a removed passing rule restarts scheduled reporting with one normal period, without collecting the entire inactive gap.
+Count-triggered reports restart their count from the time the rule is restored.
 Renaming, pausing, or deleting an evaluation does not create a report.
 If an evaluation loses report support before report generation starts, the workflow fails with a non-retryable `ReportNotEligible` error and sends no delivery.
 Automatic attempts advance their schedule without advancing the successful data cursor. Manual attempts leave the schedule unchanged.
 
 Reports classify scores using the rule captured at the start of generation.
-The report agent receives raw score precision, including small values such as costs.
+Older workflow payloads without output settings load the current rule before invoking the report agent.
+The report agent receives raw numeric score precision, including small values such as costs. Sentiment confidences use two decimal places.
 Saving a changed passing rule updates live views of historical scores, while previously generated reports keep their saved metrics.
 Unsaved rules apply only to test previews; the runs table, summary, Reports tab, and Trend insight use the saved rule.
 Pass rates are unavailable when no runs have been graded.
