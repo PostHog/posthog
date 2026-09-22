@@ -9,6 +9,9 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const experimentHoldoutsCreateBodyNameMax = 400
 
 export const experimentHoldoutsCreateBodyDescriptionMax = 400
@@ -285,6 +288,9 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const experimentHoldoutsUpdateBodyNameMax = 400
 
 export const experimentHoldoutsUpdateBodyDescriptionMax = 400
@@ -561,6 +567,9 @@ export const ExperimentHoldoutsUpdateBody = /* @__PURE__ */ zod
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const experimentHoldoutsPartialUpdateBodyNameMax = 400
 
 export const experimentHoldoutsPartialUpdateBodyDescriptionMax = 400
