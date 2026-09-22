@@ -24,6 +24,7 @@ except ImportError:  # fail-open: runs without tools/hogli-commands on pythonpat
 
 from django.conf import settings
 from django.core.management.commands.flush import Command as FlushCommand
+from django.db import connections
 from django.test import TransactionTestCase
 
 from infi.clickhouse_orm import Database
@@ -470,17 +471,34 @@ _original_flush_handle = FlushCommand.handle
 FlushCommand.handle = _patched_flush_handle  # type: ignore[method-assign]
 
 
+def _another_session_is_busy(db_name: str) -> bool:
+    with connections[db_name].cursor() as cursor:
+        cursor.execute(
+            "SELECT EXISTS (SELECT FROM pg_stat_activity WHERE datname = current_database()"
+            " AND pid <> pg_backend_pid() AND backend_type = 'client backend' AND state <> 'idle')"
+        )
+        return cursor.fetchone() == (True,)
+
+
 def _patched_fixture_teardown(self: TransactionTestCase) -> None:
     """
     The stock TransactionTestCase teardown runs the flush command, which truncates every table
     and re-seeds content types and permissions after each test. pytest-django uses it for every
     ``django_db(transaction=True)`` test. Use the selective flush of NonAtomicBaseTest instead.
-    Subset flushes (``available_apps``), serialized rollback, and a failed selective flush keep
-    the stock teardown.
+
+    The stock teardown stays for subset flushes (``available_apps``), serialized rollback, and a
+    failed selective flush. It also stays while another session on the database is busy, such as
+    a Temporal worker thread: TRUNCATE waits for that session's transaction to end, but the probe
+    and DELETE of the selective flush do not, so rows it commits later would leak into the next test.
     """
-    if self.available_apps is None and not self.serialized_rollback:
+    db_names = cast(Any, self)._databases_names(include_mirrors=False)
+    if (
+        self.available_apps is None
+        and not self.serialized_rollback
+        and not any(map(_another_session_is_busy, db_names))
+    ):
         try:
-            for db_name in cast(Any, self)._databases_names(include_mirrors=False):
+            for db_name in db_names:
                 _selective_flush(db_name, reset_sequences=False)
             return
         except Exception:
