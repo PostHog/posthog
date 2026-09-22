@@ -398,6 +398,9 @@ class TestHogFlowAPI(APIBaseTest):
                 "messaging,automation,loop",
                 {"Email drip", "Push blast", "Webhook sync", "Loop with email action"},
             ),
+            # A repeated value used to fall through to the negated branch and answer with the
+            # automation rows, the exact opposite of what was asked for.
+            ("repeated_value", "messaging,messaging", {"Email drip", "Push blast"}),
         ]
     )
     def test_list_filter_by_workflow_type(self, _name, workflow_type, expected_names):
@@ -444,8 +447,16 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert {flow["name"] for flow in response.json()["results"]} == expected_names
 
-    def test_list_filter_by_workflow_type_rejects_unknown_value(self):
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?type=campaign")
+    @parameterized.expand(
+        [
+            ("unknown_value", "campaign"),
+            # Separators alone name no type. This used to pass validation and then filter on an empty
+            # set, so the caller got an empty list rather than an error.
+            ("separators_only", ",,"),
+        ]
+    )
+    def test_list_filter_by_workflow_type_rejects(self, _name, workflow_type):
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?type={workflow_type}")
         assert response.status_code == 400
 
     def test_list_filter_by_origin_product(self):

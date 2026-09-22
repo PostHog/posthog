@@ -3795,9 +3795,9 @@ OWNED_WORKFLOW_TYPES: Final[dict[str, str]] = {
 }
 
 
-def workflow_type_q(requested: list[str]) -> Q:
+def workflow_type_q(requested: set[str]) -> Q:
     owned = Q(origin_product__in=[OWNED_WORKFLOW_TYPES[t] for t in requested if t in OWNED_WORKFLOW_TYPES])
-    behavioural = [t for t in requested if t not in OWNED_WORKFLOW_TYPES]
+    behavioural = requested - set(OWNED_WORKFLOW_TYPES)
     if not behavioural:
         return owned
 
@@ -3805,9 +3805,9 @@ def workflow_type_q(requested: list[str]) -> Q:
     for action_type in MESSAGING_ACTION_TYPES:
         messaging |= Q(actions__contains=[{"type": action_type}])
     unowned = ~Q(origin_product__in=list(OWNED_WORKFLOW_TYPES.values()))
-    if set(behavioural) == {"messaging", "automation"}:
+    if behavioural == {"messaging", "automation"}:
         return owned | unowned
-    return owned | (unowned & (messaging if behavioural == ["messaging"] else ~messaging))
+    return owned | (unowned & (messaging if behavioural == {"messaging"} else ~messaging))
 
 
 class HogFlowFilterSet(FilterSet):
@@ -4086,12 +4086,13 @@ class HogFlowViewSet(
 
             workflow_type = self.request.GET.get("type")
             if workflow_type:
-                requested = [value for value in workflow_type.split(",") if value]
-                unknown = sorted(set(requested) - set(WORKFLOW_TYPES))
-                if unknown:
-                    raise exceptions.ValidationError(
-                        {"type": f"Unknown: {', '.join(unknown)}. Must be one of: {', '.join(WORKFLOW_TYPES)}"}
-                    )
+                requested = {value for value in workflow_type.split(",") if value}
+                unknown = sorted(requested - set(WORKFLOW_TYPES))
+                # A value of only separators names no type. Filtering on nothing would answer with an
+                # empty list, so it is rejected the way any other unusable value is.
+                if unknown or not requested:
+                    named = f"Unknown: {', '.join(unknown)}. " if unknown else ""
+                    raise exceptions.ValidationError({"type": f"{named}Must be one of: {', '.join(WORKFLOW_TYPES)}"})
                 queryset = queryset.filter(workflow_type_q(requested))
 
             # `?type=loop` and `?type=broadcast` return the same rows, but Desktop's Loops list sends
