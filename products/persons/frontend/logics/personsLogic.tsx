@@ -28,7 +28,6 @@ import {
     ActivityScope,
     AnyPropertyFilter,
     Breadcrumb,
-    CohortType,
     ExporterFormat,
     PersonListParams,
     PersonPropertyFilter,
