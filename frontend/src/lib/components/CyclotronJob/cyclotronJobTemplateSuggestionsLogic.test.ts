@@ -1,3 +1,7 @@
+import { act, renderHook } from '@testing-library/react'
+import type { editor } from 'monaco-editor'
+
+import { useTemplateEditorCursor } from './CyclotronJobTemplateSuggestions'
 import {
     CyclotronJobTemplateOption,
     insertTemplateReference,
@@ -36,6 +40,36 @@ describe('cyclotron job template suggestions', () => {
         ] as [string, 'hog' | 'liquid', string, string][])('%s', (_name, templating, example, expected) => {
             expect(templateReferenceForOption(optionFor(example), templating)).toBe(expected)
         })
+    })
+
+    it.each([false, true])('inserts at the initial cursor when the editor starts focused: %s', (startsFocused) => {
+        let focusEditor = (): void => {}
+        const disposeCursor = jest.fn()
+        const disposeFocus = jest.fn()
+        const editorInstance = {
+            getPosition: () => ({ lineNumber: 1, column: 1 }),
+            getModel: () => ({ getOffsetAt: () => 0 }),
+            hasTextFocus: () => startsFocused,
+            onDidChangeCursorPosition: () => ({ dispose: disposeCursor }),
+            onDidFocusEditorText: (callback: () => void) => {
+                focusEditor = callback
+                return { dispose: disposeFocus }
+            },
+        } as unknown as editor.IStandaloneCodeEditor
+        const { result, unmount } = renderHook(() => useTemplateEditorCursor())
+        act(() => result.current.onEditorMount(editorInstance))
+        if (!startsFocused) {
+            expect(insertTemplateReference('Hi there', '{person.name}', result.current.cursorOffset())).toBe(
+                'Hi there{person.name}'
+            )
+            act(() => focusEditor())
+        }
+        expect(insertTemplateReference('Hi there', '{person.name}', result.current.cursorOffset())).toBe(
+            '{person.name}Hi there'
+        )
+        unmount()
+        expect(disposeCursor).toHaveBeenCalledTimes(1)
+        expect(disposeFocus).toHaveBeenCalledTimes(1)
     })
 
     describe('insertTemplateReference', () => {

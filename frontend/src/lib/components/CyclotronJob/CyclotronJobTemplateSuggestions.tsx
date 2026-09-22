@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import type { IDisposable, editor } from 'monaco-editor'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconCode, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
@@ -32,10 +32,24 @@ export function useTemplateEditorCursor(): TemplateEditorCursor {
         listenerRef.current?.dispose()
         offsetRef.current = null
 
-        listenerRef.current = editorInstance.onDidChangeCursorPosition((event) => {
-            offsetRef.current = editorInstance.getModel()?.getOffsetAt(event.position) ?? null
-        })
+        const recordPosition = (): void => {
+            const position = editorInstance.getPosition()
+            offsetRef.current = position ? (editorInstance.getModel()?.getOffsetAt(position) ?? null) : null
+        }
+        const cursorListener = editorInstance.onDidChangeCursorPosition(recordPosition)
+        const focusListener = editorInstance.onDidFocusEditorText(recordPosition)
+        listenerRef.current = {
+            dispose: () => {
+                cursorListener.dispose()
+                focusListener.dispose()
+            },
+        }
+        if (editorInstance.hasTextFocus()) {
+            recordPosition()
+        }
     }, [])
+
+    useEffect(() => () => listenerRef.current?.dispose(), [])
 
     return { onEditorMount, cursorOffset: () => offsetRef.current }
 }

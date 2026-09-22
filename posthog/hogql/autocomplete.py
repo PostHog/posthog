@@ -661,6 +661,8 @@ def get_hogql_autocomplete(
                         loop_globals = loop_globals.get(str(key))
                         entered_chain.append(str(key))
                     if isinstance(loop_globals, dict):
+                        # The sample event backing these globals is a real captured event, so its
+                        # property bag can still carry properties we no longer offer for querying.
                         excluded_keys = (
                             QUERY_DEPRECATED_EVENT_PROPERTIES
                             if entered_chain == EVENT_PROPERTIES_GLOBALS_CHAIN
