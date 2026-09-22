@@ -2406,12 +2406,15 @@ class TestExternalDataSource(APIBaseTest):
                             },
                         ],
                         "dataset_id": "my_project.my_dataset",
-                        "key_file": {
-                            "project_id": "my_project",
-                            "private_key": "my_private_key",
-                            "private_key_id": "my_private_key_id",
-                            "token_uri": "https://google.com",
-                            "client_email": "test@posthog.com",
+                        "auth_type": {
+                            "selection": "key_file",
+                            "key_file": {
+                                "project_id": "my_project",
+                                "private_key": "my_private_key",
+                                "private_key_id": "my_private_key_id",
+                                "token_uri": "https://google.com",
+                                "client_email": "test@posthog.com",
+                            },
                         },
                     },
                 },
@@ -2422,9 +2425,9 @@ class TestExternalDataSource(APIBaseTest):
         source = response.json()
         source_model = ExternalDataSource.objects.get(id=source["id"])
 
-        assert source_model.job_inputs["key_file"]["project_id"] == "my_project"
-        assert source_model.job_inputs["key_file"]["private_key"] == "my_private_key"
-        assert source_model.job_inputs["key_file"]["private_key_id"] == "my_private_key_id"
+        assert source_model.job_inputs["auth_type"]["key_file"]["project_id"] == "my_project"
+        assert source_model.job_inputs["auth_type"]["key_file"]["private_key"] == "my_private_key"
+        assert source_model.job_inputs["auth_type"]["key_file"]["private_key_id"] == "my_private_key_id"
         assert source_model.job_inputs["dataset_id"] == "my_project.my_dataset"
 
     def test_create_external_data_source_missing_required_bigquery_job_input(self):
@@ -2435,10 +2438,13 @@ class TestExternalDataSource(APIBaseTest):
                 "created_via": "web",
                 "payload": {
                     "dataset_id": "my_dataset",
-                    "key_file": {
-                        "project_id": "my_project",
-                        "token_uri": "https://google.com",
-                        "client_email": "test@posthog.com",
+                    "auth_type": {
+                        "selection": "key_file",
+                        "key_file": {
+                            "project_id": "my_project",
+                            "token_uri": "https://google.com",
+                            "client_email": "test@posthog.com",
+                        },
                     },
                 },
             },
@@ -2487,12 +2493,15 @@ class TestExternalDataSource(APIBaseTest):
                             {"name": "my_table", "should_sync": True, "sync_type": "full_refresh"},
                         ],
                         "dataset_id": "my_project.my_dataset",
-                        "key_file": {
-                            "project_id": "my_project",
-                            "private_key": "my_private_key",
-                            "private_key_id": "my_private_key_id",
-                            "token_uri": "https://google.com",
-                            "client_email": "test@posthog.com",
+                        "auth_type": {
+                            "selection": "key_file",
+                            "key_file": {
+                                "project_id": "my_project",
+                                "private_key": "my_private_key",
+                                "private_key_id": "my_private_key_id",
+                                "token_uri": "https://google.com",
+                                "client_email": "test@posthog.com",
+                            },
                         },
                     },
                 },
@@ -2620,7 +2629,7 @@ class TestExternalDataSource(APIBaseTest):
             prefix="Primary database",
             description="Prod Postgres replica",
             access_method=ExternalDataSource.AccessMethod.DIRECT,
-            job_inputs={"host": "localhost", "password": "secret"},
+            job_inputs={"host": "localhost", "password": "secret", "schema": "public"},
             connection_metadata={"engine": "duckdb", "database": "ducklake", "available_functions": ["date_bin"]},
         )
         mysql_source = ExternalDataSource.objects.create(
@@ -2664,6 +2673,7 @@ class TestExternalDataSource(APIBaseTest):
                     "supports_hogql": True,
                     "is_builtin_managed_warehouse": False,
                     "description": None,
+                    "schema_name": None,
                 },
                 {
                     "id": str(postgres_source.pk),
@@ -2674,6 +2684,7 @@ class TestExternalDataSource(APIBaseTest):
                     "supports_hogql": True,
                     "is_builtin_managed_warehouse": False,
                     "description": "Prod Postgres replica",
+                    "schema_name": "public",
                 },
                 {
                     "id": str(mysql_source.pk),
@@ -2684,6 +2695,7 @@ class TestExternalDataSource(APIBaseTest):
                     "supports_hogql": True,
                     "is_builtin_managed_warehouse": False,
                     "description": None,
+                    "schema_name": None,
                 },
             ],
         )
@@ -8466,18 +8478,21 @@ class TestExternalDataSource(APIBaseTest):
                     "created_via": "web",
                     "payload": {
                         "source_type": "BigQuery",
-                        "key_file": {
-                            "type": "service_account",
-                            "project_id": "dummy_project_id",
-                            "private_key_id": "dummy_private_key_id",
-                            "private_key": "dummy_private_key",
-                            "client_email": "dummy_client_email",
-                            "client_id": "dummy_client_id",
-                            "auth_uri": "dummy_auth_uri",
-                            "token_uri": "dummy_token_uri",
-                            "auth_provider_x509_cert_url": "dummy_auth_provider_x509_cert_url",
-                            "client_x509_cert_url": "dummy_client_x509_cert_url",
-                            "universe_domain": "dummy_universe_domain",
+                        "auth_type": {
+                            "selection": "key_file",
+                            "key_file": {
+                                "type": "service_account",
+                                "project_id": "dummy_project_id",
+                                "private_key_id": "dummy_private_key_id",
+                                "private_key": "dummy_private_key",
+                                "client_email": "dummy_client_email",
+                                "client_id": "dummy_client_id",
+                                "auth_uri": "dummy_auth_uri",
+                                "token_uri": "dummy_token_uri",
+                                "auth_provider_x509_cert_url": "dummy_auth_provider_x509_cert_url",
+                                "client_x509_cert_url": "dummy_client_x509_cert_url",
+                                "universe_domain": "dummy_universe_domain",
+                            },
                         },
                         "dataset_id": "dummy_dataset_id",
                         "use_custom_region": {"enabled": False, "region": ""},
@@ -8507,13 +8522,14 @@ class TestExternalDataSource(APIBaseTest):
 
         # validate against the actual class we use in the Temporal activity
         bq_config = BigQuerySourceConfig.from_dict(job_inputs)
+        assert bq_config.auth_type.key_file is not None
 
-        assert bq_config.key_file.project_id == "dummy_project_id"
+        assert bq_config.auth_type.key_file.project_id == "dummy_project_id"
         assert bq_config.dataset_id == "dummy_dataset_id"
-        assert bq_config.key_file.private_key == "dummy_private_key"
-        assert bq_config.key_file.private_key_id == "dummy_private_key_id"
-        assert bq_config.key_file.client_email == "dummy_client_email"
-        assert bq_config.key_file.token_uri == "dummy_token_uri"
+        assert bq_config.auth_type.key_file.private_key == "dummy_private_key"
+        assert bq_config.auth_type.key_file.private_key_id == "dummy_private_key_id"
+        assert bq_config.auth_type.key_file.client_email == "dummy_client_email"
+        assert bq_config.auth_type.key_file.token_uri == "dummy_token_uri"
         assert bq_config.use_custom_region is not None
         assert bq_config.use_custom_region.enabled is False
         assert bq_config.temporary_dataset is not None
@@ -8536,18 +8552,21 @@ class TestExternalDataSource(APIBaseTest):
                         "client_email": "dummy_client_email",
                         "temporary-dataset": {"enabled": True, "temporary_dataset_id": "dummy_temporary_dataset_id"},
                         "dataset_project": {"enabled": False, "dataset_project_id": ""},
-                        "key_file": {
-                            "type": "service_account",
-                            "project_id": "dummy_project_id",
-                            "private_key_id": "dummy_private_key_id",
-                            "private_key": "dummy_private_key",
-                            "client_email": "dummy_client_email",
-                            "client_id": "dummy_client_id",
-                            "auth_uri": "dummy_auth_uri",
-                            "token_uri": "dummy_token_uri",
-                            "auth_provider_x509_cert_url": "dummy_auth_provider_x509_cert_url",
-                            "client_x509_cert_url": "dummy_client_x509_cert_url",
-                            "universe_domain": "dummy_universe_domain",
+                        "auth_type": {
+                            "selection": "key_file",
+                            "key_file": {
+                                "type": "service_account",
+                                "project_id": "dummy_project_id",
+                                "private_key_id": "dummy_private_key_id",
+                                "private_key": "dummy_private_key",
+                                "client_email": "dummy_client_email",
+                                "client_id": "dummy_client_id",
+                                "auth_uri": "dummy_auth_uri",
+                                "token_uri": "dummy_token_uri",
+                                "auth_provider_x509_cert_url": "dummy_auth_provider_x509_cert_url",
+                                "client_x509_cert_url": "dummy_client_x509_cert_url",
+                                "universe_domain": "dummy_universe_domain",
+                            },
                         },
                     }
                 },
@@ -8559,13 +8578,14 @@ class TestExternalDataSource(APIBaseTest):
 
         # validate against the actual class we use in the Temporal activity
         bq_config = BigQuerySourceConfig.from_dict(source_model.job_inputs)
+        assert bq_config.auth_type.key_file is not None
 
-        assert bq_config.key_file.project_id == "dummy_project_id"
+        assert bq_config.auth_type.key_file.project_id == "dummy_project_id"
         assert bq_config.dataset_id == "dummy_dataset_id"
-        assert bq_config.key_file.private_key == "dummy_private_key"
-        assert bq_config.key_file.private_key_id == "dummy_private_key_id"
-        assert bq_config.key_file.client_email == "dummy_client_email"
-        assert bq_config.key_file.token_uri == "dummy_token_uri"
+        assert bq_config.auth_type.key_file.private_key == "dummy_private_key"
+        assert bq_config.auth_type.key_file.private_key_id == "dummy_private_key_id"
+        assert bq_config.auth_type.key_file.client_email == "dummy_client_email"
+        assert bq_config.auth_type.key_file.token_uri == "dummy_token_uri"
         assert bq_config.use_custom_region is not None
         assert bq_config.use_custom_region.enabled is False
         assert bq_config.temporary_dataset is not None
@@ -8588,18 +8608,21 @@ class TestExternalDataSource(APIBaseTest):
                         "client_email": "dummy_client_email",
                         "temporary-dataset": {"enabled": False, "temporary_dataset_id": ""},
                         "dataset_project": {"enabled": True, "dataset_project_id": "other_project_id"},
-                        "key_file": {
-                            "type": "service_account",
-                            "project_id": "dummy_project_id",
-                            "private_key_id": "dummy_private_key_id",
-                            "private_key": "dummy_private_key",
-                            "client_email": "dummy_client_email",
-                            "client_id": "dummy_client_id",
-                            "auth_uri": "dummy_auth_uri",
-                            "token_uri": "dummy_token_uri",
-                            "auth_provider_x509_cert_url": "dummy_auth_provider_x509_cert_url",
-                            "client_x509_cert_url": "dummy_client_x509_cert_url",
-                            "universe_domain": "dummy_universe_domain",
+                        "auth_type": {
+                            "selection": "key_file",
+                            "key_file": {
+                                "type": "service_account",
+                                "project_id": "dummy_project_id",
+                                "private_key_id": "dummy_private_key_id",
+                                "private_key": "dummy_private_key",
+                                "client_email": "dummy_client_email",
+                                "client_id": "dummy_client_id",
+                                "auth_uri": "dummy_auth_uri",
+                                "token_uri": "dummy_token_uri",
+                                "auth_provider_x509_cert_url": "dummy_auth_provider_x509_cert_url",
+                                "client_x509_cert_url": "dummy_client_x509_cert_url",
+                                "universe_domain": "dummy_universe_domain",
+                            },
                         },
                     }
                 },
@@ -8611,13 +8634,14 @@ class TestExternalDataSource(APIBaseTest):
 
         # validate against the actual class we use in the Temporal activity
         bq_config = BigQuerySourceConfig.from_dict(source_model.job_inputs)
+        assert bq_config.auth_type.key_file is not None
 
-        assert bq_config.key_file.project_id == "dummy_project_id"
+        assert bq_config.auth_type.key_file.project_id == "dummy_project_id"
         assert bq_config.dataset_id == "dummy_dataset_id"
-        assert bq_config.key_file.private_key == "dummy_private_key"
-        assert bq_config.key_file.private_key_id == "dummy_private_key_id"
-        assert bq_config.key_file.client_email == "dummy_client_email"
-        assert bq_config.key_file.token_uri == "dummy_token_uri"
+        assert bq_config.auth_type.key_file.private_key == "dummy_private_key"
+        assert bq_config.auth_type.key_file.private_key_id == "dummy_private_key_id"
+        assert bq_config.auth_type.key_file.client_email == "dummy_client_email"
+        assert bq_config.auth_type.key_file.token_uri == "dummy_token_uri"
         assert bq_config.use_custom_region is not None
         assert bq_config.use_custom_region.enabled is False
         assert bq_config.temporary_dataset is not None
@@ -14105,12 +14129,15 @@ class TestBigQuerySwitchGroups(APIBaseTest):
             created_by=self.user,
             prefix="bq",
             job_inputs={
-                "key_file": {
-                    "project_id": "project_id",
-                    "private_key_id": "private_key_id",
-                    "private_key": "private_key",
-                    "client_email": "client_email",
-                    "token_uri": "token_uri",
+                "auth_type": {
+                    "selection": "key_file",
+                    "key_file": {
+                        "project_id": "project_id",
+                        "private_key_id": "private_key_id",
+                        "private_key": "private_key",
+                        "client_email": "client_email",
+                        "token_uri": "token_uri",
+                    },
                 },
                 "dataset_id": "my_dataset",
                 **job_inputs,

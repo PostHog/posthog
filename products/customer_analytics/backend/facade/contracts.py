@@ -59,9 +59,25 @@ class PinnedAccountProperty:
     id: UUID
 
 
+TASK_DIGEST_SEND_TIME_FORMAT = "%H:%M"
+
+
+@dataclass(frozen=True)
+class TaskDigestPreferences:
+    """One user's task digest email preferences for one project.
+
+    ``send_time`` is HH:MM in the project timezone.
+    """
+
+    enabled: bool = False
+    send_time: str = "09:00"
+    cadence: Literal["weekdays", "every_day"] = "weekdays"
+
+
 @dataclass(frozen=True)
 class UserCustomerAnalyticsConfig:
     pinned_properties: list[PinnedAccountProperty] = field(default_factory=list)
+    task_digest: TaskDigestPreferences = field(default_factory=TaskDigestPreferences)
 
 
 RelationshipSourceValue = Literal["human", "workflow", "ai", "salesforce_claim", "migration"]
@@ -838,6 +854,18 @@ class FeatureRequestAccountLinkView:
 
 
 @stdlib_dataclass(frozen=True)
+class FeatureRequestGitHubLinkView:
+    id: UUID | None = None
+    issue_url: str = ""
+    repository: str = ""
+    issue_number: int = 0
+    issue_title: str = ""
+    issue_state: Literal["open", "closed"] = "open"
+    sync_enabled: bool = True
+    last_synced_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
 class FeatureRequestView:
     id: UUID | None = None
     title: str = ""
@@ -853,6 +881,7 @@ class FeatureRequestView:
     account_links: list[FeatureRequestAccountLinkView] = field(default_factory=list)
     evidence_count: int = 0
     product_areas: list[FeatureRequestProductAreaView] = field(default_factory=list)
+    github_link: FeatureRequestGitHubLinkView | None = None
     created_by: int | None = None
     updated_by: int | None = None
     created_at: datetime | None = None
@@ -935,6 +964,13 @@ class UpdateFeatureRequestInput:
     request_status: str | None = None
     request_priority: str | None = None
     request_priority_is_set: bool = False
+
+
+@dataclass(frozen=True)
+class LinkFeatureRequestGitHubInput:
+    expected_version: int
+    integration_id: int
+    issue_url: str
 
 
 @dataclass(frozen=True)

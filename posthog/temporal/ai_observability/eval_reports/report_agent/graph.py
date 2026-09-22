@@ -8,6 +8,7 @@ import structlog
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.prebuilt import create_react_agent
+from openai import APIStatusError
 
 from posthog.llm.gateway_client import team_distinct_id
 from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
@@ -221,6 +222,23 @@ def _validate_agent_output(content: EvalReportContent, handled_ids: set[str] | N
     return None
 
 
+def _upstream_error_fields(error: Exception) -> dict[str, Any]:
+    """Return the provider's own description of a rejected call, for the agent error log.
+
+    A provider 400 says exactly which field it refused, but the exception string on its own
+    does not carry it, so a rejected call is otherwise undiagnosable after the fact.
+    """
+    if not isinstance(error, APIStatusError):
+        return {}
+    return {
+        "upstream_status": error.status_code,
+        "upstream_code": error.code,
+        "upstream_param": error.param,
+        "upstream_type": error.type,
+        "upstream_message": error.message[:1000],
+    }
+
+
 def run_eval_report_agent(
     inputs: RunEvalReportAgentInput,
     evaluation_target: str = "generation",
@@ -396,6 +414,7 @@ def run_eval_report_agent(
             evaluation_id=inputs.evaluation_id,
             trace_id=resolved_trace_id,
             session_id=resolved_session_id,
+            **_upstream_error_fields(e),
         )
         return _fallback_content(
             inputs.evaluation_name,

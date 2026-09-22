@@ -293,7 +293,6 @@ export function WorkflowRunsScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-            {/* Navigation only: the window and run scope dock on the panel below. */}
             <ScopeBar
                 repoSlot={
                     <RepoScopeChip
@@ -322,7 +321,6 @@ export function WorkflowRunsScene(): JSX.Element {
                 slug={`${repoOwner}/${repoName}`}
                 right={verdictPill}
             />
-            {/* Same window + run scope as the repo hub, so numbers match after drilling in. */}
             {workflowHealthFailed && (
                 <LemonBanner type="warning">
                     These figures could not load, so they cover only the runs in the table below rather than the whole

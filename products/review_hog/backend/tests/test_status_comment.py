@@ -9,6 +9,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
@@ -21,6 +22,7 @@ from products.review_hog.backend.reviewer.status_comment import (
     fail_status_comment,
     finalize_status_comment,
     maybe_refresh_status_comment,
+    render_failed_body,
     render_final_body,
     render_in_progress_body,
     render_resolution_final_section,
@@ -50,6 +52,32 @@ class TestRenderInProgressBody:
         body = render_in_progress_body("rid", progress)
         assert f"**{expected_line}**" in body
         assert status_marker("rid") in body  # the marker is what makes edit-in-place reuse possible
+
+
+class TestFlashPrefix:
+    @parameterized.expand(
+        [
+            ("in_progress", lambda mode: render_in_progress_body("rid", None, review_mode=mode)),
+            (
+                "final",
+                lambda mode: render_final_body(
+                    "rid",
+                    counts=dict.fromkeys(IssuePriority, 0),
+                    published_count=0,
+                    held_back_count=0,
+                    threshold=IssuePriority.CONSIDER,
+                    review_url=None,
+                    review_mode=mode,
+                ),
+            ),
+            ("failed", lambda mode: render_failed_body("rid", review_mode=mode)),
+        ]
+    )
+    def test_every_status_body_opens_with_the_prefix_only_in_flash(self, _name: str, render) -> None:
+        # The status comment is rewritten in every state; a state that forgot the prefix would read
+        # as a full review mid-run or at the end, and a full run must never carry it.
+        assert render(REVIEW_MODE_FLASH).startswith("FLASH MODE\n### ")
+        assert not render(REVIEW_MODE_FULL).startswith("FLASH MODE")
 
 
 class TestRenderFinalBody:
@@ -223,9 +251,10 @@ class TestEnsureStatusComment(BaseTest):
         mock_request.return_value.json.return_value = {"id": 777}
         report = self._report()
 
-        ensure_status_comment(self.team.id, str(report.id))
+        ensure_status_comment(self.team.id, str(report.id), review_mode=REVIEW_MODE_FLASH)
 
         assert _posts(mock_request) == ["/repos/o/r/issues/123/comments"]
+        assert mock_request.call_args.kwargs["json"]["body"].startswith("FLASH MODE\n")
         report.refresh_from_db()
         assert report.status_comment_id == 777
         assert report.status_comment_edited_at is not None
@@ -381,11 +410,14 @@ class TestFinalizeStatusComment(BaseTest):
         report.status_comment_id = 555
         report.save(update_fields=["status_comment_id"])
 
-        fail_status_comment(self.team.id, report_id)
+        fail_status_comment(self.team.id, report_id, review_mode=REVIEW_MODE_FLASH)
 
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/555"]
         body = mock_request.call_args.kwargs["json"]["body"]
         assert "couldn't finish this review" in body
+        # The entry point threads the turn's mode into the renderer; a dropped kwarg here would
+        # leave a dead flash run reading as a full one.
+        assert body.startswith("FLASH MODE\n")
 
 
 class TestResolutionSection:

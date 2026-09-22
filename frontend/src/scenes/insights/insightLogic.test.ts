@@ -17,6 +17,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { tagsModel } from '~/models/tagsModel'
 import { examples } from '~/queries/examples'
 import { DataTableNode, type InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -38,6 +39,7 @@ import {
 
 import { insightDataLogic } from './insightDataLogic'
 import { createEmptyInsight, insightLogic } from './insightLogic'
+import { insightVizDataLogic } from './insightVizDataLogic'
 
 const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
@@ -267,10 +269,6 @@ describe('insightLogic', () => {
                         JSON.parse(new URL(request.url).searchParams.get('filters') || 'false')
                     )
                     return [200, response]
-                },
-                '/api/projects/:team/insights/:id': async ({ request, params }) => {
-                    const payload = (await request.json()) as Record<string, any>
-                    return [200, { ...payload, id: params.id }]
                 },
             },
         })
@@ -911,7 +909,7 @@ describe('insightLogic', () => {
             const mockCreateCalls = (api.create as jest.Mock).mock.calls
             expect(mockCreateCalls).toEqual([
                 [
-                    `api/environments/${MOCK_TEAM_ID}/insights`,
+                    `api/projects/${MOCK_TEAM_ID}/insights`,
                     expect.objectContaining({
                         derived_name: '* from events',
                         query: {
@@ -932,6 +930,76 @@ describe('insightLogic', () => {
                     }),
                 ],
             ])
+        })
+    })
+
+    describe('PostHog AI suggestions', () => {
+        const suggestedQuery: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount }],
+            },
+        }
+        let vizLogic: ReturnType<typeof insightVizDataLogic.build>
+
+        const mountInsight = async (dashboardItemId: InsightShortId | 'new'): Promise<void> => {
+            const insightProps: InsightLogicProps = { dashboardItemId }
+            logic = insightLogic(insightProps)
+            logic.mount()
+            insightDataLogic(insightProps).mount()
+            vizLogic = insightVizDataLogic(insightProps)
+            vizLogic.mount()
+            // A saved insight loads asynchronously and re-syncs the query when it arrives, which
+            // would land on top of a suggestion applied before then.
+            await expectLogic(logic).toFinishAllListeners()
+        }
+
+        const suggest = (): void => {
+            logic.actions.handleInsightSuggested(suggestedQuery)
+            vizLogic.actions.setQuery(suggestedQuery)
+        }
+
+        it.each([
+            ['an unsaved', 'new' as const],
+            ['a saved', Insight42],
+        ])('keeping the changes on %s insight ends the review and holds on to the query', async (_, insightId) => {
+            await mountInsight(insightId)
+            suggest()
+
+            await expectLogic(logic, () => {
+                logic.actions.onKeepSuggestedInsight()
+            }).toMatchValues({
+                previousQuery: null,
+                suggestedQuery: null,
+                query: suggestedQuery,
+            })
+        })
+
+        it('an edit made after the suggestion keeps it, so a reject cannot revert the edit', async () => {
+            await mountInsight('new')
+            suggest()
+
+            await expectLogic(logic, () => {
+                vizLogic.actions.updateQuerySource({ filterTestAccounts: true })
+            }).toMatchValues({
+                previousQuery: null,
+                suggestedQuery: null,
+            })
+        })
+
+        it('rejecting the suggestion restores the previous query and leaves it available to reapply', async () => {
+            await mountInsight('new')
+            const queryBeforeSuggestion = logic.values.query
+            suggest()
+
+            await expectLogic(logic, () => {
+                logic.actions.onRejectSuggestedInsight()
+            }).toMatchValues({
+                previousQuery: null,
+                suggestedQuery,
+                query: queryBeforeSuggestion,
+            })
         })
     })
 
@@ -1269,7 +1337,7 @@ describe('insightLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setInsightMetadata({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] })
             })
-                .toDispatchActions(['setInsightMetadataSuccess'])
+                .toDispatchActions([tagsModel.actionTypes.loadTags, 'setInsightMetadataSuccess'])
                 .toMatchValues({
                     savedInsight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
                     insightChanged: false,
@@ -1318,6 +1386,7 @@ describe('insightLogic', () => {
                 logic.actions.setInsightMetadata({ favorited: true })
             })
                 .toDispatchActions(['setInsightMetadataSuccess'])
+                .toNotHaveDispatchedActions([tagsModel.actionTypes.loadTags])
                 .toMatchValues({
                     savedInsight: partial({ favorited: true }),
                 })
