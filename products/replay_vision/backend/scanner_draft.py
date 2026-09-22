@@ -1435,8 +1435,9 @@ def _measured_events(team: Team, names: Sequence[str]) -> list[_CandidateEvent]:
     except Exception:
         logger.warning("replay_vision.scanner_draft.event_volume_failed", team_id=team.id, exc_info=True)
         return [_CandidateEvent(name=name) for name in names]
-    # Matched case-insensitively, the way _grounded_events resolves names. A casing mismatch between
-    # the definition and the stored event would otherwise measure 0 and read as dead.
+    # Resolved case-insensitively, the way _grounded_events resolves names. Callers pass the team's
+    # own spelling, so this only catches a definition that outlived a casing change, where a zero
+    # would read as dead and drop the event.
     measured = {name.lower(): count for name, count in sessions.items()}
     return [_CandidateEvent(name=name, sessions=measured.get(name.lower(), 0)) for name in names]
 
@@ -1845,11 +1846,21 @@ def draft_scanner_from_goal_v2(
     # Measured here rather than inside the match, so the access-control helper stays free of a
     # ClickHouse query its other callers do not need.
     matches = replace(matches, actions=_live_actions(team, matches.actions))
+    survey_events: set[str] = set()
     if matches.surveys:
         # A goal can name a survey without using the word "survey" ("who answered XYZ Feedback"), so
         # the survey events may not have matched on their own. A property filter is useless without
         # the event it rides on, so offer those events whenever a survey matched.
-        events = list(dict.fromkeys([*_SURVEY_EVENTS, *events]))
+        #
+        # Canonicalized first: the constants are lowercase, but a team's own spelling can differ, and
+        # the goal search returns that spelling. Both would otherwise reach the briefing as separate
+        # candidates for the one event.
+        canonical = _event_names_by_lower(team.id, _SURVEY_EVENTS)
+        # A list, not the set, so the briefing keeps a stable order: string hashing is randomized
+        # per process, and an order that moves between runs makes drafts irreproducible.
+        injected = [canonical.get(name, name) for name in _SURVEY_EVENTS]
+        survey_events = set(injected)
+        events = list(dict.fromkeys([*injected, *events]))
     # Measured here, not in `_events_for_goal`: that lookup is a name search, and only a session
     # count tells the model which of the matching names is worth filtering on.
     measured = _measured_events(team, events)
@@ -1857,8 +1868,8 @@ def draft_scanner_from_goal_v2(
     # them. A survey quiet for the window measures zero on all of them, and the filter can only
     # ride on an event the query carries, so dropping them would widen a one-survey scan to every
     # session. Offered without a count instead, the way an unmeasured event reads.
-    if matches.surveys:
-        measured = [replace(c, sessions=None) if c.sessions == 0 and c.name in _SURVEY_EVENTS else c for c in measured]
+    if survey_events:
+        measured = [replace(c, sessions=None) if c.sessions == 0 and c.name in survey_events else c for c in measured]
     # A measured-zero event fired in no session in the window, so a filter on it (events AND with the
     # rest) would take the whole scan to zero. Drop it from the briefing like a dead action, and carry
     # its name so grounding's definition-lookup fallback cannot re-admit it. sessions=None is an

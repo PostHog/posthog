@@ -56,12 +56,14 @@ class TestRecentEventSessions(ClickhouseTestMixin):
         assert recent_event_sessions(team=team, event_names=["invoice_paid"]) == {}
 
     @pytest.mark.django_db
-    def test_a_name_that_differs_only_in_case_still_measures(self, team) -> None:
-        # The survey event names are hardcoded lowercase, so a team whose SDK sent "Survey Sent"
-        # would otherwise measure zero and have the event dropped as dead.
+    def test_the_name_is_matched_exactly(self, team) -> None:
+        # `event` is the third column of the events sort key, so the filter stays an exact match on
+        # the bare column. Callers pass the team's own spelling; a case-folded filter here would
+        # read the whole window instead of skipping granules.
         _event(team, "Survey Sent", "s1", _NOW - dt.timedelta(hours=1))
 
-        assert recent_event_sessions(team=team, event_names=["survey sent"]) == {"Survey Sent": 1}
+        assert recent_event_sessions(team=team, event_names=["survey sent"]) == {}
+        assert recent_event_sessions(team=team, event_names=["Survey Sent"]) == {"Survey Sent": 1}
 
     @pytest.mark.django_db
     def test_another_projects_events_are_never_counted(self, team) -> None:

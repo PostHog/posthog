@@ -1730,6 +1730,84 @@ class TestDraftV2(_VisionAPITestCase):
             {"key": "$survey_id", "value": [str(survey.id)], "operator": "exact", "type": "event"}
         ]
 
+    def test_a_teams_own_casing_of_a_survey_event_is_offered_once(self):
+        # The injected names are lowercase constants, but the goal search returns the team's own
+        # spelling. Offering both would show one event twice, each carrying the same count, and the
+        # quiet-survey exemption below only recognises the spelling it injected — so the team's own
+        # would measure zero and drop as dead, taking its $survey_id filter with it.
+        Survey.objects.create(team=self.team, name="Pricing feedback", created_by=self.user)
+        EventDefinition.objects.create(team=self.team, name="Survey Sent", last_seen_at=timezone.now())
+        offered: list[list[str]] = []
+
+        def measure(team, names):
+            offered.append(list(names))
+            return [_CandidateEvent(name=name, sessions=0) for name in names]
+
+        with (
+            patch(f"{_MODULE}.fetch_visited_paths", return_value=()),
+            patch(f"{_MODULE}._measured_events", side_effect=measure),
+            patch(_GENERATE_PATH, return_value=_draft_v2(filter_events=["Survey Sent"])),
+            patch(
+                f"{_MODULE}.estimate_scanner_session_volume",
+                return_value=ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30),
+            ),
+        ):
+            draft_scanner_from_goal_v2(
+                team=self.team,
+                user=self.user,
+                goal='who answered "Pricing feedback"',
+                monthly_credit_budget=10_000,
+                user_access_control=_access_control(allow=True),
+            )
+
+        assert [n for n in offered[0] if n.lower() == "survey sent"] == ["Survey Sent"]
+
+    def test_a_quiet_survey_event_in_the_teams_own_casing_is_still_exempt(self):
+        # The exemption matches on the injected names, so it has to recognise the canonical spelling
+        # too. Otherwise a quiet survey drops the event its $survey_id filter rides on, and the
+        # one-survey scan widens to every session.
+        #
+        # A page filter rides along so the dead-event revival stays out of it: revival only fires
+        # when nothing else survives, and it would otherwise rescue the event whatever the exemption
+        # did, leaving this test unable to fail.
+        survey = Survey.objects.create(team=self.team, name="Pricing feedback", created_by=self.user)
+        EventDefinition.objects.create(team=self.team, name="Survey Sent", last_seen_at=timezone.now())
+
+        with (
+            patch(
+                f"{_MODULE}.fetch_visited_paths",
+                return_value=(VisitedPath(pathname="/pricing", sessions=10),),
+            ),
+            patch(f"{_MODULE}.recent_event_sessions", return_value={}),
+            patch(
+                _GENERATE_PATH,
+                return_value=_draft_v2(
+                    filter_pages=["/pricing"],
+                    filter_events=["Survey Sent"],
+                    filter_event_properties=[
+                        _LlmEventPropertyFilter(event="Survey Sent", property="$survey_id", value=str(survey.id))
+                    ],
+                ),
+            ),
+            patch(
+                f"{_MODULE}.estimate_scanner_session_volume",
+                return_value=ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30),
+            ),
+        ):
+            draft = draft_scanner_from_goal_v2(
+                team=self.team,
+                user=self.user,
+                goal='who answered "Pricing feedback"',
+                monthly_credit_budget=10_000,
+                user_access_control=_access_control(allow=True),
+            )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["Survey Sent"]
+        assert draft.query["events"][0]["properties"] == [
+            {"key": "$survey_id", "value": [str(survey.id)], "operator": "exact", "type": "event"}
+        ]
+
     def test_the_experiment_the_goal_named_is_carried_as_targeting_and_counted(self):
         # The whole point of the targeting: the projection has to count that experiment's
         # participants, not every session the pages match, while the query the wizard saves stays
