@@ -3,7 +3,7 @@ name: Lint workflows
 on:
     pull_request:
         paths:
-            - .depot/workflows/ci-backend.yml
+            - .depot/workflows/ci-backend*.yml
             - .github/workflows/**
             - .github/actions/**
             - services/**

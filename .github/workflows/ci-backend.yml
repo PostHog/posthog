@@ -4061,7 +4061,6 @@ jobs:
                   wait_job=""
                   gate_since="$EVENT_AT"
                   retry_started_at=""
-                  waiting_for_retry=false
                   api="https://api.github.com/repos/$REPO/commits/$SHA/check-runs?app_id=$DEPOT_APP_ID&check_name="
                   gate_url="$api$(jq -rn --arg n "$DEPOT_GATE_CHECK" '$n | @uri')"
                   wait_url="$api$(jq -rn --arg n "$DEPOT_WAIT_CHECK" '$n | @uri')"
@@ -4127,12 +4126,12 @@ jobs:
                               ;;
                           queued|in_progress|pending|waiting|requested) ;;
                           failure|timed_out|cancelled)
-                              if [ -n "$retry_started_at" ] && [ "$waiting_for_retry" = false ]; then
+                              if [ -n "$retry_started_at" ]; then
                                   # The trusted default-branch workflow retries Depot. Ignore the old
                                   # gate only after confirming that it failed.
                                   gate_since="$retry_started_at"
                                   gate=""
-                                  waiting_for_retry=true
+                                  retry_started_at=""
                                   rm -f /tmp/relay-gate.etag
                                   echo "Waiting for the Depot verdict from Backend CI attempt $RUN_ATTEMPT."
                               else
