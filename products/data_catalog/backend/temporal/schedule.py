@@ -24,7 +24,9 @@ async def create_data_catalog_weekly_digest_schedule(client: Client) -> None:
     schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             WORKFLOW_NAME,
-            DataCatalogWeeklyDigestInput(),
+            # dry_run defaults to True as a manual-run fail-safe; the schedule is the one
+            # caller that must send for real.
+            DataCatalogWeeklyDigestInput(dry_run=False),
             id=SCHEDULE_ID,
             task_queue=settings.WEEKLY_DIGEST_TASK_QUEUE,
             retry_policy=common.RetryPolicy(maximum_attempts=1),

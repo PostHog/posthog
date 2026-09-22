@@ -33,7 +33,9 @@ class OrgDigestCounts:
 
 @dataclasses.dataclass(frozen=True)
 class DataCatalogWeeklyDigestInput:
-    dry_run: bool = False
+    # True so an input-less manual run, such as one started from the Temporal UI, cannot send real
+    # mail. The registered schedule is the one caller that passes False.
+    dry_run: bool = True
     batch_size: int = 25
     max_concurrent: int = 4
     failure_threshold: float = 0.2

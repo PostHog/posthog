@@ -33,6 +33,7 @@ from products.data_catalog.backend.temporal.weekly_digest.types import (
     DigestOutcome,
     OrgBatchPageInput,
 )
+from products.data_catalog.backend.temporal.weekly_digest.workflows import DataCatalogWeeklyDigestWorkflow
 
 _ACTIVITIES = "products.data_catalog.backend.temporal.weekly_digest.activities"
 
@@ -242,10 +243,11 @@ class TestOrgBatchPage(APIBaseTest):
 
 # The workflow is registered on WEEKLY_DIGEST_TASK_QUEUE by the worker bootstrap, but the schedule
 # names its queue in a different file. If the two drift the digest fires into a queue nobody polls,
-# and nothing surfaces it for a week, because the digest runs once a week.
+# and nothing surfaces it for a week, because the digest runs once a week. The schedule is also
+# the one caller that must send for real, since dry_run defaults to True as a manual-run fail-safe.
 @pytest.mark.asyncio
 @override_settings(WEEKLY_DIGEST_TASK_QUEUE="weekly-digest-task-queue-under-test")
-async def test_schedule_targets_the_weekly_digest_queue() -> None:
+async def test_the_registered_schedule_is_live_on_the_weekly_digest_queue() -> None:
     captured: list[Schedule] = []
     schedule_module = "products.data_catalog.backend.temporal.schedule"
 
@@ -261,3 +263,8 @@ async def test_schedule_targets_the_weekly_digest_queue() -> None:
     action = captured[0].action
     assert isinstance(action, ScheduleActionStartWorkflow)
     assert action.task_queue == settings.WEEKLY_DIGEST_TASK_QUEUE
+    assert action.args == [DataCatalogWeeklyDigestInput(dry_run=False)]
+
+
+def test_an_inputless_manual_run_does_not_send() -> None:
+    assert DataCatalogWeeklyDigestWorkflow.parse_inputs([]).dry_run is True
