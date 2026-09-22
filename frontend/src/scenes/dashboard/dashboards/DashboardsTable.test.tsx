@@ -50,7 +50,12 @@ describe('DashboardsTable move to folder', () => {
         })
     })
 
-    const renderTable = (rows: number[], selectedKeys: number[] = [], filedRows: number[] = rows): void => {
+    const renderTable = (
+        rows: number[],
+        selectedKeys: number[] = [],
+        filedRows: number[] = rows,
+        tags?: string[]
+    ): void => {
         ;(useValues as jest.Mock).mockReturnValue({
             tableSorting: null,
             filters: { search: '' },
@@ -64,6 +69,7 @@ describe('DashboardsTable move to folder', () => {
                     rows.map((id) => ({
                         id,
                         name: `Dashboard ${id}`,
+                        tags,
                         user_access_level: AccessControlLevel.Editor,
                     })) as any
                 }
@@ -141,6 +147,12 @@ describe('DashboardsTable move to folder', () => {
         fireEvent.click(screen.getByText('finance'))
 
         expect(setFilters).toHaveBeenCalledWith({ tags: ['finance'] })
+    })
+
+    it('wraps tags within a fixed-width table column', () => {
+        renderTable([1], [], [1], ['analytics-platform'])
+
+        expect(document.querySelector('[data-attr="dashboard-tags"]')).toHaveClass('max-w-full')
     })
 
     it('shows overflow tags in a popover and filters by them', () => {

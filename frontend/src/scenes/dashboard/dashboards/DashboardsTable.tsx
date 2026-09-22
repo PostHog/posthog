@@ -176,6 +176,7 @@ export function DashboardsTable({
                         tags={[...tags].sort()}
                         staticOnly
                         maxVisibleTags={5}
+                        wrap
                         data-attr="dashboard-tags"
                         onTagClick={(tag) => setFilters({ tags: [tag] })}
                     />
