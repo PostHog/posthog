@@ -27,6 +27,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { AuthenticatedShellFallback } from './AuthenticatedShellFallback'
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
+import { mountSupportRouter } from './mountSupportRouter'
 
 const AuthenticatedShell = React.lazy(() => retryImport(() => import('./AuthenticatedShell')))
 
@@ -90,13 +91,7 @@ export function App(): JSX.Element | null {
     // Mount the support-hash router (handles #panel=support) on every page, lazily so it stays out
     // of App's import graph — a static import drags supportLogic/sceneLogic/organizationLogic into
     // root init and triggers a circular-import TDZ. Its urlToAction fires on the current URL on mount.
-    useEffect(() => {
-        let unmount: (() => void) | undefined
-        void retryImport(() => import('lib/components/Support/supportRouterLogic')).then(({ supportRouterLogic }) => {
-            unmount = supportRouterLogic.mount()
-        })
-        return () => unmount?.()
-    }, [])
+    useEffect(() => mountSupportRouter().unmount, [])
 
     useThemedHtml()
 
