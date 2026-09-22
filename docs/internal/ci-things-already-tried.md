@@ -455,6 +455,17 @@ If you propose this again, name the jobs and prove that each one reads only the 
 
 _Also asked as:_ sparse-checkout, partial clone, do not check out the whole repo, speed up the checkout step
 
+### Drop `filter: blob:none` from a deep checkout
+
+**Verdict: rejected** · Sep 2026 · [run](https://github.com/PostHog/posthog/actions/runs/35789980165)
+
+Backend test discovery needs 1000 commits of history.
+With `fetch-depth: 1000` and `filter: blob:none`, the checkout took 42 to 46 s, because it fetches every file of the tree in a second request.
+Without the filter it took 39 s, because the server then packs the file contents of all 1000 commits.
+A depth-1 checkout followed by `git fetch --filter=blob:none --deepen=999` takes about 7 s, and the job uses that now.
+
+_Also asked as:_ blobless clone is slow, partial clone checkout, speed up the discovery checkout, fetch-depth 1000
+
 ### Check out the PR head by SHA in the Django test shards
 
 **Verdict: rejected** · Sep 2026 · [before](https://github.com/PostHog/posthog/actions/runs/35777473197), [after](https://github.com/PostHog/posthog/actions/runs/35781233592)

@@ -572,10 +572,13 @@ jobs:
             telemetry: ${{ steps.discover.outputs.telemetry }}
 
         steps:
+            # A deep checkout is slow with or without blob:none: the blobless one fetches every file of
+            # the tree in a second request. Check out at depth 1, then add the history the merge-base
+            # steps read, without file contents.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1000
-                  filter: blob:none
+
+            - name: Fetch history without file contents
+              run: git fetch --no-tags --filter=blob:none --deepen=999 origin "$GITHUB_SHA"
 
             - name: Verify PR merge for test selection
               id: verify-merge
