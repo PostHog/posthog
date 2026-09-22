@@ -172,8 +172,18 @@ class SerializedExportProperties(CloningVisitor):
             property_path = ".".join(str(part) for part in property_chain)
             if not property_path:
                 raise QueryError("Batch export queries cannot select a restricted properties object")
+            checked_paths = [property_path]
+            if self.use_native_schema and is_event_property and property_chain[0] == "$feature_flags":
+                if len(property_chain) == 1:
+                    # The serialized map cannot drop single entries, so any restricted flag hides the whole map.
+                    if any(key.startswith("$feature/") for key in restrictions):
+                        return ast.Constant(value=None)
+                else:
+                    # A restriction names the flag as `$feature/<key>`, the spelling the native map entry replaces.
+                    checked_paths.append("$feature/" + ".".join(str(part) for part in property_chain[1:]))
             if any(
-                property_path == key or property_path.startswith(key + ".") or key.startswith(property_path + ".")
+                path == key or path.startswith(key + ".") or key.startswith(path + ".")
+                for path in checked_paths
                 for key in restrictions
             ):
                 return ast.Constant(value=None)
