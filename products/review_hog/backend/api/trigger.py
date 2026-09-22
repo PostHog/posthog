@@ -56,8 +56,7 @@ class ReviewHogTriggerResponseSerializer(serializers.Serializer):
     workflow_id = serializers.CharField(help_text="Temporal workflow id for the started review run.")
     status = serializers.CharField(
         help_text="Run lifecycle marker: 'started' when the review was queued, 'joined_running_review' when a "
-        "review of this pull request was already in flight (no new run starts; a report in a cheaper tier is "
-        "lifted to human strength for the rest of that review and every later one)."
+        "review of this pull request was already in flight. A requested Full review waits for an active Flash review."
     )
 
 
