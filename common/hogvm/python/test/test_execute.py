@@ -120,8 +120,8 @@ class TestBytecodeExecute:
         assert self._run("1 != null") is True
 
     def test_ordering_comparison_type_error_raises_hogvm_exception(self):
-        with pytest.raises(HogVMException, match="'<=' not supported between instances of 'NoneType' and 'float'"):
-            self._run("properties.missing <= 1.0")
+        with pytest.raises(HogVMException, match="'<=' not supported between instances of 'list' and 'float'"):
+            self._run("[1] <= 1.0")
 
     @parameterized.expand(
         [
@@ -849,6 +849,14 @@ class TestBytecodeExecute:
             "return trim(null);",
         ):
             assert self._run_program(program) is None, program
+
+    def test_bytecode_orders_null_as_zero_like_the_node_vm(self):
+        # A filter comparing a missing value must not match, and must not fail either.
+        assert self._run_program("return length(null) > 3;") is False
+        assert self._run_program("return length(null) < 3;") is True
+        assert self._run_program("return null >= 0;") is True
+        assert self._run_program("return 1 > null;") is True
+        assert self._run_program("return null > true;") is False
 
     @parameterized.expand(
         [

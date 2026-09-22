@@ -216,6 +216,13 @@ def unify_comparison_types(left, right):
         if left_seconds_from_string is not None:
             return left_seconds_from_string, right_seconds
 
+    # A null orders as 0 against a number or a boolean, which is what the Node VM does. Without this
+    # Python raises where the other runtimes return false, and a filter fails instead of not matching.
+    if left is None and (right is None or isinstance(right, int | float)):
+        return 0, 0 if right is None else right
+    if right is None and isinstance(left, int | float):
+        return left, 0
+
     # Handle boolean cases FIRST since bool is a subclass of int in Python
     if isinstance(left, bool) and isinstance(right, str):
         # Convert string to boolean: 'true'/'false' strings, or truthy/falsy

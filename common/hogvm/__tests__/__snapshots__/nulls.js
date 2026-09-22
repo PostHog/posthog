@@ -62,6 +62,7 @@ function print (...args) { console.log(...args.map(__printHogStringOutput)) }
 function match (str, pattern) { return !str || !pattern ? false : new RegExp(pattern).test(str) }
 function length (value) { return value === null || value === undefined ? null : value.length }
 function keys (obj) { if (typeof obj === 'object' && obj !== null) { if (Array.isArray(obj)) { return Array.from(obj.keys()) } else if (obj instanceof Map) { return Array.from(obj.keys()) } return Object.keys(obj) } return [] }
+function arrayReduce (func, arr, initial) { let result = initial; for (let i = 0; i < (arr ?? []).length; i++) { result = func(result, arr[i]) } return result }
 function arrayMap (func, arr) { let result = []; for (let i = 0; i < (arr ?? []).length; i++) { result = arrayPushBack(result, func(arr[i])) } return result }
 function arrayFilter (func, arr) { let result = []; for (let i = 0; i < (arr ?? []).length; i++) { if (func(arr[i])) { result = arrayPushBack(result, arr[i]) } } return result}
 function arrayPushBack (arr, item) { if (!Array.isArray(arr)) { return [item] } return [...arr, item] }
@@ -134,3 +135,6 @@ print(arrayExists(__lambda((x) => (x == "a")), null));
 print(arrayMap(__lambda((x) => x), null));
 print(arrayFilter(__lambda((x) => (x == "a")), null));
 print(arrayCount(__lambda((x) => (x == "a")), null));
+print(arrayReduce(__lambda((acc, x) => (acc + x)), null, 0));
+print((length(null) > 3));
+print((length(null) < 3));
