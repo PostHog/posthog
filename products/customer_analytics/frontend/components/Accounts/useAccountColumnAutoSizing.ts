@@ -7,6 +7,7 @@ import { QueryContextColumn } from '~/queries/types'
 const MIN_AUTO_COLUMN_WIDTH = 80
 const MAX_AUTO_COLUMN_WIDTH = 200
 const MAX_SAMPLED_BODY_CELLS = 6
+const MAX_RANKED_BODY_CELLS = 40
 const SORT_CONTROL_ATTRIBUTE_PREFIX = 'accounts-table-sort-'
 
 type ColumnMeasurement = {
@@ -39,13 +40,27 @@ function getBodyCellRankingMetadata(cell: HTMLTableCellElement, index: number): 
     }
 }
 
+function getRankedBodyCellIndexes(cellCount: number): number[] {
+    if (cellCount <= MAX_RANKED_BODY_CELLS) {
+        return Array.from({ length: cellCount }, (_, index) => index)
+    }
+
+    const cellsPerBoundary = MAX_RANKED_BODY_CELLS / 2
+    return [
+        ...Array.from({ length: cellsPerBoundary }, (_, index) => index),
+        ...Array.from({ length: cellsPerBoundary }, (_, index) => cellCount - cellsPerBoundary + index),
+    ]
+}
+
 function selectBodyCellsForMeasurement(cells: HTMLTableCellElement[]): HTMLTableCellElement[] {
     if (cells.length <= MAX_SAMPLED_BODY_CELLS) {
         return cells
     }
 
     const selectedIndexes = new Set([0, cells.length - 1])
-    const candidateMetadata = cells.map(getBodyCellRankingMetadata)
+    const candidateMetadata = getRankedBodyCellIndexes(cells.length).map((index) =>
+        getBodyCellRankingMetadata(cells[index], index)
+    )
     const candidatesByTextLength = [...candidateMetadata].sort(
         (left, right) => right.normalizedTextLength - left.normalizedTextLength || left.index - right.index
     )
@@ -54,7 +69,7 @@ function selectBodyCellsForMeasurement(cells: HTMLTableCellElement[]): HTMLTable
     )
     const candidateRankings = [candidatesByTextLength, candidatesByElementCount]
 
-    // Boundary rows cover appended pages. The rankings favor long text and compound renderers without cloning every row.
+    // Boundary candidates cover appended pages. The rankings favor long text and compound renderers without cloning every row.
     for (let rank = 0; selectedIndexes.size < MAX_SAMPLED_BODY_CELLS; rank++) {
         for (const ranking of candidateRankings) {
             const candidate = ranking[rank]
@@ -135,17 +150,19 @@ function measureColumns(table: HTMLTableElement, measurements: ColumnMeasurement
     measurementTable.inert = true
     measurementTable.setAttribute('aria-hidden', 'true')
 
+    const sourceHeaderCells = Array.from(measurements[0]?.header.parentElement?.cells ?? [])
+    const measurementsByHeader = new Map(measurements.map((measurement) => [measurement.header, measurement]))
     const headerRow = measurementTable.createTHead().insertRow()
-    for (const measurement of measurements) {
-        headerRow.appendChild(cloneMeasurementCell(measurement.header))
+    for (const header of sourceHeaderCells) {
+        headerRow.appendChild(cloneMeasurementCell(header))
     }
 
     const body = measurementTable.createTBody()
     const sampleCount = Math.max(...measurements.map(({ bodyCells }) => bodyCells.length), 0)
     for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex++) {
         const row = body.insertRow()
-        for (const { bodyCells } of measurements) {
-            const cell = bodyCells[sampleIndex]
+        for (const header of sourceHeaderCells) {
+            const cell = measurementsByHeader.get(header)?.bodyCells[sampleIndex]
             row.appendChild(cell ? cloneMeasurementCell(cell) : document.createElement('td'))
         }
     }
@@ -153,11 +170,14 @@ function measureColumns(table: HTMLTableElement, measurements: ColumnMeasurement
     table.parentElement?.appendChild(measurementTable)
     try {
         return Object.fromEntries(
-            measurements.map(({ columnName }, index) => [
+            measurements.map(({ columnName, header }) => [
                 columnName,
                 Math.min(
                     MAX_AUTO_COLUMN_WIDTH,
-                    Math.max(MIN_AUTO_COLUMN_WIDTH, Math.ceil(headerRow.cells[index].getBoundingClientRect().width))
+                    Math.max(
+                        MIN_AUTO_COLUMN_WIDTH,
+                        Math.ceil(headerRow.cells[header.cellIndex].getBoundingClientRect().width)
+                    )
                 ),
             ])
         )

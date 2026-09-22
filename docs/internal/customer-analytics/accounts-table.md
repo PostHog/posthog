@@ -49,7 +49,8 @@ Saved widths and existing column defaults take precedence over automatic sizing:
 | Custom properties and other account fields | Fit content, from 80px to 200px |
 
 `useAccountColumnAutoSizing.ts` builds a hidden measurement table from each automatic column's header and at most six body cells, rather than cloning the rendered table.
-The sample includes the first and last loaded values, then favors the longest text and the most structurally complex renderers.
+It ranks a fixed candidate window from the first and last loaded values, then favors the longest text and the most structurally complex renderers.
+The measurement table preserves each column's rendered position, so boundary padding stays accurate.
 This covers appended pages and common cells such as links, dates, numeric values, avatars, buttons, and multiline content while keeping measurement work bounded.
 A value outside the sample can be wider than the selected candidates, so the 200px cap and manual resize control remain the fallback for unusual renderers.
 Expanded rows are excluded.
