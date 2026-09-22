@@ -1324,14 +1324,47 @@ def is_embeddable_document(path: str) -> bool:
 
 
 CSP_ENFORCE_APP_POLICY_FLAG = "csp-enforce-app-policy"
+CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG = "csp-enforce-signed-out-pages"
+
+# The pages that take a password or a one-time code. Other signed-out pages keep the report-only header.
+SIGNED_OUT_ENFORCEABLE_PATH_PREFIXES = ("/login", "/signup", "/reset", "/reset_2fa", "/verify_email")
+
+
+def is_signed_out_enforceable_path(path: str) -> bool:
+    return any(path == prefix or path.startswith(prefix + "/") for prefix in SIGNED_OUT_ENFORCEABLE_PATH_PREFIXES)
+
+
+def signed_out_csp_enforcement_enabled() -> bool:
+    try:
+        # A signed-out visitor has no person to bucket, so each document draws a random id. The
+        # flag's rollout percentage then applies per document.
+        #
+        # A condition on a person property cannot resolve for a random id, so it evaluates to None
+        # and enforces nothing. Flag events stay off, because each document would add a new
+        # distinct id to the project.
+        return bool(
+            posthoganalytics.feature_enabled(
+                CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG,
+                str(uuid.uuid4()),
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.warning("csp.signed_out_enforcement_flag_check_failed_defaulting_off", exc_info=True)
+        return False
 
 
 def csp_enforcement_enabled(request: HttpRequest) -> bool:
     user = getattr(request, "user", None)
-    distinct_id = getattr(user, "distinct_id", None) if user is not None and user.is_authenticated else None
-    if user is None or not distinct_id:
-        # An anonymous page has nobody to bucket, so login, signup and the OAuth pages keep the
-        # report-only header until enforcement covers everyone.
+    if user is None:
+        return False
+    if not user.is_authenticated:
+        # The document keeps the policy it loads with. A visitor who signs in on login goes on to
+        # the app inside the same document, so the draw here also covers that visit.
+        return is_signed_out_enforceable_path(request.path) and signed_out_csp_enforcement_enabled()
+    distinct_id = getattr(user, "distinct_id", None)
+    if not distinct_id:
         return False
     try:
         # Local evaluation only. A network call here would sit in the path of every HTML response,
