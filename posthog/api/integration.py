@@ -7,7 +7,7 @@ from typing import Any, NoReturn, Protocol, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.http import HttpResponse
@@ -17,6 +17,7 @@ from django.utils.dateparse import parse_datetime
 
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
+from django_redis.cache import RedisCache
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
 from prometheus_client import Counter
 from rest_framework import mixins, serializers, status, viewsets
@@ -1476,6 +1477,37 @@ class IntegrationViewSet(
         }
 
     @staticmethod
+    def _cache_slack_channel(key: str, channel: dict) -> None:
+        backend = caches["default"]
+        if not isinstance(backend, RedisCache):
+            return
+        client = backend.client
+        redis_client = client.get_client(write=True)
+        redis_key = client.make_key(key)
+        for _ in range(5):
+            previous = redis_client.get(redis_key)
+            if previous is None or redis_client.pttl(redis_key) <= 0:
+                return
+            data = client.decode(previous)
+            channels_by_id = {item["id"]: item for item in data["channels"]}
+            channels_by_id[channel["id"]] = channel
+            updated = client.encode({**data, "channels": list(channels_by_id.values())})
+            # Compare the encoded value so concurrent lookups and list refreshes cannot lose writes.
+            if redis_client.eval(
+                """
+                if redis.call('GET', KEYS[1]) == ARGV[1] and redis.call('PTTL', KEYS[1]) > 0 then
+                    return redis.call('SET', KEYS[1], ARGV[2], 'XX', 'KEEPTTL')
+                end
+                return false
+                """,
+                1,
+                redis_key,
+                previous,
+                updated,
+            ):
+                return
+
+    @staticmethod
     def _filter_slack_channels_for_search(channels: list[dict], search: str) -> list[dict]:
         visible = [channel for channel in channels if not channel.get("is_private_without_access")]
         query = search.strip()
@@ -1526,21 +1558,7 @@ class IntegrationViewSet(
                 _reraise_slack_api_error(e)
             if channel:
                 serialized_channel = self._serialize_slack_channel(channel)
-                data = cache.get(key)
-                # ttl() and set(xx=True) are django-redis extensions rather than BaseCache methods,
-                # so a backend without them skips the update instead of failing the lookup.
-                redis_cache = cast(Any, cache)
-                if data is not None and hasattr(cache, "ttl"):
-                    remaining_ttl = redis_cache.ttl(key)
-                    if remaining_ttl is not None and remaining_ttl > 0:
-                        channels_by_id = {item["id"]: item for item in data["channels"]}
-                        channels_by_id[channel_id] = serialized_channel
-                        redis_cache.set(
-                            key,
-                            {**data, "channels": list(channels_by_id.values())},
-                            timeout=remaining_ttl,
-                            xx=True,
-                        )
+                self._cache_slack_channel(key, serialized_channel)
                 return Response({"channels": [serialized_channel]})
             return Response({"channels": []})
 

@@ -2286,7 +2286,9 @@ class TestIntegrationAPIKeyAccess:
         mock_slack_instance.list_channels.assert_called_once()
 
     @pytest.mark.parametrize("owns_integration", [True, False])
-    @pytest.mark.parametrize("cache_state", ["present", "missing", "expires_during_lookup"])
+    @pytest.mark.parametrize(
+        "cache_state", ["present", "missing", "expires_during_lookup", "concurrent_lookup", "expires_during_merge"]
+    )
     @override_settings(
         CACHES={
             **settings.CACHES,
@@ -2337,7 +2339,25 @@ class TestIntegrationAPIKeyAccess:
             return channel
 
         mock_slack_class.return_value.get_channel_by_id.side_effect = resolve_channel
-        response = client.get(base_url, {"channel_id": channel["id"]}, HTTP_AUTHORIZATION="Bearer test_key_slack_cache")
+        redis_client = cast(Any, cache).client.get_client(write=True)
+        original_eval = redis_client.eval
+        competing_channel = {**channel, "id": "C_OTHER", "name": "other-channel"}
+        changed = False
+
+        def merge_with_concurrent_write(*args: object) -> object:
+            nonlocal changed
+            if not changed:
+                changed = True
+                if cache_state == "concurrent_lookup":
+                    IntegrationViewSet._cache_slack_channel(cache_key, competing_channel)
+                elif cache_state == "expires_during_merge":
+                    cache.delete(cache_key)
+            return original_eval(*args)
+
+        with patch.object(redis_client, "eval", side_effect=merge_with_concurrent_write):
+            response = client.get(
+                base_url, {"channel_id": channel["id"]}, HTTP_AUTHORIZATION="Bearer test_key_slack_cache"
+            )
         assert response.status_code == status.HTTP_200_OK
         resolved_channel = response.json()["channels"][0]
         assert resolved_channel["name"] == "release-updates"
@@ -2346,7 +2366,7 @@ class TestIntegrationAPIKeyAccess:
             channel["id"], owns_integration, "test_user_id"
         )
 
-        if cache_state == "present":
+        if cache_state in ("present", "concurrent_lookup"):
             response = client.get(
                 base_url, {"search": "release-updates"}, HTTP_AUTHORIZATION="Bearer test_key_slack_cache"
             )
@@ -2354,6 +2374,8 @@ class TestIntegrationAPIKeyAccess:
             assert response.json()["channels"] == [resolved_channel]
             assert response.json()["lastRefreshedAt"] == cached_data["lastRefreshedAt"]
             assert 0 < cast(Any, cache).ttl(cache_key) <= 30
+            if cache_state == "concurrent_lookup":
+                assert {item["id"] for item in cache.get(cache_key)["channels"]} == {channel["id"], "C_OTHER"}
         else:
             assert cache.get(cache_key) is None
         mock_slack_class.return_value.list_channels.assert_not_called()
