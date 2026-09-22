@@ -116,6 +116,27 @@ class TestHogFlowRevisions(APIBaseTest):
         assert response.status_code == 200, response.json()
         return response.json()["content"]
 
+    # ── Creating ─────────────────────────────────────────────────────
+
+    @parameterized.expand([("web", None), ("mcp", "mcp")])
+    def test_create_writes_first_revision(self, _name, client_header):
+        extra = {"HTTP_X_POSTHOG_CLIENT": client_header} if client_header else {}
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Test Flow", "actions": [_trigger_action(), _webhook_action()]},
+            **extra,
+        )
+        assert create.status_code == 201, create.json()
+        flow_id = create.json()["id"]
+        assert create.json()["version"] == 1
+
+        revisions = self._list_revisions(flow_id)
+        assert [r["version"] for r in revisions] == [1]
+        assert revisions[0]["created_by"]["id"] == self.user.id
+        content = self._revision_content(flow_id, 1)
+        assert set(content.keys()) == set(DRAFT_CONTENT_FIELDS)
+        assert content["actions"] == HogFlow.objects.get(pk=flow_id).actions
+
     # ── Appending on live-content writes ─────────────────────────────
 
     def test_publish_appends_revision_and_bumps_version(self):
@@ -125,11 +146,10 @@ class TestHogFlowRevisions(APIBaseTest):
         assert published.json()["workflow"]["version"] == 2
 
         revisions = self._list_revisions(flow_id)
-        # Newest-first: v2 (this user's publish) then the v1 bootstrap snapshot (no author)
+        # Newest-first: v2 (this user's publish) then the v1 snapshot the create wrote
         assert [r["version"] for r in revisions] == [2, 1]
         assert revisions[0]["created_by"]["id"] == self.user.id
-        assert revisions[1]["created_by"] is None
-        # First write also snapshots the outgoing live content, so there's always a state to roll back to
+        assert revisions[1]["created_by"]["id"] == self.user.id
         v1_urls = [
             a["config"]["inputs"]["url"]["value"]
             for a in self._revision_content(flow_id, 1)["actions"]
@@ -186,7 +206,7 @@ class TestHogFlowRevisions(APIBaseTest):
         extra = {"HTTP_X_POSTHOG_CLIENT": client_header} if client_header else {}
         response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}{path_suffix}", payload, **extra)
         assert response.status_code == 200, response.json()
-        assert self._list_revisions(flow_id) == []
+        assert [r["version"] for r in self._list_revisions(flow_id)] == [1]
         assert response.json()["version"] == 1
 
     def test_no_op_live_edit_does_not_append_revision(self):
@@ -218,7 +238,7 @@ class TestHogFlowRevisions(APIBaseTest):
         results = response.json()["results"]
         assert [r["version"] for r in results] == [2, 1]
         assert results[0]["created_by"]["id"] == self.user.id
-        assert results[1]["created_by"] is None, "the bootstrap snapshot has no author and must serialize as null"
+        assert results[1]["created_by"]["id"] == self.user.id
         assert "content" not in results[0]
 
         detail = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions/1")
