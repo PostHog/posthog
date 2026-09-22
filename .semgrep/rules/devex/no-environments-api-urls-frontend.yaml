@@ -50,24 +50,9 @@ rules:
               # Each file below still constructs hand-coded `/api/environments/`
               # or `api/environments/` URLs. Removing a file from this list
               # re-enables the gate for it.
-              - '/products/ai_observability/frontend/aiObservabilitySessionDataLogic.ts'
-              - '/products/ai_observability/frontend/clusters/clusteringConfigLogic.ts'
-              - '/products/ai_observability/frontend/clusters/clusteringJobsLogic.ts'
-              - '/products/ai_observability/frontend/clusters/clustersAdminLogic.ts'
-              - '/products/ai_observability/frontend/evaluations/evaluationReportLogic.ts'
-              - '/products/ai_observability/frontend/evaluations/llmEvaluationLogic.ts'
-              - '/products/ai_observability/frontend/evaluations/llmEvaluationsLogic.ts'
-              - '/products/ai_observability/frontend/llmGenerationSentimentLazyLoaderLogic.ts'
-              - '/products/ai_observability/frontend/llmPersonsLazyLoaderLogic.ts'
-              - '/products/ai_observability/frontend/llmSentimentLazyLoaderLogic.ts'
               - '/products/ai_observability/frontend/playground/llmPlaygroundModelLogic.ts'
               - '/products/ai_observability/frontend/playground/llmPlaygroundPromptsLogic.ts'
               - '/products/ai_observability/frontend/settings/llmProviderKeysLogic.ts'
-              - '/products/ai_observability/frontend/summary-view/summaryViewLogic.ts'
-              - '/products/ai_observability/frontend/tags/llmTaggerLogic.ts'
-              - '/products/ai_observability/frontend/tags/llmTaggersLogic.ts'
-              - '/products/ai_observability/frontend/text-view/textViewLogic.ts'
-              - '/products/ai_observability/frontend/traceReviews/traceReviewsApi.ts'
       # No leading slash on the regex — catches both `/api/environments/` and
       # bare `api/environments/` (the form used by api.get/create callers).
       pattern-regex: 'api/environments/'
