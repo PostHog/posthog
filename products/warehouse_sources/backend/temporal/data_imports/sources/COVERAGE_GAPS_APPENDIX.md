@@ -2166,14 +2166,14 @@ Note: Notifications, API keys, and status pages were excluded as configuration. 
 
 ## Crunchbase — gaps
 
-Today (7): `acquisitions`, `funding_rounds`, `funds`, `investments`, `ipos`, `organizations`, `people`
+Today (12): `acquisitions`, `categories`, `category_groups`, `funding_rounds`, `funds`, `investments`, `ipos`, `jobs`, `locations`, `organizations`, `ownerships`, `people`
 
 Diffed against: <https://data.crunchbase.com/llms.txt>
 
-- [ ] `jobs (POST /searches/jobs)` — person-to-organization employment membership table joining the two entities we already sync (high)
-- [ ] `categories and category_groups (and microcategories)` — lookup tables resolving the category UUIDs on every organization record (high)
-- [ ] `locations` — lookup resolving the location UUIDs on organizations, people, and funding rounds (high)
-- [ ] `ownerships` — parent/subsidiary relationships between organizations; needed to roll spend or funding up a corporate tree (medium)
+- [x] `jobs (POST /searches/jobs)` — person-to-organization employment membership table joining the two entities we already sync (high)
+- [x] `categories and category_groups (and microcategories)` — lookup tables resolving the category UUIDs on every organization record (high). `micro_categories` is in the Predictions & Insights package, not the Firmographic package the source targets, so it was left out.
+- [x] `locations` — lookup resolving the location UUIDs on organizations, people, and funding rounds (high)
+- [x] `ownerships` — parent/subsidiary relationships between organizations; needed to roll spend or funding up a corporate tree (medium)
 - [ ] `key_employee_changes` — executive-change event stream, a standard signal for sales and investment triggers (medium)
 - [ ] `layoffs` — layoff event stream with dates and headcount, a headline distress signal (medium)
 - [ ] `press_references` — news mentions per organization, commonly used for momentum scoring (medium)
