@@ -69,7 +69,7 @@ interface WorkflowsListParams {
     search?: string
     status?: HogFlow['status']
     created_by?: string
-    type?: HogFlowListType | HogFlowListType[]
+    type?: HogFlowListType[]
     trigger?: string
     limit: number
     offset: number
@@ -424,7 +424,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 // Name the types this page covers rather than the one it hides, so a surface that
                 // grows its own page drops out here instead of every list learning to exclude it.
                 // Server-side keeps `count` honest, which dropping rows from the page did not.
-                type: filters.type !== 'all' ? filters.type : WORKFLOWS_PAGE_TYPES,
+                type: filters.type !== 'all' ? [filters.type] : WORKFLOWS_PAGE_TYPES,
                 // The API filters triggers by JSON containment, so the type goes over as a JSON object.
                 trigger: filters.triggerType !== 'all' ? JSON.stringify({ type: filters.triggerType }) : undefined,
                 limit: WORKFLOWS_PER_PAGE,

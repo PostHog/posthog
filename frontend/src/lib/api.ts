@@ -6620,17 +6620,17 @@ const api = {
             search?: string
             status?: HogFlow['status']
             created_by?: string
-            /** One type, or several to cover more than one. */
-            type?: HogFlowListType | HogFlowListType[]
+            type?: HogFlowListType[]
             /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
             trigger?: string
             limit?: number
             offset?: number
         }): Promise<CountedPaginatedResponse<HogFlow>> {
+            // The API reads one comma-separated value; toParams would send a repeated key.
             const { type, ...rest } = params ?? {}
             return await new ApiRequest()
                 .hogFlows()
-                .withQueryString({ ...rest, ...(type ? { type: [type].flat().join(',') } : {}) })
+                .withQueryString({ ...rest, ...(type?.length ? { type: type.join(',') } : {}) })
                 .get()
         },
         async getHogFlow(hogFlowId: HogFlow['id']): Promise<HogFlow> {
