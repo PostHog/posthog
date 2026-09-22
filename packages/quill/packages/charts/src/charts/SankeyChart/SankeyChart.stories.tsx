@@ -89,6 +89,30 @@ export const LeftAlignedWithValues: Story = {
     },
 }
 
+// The host decides what emphasis means: here every session that reached execute-sql at the
+// second stage, upstream and downstream, while the chart's own hover dimming stays off.
+const SQL_PATH_HIGHLIGHT = {
+    nodeIds: new Set(['start', '1:schema', '1:sql', '2:sql', 'completed', 'error']),
+    linkIndices: new Set([0, 1, 3, 5, 9, 10]),
+}
+
+export const ControlledHighlight: Story = {
+    render: function Render() {
+        const theme = useReactiveTheme()
+        return (
+            <Stage width={720} height={320}>
+                <SankeyChart
+                    nodes={NODES}
+                    links={LINKS}
+                    theme={theme}
+                    config={{ columnLabels: STAGES }}
+                    highlight={SQL_PATH_HIGHLIGHT}
+                />
+            </Stage>
+        )
+    },
+}
+
 export const Narrow: Story = {
     render: function Render() {
         const theme = useReactiveTheme()
