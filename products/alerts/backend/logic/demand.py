@@ -1,7 +1,5 @@
 import datetime as dt
 
-from django.db.models import Q
-
 from products.alerts.backend.facade.contracts import AlertBatchKey, AlertDemand, SourceKind
 from products.alerts.backend.logic.platform_lifecycle import due_q, slot_of, suppressed
 from products.alerts.backend.models import PlatformAlertConfiguration
@@ -23,7 +21,8 @@ def discover_demand(cutoff: str, limit_per_source: int = DISCOVERY_LIMIT_PER_SOU
     # later tick; any stable ordering that is not by due time starves the same keys every tick.
     due = (
         PlatformAlertConfiguration.objects.unscoped()
-        .filter(Q(enabled=True) & due_q(cutoff_time))
+        .filter(enabled=True)
+        .filter(due_q(cutoff_time))
         # A broken or snoozed alert would otherwise mint a key every tick that its own evaluation
         # then drops.
         .exclude(suppressed(cutoff_time))

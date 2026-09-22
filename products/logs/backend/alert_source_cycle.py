@@ -38,6 +38,7 @@ from products.alerts.backend.facade.lifecycle import (
     AlertSnapshot,
     AlertState,
     CheckInput,
+    ControlPlaneOutcome,
     NotificationAction,
     apply_broken_config,
     evaluate_alert_check,
@@ -52,7 +53,11 @@ from products.alerts.backend.facade.platform_metrics import (
     record_scheduler_lag,
     safe_record,
 )
-from products.alerts.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
+from products.alerts.backend.facade.scheduling import (
+    is_local_minute_blocked,
+    local_minute_of,
+    parse_blocked_windows_tuples,
+)
 from products.logs.backend.alert_check_query import (
     BatchedAlertCheckQuery,
     BucketedCount,
@@ -62,10 +67,7 @@ from products.logs.backend.alert_check_query import (
     rolling_check_lookback_minutes,
 )
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
-from products.logs.backend.alert_error_classifier import (
-    ClassifiedAlertError,
-    classify as classify_alert_error,
-)
+from products.logs.backend.alert_error_classifier import classify as classify_alert_error
 
 # Private to the production activity. Reimplementing either would let this path drift from
 # what the logs stack evaluates. Promoting them to a shared home is the deeper fix.
@@ -111,13 +113,11 @@ def _cohort_key(check: PlatformAlertCheck, checkpoint: datetime | None, now: dat
     )
 
 
-def _is_in_quiet_hours(check: PlatformAlertCheck, team: Team, now: datetime) -> bool:
-    """True when the alert's schedule restriction blocks a check at `now`."""
-    if not check.schedule_restriction:
-        return False
+def _is_in_quiet_hours(check: PlatformAlertCheck, local_minute: int) -> bool:
+    """True when the alert's schedule restriction blocks a check at the batch's local minute."""
     try:
         windows = parse_blocked_windows_tuples(check.schedule_restriction)
-        return windows is not None and is_utc_datetime_blocked(now, team.timezone, windows)
+        return windows is not None and is_local_minute_blocked(local_minute, windows)
     except Exception as error:
         # A restriction we cannot parse must not decide the alert either way, so the check
         # proceeds and the production stack keeps ownership of the broken configuration.
@@ -144,9 +144,13 @@ Decision = tuple[PlatformAlertOutcome, AlertDeliveryPreview | None]
 
 
 def _record_check_metrics(
-    check: PlatformAlertCheck, new_state: str, notification: str, reason: str, now: datetime
+    check: PlatformAlertCheck,
+    new_state: str,
+    notification: NotificationAction,
+    reason: CheckOutcomeReason,
+    now: datetime,
 ) -> None:
-    safe_record(increment_checks, SourceKind.LOGS.value, notification)
+    safe_record(increment_checks, SourceKind.LOGS.value, notification.value)
     if reason != CheckOutcomeReason.EVALUATED:
         safe_record(increment_checks_skipped, SourceKind.LOGS.value, reason)
     if check.state != new_state:
@@ -179,7 +183,7 @@ def _decide(
         consecutive_failures=outcome.consecutive_failures,
         disable=outcome.disable,
     )
-    _record_check_metrics(check, outcome.new_state.value, outcome.notification.value, reason, now)
+    _record_check_metrics(check, outcome.new_state.value, outcome.notification, reason, now)
     if outcome.notification == NotificationAction.NONE:
         return recorded, None
 
@@ -217,15 +221,14 @@ def _evaluate_one(
     )
 
 
-def _failed(
-    check: PlatformAlertCheck, classified: ClassifiedAlertError, *, window_end: datetime, now: datetime
-) -> Decision:
+def _failed(check: PlatformAlertCheck, error: Exception, *, window_end: datetime, now: datetime) -> Decision:
     """A check that could not reach a verdict, as the shared machine's error path sees it.
 
     The machine raises `consecutive_failures` and escalates to BROKEN, so an alert that fails
     every check stops being evaluated instead of failing forever. A transient error is classified
     as one so the policy can hold the counter.
     """
+    classified = classify_alert_error(error)
     return _decide(
         check,
         CheckInput(
@@ -240,15 +243,17 @@ def _failed(
     )
 
 
-def _skipped(check: PlatformAlertCheck, *, new_state: str, reason: CheckOutcomeReason, now: datetime) -> Decision:
-    """A check decided without a query. The outcome is what advances its schedule."""
+def _held(
+    check: PlatformAlertCheck, outcome: ControlPlaneOutcome, *, reason: CheckOutcomeReason, now: datetime
+) -> Decision:
+    """A control-plane transition the check machine cannot express. The outcome advances the schedule."""
     recorded = PlatformAlertOutcome(
         configuration_id=check.id,
-        new_state=new_state,
+        new_state=outcome.new_state.value,
         notified=False,
-        consecutive_failures=check.consecutive_failures,
+        consecutive_failures=outcome.consecutive_failures,
     )
-    _record_check_metrics(check, new_state, NotificationAction.NONE.value, reason, now)
+    _record_check_metrics(check, outcome.new_state.value, NotificationAction.NONE, reason, now)
     return recorded, None
 
 
@@ -276,7 +281,10 @@ def _evaluate_cohort(
             cohort_size=len(checks),
             error=str(error),
         )
-        return _failures(checks, error, window_end=date_to, now=now)
+        # Deliberately not caught per check below. A check dropped there carries no outcome, so the
+        # batch would advance every other check's schedule and leave this one due with its failure
+        # counter unmoved, never reaching the escalation that stops it.
+        return [_failed(check, error, window_end=date_to, now=now) for check in checks]
 
     decided: list[Decision] = []
     for check in checks:
@@ -284,34 +292,20 @@ def _evaluate_cohort(
             decided.append(_evaluate_one(check, result.per_alert.get(str(check.id), []), window_end=date_to, now=now))
         except Exception as error:
             logger.exception("Failed to evaluate a logs alert", check_id=str(check.id), error=str(error))
-            decided.extend(_failures([check], error, window_end=date_to, now=now))
+            decided.append(_failed(check, error, window_end=date_to, now=now))
     return decided
 
 
-def _failures(
-    checks: Sequence[PlatformAlertCheck], error: Exception, *, window_end: datetime, now: datetime
-) -> list[Decision]:
-    """Turns a failure into one outcome per check it cost.
-
-    Returning nothing leaves every check in the cohort due, so discovery hands the same failing
-    query back every tick and the failure counter never reaches the escalation that stops it.
-    """
-    classified = classify_alert_error(error)
-    # Deliberately not caught per check. A check dropped here carries no outcome, so the batch
-    # would advance every other check's schedule and leave this one due with its failure counter
-    # unmoved, never reaching the escalation that stops it. Failing the activity leaves the whole
-    # batch due for the next tick instead of recording part of it.
-    return [_failed(check, classified, window_end=window_end, now=now) for check in checks]
-
-
 def _triage(
-    checks: Sequence[PlatformAlertCheck], team: Team, cutoff: datetime
+    checks: Sequence[PlatformAlertCheck], team: Team, *, now: datetime
 ) -> tuple[list[Decision], list[PlatformAlertCheck]]:
     """Splits a batch into the checks a query can answer and the ones already decided.
 
     A skip is a decision, not an omission. Dropping one records nothing, so its due time stays
     where it was and discovery hands the same check back on the next tick, forever.
     """
+    # One conversion for the batch: every check shares the tick instant and the team's timezone.
+    local_minute = local_minute_of(now, team.timezone)
     decided: list[Decision] = []
     evaluable: list[PlatformAlertCheck] = []
     for check in checks:
@@ -322,13 +316,28 @@ def _triage(
                 check_id=str(check.id),
                 reason=broken_reason,
             )
-            outcome = apply_broken_config(_snapshot(check, ()))
             decided.append(
-                _skipped(check, new_state=outcome.new_state.value, reason=CheckOutcomeReason.BROKEN_CONFIG, now=cutoff)
+                _held(
+                    check,
+                    apply_broken_config(_snapshot(check, ())),
+                    reason=CheckOutcomeReason.BROKEN_CONFIG,
+                    now=now,
+                )
             )
             continue
-        if _is_in_quiet_hours(check, team, cutoff):
-            decided.append(_skipped(check, new_state=check.state, reason=CheckOutcomeReason.QUIET_HOURS, now=cutoff))
+        if _is_in_quiet_hours(check, local_minute):
+            # Through the machine as an inconclusive check, so the state and the failure counter
+            # come from the one place allowed to decide them.
+            decided.append(
+                _decide(
+                    check,
+                    CheckInput(threshold_breached=False, is_inconclusive=True),
+                    (),
+                    window_end=now,
+                    now=now,
+                    reason=CheckOutcomeReason.QUIET_HOURS,
+                )
+            )
             continue
         evaluable.append(check)
     return decided, evaluable
@@ -379,11 +388,11 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
     if team is None:
         return SourceBatchEvaluation(outcomes=(), previews=())
 
-    decided, evaluable = _triage(checks, team, cutoff)
+    decided, evaluable = _triage(checks, team, now=cutoff)
     if not evaluable:
+        # Returns before the checkpoint query below, which nothing left would use.
         return _collect(decided, team_id, slot, started_at)
 
-    checks = tuple(evaluable)
     # One checkpoint for the pass, matching the production discovery activity. A failure falls
     # back to wall-clock rather than ending the batch.
     try:
@@ -393,7 +402,7 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
         checkpoint = None
 
     cohorts: dict[tuple, list[PlatformAlertCheck]] = {}
-    for check in checks:
+    for check in evaluable:
         cohorts.setdefault(_cohort_key(check, checkpoint, cutoff), []).append(check)
 
     if len(cohorts) > MAX_COHORTS_PER_CYCLE:
@@ -415,9 +424,8 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
     for cohort_key, chunk in chunks:
         query_seconds = min(MAX_QUERY_SECONDS, int(deadline - time.monotonic()))
         if query_seconds < MIN_QUERY_SECONDS:
-            # No outcome for these, so their schedule does not advance and the next tick
-            # rediscovers them. That is the same gap this branch closes for quiet hours and a
-            # failed query, and it now applies to a cohort the budget never reached.
+            # No outcome, deliberately. A skipped check was decided; these were never asked, so
+            # advancing their schedule would drop a real check. They keep their due time.
             unqueried += len(chunk)
             continue
         decided.extend(_evaluate_cohort(team, chunk, cohort_key, now=cutoff, query_seconds=query_seconds))
