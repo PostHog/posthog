@@ -840,6 +840,24 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     class DeactivateSerializer(serializers.Serializer):
         products = serializers.CharField()
 
+    def _report_products_deactivated(self, organization: Organization, products: str) -> None:
+        user = cast(User, self.request.user)
+        if not user.distinct_id:
+            return
+
+        membership = OrganizationMembership.objects.filter(user=user, organization=organization).only("level").first()
+        posthoganalytics.capture(
+            "billing products deactivated",
+            distinct_id=user.distinct_id,
+            properties={
+                "products": products,
+                "cancelled_whole_subscription": products == "all_products",
+                "membership_level": membership.level if membership else None,
+                "by_organization_owner": bool(membership and membership.level >= OrganizationMembership.Level.OWNER),
+            },
+            groups=groups(organization),
+        )
+
     @action(
         methods=["POST"],
         detail=False,
@@ -870,6 +888,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
             else:
                 raise
+
+        self._report_products_deactivated(organization, products)
 
         return self.list(request, *args, **kwargs)
 

@@ -1017,9 +1017,24 @@ class TestActivateBillingAPI(APILicensedTest):
         response = self.client.get(url, {"products": "product_1:plan_1"})
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
+    @parameterized.expand(
+        [
+            ("single_product", "product_1", False),
+            ("whole_subscription", "all_products", True),
+        ]
+    )
+    @patch("ee.api.billing.posthoganalytics.capture")
     @patch("ee.billing.billing_manager.BillingManager.deactivate_products")
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
-    def test_deactivate_success(self, mock_get_billing, mock_deactivate_products):
+    def test_deactivate_success(
+        self,
+        _name,
+        products,
+        expected_whole_subscription,
+        mock_get_billing,
+        mock_deactivate_products,
+        mock_capture,
+    ):
         mock_deactivate_products.return_value = MagicMock()
         mock_get_billing.return_value = {
             "available_features": [],
@@ -1027,13 +1042,21 @@ class TestActivateBillingAPI(APILicensedTest):
         }
 
         url = "/api/billing/deactivate"
-        data = {"products": "product_1"}
+        data = {"products": products}
 
         response = self.client.post(url, data)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_deactivate_products.assert_called_once_with(self.organization, "product_1")
+        mock_deactivate_products.assert_called_once_with(self.organization, products)
         mock_get_billing.assert_called_once_with(self.organization, {})
+
+        mock_capture.assert_called_once()
+        self.assertEqual(mock_capture.call_args.args[0], "billing products deactivated")
+        captured_properties = mock_capture.call_args.kwargs["properties"]
+        self.assertEqual(captured_properties["products"], products)
+        self.assertEqual(captured_properties["cancelled_whole_subscription"], expected_whole_subscription)
+        self.assertEqual(captured_properties["membership_level"], OrganizationMembership.Level.OWNER)
+        self.assertTrue(captured_properties["by_organization_owner"])
 
     def test_deactivate_failure(self):
         url = "/api/billing/deactivate"
