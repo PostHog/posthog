@@ -1846,7 +1846,10 @@ class TestProcessTaskWorkflowUnit:
             extra={"run_id": "run-id", "sandbox_id": "sandbox-123"},
         )
 
-    async def test_run_cleans_up_sandbox_when_provisioning_fails_after_creation(self, monkeypatch):
+    @pytest.mark.parametrize("organization_blocked", [False, True])
+    async def test_run_cleans_up_sandbox_when_provisioning_fails_after_creation(
+        self, monkeypatch, organization_blocked
+    ):
         workflow = ProcessTaskWorkflow()
         get_task_processing_context_mock = AsyncMock(return_value=_build_context(github_integration_id=123))
         update_task_run_status_mock = AsyncMock()
@@ -1867,6 +1870,20 @@ class TestProcessTaskWorkflowUnit:
 
         async def fail_after_sandbox_creation() -> GetSandboxForRepositoryOutput:
             workflow._sandbox_id_for_cleanup = "sandbox-123"
+            if organization_blocked:
+                raise ActivityError(
+                    "Activity task failed",
+                    scheduled_event_id=10,
+                    started_event_id=11,
+                    identity="worker",
+                    activity_type="start_agent_server",
+                    activity_id="activity",
+                    retry_state=RetryState.NON_RETRYABLE_FAILURE,
+                ) from ApplicationError(
+                    "This organization is scheduled for deletion.",
+                    type="OrganizationExecutionError",
+                    non_retryable=True,
+                )
             raise RuntimeError("clone failed")
 
         monkeypatch.setattr(workflow, "_get_sandbox_for_repository", fail_after_sandbox_creation)
@@ -1874,7 +1891,15 @@ class TestProcessTaskWorkflowUnit:
         result = await workflow.run(ProcessTaskInput(run_id="run-id"))
 
         assert result.success is False
-        assert result.error == "clone failed"
+        assert result.error == (
+            "This organization is scheduled for deletion." if organization_blocked else "clone failed"
+        )
+        update_task_run_status_mock.assert_awaited_with(
+            "failed",
+            error_message=result.error,
+            run_id="run-id",
+            error_type="OrganizationExecutionError" if organization_blocked else "RuntimeError",
+        )
         assert result.sandbox_id == "sandbox-123"
         read_sandbox_logs_mock.assert_awaited_once_with("sandbox-123")
         cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123", complete_stream=True)

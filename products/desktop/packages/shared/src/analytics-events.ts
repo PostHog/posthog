@@ -1473,6 +1473,8 @@ export interface LoopListViewedProperties {
   loop_count: number;
   personal_loop_count: number;
   team_loop_count: number;
+  global_loop_count: number;
+  space_count: number;
   is_at_limit: boolean;
   /** Backend-enforced per-project cap; omitted while the limit is still loading. */
   loop_limit?: number;
