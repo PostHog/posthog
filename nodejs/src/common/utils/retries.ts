@@ -61,6 +61,8 @@ export interface RetrySchedule {
     maxSleepMs?: number
     /** Fraction of each sleep to jitter down by. Pass 0 to opt out. */
     jitter?: number
+    /** Total budget from the first attempt, in ms. No deadline by default. */
+    deadlineMs?: number
 }
 
 /**
@@ -68,13 +70,18 @@ export interface RetrySchedule {
  *
  * Each sleep is jittered down so concurrent callers don't retry in lockstep.
  * Every schedule field falls back to `defaultRetryConfig`.
+ *
+ * `deadlineMs` is checked after a failure, never during one, so an attempt
+ * already in flight always runs to completion.
  */
 export async function retryIfRetriable<T>(fn: () => Promise<T>, options: RetrySchedule = {}): Promise<T> {
     const tries = options.tries ?? defaultRetryConfig.MAX_RETRIES_DEFAULT
     const backoffFactor = options.backoffFactor ?? defaultRetryConfig.BACKOFF_FACTOR
     const maxSleepMs = options.maxSleepMs ?? defaultRetryConfig.MAX_INTERVAL
     const jitter = options.jitter ?? DEFAULT_JITTER_FACTOR
+    const deadlineMs = options.deadlineMs
 
+    const startedAt = Date.now()
     let currentSleepMs = options.sleepMs ?? defaultRetryConfig.RETRY_INTERVAL_DEFAULT
     for (let i = 0; i < tries; i++) {
         try {
@@ -82,6 +89,11 @@ export async function retryIfRetriable<T>(fn: () => Promise<T>, options: RetrySc
         } catch (error) {
             if (error?.isRetriable === false || i === tries - 1) {
                 // Throw if the error is not retryable or if we're out of tries.
+                throw error
+            }
+
+            if (deadlineMs !== undefined && Date.now() - startedAt >= deadlineMs) {
+                // Out of budget, so stop before spending another attempt.
                 throw error
             }
 
