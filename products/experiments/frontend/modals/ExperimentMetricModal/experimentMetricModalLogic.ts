@@ -46,11 +46,11 @@ export interface experimentMetricModalLogicActions {
     setMetric: (metric?: ExperimentMetric) => {
         metric: ExperimentMetricUnion | undefined
     }
-    submitMetric: () => {
-        value: true
-    }
     setMetricSaveError: (saveError: string | null) => {
         saveError: string | null
+    }
+    submitMetric: () => {
+        value: true
     }
 }
 
