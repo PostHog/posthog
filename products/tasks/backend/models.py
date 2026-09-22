@@ -797,6 +797,9 @@ class Task(DeletedMetaFields, models.Model):
             carry_config_snapshot = (
                 task.origin_product == Task.OriginProduct.WORKFLOW and "config_snapshot" not in state
             )
+            if state.get("sandbox_template") is None:
+                # A null is "no choice", the same as an absent key, so it must not block the carry.
+                state.pop("sandbox_template", None)
             carry_sandbox_template = "sandbox_template" not in state
             if not carry_sandbox_template:
                 from products.tasks.backend.logic.services.sandbox import parse_requested_sandbox_template

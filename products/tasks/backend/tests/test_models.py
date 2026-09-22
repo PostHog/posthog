@@ -267,12 +267,14 @@ class TestTask(TestCase):
 
         with self.captureOnCommitCallbacks(execute=True):
             later_run = task.create_run()
+            null_run = task.create_run(extra_state={"sandbox_template": None})
 
         self.assertEqual(later_run.state["sandbox_template"], "autoresearch_base")
+        self.assertEqual(null_run.state["sandbox_template"], "autoresearch_base")
 
         with self.assertRaises(ValueError):
             task.create_run(extra_state={"sandbox_template": "vm_base"})
-        self.assertEqual(TaskRun.objects.filter(task=task).count(), 2)
+        self.assertEqual(TaskRun.objects.filter(task=task).count(), 3)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_threads_attribution_stamps_into_state(self, mock_execute_workflow):
