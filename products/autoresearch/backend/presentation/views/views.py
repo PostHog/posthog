@@ -16,7 +16,7 @@ import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.fields import empty
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
@@ -34,6 +34,7 @@ from products.autoresearch.backend.facade import api
 from products.autoresearch.backend.facade.access import has_autoresearch_access
 from products.autoresearch.backend.facade.contracts import (
     ArtifactNotFound,
+    ArtifactStorageUnavailable,
     AutoresearchConflict,
     InvalidArtifactPath,
     PipelineNotFound,
@@ -131,6 +132,12 @@ class _FacadePaginationMixin:
         paginator.count = count
         serializer = serializer_class(instance=page, many=True)
         return paginator.get_paginated_response(serializer.data)
+
+
+class ArtifactStorageUnavailableError(APIException):
+    status_code = 503
+    default_detail = "Object storage is unavailable, so the artifact could not be stored. Try again in a moment."
+    default_code = "artifact_storage_unavailable"
 
 
 def _parent_pipeline_id(view: Any) -> str | None:
@@ -448,6 +455,14 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchTrainingRunSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        # The feature query and the anchor count are unsampled ClickHouse scans, so a personal API
+        # key gets the ClickHouse budget here as on the pipeline viewset's query-backed actions.
+        if self.action == "materialize_features":
+            return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
+        return super().get_throttles()
+
     # A training run is opened and appended to, never edited or deleted.
     http_method_names = ["get", "post", "head", "options"]
 
@@ -544,7 +559,10 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
                 description="Sandbox paths to the train/holdout feature and label parquet files, plus row counts and feature columns.",
             ),
             400: OpenApiResponse(
-                description="Run not running, features_sql invalid, sandbox unavailable, or the query produced no usable rows."
+                description=(
+                    "Run not running, features_sql invalid, sandbox unavailable, the query produced no usable "
+                    "rows, or the holdout split cannot be scored."
+                )
             ),
         },
         summary="Materialize training features to the sandbox",
@@ -555,12 +573,18 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
             "there is no 500-row cap. Read the returned paths with pd.read_parquet and iterate in Python."
         ),
     )
-    @action(detail=True, methods=["post"], url_path="materialize-features")
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="materialize-features",
+        required_scopes=["autoresearch:write", "query:read"],
+    )
     def materialize_features(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
             result = api.materialize_features(
                 self.team_id,
                 self.kwargs["pk"],
+                pipeline_id=_parent_pipeline_id(self),
                 features_sql=request.validated_data["features_sql"],
                 user=cast(User, request.user),
             )
@@ -656,7 +680,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
     @action(detail=True, methods=["get"], url_path="artifacts")
     def list_artifacts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
-            listing = api.list_artifacts(self.team_id, self.kwargs["pk"])
+            listing = api.list_artifacts(self.team_id, self.kwargs["pk"], pipeline_id=_parent_pipeline_id(self))
         except TrainingRunNotFound:
             raise NotFound("Training run not found.")
         return Response(ArtifactListSerializer(instance=listing).data)
@@ -670,9 +694,11 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
             ),
             400: OpenApiResponse(
                 description=(
-                    "Invalid path, content is not base64, file exceeds the size limit, or the run is no longer running."
+                    "Invalid or reserved path, content is not base64, file exceeds the size limit, the bundle "
+                    "holds its maximum number of files, or the run is no longer running."
                 )
             ),
+            503: OpenApiResponse(description="Object storage is unavailable; nothing was stored."),
         },
         summary="Upload an artifact bundle file",
         description=(
@@ -687,12 +713,18 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
         data = request.validated_data
         try:
             stored = api.write_artifact(
-                self.team_id, self.kwargs["pk"], path=data["path"], content_base64=data["content_base64"]
+                self.team_id,
+                self.kwargs["pk"],
+                pipeline_id=_parent_pipeline_id(self),
+                path=data["path"],
+                content_base64=data["content_base64"],
             )
         except TrainingRunNotFound:
             raise NotFound("Training run not found.")
         except (AutoresearchConflict, InvalidArtifactPath) as exc:
             raise ValidationError(str(exc)) from exc
+        except ArtifactStorageUnavailable as exc:
+            raise ArtifactStorageUnavailableError(str(exc)) from exc
         return Response(StoredArtifactSerializer(instance=stored).data, status=201)
 
     @validated_request(
@@ -710,7 +742,12 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
     @action(detail=True, methods=["post"], url_path="artifacts/get")
     def get_artifact(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
-            content = api.read_artifact(self.team_id, self.kwargs["pk"], path=request.validated_data["path"])
+            content = api.read_artifact(
+                self.team_id,
+                self.kwargs["pk"],
+                pipeline_id=_parent_pipeline_id(self),
+                path=request.validated_data["path"],
+            )
         except TrainingRunNotFound:
             raise NotFound("Training run not found.")
         except InvalidArtifactPath as exc:
@@ -727,6 +764,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
                 description="Whether a file existed at that path and was removed.",
             ),
             400: OpenApiResponse(description="Invalid path, or the run is no longer running."),
+            503: OpenApiResponse(description="Object storage is unavailable; nothing was deleted."),
         },
         summary="Delete an artifact bundle file",
         description=(
@@ -737,9 +775,16 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
     @action(detail=True, methods=["post"], url_path="artifacts/delete")
     def delete_artifact(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
-            result = api.delete_artifact(self.team_id, self.kwargs["pk"], path=request.validated_data["path"])
+            result = api.delete_artifact(
+                self.team_id,
+                self.kwargs["pk"],
+                pipeline_id=_parent_pipeline_id(self),
+                path=request.validated_data["path"],
+            )
         except TrainingRunNotFound:
             raise NotFound("Training run not found.")
         except (AutoresearchConflict, InvalidArtifactPath) as exc:
             raise ValidationError(str(exc)) from exc
+        except ArtifactStorageUnavailable as exc:
+            raise ArtifactStorageUnavailableError(str(exc)) from exc
         return Response(ArtifactDeleteResultSerializer(instance=result).data)

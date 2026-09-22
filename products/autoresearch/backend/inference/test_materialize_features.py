@@ -3,6 +3,7 @@ import uuid
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
@@ -10,29 +11,33 @@ from posthog.models import Organization, Team
 from products.autoresearch.backend.inference.sandbox import MaterializedData
 from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchTrainingRun
 from products.autoresearch.backend.testing import TeamScopedTestMixin
-from products.tasks.backend.facade.sandbox import ExecutionResult
+from products.tasks.backend.facade.sandbox import ExecutionResult, SandboxNotRunningError
 
 VALID_FEATURE_SQL = "SELECT a.person_id AS distinct_id, count() AS pv FROM {anchors} a GROUP BY a.person_id"
 
 
 class _FakeSandbox:
-    """Records the parquet files the action writes into the sandbox."""
-
-    def __init__(self, exit_code: int = 0):
+    def __init__(self, exit_code: int = 0, raises: Exception | None = None):
         self.writes: dict[str, bytes] = {}
         self._exit_code = exit_code
+        self._raises = raises
 
     def write_file(self, path: str, payload: bytes) -> ExecutionResult:
+        if self._raises is not None:
+            raise self._raises
         self.writes[path] = payload
         return ExecutionResult(stdout="", stderr="boom" if self._exit_code else "", exit_code=self._exit_code)
 
 
-def _materialized() -> MaterializedData:
-    return MaterializedData(
-        feature_cols=["pv", "uploads"],
-        train_rows=[{"distinct_id": "p1", "pv": 5, "uploads": 1, "__label": 1, "__fold": 1}],
-        holdout_rows=[{"distinct_id": "p3", "pv": 2, "uploads": 0, "__label": 0, "__fold": 0}],
-    )
+def _materialized(holdout_rows: list[dict] | None = None, feature_cols: list[str] | None = None) -> MaterializedData:
+    cols = feature_cols or ["pv", "uploads"]
+    row = {"distinct_id": "p1", "__label": 1, "__fold": 1, **dict.fromkeys(cols, 1)}
+    if holdout_rows is None:
+        holdout_rows = [
+            {"distinct_id": "p3", "__label": 0, "__fold": 0, **dict.fromkeys(cols, 0)},
+            {"distinct_id": "p4", "__label": 1, "__fold": 0, **dict.fromkeys(cols, 2)},
+        ]
+    return MaterializedData(feature_cols=cols, train_rows=[row], holdout_rows=holdout_rows)
 
 
 class TestMaterializeFeatures(TeamScopedTestMixin, APIBaseTest):
@@ -99,46 +104,111 @@ class TestMaterializeFeatures(TeamScopedTestMixin, APIBaseTest):
         )
         assert resp.status_code in (status.HTTP_404_NOT_FOUND, status.HTTP_400_BAD_REQUEST)
 
-    @patch("products.autoresearch.backend.facade.api.get_sandbox_class")
-    @patch("products.autoresearch.backend.facade.api.materialize_training_data")
-    @patch("products.autoresearch.backend.facade.api.tasks_facade.get_task_run")
-    def test_writes_parquet_and_returns_paths(self, mock_task_get, mock_materialize, mock_get_sandbox_cls):
-        run = self._run(task_run_id=uuid.uuid4())
-        mock_task_get.return_value = self._fake_task_run(run)
-        mock_materialize.return_value = _materialized()
-        fake_sandbox = _FakeSandbox()
-        mock_get_sandbox_cls.return_value.get_by_id.return_value = fake_sandbox
+    def _materialize(self, run, *, task_run=None, materialized=None, sandbox=None):
+        with (
+            patch("products.autoresearch.backend.facade.api.get_sandbox_class_for_sandbox_id") as mock_resolve,
+            patch(
+                "products.autoresearch.backend.facade.api.materialize_training_data",
+                return_value=materialized or _materialized(),
+            ),
+            patch(
+                "products.autoresearch.backend.facade.api.tasks_facade.get_task_run",
+                return_value=task_run or self._fake_task_run(run),
+            ),
+        ):
+            mock_resolve.return_value.get_by_id.return_value = sandbox or _FakeSandbox()
+            resp = self.client.post(self._url(run), {"features_sql": VALID_FEATURE_SQL}, format="json")
+        return resp, mock_resolve
 
-        resp = self.client.post(self._url(run), {"features_sql": VALID_FEATURE_SQL}, format="json")
+    def test_writes_parquet_and_returns_paths(self):
+        run = self._run(task_run_id=uuid.uuid4())
+        fake_sandbox = _FakeSandbox()
+
+        resp, mock_resolve = self._materialize(run, sandbox=fake_sandbox)
         assert resp.status_code == status.HTTP_200_OK, resp.json()
         body = resp.json()
         assert body["n_train"] == 1
-        assert body["n_holdout"] == 1
+        assert body["n_holdout"] == 2
         assert body["n_features"] == 2
         assert body["feature_cols"] == ["pv", "uploads"]
-        # All four parquet files were written into the sandbox under the framework-controlled dir.
+        # All four parquet files land in one per-request directory under the framework-controlled base.
+        directory = body["train_features_path"].rsplit("/", 1)[0]
+        assert directory.startswith("/tmp/workspace/autoresearch/data/")
         assert set(fake_sandbox.writes.keys()) == {
-            "/tmp/workspace/autoresearch/data/train_features.parquet",
-            "/tmp/workspace/autoresearch/data/train_labels.parquet",
-            "/tmp/workspace/autoresearch/data/holdout_features.parquet",
-            "/tmp/workspace/autoresearch/data/holdout_labels.parquet",
+            f"{directory}/train_features.parquet",
+            f"{directory}/train_labels.parquet",
+            f"{directory}/holdout_features.parquet",
+            f"{directory}/holdout_labels.parquet",
         }
-        assert body["train_features_path"] == "/tmp/workspace/autoresearch/data/train_features.parquet"
-        mock_get_sandbox_cls.return_value.get_by_id.assert_called_once_with("sb-123")
+        assert {body[k].rsplit("/", 1)[0] for k in body if k.endswith("_path")} == {directory}
+        mock_resolve.assert_called_once_with("sb-123")
+        mock_resolve.return_value.get_by_id.assert_called_once_with("sb-123")
 
-    @patch("products.autoresearch.backend.facade.api.get_sandbox_class")
-    @patch("products.autoresearch.backend.facade.api.materialize_training_data")
-    @patch("products.autoresearch.backend.facade.api.tasks_facade.get_task_run")
-    def test_rejects_sandbox_not_owned_by_run(self, mock_task_get, mock_materialize, mock_get_sandbox_cls):
+    def test_each_request_gets_its_own_directory(self):
         run = self._run(task_run_id=uuid.uuid4())
-        # TaskRun state points at a DIFFERENT training run — must be rejected.
-        mock_task_get.return_value = MagicMock(
-            state={"autoresearch_training_run_id": str(uuid.uuid4()), "sandbox_id": "sb-123"}
-        )
-        mock_materialize.return_value = _materialized()
-        mock_get_sandbox_cls.return_value.get_by_id.return_value = _FakeSandbox()
+        first, _ = self._materialize(run)
+        second, _ = self._materialize(run)
+        assert first.json()["train_features_path"] != second.json()["train_features_path"]
 
-        resp = self.client.post(self._url(run), {"features_sql": VALID_FEATURE_SQL}, format="json")
+    @parameterized.expand(
+        [
+            ("state_names_another_run", {"autoresearch_training_run_id": "other", "sandbox_id": "sb-123"}),
+            ("state_is_not_an_object", ["not", "a", "dict"]),
+        ]
+    )
+    def test_rejects_sandbox_not_owned_by_run(self, _name: str, state):
+        run = self._run(task_run_id=uuid.uuid4())
+        resp, mock_resolve = self._materialize(run, task_run=MagicMock(state=state))
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert "does not belong" in str(resp.json()).lower()
-        mock_get_sandbox_cls.return_value.get_by_id.assert_not_called()
+        mock_resolve.return_value.get_by_id.assert_not_called()
+
+    def test_sandbox_write_failure_is_a_400(self):
+        run = self._run(task_run_id=uuid.uuid4())
+        resp, _ = self._materialize(
+            run, sandbox=_FakeSandbox(raises=SandboxNotRunningError("gone", {}, RuntimeError("gone"), capture=False))
+        )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "gone" in str(resp.json())
+
+    def test_over_wide_feature_matrix_is_a_400(self):
+        run = self._run(task_run_id=uuid.uuid4())
+        resp, _ = self._materialize(run, materialized=_materialized(feature_cols=[f"f{i}" for i in range(513)]))
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "column cap" in str(resp.json())
+
+    @parameterized.expand(
+        [
+            ("no_holdout_rows", [], "too small"),
+            ("single_class_holdout", [{"distinct_id": "p3", "pv": 0, "uploads": 0, "__label": 0}], "one label class"),
+        ]
+    )
+    def test_rejects_unscorable_holdout(self, _name: str, holdout_rows, message: str):
+        run = self._run(task_run_id=uuid.uuid4())
+        fake_sandbox = _FakeSandbox()
+        resp, _ = self._materialize(run, materialized=_materialized(holdout_rows=holdout_rows), sandbox=fake_sandbox)
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert message in str(resp.json())
+        assert fake_sandbox.writes == {}
+
+    def test_is_scoped_to_the_parent_pipeline(self):
+        other_pipeline = AutoresearchPipeline.objects.create(
+            team=self.team, created_by=self.user, name="Other", target_event="$pageview", horizon_days=7
+        )
+        run = self._run(task_run_id=uuid.uuid4())
+        resp = self.client.post(
+            self._url(run, pipeline=other_pipeline), {"features_sql": VALID_FEATURE_SQL}, format="json"
+        )
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_needs_the_query_scope(self):
+        run = self._run(task_run_id=uuid.uuid4())
+        self.client.logout()
+        write_only = self.create_personal_api_key_with_scopes(["autoresearch:write"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {write_only}")
+        resp, _ = self._materialize(run)
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+        with_query = self.create_personal_api_key_with_scopes(["autoresearch:write", "query:read"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {with_query}")
+        resp, _ = self._materialize(run)
+        assert resp.status_code == status.HTTP_200_OK, resp.json()

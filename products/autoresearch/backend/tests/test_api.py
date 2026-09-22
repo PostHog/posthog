@@ -6,12 +6,15 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
+from posthog.storage.object_storage import ObjectStorageError
 
 from products.actions.backend.models.action import Action
 from products.autoresearch.backend.dataset.templates import TEMPLATES
@@ -568,8 +571,6 @@ class TestValidationWarningSerializer(SimpleTestCase):
 
 
 class _InMemoryStorage:
-    """In-memory stand-in for object_storage so artifact endpoints don't need MinIO."""
-
     def __init__(self) -> None:
         self.store: dict[str, bytes] = {}
 
@@ -631,8 +632,11 @@ class TestAutoresearchArtifactAPI(TeamScopedTestMixin, APIBaseTest):
         )
 
     def test_upload_then_get_roundtrip(self):
-        resp = self._upload("train.py", b"print('train')")
+        with CaptureQueriesContext(connection) as queries:
+            resp = self._upload("train.py", b"print('train')")
         assert resp.status_code == status.HTTP_201_CREATED, resp.content
+        # The write happens under the run row lock completion takes, so it cannot land on a frozen bundle.
+        assert any("FOR UPDATE" in q["sql"] for q in queries.captured_queries)
         assert resp.json()["path"] == "train.py"
         assert resp.json()["size_bytes"] == 14
 
@@ -671,6 +675,48 @@ class TestAutoresearchArtifactAPI(TeamScopedTestMixin, APIBaseTest):
         # Reads stay open — inference and future runs still consume the frozen bundle.
         resp = self.client.post(self._artifacts_url("/get"), {"path": "train.py"}, format="json")
         assert resp.status_code == status.HTTP_200_OK
+
+    def test_model_pkl_cannot_be_uploaded(self):
+        resp = self._upload("model.pkl", b"\x80\x04")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "model.pkl" in str(resp.json())
+
+    @patch("products.autoresearch.backend.facade.api.MAX_BUNDLE_FILES", 2)
+    def test_bundle_file_count_is_capped(self):
+        assert self._upload("train.py", b"a").status_code == status.HTTP_201_CREATED
+        assert self._upload("predict.py", b"b").status_code == status.HTTP_201_CREATED
+        resp = self._upload("eda/notes.md", b"c")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "2 files" in str(resp.json())
+        # Overwriting a file that is already in the bundle does not count against the cap.
+        assert self._upload("train.py", b"a2").status_code == status.HTTP_201_CREATED
+
+    @parameterized.expand([("upload",), ("delete",)])
+    def test_storage_failure_is_a_503(self, action: str):
+        self._upload("train.py", b"a")
+        storage = self._storage_patcher.new
+        with (
+            patch.object(storage, "write", side_effect=ObjectStorageError("s3 down")),
+            patch.object(storage, "delete", side_effect=ObjectStorageError("s3 down")),
+        ):
+            if action == "upload":
+                resp = self._upload("predict.py", b"b")
+            else:
+                resp = self.client.post(self._artifacts_url("/delete"), {"path": "train.py"}, format="json")
+        assert resp.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert "s3 down" in str(resp.json())
+
+    @parameterized.expand([("list",), ("upload",)])
+    def test_artifact_routes_are_scoped_to_the_parent_pipeline(self, action: str):
+        other_pipeline = AutoresearchPipeline.objects.create(
+            team=self.team, created_by=self.user, name="Other", target_event="$pageview", horizon_days=7
+        )
+        url = f"{self.base_url}/{other_pipeline.id}/training_runs/{self.training_run.id}/artifacts"
+        if action == "list":
+            resp = self.client.get(url)
+        else:
+            resp = self.client.post(f"{url}/upload", {"path": "train.py", "content_base64": "YQ=="}, format="json")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
 
     def test_get_missing_returns_404(self):
         resp = self.client.post(self._artifacts_url("/get"), {"path": "nope.py"}, format="json")

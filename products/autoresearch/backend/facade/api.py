@@ -13,7 +13,7 @@ import json
 import base64
 import hashlib
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.db import transaction
 from django.db.models import F, Q
@@ -21,10 +21,17 @@ from django.utils import timezone as django_timezone
 
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.storage.object_storage import ObjectStorageError
 
 from products.actions.backend.models.action import Action
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.sandbox import get_sandbox_class
+from products.tasks.backend.facade.sandbox import (
+    SandboxExecutionError,
+    SandboxNotFoundError,
+    SandboxNotRunningError,
+    SandboxTimeoutError,
+    get_sandbox_class_for_sandbox_id,
+)
 
 from ..dataset import templates as templates_module
 from ..dataset.labeling import (
@@ -36,7 +43,13 @@ from ..dataset.validation import (
     ValidationWarningCode as _ValidationWarningCode,
     validate_pipeline_definition as _validate_pipeline_definition,
 )
-from ..inference.sandbox import SandboxInferenceError, features_parquet, labels_parquet, materialize_training_data
+from ..inference.sandbox import (
+    SandboxInferenceError,
+    features_parquet,
+    label_classes,
+    labels_parquet,
+    materialize_training_data,
+)
 from ..models import (
     AutoresearchIteration,
     AutoresearchModel,
@@ -52,6 +65,7 @@ from .contracts import (
     ArtifactDeleteResult,
     ArtifactList,
     ArtifactNotFound,
+    ArtifactStorageUnavailable,
     AutoresearchConflict,
     InvalidArtifactPath as InvalidArtifactPath,
     InvalidTarget,
@@ -85,6 +99,9 @@ def flag_key() -> str:
 # Where materialized training parquet lands inside the agent's sandbox. The agent reads
 # these paths with pd.read_parquet — the rows never transit the model's context.
 _AGENT_FEATURE_DIR = "/tmp/workspace/autoresearch/data"
+
+# Every bundle file is capped at MAX_ARTIFACT_BYTES, so this also bounds the bundle's total size.
+MAX_BUNDLE_FILES = 32
 
 HISTORY_LIMIT_MAX = 20
 
@@ -767,14 +784,19 @@ def _same_target_as(pipeline: AutoresearchPipeline) -> Q:
 
 
 def materialize_features(
-    team_id: int, training_run_id: str | UUID, *, features_sql: str, user: User
+    team_id: int,
+    training_run_id: str | UUID,
+    *,
+    pipeline_id: str | UUID | None = None,
+    features_sql: str,
+    user: User,
 ) -> MaterializedFeatures:
     """Run ``features_sql`` server-side and write the parquet into this run's sandbox.
 
     The rows never pass through the agent's context and there is no row cap. The destination
     paths are fixed by the framework — the agent supplies the query, never where it lands.
     """
-    training_run = _training_run_row(team_id, training_run_id)
+    training_run = _training_run_row(team_id, training_run_id, pipeline_id=pipeline_id, with_iterations=False)
     if training_run.status != AutoresearchTrainingRun.Status.RUNNING:
         raise AutoresearchConflict("Can only materialize features for a running training run.")
     validate_features_sql(features_sql)
@@ -789,6 +811,15 @@ def materialize_features(
         raise AutoresearchConflict("features_sql produced no training rows.")
     if not data.feature_cols:
         raise AutoresearchConflict("features_sql produced no numeric feature columns.")
+    # The holdout fold is fixed per person, so another features_sql cannot repair a split with no
+    # holdout AUC. Refusing here tells the agent the population is too thin instead of letting it
+    # spend the run on iterations completion can never score.
+    if not data.holdout_rows:
+        raise AutoresearchConflict("The population is too small to hold out an evaluation set. Widen the population.")
+    if len(label_classes(data.holdout_rows)) < 2:
+        raise AutoresearchConflict(
+            "The holdout set has only one label class, so no holdout AUC can be computed. Widen the population."
+        )
 
     paths = _write_feature_parquets(sandbox_id, data)
     return MaterializedFeatures(
@@ -814,7 +845,7 @@ def _resolve_run_sandbox_id(training_run: AutoresearchTrainingRun) -> str:
     task_run = tasks_facade.get_task_run(training_run.task_run_id)
     if task_run is None:
         raise AutoresearchConflict("Sandbox task run not found for this training run.")
-    state = task_run.state or {}
+    state = task_run.state if isinstance(task_run.state, dict) else {}
     if str(state.get("autoresearch_training_run_id")) != str(training_run.id):
         raise AutoresearchConflict("Sandbox does not belong to this training run.")
     sandbox_id = state.get("sandbox_id")
@@ -826,27 +857,31 @@ def _resolve_run_sandbox_id(training_run: AutoresearchTrainingRun) -> str:
 def _write_feature_parquets(sandbox_id: str, data: Any) -> dict[str, str]:
     """Serialize the train/holdout matrices to parquet and write them into the agent's sandbox."""
     try:
-        sandbox = get_sandbox_class().get_by_id(sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(sandbox_id).get_by_id(sandbox_id)
     except Exception as exc:
         raise AutoresearchConflict(f"Could not connect to the run's sandbox: {exc}") from exc
-    files = {
-        "train_features_path": (
-            f"{_AGENT_FEATURE_DIR}/train_features.parquet",
-            features_parquet(data.train_rows, data.feature_cols),
-        ),
-        "train_labels_path": (f"{_AGENT_FEATURE_DIR}/train_labels.parquet", labels_parquet(data.train_rows)),
-        "holdout_features_path": (
-            f"{_AGENT_FEATURE_DIR}/holdout_features.parquet",
-            features_parquet(data.holdout_rows, data.feature_cols),
-        ),
-        "holdout_labels_path": (
-            f"{_AGENT_FEATURE_DIR}/holdout_labels.parquet",
-            labels_parquet(data.holdout_rows),
-        ),
-    }
+    try:
+        files = {
+            "train_features_path": ("train_features.parquet", features_parquet(data.train_rows, data.feature_cols)),
+            "train_labels_path": ("train_labels.parquet", labels_parquet(data.train_rows)),
+            "holdout_features_path": (
+                "holdout_features.parquet",
+                features_parquet(data.holdout_rows, data.feature_cols),
+            ),
+            "holdout_labels_path": ("holdout_labels.parquet", labels_parquet(data.holdout_rows)),
+        }
+    except SandboxInferenceError as exc:
+        raise AutoresearchConflict(f"Feature materialization failed: {exc}") from exc
+    # Each request gets its own directory, so two overlapping materializations cannot read each
+    # other's files, and a request that fails part-way leaves nothing at a path it returned.
+    directory = f"{_AGENT_FEATURE_DIR}/{uuid4().hex}"
     paths: dict[str, str] = {}
-    for key, (path, content) in files.items():
-        result = sandbox.write_file(path, content)
+    for key, (name, content) in files.items():
+        path = f"{directory}/{name}"
+        try:
+            result = sandbox.write_file(path, content)
+        except (SandboxNotRunningError, SandboxExecutionError, SandboxNotFoundError, SandboxTimeoutError) as exc:
+            raise AutoresearchConflict(f"Failed to write {path} into the sandbox: {exc}") from exc
         if result.exit_code != 0:
             raise AutoresearchConflict(f"Failed to write {path} into the sandbox: {result.stderr[:300]}")
         paths[key] = path
@@ -864,30 +899,68 @@ def _bundle_prefix(team_id: int, training_run: AutoresearchTrainingRun) -> str:
     )
 
 
-def list_artifacts(team_id: int, training_run_id: str | UUID) -> ArtifactList:
-    training_run = _training_run_row(team_id, training_run_id)
+def list_artifacts(team_id: int, training_run_id: str | UUID, *, pipeline_id: str | UUID | None = None) -> ArtifactList:
+    training_run = _training_run_row(team_id, training_run_id, pipeline_id=pipeline_id, with_iterations=False)
     paths = artifact_store.list_artifacts(_bundle_prefix(team_id, training_run))
     return ArtifactList(paths=paths, count=len(paths))
 
 
-def write_artifact(team_id: int, training_run_id: str | UUID, *, path: str, content_base64: str) -> StoredArtifact:
+def write_artifact(
+    team_id: int,
+    training_run_id: str | UUID,
+    *,
+    pipeline_id: str | UUID | None = None,
+    path: str,
+    content_base64: str,
+) -> StoredArtifact:
     """Store one file of the run's bundle. The bundle freezes once the run leaves ``running``."""
-    training_run = _training_run_row(team_id, training_run_id)
-    if training_run.status != AutoresearchTrainingRun.Status.RUNNING:
-        raise AutoresearchConflict("Can only upload artifacts on a running training run.")
     try:
         content = base64.b64decode(content_base64, validate=True)
     except Exception as exc:
         raise AutoresearchConflict("content_base64 is not valid base64.") from exc
     try:
-        stored = artifact_store.write_artifact(_bundle_prefix(team_id, training_run), path, content)
+        rel = artifact_store.normalize_artifact_path(path)
     except artifact_store.InvalidArtifact as exc:
         raise InvalidArtifactPath(str(exc)) from exc
+    if rel == artifact_store.MODEL_PKL:
+        # The fitted model is written by the framework after completion. An agent-written model.pkl
+        # would make scoring skip its self-healing fit and serve those bytes on every cadence.
+        raise InvalidArtifactPath(f"{artifact_store.MODEL_PKL} is written by the framework and cannot be uploaded.")
+    # Completion validates and freezes the bundle under the run row lock. Writing under the same
+    # lock means an upload that started while the run was RUNNING cannot land after completion
+    # read the bundle.
+    with transaction.atomic():
+        training_run = _running_run_for_write(team_id, training_run_id, pipeline_id=pipeline_id)
+        prefix = _bundle_prefix(team_id, training_run)
+        existing = artifact_store.list_artifacts(prefix)
+        if rel not in existing and len(existing) >= MAX_BUNDLE_FILES:
+            raise AutoresearchConflict(
+                f"This bundle already holds {MAX_BUNDLE_FILES} files. Delete a file before uploading another."
+            )
+        try:
+            stored = artifact_store.write_artifact(prefix, rel, content)
+        except artifact_store.InvalidArtifact as exc:
+            raise InvalidArtifactPath(str(exc)) from exc
+        except ObjectStorageError as exc:
+            raise ArtifactStorageUnavailable(f"The artifact could not be stored: {exc}") from exc
     return StoredArtifact(path=stored.path, size_bytes=stored.size_bytes, sha256=stored.sha256)
 
 
-def read_artifact(team_id: int, training_run_id: str | UUID, *, path: str) -> ArtifactContent:
-    training_run = _training_run_row(team_id, training_run_id)
+def _running_run_for_write(
+    team_id: int, training_run_id: str | UUID, *, pipeline_id: str | UUID | None
+) -> AutoresearchTrainingRun:
+    training_run = _training_run_row(
+        team_id, training_run_id, pipeline_id=pipeline_id, with_iterations=False, for_update=True
+    )
+    if training_run.status != AutoresearchTrainingRun.Status.RUNNING:
+        raise AutoresearchConflict("The bundle is frozen because the training run is no longer running.")
+    return training_run
+
+
+def read_artifact(
+    team_id: int, training_run_id: str | UUID, *, pipeline_id: str | UUID | None = None, path: str
+) -> ArtifactContent:
+    training_run = _training_run_row(team_id, training_run_id, pipeline_id=pipeline_id, with_iterations=False)
     prefix = _bundle_prefix(team_id, training_run)
     try:
         content = artifact_store.read_artifact(prefix, path)
@@ -903,15 +976,19 @@ def read_artifact(team_id: int, training_run_id: str | UUID, *, path: str) -> Ar
     )
 
 
-def delete_artifact(team_id: int, training_run_id: str | UUID, *, path: str) -> ArtifactDeleteResult:
-    training_run = _training_run_row(team_id, training_run_id)
-    if training_run.status != AutoresearchTrainingRun.Status.RUNNING:
-        raise AutoresearchConflict("Can only delete artifacts on a running training run.")
+def delete_artifact(
+    team_id: int, training_run_id: str | UUID, *, pipeline_id: str | UUID | None = None, path: str
+) -> ArtifactDeleteResult:
     try:
-        deleted = artifact_store.delete_artifact(_bundle_prefix(team_id, training_run), path)
         normalized = artifact_store.normalize_artifact_path(path)
     except artifact_store.InvalidArtifactPath as exc:
         raise InvalidArtifactPath(str(exc)) from exc
+    with transaction.atomic():
+        training_run = _running_run_for_write(team_id, training_run_id, pipeline_id=pipeline_id)
+        try:
+            deleted = artifact_store.delete_artifact(_bundle_prefix(team_id, training_run), normalized)
+        except ObjectStorageError as exc:
+            raise ArtifactStorageUnavailable(f"The artifact could not be deleted: {exc}") from exc
     return ArtifactDeleteResult(path=normalized, deleted=deleted)
 
 

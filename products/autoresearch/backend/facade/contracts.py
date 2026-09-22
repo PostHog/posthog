@@ -57,6 +57,13 @@ class InvalidArtifactPath(ValueError):
     """The artifact path escapes the bundle prefix or is otherwise unusable."""
 
 
+class ArtifactStorageUnavailable(RuntimeError):
+    """Object storage refused or failed the artifact write, so nothing was stored.
+
+    The viewset maps it to a 503 with the message as-is, so the message is user-facing copy.
+    """
+
+
 # ── Model-backed read contracts ────────────────────────────────────────────
 
 
