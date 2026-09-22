@@ -534,7 +534,15 @@ class BytecodeCompiler(Visitor):
             if upvalue != -1:
                 response.extend([Operation.GET_UPVALUE, upvalue, Operation.CALL_LOCAL, len(args)])
             else:
-                if self.context.globals and node.name in self.context.globals:
+                # The VM resolves a direct call against its function tables only, never against
+                # the globals it was given. A caller that declares allowed_functions has named
+                # every function its runtime can invoke, so a data global of the same name is not
+                # one of them.
+                if (
+                    self.context.allowed_functions is None
+                    and self.context.globals
+                    and node.name in self.context.globals
+                ):
                     self.context.add_notice(
                         start=node.start, end=node.end, message="Global variable: " + str(node.name)
                     )
