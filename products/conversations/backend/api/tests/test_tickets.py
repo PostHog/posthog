@@ -2553,6 +2553,51 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("create_note_with_the_note_scope", ["ticket_note:write"], status.HTTP_201_CREATED),
+            ("create_note_with_ticket_write", ["ticket:write"], status.HTTP_201_CREATED),
+            ("create_note_with_the_note_read_scope", ["ticket_note:read"], status.HTTP_403_FORBIDDEN),
+            ("create_note_with_ticket_read", ["ticket:read"], status.HTTP_403_FORBIDDEN),
+            ("create_note_wrong_scope", ["insight:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_create_note_scopes(self, _name, scopes, expected_status):
+        self._auth_with_pak(scopes)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/notes/",
+            {"content": "What I found"},
+            format="json",
+        )
+        assert response.status_code == expected_status, f"{_name}: {response.status_code} != {expected_status}"
+
+    @parameterized.expand(
+        [
+            ("reply", "post", "reply/", {"message": "Sent to the customer"}),
+            ("update_note", "patch", "notes/{note_id}/", {"message": "Rewritten"}),
+            ("delete_note", "delete", "notes/{note_id}/", None),
+        ]
+    )
+    def test_the_note_scope_reaches_nothing_but_creating_a_note(self, _name, method, path, body):
+        # The guarantee the scope exists for. `ticket_note:write` must not be a way to reach the
+        # customer, and must not let its holder revise the thread either.
+        note = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Existing note",
+            item_context={"author_type": "support", "is_private": True},
+        )
+        self._auth_with_pak(["ticket_note:write"])
+        url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/" + path.format(note_id=note.id)
+        response = (
+            getattr(self.client, method)(url, body, format="json")
+            if body is not None
+            else getattr(self.client, method)(url)
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
             ("note_with_write", "patch", ["ticket:write"], status.HTTP_200_OK),
             ("note_with_read_only", "patch", ["ticket:read"], status.HTTP_403_FORBIDDEN),
             ("note_wrong_scope", "patch", ["insight:write"], status.HTTP_403_FORBIDDEN),
@@ -2755,6 +2800,15 @@ class TestTicketMessagesAPI(APIBaseTest):
             ("customer_email_fallback", {"email": "bob@example.com"}, "customer", {}, "bob@example.com"),
             ("customer_default", {}, "customer", {}, "Customer"),
             ("ai_author", {}, "AI", {}, "PostHog Assistant"),
+            # A scout-authored note names the scout, not the assistant and not the person the
+            # run acts as.
+            (
+                "ai_author_named",
+                {},
+                "AI",
+                {"author_name": "signals-scout-conversations"},
+                "signals-scout-conversations",
+            ),
             ("support_without_user", {}, "support", {}, "Support"),
             # Per-comment author overrides the ticket requester (thread replies from other participants)
             (
@@ -3570,6 +3624,95 @@ class TestTicketNoteAPI(APIBaseTest):
             item_context={"author_type": "support", "is_private": True},
         )
         self.url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/notes/{self.note.id}/"
+        self.create_url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/notes/"
+        # Note dedupe reservations live in fakeredis, which is a single process-wide store.
+        get_client().flushall()
+
+    def test_create_writes_a_private_note_from_the_calling_user(self, mock_on_commit):
+        response = self.client.post(self.create_url, {"content": "Matches the open PR."}, format="json")
+        assert response.status_code == status.HTTP_201_CREATED
+        body = response.json()
+        assert body["content"] == "Matches the open PR."
+        assert body["is_private"] is True
+        assert body["author_type"] == "support"
+        assert body["author_email"] == self.user.email
+
+    @parameterized.expand(
+        [
+            ("privacy_flag", {"content": "Not for the customer", "is_private": False}),
+            ("author_type", {"content": "Not for the customer", "author_type": "support"}),
+        ]
+    )
+    def test_create_is_always_private(self, mock_on_commit, _name, body):
+        # The structural half of the guarantee: no request shape produces a note the customer can
+        # see, so a token that reaches only this action can never reach the customer.
+        response = self.client.post(self.create_url, body, format="json")
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["is_private"] is True
+        assert Comment.objects.get(id=response.json()["id"]).item_context["is_private"] is True
+
+    def test_create_with_a_repeated_dedupe_key_returns_the_first_note(self, mock_on_commit):
+        first = self.client.post(self.create_url, {"content": "First", "dedupe_key": "issue:104299"}, format="json")
+        assert first.status_code == status.HTTP_201_CREATED
+
+        second = self.client.post(self.create_url, {"content": "Second", "dedupe_key": "issue:104299"}, format="json")
+        assert second.status_code == status.HTTP_200_OK
+        assert second.json()["id"] == first.json()["id"]
+        assert second.json()["content"] == "First"
+        assert Comment.objects.filter(item_id=str(self.ticket.id), content__in=["First", "Second"]).count() == 1
+
+    def test_create_without_a_dedupe_key_posts_every_time(self, mock_on_commit):
+        for _ in range(2):
+            assert self.client.post(self.create_url, {"content": "Same"}, format="json").status_code == (
+                status.HTTP_201_CREATED
+            )
+        assert Comment.objects.filter(item_id=str(self.ticket.id), content="Same").count() == 2
+
+    def test_create_reports_a_concurrent_note_with_the_same_key(self, mock_on_commit):
+        # The reservation a still-running request holds. Without it two retries that arrive
+        # together both pass the stored-key lookup and the ticket gets the note twice.
+        held = reply_dedupe.reserve(
+            reply_dedupe.TicketNoteFingerprint(
+                team_id=self.team.id, item_id=str(self.ticket.id), dedupe_key="issue:104299"
+            )
+        )
+        assert held.state is reply_dedupe.ReservationState.ACQUIRED
+
+        response = self.client.post(self.create_url, {"content": "Retry", "dedupe_key": "issue:104299"}, format="json")
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["error_type"] == reply_dedupe.NOTE_IN_PROGRESS_ERROR_TYPE
+        assert not Comment.objects.filter(item_id=str(self.ticket.id), content="Retry").exists()
+
+    def test_create_rejects_blank_content(self, mock_on_commit):
+        response = self.client.post(self.create_url, {"content": "   "}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_attributes_a_scout_note_to_the_scout_and_leaves_it_immutable(self, mock_on_commit):
+        # A scout acts as the person who owns its config, so attribution has to come from the
+        # token's task binding rather than from the acting user. `created_by` staying unset is
+        # what the edit and delete paths read to refuse a revision.
+        with patch(
+            "products.conversations.backend.api.tickets.get_sandbox_scout_name",
+            return_value="signals-scout-conversations",
+        ):
+            response = self.client.post(self.create_url, {"content": "This is a how-to."}, format="json")
+        assert response.status_code == status.HTTP_201_CREATED
+        body = response.json()
+        assert body["author_type"] == "AI"
+        assert body["author_name"] == "signals-scout-conversations"
+        assert body["author_email"] is None
+
+        note_url = f"{self.create_url}{body['id']}/"
+        assert self.client.patch(note_url, {"message": "Rewritten"}, format="json").status_code == (
+            status.HTTP_403_FORBIDDEN
+        )
+        assert self.client.delete(note_url).status_code == status.HTTP_403_FORBIDDEN
+
+    def test_create_refused_when_support_is_off(self, mock_on_commit):
+        self.team.conversations_enabled = False
+        self.team.save()
+        response = self.client.post(self.create_url, {"content": "Anything"}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_patch_updates_content_and_bumps_version(self, mock_on_commit):
         response = self.client.patch(

@@ -12,6 +12,7 @@ from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.models import OAuthApplication, Team
 from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.oauth import OAuthAccessToken
+from posthog.oauth_provenance import get_sandbox_scout_name
 
 from products.signals.backend.facade.activity_client import resolve_scout_client_tag
 from products.signals.backend.models import SignalScoutRun
@@ -70,7 +71,11 @@ class TestScoutActivityClient(BaseTest):
             sandbox_task_id=sandbox_task_id,
         )
         request = self.factory.get("/", HTTP_AUTHORIZATION="Bearer pha_scout_sandbox_token")
-        OAuthAccessTokenAuthentication().authenticate(request)
+        authenticator = OAuthAccessTokenAuthentication()
+        authenticator.authenticate(request)
+        # DRF attaches this once a class authenticates; the provenance helpers read the token off it.
+        request.successful_authenticator = authenticator  # type: ignore[attr-defined]
+        self.request = request
 
     def test_scout_run_token_tags_activity_with_the_scout_name(self) -> None:
         task = self._make_task()
@@ -79,6 +84,31 @@ class TestScoutActivityClient(BaseTest):
         self._authenticate_with_sandbox_token(str(task.id))
 
         assert activity_storage.get_client() == f"scout:{SKILL_NAME}"
+
+    @parameterized.expand(
+        [
+            ("scout run on the bound task", True, [], SKILL_NAME),
+            ("task is not a scout run", False, [], None),
+            # Which team's runs to search is not a guess to make, so an attribution that cannot
+            # name one team makes none, the same rule the activity tag follows.
+            ("token names no single team", True, "two", None),
+        ]
+    )
+    def test_sandbox_scout_name(self, _name: str, make_run: bool, scoping: object, expected: str | None) -> None:
+        # A support ticket note written by a scout is attributed from the token's task binding,
+        # so a wrong answer here signs a note with the wrong author in a customer's thread.
+        task = self._make_task()
+        if make_run:
+            self._make_scout_run(task)
+        scoped_teams = (
+            [self.team.id, Team.objects.create(organization=self.organization, name="Other").id]
+            if scoping == "two"
+            else None
+        )
+
+        self._authenticate_with_sandbox_token(str(task.id), scoped_teams=scoped_teams)
+
+        assert get_sandbox_scout_name(self.request) == expected
 
     def test_the_scout_is_looked_up_only_when_a_client_is_read(self) -> None:
         task = self._make_task()

@@ -46,6 +46,28 @@ def get_oauth_access_token(request) -> object | None:
     return getattr(authenticator, "access_token", None)
 
 
+def get_sandbox_scout_name(request) -> str | None:
+    """The scout whose run this request's token was minted for, by skill name, or None.
+
+    The task binding is written server-side at mint time, so a name derived from it is not
+    something a caller can claim for itself. A token scoped to anything other than exactly one
+    team cannot say which team's runs to look in, and attribution must not guess. `posthog.auth`
+    applies the same rule to the activity-log tag it builds from the same binding.
+    """
+    from products.signals.backend.facade.activity_client import (  # noqa: PLC0415 because signals imports back through the model layer
+        resolve_scout_skill_name,
+    )
+
+    access_token = get_oauth_access_token(request)
+    sandbox_task_id = getattr(access_token, "sandbox_task_id", None)
+    if sandbox_task_id is None:
+        return None
+    scoped_teams = getattr(access_token, "scoped_teams", None) or []
+    if len(scoped_teams) != 1:
+        return None
+    return resolve_scout_skill_name(sandbox_task_id=sandbox_task_id, team_id=scoped_teams[0])
+
+
 def get_oauth_client_id(request) -> str | None:
     return _get_client_id(get_oauth_access_token(request))
 

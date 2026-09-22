@@ -119,6 +119,10 @@ APIScopeObject = Literal[
     "survey",
     "tagger",
     "ticket",
+    # Create-only: the private-note action on the tickets viewset, and nothing else. Split out
+    # from `ticket` so an unattended agent can be trusted with a note to the support team without
+    # also holding the reply action, which delivers to the customer.
+    "ticket_note",
     "task",
     "toolbar",
     "tracing",

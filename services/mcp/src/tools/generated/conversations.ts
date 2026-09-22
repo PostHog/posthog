@@ -104,6 +104,38 @@ const conversationsTicketsMessagesRetrieve = (): ToolBase<
     },
 })
 
+const ConversationsTicketsNotesCreateSchema = () => {
+    const ConversationsTicketsNotesCreateBody = orvalSchemas.ConversationsTicketsNotesCreateBody()
+    const ConversationsTicketsNotesCreateParams = orvalSchemas.ConversationsTicketsNotesCreateParams()
+    return ConversationsTicketsNotesCreateParams.omit({ project_id: true }).extend(
+        ConversationsTicketsNotesCreateBody.shape
+    )
+}
+
+const conversationsTicketsNotesCreate = (): ToolBase<
+    ReturnType<typeof ConversationsTicketsNotesCreateSchema>,
+    Schemas.TicketMessage
+> => ({
+    name: 'conversations-tickets-notes-create',
+    schema: ConversationsTicketsNotesCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ConversationsTicketsNotesCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        if (params.dedupe_key !== undefined) {
+            body['dedupe_key'] = params.dedupe_key
+        }
+        const result = await context.api.request<Schemas.TicketMessage>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/${encodeURIComponent(String(params.id))}/notes/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ConversationsTicketsNotesDestroySchema = () => {
     const ConversationsTicketsNotesDestroyParams = orvalSchemas.ConversationsTicketsNotesDestroyParams()
     return ConversationsTicketsNotesDestroyParams.omit({ project_id: true })
@@ -437,6 +469,7 @@ const conversationsViewsUpdate = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'conversations-tickets-list': conversationsTicketsList,
     'conversations-tickets-messages-retrieve': conversationsTicketsMessagesRetrieve,
+    'conversations-tickets-notes-create': conversationsTicketsNotesCreate,
     'conversations-tickets-notes-destroy': conversationsTicketsNotesDestroy,
     'conversations-tickets-notes-partial-update': conversationsTicketsNotesPartialUpdate,
     'conversations-tickets-reply-create': conversationsTicketsReplyCreate,

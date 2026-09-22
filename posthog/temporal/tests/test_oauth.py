@@ -163,6 +163,10 @@ class TestResolveScopes(SimpleTestCase):
             # The scanner grant's exclusions live in the scanner API, so the token still has to
             # carry the whole scope object for the rest of that surface to work.
             ("scanner_grant", "signals_scout", "replay_scanner:write", "alert:write"),
+            # The whole point of the ticket-note grant is that it is not the ticket grant: the
+            # reply action, which delivers to the customer, sits behind `ticket:write`. A posture
+            # that widened this one to its object's sibling would hand a scout that channel.
+            ("ticket_note_grant", "signals_scout", "ticket_note:write", "ticket:write"),
         ]
     )
     def test_scout_posture_adds_only_the_granted_write_scopes(

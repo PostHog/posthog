@@ -2176,6 +2176,20 @@
             "readOnlyHint": true
         }
     },
+    "conversations-tickets-notes-create": {
+        "description": "Add a private, team-only note to a support ticket. The note is never delivered to the customer, and this tool cannot send one: a person reads the note and decides what, if anything, the customer is told. Use it to hand the teammate answering the ticket something they would otherwise miss: the doc that answers the question, the issue or pull request that already covers it, or the inbox report about this ticket. Pass `dedupe_key` naming the thing that produced the note (an issue number, a report id) so a retry, or a later run that reaches the same conclusion, returns the first note instead of posting a second. You cannot edit or delete a note you added, so write it once and keep it short.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "Add a private note to a support ticket",
+        "title": "Add a private note to a support ticket",
+        "required_scopes": ["ticket_note:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "conversations-tickets-notes-destroy": {
         "description": "Soft-delete a private note on a support ticket. Only private notes authored by the calling user can be deleted. Customer-facing replies cannot be deleted. Message IDs come from conversations-tickets-messages-retrieve. Deleting another user's note or an AI-authored note returns 403 with error_type not_note_author. Deleting a public reply returns 400 with error_type not_private_note. A missing or already-deleted note returns 404 with error_type note_not_found.",
         "category": "Conversations",

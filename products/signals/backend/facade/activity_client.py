@@ -1,4 +1,4 @@
-"""The activity-log client tag for the API writes a scout run makes.
+"""The scout behind a sandbox token, for the API writes its run makes.
 
 A scout authenticates as the person who owns its config, so the acting user on an
 activity-log row cannot tell a scout's edit from that person's own MCP edit. The sandbox
@@ -7,7 +7,10 @@ server-side at mint time, which is what makes a tag derived from it trustworthy 
 caller-settable `x-posthog-client` header is not. The `scout:` prefix is reserved for this
 path: `client_from_header` drops a header value that claims it, so only the server writes one.
 
-Core reads the tag through this module so `posthog.auth` never imports a signals model.
+Core reads the scout through this module so `posthog.auth` never imports a signals model. The
+name has a second reader: a scout-authored private note on a support ticket is attributed to the
+scout rather than to the person it acts as, and conversations cannot import signals (signals
+already imports it), so that lookup goes through core too.
 """
 
 from __future__ import annotations
@@ -19,19 +22,24 @@ from posthog.models.activity_logging.utils import SCOUT_CLIENT_PREFIX
 from products.signals.backend.models import SignalScoutRun
 
 
-def resolve_scout_client_tag(*, sandbox_task_id: UUID, team_id: int) -> str | None:
-    """`scout:<skill_name>` when a scout run owns this task, None when no scout run does.
+def resolve_scout_skill_name(*, sandbox_task_id: UUID, team_id: int) -> str | None:
+    """The skill name of the scout whose run owns this task, None when no scout run does.
 
     A task with several runs (a retry) is still one scout, so any of its rows answers the
     question. The ordering only keeps repeated reads of the same task consistent.
     """
-    skill_name = (
+    return (
         SignalScoutRun.objects.for_team(team_id)
         .filter(task_run__task_id=sandbox_task_id)
         .order_by("-created_at")
         .values_list("skill_name", flat=True)
         .first()
-    )
+    ) or None
+
+
+def resolve_scout_client_tag(*, sandbox_task_id: UUID, team_id: int) -> str | None:
+    """`scout:<skill_name>` when a scout run owns this task, None when no scout run does."""
+    skill_name = resolve_scout_skill_name(sandbox_task_id=sandbox_task_id, team_id=team_id)
     if not skill_name:
         return None
     return f"{SCOUT_CLIENT_PREFIX}{skill_name}"

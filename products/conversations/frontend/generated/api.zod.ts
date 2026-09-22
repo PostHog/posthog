@@ -160,6 +160,33 @@ export const ConversationsTicketsAiHumanOutcomeCreateBody = /* @__PURE__ */ zod
     .describe('Payload for recording whether a human adopted an AI draft.')
 
 /**
+ * Add a private note to a ticket, visible to the team only.
+ *
+ * There is no request shape that reaches the customer: the action takes no privacy flag, and
+ * nothing it writes is delivered over the ticket's channel. That is what lets an unattended
+ * agent hold `ticket_note:write` without also holding the reply action, which does deliver.
+ */
+export const conversationsTicketsNotesCreateBodyContentMax = 5000
+
+export const conversationsTicketsNotesCreateBodyDedupeKeyMax = 200
+
+export const ConversationsTicketsNotesCreateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod
+            .string()
+            .max(conversationsTicketsNotesCreateBodyContentMax)
+            .describe('Note content in markdown. Always private, so the customer never receives it.'),
+        dedupe_key: zod
+            .string()
+            .max(conversationsTicketsNotesCreateBodyDedupeKeyMax)
+            .optional()
+            .describe(
+                'Identifier for the thing that produced this note, so a retried call posts nothing and returns the note the first call made. Two notes on one ticket cannot share a key.'
+            ),
+    })
+    .describe('Payload for adding a private note to a ticket.')
+
+/**
  * Update a private note on a ticket.
  *
  * Only the note's author can edit it. Customer-facing replies cannot be

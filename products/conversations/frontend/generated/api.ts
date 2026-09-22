@@ -31,6 +31,7 @@ import type {
     TicketApi,
     TicketFullEmailApi,
     TicketMessageApi,
+    TicketNoteCreateRequestApi,
     TicketReplyRequestApi,
     TicketUnreadCountResponseApi,
     TicketUpdateRequestApi,
@@ -293,6 +294,31 @@ export const conversationsTicketsMessagesFullEmailRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getConversationsTicketsNotesCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/notes/`
+}
+
+/**
+ * Add a private note to a ticket, visible to the team only.
+ *
+ * There is no request shape that reaches the customer: the action takes no privacy flag, and
+ * nothing it writes is delivered over the ticket's channel. That is what lets an unattended
+ * agent hold `ticket_note:write` without also holding the reply action, which does deliver.
+ */
+export const conversationsTicketsNotesCreate = async (
+    projectId: string,
+    id: string,
+    ticketNoteCreateRequestApi: TicketNoteCreateRequestApi,
+    options?: RequestInit
+): Promise<TicketMessageApi> => {
+    return apiMutator<TicketMessageApi>(getConversationsTicketsNotesCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(ticketNoteCreateRequestApi),
+    })
 }
 
 export const getConversationsTicketsNotesPartialUpdateUrl = (projectId: string, id: string, messageId: string) => {

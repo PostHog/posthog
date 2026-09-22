@@ -491,6 +491,22 @@ export interface TicketFullEmailApi {
 }
 
 /**
+ * Payload for adding a private note to a ticket.
+ */
+export interface TicketNoteCreateRequestApi {
+    /**
+     * Note content in markdown. Always private, so the customer never receives it.
+     * @maxLength 5000
+     */
+    content: string
+    /**
+     * Identifier for the thing that produced this note, so a retried call posts nothing and returns the note the first call made. Two notes on one ticket cannot share a key.
+     * @maxLength 200
+     */
+    dedupe_key?: string
+}
+
+/**
  * Payload for updating a private note on a ticket.
  */
 export interface PatchedTicketNoteUpdateRequestApi {

@@ -235,6 +235,12 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          others meet. One scope object covers the whole surface, so the two
 #                          exclusions live in `products/replay_vision/backend/scout_writes.py`
 #                          instead: a scout cannot delete, and must cap what it creates or enables.
+#   ticket_note:write      One create-only action: a private note on a support ticket. The scope
+#                          reaches no other endpoint, the action has no privacy flag to set, and
+#                          the note edit and delete paths refuse an AI author, so a scout can
+#                          neither reach the customer nor revise what it wrote. It is the only
+#                          scope here whose objects a customer could ever see if the boundary
+#                          broke, which is why the boundary is the endpoint rather than a prompt.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -252,6 +258,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "warehouse_view:write",
         "warehouse_table:write",
         "replay_scanner:write",
+        "ticket_note:write",
     }
 )
 

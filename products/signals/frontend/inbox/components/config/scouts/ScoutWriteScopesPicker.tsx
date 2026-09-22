@@ -24,6 +24,9 @@ export function ScoutWriteScopesPicker({
     disabledReason,
 }: ScoutWriteScopesPickerProps): JSX.Element {
     const groups = [...new Set(SCOUT_WRITE_SCOPE_ROWS.map((row) => row.group))]
+    // Ticket notes is the one grant that only ever adds something, so the warning below about
+    // changing and deleting what is already there would be wrong for a scout that holds it alone.
+    const changesExistingObjects = selectedScopes.some((scope) => scope !== 'ticket_note:write')
     const toggleScope = (scope: string, granted: boolean): void => {
         // A stored scope with no row here would ride along into the save and get the whole update
         // rejected by the API, with no switch to clear it. The token already drops it at mint time.
@@ -71,13 +74,20 @@ export function ScoutWriteScopesPicker({
                     </div>
                 ))}
             </div>
-            {selectedScopes.length > 0 && (
+            {changesExistingObjects && (
                 <p className="text-[11.5px] text-warning mb-0">
                     Write access covers the whole project. A scout that can write dashboards can change or delete any
                     dashboard here, not only ones it created. Annotations also include organization-wide ones that other
                     projects see, and skills include the ones your other scouts run from. Most deletes here can be
                     undone. Deleted alerts and deleted data quality checks cannot. Changes apply from the scout's next
                     run.
+                </p>
+            )}
+            {selectedScopes.includes('ticket_note:write') && (
+                <p className="text-[11.5px] text-warning mb-0">
+                    A note reaches your team, never the customer. This scout can add notes to any support ticket in the
+                    project, and cannot reply to a customer or change a note once it is posted. Changes apply from the
+                    scout's next run.
                 </p>
             )}
         </div>

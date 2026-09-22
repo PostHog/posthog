@@ -132,6 +132,7 @@ export const AGENT_USE_CASE_SCOPES = [
     'tagger:write',
     'ticket:read',
     'ticket:write',
+    'ticket_note:write',
     'task:read',
     'task:write',
     'tracing:read',

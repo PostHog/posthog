@@ -53,7 +53,8 @@ from posthog.models.activity_logging.activity_log import Change, Detail, Trigger
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
-from posthog.permissions import APIScopePermission
+from posthog.oauth_provenance import get_sandbox_scout_name
+from posthog.permissions import APIScopePermission, get_authenticator_scopes
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle
 
@@ -181,6 +182,33 @@ class TicketNoteUpdateRequestSerializer(serializers.Serializer):
         if len(serialized) > 100_000:
             raise serializers.ValidationError("Rich content too large (max 100KB).")
         return value
+
+
+class TicketNoteCreateRequestSerializer(serializers.Serializer):
+    """Payload for adding a private note to a ticket."""
+
+    content = serializers.CharField(
+        max_length=5000,
+        help_text="Note content in markdown. Always private, so the customer never receives it.",
+    )
+    dedupe_key = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text=(
+            "Identifier for the thing that produced this note, so a retried call posts nothing "
+            "and returns the note the first call made. Two notes on one ticket cannot share a key."
+        ),
+    )
+
+    def validate_content(self, value: str) -> str:
+        if not value or not value.strip():
+            raise serializers.ValidationError("Note content is required.")
+        return value.strip()
+
+    def validate_dedupe_key(self, value: str) -> str:
+        if not value.strip():
+            raise serializers.ValidationError("Dedupe key cannot be blank.")
+        return value.strip()
 
 
 class TicketReplyRequestSerializer(serializers.Serializer):
@@ -703,6 +731,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         "ai_human_outcome",
         "note",
         "delete_note",
+        "create_note",
     ]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
@@ -714,6 +743,29 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
     # Which search branch safely_get_queryset applied, for the latency histogram.
     _search_path: str | None = None
+
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        """Accept either scope on `create_note`, where the default classification accepts only one.
+
+        `ticket_note:write` is the narrow grant an unattended agent can hold; `ticket:write` is
+        what support tooling already carries, and it reaches strictly more of this viewset. The
+        permission ANDs the list it gets back, so the two cannot be returned together. Name the
+        narrow one when the caller holds it, and fall through to the wide one otherwise. A caller
+        holding neither is refused either way, and the message names `ticket:write` because that
+        is the scope a person is likely to be missing.
+        """
+        super_method = getattr(super(), "dangerously_get_required_scopes", None)
+        if callable(super_method):
+            mixin_result = super_method(request, view)
+            if mixin_result is not None:
+                return mixin_result
+
+        if getattr(view, "action", None) != "create_note":
+            return None
+        key_scopes = get_authenticator_scopes(request.successful_authenticator) or []
+        if "ticket_note:write" in key_scopes:
+            return ["ticket_note:write"]
+        return ["ticket:write"]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
@@ -1441,7 +1493,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 f"{comment.created_by.first_name} {comment.created_by.last_name}".strip() or comment.created_by.email
             )
         elif author_type == "AI":
-            author_name = "PostHog Assistant"
+            # A scout-authored note names the scout: the run acts as the config's owner, so
+            # neither that person nor the assistant wrote it.
+            author_name = item_context.get("author_name") or "PostHog Assistant"
         elif context_author_name:
             author_name = context_author_name
         elif author_type == "customer":
@@ -1511,6 +1565,94 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             )
 
         return comment, None
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        request=TicketNoteCreateRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TicketMessageSerializer,
+                description=(
+                    "A note with this `dedupe_key` is already on the ticket. That note is returned "
+                    "and nothing new is written."
+                ),
+            ),
+            201: OpenApiResponse(response=TicketMessageSerializer),
+            400: OpenApiResponse(response=TicketErrorSerializer),
+            409: OpenApiResponse(
+                response=TicketErrorSerializer,
+                description="A note with this `dedupe_key` is still being created by another request.",
+            ),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="notes",
+        pagination_class=None,
+        throttle_classes=[ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle],
+    )
+    def create_note(self, request, *args, **kwargs):
+        """Add a private note to a ticket, visible to the team only.
+
+        There is no request shape that reaches the customer: the action takes no privacy flag, and
+        nothing it writes is delivered over the ticket's channel. That is what lets an unattended
+        agent hold `ticket_note:write` without also holding the reply action, which does deliver.
+        """
+        ticket = self.get_object()
+
+        if not self.team.conversations_enabled:
+            return Response(
+                {"detail": "Support is not enabled."},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = TicketNoteCreateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        dedupe_key = data.get("dedupe_key")
+
+        # A scout acts as the person who owns its config, so attributing the note to that person
+        # would read in the thread as them having written it. Leaving `created_by` unset is also
+        # what makes the note immutable: the edit and delete paths compare it to the caller.
+        scout_name = get_sandbox_scout_name(request)
+        item_context: dict[str, Any] = {
+            "author_type": "AI" if scout_name else "support",
+            "is_private": True,
+        }
+        if scout_name:
+            item_context["author_name"] = scout_name
+        if dedupe_key:
+            item_context["internal_note_key"] = dedupe_key
+
+        def create_comment() -> Comment:
+            return Comment.objects.create(
+                team=self.team,
+                created_by=None if scout_name else request.user,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content=data["content"],
+                item_context=item_context,
+            )
+
+        if not dedupe_key:
+            return self._reply_response(create_comment(), ticket, created=True)
+
+        guarded = reply_dedupe.create_note_deduplicated(
+            reply_dedupe.TicketNoteFingerprint(team_id=self.team_id, item_id=str(ticket.id), dedupe_key=dedupe_key),
+            create_comment,
+        )
+        if guarded.outcome is reply_dedupe.CreateOutcome.CONFLICT:
+            return Response(
+                {
+                    "detail": reply_dedupe.NOTE_IN_PROGRESS_DETAIL,
+                    "error_type": reply_dedupe.NOTE_IN_PROGRESS_ERROR_TYPE,
+                },
+                status=drf_status.HTTP_409_CONFLICT,
+            )
+        return self._reply_response(
+            cast(Comment, guarded.comment), ticket, created=guarded.outcome is reply_dedupe.CreateOutcome.CREATED
+        )
 
     @extend_schema(
         parameters=[TICKET_ID_PARAM],

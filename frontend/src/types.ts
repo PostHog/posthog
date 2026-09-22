@@ -5972,6 +5972,7 @@ export const API_SCOPE_OBJECTS = [
     'survey',
     'tagger',
     'ticket',
+    'ticket_note',
     'task',
     'toolbar',
     'tracing',

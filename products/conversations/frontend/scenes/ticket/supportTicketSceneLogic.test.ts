@@ -86,7 +86,20 @@ function makeAiComment(id: string, isPrivate: boolean = true): CommentType {
         content: 'AI reply body',
         scope: 'conversations_ticket',
         item_id: 'ticket-1',
-        item_context: { author_type: 'AI', is_private: isPrivate },
+        item_context: { author_type: 'AI', is_private: isPrivate, persist_as: 'reply' },
+        created_at: '2026-01-01T00:00:00Z',
+        created_by: null,
+    } as unknown as CommentType
+}
+
+/** A note an agent wrote for the team, e.g. a scout reporting what it found on the ticket. */
+function makeAgentNoteComment(id: string, authorName: string): CommentType {
+    return {
+        id,
+        content: 'This is a how-to, the doc is at /docs/sdk.',
+        scope: 'conversations_ticket',
+        item_id: 'ticket-1',
+        item_context: { author_type: 'AI', is_private: true, author_name: authorName },
         created_at: '2026-01-01T00:00:00Z',
         created_by: null,
     } as unknown as CommentType
@@ -367,6 +380,17 @@ describe('supportTicketSceneLogic AI note visibility', () => {
         logic.actions.setMessages([makeCustomerComment('msg-customer'), makeAiComment('msg-ai', isPrivate)])
 
         expect(logic.values.chatMessages.map((m) => m.id)).toEqual(expectedIds)
+    })
+
+    it('shows an agent note under its own name without the flag', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: false })
+        logic.actions.setMessages([
+            makeCustomerComment('msg-customer'),
+            makeAgentNoteComment('msg-note', 'signals-scout-conversations'),
+        ])
+
+        expect(logic.values.chatMessages.map((m) => m.id)).toEqual(['msg-customer', 'msg-note'])
+        expect(logic.values.chatMessages[1].authorName).toBe('signals-scout-conversations')
     })
 })
 

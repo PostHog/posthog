@@ -537,3 +537,71 @@ def create_ticket_deduplicated(fingerprint: ComposeFingerprint, create: Callable
     """
     outcome, ticket = _run_deduplicated(fingerprint, create)
     return GuardedTicketCreate(outcome=outcome, ticket=ticket)
+
+
+# A private note hashes into its own keyspace, so a note key can never collapse onto a reply or a
+# compose. Bump the version when the contents below change.
+_NOTE_KEY_PREFIX = "conversations:note_dedupe:v1:"
+
+NOTE_IN_PROGRESS_ERROR_TYPE = "note_in_progress"
+NOTE_IN_PROGRESS_DETAIL = "This note is already being added. Check the thread before adding it again."
+
+
+@dataclass(frozen=True, kw_only=True)
+class TicketNoteFingerprint:
+    """The identity of a private note, taken from the key its author supplied.
+
+    The other two fingerprints hash the request body, because neither of their callers has a key
+    to give. The notes endpoint takes one, which makes its dedupe durable rather than windowed:
+    the key is stored on the note, so a run that reaches the same conclusion a week later posts
+    nothing, and two notes on one ticket can never share a key.
+    """
+
+    team_id: int
+    item_id: str
+    dedupe_key: str
+
+    @property
+    def key(self) -> str:
+        canonical = json.dumps(
+            {"team_id": self.team_id, "item_id": self.item_id, "dedupe_key": self.dedupe_key},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        # Only the digest reaches Redis, so no caller-supplied key lands in a Redis key.
+        return f"{_NOTE_KEY_PREFIX}{hashlib.sha256(canonical.encode()).hexdigest()}"
+
+    def find_persisted_match(self, *, created_after: datetime) -> Comment | None:
+        """The note an earlier call with this key already wrote, if there is one.
+
+        ``created_after`` is ignored: the key is stored on the note, so it dedupes for as long as
+        the note exists rather than for a replay window. Oldest first, so a pair of notes that
+        somehow share a key still replays the one every earlier caller was given.
+        """
+        return (
+            Comment.objects.filter(
+                team_id=self.team_id,
+                scope=SUPPORT_TICKET_SCOPE,
+                item_id=self.item_id,
+                item_context__internal_note_key=self.dedupe_key,
+                deleted=False,
+            )
+            .order_by("created_at")
+            .first()
+        )
+
+    def load_replay_target(self, comment_id: str | None) -> Comment | None:
+        """Re-verify a published mapping before serving it as a replay."""
+        if not comment_id:
+            return None
+        comment = Comment.objects.filter(team_id=self.team_id, pk=comment_id, deleted=False).first()
+        if comment is None or (comment.item_context or {}).get("internal_note_key") != self.dedupe_key:
+            logger.warning("conversations_note_dedupe_stale_mapping", comment_id=comment_id)
+            return None
+        return comment
+
+
+def create_note_deduplicated(fingerprint: TicketNoteFingerprint, create: Callable[[], Comment]) -> GuardedCreate:
+    """Deduplicate a private-note create. See ``_run_deduplicated`` for the outcome contract."""
+    outcome, comment = _run_deduplicated(fingerprint, create)
+    return GuardedCreate(outcome=outcome, comment=comment)

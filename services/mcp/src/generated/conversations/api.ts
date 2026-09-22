@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 12 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -214,6 +214,42 @@ export const ConversationsTicketsMessagesListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
+
+/**
+ * Add a private note to a ticket, visible to the team only.
+ *
+ * There is no request shape that reaches the customer: the action takes no privacy flag, and
+ * nothing it writes is delivered over the ticket's channel. That is what lets an unattended
+ * agent hold `ticket_note:write` without also holding the reply action, which does deliver.
+ */
+export const ConversationsTicketsNotesCreateParams = () => zod.object({
+    id: zod.string().describe("The ticket's UUID or its numeric ticket number."),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const conversationsTicketsNotesCreateBodyContentMax = 5000
+
+export const conversationsTicketsNotesCreateBodyDedupeKeyMax = 200
+
+export const ConversationsTicketsNotesCreateBody = () => zod
+    .object({
+        content: zod
+            .string()
+            .max(conversationsTicketsNotesCreateBodyContentMax)
+            .describe('Note content in markdown. Always private, so the customer never receives it.'),
+        dedupe_key: zod
+            .string()
+            .max(conversationsTicketsNotesCreateBodyDedupeKeyMax)
+            .optional()
+            .describe(
+                'Identifier for the thing that produced this note, so a retried call posts nothing and returns the note the first call made. Two notes on one ticket cannot share a key.'
+            ),
+    })
+    .describe('Payload for adding a private note to a ticket.')
 
 /**
  * Update a private note on a ticket.
