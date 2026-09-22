@@ -343,7 +343,7 @@ export function DashboardsTable({
                 loading={dashboardsLoading}
                 defaultSorting={effectiveTableSorting}
                 onSort={tableSortingChanged}
-                emptyState={emptyState ?? 'No dashboards match your filters.'}
+                emptyState={emptyState}
                 nouns={['dashboard', 'dashboards']}
                 bulkSelection={{
                     barClassName: 'mb-2',

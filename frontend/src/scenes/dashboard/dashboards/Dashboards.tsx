@@ -45,7 +45,7 @@ export function Dashboards(): JSX.Element {
     const { showNewDashboardModal } = useActions(newDashboardLogic)
 
     useEffect(() => {
-        if (listState !== 'loading' && listState !== 'populated' && currentTab !== DashboardsTab.Templates) {
+        if ((listState === 'empty' || listState === 'load-failed') && currentTab !== DashboardsTab.Templates) {
             // pinned: analytics event name - renaming breaks dashboards
             posthog.capture('dashboards list showed nothing', { state: listState, tab: currentTab })
         }

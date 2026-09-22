@@ -258,11 +258,10 @@ export interface dashboardsLogicMeta {
         listState: (
             dashboardsLoading: boolean,
             loadDashboardsFailed: boolean,
-            dashboards: DashboardBasicType[],
-            isFiltering: boolean,
-            currentTab: DashboardsTab
+            searchedDashboardsLoading: boolean,
+            dashboards: DashboardBasicType[]
         ) => DashboardsListState
-        emptyListMessage: (listState: DashboardsListState, currentTab: DashboardsTab) => string
+        emptyListMessage: (isFiltering: boolean, currentTab: DashboardsTab) => string
     }
 }
 
@@ -504,37 +503,29 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             (s) => [
                 dashboardsModel.selectors.dashboardsLoading,
                 dashboardsModel.selectors.loadDashboardsFailed,
+                s.searchedDashboardsLoading,
                 s.dashboards,
-                s.isFiltering,
-                s.currentTab,
             ],
             (
                 dashboardsLoading: boolean,
                 loadDashboardsFailed: boolean,
-                dashboards: DashboardBasicType[],
-                isFiltering: boolean,
-                currentTab: DashboardsTab
+                searchedDashboardsLoading: boolean,
+                dashboards: DashboardBasicType[]
             ): DashboardsListState => {
                 // A failed load leaves dashboardsLoading true for good, so it has to be read first.
                 if (loadDashboardsFailed) {
                     return 'load-failed'
                 }
-                if (dashboardsLoading) {
+                if (dashboardsLoading || searchedDashboardsLoading) {
                     return 'loading'
                 }
-                if (dashboards.length > 0) {
-                    return 'populated'
-                }
-                if (isFiltering) {
-                    return 'empty-filtered'
-                }
-                return currentTab === DashboardsTab.Yours || currentTab === DashboardsTab.Pinned ? 'empty-tab' : 'empty'
+                return dashboards.length > 0 ? 'populated' : 'empty'
             },
         ],
         emptyListMessage: [
-            (s) => [s.listState, s.currentTab],
-            (listState: DashboardsListState, currentTab: DashboardsTab): string => {
-                if (listState === 'empty-filtered') {
+            (s) => [s.isFiltering, s.currentTab],
+            (isFiltering: boolean, currentTab: DashboardsTab): string => {
+                if (isFiltering) {
                     return 'No dashboards match your filters. Clear them to see the rest.'
                 }
                 if (currentTab === DashboardsTab.Yours) {

@@ -271,11 +271,11 @@ describe('dashboardsLogic', () => {
             }).toMatchValues({ listState: 'load-failed' })
         })
 
-        it('separates an empty tab from an empty filter result', async () => {
+        it('blames the filters only when filters are set, not the tab', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setCurrentTab(DashboardsTab.Yours)
                 logic.actions.setFilters({ folder: 'Nowhere' })
-            }).toMatchValues({ listState: 'empty-filtered' })
+            }).toMatchValues({ emptyListMessage: 'No dashboards match your filters. Clear them to see the rest.' })
         })
 
         it.each([
