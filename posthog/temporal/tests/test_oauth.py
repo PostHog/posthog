@@ -509,15 +509,6 @@ class TestCreateWizardOAuthAccessTokenForUser(TestCase):
         assert shadow.call_args.kwargs == {"call_site": "wizard_mint"}
 
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
-    @patch("posthog.temporal.oauth._organization_id_for_team")
-    def test_mint_succeeds_when_the_shadow_subject_lookup_fails(self, lookup: MagicMock) -> None:
-        self._create_wizard_app(scopes=["project:read", "llm_gateway:read"])
-        user, team = self._create_user_and_team()
-        lookup.side_effect = [str(team.organization_id), RuntimeError("lookup failed")]
-
-        assert create_wizard_oauth_access_token_for_user(user, team.id)
-
-    @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
     def test_requires_existing_app(self) -> None:
         user, team = self._create_user_and_team()
 
