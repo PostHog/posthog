@@ -1,6 +1,6 @@
 """Unit tests for logic/retention.py, the run and artifact retention sweep."""
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -80,8 +80,8 @@ class TestRetentionSweep:
     @pytest.mark.parametrize(
         ("branch", "pr_number", "age_days", "survives"),
         [
-            ("feature/x", 7, 31, False),
-            ("feature/x", 7, 29, True),
+            ("feature/x", 7, 4, False),
+            ("feature/x", 7, 2, True),
             ("master", None, 31, True),
             ("master", None, 181, False),
             ("feature/x", None, 31, True),
@@ -105,8 +105,25 @@ class TestRetentionSweep:
         assert result.runs_deleted == 0
         assert Run.objects.filter(id=latest.id).exists()
 
+    @pytest.mark.parametrize(
+        ("branch", "age_days", "survives"),
+        [
+            ("feature/x", 31, False),
+            ("feature/x", 29, True),
+            ("trunk-merge/pr-7/0c0ffee", 8, False),
+            ("trunk-merge/pr-7/0c0ffee", 6, True),
+        ],
+    )
+    def test_quiet_branch_window_depends_on_branch(self, branch, age_days, survives, repo, now):
+        quiet = self._run(repo, now, age_days=age_days, branch=branch)
+        self._run(repo, now, age_days=1, branch="feature/y", pr_number=8)
+
+        retention.sweep_repo_runs(repo, now=now)
+
+        assert Run.objects.filter(id=quiet.id).exists() is survives
+
     def test_quiet_branch_group_goes_in_one_sweep(self, repo, now):
-        latest = self._run(repo, now, age_days=91)
+        latest = self._run(repo, now, age_days=31)
         superseded = self._run(repo, now, age_days=100, superseded_by=latest)
         self._run(repo, now, age_days=1, branch="feature/y", pr_number=8)
 
@@ -116,7 +133,7 @@ class TestRetentionSweep:
         assert not Run.objects.filter(id__in=[latest.id, superseded.id]).exists()
 
     def test_quiet_branch_keeps_the_newest_completed_run_of_a_run_type(self, repo, now):
-        latest = self._run(repo, now, age_days=91)
+        latest = self._run(repo, now, age_days=31)
 
         assert retention.sweep_repo_runs(repo, now=now).runs_deleted == 0
         assert Run.objects.filter(id=latest.id).exists()
@@ -131,7 +148,7 @@ class TestRetentionSweep:
         assert not Run.objects.filter(id=latest.id).exists()
 
     def test_quiet_branch_kept_when_another_run_type_is_recent(self, repo, now):
-        stale_latest = self._run(repo, now, age_days=91, run_type=RunType.STORYBOOK)
+        stale_latest = self._run(repo, now, age_days=31, run_type=RunType.STORYBOOK)
         self._run(repo, now, age_days=2, run_type=RunType.PLAYWRIGHT)
 
         retention.sweep_repo_runs(repo, now=now)
@@ -179,7 +196,14 @@ class TestRetentionSweep:
                 ToleratedHash,
                 {"baseline_hash": "base1", "alternate_hash": "alt1", "reason": ToleratedReason.HUMAN},
             ),
-            (QuarantinedIdentifier, {"run_type": RunType.STORYBOOK, "reason": "flaky in CI"}),
+            (
+                QuarantinedIdentifier,
+                {
+                    "run_type": RunType.STORYBOOK,
+                    "reason": "flaky in CI",
+                    "expires_at": datetime(2020, 1, 1, tzinfo=UTC),
+                },
+            ),
         ],
     )
     def test_audit_rows_outlive_the_run_that_created_them(self, model, extra_fields, repo, now):
@@ -197,6 +221,27 @@ class TestRetentionSweep:
 
         row.refresh_from_db()
         assert row.source_run_id is None
+
+    @pytest.mark.parametrize("expired_quarantine", [False, True])
+    @pytest.mark.parametrize("source", ["superseded", "quiet"])
+    def test_active_quarantine_keeps_its_source_run(self, source, expired_quarantine, repo, now):
+        latest = self._run(repo, now, age_days=31)
+        superseded = self._run(repo, now, age_days=40, superseded_by=latest)
+        self._run(repo, now, age_days=1, branch="feature/y", pr_number=8)
+        source_run = superseded if source == "superseded" else latest
+        QuarantinedIdentifier.objects.create(
+            repo=repo,
+            team_id=repo.team_id,
+            identifier="Button",
+            run_type=RunType.STORYBOOK,
+            reason="flaky in CI",
+            source_run=source_run,
+            expires_at=now - timedelta(days=1) if expired_quarantine else None,
+        )
+
+        retention.sweep_repo_runs(repo, now=now)
+
+        assert Run.objects.filter(id=source_run.id).exists() is not expired_quarantine
 
     def test_run_cap_bounds_one_invocation(self, repo, now, monkeypatch):
         monkeypatch.setattr(retention, "MAX_RUNS_PER_SWEEP", 1)
