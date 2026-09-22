@@ -11,6 +11,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseConnectionLost,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
@@ -108,6 +109,12 @@ def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3Fil
 
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
+    if isinstance(err, EOFError):
+        # A pooled socket that closes while the driver reads a result surfaces as a builtin
+        # EOFError from its buffered reader, with no ClickHouse error code to look up. Give it a
+        # named class so it retries with the other transient errors instead of reaching the user
+        # as an unhandled 500.
+        return ClickHouseConnectionLost()
     if not isinstance(err, ServerException):
         return err
 
@@ -1052,12 +1059,15 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
 # a retry is safe. They are not ServerExceptions, so wrap_clickhouse_query_error passes them through
 # untouched: a bare "Code: 209. (host:9440)" is the driver's 10s connect_timeout firing, typically
 # because a node dropped out of the cluster's load balancer for a few seconds.
+# ClickHouseConnectionLost is the one member raised after the query was sent, so a retry can repeat
+# a write. Every caller of this tuple retries reads or writes that are safe to repeat.
 CH_TRANSIENT_ERRORS = (
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
     CHQueryErrorTableIsReadOnly,
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseConnectionLost,
     NetworkError,
     SocketTimeoutError,
 )

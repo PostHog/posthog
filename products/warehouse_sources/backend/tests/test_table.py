@@ -18,7 +18,7 @@ from posthog.hogql.database.models import DatabaseField, StringDatabaseField, UU
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.escape_sql import escape_param_clickhouse
 
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseConnectionLost
 
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -135,18 +135,20 @@ class TestSafeExposeChError:
         with pytest.raises(ClickHouseAtCapacity):
             DataWarehouseTable()._safe_expose_ch_error(ServerException("busy", code=code))
 
-    # A transient connection/read error (e.g. an EOFError from a dropped ClickHouse socket) is not
-    # a ServerException, so wrap_clickhouse_query_error returns it untouched and it has no `.message`.
-    # It must be re-raised as-is, not masked as a storage-bucket misconfiguration, which would hide
-    # a retryable error from Temporal.
+    # A transient connection/read error carries no `.message`, whether wrap_clickhouse_query_error
+    # returns it untouched (ConnectionResetError) or names it (an EOFError from a dropped ClickHouse
+    # socket becomes ClickHouseConnectionLost). Either way it must stay transient, not be masked as
+    # a storage-bucket misconfiguration, which would hide a retryable error from Temporal.
     @pytest.mark.parametrize(
-        "err",
-        [EOFError("Unexpected EOF while reading bytes"), ConnectionResetError("Connection reset by peer")],
+        "err,expected",
+        [
+            (EOFError("Unexpected EOF while reading bytes"), ClickHouseConnectionLost),
+            (ConnectionResetError("Connection reset by peer"), ConnectionResetError),
+        ],
     )
-    def test_transient_errors_without_message_are_reraised_untouched(self, err: Exception) -> None:
-        with pytest.raises(type(err)) as exc_info:
+    def test_transient_errors_without_message_stay_transient(self, err: Exception, expected: type) -> None:
+        with pytest.raises(expected):
             DataWarehouseTable()._safe_expose_ch_error(err)
-        assert exc_info.value is err
 
     def test_cancelled_query_gets_a_timeout_message_instead_of_storage_bucket_blame(self) -> None:
         # code 394 QUERY_WAS_CANCELLED here means our own client timed out reading, not bad files.
