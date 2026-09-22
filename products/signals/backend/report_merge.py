@@ -351,6 +351,34 @@ def _survivor_note(sources: list[SignalReport], reason: str | None) -> str:
     return f"{body}\n\nTitles and summaries are not combined by a merge."
 
 
+def _requested_source_ids(source_ids: list[str], *, survivor_id: str) -> list[str]:
+    """The sources to merge, de-duplicated and in request order, or a `ReportMergeError`."""
+    if not source_ids:
+        raise ReportMergeError("At least one source report is required.")
+    if len(source_ids) > MAX_MERGE_SOURCE_REPORTS:
+        raise ReportMergeError(
+            f"A merge takes at most {MAX_MERGE_SOURCE_REPORTS} source reports. Split it into several calls."
+        )
+    ordered: list[str] = []
+    for raw_id in source_ids:
+        key = str(raw_id)
+        if key == survivor_id:
+            raise ReportMergeError("A report cannot be merged into itself.")
+        if key not in ordered:
+            ordered.append(key)
+    return ordered
+
+
+def _mergeable_source(report: SignalReport | None, requested_id: str) -> SignalReport:
+    if report is None:
+        raise ReportMergeError(f"Report {requested_id} was not found in this project.")
+    if report.status not in MERGEABLE_SOURCE_STATUSES:
+        raise ReportMergeError(
+            f"Report {requested_id} is {report.status} and cannot be merged. Only a live report can be a source."
+        )
+    return report
+
+
 def merge_reports(
     *,
     team: Team,
@@ -365,45 +393,21 @@ def merge_reports(
     survivor itself. Either the whole call applies or none of it does, so a caller never has to
     reason about a half-merged pair.
     """
-    if not source_ids:
-        raise ReportMergeError("At least one source report is required.")
-    if len(source_ids) > MAX_MERGE_SOURCE_REPORTS:
-        raise ReportMergeError(
-            f"A merge takes at most {MAX_MERGE_SOURCE_REPORTS} source reports. Split it into several calls."
-        )
-
-    ordered_ids: list[str] = []
-    for raw_id in source_ids:
-        key = str(raw_id)
-        if key == str(survivor.id):
-            raise ReportMergeError("A report cannot be merged into itself.")
-        if key not in ordered_ids:
-            ordered_ids.append(key)
+    ordered_ids = _requested_source_ids(source_ids, survivor_id=str(survivor.id))
 
     with transaction.atomic():
         # Locked in id order, survivor included, so two merges naming overlapping reports queue
         # instead of deadlocking.
-        locked_ids = sorted({*ordered_ids, str(survivor.id)})
         locked = {
             str(report.id): report
             for report in SignalReport.objects.select_for_update()
-            .filter(team_id=team.id, id__in=locked_ids)
+            .filter(team_id=team.id, id__in=sorted({*ordered_ids, str(survivor.id)}))
             .order_by("id")
         }
         if str(survivor.id) not in locked:
             raise ReportMergeError("The report to merge into was not found in this project.")
         survivor = locked[str(survivor.id)]
-
-        sources: list[SignalReport] = []
-        for source_id in ordered_ids:
-            source = locked.get(source_id)
-            if source is None:
-                raise ReportMergeError(f"Report {source_id} was not found in this project.")
-            if source.status not in MERGEABLE_SOURCE_STATUSES:
-                raise ReportMergeError(
-                    f"Report {source_id} is {source.status} and cannot be merged. Only a live report can be a source."
-                )
-            sources.append(source)
+        sources = [_mergeable_source(locked.get(source_id), source_id) for source_id in ordered_ids]
 
         try:
             merged = [
