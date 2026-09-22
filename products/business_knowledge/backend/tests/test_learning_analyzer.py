@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from asgiref.sync import sync_to_async
+from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from temporalio.common import MetricMeter
 from temporalio.testing import ActivityEnvironment
 
@@ -487,7 +488,7 @@ class TestLearningAnalyzer:
         client = MagicMock()
         analytics = MagicMock(default_client=client, disabled=False)
 
-        def _raise_sensitive_error(messages: object, config: dict[str, list[object]]) -> None:
+        def _raise_sensitive_error(messages: object, config: dict[str, list[CallbackHandler]]) -> None:
             callback = config["callbacks"][0]
             error = ValueError("sensitive model output")
             callback.on_llm_error(error, run_id=UUID(int=1))
