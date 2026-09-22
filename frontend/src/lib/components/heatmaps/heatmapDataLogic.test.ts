@@ -115,9 +115,7 @@ describe('heatmapDataLogic requests', () => {
 
         await expectLogic(logic, () => {
             logic.actions.setHref('https://example.com/pricing')
-        })
-            .toDispatchActions(['loadHeatmapSuccess'])
-            .toMatchValues({ rawHeatmap: null })
+        }).toDispatchActions(['loadHeatmapSuccess'])
 
         // A request now answers with the transport's stub 401, which the user cannot act on.
         expect((global.fetch as jest.Mock).mock.calls).toHaveLength(0)

@@ -1068,8 +1068,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             },
             // heatmapDataLogic skips a request made before the toolbar holds a token, so replay it
             // as soon as the OAuth handshake lands instead of leaving an empty overlay.
-            isAuthenticated: (isAuthenticated: boolean, previous: boolean) => {
-                if (isAuthenticated && !previous) {
+            isAuthenticated: (isAuthenticated: boolean) => {
+                if (isAuthenticated) {
                     actions.maybeLoadHeatmap()
                 }
             },

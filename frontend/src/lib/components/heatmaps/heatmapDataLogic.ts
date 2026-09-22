@@ -510,7 +510,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     // The OAuth handshake can still be in flight when the overlay opens. A request now
                     // fails with the transport's stub 401 and leaves the user a dead error, so wait for
                     // the token instead: heatmapToolbarMenuLogic reloads once it arrives.
-                    if (props.context === 'toolbar' && !toolbarConfigLogic.findMounted()?.values.accessToken) {
+                    if (props.context === 'toolbar' && !toolbarConfigLogic.findMounted()?.values.isAuthenticated) {
                         return null
                     }
 
