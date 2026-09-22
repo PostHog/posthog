@@ -2,6 +2,7 @@ import struct
 from datetime import UTC, datetime
 
 import pytest
+from unittest.mock import patch
 
 import pyarrow as pa
 from parameterized import parameterized
@@ -148,10 +149,10 @@ class TestPgOutputDecoder:
         begin = _make_begin()
         commit = _make_commit()
 
-        events = decoder.decode_message(begin, "0/100")
+        events = list(decoder.decode_message(begin, "0/100"))
         assert events == []
 
-        events = decoder.decode_message(commit, "0/200")
+        events = list(decoder.decode_message(commit, "0/200"))
         assert events == []
 
     def test_event_table_name_is_schema_qualified(self):
@@ -163,7 +164,7 @@ class TestPgOutputDecoder:
         )
         decoder.decode_message(_make_begin(), "0/100")
         decoder.decode_message(_make_insert(7, [("t", "1")]), "0/150")
-        events = decoder.decode_message(_make_commit(), "0/200")
+        events = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert len(events) == 1
         assert events[0].table_name == "public.cdc_test_orders"
@@ -177,7 +178,7 @@ class TestPgOutputDecoder:
 
         decoder.decode_message(begin, "0/100")
         decoder.decode_message(insert, "0/150")
-        events = decoder.decode_message(commit, "0/200")
+        events = list(decoder.decode_message(commit, "0/200"))
 
         assert len(events) == 1
         event = events[0]
@@ -195,7 +196,7 @@ class TestPgOutputDecoder:
 
         decoder.decode_message(begin, "0/100")
         decoder.decode_message(update, "0/150")
-        events = decoder.decode_message(commit, "0/200")
+        events = list(decoder.decode_message(commit, "0/200"))
 
         assert len(events) == 1
         event = events[0]
@@ -217,7 +218,7 @@ class TestPgOutputDecoder:
 
         decoder.decode_message(begin, "0/100")
         decoder.decode_message(update, "0/150")
-        events = decoder.decode_message(commit, "0/200")
+        events = list(decoder.decode_message(commit, "0/200"))
 
         assert len(events) == 1
         assert events[0].operation == "U"
@@ -232,7 +233,7 @@ class TestPgOutputDecoder:
 
         decoder.decode_message(begin, "0/100")
         decoder.decode_message(delete, "0/150")
-        events = decoder.decode_message(commit, "0/200")
+        events = list(decoder.decode_message(commit, "0/200"))
 
         assert len(events) == 1
         event = events[0]
@@ -252,7 +253,7 @@ class TestPgOutputDecoder:
 
         decoder.decode_message(begin, "0/100")
         decoder.decode_message(insert, "0/150")
-        events = decoder.decode_message(commit, "0/200")
+        events = list(decoder.decode_message(commit, "0/200"))
 
         assert len(events) == 1
         assert events[0].columns["id"] == 1
@@ -277,7 +278,7 @@ class TestPgOutputDecoder:
         decoder.decode_message(
             _make_insert(1, [("t", "1"), ("t", "5"), ("t", "9.5"), ("t", "t"), ("t", "{}"), ("t", "x")]), "0/150"
         )
-        events = decoder.decode_message(_make_commit(), "0/200")
+        events = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert events[0].column_types == {
             "id": pa.int64(),
@@ -298,7 +299,7 @@ class TestPgOutputDecoder:
 
         decoder.decode_message(begin, "0/100")
         decoder.decode_message(update, "0/150")
-        events = decoder.decode_message(commit, "0/200")
+        events = list(decoder.decode_message(commit, "0/200"))
 
         assert len(events) == 1
         assert events[0].columns["id"] == 1
@@ -320,7 +321,7 @@ class TestPgOutputDecoder:
             old_marker=b"O",
         )
         decoder.decode_message(update, "0/150")
-        events = decoder.decode_message(_make_commit(), "0/200")
+        events = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert len(events) == 1
         assert events[0].columns["big_text"] == "big toasted value"
@@ -335,13 +336,13 @@ class TestPgOutputDecoder:
         insert3 = _make_insert(1, [("t", "3")])
 
         # Events should NOT be returned until Commit
-        assert decoder.decode_message(begin, "0/100") == []
-        assert decoder.decode_message(insert1, "0/110") == []
-        assert decoder.decode_message(insert2, "0/120") == []
-        assert decoder.decode_message(insert3, "0/130") == []
+        assert list(decoder.decode_message(begin, "0/100")) == []
+        assert list(decoder.decode_message(insert1, "0/110")) == []
+        assert list(decoder.decode_message(insert2, "0/120")) == []
+        assert list(decoder.decode_message(insert3, "0/130")) == []
 
         commit = _make_commit()
-        events = decoder.decode_message(commit, "0/200")
+        events = list(decoder.decode_message(commit, "0/200"))
 
         assert len(events) == 3
         assert [e.columns["id"] for e in events] == [1, 2, 3]
@@ -352,12 +353,12 @@ class TestPgOutputDecoder:
         # Transaction 1
         decoder.decode_message(_make_begin(), "0/100")
         decoder.decode_message(_make_insert(1, [("t", "1")]), "0/110")
-        events1 = decoder.decode_message(_make_commit(), "0/200")
+        events1 = list(decoder.decode_message(_make_commit(), "0/200"))
 
         # Transaction 2
         decoder.decode_message(_make_begin(), "0/300")
         decoder.decode_message(_make_insert(1, [("t", "2")]), "0/310")
-        events2 = decoder.decode_message(_make_commit(), "0/400")
+        events2 = list(decoder.decode_message(_make_commit(), "0/400"))
 
         assert len(events1) == 1
         assert events1[0].columns["id"] == 1
@@ -378,7 +379,7 @@ class TestPgOutputDecoder:
             _make_insert(1, [("t", "10"), ("t", "20"), ("t", "99.5")]),
             "0/110",
         )
-        events = decoder.decode_message(_make_commit(), "0/200")
+        events = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert len(events) == 1
         assert events[0].columns["tenant_id"] == 10
@@ -393,7 +394,7 @@ class TestPgOutputDecoder:
             _make_insert(1, [("t", "1"), ("t", "日本語テスト 🎉")]),
             "0/110",
         )
-        events = decoder.decode_message(_make_commit(), "0/200")
+        events = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert len(events) == 1
         assert events[0].columns["name"] == "日本語テスト 🎉"
@@ -407,7 +408,7 @@ class TestPgOutputDecoder:
 
         decoder.decode_message(_make_begin(), "0/100")
         decoder.decode_message(_make_insert(1, [("t", "1"), ("t", "Alice")]), "0/110")
-        events1 = decoder.decode_message(_make_commit(), "0/200")
+        events1 = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert events1[0].columns == {"id": 1, "name": "Alice"}
 
@@ -422,7 +423,7 @@ class TestPgOutputDecoder:
             _make_insert(1, [("t", "2"), ("t", "Bob"), ("t", "bob@example.com")]),
             "0/310",
         )
-        events2 = decoder.decode_message(_make_commit(), "0/400")
+        events2 = list(decoder.decode_message(_make_commit(), "0/400"))
 
         assert events2[0].columns == {"id": 2, "name": "Bob", "email": "bob@example.com"}
 
@@ -448,7 +449,7 @@ class TestPgOutputDecoder:
         decoder.decode_message(_make_begin(), "0/100")
         decoder.decode_message(_make_insert(1, [("t", "1")]), "0/110")
         decoder.decode_message(_make_insert(2, [("t", "100"), ("t", "1")]), "0/120")
-        events = decoder.decode_message(_make_commit(), "0/200")
+        events = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert len(events) == 2
         assert events[0].table_name == "public.users"
@@ -472,7 +473,7 @@ class TestPgOutputDecoder:
 
         decoder.decode_message(_make_begin(), "0/100")
         decoder.decode_message(_make_insert(1, [("t", text_value)]), "0/110")
-        events = decoder.decode_message(_make_commit(), "0/200")
+        events = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert events[0].columns["val"] == expected
 
@@ -482,18 +483,18 @@ class TestPgOutputDecoder:
 
         decoder.decode_message(_make_begin(), "0/100")
         decoder.decode_message(_make_insert(99, [("t", "1")]), "0/110")
-        events = decoder.decode_message(_make_commit(), "0/200")
+        events = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert len(events) == 0
 
     def test_empty_message(self):
         decoder = PgOutputDecoder()
-        events = decoder.decode_message(b"", "0/100")
+        events = list(decoder.decode_message(b"", "0/100"))
         assert events == []
 
     def test_unknown_message_type_ignored(self):
         decoder = PgOutputDecoder()
-        events = decoder.decode_message(b"Z\x00\x00", "0/100")
+        events = list(decoder.decode_message(b"Z\x00\x00", "0/100"))
         assert events == []
 
     def test_mixed_operations_in_transaction(self):
@@ -503,7 +504,7 @@ class TestPgOutputDecoder:
         decoder.decode_message(_make_insert(1, [("t", "1"), ("t", "Alice")]), "0/110")
         decoder.decode_message(_make_update(1, [("t", "1"), ("t", "Alice Updated")]), "0/120")
         decoder.decode_message(_make_delete(1, [("t", "2"), None]), "0/130")
-        events = decoder.decode_message(_make_commit(), "0/200")
+        events = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert len(events) == 3
         assert events[0].operation == "I"
@@ -527,38 +528,37 @@ class TestPgTimestamp:
 
 
 class TestTransactionBufferGuard:
-    """A single transaction is buffered fully in memory until COMMIT; the decoder caps it so one
-    pathological transaction can't OOM the worker."""
-
     def _decoder_with_relation(self) -> PgOutputDecoder:
         decoder = PgOutputDecoder()
         decoder.decode_message(_make_relation(1, "public", "users", [("id", _OID_INT4, -1)]), "0/1")
         return decoder
 
-    def test_raises_when_transaction_exceeds_buffer_cap(self, monkeypatch):
-        monkeypatch.setattr(f"{_DECODER_MODULE}.MAX_TX_BUFFER_EVENTS", 3)
-        decoder = self._decoder_with_relation()
+    def _decode_transaction(self, decoder: PgOutputDecoder, ids: range) -> list:
         decoder.decode_message(_make_begin(), "0/1")
+        for i in ids:
+            assert list(decoder.decode_message(_make_insert(1, [("t", str(i))]), "0/1")) == []
+        return list(decoder.decode_message(_make_commit(end_lsn=0x500), "0/2"))
 
-        # Up to the cap buffers without yielding (events flush only on COMMIT).
-        for i in range(3):
-            assert decoder.decode_message(_make_insert(1, [("t", str(i))]), "0/1") == []
+    @parameterized.expand([("fits_in_memory", 10), ("spills_whole_chunks", 7), ("spills_with_a_tail", 2)])
+    def test_every_change_comes_back_in_order_at_the_commit_position(self, _name, chunk):
+        with patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", chunk):
+            decoder = self._decoder_with_relation()
+            events = self._decode_transaction(decoder, range(7))
+            follow_up = self._decode_transaction(decoder, range(100, 103))
 
-        # The change past the cap aborts decoding instead of growing the buffer unbounded.
-        with pytest.raises(CDCTransactionTooLargeError):
-            decoder.decode_message(_make_insert(1, [("t", "99")]), "0/1")
+        assert [e.columns["id"] for e in events] == list(range(7))
+        assert {e.position_serialized for e in events} == {"0/500"}
+        assert [e.columns["id"] for e in follow_up] == [100, 101, 102]
 
-    def test_cap_is_per_transaction(self, monkeypatch):
-        # The buffer clears at each COMMIT, so a long stream of small transactions never trips the cap.
-        monkeypatch.setattr(f"{_DECODER_MODULE}.MAX_TX_BUFFER_EVENTS", 2)
-        decoder = self._decoder_with_relation()
-
-        for _ in range(3):
+    def test_raises_when_transaction_exceeds_the_cap(self):
+        with patch(f"{_DECODER_MODULE}.MAX_TX_BUFFER_EVENTS", 3), patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 2):
+            decoder = self._decoder_with_relation()
             decoder.decode_message(_make_begin(), "0/1")
-            decoder.decode_message(_make_insert(1, [("t", "1")]), "0/1")
-            decoder.decode_message(_make_insert(1, [("t", "2")]), "0/1")
-            events = decoder.decode_message(_make_commit(), "0/1")
-            assert len(events) == 2
+            for i in range(3):
+                decoder.decode_message(_make_insert(1, [("t", str(i))]), "0/1")
+
+            with pytest.raises(CDCTransactionTooLargeError):
+                decoder.decode_message(_make_insert(1, [("t", "99")]), "0/1")
 
 
 class TestReplicaIdentityKeyColumns:
