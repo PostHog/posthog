@@ -98,6 +98,7 @@ from products.feature_flags.backend.facade.api import (
     ship_variant as ship_flag_variant,
     unarchive_flag,
     update_flag,
+    user_can_create_flags,
     user_can_edit_flag,
 )
 from products.feature_flags.backend.facade.filters import (
@@ -1565,10 +1566,12 @@ class ExperimentService:
             # Not in _validate_existing_flag: launch calls that too, on a flag this experiment
             # already owns.
             assert_flag_available_for(existing_flag, product=FLAG_OWNER_EXPERIMENT)
-            self._assert_can_link_flag(existing_flag)
+            self._assert_flag_access(existing_flag)
             self._validate_existing_flag(existing_flag)
             variants = existing_flag.variants or list(DEFAULT_VARIANTS)
             return existing_flag, variants
+
+        self._assert_flag_access()
 
         config = feature_flag_config or {}
         config_filters = config.get("filters") or {}
@@ -1621,26 +1624,36 @@ class ExperimentService:
 
         return feature_flag, variants or list(DEFAULT_VARIANTS)
 
-    def _assert_can_link_flag(self, feature_flag: FeatureFlag) -> None:
-        """Refuse to adopt a flag the caller cannot edit on the flags API.
+    def _assert_flag_access(self, feature_flag: FeatureFlag | None = None) -> None:
+        """Enforce the flag API's own access control before an experiment write touches a flag.
 
-        Linking an existing flag hands the experiment control of it: the response serializes the
-        flag's filters and payloads, and every later lifecycle action flips its `active` state. The
-        flag facade does not enforce access control on writes, so the caller must pre-check editor
-        access, the same way archive and unarchive do. Without this, experiment editor access in a
-        project substitutes for flag access on any flag in it, including one the user is explicitly
-        denied. `self.team` is the flag's team on every path, including a cross-project copy, which
-        re-instantiates the service against the target.
+        Both paths reach the flag facade, which enforces no access control, so without this check
+        experiment editor access substitutes for flag access: a caller could adopt a flag they are
+        denied, or mint a new one where flag writes are refused. Pass `feature_flag` to check
+        editing that flag, or omit it to check creating a new one. `self.team` is the flag's team
+        on every path, including a cross-project copy, which re-instantiates the service against
+        the target. This mirrors `assert_feature_flag_rbac_access`, which covers the same two
+        branches for early access features.
+
+        Adopting an existing flag also hands the experiment control of it: the response serializes
+        the flag's filters and payloads, and every later lifecycle action flips its `active` state.
 
         Synthetic principals (project secret API keys) and userless system writes bypass
-        object-level access control everywhere else, so they are not evaluated here either.
+        access control everywhere else, so they are not evaluated here either.
         """
         if not isinstance(self.user, User):
             return
-        if not user_can_edit_flag(feature_flag, team=self.team, user=self.user):
+        if feature_flag is not None:
+            if not user_can_edit_flag(feature_flag, team=self.team, user=self.user):
+                raise PermissionDenied(
+                    f"You don't have editor access to the feature flag {feature_flag.key}, so it can't be used for "
+                    "an experiment. Pick a different flag key, or ask someone with flag access."
+                )
+            return
+        if not user_can_create_flags(team=self.team, user=self.user):
             raise PermissionDenied(
-                f"You don't have editor access to the feature flag {feature_flag.key}, so it can't be used for an "
-                "experiment. Pick a different flag key, or ask someone with flag access."
+                "An experiment needs a feature flag, and you don't have access to create feature flags. "
+                "Ask someone with flag access."
             )
 
     def _validate_existing_flag(self, feature_flag: FeatureFlag) -> None:

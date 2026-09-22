@@ -4773,6 +4773,21 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
         self.assertFalse(Experiment.objects.filter(feature_flag_id=restricted_flag.id).exists())
 
+    def test_create_experiment_refuses_new_flag_without_flag_create_access(self) -> None:
+        self._enable_access_control()
+        AccessControl.objects.create(team=self.team, resource="feature_flag", access_level="none")
+
+        member = User.objects.create_and_join(self.organization, "no-flag-create@posthog.com", None)
+        self.client.force_login(member)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Mints a new flag", "feature_flag_key": "minted-flag"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertFalse(FeatureFlag.objects.filter(key="minted-flag", team_id=self.team.id).exists())
+
     def test_copy_experiment_to_project_uses_selected_target_team(self) -> None:
         target_team = Team.objects.create(organization=self.organization, name="Target Team")
         secondary_target_team = Team.objects.create(
