@@ -16,7 +16,8 @@ from django.core.management import call_command
 @pytest.mark.parametrize(
     "workflow_name,inputs,expected_fields",
     [
-        ("data-catalog-weekly-digest", [], {"dry_run": False}),
+        # dry_run defaults to True as a manual-run fail-safe, so an input-less CLI start is dry.
+        ("data-catalog-weekly-digest", [], {"dry_run": True}),
         (
             "data-catalog-weekly-digest-test",
             ['{"email": "you@example.com"}'],
