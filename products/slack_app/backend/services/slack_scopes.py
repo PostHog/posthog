@@ -1,6 +1,9 @@
-# In core ``posthog`` so the delivery paths (``ee/tasks``, ``products/exports``) and the
-# ``products.slack_app`` handlers can share the bot's required scopes without crossing tach
-# module boundaries.
+"""What the @PostHog bot needs an install to have granted, and whether a given install has it.
+
+The scope set is the Slack app's own contract with a workspace, so it lives with the app. No
+product outside slack_app reads it: the follow-up invite resolves readiness itself, and the
+fixtures that need the scope string take it from ``facade.testing``.
+"""
 
 from collections.abc import Iterable
 
