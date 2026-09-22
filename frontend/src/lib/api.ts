@@ -233,18 +233,13 @@ import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
-import type { SignalUserAutonomyConfigCreateApi } from 'products/signals/frontend/generated/api.schemas'
 import {
     SignalReport,
     SignalReportArtefact,
     SignalReportArtefactResponse,
     SignalReportStateRequest,
-    SignalScoutEmission,
-    SignalScoutEmissionReportLink,
-    SignalScoutRunSummary,
     SignalSourceConfig,
     SignalTeamConfig,
-    SignalUserAutonomyConfig,
 } from 'products/signals/frontend/inbox/types'
 import type {
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
@@ -1250,11 +1245,6 @@ export class ApiRequest {
         return this.signalReports(teamId).addPathComponent(id)
     }
 
-    // Per-user signal autonomy config (singleton keyed by user). Not project-scoped.
-    public signalUserAutonomy(userId: string | '@me' = '@me'): ApiRequest {
-        return this.addPathComponent('users').addPathComponent(userId).addPathComponent('signal_autonomy')
-    }
-
     // # Signal Source Configs
     public signalSourceConfigs(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('signals').addPathComponent('source_configs')
@@ -1267,23 +1257,6 @@ export class ApiRequest {
     // # Signal Team Config (singleton per team)
     public signalTeamConfig(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('signals').addPathComponent('config')
-    }
-
-    // # Signal Report Artefacts (suggested_reviewers is the only writable type)
-    public signalReportArtefact(reportId: SignalReport['id'], artefactId: string, teamId?: TeamType['id']): ApiRequest {
-        return this.signalReport(reportId, teamId).addPathComponent('artefacts').addPathComponent(artefactId)
-    }
-
-    // # Signal Scouts
-    public signalScoutRuns(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId)
-            .addPathComponent('signals')
-            .addPathComponent('scout')
-            .addPathComponent('runs')
-    }
-
-    public signalScoutRun(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.signalScoutRuns(teamId).addPathComponent(id)
     }
 
     // # Tasks
@@ -5199,72 +5172,6 @@ const api = {
         // Backend exposes update via POST to the collection (singleton create-or-update, partial).
         async update(data: Partial<SignalTeamConfig>): Promise<SignalTeamConfig> {
             return await new ApiRequest().signalTeamConfig().create({ data })
-        },
-    },
-
-    // Scout runs still use the legacy client. Scout configs use the generated Signals client.
-    signalScout: {
-        runs: {
-            // Newest-first raw array (not paginated), capped at 100 server-side.
-            async list(params?: {
-                limit?: number
-                text?: string
-                emitted?: boolean
-                date_from?: string
-                date_to?: string
-            }): Promise<SignalScoutRunSummary[]> {
-                return await new ApiRequest().signalScoutRuns().withQueryString(params).get()
-            },
-            async get(runId: string): Promise<SignalScoutRunSummary> {
-                return await new ApiRequest().signalScoutRun(runId).get()
-            },
-            async emissions(runId: string): Promise<SignalScoutEmission[]> {
-                return await new ApiRequest().signalScoutRun(runId).withAction('emissions').get()
-            },
-            // Per-finding reverse lookup: which inbox report each emitted finding grouped into.
-            // `report` is null when a finding hasn't grouped, was deduped, or its signal was deleted.
-            async emissionReports(runId: string): Promise<SignalScoutEmissionReportLink[]> {
-                return await new ApiRequest().signalScoutRun(runId).withAction('emissions/reports').get()
-            },
-            // Batched form of `emissions`: every run's findings in one request, flat newest-first
-            // (each row carries its `run_id`). POST since the run-id set can be large.
-            async emissionsBatch(runIds: string[]): Promise<SignalScoutEmission[]> {
-                return await new ApiRequest()
-                    .signalScoutRuns()
-                    .withAction('emissions/batch')
-                    .create({ data: { run_ids: runIds } })
-            },
-            // Batched form of `emissionReports`: resolves every run's findings to their inbox report
-            // in a single ClickHouse round-trip, instead of one query per run.
-            async emissionReportsBatch(runIds: string[]): Promise<SignalScoutEmissionReportLink[]> {
-                return await new ApiRequest()
-                    .signalScoutRuns()
-                    .withAction('emissions/reports/batch')
-                    .create({ data: { run_ids: runIds } })
-            },
-        },
-    },
-
-    signalUserAutonomy: {
-        async get(userId: string | '@me' = '@me'): Promise<SignalUserAutonomyConfig | null> {
-            try {
-                return await new ApiRequest().signalUserAutonomy(userId).get()
-            } catch (error: any) {
-                // 404 = no config yet (user hasn't opted in). Treat as null.
-                if (error?.status === 404) {
-                    return null
-                }
-                throw error
-            }
-        },
-        async update(
-            data: SignalUserAutonomyConfigCreateApi,
-            userId: string | '@me' = '@me'
-        ): Promise<SignalUserAutonomyConfig> {
-            return await new ApiRequest().signalUserAutonomy(userId).create({ data })
-        },
-        async remove(userId: string | '@me' = '@me'): Promise<void> {
-            await new ApiRequest().signalUserAutonomy(userId).delete()
         },
     },
 
