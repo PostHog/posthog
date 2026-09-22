@@ -137,6 +137,42 @@ def count_active_variants_against_current_baseline(
     return counts
 
 
+def count_recent_intentional_tolerations(
+    repo_id: UUID, *, since: datetime, newest_run_by_type: Mapping[str, Run] | None = None
+) -> dict[SnapshotKey, int]:
+    """How many tolerations a person or agent recorded for each snapshot identity since `since`,
+    across every baseline.
+
+    The count survives a baseline change, unlike `count_active_variants_against_current_baseline`.
+    A flaky story's baseline often moves between tolerations, so a per-baseline count keeps
+    dropping to zero while the tolerations go on.
+
+    Only identities on the newest default-branch runs are counted, so a deleted story drops out.
+    A toleration row carries no run type, so its count applies to each run type that has the
+    identifier. Only non-zero counts are returned.
+    """
+    baseline_hash_by_key = _current_baseline_hashes(repo_id, newest_run_by_type)
+    if not baseline_hash_by_key:
+        return {}
+
+    count_by_identifier = dict(
+        ToleratedHash.objects.filter(
+            repo_id=repo_id,
+            identifier__in=list({key.identifier for key in baseline_hash_by_key}),
+            reason__in=INTENTIONAL_TOLERATE_REASONS,
+            created_at__gte=since,
+        )
+        .values_list("identifier")
+        .annotate(c=Count("id"))
+        .values_list("identifier", "c")
+    )
+    return {
+        key: count_by_identifier[key.identifier]
+        for key in baseline_hash_by_key
+        if key.identifier in count_by_identifier
+    }
+
+
 def _current_baseline_hashes(
     repo_id: UUID, newest_run_by_type: Mapping[str, Run] | None = None
 ) -> dict[SnapshotKey, str]:
