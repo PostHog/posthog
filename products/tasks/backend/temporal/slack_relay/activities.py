@@ -243,7 +243,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     )
 
     handler = SlackThreadHandler(context, actor_slack_user_id=target, turn_trace_id=input.trace_id)
-    handler.run_footer = load_run_footer(task_run.id)
+    handler.run_footer = load_run_footer(task_run.id, integration_id=mapping.integration_id)
 
     # The mention opens the answer, in the same line, so the reply reads as one message. An answer
     # that opens with a heading, a list, a quote, a table, or a fence is the exception: Markdown

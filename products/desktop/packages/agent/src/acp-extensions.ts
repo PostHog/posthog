@@ -96,6 +96,8 @@ export const POSTHOG_NOTIFICATIONS = {
   /** RTK output-compression token savings tallied at the end of a run */
   RTK_SAVINGS: "_posthog/rtk_savings",
 
+  BUDGET_STEER: "_posthog/budget_steer",
+
   /** Latest native Codex goal state, persisted so cold cloud resumes can restore it. */
   CODEX_GOAL: "_posthog/codex_goal",
   /** Desktop → sandbox reply to an MCP relay request (docs/CLOUD-MCP-RELAY.md). */
