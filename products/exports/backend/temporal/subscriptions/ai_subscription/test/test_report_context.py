@@ -24,8 +24,8 @@ from products.exports.backend.models.subscription_context import SubscriptionCon
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
     _TRUNCATED_CONTEXT_MARKER,
     MAX_DASHBOARD_INSIGHTS,
+    InsightContextStatus,
     InsightReportEvidence,
-    InsightReportProvenance,
     ReportContextEvidence,
     ReportContextSchema,
     _dashboard_status,
@@ -316,7 +316,7 @@ class TestReportContextPureFunctions(SimpleTestCase):
         self, _name: str, statuses: list[str], expected: str
     ) -> None:
         insights = tuple(
-            InsightReportProvenance(id=index, name=f"Insight {index}", status=status)  # type: ignore[arg-type]
+            InsightContextStatus(id=index, name=f"Insight {index}", status=status)  # type: ignore[arg-type]
             for index, status in enumerate(statuses)
         )
 
@@ -1321,7 +1321,7 @@ class TestResolveReportContext(NonAtomicBaseTest):
         assert execute.call_args.kwargs["insight_id"] == accessible.id
         assert execute.call_args.kwargs["user"] == subscription.created_by
 
-    def test_dashboard_and_standalone_budget_exhaustion_updates_exact_provenance(self) -> None:
+    def test_dashboard_and_standalone_budget_exhaustion_updates_exact_statuses(self) -> None:
         subscription = self._subscription()
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="Budget dashboard")
         self._add_dashboard_context(subscription, dashboard)

@@ -70,7 +70,7 @@ _TRUNCATED_CONTEXT_MARKER = "\n\n…(context evidence truncated)"
 
 
 @frozen
-class InsightReportProvenance:
+class InsightContextStatus:
     id: int
     name: str
     status: ReportContextStatus
@@ -83,12 +83,12 @@ class InsightReportProvenance:
 
 
 @frozen
-class InsightReportEvidence(InsightReportProvenance):
+class InsightReportEvidence(InsightContextStatus):
     content: str
     has_usable_result: bool
 
     def __post_init__(self) -> None:
-        InsightReportProvenance.__post_init__(self)
+        InsightContextStatus.__post_init__(self)
         if len(self.content) > DASHBOARD_CONTEXT_CHAR_BUDGET:
             raise ValueError("Insight report evidence exceeds its character budget")
         if self.has_usable_result and self.status == "failed":
@@ -100,7 +100,7 @@ class DashboardReportEvidence:
     id: int
     name: str
     status: ReportContextStatus
-    insights: tuple[InsightReportProvenance, ...]
+    insights: tuple[InsightContextStatus, ...]
     content: str
     has_usable_result: bool
 
@@ -110,7 +110,7 @@ class DashboardReportEvidence:
         if len(self.name) > CONTEXT_NAME_MAX_LENGTH:
             raise ValueError("Report context name exceeds its bound")
         if len(self.insights) > MAX_DASHBOARD_INSIGHTS:
-            raise ValueError("Dashboard report provenance exceeds its insight bound")
+            raise ValueError("Dashboard report evidence exceeds its insight bound")
         if len(self.content) > DASHBOARD_CONTEXT_CHAR_BUDGET:
             raise ValueError("Dashboard report evidence exceeds its character budget")
         if self.has_usable_result and self.status == "failed":
@@ -549,15 +549,15 @@ async def _execute_insight(pending: _PendingInsight, semaphore: asyncio.Semaphor
         return _ExecutedInsight(saved=pending.saved, status="failed", content=_UNAVAILABLE_INSIGHT_MARKER)
 
 
-def _to_insight_provenance(executed: _ExecutedInsight) -> InsightReportProvenance:
-    return InsightReportProvenance(
+def _insight_status(executed: _ExecutedInsight) -> InsightContextStatus:
+    return InsightContextStatus(
         id=executed.saved.id,
         name=executed.saved.name,
         status=executed.status,
     )
 
 
-def _dashboard_status(insights: Sequence[InsightReportProvenance]) -> ReportContextStatus:
+def _dashboard_status(insights: Sequence[InsightContextStatus]) -> ReportContextStatus:
     if not insights:
         return "failed"
     if all(insight.status == "failed" for insight in insights):
@@ -612,14 +612,14 @@ def _bound_dashboard(
             has_usable_result=False,
         )
 
-    provenance = tuple(_to_insight_provenance(insight) for insight in dashboard.insights)
+    insight_statuses = tuple(_insight_status(insight) for insight in dashboard.insights)
     full_content = _format_dashboard_content(dashboard, [insight.content for insight in dashboard.insights])
     if len(full_content) <= remaining:
         return DashboardReportEvidence(
             id=dashboard.id,
             name=dashboard.name,
-            status=_dashboard_status(provenance),
-            insights=provenance,
+            status=_dashboard_status(insight_statuses),
+            insights=insight_statuses,
             content=full_content,
             has_usable_result=any(
                 insight.status != "failed" and bool(insight.content) for insight in dashboard.insights
@@ -632,15 +632,15 @@ def _bound_dashboard(
         bounded_content = _format_dashboard_content(dashboard, [*included_contents, truncation_item])
         if len(bounded_content) > remaining:
             continue
-        bounded_provenance = tuple(
+        bounded_statuses = tuple(
             item if index < included_count else replace(item, status=_status_after_evidence_truncation(item.status))
-            for index, item in enumerate(provenance)
+            for index, item in enumerate(insight_statuses)
         )
         return DashboardReportEvidence(
             id=dashboard.id,
             name=dashboard.name,
             status="truncated",
-            insights=bounded_provenance,
+            insights=bounded_statuses,
             content=bounded_content,
             has_usable_result=any(
                 insight.status != "failed" and bool(insight.content) for insight in dashboard.insights[:included_count]
@@ -653,7 +653,9 @@ def _bound_dashboard(
         id=dashboard.id,
         name=dashboard.name,
         status="truncated",
-        insights=tuple(replace(item, status=_status_after_evidence_truncation(item.status)) for item in provenance),
+        insights=tuple(
+            replace(item, status=_status_after_evidence_truncation(item.status)) for item in insight_statuses
+        ),
         content=bounded_content,
         has_usable_result=False,
     )

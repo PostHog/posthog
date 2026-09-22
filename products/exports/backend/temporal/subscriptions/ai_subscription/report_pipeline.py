@@ -247,7 +247,7 @@ class AiReportDashboardContext:
         if len(self.name) > CONTEXT_NAME_MAX_LENGTH:
             raise ValueError("AI report dashboard name exceeds its bound")
         if len(self.insights) > MAX_DASHBOARD_INSIGHTS:
-            raise ValueError("AI report dashboard provenance exceeds its insight bound")
+            raise ValueError("AI report dashboard context exceeds its insight bound")
 
 
 @frozen
@@ -257,7 +257,7 @@ class AiReportContexts:
 
     def __post_init__(self) -> None:
         if len(self.dashboards) + len(self.insights) > MAX_REPORT_CONTEXTS:
-            raise ValueError("AI report provenance exceeds its context bound")
+            raise ValueError("AI report contexts exceed the selection bound")
 
     @property
     def has_selection(self) -> bool:
@@ -334,7 +334,7 @@ async def generate_ai_report(
     if user is None:
         raise PromptRejectedError("AI report must have a user to run.")
     formatted_context = report_context.formatted_evidence if report_context is not None else ""
-    context_provenance = (
+    compact_contexts = (
         compact_report_context(report_context) if report_context is not None else EMPTY_AI_REPORT_CONTEXTS
     )
     context_events = report_context.relevant_events if report_context is not None else ()
@@ -354,7 +354,7 @@ async def generate_ai_report(
     ) as slo:
         try:
             # A stored plan that no longer validates self-heals by re-planning live.
-            has_selected_context = context_provenance.has_selection
+            has_selected_context = compact_contexts.has_selection
             if ai_query_plan is not None and not has_selected_context:
                 try:
                     spec = await _spec_from_frozen_plan(
@@ -450,8 +450,8 @@ async def generate_ai_report(
         # A degraded report (a step failed but synthesis still shipped) is an SLO success, tagged so the
         # coverage signal survives. A raised stage error is recorded as a failure by slo_operation itself.
         context_statuses = [
-            *(dashboard.status for dashboard in context_provenance.dashboards),
-            *(insight.status for insight in context_provenance.insights),
+            *(dashboard.status for dashboard in compact_contexts.dashboards),
+            *(insight.status for insight in compact_contexts.insights),
         ]
         failed_contexts = sum(status == "failed" for status in context_statuses)
         truncated_contexts = sum(status == "truncated" for status in context_statuses)
@@ -506,7 +506,7 @@ async def generate_ai_report(
             prompt=prompt,
             plan_to_persist=plan_to_persist,
             charts=tuple(rendered_charts),
-            context=AiReportContext(contexts=context_provenance),
+            context=AiReportContext(contexts=compact_contexts),
             authorized_context_refs=report_context.authorized_context_refs if report_context is not None else (),
             has_usable_context=has_successful_context,
             query_plan_status=query_plan_status,

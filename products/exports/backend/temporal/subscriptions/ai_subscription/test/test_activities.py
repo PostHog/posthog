@@ -140,7 +140,7 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
     assert snapshot[AI_REPORT_CHARTS_KEY] == []
 
 
-async def test_persist_ai_report_writes_only_compact_context_provenance(team, user) -> None:
+async def test_persist_ai_report_writes_only_compact_context_statuses(team, user) -> None:
     delivery = await _create_delivery(team, user)
     result = AiReportResult(
         markdown="# Weekly report",
