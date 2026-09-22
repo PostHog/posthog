@@ -1,15 +1,12 @@
 import React from 'react'
 
 import { TooltipSurface, TooltipSwatch } from '../../overlays/TooltipSurface'
+import { defaultValueFormatter } from './sankey-data'
 import type { SankeyTooltipContext } from './types'
 
 export interface SankeyTooltipProps<NodeMeta = unknown, LinkMeta = NodeMeta> {
     ctx: SankeyTooltipContext<NodeMeta, LinkMeta>
     valueFormatter?: (value: number) => React.ReactNode
-}
-
-function defaultFormatter(value: number): string {
-    return value.toLocaleString()
 }
 
 function formatShare(fraction: number): string {
@@ -20,12 +17,17 @@ function formatShare(fraction: number): string {
  *  share of the total inflow. */
 export function SankeyTooltip<NodeMeta = unknown, LinkMeta = NodeMeta>({
     ctx,
-    valueFormatter = defaultFormatter,
+    valueFormatter = defaultValueFormatter,
 }: SankeyTooltipProps<NodeMeta, LinkMeta>): React.ReactElement {
     const { hit, total } = ctx
-    const title = hit.kind === 'node' ? hit.node.label : `${hit.link.source.label} → ${hit.link.target.label}`
-    const value = hit.kind === 'node' ? hit.node.value : hit.link.value
-    const color = hit.kind === 'node' ? hit.node.color : hit.link.color
+    const { title, value, color } =
+        hit.kind === 'node'
+            ? { title: hit.node.label, value: hit.node.value, color: hit.node.color }
+            : {
+                  title: `${hit.link.source.label} → ${hit.link.target.label}`,
+                  value: hit.link.value,
+                  color: hit.link.color,
+              }
     const share = total > 0 ? value / total : 0
 
     return (

@@ -14,7 +14,7 @@ import { Tooltip } from '../../overlays/Tooltip'
 import { drawSankey, drawSankeyHover } from './draw-sankey'
 import { SankeyLayoutContext } from './sankey-context'
 import type { SankeyLayoutContextValue } from './sankey-context'
-import { computeSankeyLayout, hoverIndexToHit } from './sankey-data'
+import { computeSankeyLayout, defaultValueFormatter, hoverIndexToHit } from './sankey-data'
 import type { SankeyChartLayout } from './sankey-data'
 import { SankeyColumnLabels } from './SankeyColumnLabels'
 import { SankeyNodeLabels } from './SankeyNodeLabels'
@@ -32,10 +32,6 @@ const COLUMN_LABEL_HEIGHT = 18
 const DEFAULT_LABEL_COLOR = 'rgba(0, 0, 0, 0.7)'
 
 const NO_SCALES: ChartScales = { x: () => undefined, y: () => 0, yTicks: () => [] }
-
-function defaultValueFormatter(value: number): string {
-    return value.toLocaleString()
-}
 
 export function SankeyChart<NodeMeta = unknown, LinkMeta = NodeMeta>({
     onError,
