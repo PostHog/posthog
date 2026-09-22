@@ -6,8 +6,18 @@ import {
     treeHasConditions,
     treeHasEmptyValues,
     updateAtPath,
+    wouldDropTestEvent,
 } from './eventFilterLogic'
 import { cond, and, or, not } from './testHelpers'
+
+describe('wouldDropTestEvent', () => {
+    it.each([
+        { event_name: '$recording_observed', dropped: false },
+        { event_name: 'purchase', dropped: true },
+    ])('$event_name against an allowlist tree drops: $dropped', ({ event_name, dropped }) => {
+        expect(wouldDropTestEvent(not(cond('event_name', 'exact', 'allowed')), { event_name })).toBe(dropped)
+    })
+})
 
 describe('evaluateFilterTree', () => {
     describe('condition nodes', () => {

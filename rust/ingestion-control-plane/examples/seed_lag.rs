@@ -48,6 +48,7 @@ fn headers(token: &str, distinct_id: &str, event: &str, historical: bool) -> Own
         force_disable_person_processing: None,
         historical_migration: historical.then_some(true),
         skip_heatmap_processing: None,
+        internal_producer: None,
         dlq_reason: None,
         dlq_step: None,
         dlq_timestamp: None,

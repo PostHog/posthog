@@ -1,13 +1,22 @@
+import { Counter } from 'prom-client'
+
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
+import { isProtectedInternalEvent } from '~/common/protected-internal-events'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
-import { Team } from '~/types'
+import { EventHeaders, Team } from '~/types'
+
+export const hogTransformationProtectedEventSkips = new Counter({
+    name: 'hog_transformation_protected_event_skips_total',
+    help: 'Number of events skipped by every transformation because they are PostHog-emitted product output',
+})
 
 export interface HogTransformEventInput {
     event: PluginEvent
     team: Pick<Team, 'id'>
+    headers: Pick<EventHeaders, 'event' | 'internal_producer'>
 }
 
 export interface HogTransformEventOutput {
@@ -30,6 +39,11 @@ export function createHogTransformEventStep<T extends HogTransformEventInput>(
 
         // If no transformer configured, pass through unchanged
         if (!hogTransformer) {
+            return ok({ ...input, transformationsRun: 0 })
+        }
+
+        if (isProtectedInternalEvent(input.headers)) {
+            hogTransformationProtectedEventSkips.inc()
             return ok({ ...input, transformationsRun: 0 })
         }
 

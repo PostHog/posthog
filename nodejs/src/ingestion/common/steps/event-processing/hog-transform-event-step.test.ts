@@ -1,6 +1,7 @@
 import { HogTransformerService, TransformationResult } from '~/cdp/hog-transformations/hog-transformer.service'
 import { PipelineResultType, isDropResult, isOkResult } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
+import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 
@@ -16,6 +17,7 @@ const createTestInput = (): HogTransformEventInput => {
             properties: { $current_url: 'https://example.com' },
         }),
         team: createTestTeam(),
+        headers: createTestEventHeaders(),
     }
 }
 
@@ -26,6 +28,36 @@ const createMockHogTransformer = (transformFn: (event: PluginEvent) => Transform
 }
 
 describe('createHogTransformEventStep', () => {
+    it.each([
+        {
+            name: 'skips transformations for a protected event from an internal producer',
+            event: '$recording_observed',
+            internal: true,
+            calls: 0,
+        },
+        {
+            name: 'runs transformations for a protected event name without internal provenance',
+            event: '$recording_observed',
+            internal: false,
+            calls: 1,
+        },
+        {
+            name: 'runs transformations for other events from an internal producer',
+            event: 'purchase',
+            internal: true,
+            calls: 1,
+        },
+    ])('$name', async ({ event, internal, calls }) => {
+        const transformer = createMockHogTransformer((e) => ({ event: e, invocationResults: [] }))
+        const step = createHogTransformEventStep(transformer)
+        const input = { ...createTestInput(), headers: createTestEventHeaders({ event, internal_producer: internal }) }
+
+        const result = await step(input)
+
+        expect(isOkResult(result)).toBe(true)
+        expect(transformer.transformEventAndProduceMessages).toHaveBeenCalledTimes(calls)
+    })
+
     it('passes through unchanged when no transformer configured', async () => {
         const hogTransformEventStep = createHogTransformEventStep(null)
         const input = createTestInput()

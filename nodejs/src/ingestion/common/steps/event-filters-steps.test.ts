@@ -242,7 +242,7 @@ describe('createApplyEventFiltersStep', () => {
 
             const result = await step({
                 team: createTestTeam({ id: 1 }),
-                headers: createTestEventHeaders({ event: '$recording_observed' }),
+                headers: createTestEventHeaders({ event: '$recording_observed', internal_producer: true }),
                 eventFiltersBatchAppMetrics: metrics,
             })
 
@@ -253,6 +253,25 @@ describe('createApplyEventFiltersStep', () => {
             expect(mockOutputs.queueMessages).not.toHaveBeenCalled()
         }
     )
+
+    it('drops a protected event name that lacks internal provenance', async () => {
+        mockManager.getFilter.mockReturnValue({
+            id: 'f1',
+            team_id: 1,
+            mode: 'live',
+            filter_tree: not(cond('event_name', 'exact', 'allowed')),
+        })
+        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const step = createApplyEventFiltersStep(mockManager)
+
+        const result = await step({
+            team: createTestTeam({ id: 1 }),
+            headers: createTestEventHeaders({ event: '$recording_observed' }),
+            eventFiltersBatchAppMetrics: metrics,
+        })
+
+        expect(isDropResult(result)).toBe(true)
+    })
 
     it('does not increment prometheus metric when no filter exists', async () => {
         mockManager.getFilter.mockReturnValue(null)

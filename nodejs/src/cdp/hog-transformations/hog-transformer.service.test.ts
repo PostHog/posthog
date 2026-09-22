@@ -811,57 +811,6 @@ describe('HogTransformer', () => {
             })
         })
 
-        it.each([
-            {
-                name: 'skips every transformation for protected internal events',
-                eventName: '$recording_observed',
-                direct: false,
-                dropped: false,
-            },
-            {
-                name: 'still runs transformations for other events',
-                eventName: 'purchase',
-                direct: false,
-                dropped: true,
-            },
-            {
-                name: 'skips every transformation for protected internal events invoked directly',
-                eventName: '$recording_observed',
-                direct: true,
-                dropped: false,
-            },
-            {
-                name: 'still runs transformations for other events invoked directly',
-                eventName: 'purchase',
-                direct: true,
-                dropped: true,
-            },
-        ])('$name', async ({ eventName, direct, dropped }) => {
-            const dropEverything = createHogFunction({
-                type: 'transformation',
-                name: 'Drop everything',
-                team_id: teamId,
-                enabled: true,
-                bytecode: await compileHog('return null'),
-            })
-            await insertHogFunction(hub.postgres, teamId, dropEverything)
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [dropEverything.id])
-
-            const event = createPluginEvent({ event: eventName, properties: { original: true } }, teamId)
-
-            const result = direct
-                ? await hogTransformer.transformEvent(event, [dropEverything])
-                : await hogTransformer.transformEventAndProduceMessages(event)
-
-            if (dropped) {
-                expect(result.event).toBeNull()
-                expect(result.droppedBy?.id).toBe(dropEverything.id)
-            } else {
-                expect(result.event).toBe(event)
-                expect(result.invocationResults).toEqual([])
-            }
-        })
-
         it('should strip incoming transformation tracking properties', async () => {
             const successTemplate: HogFunctionTemplate = {
                 free: true,

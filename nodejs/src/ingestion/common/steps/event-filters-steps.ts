@@ -59,7 +59,7 @@ export function createApplyEventFiltersStep<T extends ApplyEventFiltersInput>(
             return Promise.resolve(ok(input))
         }
 
-        if (isProtectedInternalEvent(input.headers.event)) {
+        if (isProtectedInternalEvent(input.headers)) {
             eventFiltersEventsEvaluated.inc({ outcome: 'protected' })
             return Promise.resolve(ok(input))
         }

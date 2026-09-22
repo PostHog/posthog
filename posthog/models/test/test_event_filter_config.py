@@ -292,6 +292,11 @@ class TestValidateTestCases(SimpleTestCase):
 
 
 class TestRunTestCases(SimpleTestCase):
+    def test_protected_internal_event_always_ingests(self):
+        tree = _not(_cond("event_name", "exact", "allowed"))
+        test_cases = [{"event_name": "$recording_observed", "expected_result": "ingest"}]
+        self.assertEqual(run_test_cases(tree, test_cases), [])
+
     def test_passing_test_cases(self):
         tree = _cond("event_name", "exact", "pageview")
         test_cases = [
