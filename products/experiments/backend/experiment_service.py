@@ -52,6 +52,7 @@ from posthog.models.person.util import get_person_ids_and_uuids_by_uuids
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.utils import str_to_bool
 
 from products.actions.backend.models.action import Action
@@ -1564,6 +1565,7 @@ class ExperimentService:
             # Not in _validate_existing_flag: launch calls that too, on a flag this experiment
             # already owns.
             assert_flag_available_for(existing_flag, product=FLAG_OWNER_EXPERIMENT)
+            self._assert_can_link_flag(existing_flag)
             self._validate_existing_flag(existing_flag)
             variants = existing_flag.variants or list(DEFAULT_VARIANTS)
             return existing_flag, variants
@@ -1618,6 +1620,28 @@ class ExperimentService:
         )
 
         return feature_flag, variants or list(DEFAULT_VARIANTS)
+
+    def _assert_can_link_flag(self, feature_flag: FeatureFlag) -> None:
+        """Refuse to adopt a flag the caller cannot edit on the flags API.
+
+        Linking an existing flag hands the experiment control of it: the response serializes the
+        flag's filters and payloads, and every later lifecycle action flips its `active` state. The
+        flag facade does not enforce access control on writes, so the caller must pre-check editor
+        access, the same way archive and unarchive do. Without this, experiment editor access in a
+        project substitutes for flag access on any flag in it, including one the user is explicitly
+        denied. `self.team` is the flag's team on every path, including a cross-project copy, which
+        re-instantiates the service against the target.
+
+        Synthetic principals (project secret API keys) and userless system writes bypass
+        object-level access control everywhere else, so they are not evaluated here either.
+        """
+        if not isinstance(self.user, User):
+            return
+        if not user_can_edit_flag(feature_flag, team=self.team, user=self.user):
+            raise PermissionDenied(
+                f"You don't have editor access to the feature flag {feature_flag.key}, so it can't be used for an "
+                "experiment. Pick a different flag key, or ask someone with flag access."
+            )
 
     def _validate_existing_flag(self, feature_flag: FeatureFlag) -> None:
         """Validate that an existing feature flag is suitable for experiment use."""
