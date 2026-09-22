@@ -1,5 +1,6 @@
 import re
 import json
+import hashlib
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
@@ -17,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.settings import (
     DATAHUB_ENDPOINTS,
+    TIMESERIES_ROW_ID_COLUMN,
     DatahubEndpointConfig,
 )
 
@@ -134,6 +136,10 @@ def _entity_url(base_url: str, entity_type: str) -> str:
     return f"{base_url}/openapi/v3/entity/{entity_type}"
 
 
+def _timeseries_url(base_url: str, entity_type: str, aspect_name: str) -> str:
+    return f"{base_url}/openapi/v2/timeseries/{entity_type}/{aspect_name}"
+
+
 def _scroll_params(scroll_id: str | None, count: int = PAGE_SIZE) -> dict[str, Any]:
     # Sort by urn ascending so page boundaries stay stable while scrolling — entities ingested
     # mid-sync can't shuffle already-walked pages.
@@ -148,19 +154,78 @@ def _scroll_params(scroll_id: str | None, count: int = PAGE_SIZE) -> dict[str, A
     return params
 
 
-def _extract_entities(data: Any, url: str) -> tuple[list[dict[str, Any]], str | None]:
-    """Pull the entity rows and next-page cursor out of a scroll response.
+def _timeseries_params(scroll_id: str | None, start_time_millis: int | None, count: int = PAGE_SIZE) -> dict[str, Any]:
+    # The timeseries endpoint takes no sort parameter. It always returns timestampMillis
+    # descending, which is why the response declares sort_mode="desc".
+    params: dict[str, Any] = {"count": count}
+    if scroll_id:
+        params["scrollId"] = scroll_id
+    # Re-sent on every page: the cursor is a stateless search_after token, so the server only
+    # keeps the window bound if we keep passing it, and an incremental sweep would otherwise walk
+    # back through all history after the first page.
+    if start_time_millis is not None:
+        params["startTimeMillis"] = start_time_millis
+    return params
 
-    The scroll envelope is ``{"scrollId": "...", "entities": [...]}``; the final page omits
-    ``scrollId``. A missing ``entities`` key on a dict payload is treated as an empty result.
+
+def _page_request(
+    config: DatahubEndpointConfig,
+    base_url: str,
+    scroll_id: str | None = None,
+    start_time_millis: int | None = None,
+    count: int = PAGE_SIZE,
+) -> tuple[str, dict[str, Any], str]:
+    """URL, query params and response envelope key for one page of `config`."""
+    if config.timeseries_aspect:
+        return (
+            _timeseries_url(base_url, config.entity_type, config.timeseries_aspect),
+            _timeseries_params(scroll_id, start_time_millis, count=count),
+            "results",
+        )
+    return _entity_url(base_url, config.entity_type), _scroll_params(scroll_id, count=count), "entities"
+
+
+def _extract_page(data: Any, url: str, items_key: str) -> tuple[list[dict[str, Any]], str | None]:
+    """Pull the rows and next-page cursor out of a scroll response.
+
+    The scroll envelope is ``{"scrollId": "...", "<items_key>": [...]}``, where the items key is
+    ``entities`` for the entity endpoints and ``results`` for the timeseries ones. The final page
+    omits ``scrollId``. A missing items key on a dict payload is treated as an empty result.
     """
     if not isinstance(data, dict):
         raise DatahubRetryableError(f"DataHub returned an unexpected payload for {url}: {type(data).__name__}")
-    entities = data.get("entities") or []
-    if not isinstance(entities, list):
-        raise DatahubRetryableError(f"DataHub returned an unexpected 'entities' payload for {url}")
+    rows = data.get(items_key) or []
+    if not isinstance(rows, list):
+        raise DatahubRetryableError(f"DataHub returned an unexpected '{items_key}' payload for {url}")
     scroll_id = data.get("scrollId")
-    return entities, scroll_id if isinstance(scroll_id, str) and scroll_id else None
+    return rows, scroll_id if isinstance(scroll_id, str) and scroll_id else None
+
+
+def _timeseries_row_id(row: dict[str, Any]) -> str:
+    """Deterministic surrogate key matching DataHub's own uniqueness rule for a timeseries row.
+
+    A timeseries document is keyed by timestamp, event granularity, urn, message id and partition
+    spec: urn plus timestamp alone is not unique, because one dataset can carry both a daily and an
+    hourly bucket, or one row per partition. Hash exactly those identity fields, and never the
+    metric values, so a bucket the instance restates merges onto itself instead of landing twice.
+    """
+    event = row.get("event")
+    event = event if isinstance(event, dict) else {}
+    parts = (
+        row.get("timestampMillis"),
+        event.get("eventGranularity"),
+        row.get("urn"),
+        row.get("messageId"),
+        event.get("partitionSpec"),
+    )
+    # Serialize each part so a nested partitionSpec hashes stably, and use a sentinel for the
+    # absent ones so a missing field can never collide with an empty-string value.
+    joined = "|".join("\x00" if part is None else json.dumps(part, sort_keys=True, default=str) for part in parts)
+    return hashlib.sha256(joined.encode()).hexdigest()
+
+
+def _with_timeseries_row_ids(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{**row, TIMESERIES_ROW_ID_COLUMN: _timeseries_row_id(row)} for row in rows]
 
 
 def _read_capped_bytes(response: requests.Response, max_bytes: int) -> bytes:
@@ -221,6 +286,7 @@ def get_rows(
     team_id: int,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[DatahubResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = DATAHUB_ENDPOINTS[endpoint]
     # Re-check at run time (not just at source-create) in case the instance URL was edited or now
@@ -228,8 +294,8 @@ def get_rows(
     _check_host(instance_url, team_id)
 
     base_url = normalize_instance_url(instance_url)
-    url = _entity_url(base_url, config.entity_type)
     session = _get_session(api_token)
+    start_time_millis = int(db_incremental_field_last_value) if db_incremental_field_last_value is not None else None
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     scroll_id = resume.scroll_id if resume else None
@@ -239,8 +305,9 @@ def get_rows(
 
     pages_fetched = 0
     while True:
+        url, params, items_key = _page_request(config, base_url, scroll_id, start_time_millis)
         try:
-            data = _fetch(session, url, _scroll_params(scroll_id), logger)
+            data = _fetch(session, url, params, logger)
         except requests.HTTPError as exc:
             # A saved scroll cursor can go stale between attempts (scroll contexts are
             # server-side and expire). If the resumed first request is rejected, restart the
@@ -256,13 +323,13 @@ def get_rows(
         resuming = False
         pages_fetched += 1
 
-        entities, next_scroll_id = _extract_entities(data, url)
-        if entities:
-            yield entities
+        rows, next_scroll_id = _extract_page(data, url, items_key)
+        if rows:
+            yield _with_timeseries_row_ids(rows) if config.timeseries_aspect else rows
 
         # No cursor (or an empty page, guarding against a server that echoes a cursor forever)
         # means the sweep is complete.
-        if not next_scroll_id or not entities:
+        if not next_scroll_id or not rows:
             break
 
         # A hostile instance can echo a fresh non-empty page and cursor indefinitely. Abort past
@@ -287,6 +354,7 @@ def datahub_source(
     team_id: int,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[DatahubResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config: DatahubEndpointConfig = DATAHUB_ENDPOINTS[endpoint]
 
@@ -299,8 +367,11 @@ def datahub_source(
             team_id=team_id,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=config.primary_keys,
+        # The timeseries endpoint offers no sort parameter and always returns newest first.
+        sort_mode="desc" if config.timeseries_aspect else "asc",
         partition_count=1,
         partition_size=1,
     )
@@ -350,9 +421,12 @@ def validate_credentials(
         if not host_ok:
             return False, host_err or HOST_NOT_ALLOWED_ERROR
 
-    probe_entity = DEFAULT_PROBE_ENTITY
-    if schema_name is not None and schema_name in DATAHUB_ENDPOINTS:
-        probe_entity = DATAHUB_ENDPOINTS[schema_name].entity_type
+    # Probe the endpoint the scoped schema would actually read. A timeseries aspect needs the
+    # timeseries read privilege on top of the entity one, so the entity list is not a stand-in.
+    probe_config = DATAHUB_ENDPOINTS.get(schema_name) if schema_name is not None else None
+    if probe_config is None:
+        probe_config = DatahubEndpointConfig(name=DEFAULT_PROBE_ENTITY, entity_type=DEFAULT_PROBE_ENTITY)
+    probe_url, probe_params, _ = _page_request(probe_config, base_url, count=1)
 
     session = _get_session(api_token)
     try:
@@ -360,9 +434,7 @@ def validate_credentials(
         # address, defeating the host check above (SSRF). stream=True so a hostile server can't
         # exhaust the API worker with an unbounded body — a 200 returns without reading it, and
         # error snippets are read under a cap.
-        response = session.get(
-            _entity_url(base_url, probe_entity), params=_scroll_params(None, count=1), timeout=15, stream=True
-        )
+        response = session.get(probe_url, params=probe_params, timeout=15, stream=True)
     except requests.exceptions.RequestException as e:
         return False, f"Could not connect to DataHub: {e}"
 
@@ -411,15 +483,11 @@ def check_endpoint_permissions(
         if config is None:
             results[endpoint] = None
             continue
+        url, params, _ = _page_request(config, base_url, count=1)
         try:
             # stream=True so a hostile instance can't exhaust the API worker with an unbounded
             # body; only a capped error snippet is read below when the status warrants a message.
-            response = session.get(
-                _entity_url(base_url, config.entity_type),
-                params=_scroll_params(None, count=1),
-                timeout=15,
-                stream=True,
-            )
+            response = session.get(url, params=params, timeout=15, stream=True)
         except requests.exceptions.RequestException:
             results[endpoint] = None
             continue
