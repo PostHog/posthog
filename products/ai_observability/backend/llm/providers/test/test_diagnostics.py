@@ -7,6 +7,8 @@ import openai
 import anthropic
 import posthoganalytics
 
+from posthog.security.pinned_httpx import PinnedTransport
+
 from products.ai_observability.backend.llm.providers._diagnostics import (
     PROVIDER_DEFAULT_LIMITS,
     _tag_response,
@@ -71,7 +73,12 @@ class TestPinnedClientLimits:
         # of 100 connections, which is a tenth of what the provider SDKs expect.
         client = tagged_http_client(pin=("https://8.8.8.8/v1", {ipaddress.ip_address("8.8.8.8")}))
 
-        pool = client._transport._inner._pool
+        transport = client._transport
+        assert isinstance(transport, PinnedTransport)
+        inner = transport._inner
+        assert isinstance(inner, httpx.HTTPTransport)
+
+        pool = inner._pool
         assert pool._max_connections == PROVIDER_DEFAULT_LIMITS.max_connections
         assert pool._max_keepalive_connections == PROVIDER_DEFAULT_LIMITS.max_keepalive_connections
 
