@@ -67,19 +67,6 @@ export const IS_ROOT =
 
 export const ALLOW_BYPASS = !IS_ROOT || !!process.env.IS_SANDBOX;
 
-/**
- * A cloud sandbox run, as opposed to a local desktop session. `taskRunId` is
- * used by both desktop and cloud for persistence, so it must not imply cloud.
- */
-export function isCloudRun(
-  meta: { environment?: "local" | "cloud" } | undefined,
-): boolean {
-  if (meta?.environment) {
-    return meta.environment === "cloud";
-  }
-  return !!process.env.IS_SANDBOX;
-}
-
 export function unreachable(value: never, logger: Logger): void {
   let valueAsString: string;
   try {

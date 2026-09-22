@@ -1,5 +1,4 @@
 from django.urls import URLPattern, path
-from django.views.decorators.csrf import csrf_exempt
 
 from posthog.api.routing import RouterRegistry
 
@@ -13,7 +12,7 @@ from products.user_interviews.backend.presentation.webhooks import vapi_webhook
 urlpatterns: list[URLPattern] = [
     path(
         "api/user_interviews/vapi_webhook/",
-        csrf_exempt(vapi_webhook),
+        vapi_webhook,
         name="user_interviews_vapi_webhook",
     ),
 ]

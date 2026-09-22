@@ -92,6 +92,9 @@ class TestVapiWebhookTask(APIBaseTest):
         self.assertEqual(interview.interviewee_identifier, "alex@example.com")
         self.assertEqual(interview.transcript, "Hi! ...")
         self.assertEqual(interview.recording_url, "https://vapi.example/recording.mp3")
+        # The report can wait in the queue through an outage, so the interview keeps the time the
+        # endpoint accepted it rather than the time the worker got to it.
+        self.assertEqual(interview.created_at.isoformat(), "2026-05-14T12:00:00+00:00")
 
     def test_task_serializes_persistence_per_call_id(self):
         # No unique constraint keeps a call to one row, so two runs that overlap have to queue

@@ -70,6 +70,9 @@ Both functions use the same executable. The temporary entry point uses `--tempor
 
 Documents exceeding the shared depth limit produce `{}` in the temporary output; the permanent cleaner quarantines the original document.
 
+Native events retain `temporary_properties` for 60 days after insertion, including historical events; TTL merges clear the column asynchronously.
+Fresh installations use the updated schema definitions. Existing tables require a manual schema rollout and feature-flag query compatibility before native reads are enabled.
+
 ### Benchmarking the cleaner
 
 `BenchmarkProcessFixture` measures cleaning with a reused processor and output buffer.

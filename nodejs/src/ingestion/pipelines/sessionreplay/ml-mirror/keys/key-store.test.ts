@@ -13,10 +13,12 @@ import { register } from 'prom-client'
 import { parseJSON } from '~/common/utils/json-parse'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { ok } from '~/ingestion/framework/results'
+import { MlBatchHandle } from '~/ingestion/pipelines/sessionreplay/ml-mirror/batch-handle'
 import { BlockMetadataBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-batcher'
 import { BlockMetadataParquetStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-parquet-store'
 import { toBlockMetadataRow } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-row'
 import { MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
+import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { createNoopBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 
 import { MlKeyBatchController } from './batch-controller'
@@ -24,15 +26,7 @@ import { MlDataKey, MlKeyEncryption } from './crypto'
 import { DynamoItem, MlKeyDynamoDB, encodeKey } from './dynamodb'
 import { MlSessionKeyStore } from './key-store'
 import { MlKeyReader } from './reader'
-import {
-    MlSessionIdentity,
-    TableKey,
-    imageKeyId,
-    monthKeyIndexId,
-    sessionKeyId,
-    tableKeyString,
-    teamBlockId,
-} from './schema'
+import { MlSessionIdentity, TableKey, imageKeyId, monthKeyIndexId, sessionKeyId, tableKeyString } from './schema'
 import { MlKafkaTransport, mlKafkaRecord } from './transport'
 
 const session: MlSessionIdentity = {
@@ -40,6 +34,13 @@ const session: MlSessionIdentity = {
     sessionId: '01994569-4380-7000-8000-000000000007',
 }
 const table = 'ml-keys-test'
+
+const recorder = {
+    record: jest.fn(),
+    getRetention: jest.fn(),
+    flush: jest.fn(),
+    size: 0,
+} as unknown as SessionBatchRecorder
 
 function transientError(name: string): Error {
     return Object.assign(new Error(name), { name })
@@ -211,15 +212,13 @@ describe('ML session key batches', () => {
     it('reads every row a batch needs in one pass', async () => {
         const readsBefore = boundary.readSizes.length
         await store.prepare([session])
-        // The team block, the session key and the team image key are known up front, so they go in one request.
+        // The session key and the team image key are known up front, so they go in one request.
         expect(boundary.readSizes.length - readsBefore).toBe(1)
         expect(new Set(boundary.readKeys.at(-1))).toEqual(
             new Set(
-                [
-                    teamBlockId(session.teamId),
-                    sessionKeyId(session.teamId, session.sessionId),
-                    imageKeyId(session.teamId, '2025-09'),
-                ].map(tableKeyString)
+                [sessionKeyId(session.teamId, session.sessionId), imageKeyId(session.teamId, '2025-09')].map(
+                    tableKeyString
+                )
             )
         )
     })
@@ -421,7 +420,7 @@ describe('ML session key batches', () => {
         expect(remaining).toBeGreaterThan(0)
     })
 
-    it('indexes monthly keys, ignores a month marker, and refuses a team marker from the next read', async () => {
+    it('indexes monthly keys and ignores a month marker', async () => {
         const october = { ...session, sessionId: '0199a13b-c000-7000-8000-000000000007' }
         const first = await store.prepare([session, october])
         await first.commit()
@@ -452,18 +451,6 @@ describe('ML session key batches', () => {
         await committingDespiteMonth
         expect(ignoringMonth.get(session.teamId, session.sessionId)).not.toBeUndefined()
         expect((await reader.read(locations)).size).toBe(4)
-        jest.useRealTimers()
-        const inFlight = await store.prepare([session])
-        const blocked = teamBlockId(session.teamId)
-        boundary.items.set(tableKeyString(blocked), { ...encodeKey(blocked), deleted: { BOOL: true } })
-        jest.useFakeTimers()
-        const committing = inFlight.commit()
-        await jest.runAllTimersAsync()
-        await committing
-        // A commit no longer re-reads, so the in-flight batch misses the block that every reader and the next batch see.
-        expect(inFlight.get(session.teamId, session.sessionId)).not.toBeUndefined()
-        expect((await reader.read(locations)).size).toBe(0)
-        expect((await store.prepare([session])).get(session.teamId, session.sessionId)).toBeUndefined()
     })
 
     it('wraps new keys without an organization and stores none on the row', async () => {
@@ -635,16 +622,6 @@ describe('ML session key batches', () => {
         expect(mismatch.mock.calls).toEqual([['month_key_unavailable', 1]])
     })
 
-    it('counts no month key failure for a blocked team, so the metric stays a corruption signal', async () => {
-        await (await store.prepare([session])).commit()
-        const block = teamBlockId(session.teamId)
-        boundary.items.set(tableKeyString(block), { ...encodeKey(block), deleted: { BOOL: true } })
-        coldCache()
-        const mismatch = jest.spyOn(MlMirrorMetrics, 'incrementMlKeyIdentityMismatch')
-        expect((await reader.read([sessionKeyId(session.teamId, session.sessionId)])).size).toBe(0)
-        expect(mismatch).not.toHaveBeenCalled()
-    })
-
     it('fails the read when KMS throttles a month key, so the caller retries instead of dropping', async () => {
         await (await store.prepare([session])).commit()
         coldCache()
@@ -733,7 +710,7 @@ describe('ML session key batches', () => {
     it.each([
         ['a lifetime over the cap is clamped', 86_400_000, 300_001, false],
         ['a lifetime under the cap is kept', 60_000, 60_001, false],
-        ['a team image key outlives the session cap', 86_400_000, 300_001, true],
+        ['a team image key is held past the session lifetime', 86_400_000, 300_001, true],
     ])('%s', async (_label, configured, elapsedMs, imageKey) => {
         let fakeNow = 1_000
         const clock = jest.spyOn(performance, 'now').mockImplementation(() => fakeNow)
@@ -760,21 +737,19 @@ describe('ML session key batches', () => {
         }
     })
 
-    it('refuses a blocked team on the next batch while its session row is still cached', async () => {
+    it('stops a team month for good once its month key is shredded, so no block row is needed', async () => {
         await (await store.prepare([session])).commit()
-        const warm = await store.prepare([session])
-        expect(warm.get(session.teamId, session.sessionId)).not.toBeUndefined()
-        const blocked = teamBlockId(session.teamId)
-        boundary.items.set(tableKeyString(blocked), { ...encodeKey(blocked), deleted: { BOOL: true } })
-        const readsBefore = boundary.readSizes.length
+        const monthLocation = tableKeyString(imageKeyId(session.teamId, '2025-09'))
+        const { wrapped_key: _shredded, ...tombstone } = boundary.items.get(monthLocation)!
+        const shreddedRow = { ...tombstone, deleted: { BOOL: true } }
+        boundary.items.set(monthLocation, shreddedRow)
+        coldCache()
+        const writesBefore = boundary.writes
         const next = await store.prepare([session])
-        // Only the team block row reached DynamoDB. The session row was served from the cache and did not hide the block.
-        expect(boundary.readSizes.slice(readsBefore).reduce((total, size) => total + size, 0)).toBe(1)
+        await next.commit()
         expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
-        // The block is held once seen, so a team that keeps sending stops costing a read per batch.
-        const afterBlockRead = boundary.readSizes.length
-        expect((await store.prepare([session])).get(session.teamId, session.sessionId)).toBeUndefined()
-        expect(boundary.readSizes.slice(afterBlockRead).reduce((total, size) => total + size, 0)).toBe(0)
+        expect(boundary.items.get(monthLocation)).toEqual(shreddedRow)
+        expect(boundary.writes).toBe(writesBefore)
     })
 
     it('holds a session tombstone so a deleted session stops costing a read and a doomed write', async () => {
@@ -791,8 +766,8 @@ describe('ML session key batches', () => {
         const next = await cold.prepare([session])
         await next.commit()
         expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
-        // Only the team block row, which is never cached. The tombstone spares the session key row and the image key row.
-        expect(boundary.readSizes.slice(readsBefore).reduce((total, size) => total + size, 0)).toBe(1)
+        // The tombstone spares the session key row and the image key row, and no row is read at all.
+        expect(boundary.readSizes.slice(readsBefore).reduce((total, size) => total + size, 0)).toBe(0)
         expect(boundary.writes).toBe(writesBefore)
     })
 
@@ -848,26 +823,29 @@ describe('ML session key batches', () => {
         expect(keys.image.plaintext).toEqual(original.image.plaintext)
         expect((await reader.read([sessionKeyId(session.teamId, session.sessionId)])).size).toBe(1)
         expect(generated).toBe(1)
-        // Only the team block row, because it decides whether the batch may mint new keys and is never cached.
-        expect(keysRead).toBe(1)
+        // Both rows come from the cache, so a batch that repeats a session reads nothing.
+        expect(keysRead).toBe(0)
     })
 
     it('publishes only after key writes commit and hands delivery acks to the scheduler', async () => {
         const identity = { ...session, sessionId: '01a0a4f0-3200-7000-8000-000000000001' }
         const controller = new MlKeyBatchController(store, encryption)
-        await controller.prepare([identity])
+        const handle = new MlBatchHandle(controller)
+        handle.keys = await controller.prepare([identity])
         let release!: () => void
         const delivery = new Promise<void>((resolve) => {
             release = resolve
         })
         let started = 0
         const input = {
+            message: {} as Message,
             team: { teamId: identity.teamId },
             headers: { session_id: identity.sessionId },
             sessionKey: await controller.getKey(identity.sessionId, identity.teamId),
+            sessionBatchRecorder: recorder,
         }
         for (let index = 0; index < 20; index++) {
-            await controller.defer(input, (value) => {
+            await handle.defer(input, (value) => {
                 expect(
                     boundary.items.get(tableKeyString(sessionKeyId(identity.teamId, identity.sessionId)))?.sealed_key
                 ).not.toBeUndefined()
@@ -876,7 +854,7 @@ describe('ML session key batches', () => {
             })
         }
         const scheduler = new PromiseScheduler()
-        await controller.commit(scheduler)
+        await handle.commit(recorder, scheduler)
         expect(started).toBe(20)
         expect(scheduler.promises.size).toBe(1)
         release()
@@ -887,19 +865,22 @@ describe('ML session key batches', () => {
     it('waits for delivery acks itself when no scheduler owns them', async () => {
         const identity = { ...session, sessionId: '01a0a4f0-3200-7000-8000-000000000002' }
         const controller = new MlKeyBatchController(store, encryption)
-        await controller.prepare([identity])
+        const handle = new MlBatchHandle(controller)
+        handle.keys = await controller.prepare([identity])
         let release!: () => void
         const delivery = new Promise<void>((resolve) => {
             release = resolve
         })
         const input = {
+            message: {} as Message,
             team: { teamId: identity.teamId },
             headers: { session_id: identity.sessionId },
             sessionKey: await controller.getKey(identity.sessionId, identity.teamId),
+            sessionBatchRecorder: recorder,
         }
-        await controller.defer(input, (value) => Promise.resolve(ok(value, [delivery])))
+        await handle.defer(input, (value) => Promise.resolve(ok(value, [delivery])))
         let committed = false
-        const committing = controller.commit().then(() => {
+        const committing = handle.commit(recorder).then(() => {
             committed = true
         })
         await new Promise((resolve) => setImmediate(resolve))
@@ -907,6 +888,93 @@ describe('ML session key batches', () => {
         release()
         await committing
         expect(committed).toBe(true)
+    })
+
+    it('hands deferred steps the keys the commit settled on, not the ones prepared', async () => {
+        const competitor = new MlSessionKeyStore(
+            new MlKeyDynamoDB(boundary as unknown as DynamoDBClient, table),
+            encryption
+        )
+        const identity = { ...session, sessionId: '01a0a4f0-3200-7000-8000-000000000004' }
+        const controller = new MlKeyBatchController(store, encryption)
+        const handle = new MlBatchHandle(controller)
+        handle.keys = await controller.prepare([identity])
+        const prepared = handle.keys.get(identity.teamId, identity.sessionId)!
+        const winner = await competitor.prepare([identity])
+        await winner.commit()
+        const seen: Buffer[] = []
+        await handle.defer(
+            {
+                message: {} as Message,
+                team: { teamId: identity.teamId },
+                headers: { session_id: identity.sessionId },
+                sessionKey: await controller.getKey(identity.sessionId, identity.teamId),
+                sessionBatchRecorder: recorder,
+                mlKeys: prepared,
+            },
+            (value) => {
+                seen.push(value.mlKeys!.session.plaintext, value.sessionKey.plaintextKey)
+                return Promise.resolve(ok(value))
+            }
+        )
+        jest.useFakeTimers()
+        const committing = handle.commit(recorder)
+        await jest.runAllTimersAsync()
+        await committing
+        // A sealed session key carries no KMS blob, so the plaintext is what tells the settled key from the prepared one.
+        const stored = winner.get(identity.teamId, identity.sessionId)!.session.plaintext
+        expect(seen).toEqual([stored, stored])
+        expect(stored).not.toEqual(prepared.session.plaintext)
+    })
+
+    it('refuses to encrypt a block without the session key, because batches overlap', async () => {
+        const controller = new MlKeyBatchController(store, encryption)
+        await controller.prepare([session])
+        await expect(controller.encryptBlock(session.sessionId, session.teamId, Buffer.alloc(4))).rejects.toThrow(
+            'encryptBlockWithKey'
+        )
+    })
+
+    it('reports a message once however many steps the batch defers', async () => {
+        const identity = { ...session, sessionId: '01a0a4f0-3200-7000-8000-000000000005' }
+        const controller = new MlKeyBatchController(store, encryption)
+        const handle = new MlBatchHandle(controller)
+        handle.keys = await controller.prepare([identity])
+        const message = { partition: 3, offset: 9 } as unknown as Message
+        const input = {
+            message,
+            team: { teamId: identity.teamId },
+            headers: { session_id: identity.sessionId },
+            sessionKey: await controller.getKey(identity.sessionId, identity.teamId),
+            sessionBatchRecorder: recorder,
+        }
+        await handle.defer(input, (value) => Promise.resolve(ok(value)))
+        await handle.defer(input, (value) => Promise.resolve(ok(value)))
+        await handle.defer(input, (value) => Promise.resolve(ok(value)), true)
+        expect(await handle.commit(recorder)).toEqual([message])
+    })
+
+    it('records into the recorder handed to the commit, not the one the message was fed with', async () => {
+        const identity = { ...session, sessionId: '01a0a4f0-3200-7000-8000-000000000003' }
+        const controller = new MlKeyBatchController(store, encryption)
+        const handle = new MlBatchHandle(controller)
+        handle.keys = await controller.prepare([identity])
+        const flushed = { ...recorder, size: 1 } as unknown as SessionBatchRecorder
+        const current = { ...recorder, size: 2 } as unknown as SessionBatchRecorder
+        const input = {
+            message: {} as Message,
+            team: { teamId: identity.teamId },
+            headers: { session_id: identity.sessionId },
+            sessionKey: await controller.getKey(identity.sessionId, identity.teamId),
+            sessionBatchRecorder: flushed,
+        }
+        const seen: SessionBatchRecorder[] = []
+        await handle.defer(input, (value) => {
+            seen.push(value.sessionBatchRecorder)
+            return Promise.resolve(ok(value))
+        })
+        await handle.commit(current)
+        expect(seen).toEqual([current])
     })
     it.each(['invalid-json', 'oversized-session', 'invalid-session', 'invalid-month'])(
         'reports accepted, malformed (%s) and deleted metadata rows separately',
@@ -967,7 +1035,7 @@ describe('ML session key batches', () => {
             const batcher = new BlockMetadataBatcher(
                 new BlockMetadataParquetStore(
                     { send: upload } as unknown as S3Client,
-                    'ml-bucket',
+                    { v2: 'ml-bucket', v3: 'ml-bucket-v3' },
                     'block-metadata',
                     'pod'
                 ),

@@ -1,27 +1,22 @@
 """User interviews' handling of the inbound Vapi webhook.
 
-The endpoint in ``presentation/webhooks.py`` calls in here once a delivery is verified. The
-persistence side of the webhook lives beside ``logic.py`` rather than in the view file, so the
-view holds the HTTP surfaces and this module holds what the product does with a call.
-
-``handle_vapi_webhook_delivery`` is the same work off the request path: it takes the ids a caller
-already resolved instead of a share row, and persists a UserInterview attributed to the topic
-creator, idempotent on ``call.id``.
+``handle_vapi_webhook_delivery`` runs in the Celery task that the ingress vapi consumer
+enqueues through ``facade.api.accept_vapi_event``. It persists a UserInterview row attributed
+to the topic creator, idempotent on ``call.id``.
 """
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
+from datetime import datetime
 from typing import Any
 
 from django.db import connection, transaction
 
 import structlog
-import posthoganalytics
 
 from posthog.schema import EmbeddingModelName
 
 from posthog.api.embedding_worker import emit_embedding_request
 from posthog.event_usage import groups
-from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team import Team
 from posthog.ph_client import ph_scoped_capture
 
@@ -48,7 +43,7 @@ _EMBEDDING_MODELS = [m.value for m in EmbeddingModelName]
 EMBEDDING_CONTENT_MAX_BYTES = 750_000
 
 
-def emit_interview_embeddings(interview: UserInterview, topic: UserInterviewTopic) -> None:
+def _emit_interview_embeddings(interview: UserInterview, topic: UserInterviewTopic) -> None:
     """Emit transcript and summary as two separate embedding documents so each can be
     searched independently. Failures are logged but never propagated: Vapi retries are
     idempotent on call.id, so a re-delivery would skip creation and never re-emit —
@@ -91,7 +86,7 @@ def emit_interview_embeddings(interview: UserInterview, topic: UserInterviewTopi
             )
 
 
-def collapse_abandoned_partials(*, team: Team, topic: UserInterviewTopic, respondent_key: str, keep_pk: Any) -> None:
+def _collapse_abandoned_partials(*, team: Team, topic: UserInterviewTopic, respondent_key: str, keep_pk: Any) -> None:
     """Delete the abandoned partial an accidental mid-call refresh leaves behind, when the same
     respondent (same ``respondent_key``) comes back and finishes — so the topic shows one response
     per respondent instead of a junk trail.
@@ -131,17 +126,33 @@ def collapse_abandoned_partials(*, team: Team, topic: UserInterviewTopic, respon
     )
 
 
-def _capture_interview_event(
+def _lock_call(team_id: int, call_id: str) -> None:
+    """Hold the sole right to store this call's report until the transaction ends.
+
+    Nothing in the schema stops a second row for one call. Vapi resends a report whose receipt it
+    lost, the endpoint asks for a resend when the enqueue fails, and the task is acknowledged after
+    the run, so two runs for one call can be in flight together. Without this lock both pass the
+    existence check and both insert, which gives the topic two interviews for one call and emits
+    the embeddings twice. The run that loses waits here until the winner commits, and its next read
+    then sees the row.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(%s))",
+            [f"user_interviews_vapi_call:{team_id}:{call_id}"],
+        )
+
+
+def _capture_user_interview_event(
     event: str,
     *,
-    capture: Callable[..., Any],
     team: Team,
     topic_id: str,
     interviewee_context_id: str,
     call_id: str | None,
-    timestamp: str | None,
-    session_id: str,
-    extra_properties: dict[str, Any] | None,
+    received_at: str | None,
+    session_id: str = "",
+    extra_properties: dict[str, Any] | None = None,
 ) -> None:
     """Fire a PostHog event for a user-interview lifecycle moment (conversation started/ended).
     Failures never propagate — analytics never blocks a webhook delivery.
@@ -150,6 +161,10 @@ def _capture_interview_event(
     transient drops or warm-transfer flows, and end-of-call-report can be retried by Vapi
     until we ack. Set `$insert_id` to `<event>:<call_id>` so PostHog dedupes the second
     delivery at ingest — funnels see one start and one end per call.
+
+    The event carries the moment the endpoint received the delivery, not the moment this ran. The
+    worker runs after the request, and later again on a retry, so the run time would put
+    "conversation started" after "conversation ended" for the same call.
 
     When a shared-link respondent supplied a valid session_id, it's attached as `$session_id` so
     the event (and thus the interview) associates with that session recording — this is how the
@@ -171,13 +186,17 @@ def _capture_interview_event(
     if extra_properties:
         properties.update(extra_properties)
     try:
-        capture(
-            distinct_id=f"user_interview:{interviewee_context_id}",
-            event=event,
-            properties=properties,
-            timestamp=timestamp,
-            groups=groups(organization=team.organization, team=team),
-        )
+        # This runs in the Celery task, where the global client's background flush may never run
+        # before the worker exits, so the event is lost without a word. The scoped client flushes
+        # when the context exits. A run emits at most one event, so the client is opened once.
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=f"user_interview:{interviewee_context_id}",
+                event=event,
+                properties=properties,
+                timestamp=received_at,
+                groups=groups(organization=team.organization, team=team),
+            )
     except Exception:
         logger.exception(
             "user_interviews_event_capture_failed",
@@ -187,86 +206,17 @@ def _capture_interview_event(
         )
 
 
-def capture_user_interview_event(
-    event: str,
-    *,
-    sharing_config: SharingConfiguration,
-    call_id: str | None,
-    session_id: str = "",
-    extra_properties: dict[str, Any] | None = None,
-) -> None:
-    """The lifecycle event from the request that the delivery arrived on."""
-    interviewee_context = sharing_config.interviewee_context
-    if interviewee_context is None:
+def _backdate_to_receipt(interview: UserInterview, received_at: str | None) -> None:
+    """Stamp the interview with the time the endpoint accepted the report, not the worker's."""
+    if not received_at:
         return
-    _capture_interview_event(
-        event,
-        capture=posthoganalytics.capture,
-        team=sharing_config.team,
-        topic_id=str(interviewee_context.topic_id),
-        interviewee_context_id=str(interviewee_context.id),
-        call_id=call_id,
-        timestamp=None,
-        session_id=session_id,
-        extra_properties=extra_properties,
-    )
-
-
-def _lock_call(team_id: int, call_id: str) -> None:
-    """Hold the sole right to store this call's report until the transaction ends.
-
-    Nothing in the schema stops a second row for one call. Vapi resends a report whose receipt it
-    lost, the endpoint asks for a resend when the enqueue fails, and the task is acknowledged after
-    the run, so two runs for one call can be in flight together. Without this lock both pass the
-    existence check and both insert, which gives the topic two interviews for one call and emits
-    the embeddings twice. The run that loses waits here until the winner commits, and its next read
-    then sees the row.
-    """
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT pg_advisory_xact_lock(hashtext(%s))",
-            [f"user_interviews_vapi_call:{team_id}:{call_id}"],
-        )
-
-
-def _scoped_capture(**kwargs: Any) -> None:
-    """Capture through a client that flushes before the caller moves on.
-
-    The global client's background flush may never run before a Celery worker exits, so the event
-    is lost without a word. A run emits at most one event, so the client is opened once.
-    """
-    with ph_scoped_capture() as capture:
-        capture(**kwargs)
-
-
-def _capture_user_interview_event(
-    event: str,
-    *,
-    team: Team,
-    topic_id: str,
-    interviewee_context_id: str,
-    call_id: str | None,
-    received_at: str | None,
-    session_id: str = "",
-    extra_properties: dict[str, Any] | None = None,
-) -> None:
-    """The lifecycle event from the worker that runs after the request.
-
-    The event carries the moment the endpoint received the delivery, not the moment this ran. The
-    worker runs after the request, and later again on a retry, so the run time would put
-    "conversation started" after "conversation ended" for the same call.
-    """
-    _capture_interview_event(
-        event,
-        capture=_scoped_capture,
-        team=team,
-        topic_id=topic_id,
-        interviewee_context_id=interviewee_context_id,
-        call_id=call_id,
-        timestamp=received_at,
-        session_id=session_id,
-        extra_properties=extra_properties,
-    )
+    try:
+        accepted_at = datetime.fromisoformat(received_at)
+    except ValueError:
+        return
+    # created_at is auto_now_add, so the row must be updated after the insert.
+    UserInterview.objects.filter(pk=interview.pk).update(created_at=accepted_at)
+    interview.created_at = accepted_at
 
 
 def handle_vapi_webhook_delivery(
@@ -404,17 +354,18 @@ def handle_vapi_webhook_delivery(
             created_by=topic.created_by,
             classifications=classifications,
         )
+        _backdate_to_receipt(interview, received_at)
         # Collapse the abandoned partial an accidental refresh leaves behind: when a shared-link
         # respondent comes back (same respondent_key) and finishes, drop their earlier abandoned
         # rows so the topic shows one response per respondent instead of a junk trail.
         if respondent_key and UserInterviewClassification.ABANDONED not in classifications:
-            collapse_abandoned_partials(
+            _collapse_abandoned_partials(
                 team=topic.team,
                 topic=topic,
                 respondent_key=respondent_key,
                 keep_pk=interview.pk,
             )
-        transaction.on_commit(lambda: emit_interview_embeddings(interview, topic))
+        transaction.on_commit(lambda: _emit_interview_embeddings(interview, topic))
 
     _capture_user_interview_event(
         "user_interview_conversation_ended",

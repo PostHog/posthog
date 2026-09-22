@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconFolderMove, IconFolderOpen, IconStar, IconStarFilled } from '@posthog/icons'
 
@@ -20,8 +20,10 @@ import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 
 import { moveToLogic } from '../FileSystem/MoveTo/moveToLogic'
+import { sceneFileLogic } from './sceneFileLogic'
 
 export function SceneFile({ dataAttrKey }: { dataAttrKey: string }): JSX.Element | null {
+    useMountedLogic(sceneFileLogic)
     const { assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
     const { addShortcutItem, deleteShortcut } = useActions(projectTreeDataLogic)

@@ -149,16 +149,14 @@ class TestBackfillReadiness(BaseTest):
 
     @parameterized.expand(KINDS)
     def test_composition_edit_before_supersession_cannot_stamp(
-        self, name: str, make_run, stamp, hash_column: str, stamp_column: str, *_edits
+        self, _name: str, make_run, stamp, hash_column: str, stamp_column: str, *_edits
     ) -> None:
-        filters = self._filters(7, person_hash="person-a")
-        if name == "person_properties":
-            filters["properties"]["values"] = filters["properties"]["values"][1:]
-        cohort = Cohort.objects.create(team=self.team, cohort_type=CohortType.REALTIME, filters=filters)
-        run = make_run(self.team.id, cohort.id, "cohort_created")
-        assert run is not None
+        # A mixed cohort for both kinds: negating its person leaf moves the definition and no kind
+        # hash, and a person run that pinned the old tree seeded only what could move that tree.
+        cohort, run = self._cohort_and_run(make_run)
         pinned_hash = getattr(cohort, hash_column)
 
+        assert cohort.filters is not None
         cohort.filters["properties"]["values"][-1]["negation"] = True
         cohort.save(update_fields=["filters"])
 
