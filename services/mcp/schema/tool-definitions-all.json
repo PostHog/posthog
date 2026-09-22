@@ -4827,9 +4827,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "experiment-migrate-mcp-tool",
-        "feature_flag_behavior": "enable"
+        }
     },
     "experiment-pause": {
         "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nPause a running experiment by deactivating its feature flag (sets flag active=false). The flag is no longer returned by the /decide endpoint, so users fall back to the application default (typically control). No new exposure events are recorded while paused. The experiment stays in running status — it is not ended.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), already stopped (\"Experiment has already ended.\"), no linked flag (\"Experiment does not have a feature flag linked.\"), or already paused (\"Experiment is already paused.\").\n\nNo request body needed. Use resume to reactivate.",
