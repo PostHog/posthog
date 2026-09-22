@@ -7,15 +7,15 @@ import { PersonsTabType } from '~/types'
 
 interface SessionRecordingPanelProps {
     sessionContext?: {
-        replay_url?: string
+        replay_url?: unknown
         [key: string]: any
     }
     distinctId?: string
 }
 
 /** The widget stores the replay URL under `replay_url`. The id is its last path segment. */
-export function recordingIdFromReplayUrl(replayUrl: string | undefined): string | null {
-    if (!replayUrl) {
+export function recordingIdFromReplayUrl(replayUrl: unknown): string | null {
+    if (typeof replayUrl !== 'string' || !replayUrl) {
         return null
     }
     return replayUrl.split('?')[0].split('/').filter(Boolean).pop() ?? null
