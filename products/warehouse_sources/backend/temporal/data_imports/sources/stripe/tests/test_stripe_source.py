@@ -247,6 +247,9 @@ class TestStripeSource:
             # listing a specific customer's nested resources — every retry replays the same request
             # against the same customer and fails identically.
             "Request req_abc123: error_details_unknown",
+            # The key belongs to a connected account, so Stripe refuses to nest Connect access two
+            # levels deep when an "Account id" is also configured — a customer misconfiguration.
+            "Request req_abc123: You cannot access the connected accounts of your platform's connected accounts.",
         ],
     )
     def test_non_retryable_errors_match_permission_failures(self, observed_error):
@@ -270,6 +273,22 @@ class TestStripeSource:
         assert messages
         assert messages[0] is not None
         assert "isn't authorized for the configured Stripe account" in messages[0]
+
+    def test_connect_account_topology_rejection_has_actionable_message(self):
+        # Stripe's own text names no fix a customer can act on — the guidance has to say what will,
+        # which is removing the 'Account id' or switching to a platform key, since the rejection is
+        # about the key/account combination and surfaces on any endpoint the sync calls, not one table.
+        observed_error = (
+            "Request req_abc123: You cannot access the connected accounts of your platform's connected accounts."
+        )
+        messages = [
+            message
+            for pattern, message in self.source.get_non_retryable_errors().items()
+            if error_message_matches(observed_error, [pattern])
+        ]
+        assert messages
+        assert messages[0] is not None
+        assert "Account id" in messages[0]
 
     @pytest.mark.parametrize(
         "other_error",
