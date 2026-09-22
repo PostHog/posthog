@@ -36,6 +36,11 @@ import {
 } from '~/types'
 
 import { groupTablesBySchema } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
+import {
+    clonePayloadPreservingFiles,
+    findUploadedFiles,
+    readJsonFile,
+} from 'products/data_warehouse/frontend/shared/sourceFieldFiles'
 import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 import { SYNC_FREQUENCY_ORDER, SyncTypeLabelMap, clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
 import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
@@ -296,30 +301,6 @@ export const removeEmptySensitiveValues = (fields: SourceFieldConfig[], valueObj
             delete valueObj[field.name]
         }
     }
-}
-
-export const clonePayloadPreservingFiles = (value: unknown): unknown => {
-    if (value instanceof File) {
-        return value
-    }
-
-    if (Array.isArray(value)) {
-        return value.map((item) => clonePayloadPreservingFiles(item))
-    }
-
-    if (value instanceof Date) {
-        return new Date(value.getTime())
-    }
-    if (value && typeof value === 'object' && value.constructor === Object) {
-        return Object.fromEntries(
-            Object.entries(value as Record<string, unknown>).map(([key, nestedValue]) => [
-                key,
-                clonePayloadPreservingFiles(nestedValue),
-            ])
-        )
-    }
-
-    return value
 }
 
 // Run a per-schema API action across many schemas; returns how many failed.
@@ -1109,11 +1090,6 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     removeEmptySensitiveValues(values.sourceFieldConfig.fields, sanitizedPayload)
                 }
 
-                const newJobInputs = {
-                    ...values.source?.job_inputs,
-                    ...sanitizedPayload,
-                }
-
                 // Read before the update, while `values.source` still holds the old config, so we can
                 // offer a resync when the user widens the history window (otherwise it's silently ignored).
                 const previousLookbackDays = effectiveLookbackDays(values.source?.job_inputs?.[SYNC_LOOKBACK_FIELD])
@@ -1121,28 +1097,27 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 const schemasToResync = schemasNeedingLookbackResync(values.source)
 
                 // Handle file uploads
-                const sourceFieldConfig = values.sourceFieldConfig
-                if (sourceFieldConfig?.fields) {
-                    for (const field of sourceFieldConfig.fields) {
-                        if (field.type === 'file-upload' && sanitizedPayload[field.name]) {
-                            try {
-                                // Assumes we're loading a JSON file
-                                const loadedFile: string = await new Promise((resolve, reject) => {
-                                    const fileReader = new FileReader()
-                                    fileReader.onload = (e) => resolve(e.target?.result as string)
-                                    fileReader.onerror = (e) => reject(e)
-                                    fileReader.readAsText(sanitizedPayload[field.name][0])
-                                })
-                                newJobInputs[field.name] = JSON.parse(loadedFile)
-                            } catch (e: any) {
-                                posthog.captureException(e)
-                                lemonToast.error(
-                                    `The "${field.name}" file is not valid — it must be a readable JSON file.`
-                                )
-                                return
-                            }
-                        }
+                for (const { field, container, file } of findUploadedFiles(
+                    values.sourceFieldConfig?.fields ?? [],
+                    sanitizedPayload
+                )) {
+                    try {
+                        // Assumes we're loading a JSON file
+                        container[field.name] = await readJsonFile(file)
+                    } catch (e: any) {
+                        posthog.captureException(e)
+                        posthog.capture('warehouse source saved', {
+                            source_type: values.source?.source_type,
+                            outcome: 'file_unreadable',
+                        })
+                        lemonToast.error(`The "${field.name}" file is not valid — it must be a readable JSON file.`)
+                        return
                     }
+                }
+
+                const newJobInputs = {
+                    ...values.source?.job_inputs,
+                    ...sanitizedPayload,
                 }
 
                 try {
@@ -1166,6 +1141,10 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         description: description !== '' ? description : (values.source?.description ?? null),
                     })
                     actions.loadSource()
+                    posthog.capture('warehouse source saved', {
+                        source_type: values.source?.source_type,
+                        outcome: 'success',
+                    })
                     lemonToast.success('Source updated')
 
                     if (nextLookbackDays > previousLookbackDays && schemasToResync.length > 0) {
@@ -1186,6 +1165,10 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                             : undefined,
                     })
                 } catch (e: any) {
+                    posthog.capture('warehouse source saved', {
+                        source_type: values.source?.source_type,
+                        outcome: 'rejected',
+                    })
                     if (e.message) {
                         lemonToast.error(e.message)
                     } else {
