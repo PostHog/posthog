@@ -186,17 +186,50 @@ message UpdatePersonPropertiesResponse {
   bool updated = 2;
 }
 
-// DeletePersonsRequest deletes persons from Postgres by UUID.
-// Also deletes associated posthog_persondistinctid rows (FK is NO ACTION).
-// posthog_featureflaghashkeyoverride rows cascade automatically at the DB level.
+// How DeletePersons removes the rows.
+enum DeletePersonsMode {
+  // Same as HARD.
+  DELETE_PERSONS_MODE_UNSPECIFIED = 0;
+  // Remove the rows, tombstoned ones included. For callers that publish no
+  // ClickHouse tombstones and want nothing left behind, such as a purge.
+  DELETE_PERSONS_MODE_HARD = 1;
+  // Keep the rows as tombstones and report the versions written. The caller
+  // owns the prerequisite: ingestion must revive tombstones for the team.
+  DELETE_PERSONS_MODE_TOMBSTONE = 2;
+}
+
+// DeletePersonsRequest deletes persons from Postgres by UUID, together with
+// their posthog_persondistinctid, posthog_cohortpeople and
+// posthog_featureflaghashkeyoverride rows (nothing cascades them).
 message DeletePersonsRequest {
   int64 team_id = 1;
   // Person UUIDs to delete. Max 1000 per request.
   repeated string person_uuids = 2;
+  DeletePersonsMode mode = 3;
+}
+
+message TombstonedDistinctId {
+  string distinct_id = 1;
+  int64 version = 2;
+}
+
+message TombstonedPerson {
+  string person_uuid = 1;
+  int64 version = 2;
+  repeated TombstonedDistinctId distinct_ids = 3;
 }
 
 message DeletePersonsResponse {
   int64 deleted_count = 1;
+  // True when the rows were tombstoned rather than removed.
+  bool tombstoned = 2;
+  // One entry per requested person that is tombstoned after the call, with the
+  // versions its rows hold, so the caller can publish its ClickHouse tombstones
+  // at exactly those versions. Persons tombstoned before the call are included
+  // too, so a retry after a lost response gets the same versions again;
+  // deleted_count counts only the rows this call tombstoned. Empty on a hard
+  // delete.
+  repeated TombstonedPerson tombstones = 3;
 }
 
 // DeletePersonsBatchForTeamRequest deletes up to batch_size persons for a team.

@@ -8,6 +8,8 @@ import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
 from unittest.mock import patch
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -1113,34 +1115,47 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results[0].events), 1)
         self.assertEqual(response.results[0].events[0].properties["$ai_model_parameters"], {"temperature": 0.5})
 
-    def test_property_filter_matches_an_explicit_empty_string(self):
+    @parameterized.expand(["$ai_span_name", "custom_span_name"])
+    def test_property_filter_matches_an_explicit_empty_string(self, property_name: str):
         _create_person(distinct_ids=["person1"], team=self.team)
         _create_ai_generation_event(
             distinct_id="person1",
             trace_id="trace_with_empty_name",
             team=self.team,
             timestamp=datetime(2024, 12, 1, 0, 0),
-            properties={"$ai_span_name": ""},
+            properties={property_name: ""},
         )
         _create_ai_generation_event(
             distinct_id="person1",
             trace_id="trace_with_name",
             team=self.team,
             timestamp=datetime(2024, 12, 1, 0, 0),
-            properties={"$ai_span_name": "chat"},
+            properties={property_name: "chat"},
+        )
+
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_without_name",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
         )
 
         response = TracesQueryRunner(
             team=self.team,
             query=TracesQuery(
                 properties=[
-                    EventPropertyFilter(key="$ai_span_name", value=[""], operator=PropertyOperator.EXACT),
+                    EventPropertyFilter(key=property_name, value=[""], operator=PropertyOperator.EXACT),
                 ],
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
 
-        self.assertEqual({result.id for result in response.results}, {"trace_with_empty_name"})
+        expected_ids = (
+            set()
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and property_name == "$ai_span_name"
+            else {"trace_with_empty_name"}
+        )
+        self.assertEqual({result.id for result in response.results}, expected_ids)
 
     @snapshot_clickhouse_queries
     def test_properties_filter_with_multiple_events_in_group(self):

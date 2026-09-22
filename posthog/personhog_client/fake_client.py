@@ -622,14 +622,47 @@ class FakePersonHogClient:
         self, request: person_pb2.DeletePersonsRequest, timeout: float | None = None
     ) -> person_pb2.DeletePersonsResponse:
         self.calls.append(_Call("delete_persons", request))
-        deleted_count = 0
+        tombstone = request.mode == person_pb2.DELETE_PERSONS_MODE_TOMBSTONE
+        response = person_pb2.DeletePersonsResponse(tombstoned=tombstone)
         for uuid in request.person_uuids:
             person = self._persons_by_uuid.get((request.team_id, uuid))
             if person is None:
                 continue
-            deleted_count += 1
-            self._remove_person(request.team_id, person)
-        return person_pb2.DeletePersonsResponse(deleted_count=deleted_count)
+            if not tombstone:
+                response.deleted_count += 1
+                self._remove_person(request.team_id, person)
+                continue
+            tombstoned = response.tombstones.add(person_uuid=person.uuid)
+            if person.is_deleted:
+                # Mirrors the server: an already tombstoned row is reported with the versions it
+                # holds and not counted, so a retry can publish the same ClickHouse tombstones.
+                tombstoned.version = person.version
+                for did in sorted(
+                    self._distinct_ids.get((request.team_id, person.id), []), key=lambda d: d.distinct_id
+                ):
+                    if (request.team_id, did.distinct_id) in self._tombstoned_distinct_ids:
+                        tombstoned.distinct_ids.add(distinct_id=did.distinct_id, version=did.version)
+                continue
+            response.deleted_count += 1
+            tombstoned.version = self._tombstone_person(request.team_id, person, tombstoned)
+        response.tombstones.sort(key=lambda t: t.person_uuid)
+        return response
+
+    def _tombstone_person(
+        self, team_id: int, person: person_pb2.Person, tombstoned: person_pb2.TombstonedPerson
+    ) -> int:
+        """Tombstone a person and its distinct ids the way the replica does, reporting the versions."""
+        version = person.version + 1
+        person.is_deleted = True
+        person.version = version
+        person.properties = b"{}"
+        for did in sorted(self._distinct_ids.get((team_id, person.id), []), key=lambda d: d.distinct_id):
+            if (team_id, did.distinct_id) in self._tombstoned_distinct_ids:
+                continue
+            did.version = did.version + 1
+            self._tombstoned_distinct_ids.add((team_id, did.distinct_id))
+            tombstoned.distinct_ids.add(distinct_id=did.distinct_id, version=did.version)
+        return version
 
     def delete_tombstoned_persons(
         self, request: person_pb2.DeleteTombstonedPersonsRequest, timeout: float | None = None

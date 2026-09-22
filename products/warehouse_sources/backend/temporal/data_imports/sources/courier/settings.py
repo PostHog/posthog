@@ -52,9 +52,21 @@ class CourierEndpointConfig:
     page_size: int = COURIER_PAGE_SIZE
     # False where the endpoint returns every record in one response and takes no cursor.
     paginated: bool = True
+    # False where a missing `data_selector` key is a legitimate empty response rather than an
+    # envelope change worth failing the sync over.
+    data_selector_required: bool = True
     # Set where the endpoint only exists per parent record, so rows are collected by walking the
     # parent listing first.
     fanout: DependentEndpointConfig | None = None
+    # Page-size param the fan-out sends to both its parent and child listing. None for a parent
+    # that documents no page-size param at all; the child then carries its own in `child_params`.
+    fanout_page_size_param: str | None = "limit"
+    # Where a fan-out child finds its own next-page cursor, when that differs from the parent's
+    # `cursor_path`. One paginator config is shared by both halves of a fan-out otherwise.
+    child_cursor_path: str | None = None
+    # Parent field percent-encoded into the fan-out's `resolve_field` before the child path is
+    # bound, for an id that can contain a literal "/".
+    encode_parent_field: str | None = None
     # Filter param on the *parent* listing, for a fan-out child whose own endpoint takes no
     # timestamp filter. Bounding the parent walk is the only way such a child can sync
     # incrementally instead of re-fetching every parent's records every run.
@@ -67,10 +79,15 @@ class CourierEndpointConfig:
 
 # Parent listings a fan-out endpoint walks that are not themselves syncable tables.
 FANOUT_ONLY_CONFIGS: dict[str, CourierEndpointConfig] = {
-    "Lists": CourierEndpointConfig(
-        name="Lists",
-        path="/lists",
-        data_selector="items",
+    # Digest schedules have no listing endpoint of their own: Courier only exposes a schedule id
+    # nested inside the digest config of a workspace preference's topics, so they are flattened
+    # out of the one unpaginated preferences response. A workspace with no digest configured
+    # matches nothing here, which is why the selector is not required.
+    "DigestSchedules": CourierEndpointConfig(
+        name="DigestSchedules",
+        path="/preferences/sections",
+        data_selector="results[*].topics[*].digest.schedules[*]",
+        data_selector_required=False,
     ),
 }
 
@@ -161,6 +178,16 @@ ENDPOINTS_CONFIG: dict[str, CourierEndpointConfig] = {
         data_selector="results",
         primary_keys=("id",),
     ),
+    # The recipient groups every list-targeted send resolves through. No server-side timestamp
+    # filter, so full refresh only.
+    "Lists": CourierEndpointConfig(
+        name="Lists",
+        path="/lists",
+        data_selector="items",
+        primary_keys=("id",),
+        partition_key="created",
+        timestamp_fields=("created", "updated"),
+    ),
     # Who is subscribed to each list. Courier documents no timestamp filter on either the list
     # walk or the subscriptions, so full refresh only.
     "ListSubscriptions": CourierEndpointConfig(
@@ -198,6 +225,90 @@ ENDPOINTS_CONFIG: dict[str, CourierEndpointConfig] = {
         data_selector="items",
         primary_keys=("id",),
         cursor_path="cursor",
+    ),
+    # Who belongs to each tenant, which is who a tenant-scoped send reaches. The association
+    # carries no timestamp, so full refresh only.
+    "TenantUsers": CourierEndpointConfig(
+        name="TenantUsers",
+        path="/tenants/{tenant_id}/users",
+        data_selector="items",
+        # The association repeats its own `tenant_id`, but a user belongs to many tenants, so the
+        # parent's id is projected in as well rather than trusting an optional field to key rows.
+        primary_keys=("tenant_id", "user_id"),
+        cursor_path="cursor",
+        fanout=DependentEndpointConfig(
+            parent_name="Tenants",
+            resolve_param="tenant_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "tenant_id"},
+            # A tenant deleted between the listing and this fetch 404s; skip that parent rather
+            # than failing the whole fan-out.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    # The flow definitions a message is attributed to. Returns the published version of each
+    # journey; no server-side timestamp filter, so full refresh only.
+    "Journeys": CourierEndpointConfig(
+        name="Journeys",
+        path="/journeys",
+        data_selector="templates",
+        primary_keys=("id",),
+        partition_key="createdAt",
+        timestamp_fields=("createdAt", "updatedAt"),
+        cursor_path="cursor",
+    ),
+    # Each journey's publish history, for comparing performance across versions.
+    "JourneyVersions": CourierEndpointConfig(
+        name="JourneyVersions",
+        path="/journeys/{templateId}/versions",
+        data_selector="results",
+        # The version entry carries no reference back to its journey, so the parent's id is
+        # projected in to make rows joinable and unique across journeys.
+        primary_keys=("journey_id", "version"),
+        partition_key="created",
+        timestamp_fields=("created", "published"),
+        # The parent /journeys walk finds its cursor at the top level; this endpoint nests its
+        # own under `paging`.
+        cursor_path="cursor",
+        child_cursor_path="paging.cursor",
+        fanout=DependentEndpointConfig(
+            parent_name="Journeys",
+            resolve_param="templateId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "journey_id"},
+            # A journey archived between the listing and this fetch 404s; skip that parent
+            # rather than failing the whole fan-out.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    # What each digest schedule has accumulated per user, explaining why messages were batched or
+    # held back. No server-side timestamp filter, so full refresh only.
+    "DigestInstances": CourierEndpointConfig(
+        name="DigestInstances",
+        path="/digests/schedules/{schedule_id}/instances",
+        data_selector="items",
+        # `digest_instance_id` is documented as unique to the instance, but an instance only
+        # exists within its schedule, so the schedule is part of the key.
+        primary_keys=("schedule_id", "digest_instance_id"),
+        partition_key="created_at",
+        timestamp_fields=("created_at",),
+        cursor_path="cursor",
+        encode_parent_field="schedule_id",
+        # The preferences listing the schedule ids come from takes no params at all.
+        fanout_page_size_param=None,
+        fanout=DependentEndpointConfig(
+            parent_name="DigestSchedules",
+            resolve_param="schedule_id",
+            resolve_field="encoded_schedule_id",
+            include_from_parent=["schedule_id"],
+            parent_field_renames={"schedule_id": "schedule_id"},
+            child_params={"limit": COURIER_PAGE_SIZE},
+            # A schedule removed between the preferences read and this fetch 404s; skip it
+            # rather than failing the whole fan-out.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
     ),
 }
 
