@@ -1816,7 +1816,7 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
         ]
 
 
-class SignalReportAction(UUIDModel):
+class SignalReportAction(TeamScopedRootMixin, UUIDModel):
     """One row per (report, user, action type): a person's lightweight interaction with a report.
 
     Heavier work on a report already leaves person-attributed `SignalReportArtefact` rows (notes,
@@ -1841,7 +1841,6 @@ class SignalReportAction(UUIDModel):
         SLACK_DISCUSSION = "slack_discussion"
 
     # See SignalReportRefund.all_teams for rationale.
-    objects = EnvironmentScopedManager()
     all_teams = models.Manager()  # noqa: DJ012
 
     # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this

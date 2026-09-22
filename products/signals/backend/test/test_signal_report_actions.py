@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -23,8 +25,13 @@ class TestSignalReportViewedEndpoint(APIBaseTest):
             **overrides,
         )
 
-    @parameterized.expand([("project", False), ("child_environment", True)])
-    def test_a_view_is_recorded_once_per_person_and_repeats_bump_the_row(self, _name, child_environment) -> None:
+    @parameterized.expand(
+        [("project", False, False), ("child_environment", True, False), ("existing_child_action", True, True)]
+    )
+    def test_a_view_is_recorded_once_per_person_and_repeats_bump_the_row(
+        self, _name, child_environment, existing_action
+    ) -> None:
+        action_team_id = self.team.id
         if child_environment:
             from posthog.models.team.team import Team
 
@@ -32,18 +39,26 @@ class TestSignalReportViewedEndpoint(APIBaseTest):
                 organization=self.organization, parent_team=self.team, name="Child environment"
             )
         report = self._create_report()
+        if existing_action:
+            SignalReportAction.all_teams.create(
+                team_id=action_team_id,
+                report=report,
+                user=self.user,
+                type=SignalReportAction.ActionType.VIEW,
+                last_at=timezone.now(),
+            )
 
         first = self.client.post(self._viewed_url(str(report.pk)))
         assert first.status_code == status.HTTP_204_NO_CONTENT
         action = SignalReportAction.objects.for_team(self.team.id).get(report=report, user=self.user)
-        assert action.team_id == self.team.id
+        assert action.team_id == action_team_id
         assert action.type == SignalReportAction.ActionType.VIEW
-        assert action.count == 1
+        assert action.count == 1 + int(existing_action)
         first_seen = action.last_at
 
         assert self.client.post(self._viewed_url(str(report.pk))).status_code == status.HTTP_204_NO_CONTENT
         action.refresh_from_db()
-        assert action.count == 2
+        assert action.count == 2 + int(existing_action)
         assert action.last_at > first_seen
 
     @parameterized.expand(
