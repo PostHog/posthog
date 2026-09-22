@@ -13,7 +13,8 @@ signal content, ticket text, or volumes.
 from __future__ import annotations
 
 import re
-from datetime import date
+from bisect import bisect_right
+from datetime import date, datetime
 from typing import TypeVar
 
 from django.conf import settings
@@ -30,9 +31,9 @@ from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.pull_request_body import BodyEditOutcome, edit_pull_request_body
 from products.signals.backend.scout_harness.lazy_seed import canonical_skill_names
 from products.signals.backend.signal_metadata import (
-    OriginSignal,
+    OriginSource,
     SignalSourceReference,
-    fetch_origin_signals_for_report,
+    fetch_origin_sources_for_report,
     fetch_source_references_for_report,
 )
 from products.tasks.backend.facade import api as tasks_facade
@@ -47,12 +48,8 @@ _SOURCE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _SOURCE_PRODUCT_RE = re.compile(r"^[a-z0-9_]{1,40}$")
 _COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 _PROBLEM_HEADING_RE = re.compile(r"^##[ \t]+Problem[ \t]*$", re.MULTILINE | re.IGNORECASE)
-_ORIGIN_HEADING_RE = re.compile(r"^##[ \t]+Origin[ \t]*$", re.MULTILINE | re.IGNORECASE)
-_MARKED_BLOCK_RE = re.compile(rf"<!-- {ORIGIN_MARKER_PREFIX}:\S+ -->.*?<!-- /{ORIGIN_MARKER_PREFIX}:\S+ -->", re.DOTALL)
 # A section ends at the next level-two heading, a horizontal rule, or a PostHog Origin block.
 _SECTION_END_RE = re.compile(rf"^(##[ \t]|---[ \t]*$|<!-- {ORIGIN_MARKER_PREFIX}:)", re.MULTILINE)
-# A heading or rule inside a fenced code block is code, not structure.
-_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,}).*?^ {0,3}\1[`~]*[ \t]*$", re.MULTILINE | re.DOTALL)
 
 # Linear and GitHub signals come from `fetch_source_references_for_report`, which already
 # validates their public links.
@@ -86,17 +83,17 @@ class OriginLink:
 
 
 @frozen
-class OriginSource:
+class OriginSourceLine:
     label: str
     links: tuple[OriginLink, ...]
-    count: int
+    has_more: bool
 
     def render(self) -> str:
         # Counts stay out, because the number of private recordings or tickets is itself private.
         if not self.links:
             return f"- {self.label}"
         rendered = ", ".join(link.render() for link in self.links)
-        if self.count > len(self.links):
+        if self.has_more:
             rendered = f"{rendered} and more"
         return f"- {self.label}: {rendered}"
 
@@ -109,14 +106,8 @@ def _source_label(source_product: str) -> str:
     return "Other"
 
 
-def _entity_id(signal: OriginSignal) -> str:
-    # A support ticket page resolves the readable ticket number as well as the uuid.
-    return str(signal.ticket_number) if signal.ticket_number > 0 else signal.source_id
-
-
-def _entity_link(team_id: int, signal: OriginSignal, index: int, total: int) -> OriginLink | None:
-    page = _ENTITY_PAGES.get(signal.source_product)
-    entity_id = _entity_id(signal)
+def _entity_link(team_id: int, source_product: str, entity_id: str, index: int, total: int) -> OriginLink | None:
+    page = _ENTITY_PAGES.get(source_product)
     if page is None or not _SOURCE_ID_RE.match(entity_id):
         return None
     label = page.link_label if total == 1 else f"{page.link_label} {index}"
@@ -124,34 +115,39 @@ def _entity_link(team_id: int, signal: OriginSignal, index: int, total: int) -> 
     return OriginLink(label=label, url=f"{settings.SITE_URL}/project/{team_id}{path}")
 
 
-def _product_sources(team_id: int, signals: list[OriginSignal]) -> list[OriginSource]:
-    grouped: dict[str, list[OriginSignal]] = {}
-    for signal in signals:
+def _source_lines(team_id: int, sources: list[OriginSource]) -> list[OriginSourceLine]:
+    lines: list[OriginSourceLine] = []
+    for source in sources:
         # A scout signal's source_id names the scout run, not an entity, so the scout line covers it.
-        if signal.scout_name or signal.source_product in _ISSUE_TRACKER_PRODUCTS:
+        if source.scout_name or source.source_product in _ISSUE_TRACKER_PRODUCTS:
             continue
-        grouped.setdefault(signal.source_product, []).append(signal)
-
-    sources: list[OriginSource] = []
-    for source_product, group in grouped.items():
-        unique = list({_entity_id(signal): signal for signal in group}.values())
+        shown = source.entity_ids[:MAX_LINKS_PER_SOURCE]
         links: list[OriginLink] = []
-        for index, signal in enumerate(unique[:MAX_LINKS_PER_SOURCE], start=1):
-            link = _entity_link(team_id, signal, index, len(unique))
+        for index, entity_id in enumerate(shown, start=1):
+            link = _entity_link(team_id, source.source_product, entity_id, index, len(source.entity_ids))
             if link is not None:
                 links.append(link)
-        sources.append(OriginSource(label=_source_label(source_product), links=tuple(links), count=len(unique)))
-    return sources
+        lines.append(
+            OriginSourceLine(
+                label=_source_label(source.source_product),
+                links=tuple(links),
+                has_more=len(source.entity_ids) > len(shown),
+            )
+        )
+    return lines
 
 
 def _latest_artefact_as(
-    team_id: int, report_id: str, artefact_type: str, model: type[ArtefactModel]
+    team_id: int,
+    report_id: str,
+    artefact_type: str,
+    model: type[ArtefactModel],
+    created_before: datetime | None = None,
 ) -> ArtefactModel | None:
-    artefact = (
-        SignalReportArtefact.objects.filter(team_id=team_id, report_id=report_id, type=artefact_type)
-        .order_by("-created_at", "-id")
-        .first()
-    )
+    artefacts = SignalReportArtefact.objects.filter(team_id=team_id, report_id=report_id, type=artefact_type)
+    if created_before is not None:
+        artefacts = artefacts.filter(created_at__lte=created_before)
+    artefact = artefacts.order_by("-created_at", "-id").first()
     if artefact is None:
         return None
     try:
@@ -171,8 +167,15 @@ def _cause_commit(team_id: int, report_id: str, repository: str) -> OriginLink |
     return None
 
 
-def _started_automatically(team_id: int, report_id: str, task_id: str) -> bool | None:
-    """Whether auto-start opened this run. None when the report has no record of the run."""
+@frozen
+class RunStart:
+    automatic: bool
+    # The priority when the run started. A later judgment did not trigger this run.
+    priority: str | None
+
+
+def _run_start(team_id: int, report_id: str, task_id: str) -> RunStart | None:
+    """How this run started. None when the report has no record of the run."""
     artefacts = SignalReportArtefact.objects.filter(
         team_id=team_id, report_id=report_id, type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id=task_id
     ).order_by("-created_at", "-id")
@@ -181,20 +184,23 @@ def _started_automatically(team_id: int, report_id: str, task_id: str) -> bool |
             task_run = TaskRunArtefact.model_validate_json(artefact.content)
         except ValidationError:
             continue
-        return task_run.automation_branch is not None
+        judgment = _latest_artefact_as(
+            team_id,
+            report_id,
+            SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            PriorityAssessment,
+            created_before=artefact.created_at,
+        )
+        return RunStart(
+            automatic=task_run.automation_branch is not None,
+            priority=judgment.priority.value if judgment else None,
+        )
     return None
 
 
-def _priority(team_id: int, report_id: str) -> str | None:
-    judgment = _latest_artefact_as(
-        team_id, report_id, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, PriorityAssessment
-    )
-    return judgment.priority.value if judgment else None
-
-
-def _scout_label(signals: list[OriginSignal]) -> str | None:
+def _scout_label(sources: list[OriginSource]) -> str | None:
     """Name a scout only when it ships with PostHog. A custom scout's name comes from its creator and can be private."""
-    scout_name = next((signal.scout_name for signal in signals if signal.scout_name), None)
+    scout_name = next((source.scout_name for source in sources if source.scout_name), None)
     if scout_name is None:
         return None
     return f"`{scout_name}`" if scout_name in canonical_skill_names() else "a custom scout"
@@ -221,38 +227,36 @@ class PullRequestOrigin:
 
     report_id: str
     report_url: str
-    sources: tuple[OriginSource, ...]
+    sources: tuple[OriginSourceLine, ...]
     issue_references: tuple[OriginLink, ...]
     scout_label: str | None
     first_seen: date | None
     cause_commit: OriginLink | None
-    started_automatically: bool | None
-    priority: str | None
+    run_start: RunStart | None
 
     @classmethod
     def for_report(cls, *, team: Team, report_id: str, task_id: str, repository: str) -> PullRequestOrigin:
-        signals = fetch_origin_signals_for_report(team, report_id)
+        sources = fetch_origin_sources_for_report(team, report_id)
         return cls(
             report_id=report_id,
             report_url=f"{settings.SITE_URL}/project/{team.pk}/inbox/reports/{report_id}",
-            sources=tuple(_product_sources(team.pk, signals)),
+            sources=tuple(_source_lines(team.pk, sources)),
             issue_references=tuple(
                 _issue_link(reference, repository) for reference in fetch_source_references_for_report(team, report_id)
             ),
-            scout_label=_scout_label(signals),
-            first_seen=signals[0].timestamp.date() if signals else None,
+            scout_label=_scout_label(sources),
+            first_seen=min(source.first_seen for source in sources).date() if sources else None,
             cause_commit=_cause_commit(team.pk, report_id, repository),
-            started_automatically=_started_automatically(team.pk, report_id, task_id),
-            priority=_priority(team.pk, report_id),
+            run_start=_run_start(team.pk, report_id, task_id),
         )
 
     def _started_line(self) -> str | None:
-        if self.started_automatically is None:
+        if self.run_start is None:
             return None
-        if not self.started_automatically:
+        if not self.run_start.automatic:
             return "- Started by: a person, from the inbox"
-        if self.priority:
-            return f"- Started by: auto-start, after the report was rated {self.priority} and ready to fix"
+        if self.run_start.priority:
+            return f"- Started by: auto-start, after the report was rated {self.run_start.priority} and ready to fix"
         return "- Started by: auto-start, after the report was rated ready to fix"
 
     def render(self) -> str:
@@ -278,39 +282,61 @@ class PullRequestOrigin:
         )
 
 
-def _first_outside(
-    pattern: re.Pattern[str], body: str, position: int, skipped: list[re.Match[str]]
-) -> re.Match[str] | None:
+@frozen
+class TextSpan:
+    start: int
+    end: int
+
+
+def _fenced_spans(body: str) -> list[TextSpan]:
+    """Find fenced code blocks in one pass, because a heading or rule inside one is code, not structure.
+
+    Follows the CommonMark fence rules: up to three spaces of indent, a closing fence at least as
+    long as the opener, and an unclosed fence that runs to the end of the body.
+    """
+    spans: list[TextSpan] = []
+    offset = 0
+    fence_char = ""
+    fence_length = 0
+    fence_start = 0
+    for line in body.splitlines(keepends=True):
+        text = line.strip()
+        indent = len(line) - len(line.lstrip(" "))
+        if indent <= 3 and text[:3] in ("```", "~~~"):
+            char = text[0]
+            run = len(text) - len(text.lstrip(char))
+            if not fence_char:
+                fence_char, fence_length, fence_start = char, run, offset
+            elif char == fence_char and run >= fence_length and not text.strip(char):
+                spans.append(TextSpan(start=fence_start, end=offset + len(line)))
+                fence_char = ""
+        offset += len(line)
+    if fence_char:
+        spans.append(TextSpan(start=fence_start, end=len(body)))
+    return spans
+
+
+def _first_outside(pattern: re.Pattern[str], body: str, position: int, fenced: list[TextSpan]) -> re.Match[str] | None:
+    # The spans are sorted and do not overlap, so a binary search finds the only span that can hold a match.
+    starts = [span.start for span in fenced]
     for match in pattern.finditer(body, position):
-        if not any(block.start() <= match.start() < block.end() for block in skipped):
+        index = bisect_right(starts, match.start()) - 1
+        if index < 0 or match.start() >= fenced[index].end:
             return match
     return None
 
 
-def _fenced_blocks(body: str) -> list[re.Match[str]]:
-    return list(_FENCE_RE.finditer(body))
-
-
-def _section_end(body: str, position: int) -> int:
-    match = _first_outside(_SECTION_END_RE, body, position, _fenced_blocks(body))
-    return match.start() if match else len(body)
-
-
-def _splice(body: str, start: int, end: int, section: str) -> str:
-    before, after = body[:start].rstrip(), body[end:].strip()
+def _splice(body: str, position: int, section: str) -> str:
+    before, after = body[:position].rstrip(), body[position:].strip()
     return "\n\n".join(part for part in (before, section, after) if part) + "\n"
-
-
-def _agent_origin_heading(body: str) -> re.Match[str] | None:
-    """The first Origin heading outside a PostHog block, which only an agent can have written."""
-    skipped = list(_MARKED_BLOCK_RE.finditer(body)) + _fenced_blocks(body)
-    return _first_outside(_ORIGIN_HEADING_RE, body, 0, skipped)
 
 
 def place_origin_section(body: str, *, report_id: str, section: str) -> str:
     """Put the section below the Problem section, replacing an earlier copy for the same report.
 
-    A body without a Problem section, as in a repository with another template, gets it appended.
+    Only a block inside this report's markers is ever replaced. An unmarked Origin section can be
+    part of the repository's own template, so it stays. A body without a Problem section, as in a
+    repository with another template, gets the section appended.
     """
     start = f"<!-- {ORIGIN_MARKER_PREFIX}:{report_id} -->"
     end = f"<!-- /{ORIGIN_MARKER_PREFIX}:{report_id} -->"
@@ -319,16 +345,12 @@ def place_origin_section(body: str, *, report_id: str, section: str) -> str:
     if start_index != -1 and end_index != -1:
         return body[:start_index] + section + body[end_index + len(end) :]
 
-    # An agent can write its own Origin section despite the prompt. Replace it rather than add a second one.
-    agent_origin = _agent_origin_heading(body)
-    if agent_origin is not None:
-        return _splice(body, agent_origin.start(), _section_end(body, agent_origin.end()), section)
-
-    problem = _first_outside(_PROBLEM_HEADING_RE, body, 0, _fenced_blocks(body))
+    fenced = _fenced_spans(body)
+    problem = _first_outside(_PROBLEM_HEADING_RE, body, 0, fenced)
     if problem is None:
-        return _splice(body, len(body), len(body), section)
-    insert_at = _section_end(body, problem.end())
-    return _splice(body, insert_at, insert_at, section)
+        return _splice(body, len(body), section)
+    section_end = _first_outside(_SECTION_END_RE, body, problem.end(), fenced)
+    return _splice(body, section_end.start() if section_end else len(body), section)
 
 
 def write_origin_section(*, team_id: int, report_id: str, task_id: str, pr_url: str) -> BodyEditOutcome:

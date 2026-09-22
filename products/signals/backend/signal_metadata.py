@@ -361,40 +361,59 @@ def fetch_source_references_for_report(team: Team, report_id: str) -> list[Signa
     return references[:_SOURCE_REFERENCE_CAP]
 
 
+# Enough ids to fill the capped link list plus one, so the caller can tell there are more.
+ORIGIN_ENTITY_ID_CAP = 6
+# One row per source product and scout, so a report can never return an unbounded result.
+_ORIGIN_SOURCE_ROW_CAP = 50
+
+
 @frozen
-class OriginSignal:
-    """Where one of a report's signals came from, without any of its content."""
+class OriginSource:
+    """One source of a report's signals, without any of their content."""
 
     source_product: str
-    source_id: str
     # The authoring scout's skill slug, or "" for pipeline signals.
     scout_name: str
-    ticket_number: int
-    timestamp: datetime
+    first_seen: datetime
+    # At most ORIGIN_ENTITY_ID_CAP entity ids, sorted. A ticket number replaces a ticket uuid.
+    entity_ids: tuple[str, ...]
 
 
-def fetch_origin_signals_for_report(team: Team, report_id: str) -> list[OriginSignal]:
-    """Return the source of each non-deleted signal of a report, oldest first.
+def fetch_origin_sources_for_report(team: Team, report_id: str) -> list[OriginSource]:
+    """Summarize where a report's non-deleted signals came from, earliest source first.
 
-    Reads identifiers and timestamps only. The signal `content` never leaves ClickHouse here,
-    because the caller writes the result into a public pull request.
+    Aggregates in ClickHouse, so the result stays small however many signals the report holds.
+    The signal `content` never leaves ClickHouse here, because the caller writes the result into
+    a public pull request.
     """
     ch_query = f"""
         SELECT
-            JSONExtractString(metadata, 'source_product') as source_product,
-            JSONExtractString(metadata, 'source_id') as source_id,
-            JSONExtractString(metadata, 'extra', 'skill_name') as scout_name,
-            JSONExtractInt(metadata, 'extra', 'ticket_number') as ticket_number,
-            timestamp
-        FROM ({_deduped_signals_subquery(include_content=False, candidate_document_filter="JSONExtractString(metadata, 'report_id') = {report_id}")})
-        WHERE JSONExtractString(metadata, 'report_id') = {{report_id}}
-          AND NOT JSONExtractBool(metadata, 'deleted')
-        ORDER BY timestamp ASC
+            source_product,
+            scout_name,
+            min(timestamp) as first_seen,
+            groupUniqArray({ORIGIN_ENTITY_ID_CAP})(entity_id) as entity_ids
+        FROM (
+            SELECT
+                JSONExtractString(metadata, 'source_product') as source_product,
+                JSONExtractString(metadata, 'extra', 'skill_name') as scout_name,
+                if(
+                    JSONExtractInt(metadata, 'extra', 'ticket_number') > 0,
+                    toString(JSONExtractInt(metadata, 'extra', 'ticket_number')),
+                    JSONExtractString(metadata, 'source_id')
+                ) as entity_id,
+                timestamp
+            FROM ({_deduped_signals_subquery(include_content=False, candidate_document_filter="JSONExtractString(metadata, 'report_id') = {report_id}")})
+            WHERE JSONExtractString(metadata, 'report_id') = {{report_id}}
+              AND NOT JSONExtractBool(metadata, 'deleted')
+        )
+        GROUP BY source_product, scout_name
+        ORDER BY first_seen ASC
+        LIMIT {_ORIGIN_SOURCE_ROW_CAP}
     """
 
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
-        query_type="SignalsFetchOriginSignalsForReport",
+        query_type="SignalsFetchOriginSourcesForReport",
         query=ch_query,
         team=team,
         context=_signals_query_context(team),
@@ -404,12 +423,11 @@ def fetch_origin_signals_for_report(team: Team, report_id: str) -> list[OriginSi
         },
     )
     return [
-        OriginSignal(
+        OriginSource(
             source_product=source_product or "",
-            source_id=source_id or "",
             scout_name=scout_name or "",
-            ticket_number=ticket_number or 0,
-            timestamp=timestamp,
+            first_seen=first_seen,
+            entity_ids=tuple(sorted(entity_id for entity_id in entity_ids if entity_id)),
         )
-        for source_product, source_id, scout_name, ticket_number, timestamp in result.results or []
+        for source_product, scout_name, first_seen, entity_ids in result.results or []
     ]

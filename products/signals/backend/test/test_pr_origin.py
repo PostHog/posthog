@@ -18,7 +18,7 @@ from products.signals.backend.pr_origin import (
     write_origin_section,
 )
 from products.signals.backend.pull_request_body import BodyEditOutcome
-from products.signals.backend.signal_metadata import OriginSignal, SignalSourceReference
+from products.signals.backend.signal_metadata import OriginSource, SignalSourceReference
 from products.signals.backend.task_run_artefacts import record_implementation_task
 
 # Task ORM model needed to build a cross-product fixture; the tasks facade exposes DTOs only.
@@ -43,14 +43,9 @@ class TestPlaceOriginSection(SimpleTestCase):
                 f"## Problem\n\n- broken\n\n{SECTION}\n\n## Changes\n",
             ),
             (
-                "replaces_agent_written_origin",
-                "## Problem\n\n- broken\n\n## Origin\n\nFrom an inbox report.\n\n## Changes\n",
-                f"## Problem\n\n- broken\n\n{SECTION}\n\n## Changes\n",
-            ),
-            (
-                "agent_written_origin_keeps_footer",
-                "## Problem\n\n- broken\n\n## Origin\n\nFrom a report.\n\n---\n*Created with X*\n",
-                f"## Problem\n\n- broken\n\n{SECTION}\n\n---\n*Created with X*\n",
+                "keeps_an_unmarked_origin_section",
+                "## Problem\n\n- broken\n\n## Origin\n\nRequired by the template.\n\n## Changes\n",
+                f"## Problem\n\n- broken\n\n{SECTION}\n\n## Origin\n\nRequired by the template.\n\n## Changes\n",
             ),
             (
                 "second_report_keeps_the_first",
@@ -86,24 +81,22 @@ class TestScoutLabel(SimpleTestCase):
         ]
     )
     def test_names_only_shipped_scouts(self, _name: str, scout_name: str, expected: str) -> None:
-        signal = OriginSignal(
+        source = OriginSource(
             source_product="error_tracking",
-            source_id="run:1:finding:2",
             scout_name=scout_name,
-            ticket_number=0,
-            timestamp=datetime(2026, 9, 15, tzinfo=UTC),
+            first_seen=datetime(2026, 9, 15, tzinfo=UTC),
+            entity_ids=("run:1:finding:2",),
         )
-        assert _scout_label([signal]) == expected
+        assert _scout_label([source]) == expected
 
 
 class TestPullRequestOrigin(BaseTest):
-    def _signal(self, source_product: str, source_id: str, scout_name: str = "") -> OriginSignal:
-        return OriginSignal(
-            source_product=source_product,
-            source_id=source_id,
-            scout_name=scout_name,
-            ticket_number=0,
-            timestamp=datetime(2026, 9, 15, 7, 3, tzinfo=UTC),
+    def _priority(self, report: SignalReport, priority: str) -> None:
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            content=json.dumps({"explanation": "a customer's private details", "priority": priority}),
         )
 
     def test_renders_only_allowlisted_facts(self) -> None:
@@ -113,12 +106,14 @@ class TestPullRequestOrigin(BaseTest):
         task = Task.objects.create(
             team=self.team, title="task", description="desc", origin_product=Task.OriginProduct.SIGNAL_REPORT
         )
+        self._priority(report, "P2")
         record_implementation_task(
             team_id=self.team.id,
             report_id=str(report.id),
             task_id=str(task.id),
             automation_branch="posthog-self-driving/fix-abc123",
         )
+        self._priority(report, "P0")
         SignalReportArtefact.objects.create(
             team=self.team,
             report=report,
@@ -133,20 +128,23 @@ class TestPullRequestOrigin(BaseTest):
                 }
             ),
         )
-        SignalReportArtefact.objects.create(
-            team=self.team,
-            report=report,
-            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-            content=json.dumps({"explanation": "a customer's private details", "priority": "P2"}),
-        )
-        signals = [
-            self._signal("error_tracking", "01a0a561-54a4"),
-            self._signal("error_tracking", "../../settings?x=1"),
-            self._signal("error_tracking", "run:1:finding:2", scout_name="signals-scout-error-tracking"),
+        sources = [
+            OriginSource(
+                source_product="error_tracking",
+                scout_name="",
+                first_seen=datetime(2026, 9, 15, 7, 3, tzinfo=UTC),
+                entity_ids=("01a0a561-54a4", "zz/../settings?x=1"),
+            ),
+            OriginSource(
+                source_product="error_tracking",
+                scout_name="signals-scout-error-tracking",
+                first_seen=datetime(2026, 9, 16, tzinfo=UTC),
+                entity_ids=("run:1:finding:2",),
+            ),
         ]
 
         with (
-            patch("products.signals.backend.pr_origin.fetch_origin_signals_for_report", return_value=signals),
+            patch("products.signals.backend.pr_origin.fetch_origin_sources_for_report", return_value=sources),
             patch(
                 "products.signals.backend.pr_origin.fetch_source_references_for_report",
                 return_value=[
@@ -162,7 +160,6 @@ class TestPullRequestOrigin(BaseTest):
 
         project = f"/project/{self.team.id}"
         assert f"[issue 1](http://localhost:8010{project}/error_tracking/01a0a561-54a4)" in section
-        assert "and more" in section
         assert "settings?x=1" not in section
         assert "run:1:finding:2" not in section
         assert "- Scout: `signals-scout-error-tracking`" in section
@@ -192,7 +189,7 @@ class TestPullRequestOrigin(BaseTest):
         )
 
         with (
-            patch("products.signals.backend.pr_origin.fetch_origin_signals_for_report", return_value=[]),
+            patch("products.signals.backend.pr_origin.fetch_origin_sources_for_report", return_value=[]),
             patch("products.signals.backend.pr_origin.fetch_source_references_for_report", return_value=[]),
             patch.object(
                 GitHubIntegration,
