@@ -20,7 +20,7 @@ from drf_spectacular.utils import (
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, viewsets
-from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
+from rest_framework.exceptions import APIException, MethodNotAllowed, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
@@ -299,12 +299,28 @@ class PersonBulkDeleteResponseSerializer(serializers.Serializer):
         child=serializers.DictField(),
         required=False,
         help_text="Persons whose deletion did not fully complete in this request. Each entry contains 'person_uuid' "
-        "and 'step', the deletion step that failed for that person. A failed database delete is reported here "
-        "rather than as an error response, so a 202 with entries means some or all persons were not deleted. "
-        "A 'log_activity' step means the person was deleted but the activity log entry was not written. "
+        "and 'step', the deletion step that failed for that person. Failures are reported here rather than as an "
+        "error status, so a 202 with entries means those persons were not deleted and the request should be "
+        "retried for them, except entries whose step is 'log_activity': that person was deleted, but the "
+        "activity log entry was not written. "
         "Always empty when the deletion was queued (see persons_queued_for_deletion). "
         "Contact support if this persists.",
     )
+
+
+class PersonDeletionFailed(APIException):
+    status_code = 503
+    default_code = "person_deletion_failed"
+    default_detail = "Couldn't delete this person. Try again, and if it keeps happening contact support."
+
+
+def _no_person_deleted(summary: dict[str, Any]) -> bool:
+    """True when persons matched, a delete was attempted, and none of them left the database.
+
+    A ``log_activity`` failure never triggers this: the person is gone by then, and a retry would
+    only find nothing to delete.
+    """
+    return summary["persons_found"] > 0 and summary["persons_deleted"] == 0 and bool(summary["deletion_errors"])
 
 
 class PersonSplitRequestSerializer(serializers.Serializer):
@@ -848,7 +864,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Convert query params to request data format expected by bulk_delete. This path stays
             # synchronous under the queued-deletion flag: the app deletes one person here and reloads
             # the list at once, so the person has to be gone when the response returns.
-            self._bulk_delete_persons(
+            summary = self._bulk_delete_persons(
                 request=request,
                 ids=[str(person.uuid)],
                 delete_events="delete_events" in request.GET,
@@ -856,6 +872,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 keep_person="keep_person" in request.GET,
                 allow_queued=False,
             )
+            if _no_person_deleted(summary):
+                step = summary["deletion_errors"][0]["step"]
+                raise PersonDeletionFailed(
+                    f"Couldn't delete this person. The {step} step failed. "
+                    "Try again, and if it keeps happening contact support."
+                )
             return response.Response(status=202)
 
         except Person.DoesNotExist:
@@ -869,6 +891,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def bulk_delete(self, request: request.Request, pk=None, **kwargs):
         """
         This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.
+
+        Person records are removed in the background shortly after the request returns, so a successful response reports them in `persons_queued_for_deletion` and `persons_deleted` is 0.
         """
 
         delete_events = bool(request.data.get("delete_events"))

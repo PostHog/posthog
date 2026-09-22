@@ -119,6 +119,8 @@ rules:
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
                               |Conversation
+                              |ConversationDelivery
+                              |ConversationDeliveryPart
                               |ConversationInboundEvent
                               |ConversationRestoreToken
                               |CoreMemory
@@ -314,6 +316,7 @@ rules:
                               |QuickFilterContext
                               |ReplayObservation
                               |ReplayObservationLabel
+                              |ReplayObservationMedia
                               |ReplayObservationUsage
                               |ReplayObservationView
                               |ReplayScanner
@@ -331,6 +334,7 @@ rules:
                               |ResourceLink
                               |ScoreDefinition
                               |SavedHeatmap
+                              |HeatmapCaptureConfigVersion
                               |ScheduledChange
                               |SessionGroupSummary
                               |SessionRecording
@@ -366,6 +370,8 @@ rules:
                               |Subscription
                               |SubscriptionContext
                               |SubscriptionDelivery
+                              |PlatformAlert
+                              |PlatformAlertConfiguration
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -538,6 +544,8 @@ rules:
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
                         |Conversation
+                        |ConversationDelivery
+                        |ConversationDeliveryPart
                         |ConversationInboundEvent
                         |ConversationRestoreToken
                         |CoreMemory
@@ -723,6 +731,7 @@ rules:
                         |QuickFilterContext
                         |ReplayObservation
                         |ReplayObservationLabel
+                        |ReplayObservationMedia
                         |ReplayObservationUsage
                         |ReplayObservationView
                         |ReplayScanner
@@ -740,6 +749,7 @@ rules:
                         |ResourceLink
                         |ScoreDefinition
                         |SavedHeatmap
+                        |HeatmapCaptureConfigVersion
                         |ScheduledChange
                         |SessionGroupSummary
                         |SessionRecording
@@ -775,6 +785,8 @@ rules:
                         |Subscription
                         |SubscriptionContext
                         |SubscriptionDelivery
+                        |PlatformAlert
+                        |PlatformAlertConfiguration
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification

@@ -2,12 +2,41 @@
 // products/tasks/backend/model_catalog.py.
 // Regenerate with `hogli build:task-model-catalog`. Do not edit.
 //
-// The single definition of a task agent run's triple: runtime adapter,
-// model, and reasoning effort, plus what each model costs. The backend
-// validates a run against this same data, so a picker built on this file
-// can only offer a selection the API will accept.
+// The single definition of how a task agent run is configured: harness,
+// runtime adapter, model, and reasoning effort, plus what each model
+// costs. The backend validates a run against this same data, so a picker
+// built on this file can only offer a selection the API will accept.
 
 export type RuntimeAdapter = "claude" | "codex";
+
+export type Runtime = "acp" | "pi";
+
+export interface RuntimeOption {
+  runtime: Runtime;
+  /** Absent for Pi, which has no adapter. */
+  runtimeAdapter?: RuntimeAdapter;
+  label: string;
+}
+
+/** What a harness picker shows. The runtime says which agent program runs the
+    task; the adapter says which vendor protocol ACP speaks. A picker shows one
+    flat list, so the two choices become one set of entries here. */
+export const RUNTIME_OPTIONS: readonly RuntimeOption[] = [
+  {
+    runtime: "acp",
+    runtimeAdapter: "claude",
+    label: "Claude Code",
+  },
+  {
+    runtime: "acp",
+    runtimeAdapter: "codex",
+    label: "Codex",
+  },
+  {
+    runtime: "pi",
+    label: "Pi",
+  },
+];
 
 /** Thinking depths, shallowest first. */
 export type ReasoningEffort =
@@ -81,7 +110,6 @@ export const MODELS: readonly CatalogModel[] = [
     runtimeAdapter: "claude",
     reasoningEfforts: ["high", "max"],
     label: "GLM-5.2",
-    accessFlag: "posthog-code-glm-model",
     cost: {
       inputPerMtok: 1.4,
       outputPerMtok: 4.4,
@@ -94,7 +122,6 @@ export const MODELS: readonly CatalogModel[] = [
     runtimeAdapter: "claude",
     reasoningEfforts: ["high", "max"],
     label: "GLM-5.3",
-    accessFlag: "posthog-code-glm-53-model",
     cost: {
       inputPerMtok: 1.4,
       outputPerMtok: 4.4,
@@ -107,7 +134,6 @@ export const MODELS: readonly CatalogModel[] = [
     runtimeAdapter: "claude",
     reasoningEfforts: ["high", "max"],
     label: "GLM-5.3 Flash",
-    accessFlag: "posthog-code-glm-53-flash-model",
     cost: {
       inputPerMtok: 0.15,
       outputPerMtok: 0.5,
@@ -120,7 +146,6 @@ export const MODELS: readonly CatalogModel[] = [
     runtimeAdapter: "claude",
     reasoningEfforts: [],
     label: "Kimi K3",
-    accessFlag: "tasks-kimi-k3",
     cost: {
       inputPerMtok: 3,
       outputPerMtok: 15,
@@ -133,7 +158,6 @@ export const MODELS: readonly CatalogModel[] = [
     runtimeAdapter: "claude",
     reasoningEfforts: [],
     label: "DeepSeek V4 Flash",
-    accessFlag: "posthog-code-deepseek-model",
     cost: {
       inputPerMtok: 0.13,
       outputPerMtok: 0.26,

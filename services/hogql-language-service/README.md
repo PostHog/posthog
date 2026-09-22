@@ -33,6 +33,11 @@ curl -sS -X POST http://localhost:8091/teams/2/users/1/validate \
 Completion and validation share scope analysis for table CTEs and aliased `FROM` subqueries.
 Completion suggests projected fields, including aliases and wildcard outputs, with catalog types for direct field projections.
 FROM and JOIN completion suggests visible CTE names before catalog tables and respects CTE shadowing.
+It reads unquoted multi-part table prefixes from the catalog: `FROM postgres.` shows the full `postgres.demo.orders` label and inserts only `demo.orders`.
+Already-typed namespace components must use the catalog's exact case, while the final partial component remains case-insensitive.
+Completion inside quoted path components remains unsupported.
+Completion omits dotted candidates when a remaining path component would require quotes.
+The editor replaces text from the start of the current word to the cursor and leaves text after the cursor unchanged.
 Empty queries offer SELECT and WITH; typed prefixes filter those starting keywords.
 Joined fields with the same name show their source and insert a qualified reference, including separate aliases in self-joins.
 Unique fields and already-qualified completion keep their existing insertion behavior.
@@ -49,6 +54,7 @@ For example, `WITH t AS (SELECT properties AS props FROM events) SELECT t.props.
 Computed or ambiguous property origins remain unknown; the service does not guess a namespace from a projected name.
 Validation reports `duplicate_table` for repeated table names or explicit aliases in one query scope and asks for distinct aliases.
 Table names, table aliases, and CTE names resolve by exact case; catalogs can contain distinct `events` and `Events` tables.
+Multi-part names also retain distinct identities when their parser-safe forms coincide, such as `a.b.c_d` and `a.b_c.d`.
 Autocomplete prefix matching remains case-insensitive and preserves the selected identifier's case.
 Duplicate qualifiers do not supply property provenance, even when raw ClickHouse accepts the corresponding unaliased self-join.
 
@@ -79,7 +85,10 @@ position with `"cursor":"<nextCursor>"` to retrieve it. The HTTP `Content-Length
 The parser currently accepts ClickHouse's `database.table` identifiers but not HogQL's three-part synced-table names.
 Shared analysis normalizes those table references before parsing while preserving byte offsets.
 For incomplete SQL, completion can recover a single query's `FROM` clause and keeps the parser error in `parseError`.
-It does not recover bindings from malformed CTEs or nested queries.
+Queries with complete CTE definitions can also retain their outer SELECT/FROM scope through unfinished trailing clauses, including completion inside an unfinished outer predicate.
+This preserves derived fields, known property origins, and retained SELECT aliases.
+Recovery excludes malformed CTE bodies, nested SELECTs in the outer query, FROM/JOIN cursor positions, and incomplete JOIN sources.
+Validation still reports the original query's syntax errors.
 Completion and validation recognize explicit SELECT aliases in later SELECT items and clauses resolved after SELECT, including WHERE, GROUP BY, HAVING, and ORDER BY.
 Aliases stay within their defining query and do not appear in JOIN conditions.
 Computed and nested property provenance, additional alias forms, parser recovery, and other exclusions are tracked in [query analysis and remaining work](../../docs/internal/hogql-language-service.md#recovery-and-remaining-work).
@@ -95,12 +104,20 @@ curl -sS -X PUT http://localhost:8091/teams/2/users/17/catalog \
     "revision": "schema-42:permissions-9",
     "catalog": {
       "tables": {
-        "events": {"name": "events", "type": "posthog", "fields": {}}
+        "events": {"name": "events", "type": "posthog", "fields": {}},
+        "postgres.demo.orders": {"name": "postgres.demo.orders", "type": "data_warehouse", "fields": {}}
       },
+      "tableAliases": {"demo_postgres_orders": "postgres.demo.orders"},
       "properties": {"event": [{"name": "$geo_city", "property_type": "String"}]}
     }
   }'
 ```
+
+`tableAliases` is optional. Each key is an accepted alternate table spelling, and each value must name a canonical key in `tables`.
+An alias and its canonical table share prepared fields, but validation retains the spelling used in SQL in `tableNames`.
+An identity entry such as `"events": "events"` is a no-op.
+Publication rejects empty names, aliases that replace another canonical key, and targets that create a dangling reference, chain, or cycle.
+Catalogs without `tableAliases` keep the previous behavior.
 
 Every protected route requires positive `teamId` and `userId` path parameters. The response includes
 `catalogRevision`, allowing Django and the editor to detect a stale response. An unknown, expired, or evicted pair
@@ -112,6 +129,10 @@ Catalogs expire `CATALOG_TTL` (default `30m`) after publication so active projec
 When `MAX_CATALOGS` (default `1024`) or `CATALOG_CACHE_MAX_BYTES` (default `8 GiB`) is reached, the least recently used
 catalog is evicted. A catalog request is limited to `64 MiB`. Publishing a new revision replaces the old immutable
 catalog atomically.
+
+The generated scale fixture verifies publication, completion, pagination, and validation with 4,096 canonical tables, 25 fields per table, and 120,000 event properties for one user catalog.
+Table fields and event properties are separate catalog entries.
+This is a tested profile, not a count limit: admission still depends on the serialized request size and the prepared catalog's share of the cache byte budget.
 
 Authentication is required unless `HOGQL_LANGUAGE_SERVICE_ALLOW_INSECURE=1` explicitly disables it on a loopback
 listener for local development. Insecure mode logs a startup warning and is rejected on non-loopback listeners.

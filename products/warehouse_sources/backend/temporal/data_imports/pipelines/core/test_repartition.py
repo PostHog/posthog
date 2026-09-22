@@ -715,6 +715,43 @@ class TestRewriteIntoTemp:
         assert saved[-1][0] > 0
         assert saved[-1][1] == "day"
 
+    def test_a_slow_scan_checkpoints_before_the_buffer_is_full(self, tmp_path):
+        # An over-fragmented table yields one small batch per source file, so the buffer can take
+        # longer to fill than the worker survives. With no commit there is no checkpoint either, and
+        # every attempt then resumes from the same row until the attempt cap abandons the table.
+        rows = [(i, datetime.datetime(2024, 1, 1 + i)) for i in range(4)]
+        old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
+        saved: list[int] = []
+
+        async def save_checkpoint(rows_so_far, _resolved_target):
+            saved.append(rows_so_far)
+
+        # Every clock read lands a minute later, so the buffer is always older than the checkpoint
+        # interval while holding far less than REWRITE_BUFFER_MAX_ROWS/BYTES.
+        clock = Mock(side_effect=itertools.count(0.0, 60.0))
+
+        with patch.object(repartition_module, "time", Mock(monotonic=clock)):
+            asyncio.run(
+                _rewrite_into_temp(
+                    old_delta=old_delta,
+                    temp_uri=str(tmp_path / "tmp"),
+                    storage_options={},
+                    target=RepartitionTarget(
+                        partition_keys=["created_at"],
+                        trigger_reason="test",
+                        partition_mode="datetime",
+                        partition_format="day",
+                    ),
+                    batch_size=1,
+                    logger=logger,
+                    save_checkpoint=save_checkpoint,
+                )
+            )
+
+        assert saved, "a rewrite that keeps reading must record progress it can resume from"
+        # Recorded mid-scan, not only by the final flush every rewrite does anyway.
+        assert saved[0] < len(rows)
+
     def test_a_failing_checkpoint_does_not_fail_the_rewrite(self, tmp_path):
         # Losing a checkpoint costs redone work on the next attempt; failing the rewrite costs the
         # whole thing.
