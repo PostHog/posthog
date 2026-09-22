@@ -9,6 +9,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ArtifactContentApi,
+    ArtifactDeleteResultApi,
+    ArtifactListApi,
+    ArtifactPathApi,
+    ArtifactUploadApi,
+    AutoresearchIterationApi,
     AutoresearchListParams,
     AutoresearchModelApi,
     AutoresearchModelsListParams,
@@ -17,15 +23,23 @@ import type {
     AutoresearchRunApi,
     AutoresearchRunsListParams,
     AutoresearchTrainingRunApi,
+    AutoresearchTrainingRunsHistoryRetrieveParams,
     AutoresearchTrainingRunsListParams,
+    CompleteTrainingRunApi,
+    MaterializeFeaturesRequestApi,
+    MaterializeFeaturesResponseApi,
+    OpenTrainingRunApi,
     PaginatedAutoresearchModelListApi,
     PaginatedAutoresearchPipelineListApi,
     PaginatedAutoresearchRunListApi,
     PaginatedAutoresearchTrainingRunListApi,
     PatchedAutoresearchPipelineCreateApi,
+    RecordIterationApi,
     ResolveTemplateRequestApi,
     ResolvedTemplateApi,
+    StoredArtifactApi,
     TemplateInfoApi,
+    TrainingRunHistoryApi,
     ValidatePipelineRequestApi,
     ValidatePipelineResponseApi,
 } from './api.schemas'
@@ -245,6 +259,28 @@ export const autoresearchTrainingRunsList = async (
     )
 }
 
+export const getAutoresearchTrainingRunsCreateUrl = (projectId: string, pipelineId: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/`
+}
+
+/**
+ * Open a new training run for a pipeline and return its id. An agent — the in-house sandbox, an external bring-your-own agent, or a scheduled job — then records iterations against this run and finalizes it with the complete endpoint. The run starts in 'running'.
+ * @summary Open a training run
+ */
+export const autoresearchTrainingRunsCreate = async (
+    projectId: string,
+    pipelineId: string,
+    openTrainingRunApi?: OpenTrainingRunApi,
+    options?: RequestInit
+): Promise<AutoresearchTrainingRunApi> => {
+    return apiMutator<AutoresearchTrainingRunApi>(getAutoresearchTrainingRunsCreateUrl(projectId, pipelineId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(openTrainingRunApi),
+    })
+}
+
 export const getAutoresearchTrainingRunsRetrieveUrl = (projectId: string, pipelineId: string, id: string) => {
     return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/`
 }
@@ -265,6 +301,230 @@ export const autoresearchTrainingRunsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getAutoresearchTrainingRunsArtifactsRetrieveUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/artifacts/`
+}
+
+/**
+ * List the files an agent has uploaded for this training run's artifact bundle (train.py, predict.py, features.sql, and any eda/ notebooks).
+ * @summary List artifact bundle files
+ */
+export const autoresearchTrainingRunsArtifactsRetrieve = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ArtifactListApi> => {
+    return apiMutator<ArtifactListApi>(getAutoresearchTrainingRunsArtifactsRetrieveUrl(projectId, pipelineId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutoresearchTrainingRunsArtifactsDeleteCreateUrl = (
+    projectId: string,
+    pipelineId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/artifacts/delete/`
+}
+
+/**
+ * Remove one file from this training run's artifact bundle. Idempotent — deleting a missing file is a no-op. The bundle is frozen once the run completes or fails.
+ * @summary Delete an artifact bundle file
+ */
+export const autoresearchTrainingRunsArtifactsDeleteCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    artifactPathApi: ArtifactPathApi,
+    options?: RequestInit
+): Promise<ArtifactDeleteResultApi> => {
+    return apiMutator<ArtifactDeleteResultApi>(
+        getAutoresearchTrainingRunsArtifactsDeleteCreateUrl(projectId, pipelineId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(artifactPathApi),
+        }
+    )
+}
+
+export const getAutoresearchTrainingRunsArtifactsGetCreateUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/artifacts/get/`
+}
+
+/**
+ * Fetch one file from this training run's artifact bundle, base64-encoded.
+ * @summary Get an artifact bundle file
+ */
+export const autoresearchTrainingRunsArtifactsGetCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    artifactPathApi: ArtifactPathApi,
+    options?: RequestInit
+): Promise<ArtifactContentApi> => {
+    return apiMutator<ArtifactContentApi>(getAutoresearchTrainingRunsArtifactsGetCreateUrl(projectId, pipelineId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(artifactPathApi),
+    })
+}
+
+export const getAutoresearchTrainingRunsArtifactsUploadCreateUrl = (
+    projectId: string,
+    pipelineId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/artifacts/upload/`
+}
+
+/**
+ * Upload one file of this training run's artifact bundle. Send the file contents base64-encoded in content_base64. Re-uploading the same path overwrites it. Use this — not curl/set_output — to author train.py, predict.py, and features.sql. The bundle is frozen once the run completes or fails.
+ * @summary Upload an artifact bundle file
+ */
+export const autoresearchTrainingRunsArtifactsUploadCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    artifactUploadApi: ArtifactUploadApi,
+    options?: RequestInit
+): Promise<StoredArtifactApi> => {
+    return apiMutator<StoredArtifactApi>(
+        getAutoresearchTrainingRunsArtifactsUploadCreateUrl(projectId, pipelineId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(artifactUploadApi),
+        }
+    )
+}
+
+export const getAutoresearchTrainingRunsCompleteCreateUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/complete/`
+}
+
+/**
+ * Finalize a training run. The backend selects the kept iteration with the highest holdout score, decides champion vs challenger via the promotion ladder, and persists the model. best_iteration_id is advisory: it breaks a tie at the top score and is otherwise logged and ignored. Agents cannot set the champion directly, because promotion is server-side.
+ * @summary Complete a training run
+ */
+export const autoresearchTrainingRunsCompleteCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    completeTrainingRunApi?: CompleteTrainingRunApi,
+    options?: RequestInit
+): Promise<AutoresearchTrainingRunApi> => {
+    return apiMutator<AutoresearchTrainingRunApi>(
+        getAutoresearchTrainingRunsCompleteCreateUrl(projectId, pipelineId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(completeTrainingRunApi),
+        }
+    )
+}
+
+export const getAutoresearchTrainingRunsIterationsCreateUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/iterations/`
+}
+
+/**
+ * Record one iteration of an open training run. Idempotent on iteration_number: re-sending the same number updates that iteration. A new iteration_number is refused once the run's iteration_budget is used. The recipe is validated server-side: feature_sql must be a read-only SELECT from {anchors} keyed on person_id, and model_class must be set. The class allowlist applies only at completion, to a run that uploaded no bundle.
+ * @summary Record a training iteration
+ */
+export const autoresearchTrainingRunsIterationsCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    recordIterationApi: RecordIterationApi,
+    options?: RequestInit
+): Promise<AutoresearchIterationApi> => {
+    return apiMutator<AutoresearchIterationApi>(
+        getAutoresearchTrainingRunsIterationsCreateUrl(projectId, pipelineId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(recordIterationApi),
+        }
+    )
+}
+
+export const getAutoresearchTrainingRunsMaterializeFeaturesCreateUrl = (
+    projectId: string,
+    pipelineId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/materialize-features/`
+}
+
+/**
+ * Run features_sql server-side against the labeled training population and write the resulting train/holdout feature and label parquet files directly into this run's sandbox. Returns the local sandbox paths, row counts, and feature columns. The rows never pass through the agent's context and there is no 500-row cap. Read the returned paths with pd.read_parquet and iterate in Python.
+ * @summary Materialize training features to the sandbox
+ */
+export const autoresearchTrainingRunsMaterializeFeaturesCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    materializeFeaturesRequestApi: MaterializeFeaturesRequestApi,
+    options?: RequestInit
+): Promise<MaterializeFeaturesResponseApi> => {
+    return apiMutator<MaterializeFeaturesResponseApi>(
+        getAutoresearchTrainingRunsMaterializeFeaturesCreateUrl(projectId, pipelineId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(materializeFeaturesRequestApi),
+        }
+    )
+}
+
+export const getAutoresearchTrainingRunsHistoryRetrieveUrl = (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchTrainingRunsHistoryRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/history/?${stringifiedParams}`
+        : `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/history/`
+}
+
+/**
+ * Return recent completed training runs and their iteration trails so a new run can learn from what was already tried. Scoped to this pipeline first, then same-target sibling pipelines on the team. Read this before iterating to reuse winning features and avoid repeating discarded approaches.
+ * @summary Read prior training-run history
+ */
+export const autoresearchTrainingRunsHistoryRetrieve = async (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchTrainingRunsHistoryRetrieveParams,
+    options?: RequestInit
+): Promise<TrainingRunHistoryApi> => {
+    return apiMutator<TrainingRunHistoryApi>(
+        getAutoresearchTrainingRunsHistoryRetrieveUrl(projectId, pipelineId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getAutoresearchRetrieveUrl = (projectId: string, id: string) => {

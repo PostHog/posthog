@@ -9,8 +9,13 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { openDismissReportDialog } from '../components/shell/DismissReportDialog'
+import { openResolveReportDialog } from '../components/shell/ResolveReportDialog'
 import { SignalReport, SignalReportStatus } from '../types'
 import { inboxTriageLogic } from './inboxTriageLogic'
+
+jest.mock('../components/shell/DismissReportDialog', () => ({ openDismissReportDialog: jest.fn() }))
+jest.mock('../components/shell/ResolveReportDialog', () => ({ openResolveReportDialog: jest.fn() }))
 
 const REPORTS_URL = '/api/projects/:team_id/signals/reports/'
 // Matches the list logic's server page size, so a spot past it needs a second page.
@@ -82,6 +87,24 @@ describe('inboxTriageLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
     }
+
+    it('warns that triage closes an open PR on a failed report', async () => {
+        const report = {
+            ...makeReport('failed-with-pr'),
+            status: SignalReportStatus.FAILED,
+            pull_requests: [{ id: 'pr', url: 'https://github.com/example/repo/pull/1', state: 'open', merged: false }],
+        }
+        useMocks({
+            get: {
+                [REPORTS_URL]: { count: 1, next: null, previous: null, results: [report] },
+            },
+        })
+        await mountAt({ report: report.id, at: 0 })
+        logic.actions.resolveCurrent()
+        logic.actions.dismissCurrent()
+        expect(openResolveReportDialog).toHaveBeenCalledWith(expect.objectContaining({ hasOpenPr: true }))
+        expect(openDismissReportDialog).toHaveBeenCalledWith(expect.objectContaining({ hasOpenPr: true }))
+    })
 
     it.each([
         {

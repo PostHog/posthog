@@ -177,7 +177,6 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     PropertyGroupFilter,
-    QueryBasedInsightModel,
     QueryTabState,
     QuickFilter,
     RawAnnotationType,
@@ -409,7 +408,7 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
  * with unparsable content) throws `ResponseBodyReadError`, so it can be recognized as wire-level
  * noise and left out of error tracking.
  */
-async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
+export async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
     const requestContext = (): string =>
         `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
     // A no-content response must not depend on reading its body: some engines (in our telemetry,
@@ -581,33 +580,31 @@ export class ApiRequest {
         return this.projects().addPathComponent(id)
     }
 
-    // # Environments
-    public environments(): ApiRequest {
-        return this.addPathComponent('environments')
-    }
-
-    public environmentsDetail(id: TeamType['id'] = ApiConfig.getCurrentTeamId()): ApiRequest {
-        return this.environments().addPathComponent(id)
+    // The deprecated environments alias is one EnvironmentsRewriteMiddleware rewrites to the projects
+    // viewset, so team-scoped paths build on `projects/` instead. The id stays the team id, because a
+    // child environment has a different id from its project and the route accepts either.
+    public teamProjectDetail(id: TeamType['id'] = ApiConfig.getCurrentTeamId()): ApiRequest {
+        return this.projectsDetail(id)
     }
 
     // # CSP reporting
 
     public cspReportingExplanation(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('csp-reporting').addPathComponent('explain')
+        return this.teamProjectDetail(teamId).addPathComponent('csp-reporting').addPathComponent('explain')
     }
 
     // # AI observability
 
     public aiObservabilityTranslate(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('llm_analytics').addPathComponent('translate')
+        return this.teamProjectDetail(teamId).addPathComponent('llm_analytics').addPathComponent('translate')
     }
 
     // # Insights
     public insights(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('insights')
+        return this.teamProjectDetail(teamId).addPathComponent('insights')
     }
 
-    public insight(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+    public insight(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.insights(teamId).addPathComponent(id)
     }
 
@@ -615,19 +612,15 @@ export class ApiRequest {
         return this.insights(teamId).addPathComponent('activity')
     }
 
-    public insightSharing(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+    public insightSharing(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.insight(id, teamId).addPathComponent('sharing')
     }
 
-    public insightSharingPasswords(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+    public insightSharingPasswords(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.insightSharing(id, teamId).addPathComponent('passwords')
     }
 
-    public insightSharingPassword(
-        id: QueryBasedInsightModel['id'],
-        passwordId: string,
-        teamId?: TeamType['id']
-    ): ApiRequest {
+    public insightSharingPassword(id: InsightModel['id'], passwordId: string, teamId?: TeamType['id']): ApiRequest {
         return this.insightSharingPasswords(id, teamId).addPathComponent(passwordId)
     }
 
@@ -637,7 +630,7 @@ export class ApiRequest {
 
     // # Column Configurations
     public columnConfigurations(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('column_configurations')
+        return this.teamProjectDetail(teamId).addPathComponent('column_configurations')
     }
 
     public columnConfigurationDetail(id: string, teamId?: TeamType['id']): ApiRequest {
@@ -651,7 +644,7 @@ export class ApiRequest {
     // (used by a different app, not this frontend) serve the "desktop" surface. So every call
     // from this frontend is implicitly and exclusively scoped to "web".
     public fileSystem(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('file_system')
+        return this.teamProjectDetail(teamId).addPathComponent('file_system')
     }
 
     public fileSystemUnfiled(type?: string, teamId?: TeamType['id']): ApiRequest {
@@ -687,7 +680,7 @@ export class ApiRequest {
     }
 
     public fileSystemShortcut(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('file_system_shortcut')
+        return this.teamProjectDetail(teamId).addPathComponent('file_system_shortcut')
     }
 
     public fileSystemShortcutDetail(id: NonNullable<FileSystemEntry['id']>, teamId?: TeamType['id']): ApiRequest {
@@ -700,7 +693,7 @@ export class ApiRequest {
 
     // # User product list
     public userProductList(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('user_product_list')
+        return this.teamProjectDetail(teamId).addPathComponent('user_product_list')
     }
 
     // # Plugins
@@ -713,7 +706,7 @@ export class ApiRequest {
     }
 
     public pluginConfigs(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('plugin_configs')
+        return this.teamProjectDetail(teamId).addPathComponent('plugin_configs')
     }
 
     public pluginConfig(id: number, teamId?: TeamType['id']): ApiRequest {
@@ -729,7 +722,7 @@ export class ApiRequest {
     }
 
     public hogFunctions(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('hog_functions')
+        return this.teamProjectDetail(teamId).addPathComponent('hog_functions')
     }
 
     public hogFunction(id: HogFunctionType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -755,11 +748,11 @@ export class ApiRequest {
 
     // # MCP Store
     public mcpServers(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('mcp_servers')
+        return this.teamProjectDetail(teamId).addPathComponent('mcp_servers')
     }
 
     public mcpServerInstallations(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('mcp_server_installations')
+        return this.teamProjectDetail(teamId).addPathComponent('mcp_server_installations')
     }
 
     public mcpServerInstallation(id: string, teamId?: TeamType['id']): ApiRequest {
@@ -786,7 +779,7 @@ export class ApiRequest {
 
     // # Exports
     public exports(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('exports')
+        return this.teamProjectDetail(teamId).addPathComponent('exports')
     }
 
     public export(id: number, teamId?: TeamType['id']): ApiRequest {
@@ -795,7 +788,7 @@ export class ApiRequest {
 
     // # Events
     public events(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('events')
+        return this.teamProjectDetail(teamId).addPathComponent('events')
     }
 
     public event(id: EventType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -808,7 +801,7 @@ export class ApiRequest {
 
     // # Logs
     public logs(projectId?: ProjectType['id']): ApiRequest {
-        return this.environmentsDetail(projectId).addPathComponent('logs')
+        return this.teamProjectDetail(projectId).addPathComponent('logs')
     }
 
     public logsQuery(projectId?: ProjectType['id']): ApiRequest {
@@ -833,7 +826,7 @@ export class ApiRequest {
 
     // # Tracing
     public tracingSpans(): ApiRequest {
-        return this.environmentsDetail().addPathComponent('tracing').addPathComponent('spans')
+        return this.teamProjectDetail().addPathComponent('tracing').addPathComponent('spans')
     }
 
     // # Data management
@@ -930,7 +923,7 @@ export class ApiRequest {
 
     // # Customer Profile Configs
     public customerProfileConfigs(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('customer_profile_configs')
+        return this.teamProjectDetail(teamId).addPathComponent('customer_profile_configs')
     }
 
     public customerProfileConfigsDetail(id: CustomerProfileConfigType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -938,7 +931,7 @@ export class ApiRequest {
     }
 
     public customerJourneys(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('customer_journeys')
+        return this.teamProjectDetail(teamId).addPathComponent('customer_journeys')
     }
 
     public customerJourneysDetail(id: CustomerJourneyApi['id'], teamId?: TeamType['id']): ApiRequest {
@@ -947,7 +940,7 @@ export class ApiRequest {
 
     // Recordings
     public recordings(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('session_recordings')
+        return this.teamProjectDetail(teamId).addPathComponent('session_recordings')
     }
 
     public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -955,13 +948,11 @@ export class ApiRequest {
     }
 
     public sessionRecordingsExternalReferences(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('session_recording_external_references')
+        return this.teamProjectDetail(teamId).addPathComponent('session_recording_external_references')
     }
 
     public recordingMatchingEvents(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId)
-            .addPathComponent('session_recordings')
-            .addPathComponent('matching_events')
+        return this.teamProjectDetail(teamId).addPathComponent('session_recordings').addPathComponent('matching_events')
     }
 
     public recordingPlaylists(teamId?: TeamType['id']): ApiRequest {
@@ -995,7 +986,7 @@ export class ApiRequest {
 
     // # Dashboards
     public dashboards(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('dashboards')
+        return this.teamProjectDetail(teamId).addPathComponent('dashboards')
     }
 
     public dashboardsDetail(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1118,7 +1109,7 @@ export class ApiRequest {
 
     // # Persons
     public persons(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('persons')
+        return this.teamProjectDetail(teamId).addPathComponent('persons')
     }
 
     public person(id: string | number, teamId?: TeamType['id']): ApiRequest {
@@ -1134,7 +1125,7 @@ export class ApiRequest {
 
     // # Groups
     public groups(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('groups')
+        return this.teamProjectDetail(teamId).addPathComponent('groups')
     }
 
     public group(index: number, key: string, teamId?: TeamType['id']): ApiRequest {
@@ -1230,7 +1221,7 @@ export class ApiRequest {
 
     // # User interviews
     public userInterviews(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('user_interviews')
+        return this.teamProjectDetail(teamId).addPathComponent('user_interviews')
     }
 
     public userInterview(id: UserInterviewType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1342,7 +1333,7 @@ export class ApiRequest {
 
     // Error tracking
     public errorTracking(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('error_tracking')
+        return this.teamProjectDetail(teamId).addPathComponent('error_tracking')
     }
 
     public errorTrackingIssues(teamId?: TeamType['id']): ApiRequest {
@@ -1402,7 +1393,7 @@ export class ApiRequest {
     }
 
     public gitProviderFileLinks(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId)
+        return this.teamProjectDetail(teamId)
             .addPathComponent('error_tracking')
             .addPathComponent('git-provider-file-links')
     }
@@ -1448,7 +1439,7 @@ export class ApiRequest {
     }
 
     public quickFilters(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('quick_filters')
+        return this.teamProjectDetail(teamId).addPathComponent('quick_filters')
     }
 
     public quickFilter(id: string, teamId?: TeamType['id']): ApiRequest {
@@ -1457,7 +1448,7 @@ export class ApiRequest {
 
     // # Web Analytics Filter Presets
     public webAnalyticsFilterPresets(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('web_analytics_filter_presets')
+        return this.teamProjectDetail(teamId).addPathComponent('web_analytics_filter_presets')
     }
 
     public webAnalyticsFilterPreset(shortId: string, teamId?: TeamType['id']): ApiRequest {
@@ -1466,7 +1457,7 @@ export class ApiRequest {
 
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('warehouse_tables')
+        return this.teamProjectDetail(teamId).addPathComponent('warehouse_tables')
     }
 
     public dataWarehouseTable(id: DataWarehouseTable['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1475,11 +1466,11 @@ export class ApiRequest {
 
     // # Warehouse view
     public dataWarehouseSavedQueries(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_queries')
+        return this.teamProjectDetail(teamId).addPathComponent('warehouse_saved_queries')
     }
 
     public dataWarehouseSavedQueryFolders(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_query_folders')
+        return this.teamProjectDetail(teamId).addPathComponent('warehouse_saved_query_folders')
     }
 
     public dataWarehouseSavedQuery(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1491,7 +1482,7 @@ export class ApiRequest {
     }
 
     public dataWarehouseSavedQueryDrafts(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_query_drafts')
+        return this.teamProjectDetail(teamId).addPathComponent('warehouse_saved_query_drafts')
     }
 
     public dataWarehouseSavedQueryDraft(id: DataWarehouseSavedQueryDraft['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1509,7 +1500,7 @@ export class ApiRequest {
         offset = 0,
         teamId?: TeamType['id']
     ): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').withQueryString({
+        return this.teamProjectDetail(teamId).addPathComponent('data_modeling_jobs').withQueryString({
             saved_query_id: savedQueryId,
             limit: pageSize,
             offset,
@@ -1517,16 +1508,16 @@ export class ApiRequest {
     }
 
     public dataModelingJobsRunning(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('running')
+        return this.teamProjectDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('running')
     }
 
     public dataModelingJobsRecent(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('recent')
+        return this.teamProjectDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('recent')
     }
 
     // # Data Modeling Nodes
     public dataModelingNodes(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_modeling_nodes')
+        return this.teamProjectDetail(teamId).addPathComponent('data_modeling_nodes')
     }
 
     public dataModelingNode(id: DataModelingNode['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1535,12 +1526,12 @@ export class ApiRequest {
 
     // # Data Modeling Edges
     public dataModelingEdges(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_modeling_edges')
+        return this.teamProjectDetail(teamId).addPathComponent('data_modeling_edges')
     }
 
     // # Warehouse view link
     public dataWarehouseViewLinks(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('warehouse_view_link')
+        return this.teamProjectDetail(teamId).addPathComponent('warehouse_view_link')
     }
 
     public dataWarehouseViewLink(id: DataWarehouseViewLink['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1562,7 +1553,7 @@ export class ApiRequest {
 
     // # Subscriptions
     public subscriptions(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('subscriptions')
+        return this.teamProjectDetail(teamId).addPathComponent('subscriptions')
     }
 
     public subscription(id: SubscriptionType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1571,7 +1562,7 @@ export class ApiRequest {
 
     // # Integrations
     public integrations(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('integrations')
+        return this.teamProjectDetail(teamId).addPathComponent('integrations')
     }
 
     public integration(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1717,15 +1708,12 @@ export class ApiRequest {
     // # Alerts
     public alerts(alertId?: AlertType['id'], insightId?: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         if (alertId) {
-            return this.environmentsDetail(teamId)
-                .addPathComponent('alerts')
-                .addPathComponent(alertId)
-                .withQueryString({
-                    insight_id: insightId,
-                })
+            return this.teamProjectDetail(teamId).addPathComponent('alerts').addPathComponent(alertId).withQueryString({
+                insight_id: insightId,
+            })
         }
 
-        return this.environmentsDetail(teamId).addPathComponent('alerts').withQueryString({
+        return this.teamProjectDetail(teamId).addPathComponent('alerts').withQueryString({
             insight_id: insightId,
         })
     }
@@ -1742,7 +1730,7 @@ export class ApiRequest {
 
     // Queries
     public query(teamId?: TeamType['id'], queryKind?: string): ApiRequest {
-        const apiRequest = this.environmentsDetail(teamId).addPathComponent('query')
+        const apiRequest = this.teamProjectDetail(teamId).addPathComponent('query')
         if (queryKind) {
             return apiRequest.addPathComponent(queryKind)
         }
@@ -1762,7 +1750,7 @@ export class ApiRequest {
     }
 
     public queryUpgrade(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('query').addPathComponent('upgrade')
+        return this.teamProjectDetail(teamId).addPathComponent('query').addPathComponent('upgrade')
     }
 
     public queryLog(queryId: string, teamId?: TeamType['id']): ApiRequest {
@@ -1779,7 +1767,7 @@ export class ApiRequest {
 
     // Endpoints
     public endpoint(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('endpoints')
+        return this.teamProjectDetail(teamId).addPathComponent('endpoints')
     }
 
     public endpointDetail(name: string): ApiRequest {
@@ -1792,21 +1780,21 @@ export class ApiRequest {
 
     // Managed Viewsets
     public dataWarehouseManagedViewset(kind: DataWarehouseManagedViewsetKind, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('managed_viewsets').addPathComponent(kind)
+        return this.teamProjectDetail(teamId).addPathComponent('managed_viewsets').addPathComponent(kind)
     }
 
     // Conversations (Max AI)
     public conversations(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('conversations')
+        return this.teamProjectDetail(teamId).addPathComponent('conversations')
     }
 
     public conversation(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('conversations').addPathComponent(id)
+        return this.teamProjectDetail(teamId).addPathComponent('conversations').addPathComponent(id)
     }
 
     // Max hands-free mode (ElevenLabs Scribe token proxy)
     public maxHandsFree(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('max_hands_free')
+        return this.teamProjectDetail(teamId).addPathComponent('max_hands_free')
     }
 
     // Conversations (Support product)
@@ -1829,7 +1817,7 @@ export class ApiRequest {
 
     // Batch Exports
     public batchExports(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('batch_exports')
+        return this.teamProjectDetail(teamId).addPathComponent('batch_exports')
     }
 
     public batchExport(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1862,7 +1850,7 @@ export class ApiRequest {
 
     // External Data Source
     public externalDataSources(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('external_data_sources')
+        return this.teamProjectDetail(teamId).addPathComponent('external_data_sources')
     }
 
     public externalDataSource(sourceId: ExternalDataSource['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1870,7 +1858,7 @@ export class ApiRequest {
     }
 
     public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('external_data_schemas')
+        return this.teamProjectDetail(teamId).addPathComponent('external_data_schemas')
     }
 
     public externalDataSourceSchema(schemaId: ExternalDataSourceSchema['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1886,12 +1874,12 @@ export class ApiRequest {
 
     // Fix HogQL errors
     public fixHogQLErrors(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('fix_hogql')
+        return this.teamProjectDetail(teamId).addPathComponent('fix_hogql')
     }
 
     // Insight Variables
     public insightVariables(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('insight_variables')
+        return this.teamProjectDetail(teamId).addPathComponent('insight_variables')
     }
 
     public insightVariable(variableId: string, teamId?: TeamType['id']): ApiRequest {
@@ -1948,20 +1936,20 @@ export class ApiRequest {
 
     // Data color themes
     public dataColorThemes(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_color_themes')
+        return this.teamProjectDetail(teamId).addPathComponent('data_color_themes')
     }
 
     public dataColorTheme(id: DataColorThemeModel['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_color_themes').addPathComponent(id)
+        return this.teamProjectDetail(teamId).addPathComponent('data_color_themes').addPathComponent(id)
     }
 
     public addProductIntent(): ApiRequest {
-        return this.environments().current().addPathComponent('add_product_intent')
+        return this.projects().current().addPathComponent('add_product_intent')
     }
 
     // Max Core Memory
     public coreMemory(): ApiRequest {
-        return this.environmentsDetail().addPathComponent('core_memory')
+        return this.teamProjectDetail().addPathComponent('core_memory')
     }
 
     public coreMemoryDetail(id: CoreMemory['id']): ApiRequest {
@@ -1969,7 +1957,7 @@ export class ApiRequest {
     }
 
     public messagingTemplates(): ApiRequest {
-        return this.environmentsDetail().addPathComponent('messaging_templates')
+        return this.teamProjectDetail().addPathComponent('messaging_templates')
     }
 
     public messagingTemplate(templateId: MessageTemplate['id']): ApiRequest {
@@ -1977,7 +1965,7 @@ export class ApiRequest {
     }
 
     public messagingCategories(): ApiRequest {
-        return this.environmentsDetail().addPathComponent('messaging_categories')
+        return this.teamProjectDetail().addPathComponent('messaging_categories')
     }
 
     public messagingCategory(categoryId: string): ApiRequest {
@@ -2013,7 +2001,7 @@ export class ApiRequest {
     }
 
     public messagingPreferences(): ApiRequest {
-        return this.environmentsDetail().addPathComponent('messaging_preferences')
+        return this.teamProjectDetail().addPathComponent('messaging_preferences')
     }
 
     public messagingPreferencesLink(): ApiRequest {
@@ -2029,7 +2017,7 @@ export class ApiRequest {
     }
 
     public hogFlows(): ApiRequest {
-        return this.environmentsDetail().addPathComponent('hog_flows')
+        return this.teamProjectDetail().addPathComponent('hog_flows')
     }
 
     public hogFlow(hogFlowId: HogFlow['id']): ApiRequest {
@@ -2037,7 +2025,7 @@ export class ApiRequest {
     }
 
     public hogFlowTemplates(): ApiRequest {
-        return this.environmentsDetail().addPathComponent('hog_flow_templates')
+        return this.teamProjectDetail().addPathComponent('hog_flow_templates')
     }
 
     public hogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): ApiRequest {
@@ -2045,12 +2033,12 @@ export class ApiRequest {
     }
 
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('evaluation_runs')
+        return this.teamProjectDetail(teamId).addPathComponent('evaluation_runs')
     }
 
     // Heatmap screenshots
     public heatmapScreenshots(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('heatmap_screenshots')
+        return this.teamProjectDetail(teamId).addPathComponent('heatmap_screenshots')
     }
 
     public heatmapScreenshot(id: number, teamId?: TeamType['id']): ApiRequest {
@@ -2059,7 +2047,7 @@ export class ApiRequest {
 
     public heatmapScreenshotsSaved(teamId?: TeamType['id']): ApiRequest {
         // Deprecated path: kept for potential fallback during rollout
-        return this.environmentsDetail(teamId).addPathComponent('saved')
+        return this.teamProjectDetail(teamId).addPathComponent('saved')
     }
 
     public heatmapScreenshotSaved(id: number | string, teamId?: TeamType['id']): ApiRequest {
@@ -2068,7 +2056,7 @@ export class ApiRequest {
 
     // Revenue analytics
     public revenueAnalyticsJoins(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('revenue_analytics').addPathComponent('joins')
+        return this.teamProjectDetail(teamId).addPathComponent('revenue_analytics').addPathComponent('joins')
     }
 }
 
@@ -3048,6 +3036,16 @@ const api = {
                 .assembleFullUrl(true)
         },
 
+        // For fetch() callers. The download URL redirects to object storage, and connect-src does not
+        // allow that origin, so the fetch fails. direct=true serves the bytes from our origin (PNG only).
+        determineExportFetchUrl(exportId: number, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): string {
+            return new ApiRequest()
+                .export(exportId, teamId)
+                .withAction('content')
+                .withQueryString('direct=true')
+                .assembleFullUrl(true)
+        },
+
         async create(
             data: Partial<ExportedAssetType>,
             params: Record<string, any> = {},
@@ -3831,7 +3829,7 @@ const api = {
             notebookShortId,
         }: {
             dashboardId?: DashboardType['id']
-            insightId?: QueryBasedInsightModel['id']
+            insightId?: InsightModel['id']
             recordingId?: SessionRecordingType['id']
             notebookShortId?: NotebookType['short_id']
         }): Promise<SharingConfigurationType | null> {
@@ -3854,7 +3852,7 @@ const api = {
                 notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
-                insightId?: QueryBasedInsightModel['id']
+                insightId?: InsightModel['id']
                 recordingId?: SessionRecordingType['id']
                 notebookShortId?: NotebookType['short_id']
             },
@@ -3879,7 +3877,7 @@ const api = {
                 notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
-                insightId?: QueryBasedInsightModel['id']
+                insightId?: InsightModel['id']
                 recordingId?: SessionRecordingType['id']
                 notebookShortId?: NotebookType['short_id']
             },
@@ -3904,7 +3902,7 @@ const api = {
                 notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
-                insightId?: QueryBasedInsightModel['id']
+                insightId?: InsightModel['id']
                 recordingId?: SessionRecordingType['id']
                 notebookShortId?: NotebookType['short_id']
             },
@@ -6524,7 +6522,7 @@ const api = {
                 ...(scope !== undefined ? { scope } : {}),
             }
             return await new ApiRequest()
-                .environments()
+                .projects()
                 .current()
                 .withAction('settings_as_of')
                 .withQueryString(toParams(params, true))
@@ -7414,7 +7412,7 @@ const api = {
     projects: {
         async generateConversationsPublicToken(teamId?: TeamType['id']): Promise<TeamType> {
             return await new ApiRequest()
-                .environmentsDetail(teamId)
+                .teamProjectDetail(teamId)
                 .withAction('generate_conversations_public_token')
                 .create()
         },

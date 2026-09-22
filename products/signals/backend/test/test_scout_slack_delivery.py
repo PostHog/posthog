@@ -116,7 +116,6 @@ class TestScoutSlackDelivery(BaseTest):
             scout_run=run,
             finding_id="checkout/500s",
             description=description,
-            confidence=0.84,
             severity="P1",
             tags=["checkout", "regression"],
             source_id=f"run:{run.id}:finding:checkout-500s",
