@@ -123,6 +123,7 @@ from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
+from products.signals.backend.report_check_authoring import cancel_check
 from products.signals.backend.report_claims import (
     actor_owns_claim,
     get_active_claim,
@@ -4343,16 +4344,10 @@ class SignalReportCheckViewSet(
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         check = cast(SignalReportCheck, self.get_object())
-        # One conditional update rather than a read and then a write. A run that commits its verdict
-        # between the two leaves a result artefact on the report, and an unconditional write would
-        # overwrite the status that artefact explains.
-        cancelled = (
-            SignalReportCheck.objects.for_team(self.team.id)
-            .filter(id=check.id, status__in=SignalReportCheck.OPEN_STATUSES)
-            .update(status=SignalReportCheck.Status.CANCELLED, updated_at=timezone.now())
+        stopped = cancel_check(
+            check, reason="stopped_by_person", attribution=resolve_request_attribution(request, self.team.id)
         )
-        check.refresh_from_db()
-        if not cancelled:
+        if not stopped:
             return Response(
                 {"error": f"This check already finished as '{check.status}' and cannot be cancelled."},
                 status=status.HTTP_400_BAD_REQUEST,
