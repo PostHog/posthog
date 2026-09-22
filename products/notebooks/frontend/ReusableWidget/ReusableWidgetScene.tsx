@@ -374,8 +374,8 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
                             }}
                             data-attr="reusable-widget-version"
                         />
+                        <NotebookWidgetGenerationCost cost={version.generation_cost_usd} />
                     </div>
-                    <NotebookWidgetGenerationCost cost={version.generation_cost_usd} />
                     {versionHistoryError ? (
                         <LemonBanner type="warning" action={{ children: 'Retry', onClick: () => loadVersionHistory() }}>
                             Version history couldn't be loaded.

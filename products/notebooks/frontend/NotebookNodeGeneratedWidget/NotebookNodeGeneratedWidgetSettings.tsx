@@ -208,7 +208,12 @@ export function NotebookNodeGeneratedWidgetSettings({
             ) : (
                 <>
                     <div>
-                        <LemonLabel htmlFor={versionId}>Version history</LemonLabel>
+                        <div className="flex items-center justify-between gap-2">
+                            <LemonLabel htmlFor={versionId}>Version history</LemonLabel>
+                            {selectedVersion ? (
+                                <NotebookWidgetGenerationCost cost={selectedVersion.generation_cost_usd} />
+                            ) : null}
+                        </div>
                         <LemonSelect
                             id={versionId}
                             value={selectedVersionId ?? undefined}
@@ -275,9 +280,6 @@ export function NotebookNodeGeneratedWidgetSettings({
                                 {selectedVersion.prompt_delta || 'No instructions were recorded for this version.'}
                             </div>
                         </div>
-                    ) : null}
-                    {selectedVersion ? (
-                        <NotebookWidgetGenerationCost cost={selectedVersion.generation_cost_usd} />
                     ) : null}
                 </>
             )}
