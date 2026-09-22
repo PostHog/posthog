@@ -1013,8 +1013,8 @@ def get_rows(
                     if batcher.should_yield(include_incomplete_chunk=True):
                         yield from _flush_staging_state(batcher, resumable_source_manager, _fixed_state(position))
                     else:
-                        resumable_source_manager.save_state(position)
-                        resumable_source_manager.commit()
+                        with resumable_source_manager.committing():
+                            resumable_source_manager.save_state(position)
                     parents_since_checkpoint = 0
                     report_parent_rows_consumed()
 

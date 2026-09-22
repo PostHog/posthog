@@ -414,7 +414,7 @@ while True:
     url = next_url  # advance before the next fetch, otherwise we loop on the same page
 ```
 
-Save state **before** yielding the batch it covers. `save_state` only stages the cursor; the pipeline commits it to Redis once that batch is written, so a crash resumes exactly after the last written batch. A source that saves after yielding still works, but a crash re-yields its last batch (merge dedupes on primary key, append does not). A source with nothing yielded yet, such as one persisting an export job id before polling it, calls `commit()` itself.
+Save state **before** yielding the batch it covers. `save_state` only stages the cursor; the pipeline commits it to Redis once that batch is written, so a crash resumes exactly after the last written batch. A source that saves after yielding still works, but a crash re-yields its last batch (merge dedupes on primary key, append does not). A source with nothing yielded yet, such as one persisting an export job id before polling it, stages inside `with manager.committing():`, which commits when the block ends.
 
 ### Webhook source pattern
 

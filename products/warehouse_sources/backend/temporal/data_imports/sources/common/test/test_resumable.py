@@ -46,6 +46,21 @@ class TestResumableSourceManager:
             "posthog:data_warehouse:resumable_source:1:job-1", '{"cursor":"cus_2"}', ex=60 * 60 * 24
         )
 
+    def test_committing_persists_the_staged_state_even_when_the_block_raises(self):
+        manager = _manager()
+        redis = MagicMock()
+
+        with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
+            get_redis.return_value.__enter__.return_value = redis
+            with pytest.raises(RuntimeError):
+                with manager.committing():
+                    manager.save_state(_SweepPosition(cursor="job_1"))
+                    raise RuntimeError("export failed")
+
+        redis.set.assert_called_once_with(
+            "posthog:data_warehouse:resumable_source:1:job-1", '{"cursor":"job_1"}', ex=60 * 60 * 24
+        )
+
     def test_commit_persists_what_a_namespaced_sibling_staged(self):
         manager = _manager()
         redis = MagicMock()

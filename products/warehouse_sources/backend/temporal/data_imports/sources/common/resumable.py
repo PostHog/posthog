@@ -114,7 +114,7 @@ class ResumableSourceManager(Generic[ResumableData]):
         """Stage `data` as the cursor to resume from once every row yielded so far is written.
 
         Nothing reaches Redis until commit(), which the pipeline calls right after a write lands.
-        A source with no rows outstanding may call commit() itself.
+        A source with nothing outstanding stages inside committing(), which commits at block end.
         """
         json_data = self._dump_json(data)
         self._logger.debug(f"Staging resumable source state. key={self._key}, data={json_data}")
@@ -132,6 +132,18 @@ class ResumableSourceManager(Generic[ResumableData]):
                     functools.partial(redis_client.set, key, json_data, ex=60 * 60 * 24),  # 24 hours expiration
                 )
                 del self._staged[key]
+
+    @contextmanager
+    def committing(self) -> collections.abc.Iterator[None]:
+        """Commit whatever the block stages, even when the block raises.
+
+        For a bookmark that must persist before any row exists, such as an export or report id the
+        source polls before it yields. The pipeline has no write to commit on, so the source does.
+        """
+        try:
+            yield
+        finally:
+            self.commit()
 
     def clear_state(self) -> None:
         """Drop any saved resume state so a subsequent attempt starts from scratch.
