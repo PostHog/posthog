@@ -2401,6 +2401,26 @@ class TestCSPMiddleware(APIBaseTest):
         # Report-only must still enforce framing, as on every other app document.
         assert response["Content-Security-Policy"] == "frame-ancestors https://posthog.com https://preview.posthog.com"
 
+    @override_settings(
+        TEST=False,
+        DEBUG=False,
+        SELF_CAPTURE=False,
+        CLOUD_DEPLOYMENT="US",
+        SITE_URL="https://us.posthog.com",
+        JS_URL="https://app-static-prod.posthog.com",
+    )
+    def test_auth_page_policy_names_no_wildcard_host_on_cloud(self):
+        # `https://*.posthog.com` admits every endpoint on every PostHog host, including ones that
+        # serve customer-authored code. The auth pages policy names exact sources instead.
+        self.client.logout()
+        with self._auth_pages_rollout({"enforce": {"login": 100}}):
+            response = self.client.get("/login")
+
+        policy = response["Content-Security-Policy"]
+        assert "*." not in policy
+        assert "https://internal-j.posthog.com/array/sTMFPsFhdP1Ssg/config.js" in policy
+        assert "connect-src 'self' https://app-static-prod.posthog.com https://internal-j.posthog.com;" in policy
+
     @parameterized.expand(
         [
             # Turning the flag off is the kill switch, so it must restore the app policy.

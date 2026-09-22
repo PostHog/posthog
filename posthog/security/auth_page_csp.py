@@ -16,6 +16,7 @@ from django.http import HttpRequest
 import structlog
 import posthoganalytics
 
+from posthog.constants import POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN
 from posthog.dataclasses import frozen
 
 logger = structlog.get_logger(__name__)
@@ -167,14 +168,25 @@ def static_asset_origin() -> str:
     return f"{parts.scheme}://{parts.netloc}" if parts.scheme and parts.netloc else ""
 
 
+def posthog_js_host() -> str:
+    """The host PostHog's own posthog-js sends to, or "" when it sends to this origin, as on a
+    self-capturing install, which 'self' already covers. Mirrors the posthog-js context in
+    posthog/utils.py."""
+    return POSTHOG_JS_CLOUD_HOST if settings.E2E_TESTING or not settings.SELF_CAPTURE else ""
+
+
 def _directive(name: str, *sources: str) -> str:
-    # In development and tests the bundle host and `resource_url` are the same dev server.
-    return " ".join([name, *dict.fromkeys(source for source in sources if source)])
+    return " ".join([name, *(source for source in sources if source)])
 
 
 def build_auth_page_policy(
-    *, nonce: str, resource_url: str, static_origin: str, frame_ancestors: str, connect_debug_url: str
+    *, nonce: str, static_origin: str, posthog_js_host: str, frame_ancestors: str, connect_debug_url: str
 ) -> list[str]:
+    posthog_js_scripts = (
+        [f"{posthog_js_host}/static/", f"{posthog_js_host}/array/{POSTHOG_JS_CLOUD_TOKEN}/config.js"]
+        if posthog_js_host
+        else []
+    )
     return [
         # Firefox checks <link rel="modulepreload"> against default-src rather than script-src, so
         # without the static host it refuses the boot-chain preloads index.html emits. Every fetch
@@ -190,7 +202,8 @@ def build_auth_page_policy(
         # Everything these pages run arrives through a nonced script: the esbuild loader imports the
         # bundle, posthog-js injects its remote config and extensions, and the signup captcha
         # component injects Turnstile. Browsers that predate 'strict-dynamic' ignore that keyword
-        # and fall back to the host list after it.
+        # and fall back to the exact sources after it: the bundle host, the posthog-js extensions,
+        # our own project's remote config and Turnstile.
         #
         # 'wasm-unsafe-eval' is here for the reason the app policy gives: the app shell warms
         # snappy-wasm when idle, anonymous pages included.
@@ -201,7 +214,7 @@ def build_auth_page_policy(
             "'wasm-unsafe-eval'",
             "'self'",
             static_origin,
-            resource_url,
+            *posthog_js_scripts,
             "https://challenges.cloudflare.com",
         ),
         # 'unsafe-inline' stays because the page and its libraries add <style> elements without a
@@ -220,9 +233,8 @@ def build_auth_page_policy(
         # avatar from Gravatar, which serves images only.
         _directive("img-src", "'self'", "data:", static_origin, "https://www.gravatar.com"),
         # Reaching these hosts needs script, which script-src already confines. posthog-js sends
-        # to an ingestion host under `resource_url`, and snappy-wasm fetches its module from the
-        # bundle host.
-        _directive("connect-src", "'self'", static_origin, resource_url, connect_debug_url),
+        # to its own host, and snappy-wasm fetches its module from the bundle host.
+        _directive("connect-src", "'self'", static_origin, posthog_js_host, connect_debug_url),
         # posthog-js builds its session recorder worker from a blob, as in the app policy.
         "worker-src 'self' blob:",
         # The signup captcha is the only frame these pages open.

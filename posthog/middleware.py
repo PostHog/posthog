@@ -53,7 +53,13 @@ from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_HEADER, activity_storage, client_from_header
 from posthog.models.utils import generate_random_token
 from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
-from posthog.security.auth_page_csp import AuthPageCsp, auth_page_csp, build_auth_page_policy, static_asset_origin
+from posthog.security.auth_page_csp import (
+    AuthPageCsp,
+    auth_page_csp,
+    build_auth_page_policy,
+    posthog_js_host,
+    static_asset_origin,
+)
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, get_trusted_client_ip
@@ -1562,8 +1568,8 @@ class CSPMiddleware:
             if auth_csp is not None:
                 csp_parts = build_auth_page_policy(
                     nonce=nonce,
-                    resource_url=resource_url,
                     static_origin=static_asset_origin(),
+                    posthog_js_host=posthog_js_host(),
                     frame_ancestors=frame_ancestors,
                     connect_debug_url=connect_debug_url,
                 )
