@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import difflib
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from typing import Optional, cast
 
 from pydantic import BaseModel
@@ -166,6 +166,85 @@ def suggest_field_names(
     if not candidates:
         return []
     return difflib.get_close_matches(name, candidates, n=limit, cutoff=0.6)
+
+
+def _scope_source_names(scope: ast.SelectQueryType | ast.SelectSetQueryType, context: HogQLContext) -> list[str]:
+    if isinstance(scope, ast.SelectSetQueryType):
+        names: list[str] = []
+        for inner in scope.types:
+            names.extend(_scope_source_names(inner, context))
+        return names
+
+    return [_table_source_name(table, context, alias=alias) for alias, table in scope.tables.items()] + [
+        _unnamed_subquery_label(index, len(scope.anonymous_tables), "an")
+        for index in range(1, len(scope.anonymous_tables) + 1)
+    ]
+
+
+def _unnamed_subquery_label(index: int, total: int, article: str) -> str:
+    return f"{article} unnamed subquery" if total == 1 else f"unnamed subquery {index}"
+
+
+def _subquery_sources(
+    scope: ast.SelectQueryType | ast.SelectSetQueryType, context: HogQLContext
+) -> Generator[tuple[str, ast.SelectQueryType | ast.SelectSetQueryType]]:
+    if isinstance(scope, ast.SelectSetQueryType):
+        for inner in scope.types:
+            yield from _subquery_sources(inner, context)
+        return
+
+    for alias, table in scope.tables.items():
+        if isinstance(table, (ast.SelectQueryType, ast.SelectSetQueryType)):
+            yield f'the subquery "{_table_source_name(table, context, alias=alias)}"', table
+        elif isinstance(table, ast.SelectQueryAliasType):
+            yield f'the subquery "{table.alias}"', table.select_query_type
+    for index, table in enumerate(scope.anonymous_tables, start=1):
+        yield _unnamed_subquery_label(index, len(scope.anonymous_tables), "the"), table
+
+
+def explain_unresolved_field(
+    name: str,
+    scope: ast.SelectQueryType | ast.SelectSetQueryType,
+    outer_scopes: Sequence[ast.SelectQueryType | ast.SelectSetQueryType],
+    declared_aliases: set[str],
+    context: HogQLContext,
+) -> str:
+    """Say which scope failed to resolve `name` and how to rewrite the query.
+
+    "Unable to resolve field: day" alone does not say which of the nested scopes looked for the
+    name, so every rewrite that could work is a guess. The sentences here name the scope, and add
+    a rewrite when the name is readable in a scope that cannot reach this one.
+    """
+    sources = _scope_source_names(scope, context)
+    sentences = (
+        [f"The query that reads from {', '.join(sources)} has no field or alias with that name."] if sources else []
+    )
+
+    if isinstance(scope, ast.SelectQueryType) and name in declared_aliases and name not in scope.aliases:
+        sentences.append(
+            f'The SELECT list declares the alias "{name}" after this expression, and HogQL resolves aliases in the'
+            f' order they appear. Move the "{name}" column before this expression, or repeat its expression here.'
+        )
+        return " ".join(sentences)
+
+    for label, inner_scope in _subquery_sources(scope, context):
+        if name in collect_available_field_names(inner_scope, context):
+            sentences.append(
+                f'{label[0].upper()}{label[1:]} can read "{name}", but it does not select it.'
+                f' Add "{name}" to its SELECT list.'
+            )
+            return " ".join(sentences)
+
+    for outer_scope in reversed(outer_scopes):
+        if name in collect_available_field_names(outer_scope, context):
+            sentences.append(
+                f'The enclosing query can read "{name}", but HogQL resolves each subquery on its own, so a subquery'
+                f' cannot read a field of the query around it. Select "{name}" in this subquery, or move the'
+                " expression that uses it to the enclosing query."
+            )
+            return " ".join(sentences)
+
+    return " ".join(sentences)
 
 
 def suggested_field_fix(node: ast.Field, suggestion: str) -> Optional[str]:
