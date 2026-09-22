@@ -4,6 +4,7 @@
 across requests. `post_process` maps each row's probability vector back onto the question it came from.
 """
 
+import threading
 import time
 from collections import deque
 from collections.abc import Sequence
@@ -34,6 +35,8 @@ class KevIOProcessor(IOProcessor[SystemOneRequest, dict]):
         # request_id -> (question metadata, input token count, enqueued at); vLLM calls pre_process and post_process
         # with the same id
         self._pending: dict[str | None, deque[tuple[list[dict], int, float]]] = {}
+        # vLLM may run pre_process and post_process on executor threads, so every access to the map is serialised.
+        self._pending_lock = threading.Lock()
 
     def parse_data(self, data: object) -> SystemOneRequest:
         return SystemOneRequest.model_validate(data)
@@ -42,18 +45,20 @@ class KevIOProcessor(IOProcessor[SystemOneRequest, dict]):
         record, meta = to_record(prompt)
         enc = encode(self.tokenizer, record, max_state=INFER_MAX_STATE, max_branch=INFER_MAX_BRANCH)
         state_ids, _, rows = rows_of(enc)
-        if len(self._pending) > PENDING_SWEEP_SIZE:
-            self._sweep_pending()
-        self._pending.setdefault(request_id, deque()).append((meta, len(enc["ids"]), time.monotonic()))
+        with self._pending_lock:
+            if len(self._pending) > PENDING_SWEEP_SIZE:
+                self._sweep_pending()
+            self._pending.setdefault(request_id, deque()).append((meta, len(enc["ids"]), time.monotonic()))
         return [TokensPrompt(prompt_token_ids=state_ids + row["ids"]) for row in rows]
 
     def post_process(self, model_output: Sequence[PoolingRequestOutput], request_id: str | None = None, **kwargs) -> dict:
-        entries = self._pending.get(request_id)
-        if not entries:
-            raise ValueError(f"request {request_id} waited longer than {PENDING_MAX_AGE_SECONDS}s and was swept")
-        meta, input_tokens, _ = entries.popleft()
-        if not self._pending[request_id]:
-            del self._pending[request_id]
+        with self._pending_lock:
+            entries = self._pending.get(request_id)
+            if not entries:
+                raise ValueError(f"request {request_id} waited longer than {PENDING_MAX_AGE_SECONDS}s and was swept")
+            meta, input_tokens, _ = entries.popleft()
+            if not entries:
+                del self._pending[request_id]
         probs = [out.outputs.data.tolist() for out in model_output]
         if len(probs) != len(meta):
             raise ValueError(f"got {len(probs)} rows back for {len(meta)} questions")
@@ -66,6 +71,7 @@ class KevIOProcessor(IOProcessor[SystemOneRequest, dict]):
         }
 
     def _sweep_pending(self) -> None:
+        """Caller holds the lock."""
         cutoff = time.monotonic() - PENDING_MAX_AGE_SECONDS
         for request_id in [rid for rid, entries in self._pending.items() if entries[0][2] < cutoff]:
             del self._pending[request_id]
