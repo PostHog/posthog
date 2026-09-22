@@ -108,6 +108,8 @@ async fn identical_graphs_report_no_mismatch(pool: PgPool) -> Result<()> {
     assert_eq!(counts.mismatched, 0);
     assert_eq!(counts.main, 3);
     assert_eq!(counts.cohort, 3);
+    let cohort = verifier(&pool).probe().await?;
+    assert_eq!((cohort.main, cohort.shadow), (3, 3));
     Ok(())
 }
 
@@ -126,6 +128,8 @@ async fn a_person_missing_from_shadow_is_reported(pool: PgPool) -> Result<()> {
     let counts = verifier(&pool).sweep().await?;
     assert_eq!(counts.mismatched, 1);
     assert_eq!(counts.missing_shadow, 1);
+    let cohort = verifier(&pool).probe().await?;
+    assert_eq!((cohort.main, cohort.shadow), (1, 0));
     Ok(())
 }
 
