@@ -166,6 +166,9 @@ database "posthog" {
     column "status_code" {
       type = "Int32"
     }
+    column "retention_days" {
+      type = "Nullable(Int32)"
+    }
     engine "kafka" {
       collection           = "warpstream_traces"
       topic_list           = "clickhouse_traces"
