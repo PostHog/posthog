@@ -42,7 +42,7 @@ The versioned keys are immutable because the version is part of the key.
 The three rolling keys are republished every release and then invalidated at the edge, so they must never carry the immutable header.
 A prerelease publishes its versioned artifacts and leaves the rolling keys alone.
 
-The step is skipped when `AWS_CLI_RELEASES_ROLE_ARN` is unset, so a branch that predates the bucket still releases.
+The step is skipped unless all three variables below are set, so a branch that predates the bucket still releases, and so a half-finished configuration cannot fail the release.
 It needs three repository variables:
 
 | Variable                         | Value                                                                  |

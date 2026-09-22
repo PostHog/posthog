@@ -995,11 +995,15 @@ jobs:
               run: |
                   # Remove the granular manifests
                   rm -f artifacts/*-dist-manifest.json
-            # Guarded on the role variable so a release still succeeds on a branch
-            # that predates the bucket. Drop the guards once the variables are set
-            # on the repository.
+            # Guarded on all three variables, not just the role: a role without a
+            # destination would fail the upload and take the GitHub release with
+            # it. A partial configuration skips publishing instead, which is also
+            # what a branch predating the bucket gets.
             - name: Configure AWS credentials for the release bucket
-              if: vars.AWS_CLI_RELEASES_ROLE_ARN != ''
+              if: >-
+                  vars.AWS_CLI_RELEASES_ROLE_ARN != ''
+                  && vars.AWS_CLI_RELEASES_BUCKET != ''
+                  && vars.AWS_CLI_RELEASES_CLOUDFRONT_ID != ''
               uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
               with:
                   role-to-assume: ${{ vars.AWS_CLI_RELEASES_ROLE_ARN }}
@@ -1012,7 +1016,10 @@ jobs:
             # this origin, so the objects have to be readable before anything
             # publishes a URL that points at them.
             - name: Publish artifacts to the release bucket
-              if: vars.AWS_CLI_RELEASES_ROLE_ARN != ''
+              if: >-
+                  vars.AWS_CLI_RELEASES_ROLE_ARN != ''
+                  && vars.AWS_CLI_RELEASES_BUCKET != ''
+                  && vars.AWS_CLI_RELEASES_CLOUDFRONT_ID != ''
               shell: bash
               env:
                   PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
