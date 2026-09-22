@@ -37,7 +37,6 @@ import { SlotMachineSubmit } from "./SlotMachineSubmit";
 
 export type { EditorHandle };
 
-/** Parts of the composer that answer a click themselves. */
 const COMPOSER_SELF_HANDLED_SELECTOR = 'button, [role="menu"], .ProseMirror';
 
 // How long the send button holds its own busy state when the surface never

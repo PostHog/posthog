@@ -22,9 +22,6 @@ describe("shouldFocusOnBackgroundClick", () => {
       expected: true,
     },
     {
-      // Releasing a drag-select outside the input targets the container, so
-      // the ignore selector never matches and only the live selection tells
-      // the two gestures apart.
       gesture: "releasing a drag-select outside the input",
       tagName: "div",
       isCollapsed: false,
