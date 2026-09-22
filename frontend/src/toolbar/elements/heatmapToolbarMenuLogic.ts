@@ -349,6 +349,7 @@ export interface heatmapToolbarMenuLogicValues {
         min: number
     } // heatmapDataLogic
     posthog: PostHog | null // toolbarConfigLogic
+    isAuthenticated: boolean // toolbarConfigLogic
     areaCandidates: HTMLElement[]
     areaHoverAnchor: HTMLElement | null
     areaHoverElement: HTMLElement | null
@@ -657,7 +658,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             currentPageLogic,
             ['href', 'wildcardHref'],
             toolbarConfigLogic,
-            ['posthog'],
+            ['posthog', 'isAuthenticated'],
             heatmapDataLogic,
             [
                 'commonFilters',
@@ -1064,6 +1065,13 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         return {
             viewportRange: () => {
                 actions.maybeLoadHeatmap()
+            },
+            // heatmapDataLogic skips a request made before the toolbar holds a token, so replay it
+            // as soon as the OAuth handshake lands instead of leaving an empty overlay.
+            isAuthenticated: (isAuthenticated: boolean, previous: boolean) => {
+                if (isAuthenticated && !previous) {
+                    actions.maybeLoadHeatmap()
+                }
             },
             windowWidth: updateAreaBoundsIfFiltered,
             windowHeight: updateAreaBoundsIfFiltered,

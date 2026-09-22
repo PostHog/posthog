@@ -39,6 +39,9 @@ export async function toolbarFetch(
     const host = logic?.values.uiHost
 
     if (!accessToken) {
+        // Report the stub 401 like any other failed request. Without this, every request made
+        // before the OAuth handshake lands is invisible in `toolbar api request`.
+        captureToolbarApiRequest({ url, method, status: 401, durationMs: 0 })
         return new Response(JSON.stringify({ results: [] }), { status: 401 })
     }
 

@@ -282,6 +282,47 @@ describe('heatmapToolbarMenuLogic', () => {
         })
     })
 
+    describe('heatmap loading after authentication', () => {
+        let logic: ReturnType<typeof heatmapToolbarMenuLogic.build>
+
+        beforeEach(() => {
+            global.IntersectionObserver = class {
+                observe(): void {}
+                unobserve(): void {}
+                disconnect(): void {}
+            } as any
+            global.fetch = jest.fn(() =>
+                Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({ results: [] }),
+                } as any as Response)
+            )
+            jest.spyOn(toolbarApi.elementStats, 'list').mockResolvedValue({
+                ok: true,
+                status: 200,
+                data: { results: [], next: null, previous: null },
+            } as any)
+
+            initKeaTests()
+            toolbarConfigLogic.build({ apiURL: 'http://localhost' }).mount()
+            logic = heatmapToolbarMenuLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('loads the heatmap once the OAuth handshake produces a token', async () => {
+            await expectLogic(logic, () => logic.actions.enableHeatmap()).toDispatchActions(['loadHeatmapSuccess'])
+
+            await expectLogic(logic, () => {
+                toolbarConfigLogic.actions.setOAuthTokens('access-token', 'refresh-token', 'client-id')
+            }).toDispatchActions(['maybeLoadHeatmap', 'loadHeatmap'])
+        })
+    })
+
     describe('clickmap loading', () => {
         let logic: ReturnType<typeof heatmapToolbarMenuLogic.build>
 
