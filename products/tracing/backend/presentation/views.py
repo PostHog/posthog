@@ -60,6 +60,7 @@ from ..logic import (
     _ROW_LIMIT,
     DEFAULT_AGGREGATION_ROW_LIMIT,
     TraceSpansQueryRunner,
+    UnknownSpanFilterKeyError,
     run_aggregation_query,
     run_attribute_names_query,
     run_attribute_values_query,
@@ -745,6 +746,13 @@ def _encode_after_cursor(timestamp: str, **secondary: str) -> str:
 class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "tracing"
     serializer_class = _FallbackSerializer
+
+    def handle_exception(self, exc: Exception) -> Response:
+        # Every endpoint builds its filters in a query runner, so the unknown-key check runs there.
+        # Translate it here once: a key the caller mistyped is bad input, not a server failure.
+        if isinstance(exc, UnknownSpanFilterKeyError):
+            exc = serializers.ValidationError(str(exc))
+        return super().handle_exception(exc)
 
     @staticmethod
     def _normalize_filter_group(filter_group: object) -> dict:

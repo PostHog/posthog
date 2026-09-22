@@ -55,7 +55,13 @@ from posthog.models.filters.mixins.utils import cached_property
 
 # _ROW_LIMIT lives in logic.py so the presentation layer can reach it through the
 # facade-allowed `logic` module; imported here (and re-exported) for the sibling runners.
-from .logic import _ROW_LIMIT, TIME_BUCKET_DATE_RANGE_WHERE, translate_span_filter, with_span_attribute_type_suffix
+from .logic import (
+    _ROW_LIMIT,
+    TIME_BUCKET_DATE_RANGE_WHERE,
+    translate_span_filter,
+    validate_span_filter_key,
+    with_span_attribute_type_suffix,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -97,7 +103,9 @@ class _SpanAggregationMixin:
                 if prop_type == SpanPropertyFilterType.SPAN_RESOURCE_ATTRIBUTE:
                     self.resource_attribute_filters.append(cast(SpanPropertyFilter, prop))
                 elif prop_type == SpanPropertyFilterType.SPAN:
-                    self.span_filters.append(cast(SpanPropertyFilter, prop))
+                    span_filter = cast(SpanPropertyFilter, prop)
+                    validate_span_filter_key(span_filter)
+                    self.span_filters.append(span_filter)
                 elif prop_type == SpanPropertyFilterType.SPAN_ATTRIBUTE:
                     if isinstance(prop, SpanPropertyFilter):
                         prop = with_span_attribute_type_suffix(prop)

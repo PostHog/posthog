@@ -35,6 +35,8 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.database.schema.spans import TraceSpansTable
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -150,6 +152,36 @@ def _normalise_status_code_values(values: list) -> list[str]:
     return normalised
 
 
+class UnknownSpanFilterKeyError(QueryError):
+    """A `type: "span"` filter names a key that is not a span column.
+
+    A `QueryError` so both surfaces that reach the runner answer 400: the generic `/query/`
+    endpoint, which turns every `ExposedHogQLError` into a validation error, and
+    `SpansViewSet.handle_exception`.
+    """
+
+
+# Keys a `type: "span"` filter may use: every top-level span column, plus the `duration` alias that
+# `translate_span_filter` rewrites to `duration_nano`. The attribute maps are excluded — their keys
+# belong on a `span_attribute` or `span_resource_attribute` filter, which read the typed maps — and
+# `team_id` is always set by the query itself. An unlisted key reaches the HogQL resolver as an
+# unknown field and fails the whole query, so callers get a 400 naming this set instead of a 500.
+SPAN_FILTER_COLUMNS: frozenset[str] = (
+    frozenset(TraceSpansTable().fields) - {"attributes", "resource_attributes", "team_id"}
+) | {"duration"}
+
+
+def validate_span_filter_key(span_filter: SpanPropertyFilter) -> None:
+    """Reject a span filter whose key is not a span column, before it reaches the resolver."""
+    if span_filter.key in SPAN_FILTER_COLUMNS:
+        return
+    raise UnknownSpanFilterKeyError(
+        f"`{span_filter.key}` is not a span field. A filter of type `span` must use one of: "
+        f"{', '.join(sorted(SPAN_FILTER_COLUMNS))}. "
+        "To filter an OpenTelemetry attribute, use type `span_attribute` or `span_resource_attribute`."
+    )
+
+
 def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
     """Translate UI/API filter values into ClickHouse column representations, in place.
 
@@ -164,7 +196,7 @@ def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
     instances, so `kind`/`status_code` normalisation must accept its own already-translated
     output (ints / digit strings) and not collapse it to `[]` on the second pass.
     """
-    if span_filter.key in ("trace_id", "span_id"):
+    if span_filter.key in ("trace_id", "span_id", "parent_span_id"):
         # `_normalise_to_base64` is a no-op on already-base64 values (16/8-byte ids
         # always encode to padding-suffixed strings that fail `int(_, 16)`).
         if isinstance(span_filter.value, list):
@@ -268,6 +300,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
                     if prop_type == SpanPropertyFilterType.SPAN_RESOURCE_ATTRIBUTE:
                         self.resource_attribute_filters.append(prop)
                     if prop_type == SpanPropertyFilterType.SPAN:
+                        validate_span_filter_key(prop)
                         self.span_filters.append(prop)
                     elif prop_type == SpanPropertyFilterType.SPAN_ATTRIBUTE:
                         if isinstance(prop, SpanPropertyFilter):
