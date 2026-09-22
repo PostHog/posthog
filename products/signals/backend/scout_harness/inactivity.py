@@ -48,8 +48,8 @@ warning becomes `ignored` when report evidence establishes, and an `ignored` war
 to `no_output` when its evidence ages out, so a pause never lands on stale grounds; a downgrade
 cancels a pause instead of scheduling one, so it is reported apart from the new warnings and
 never spends their budget), and whose `evaluated_at` check makes a racing human edit win over a
-sweep decision made on stale reads. There is no half-open probe on this axis: an inactivity pause never runs again on its
-own; a human re-enable is the only exit. A resume re-anchors `in_cold_start_grace`, so the
+sweep decision made on stale reads. There is no half-open probe on this axis: an inactivity
+pause never runs again on its own; a human re-enable is the only exit. A resume re-anchors `in_cold_start_grace`, so the
 sweep waits a full fresh window and re-derives its verdict before judging the scout again;
 permanent immunity is the explicit `auto_pause_exempt` flag's job, never a side effect of the
 resume.
@@ -145,11 +145,10 @@ class SweepOutcome:
     warned: list[SignalScoutConfig] = field(default_factory=list)
     paused: list[SignalScoutConfig] = field(default_factory=list)
     recovered: int = 0
-    # Warnings the sweep corrected down from `ignored` to `no_output` because the evidence behind
-    # the scheduled pause aged out. Kept apart from `warned`: the scout was already counted when
-    # it first picked the warning up, and the correction cancels a pause rather than scheduling
-    # one, so counting it as a new warning both doubles the reported blast radius and spends cap
-    # budget a genuinely new warning needs.
+    # Warnings corrected down from `ignored` to `no_output` because the evidence behind the
+    # scheduled pause aged out. Kept apart from `warned`: the scout was counted when it first
+    # picked the warning up, and the correction cancels a pause rather than scheduling one, so
+    # counting it again would both double the reported blast radius and spend cap budget.
     downgraded: list[SignalScoutConfig] = field(default_factory=list)
     # Scouts that qualified for a warning after the per-sweep cap was already spent. They stay
     # active and are re-derived by the next sweep — counted so a capped sweep is visibly partial.
