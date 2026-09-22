@@ -44,11 +44,18 @@ import { type ExecLearnGuide, LEARN_COMMAND_LINE } from '@/tools/exec-learn'
 export interface InstructionsContext {
     guidelines: string
     groupTypes?: GroupType[] | undefined
+    /** Carries the person, the organization, and the project identifiers, so it is
+     *  rendered into the per-session `instructions` payload alone. Anything that
+     *  lands in an advertised tool schema reads `metadataCacheable` instead. */
     metadata?: string | undefined
-    /** `metadata` without the product/integration context lines, for the claude.ai
-     *  exec command reference, which counts against the ~16 KiB registry cap on the
-     *  serialized inputSchema. Falls back to `metadata` when unset. */
-    metadataCompact?: string | undefined
+    /** `metadata` with the identity lines removed, for the exec command reference.
+     *  Connector hosts cache one tool roster and serve that snapshot to every user,
+     *  so identity in the schema reaches people it does not belong to. */
+    metadataCacheable?: string | undefined
+    /** `metadataCacheable` without the product/integration context lines, for the
+     *  claude.ai exec command reference, which counts against the ~16 KiB registry
+     *  cap on the serialized inputSchema. Falls back to `metadataCacheable`. */
+    metadataCacheableCompact?: string | undefined
     tools?: ToolInfo[] | undefined
     queryTools?: QueryToolInfo[] | undefined
     /** Whether `render-ui` is actually available to this client (i.e. the client is
@@ -217,7 +224,7 @@ export class InstructionsFormatter {
         const learnSection = learnEnabled ? formatPrompt(EXEC_LEARN, { help_topics: learnGuideList }) : undefined
         const renderCtx: InstructionsContext = {
             guidelines: ctx.guidelines,
-            metadata: ctx.metadataCompact ?? ctx.metadata,
+            metadata: ctx.metadataCacheableCompact ?? ctx.metadataCacheable,
             groupTypes: ctx.groupTypes,
             tools: ctx.tools,
         }
@@ -265,6 +272,10 @@ export class InstructionsFormatter {
      *  (project metadata, group types) here even though `stripEnvContext` is
      *  set, so it still reaches the agent.
      *
+     *  Either way the env-context comes from `metadataCacheable`, never from
+     *  `metadata`: this text is advertised in the tool schema, and connector
+     *  hosts replay a cached schema to every user.
+     *
      *  Claude web/desktop uses `buildClaudeExecCommandReference` instead because
      *  its complete JSON schema has a smaller client-enforced size budget. */
     buildExecCommandReference(
@@ -295,9 +306,9 @@ export class InstructionsFormatter {
             ? {
                   guidelines: ctx.guidelines,
                   queryTools: ctx.queryTools,
-                  ...(opts.keepEnvContext ? { metadata: ctx.metadata, groupTypes: ctx.groupTypes } : {}),
+                  ...(opts.keepEnvContext ? { metadata: ctx.metadataCacheable, groupTypes: ctx.groupTypes } : {}),
               }
-            : { ...ctx, tools: undefined }
+            : { ...ctx, tools: undefined, metadata: ctx.metadataCacheable }
         // Tool domains are temporarily omitted from the command reference while we
         // probe claude.ai's per-tool size cap (it silently drops oversized entries);
         // agents still discover domains at runtime via the `search` command, and

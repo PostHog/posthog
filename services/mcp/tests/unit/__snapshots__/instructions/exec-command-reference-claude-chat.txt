@@ -156,6 +156,5 @@ Example tool names: execute-sql, experiment-create, feature-flag-get-all.
 
 Defined group types: organization, project
 
-You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).
+Base URL: us.posthog.com. Use `generate-app-url` for project-scoped links.
 Project timezone: America/New_York.
-The user's name is Jane Doe (jane@acme.com).

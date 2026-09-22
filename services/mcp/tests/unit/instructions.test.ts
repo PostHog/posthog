@@ -368,6 +368,45 @@ describe('buildActiveEnvironmentContextPrompt', () => {
         expect(buildActiveEnvironmentContextPrompt(undefined, undefined, undefined)).toBeUndefined()
     })
 
+    describe('includeIdentity: false', () => {
+        it('drops the person, the organization, and the project identifiers', () => {
+            const result = buildActiveEnvironmentContextPrompt(user, org, project, 'https://us.posthog.com', {
+                includeIdentity: false,
+            })
+            expect(result).not.toContain('You are currently in project')
+            expect(result).not.toContain('My App')
+            expect(result).not.toContain('token_1')
+            expect(result).not.toContain('Acme')
+            expect(result).not.toContain('org_1')
+            expect(result).not.toContain('Jane Doe')
+            expect(result).not.toContain('jane@acme.com')
+        })
+
+        it('keeps the project-shape hints an agent needs', () => {
+            const result = buildActiveEnvironmentContextPrompt(user, org, project, 'https://us.posthog.com', {
+                includeIdentity: false,
+            })
+            expect(result).toContain('Project timezone: America/New_York.')
+            expect(result).toContain('Person properties are query-time in this project.')
+        })
+
+        it('withholds the project path and points at the tool that builds one', () => {
+            const result = buildActiveEnvironmentContextPrompt(user, org, project, 'https://us.posthog.com', {
+                includeIdentity: false,
+            })
+            expect(result).toContain('Base URL: us.posthog.com. Use `generate-app-url` for project-scoped links.')
+            expect(result).not.toContain('/project/1')
+        })
+
+        it('returns undefined when identity was the only context available', () => {
+            expect(
+                buildActiveEnvironmentContextPrompt(user, undefined, undefined, undefined, {
+                    includeIdentity: false,
+                })
+            ).toBeUndefined()
+        })
+    })
+
     it.each([
         ['checked', true, true],
         ['unchecked', false, false],

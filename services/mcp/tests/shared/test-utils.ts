@@ -702,7 +702,8 @@ export function makeToolExecutorState(
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
         metadata: undefined,
-        metadataCompact: undefined,
+        metadataCacheable: undefined,
+        metadataCacheableCompact: undefined,
         groupTypes: undefined,
         ...overrides,
     }

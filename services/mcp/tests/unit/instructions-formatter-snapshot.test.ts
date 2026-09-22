@@ -46,10 +46,18 @@ const STATIC_METADATA = [
     "The user's name is Jane Doe (jane@acme.com).",
 ].join('\n')
 
+// The identity-free shape the advertised `exec` schema renders: project shape
+// without the person, the organization, or the project identifiers.
+const STATIC_CACHEABLE_METADATA = [
+    'Base URL: us.posthog.com. Use `generate-app-url` for project-scoped links.',
+    'Project timezone: America/New_York.',
+].join('\n')
+
 const STATIC_CTX: InstructionsContext = {
     guidelines: 'some guidelines',
     groupTypes: STATIC_GROUP_TYPES,
     metadata: STATIC_METADATA,
+    metadataCacheable: STATIC_CACHEABLE_METADATA,
     tools: STATIC_TOOLS,
     queryTools: STATIC_QUERY_TOOLS,
     renderUiEnabled: true,
@@ -112,6 +120,7 @@ describe('InstructionsFormatter prompt snapshots', () => {
             toolFeatureFlags,
             renderUiEnabled: STATIC_CTX.renderUiEnabled,
             metadata: STATIC_CTX.metadata,
+            metadataCacheable: STATIC_CTX.metadataCacheable,
             groupTypes: STATIC_CTX.groupTypes,
             requestContext: { mcpConsumer: undefined },
             sessionContext: null,
@@ -187,8 +196,9 @@ describe('InstructionsFormatter prompt snapshots', () => {
         // context. The metadata goes through the real
         // env-context builder with inputs at the backing columns' max lengths
         // (Team.name 200, Organization.name 64, email 254, Django names 150) plus
-        // the longer person-on-events branch, so a long org/project/user cannot
-        // push the real schema past the cap while this test passes.
+        // the longer person-on-events branch. The schema renders the identity-free
+        // shape, so those long names are held back from it — they stay here to prove
+        // the length of an org, a project, or a person cannot reach the cap at all.
         const worstCaseUser = {
             first_name: 'F'.repeat(150),
             last_name: 'L'.repeat(150),
@@ -208,16 +218,16 @@ describe('InstructionsFormatter prompt snapshots', () => {
             worstCaseProject,
             'https://us.posthog.com'
         )
-        // The claude.ai reference renders the compact metadata variant: the
-        // product/integration context lines are excluded from this surface by
+        // The claude.ai reference renders the compact, identity-free metadata variant:
+        // the product/integration context lines are excluded from this surface by
         // design because they do not fit under the cap (see
-        // `buildClaudeExecCommandReference` and `ResolvedState.metadataCompact`).
-        const worstCaseMetadataCompact = buildActiveEnvironmentContextPrompt(
+        // `buildClaudeExecCommandReference` and `ResolvedState.metadataCacheableCompact`).
+        const worstCaseMetadataCacheableCompact = buildActiveEnvironmentContextPrompt(
             worstCaseUser,
             worstCaseOrg,
             worstCaseProject,
             'https://us.posthog.com',
-            { includeProductContext: false }
+            { includeProductContext: false, includeIdentity: false }
         )
         // Five group types (the product cap) with generously long names.
         const worstCaseGroupTypes = Array.from({ length: 5 }, (_, i) => ({
@@ -234,7 +244,7 @@ describe('InstructionsFormatter prompt snapshots', () => {
             toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
             renderUiEnabled: true,
             metadata: worstCaseMetadata,
-            metadataCompact: worstCaseMetadataCompact,
+            metadataCacheableCompact: worstCaseMetadataCacheableCompact,
             groupTypes: worstCaseGroupTypes,
             requestContext: { mcpConsumer: undefined },
             sessionContext: null,
@@ -250,6 +260,70 @@ describe('InstructionsFormatter prompt snapshots', () => {
         expect(properties).toHaveProperty('context')
         expect(entry.description).toContain('### Business knowledge, then PostHog docs')
         expect(inputSchemaSize).toBeLessThan(16_384)
+    })
+
+    // ------------------------------------------------------------------------------------------------
+    // DO NOT weaken or delete this test. A connector host captures one tool roster and
+    // serves that snapshot to every user of the published connector, so whatever the
+    // advertised `exec` schema carries is read by people who did not produce it. A
+    // customer reported seeing another account's name, email, and project details this
+    // way. Identity therefore belongs in the per-session `instructions` payload alone.
+    //
+    // If this fails, do NOT relax the assertion — keep the identity out of the tool
+    // entry and route it through `buildExecInstructions` instead.
+    // ------------------------------------------------------------------------------------------------
+    it.each([
+        ['Claude web/desktop', { vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }],
+        ['a connector host (OpenAI)', { clientName: 'openai-mcp' }],
+        ['Codex (no instructions support)', { clientName: 'openai-mcp', userAgent: 'openai-mcp/1.0 (Codex)' }],
+    ])('keeps account identity out of the advertised exec schema for %s', (_name, clientInput) => {
+        const user = {
+            first_name: 'Jane',
+            last_name: 'Doe',
+            email: 'jane@example.com',
+        } as CachedUser
+        const org = { name: 'Acme Corporation', id: '00000000-0000-0000-0000-000000000000' } as CachedOrg
+        const project = {
+            name: 'Acme Production',
+            id: 4_815_162,
+            api_token: `phc_${'x'.repeat(43)}`,
+            timezone: 'America/New_York',
+            person_on_events_querying_enabled: true,
+        } as CachedProject
+        const build = (includeIdentity: boolean): string | undefined =>
+            buildActiveEnvironmentContextPrompt(user, org, project, 'https://us.posthog.com', {
+                includeIdentity,
+                ...(includeIdentity ? {} : { includeProductContext: false }),
+            })
+        const state = {
+            allTools: STATIC_TOOLS.map(({ name }) => ({ name })),
+            clientProfile: new MCPClientProfile(clientInput),
+            toolFeatureFlags: {},
+            renderUiEnabled: true,
+            metadata: build(true),
+            metadataCacheable: build(false),
+            metadataCacheableCompact: build(false),
+            groupTypes: STATIC_GROUP_TYPES,
+            requestContext: { mcpConsumer: undefined },
+            sessionContext: null,
+        } as unknown as ResolvedState
+
+        const advertised = JSON.stringify(new InstructionsBuilder('').buildExecToolEntry(state))
+
+        for (const secret of [
+            'Jane',
+            'Doe',
+            'jane@example.com',
+            'Acme Corporation',
+            '00000000-0000-0000-0000-000000000000',
+            'Acme Production',
+            '4815162',
+            project.api_token,
+        ]) {
+            expect(advertised).not.toContain(secret)
+        }
+        // The project-shape hints that make the agent useful are not identity, and stay.
+        expect(advertised).toContain('Project timezone: America/New_York.')
     })
 
     // ------------------------------------------------------------------------------------------------

@@ -88,7 +88,11 @@ vi.mock('@/hono/request-context', () => {
                         getApiKey: vi.fn(async () => mockApiKey),
                         getAiConsentGiven: vi.fn(async () => undefined),
                         getOrFetchGroupTypes: vi.fn(async () => undefined),
-                        getEnvironmentPrompt: vi.fn(async () => undefined),
+                        getEnvironmentPrompts: vi.fn(async () => ({
+                            full: undefined,
+                            cacheable: undefined,
+                            cacheableCompact: undefined,
+                        })),
                         getAvailableFeatures: vi.fn(async () => undefined),
                     },
                 })),

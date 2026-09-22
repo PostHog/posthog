@@ -69,12 +69,16 @@ export interface ResolvedState {
     // the model like Codex, or ignore it like Claude web/desktop) the exec command
     // reference. Resolved once here so every render path reads the same source.
     metadata: string | undefined
-    // Variant of `metadata` without the product/integration context lines, for the
+    // Identity-free variant of `metadata`, for every surface that lands in the
+    // advertised tool schema. Connector hosts cache one roster and serve it to
+    // every user, so the person, the organization, and the project identifiers
+    // stay in `metadata` (the per-session `instructions` payload) alone.
+    metadataCacheable: string | undefined
+    // `metadataCacheable` without the product/integration context lines, for the
     // claude.ai exec command reference: that surface counts against the ~16 KiB
     // connector-registry cap on the serialized inputSchema, which already sits
-    // within tens of characters of the worst-case env context. Every uncapped
-    // surface renders the full `metadata`.
-    metadataCompact: string | undefined
+    // within tens of characters of the worst-case env context.
+    metadataCacheableCompact: string | undefined
     groupTypes: GroupType[] | undefined
 }
 
@@ -255,12 +259,11 @@ export class RequestStateResolver {
         // Only exec redirects a call to a gated tool; tools mode just omits it.
         const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions) : []
 
-        const [groupTypes, metadata, metadataCompact] = await Promise.all([
+        const [groupTypes, environmentPrompts] = await Promise.all([
             cachedProjectId && hasScope(apiKeyScopes, 'group:read')
                 ? context.stateManager.getOrFetchGroupTypes(cachedProjectId).catch(() => undefined)
                 : undefined,
-            context.stateManager.getEnvironmentPrompt(),
-            context.stateManager.getEnvironmentPrompt({ includeProductContext: false }),
+            context.stateManager.getEnvironmentPrompts(),
         ])
 
         return {
@@ -284,8 +287,9 @@ export class RequestStateResolver {
                 !mountsGatewayServersDirectly(props.taskOriginProduct),
             distinctId,
             renderUiEnabled,
-            metadata,
-            metadataCompact,
+            metadata: environmentPrompts.full,
+            metadataCacheable: environmentPrompts.cacheable,
+            metadataCacheableCompact: environmentPrompts.cacheableCompact,
             groupTypes,
         }
     }

@@ -31,10 +31,17 @@ const realisticMetadata =
     'Project timezone: America/New_York.\n' +
     "The user's name is Jane Doe (jane@acme.com)."
 
+// What `buildActiveEnvironmentContextPrompt` renders with `includeIdentity: false`:
+// project shape without the person, the organization, or the project identifiers.
+const realisticCacheableMetadata =
+    'Base URL: us.posthog.com. Use `generate-app-url` for project-scoped links.\n' +
+    'Project timezone: America/New_York.'
+
 const fullCtx: InstructionsContext = {
     guidelines: 'some guidelines',
     groupTypes: realisticGroupTypes,
     metadata: realisticMetadata,
+    metadataCacheable: realisticCacheableMetadata,
     tools: realisticTools,
     queryTools: realisticQueryTools,
     renderUiEnabled: true,
@@ -240,7 +247,7 @@ describe('InstructionsFormatter', () => {
         it('embeds env-context and query-tool catalog when stripEnvContext is false', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecCommandReference(fullCtx, { stripEnvContext: false })
-            expect(result).toContain("The user's name is Jane Doe")
+            expect(result).toContain('Project timezone: America/New_York.')
             expect(result).toContain('Defined group types: organization')
             // Tool domains are temporarily omitted from the command reference while
             // probing claude.ai's per-tool size cap; discovery rides on `search`.
@@ -264,12 +271,12 @@ describe('InstructionsFormatter', () => {
                 stripEnvContext: true,
                 keepEnvContext: true,
             })
-            // Project metadata and group types survive for clients (Claude
+            // Project shape and group types survive for clients (Claude
             // web/desktop) that ignore the `instructions` payload, so they still
             // reach the model via the command reference. Tool domains are
             // temporarily omitted (size-cap probe).
             expect(result).not.toContain('dashboard|execute-sql')
-            expect(result).toContain("The user's name is Jane Doe")
+            expect(result).toContain('Project timezone: America/New_York.')
             expect(result).toContain('Defined group types: organization')
         })
 
@@ -333,7 +340,7 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('### Basic functionality')
             expect(result).toContain('### Tool search')
             expect(result).toContain(buildToolDomainsCompact(realisticTools))
-            expect(result).toContain("The user's name is Jane Doe")
+            expect(result).toContain('Project timezone: America/New_York.')
             expect(result).toContain('Defined group types: organization')
             expect(result).not.toContain('### Retrieving data')
             expect(result).not.toContain('### Examples')
@@ -535,13 +542,13 @@ describe('InstructionsFormatter', () => {
                 expect(instructions).not.toContain('- `query-trends` — time series')
                 expect(instructions).not.toContain("The user's name is Jane Doe")
                 expect(instructions).not.toContain('Defined group types: organization')
-                expect(commandReference).toContain("The user's name is Jane Doe")
+                expect(commandReference).toContain('Project timezone: America/New_York.')
                 expect(commandReference).toContain('Defined group types: organization')
                 expect(commandReference).not.toContain('dashboard|execute-sql')
             } else {
                 expect(instructions).toBe('')
                 expect(commandReference).toContain('- `query-trends` — time series')
-                expect(commandReference).toContain("The user's name is Jane Doe")
+                expect(commandReference).toContain('Project timezone: America/New_York.')
                 expect(commandReference).not.toContain('dashboard|execute-sql')
                 expect(commandReference).toContain('Defined group types: organization')
             }

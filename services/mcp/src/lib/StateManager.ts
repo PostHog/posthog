@@ -9,7 +9,7 @@ import {
     PostHogApiError,
     wrapError,
 } from '@/lib/errors'
-import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
+import { buildActiveEnvironmentContextPrompt, type EnvironmentContextOptions } from '@/lib/instructions'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
@@ -443,21 +443,35 @@ export class StateManager {
         })
     }
 
-    async getEnvironmentPrompt(opts?: { includeProductContext?: boolean }): Promise<string | undefined> {
-        const includeProductContext = opts?.includeProductContext !== false
+    /**
+     * The active-environment block in every shape the render paths need, from one
+     * fetch of the cached entities.
+     *
+     * `full` carries the person, the organization, and the project identifiers, so
+     * it belongs in the per-session `instructions` payload and nowhere else. The
+     * `cacheable*` shapes drop that identity: they go into the advertised `exec`
+     * input schema, which connector hosts capture once and serve to every user.
+     */
+    async getEnvironmentPrompts(): Promise<{
+        full: string | undefined
+        cacheable: string | undefined
+        cacheableCompact: string | undefined
+    }> {
         const [user, org, project] = await Promise.all([
             this.getCachedOrFetchUser().catch(() => undefined),
             this.getCachedOrFetchOrg().catch(() => undefined),
             this.getCachedOrFetchProject().catch(() => undefined),
         ])
-        const integrationKinds =
-            includeProductContext && project
-                ? await this.getOrFetchIntegrationKinds(String(project.id)).catch(() => undefined)
-                : undefined
-        return buildActiveEnvironmentContextPrompt(user, org, project, this._api.publicBaseUrl, {
-            integrationKinds,
-            includeProductContext,
-        })
+        const integrationKinds = project
+            ? await this.getOrFetchIntegrationKinds(String(project.id)).catch(() => undefined)
+            : undefined
+        const build = (opts: EnvironmentContextOptions): string | undefined =>
+            buildActiveEnvironmentContextPrompt(user, org, project, this._api.publicBaseUrl, opts)
+        return {
+            full: build({ integrationKinds }),
+            cacheable: build({ integrationKinds, includeIdentity: false }),
+            cacheableCompact: build({ includeProductContext: false, includeIdentity: false }),
+        }
     }
 
     /**

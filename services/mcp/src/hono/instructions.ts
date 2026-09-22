@@ -75,7 +75,8 @@ export class InstructionsBuilder {
                 }),
             renderUiEnabled: state.renderUiEnabled,
             metadata: state.metadata,
-            metadataCompact: state.metadataCompact,
+            metadataCacheable: state.metadataCacheable,
+            metadataCacheableCompact: state.metadataCacheableCompact,
             groupTypes: state.groupTypes,
             notebookCellsEnabled: state.allTools.some((tool) => tool.name === NOTEBOOK_ADD_CELL_TOOL),
         }
@@ -137,7 +138,8 @@ export class InstructionsBuilder {
             // Env-context rides here even for clients that honor `instructions`: that
             // payload is capped at MCP_INSTRUCTIONS_CHAR_BUDGET and is spent entirely
             // on the tool-domain index, which is the part that can't be recovered by
-            // any later tool call. This description has no such cap.
+            // any later tool call. This description has no such cap. It carries the
+            // identity-free shape only, because it is advertised in the tool schema.
             keepEnvContext: true,
             learnEnabled: skillsEnabled,
         })

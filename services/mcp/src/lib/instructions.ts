@@ -76,6 +76,13 @@ export interface EnvironmentContextOptions {
      *  reference counts against a ~16 KiB registry cap on the serialized
      *  inputSchema) where the product/integration lines do not fit. */
     includeProductContext?: boolean
+    /** Set to false for any surface a client can cache and replay to other
+     *  people — above all the advertised `exec` input schema. Connector hosts
+     *  capture one tool roster and serve that snapshot to every user, so the
+     *  person, the organization, and the project identifiers (the API token
+     *  included) must never ride in it. The project-shape lines below carry no
+     *  identity and stay. */
+    includeIdentity?: boolean
 }
 
 export function buildActiveEnvironmentContextPrompt(
@@ -88,8 +95,9 @@ export function buildActiveEnvironmentContextPrompt(
     if (!user && !org && !project) {
         return undefined
     }
+    const includeIdentity = opts?.includeIdentity !== false
     const lines: string[] = []
-    if (org || project) {
+    if (includeIdentity && (org || project)) {
         const projectName = project?.name ?? 'Unknown'
         const projectId = project?.id ?? 'unknown'
         const projectToken = project?.api_token ?? 'unknown'
@@ -106,11 +114,17 @@ export function buildActiveEnvironmentContextPrompt(
     }
     if (regionalBaseUrl) {
         const origin = regionalBaseUrl.replace(/^https?:\/\//, '')
-        lines.push(
-            project?.id !== undefined
-                ? `Base URL: ${origin} — add /project/${project.id} for project-scoped paths.`
-                : `Base URL: ${origin}.`
-        )
+        if (!includeIdentity) {
+            // The project id is withheld here, so point the agent at the tool that
+            // resolves a project-scoped path instead of at a path it cannot build.
+            lines.push(`Base URL: ${origin}. Use \`generate-app-url\` for project-scoped links.`)
+        } else {
+            lines.push(
+                project?.id !== undefined
+                    ? `Base URL: ${origin} — add /project/${project.id} for project-scoped paths.`
+                    : `Base URL: ${origin}.`
+            )
+        }
     }
     if (project) {
         lines.push(`Project timezone: ${project.timezone ?? 'UTC'}.`)
@@ -137,9 +151,12 @@ export function buildActiveEnvironmentContextPrompt(
             }
         }
     }
-    if (user) {
+    if (includeIdentity && user) {
         const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown'
         lines.push(`The user's name is ${fullName} (${user.email}).`)
+    }
+    if (lines.length === 0) {
+        return undefined
     }
     // No prose preamble: the heading plus the lines themselves already say the agent
     // is in this project, and the sentence it replaced ("All tool calls and queries
