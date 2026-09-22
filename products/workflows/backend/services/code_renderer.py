@@ -43,6 +43,9 @@ _DEFAULT_EXIT_CONDITION = "exit_only_at_end"
 _HOISTABLE_TYPES = frozenset({"delay", "function", "function_email"})
 
 _IDENTIFIER = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
+# The same pattern and caps `emit.ts` checks, so a wait the push would refuse is warned about here.
+_DURATION = re.compile(r"^(?P<amount>[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?P<unit>[dhms])$")
+_DURATION_CAPS = {"d": 30, "h": 24, "m": 60, "s": 60}
 _REPEAT_ID = re.compile(r"^(?P<base>.+)_(?P<count>\d+)$")
 _JS_RESERVED = frozenset(
     "break case catch class const continue debugger default delete do else enum export extends false "
@@ -70,7 +73,6 @@ def render_workflow_code(definition: dict[str, Any]) -> RenderedWorkflowCode:
     return _Renderer(definition).render()
 
 
-# --- Source tree -------------------------------------------------------------------------------
 # Plain JSON values print as literals. These three wrap what JSON cannot say: a call, a bare
 # identifier, and a comment that keeps its place in a list or an object.
 
@@ -101,6 +103,13 @@ def _quote(value: str) -> str:
 
 def _key(key: str) -> str:
     return key if _IDENTIFIER.match(key) else _quote(key)
+
+
+def _comment_line(indent: str, text: str) -> str:
+    # A step name is free text, so a line terminator in it would end the comment and turn the
+    # rest of the name into code. U+2028 and U+2029 end a line in JavaScript too.
+    safe = re.sub(r"[\n\r\u2028\u2029]", lambda match: f"\\u{ord(match.group(0)):04x}", text)
+    return f"{indent}// {safe}".rstrip()
 
 
 def _literal(value: Any) -> str:
@@ -161,7 +170,7 @@ def _print(node: Any, indent: str) -> str:
         lines: list[str] = []
         for key, value in node.items():
             if isinstance(value, _Comment):
-                lines.extend(f"{inner}// {line}".rstrip() for line in value.lines)
+                lines.extend(_comment_line(inner, line) for line in value.lines)
             else:
                 lines.append(f"{inner}{_key(key)}: {_print(value, inner)},")
         return "{\n" + "\n".join(lines) + f"\n{indent}}}"
@@ -174,13 +183,10 @@ def _items(items: tuple[Any, ...] | list[Any], indent: str) -> str:
     lines: list[str] = []
     for item in items:
         if isinstance(item, _Comment):
-            lines.extend(f"{indent}// {line}".rstrip() for line in item.lines)
+            lines.extend(_comment_line(indent, line) for line in item.lines)
         else:
             lines.append(f"{indent}{_print(item, indent)},")
     return "".join(f"{line}\n" for line in lines)
-
-
-# --- Names ---------------------------------------------------------------------------------------
 
 
 def _slug(name: str) -> str:
@@ -215,9 +221,6 @@ def _dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-# --- Graph ---------------------------------------------------------------------------------------
-
-
 @frozen
 class _Placement:
     """One action at one place in the path. `arms` is set on a branch, one path per condition."""
@@ -241,7 +244,13 @@ class _Renderer:
         self.warnings: list[CodeWarning] = []
         self.imports: set[str] = set()
         self.visited: set[str] = set()
-        self.secrets_named: set[str] = set()
+        # The steps inside the arms of a branch that is kept as a comment. They are placed
+        # nowhere, so they render nothing and warn once each.
+        self.dropped: set[str] = set()
+        # Which arm of the stored branch each rendered arm came from, after empty arms are dropped.
+        self.kept_arms: dict[str, list[int]] = {}
+        # The secret variable each step names, so two distinct steps naming one variable warn.
+        self.secret_owner: dict[str, str] = {}
         # The step calls by action id, without their `id` option, and the comment blocks of the
         # steps that have no constructor.
         self.calls: dict[str, _Call] = {}
@@ -281,8 +290,6 @@ class _Renderer:
         self.imports.add(name)
         return name
 
-    # -- Walk --
-
     def walk(self, start: str, stop: str) -> tuple[_Placement, ...]:
         """Follows `continue` edges from `start` until `stop`, placing a branch's arms in between.
 
@@ -307,7 +314,8 @@ class _Renderer:
                     node,
                     f'"{self._name(action)}" leads nowhere. The path stops there and a push adds the exit after it.',
                 )
-                placements.append(_Placement(action=action))
+                arms = self.walk_arms(action, EXIT_ID) if action.get("type") == "conditional_branch" else None
+                placements.append(_Placement(action=action, arms=arms))
                 break
             arms = None
             if action.get("type") == "conditional_branch":
@@ -350,10 +358,10 @@ class _Renderer:
             for arm in placement.arms or ():
                 yield from _Renderer._flatten(arm)
 
-    # -- Steps --
-
     def render_step(self, placement: _Placement) -> None:
         action = placement.action
+        if action["id"] in self.dropped:
+            return
         kind = action.get("type")
         config = _dict(action.get("config"))
         self.warn_step_settings(action)
@@ -365,12 +373,19 @@ class _Renderer:
         elif kind == "function_email":
             call = self.render_email(action, config)
         elif kind == "conditional_branch":
-            call = self.render_branch(action, config)
+            call = self.render_branch(action, config, placement.arms or ())
         if call is None:
             self.warn(
                 action["id"],
                 f'The {kind} step "{self._name(action)}" has no constructor in {PACKAGE}. It is kept in place as a comment.',
             )
+            for arm in placement.arms or ():
+                for inner in self._flatten(arm):
+                    self.dropped.add(inner.id)
+                    self.warn(
+                        inner.id,
+                        f'"{inner.name}" sits inside "{self._name(action)}", which is kept as a comment, so it is dropped.',
+                    )
             self.comments[action["id"]] = _Comment(
                 (
                     f'The {kind} step "{self._name(action)}" is kept as JSON. Replace it or remove it before you push.',
@@ -397,6 +412,11 @@ class _Renderer:
                 action["id"],
                 f'"{name}" aborts the run on failure. A step cannot set that in {PACKAGE}, so a push resets it to continue.',
             )
+        if action.get("output_variable"):
+            self.warn(
+                action["id"],
+                f'The output variable of "{name}" is dropped. {PACKAGE} cannot declare one, so later steps that read it get nothing.',
+            )
 
     def warn_extra_config(self, action: dict[str, Any], config: dict[str, Any], known: frozenset[str]) -> None:
         for key, value in config.items():
@@ -410,6 +430,12 @@ class _Renderer:
         duration = config.get("delay_duration")
         if not isinstance(duration, str) or not duration:
             return None
+        match = _DURATION.match(duration)
+        if match is None or float(match["amount"]) == 0 or float(match["amount"]) > _DURATION_CAPS[match["unit"]]:
+            self.warn(
+                action["id"],
+                f'"{self._name(action)}" waits for "{duration}", which {PACKAGE} refuses at push. Write a positive amount up to 60s, 60m, 24h or 30d.',
+            )
         self.warn_extra_config(action, config, frozenset({"delay_duration"}))
         return _Call(self.use("delay"), (duration, {"name": self._name(action)}))
 
@@ -421,17 +447,29 @@ class _Renderer:
         render differently and never fold back into one const.
         """
         match = _REPEAT_ID.match(action["id"])
-        if match and self.actions.get(match["base"], {}).get("type") == action.get("type"):
-            return match["base"]
+        if match and match["count"] == str(int(match["count"])):
+            first = self.actions.get(match["base"])
+            if (
+                first is not None
+                and first.get("type") == action.get("type")
+                and first.get("config") == action.get("config")
+            ):
+                return match["base"]
         return action["id"]
 
     def render_inputs(self, action: dict[str, Any], inputs: dict[str, Any]) -> dict[str, Any]:
         values: dict[str, Any] = {}
         for key, raw in inputs.items():
-            if isinstance(raw, dict) and raw.get("secret") is True and "value" not in raw:
-                env = _env_name(self.secret_base(action), key)
-                if env not in self.secrets_named:
-                    self.secrets_named.add(env)
+            if isinstance(raw, dict) and raw.get("secret") is True:
+                base = self.secret_base(action)
+                env = _env_name(base, key)
+                owner = self.secret_owner.setdefault(env, base)
+                if owner != base:
+                    self.warn(
+                        action["id"],
+                        f'"{self._name(action)}" and "{self._name(self.actions[owner])}" both read {env}. Rename one step so each secret has its own variable.',
+                    )
+                elif base == action["id"]:
                     self.warn(
                         action["id"],
                         f'The input "{key}" of "{self._name(action)}" is a secret. PostHog does not return its value, so set {env} before you push.',
@@ -557,18 +595,35 @@ class _Renderer:
                 )
         args: tuple[Any, ...] = (key, operator)
         if condition.get("value") is not None:
+            if not isinstance(condition["value"], list):
+                self.warn(
+                    action_id,
+                    f'The condition on "{key}" compares against a single value. {PACKAGE} takes a list, so the file will not type-check until you wrap it in [].',
+                )
             args = (*args, condition["value"])
         return _Call(self.use(constructor), args)
 
-    def render_branch(self, action: dict[str, Any], config: dict[str, Any]) -> _Call | None:
+    def render_branch(
+        self, action: dict[str, Any], config: dict[str, Any], placed_arms: tuple[tuple[_Placement, ...], ...]
+    ) -> _Call | None:
         conditions = config.get("conditions")
         if not isinstance(conditions, list) or not conditions:
             return None
         self.warn_extra_config(action, config, frozenset({"conditions"}))
         arms = []
-        for condition in conditions:
+        kept: list[int] = []
+        for index, condition in enumerate(conditions):
             if not isinstance(condition, dict):
                 return None
+            # An empty arm sends a person to the step after the branch, which is where the
+            # fall-through goes too, so dropping it changes nothing at run time. `emit.ts`
+            # refuses an empty arm, so keeping it would produce a file that never pushes.
+            if index >= len(placed_arms) or not placed_arms[index]:
+                self.warn(
+                    action["id"],
+                    f'The arm "{condition.get("name", index)}" of "{self._name(action)}" has no steps, so it is dropped. A person who matches it continues after the branch either way.',
+                )
+                continue
             filters = _dict(condition.get("filters"))
             properties = filters.get("properties")
             if not isinstance(properties, list) or not properties:
@@ -581,9 +636,11 @@ class _Renderer:
             # `then` is filled once every arm's steps are rendered, because a step inside an arm
             # may be a re-placement of a step that comes earlier in the path.
             arms.append({"name": condition.get("name", ""), "when": when, "then": None})
+            kept.append(index)
+        if not arms:
+            return None
+        self.kept_arms[action["id"]] = kept
         return _Call(self.use("branch"), ({"name": self._name(action), "branches": arms},))
-
-    # -- Reuse --
 
     def hoist_repeats(self, placements: tuple[_Placement, ...]) -> None:
         """Turns a step placed more than once into one const, following the `_2` rule of `emit.ts`.
@@ -599,7 +656,7 @@ class _Renderer:
             if call is None or placement.action.get("type") not in _HOISTABLE_TYPES:
                 continue
             match = _REPEAT_ID.match(action_id)
-            if match and match["base"] in count_of_base and int(match["count"]) == count_of_base[match["base"]] + 1:
+            if match and match["base"] in count_of_base and match["count"] == str(count_of_base[match["base"]] + 1):
                 first = match["base"]
                 if _print(call, "") == _print(self.calls[first], ""):
                     count_of_base[first] += 1
@@ -643,11 +700,9 @@ class _Renderer:
             return _Identifier(const)
         call = self.calls[action_id]
         if placement.arms is not None:
-            for arm, spec in zip(placement.arms, call.args[-1]["branches"]):
-                spec["then"] = _Call(self.use("path"), tuple(self.node_for(entry) for entry in arm))
+            for index, spec in zip(self.kept_arms[action_id], call.args[-1]["branches"]):
+                spec["then"] = _Call(self.use("path"), tuple(self.node_for(entry) for entry in placement.arms[index]))
         return self.with_id(call, placement.action)
-
-    # -- Trigger and workflow --
 
     def render_trigger(self, trigger: dict[str, Any] | None) -> Any:
         if trigger is None:
@@ -777,7 +832,7 @@ class _Renderer:
             header.append(f"// {PACKAGE} cannot express everything in this workflow. Review these before you push:")
             for warning in self.warnings:
                 prefix = f"{warning.action_id}: " if warning.action_id else ""
-                header.append(f"// - {prefix}{warning.message}")
+                header.append(_comment_line("", f"- {prefix}{warning.message}"))
             header.append("")
         header.append(f"import {{ {', '.join(sorted(self.imports))} }} from {_quote(PACKAGE)}")
         header.append("")
