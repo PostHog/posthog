@@ -451,12 +451,14 @@ class TestDemandDiscovery(APIBaseTest):
     def _key(self, minutes_ago: int) -> AlertBatchKey:
         return AlertBatchKey(team_id=self.team.id, slot=(self.tick - dt.timedelta(minutes=minutes_ago)).isoformat())
 
-    def _alert(self, configuration, *, state: str, snooze_until: dt.datetime | None = None) -> None:
+    def _alert(
+        self, configuration, *, state: str, snooze_until: dt.datetime | None = None, grouping_key: str = ""
+    ) -> None:
         with team_scope(self.team.id):
             PlatformAlert.objects.create(
                 team=self.team,
                 configuration=configuration,
-                grouping_key="",
+                grouping_key=grouping_key,
                 state=state,
                 snooze_until=snooze_until,
             )
@@ -471,10 +473,16 @@ class TestDemandDiscovery(APIBaseTest):
             state=PlatformAlert.State.SNOOZED,
             snooze_until=self.tick + dt.timedelta(hours=1),
         )
+        # Two rows on one configuration, neither suppressing on its own. Written as a lookup across
+        # the relation instead of one correlated subquery, the empty group and the broken state match
+        # different rows and this configuration silently stops being checked.
+        grouped = self._configuration(minutes_ago=4, name="broken in one group only")
+        self._alert(grouped, state=PlatformAlert.State.NOT_FIRING)
+        self._alert(grouped, state=PlatformAlert.State.BROKEN, grouping_key="/api/checkout")
 
         discovered = demand.discover_demand(self.tick.isoformat())
 
-        assert discovered.batch_keys_by_source == {SourceKind.LOGS: [self._key(1)]}
+        assert discovered.batch_keys_by_source == {SourceKind.LOGS: [self._key(4), self._key(1)]}
 
     def test_configurations_due_in_one_minute_share_one_key(self) -> None:
         self._configuration(minutes_ago=1, name="first")
