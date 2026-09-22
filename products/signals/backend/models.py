@@ -1565,6 +1565,7 @@ class SignalReportArtefact(UUIDModel):
                     claim_id=claim_id,
                 )
             cls._capture_report_linked(artefact, content)
+            cls._schedule_plan_rollup(artefact, content)
             return artefact
         artefact = cls._create(
             team_id=team_id, report_id=report_id, content=content, attribution=attribution, claim_id=claim_id
@@ -1602,6 +1603,40 @@ class SignalReportArtefact(UUIDModel):
                 actor_kind=artefact.actor_kind,
                 actor_agent=artefact.actor_agent,
             )
+
+        transaction.on_commit(_run)
+
+    @staticmethod
+    def _schedule_plan_rollup(artefact: "SignalReportArtefact", content: ReportLink) -> None:
+        """Close the plan when a step joins it after the step itself closed.
+
+        The roll-up otherwise runs from the step's status change, and a `part_of` row written on a
+        report that is already resolved or archived announces no change. Only a closed source is
+        worth the walk, because an open step leaves its plan open anyway. Scheduled on commit so
+        the new row is visible, best-effort so it never breaks the write, and imported lazily to
+        avoid a models <-> plan_rollup import cycle.
+        """
+        if content.kind != ReportLinkKind.PART_OF:
+            return
+
+        def _run() -> None:
+            from products.signals.backend.plan_rollup import roll_up_plan_parents
+
+            try:
+                status = (
+                    SignalReport.objects.using("default")
+                    .filter(team_id=artefact.team_id, id=artefact.report_id)
+                    .values_list("status", flat=True)
+                    .first()
+                )
+                if status not in (SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED):
+                    return
+                roll_up_plan_parents(team_id=artefact.team_id, report_id=str(artefact.report_id))
+            except Exception:
+                logger.exception(
+                    "signals.plan_rollup.after_link_write_failed",
+                    extra={"report_id": str(artefact.report_id)},
+                )
 
         transaction.on_commit(_run)
 

@@ -17,6 +17,7 @@ The check locks each plan before it reads and updates its state.
 It continues through an already closed plan to check that plan's parent.
 An archived step never undoes a resolved plan.
 The roll-up runs on the step's own status change, so a merged PR, a manual resolve, a bulk state change, and an MCP state write all reach it.
+A `part_of` link written on a step that already closed runs the check as well, because that write changes no status.
 It continues up a plan of plans, and skips a plan that is waiting on a replacement.
 
 ## Reviewer notifications

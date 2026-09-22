@@ -155,6 +155,17 @@ class TestPlanRollup(BaseTest):
         parent.refresh_from_db()
         assert parent.status == SignalReport.Status.RESOLVED
 
+    def test_a_step_linked_into_a_plan_after_it_closed_still_closes_the_plan(self):
+        parent = self._report("plan")
+        child = self._report("step")
+        self._close(child, SignalReport.Status.RESOLVED)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self._part_of(child, parent)
+
+        parent.refresh_from_db()
+        assert parent.status == SignalReport.Status.RESOLVED
+
     def test_a_report_with_no_plan_rolls_up_nothing(self):
         report = self._report("standalone")
 
