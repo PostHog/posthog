@@ -1085,13 +1085,14 @@ export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
                 'experiment_launch',
                 'experiment_stop',
                 'experiment_update',
+                'timeseries_sync',
             ])
             .describe(
-                '\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
+                '\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update\n\* `timeseries_sync` - Timeseries Sync'
             )
             .default(experimentsMetricsRecalculationCreateBodyTriggerDefault)
             .describe(
-                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
+                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update\n\* `timeseries_sync` - Timeseries Sync'
             ),
     })
     .describe('Request body for triggering a metrics recalculation.')

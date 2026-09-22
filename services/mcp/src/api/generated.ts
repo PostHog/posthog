@@ -38383,6 +38383,7 @@ export namespace Schemas {
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
      * * `experiment_update` - Experiment Update
+     * * `timeseries_sync` - Timeseries Sync
      */
     export type ExperimentMetricsRecalculationTriggerEnum = typeof ExperimentMetricsRecalculationTriggerEnum[keyof typeof ExperimentMetricsRecalculationTriggerEnum];
 
@@ -38399,6 +38400,7 @@ export namespace Schemas {
       ExperimentLaunch: 'experiment_launch',
       ExperimentStop: 'experiment_stop',
       ExperimentUpdate: 'experiment_update',
+      TimeseriesSync: 'timeseries_sync',
     } as const;
 
     /**
@@ -38485,7 +38487,8 @@ export namespace Schemas {
        * * `config_change` - Config Change
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
-       * * `experiment_update` - Experiment Update */
+       * * `experiment_update` - Experiment Update
+       * * `timeseries_sync` - Timeseries Sync */
       readonly trigger: ExperimentMetricsRecalculationTriggerEnum;
       /** When the job was created */
       readonly created_at: string;
@@ -81023,7 +81026,8 @@ export namespace Schemas {
        * * `config_change` - Config Change
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
-       * * `experiment_update` - Experiment Update */
+       * * `experiment_update` - Experiment Update
+       * * `timeseries_sync` - Timeseries Sync */
       trigger?: ExperimentMetricsRecalculationTriggerEnum;
     }
 
