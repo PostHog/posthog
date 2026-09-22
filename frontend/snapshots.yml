@@ -8752,6 +8752,10 @@ snapshots:
         hash: v1.k794b7964.6d25562ee11eb3e2bc5ecf6aedff4fe058299de21db40a241d22ec348566b5e7.1QCX8kAJWvaKf9rBXs7O4S-9Nh9tbQR6zn2IL5ehZpo
     scenes-app-inbox-detail--run-ready--light:
         hash: v1.k794b7964.2a7035c21bc396a44a81e18222d5f9a50f8ca650d47bc387b27a4c8ab72db7aa.BZ_qNCVpWT1v8Ov60-xHUyKzBwvr1BPNjoLZgjobYw4
+    scenes-app-inbox-detail--status-block--dark:
+        hash: v1.k794b7964.148f4a5544247ea0b41319a952c04ac691cad44ea68cf54111d14fd2ed966d4e.oAn41_hwgL3qIFsXmxxXIDR8qaRZbw6dCeFA75ygoUY
+    scenes-app-inbox-detail--status-block--light:
+        hash: v1.k794b7964.d12f5544875dc4c95d22c295cd2cbf5ce68f0966037f289994fc8a3471c96cb1.6wrKJibO7lFJlx8oJdLLciZmA_mBZuiJ45tJvBV6ErY
     scenes-app-inbox-detail-follow-up-checks--every-state--dark:
         hash: v1.k794b7964.db65be880b7ea05e9d05d47e6a55dd09cf96097fe23069a4ad58bee132d4a29f.5Ujk0VN9aRboEk8AT2Et2hucpwBeKvQ_cQVOhpPhDLM
     scenes-app-inbox-detail-follow-up-checks--every-state--light:
