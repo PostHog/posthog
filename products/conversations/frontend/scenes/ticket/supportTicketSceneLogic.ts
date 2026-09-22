@@ -46,6 +46,7 @@ import type { Breadcrumb, CommentType, PersonType, UserType } from '~/types'
 import { ActivityScope, PropertyFilterType, PropertyOperator, Region } from '~/types'
 
 import {
+    conversationsTicketsAiHumanOutcomeCreate,
     conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesDestroy,
     conversationsTicketsNotesPartialUpdate,
@@ -1514,7 +1515,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     return
                 }
                 try {
-                    await api.conversationsTickets.submitAiHumanOutcome(values.ticket.id, { outcome: 'used' })
+                    await conversationsTicketsAiHumanOutcomeCreate(String(getCurrentTeamId()), values.ticket.id, {
+                        message_id: message.id,
+                        outcome: 'used',
+                    })
                     const ticket = values.ticket
                     if (ticket) {
                         actions.setTicket({

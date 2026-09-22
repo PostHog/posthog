@@ -97,8 +97,13 @@ class TestTicketMessageSignals(BaseTest):
 
     def test_used_draft_then_edited_send_upgrades_human_outcome(self, mock_on_commit):
         draft = "Add the snippet to the head of every page, then reload to send a pageview."
-        self._create_ai_message(draft)
-        record_human_outcome(team_id=self.team.id, ticket_id=str(self.ticket.id), outcome="used")
+        ai_draft = self._create_ai_message(draft)
+        record_human_outcome(
+            team_id=self.team.id,
+            ticket_id=str(self.ticket.id),
+            draft_message_id=str(ai_draft.id),
+            outcome="used",
+        )
         self._create_team_message("Drop the recorder snippet on checkout only, then hard-refresh to send a pageview.")
 
         self.ticket.refresh_from_db()

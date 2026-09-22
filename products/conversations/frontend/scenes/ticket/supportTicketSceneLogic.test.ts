@@ -60,6 +60,7 @@ jest.mock('~/lib/api', () => {
 })
 
 jest.mock('products/conversations/frontend/generated/api', () => ({
+    conversationsTicketsAiHumanOutcomeCreate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsMessagesFullEmailRetrieve: jest.fn().mockResolvedValue({ content: 'Full email body' }),
     conversationsTicketsNotesPartialUpdate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsNotesDestroy: jest.fn().mockResolvedValue(undefined),
@@ -69,13 +70,14 @@ jest.mock('products/conversations/frontend/generated/api', () => ({
 import api from '~/lib/api'
 
 import {
+    conversationsTicketsAiHumanOutcomeCreate,
     conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesPartialUpdate,
     conversationsTicketsPartialUpdate,
 } from 'products/conversations/frontend/generated/api'
 
 const submitAiFeedbackMock = api.conversationsTickets.submitAiFeedback as jest.Mock
-const submitAiHumanOutcomeMock = api.conversationsTickets.submitAiHumanOutcome as jest.Mock
+const submitAiHumanOutcomeMock = conversationsTicketsAiHumanOutcomeCreate as jest.Mock
 const fullEmailRetrieveMock = conversationsTicketsMessagesFullEmailRetrieve as jest.Mock
 
 function makeAiComment(id: string, isPrivate: boolean = true): CommentType {
@@ -339,7 +341,10 @@ describe('supportTicketSceneLogic applyAiDraft', () => {
         expect(logic.values.composerPrefillAt).toBe(1)
         expect(logic.values.aiDraftApplying).toBe(false)
         expect(logic.values.ticket?.ai_triage?.human_outcome).toBe('used')
-        expect(submitAiHumanOutcomeMock).toHaveBeenCalledWith('ticket-1', { outcome: 'used' })
+        expect(submitAiHumanOutcomeMock).toHaveBeenCalledWith('997', 'ticket-1', {
+            message_id: 'msg-ai-1',
+            outcome: 'used',
+        })
     })
 })
 

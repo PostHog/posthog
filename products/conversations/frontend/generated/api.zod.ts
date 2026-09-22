@@ -142,8 +142,14 @@ export const ConversationsTicketsAiFeedbackCreateBody = /* @__PURE__ */ zod
 /**
  * Record that a human used or edited the latest AI draft.
  */
+export const conversationsTicketsAiHumanOutcomeCreateBodyMessageIdMax = 200
+
 export const ConversationsTicketsAiHumanOutcomeCreateBody = /* @__PURE__ */ zod
     .object({
+        message_id: zod
+            .string()
+            .max(conversationsTicketsAiHumanOutcomeCreateBodyMessageIdMax)
+            .describe('ID of the private AI draft being adopted.'),
         outcome: zod
             .enum(['used', 'edited'])
             .describe('\* `used` - used\n\* `edited` - edited')

@@ -233,6 +233,7 @@ class AiFeedbackRequestSerializer(serializers.Serializer):
 class AiHumanOutcomeRequestSerializer(serializers.Serializer):
     """Payload for recording whether a human adopted an AI draft."""
 
+    message_id = serializers.CharField(max_length=200, help_text="ID of the private AI draft being adopted.")
     outcome = serializers.ChoiceField(
         choices=AiDraftHumanOutcome.choices,
         help_text="used when the human inserts the draft as-is; edited after they change it in the composer.",
@@ -1753,10 +1754,18 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         serializer = AiHumanOutcomeRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         outcome = serializer.validated_data["outcome"]
-        recorded = record_human_outcome(team_id=self.team_id, ticket_id=str(ticket.id), outcome=outcome)
+        recorded = record_human_outcome(
+            team_id=self.team_id,
+            ticket_id=str(ticket.id),
+            draft_message_id=serializer.validated_data["message_id"],
+            outcome=outcome,
+        )
         if not recorded:
             return Response(
-                {"detail": "AI draft outcome is already recorded.", "error_type": "human_outcome_already_set"},
+                {
+                    "detail": "The AI draft is no longer current or its outcome is already recorded.",
+                    "error_type": "ai_draft_outcome_conflict",
+                },
                 status=drf_status.HTTP_409_CONFLICT,
             )
         return Response(serializer.data, status=drf_status.HTTP_202_ACCEPTED)

@@ -53,11 +53,20 @@ def _public_human_comments(comments: QuerySet[Comment]) -> QuerySet[Comment]:
     )
 
 
-def record_human_outcome(*, team_id: int, ticket_id: str, outcome: HumanOutcome) -> bool:
+def record_human_outcome(*, team_id: int, ticket_id: str, draft_message_id: str, outcome: HumanOutcome) -> bool:
     """Write `human_outcome` if unset, or upgrade `used` to `edited` after a composer edit."""
     with transaction.atomic():
         ticket = Ticket.objects.select_for_update().filter(id=ticket_id, team_id=team_id).first()
         if ticket is None:
+            return False
+        latest_ai_draft_id = (
+            _ticket_comments(team_id=team_id, ticket_id=ticket_id)
+            .filter(item_context__author_type="AI", item_context__is_private=True, deleted=False)
+            .order_by("-created_at", "-id")
+            .values_list("id", flat=True)
+            .first()
+        )
+        if latest_ai_draft_id is None or str(latest_ai_draft_id) != draft_message_id:
             return False
         triage = dict(ticket.ai_triage or {})
         current = triage.get("human_outcome")

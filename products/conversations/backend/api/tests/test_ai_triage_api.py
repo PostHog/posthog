@@ -22,9 +22,22 @@ class TestAiHumanOutcomeAPI(APIBaseTest):
             ai_triage={"status": "done", "result": "suggested"},
         )
         self.url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/ai_human_outcome/"
+        self.draft = self._create_ai_draft("Current draft")
+
+    def _create_ai_draft(self, content: str) -> Comment:
+        return Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content=content,
+            item_context={"author_type": "AI", "is_private": True},
+        )
+
+    def _payload(self, outcome: str) -> dict[str, str]:
+        return {"message_id": str(self.draft.id), "outcome": outcome}
 
     def test_records_used(self) -> None:
-        response = self.client.post(self.url, {"outcome": "used"}, format="json")
+        response = self.client.post(self.url, self._payload("used"), format="json")
 
         assert response.status_code == status.HTTP_202_ACCEPTED
         assert response.json()["outcome"] == "used"
@@ -32,37 +45,47 @@ class TestAiHumanOutcomeAPI(APIBaseTest):
         assert self.ticket.ai_triage["human_outcome"] == "used"
 
     def test_upgrades_used_to_edited(self) -> None:
-        self.client.post(self.url, {"outcome": "used"}, format="json")
+        self.client.post(self.url, self._payload("used"), format="json")
 
-        response = self.client.post(self.url, {"outcome": "edited"}, format="json")
+        response = self.client.post(self.url, self._payload("edited"), format="json")
 
         assert response.status_code == status.HTTP_202_ACCEPTED
         self.ticket.refresh_from_db()
         assert self.ticket.ai_triage["human_outcome"] == "edited"
 
     def test_used_is_idempotent(self) -> None:
-        self.client.post(self.url, {"outcome": "used"}, format="json")
+        self.client.post(self.url, self._payload("used"), format="json")
 
-        response = self.client.post(self.url, {"outcome": "used"}, format="json")
+        response = self.client.post(self.url, self._payload("used"), format="json")
 
         assert response.status_code == status.HTTP_202_ACCEPTED
         self.ticket.refresh_from_db()
         assert self.ticket.ai_triage["human_outcome"] == "used"
 
     def test_rejects_a_second_non_upgrade_write(self) -> None:
-        self.client.post(self.url, {"outcome": "edited"}, format="json")
+        self.client.post(self.url, self._payload("edited"), format="json")
 
-        response = self.client.post(self.url, {"outcome": "used"}, format="json")
+        response = self.client.post(self.url, self._payload("used"), format="json")
 
         assert response.status_code == status.HTTP_409_CONFLICT
-        assert response.json()["error_type"] == "human_outcome_already_set"
+        assert response.json()["error_type"] == "ai_draft_outcome_conflict"
         self.ticket.refresh_from_db()
         assert self.ticket.ai_triage["human_outcome"] == "edited"
 
     def test_rejects_ignored(self) -> None:
-        response = self.client.post(self.url, {"outcome": "ignored"}, format="json")
+        response = self.client.post(self.url, self._payload("ignored"), format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.ticket.refresh_from_db()
+        assert "human_outcome" not in self.ticket.ai_triage
+
+    def test_rejects_an_outcome_for_an_old_draft(self) -> None:
+        self._create_ai_draft("Newer draft")
+
+        response = self.client.post(self.url, self._payload("used"), format="json")
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["error_type"] == "ai_draft_outcome_conflict"
         self.ticket.refresh_from_db()
         assert "human_outcome" not in self.ticket.ai_triage
 

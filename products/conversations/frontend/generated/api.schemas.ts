@@ -429,6 +429,11 @@ export const AiDraftHumanOutcomeEnumApi = {
  * Payload for recording whether a human adopted an AI draft.
  */
 export interface AiHumanOutcomeRequestApi {
+    /**
+     * ID of the private AI draft being adopted.
+     * @maxLength 200
+     */
+    message_id: string
     /** used when the human inserts the draft as-is; edited after they change it in the composer.
      *
      * * `used` - used
