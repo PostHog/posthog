@@ -355,7 +355,6 @@ A trends chart and a graph built from SQL, as they arrive in `charts`:
   {
     "chart_id": "exceptions-by-type-daily",
     "title": "Exceptions per day, by type",
-    "caption": "One line per exception type.",
     "query": {
       "kind": "DataVisualizationNode",
       "source": {
@@ -378,7 +377,6 @@ Omit `display` altogether and the node renders the result table, which reads bet
 
 **A graph from SQL needs one row per x-axis value.** The x axis is built from the result rows in the order they arrive, so a query that also groups by a second dimension puts several rows at the same x position and the line zigzags instead of trending.
 Either aggregate the query down to one row per x value, or name the second dimension in `chartSettings.seriesBreakdownColumn`, which pivots those rows into one series per value of that column.
-Server-side validation cannot catch this, because the chart's query is never run on write.
 For a time series per segment, an `InsightVizNode` wrapping a `TrendsQuery` with a `breakdownFilter` is usually cleaner than SQL.
 
 **Only the node's `kind` and its serialized size are checked on write.** A well-formed node of an allowed kind carrying a broken query is stored without complaint, then fails to draw when a reader opens the report, and nothing reports that back to the scout.
