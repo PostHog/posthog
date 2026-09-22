@@ -88,6 +88,30 @@ def team_api_test_factory():
         def _assert_activity_log_is_empty(self) -> None:
             self._assert_activity_log([])
 
+        @parameterized.expand([("member", False, []), ("staff", True, ["email_sending_tier_changed"])])
+        def test_activity_shows_staff_only_rows_to_staff_alone(
+            self, _name: str, is_staff: bool, expected_activities: list[str]
+        ) -> None:
+            self.user.is_staff = is_staff
+            self.user.save()
+            ActivityLog.objects.create(
+                organization_id=self.organization.id,
+                team_id=self.team.pk,
+                item_id=str(self.team.pk),
+                scope="Team",
+                activity="email_sending_tier_changed",
+                user=self.user,
+                detail={"name": self.team.name},
+            )
+
+            response = self.client.get(f"/api/environments/{self.team.pk}/activity")
+
+            assert response.status_code == 200, response.json()
+            activities = [item["activity"] for item in response.json()["results"]]
+            assert [activity for activity in activities if activity == "email_sending_tier_changed"] == (
+                expected_activities
+            )
+
         def test_list_teams(self):
             response = self.client.get("/api/environments/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
