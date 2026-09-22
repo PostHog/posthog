@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle } from '@posthog/icons'
 import { LemonBanner, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -11,6 +10,10 @@ import { urls } from 'scenes/urls'
 
 import { BehindScheduleModel } from 'products/data_modeling/frontend/freshness'
 import { ModelNameLink } from 'products/data_modeling/frontend/ModelNameLink'
+import {
+    ModelsOverviewChecksStatus,
+    ModelsOverviewEmptyState,
+} from 'products/data_modeling/frontend/ModelsOverviewEmptyState'
 import { ModelsOverviewTable } from 'products/data_modeling/frontend/ModelsOverviewTable'
 import { checkDisplayName } from 'products/data_quality/frontend/checksConstants'
 import { CheckStatusCell } from 'products/data_quality/frontend/CheckStatusCell'
@@ -168,43 +171,53 @@ const CHECK_COLUMNS: LemonTableColumns<DataQualityOverviewCheckApi> = [
 
 function OverviewBody({
     failingChecks,
+    checksStatus,
     checksLoading,
     checksLoaded,
     checksError,
     onRetryChecks,
 }: {
     failingChecks: DataQualityOverviewCheckApi[]
+    checksStatus: ModelsOverviewChecksStatus
     checksLoading: boolean
     /** False while the checks request is in flight, so an empty list is not yet an answer. */
     checksLoaded: boolean
     checksError: string | null
     onRetryChecks?: () => void
 }): JSX.Element {
-    const { attentionModels, behindSchedule, nodesLoading, dataQualityTabEnabled } = useValues(modelsSceneLogic)
+    const { attentionModels, behindSchedule, nodesLoading, modelsFailed, modelsResolved, noModelsYet } =
+        useValues(modelsSceneLogic)
+    const { loadNodes, loadDataWarehouseSavedQueries } = useActions(modelsSceneLogic)
 
-    const nothingWrong =
-        !nodesLoading &&
+    const reloadModels = (): void => {
+        loadNodes()
+        loadDataWarehouseSavedQueries()
+    }
+
+    const nothingToReport =
+        modelsResolved &&
+        !modelsFailed &&
         checksLoaded &&
         !checksError &&
         attentionModels.length === 0 &&
         behindSchedule.length === 0 &&
         failingChecks.length === 0
 
-    if (nothingWrong) {
-        return (
-            <div className="flex items-center gap-2" data-attr="models-overview-healthy">
-                <IconCheckCircle className="text-success text-xl" />
-                <span>
-                    {dataQualityTabEnabled
-                        ? 'Every model is up to date and every check passed.'
-                        : 'Every model is up to date.'}
-                </span>
-            </div>
-        )
+    if (nothingToReport) {
+        return <ModelsOverviewEmptyState variant={noModelsYet ? 'first-view' : 'healthy'} checksStatus={checksStatus} />
     }
 
     return (
         <div className="flex flex-col gap-6">
+            {modelsFailed && (
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: reloadModels }}
+                    data-attr="models-overview-models-error"
+                >
+                    Your models could not be loaded, so this page cannot say which ones need attention.
+                </LemonBanner>
+            )}
             {(nodesLoading || attentionModels.length > 0) && (
                 <Section
                     title="Models needing attention"
@@ -275,12 +288,13 @@ function OverviewBody({
 
 /** Split out so the checks request is only made where the tab exists. */
 function OverviewWithChecks(): JSX.Element {
-    const { checks, overviewLoading, snapshotLoaded, overviewError } = useValues(dataQualityOverviewLogic)
+    const { checks, checksStatus, overviewLoading, snapshotLoaded, overviewError } = useValues(dataQualityOverviewLogic)
     const { loadOverview } = useActions(dataQualityOverviewLogic)
 
     return (
         <OverviewBody
             failingChecks={checks.filter((check) => check.last_status === 'failed' || check.last_status === 'errored')}
+            checksStatus={checksStatus}
             checksLoading={overviewLoading}
             checksLoaded={snapshotLoaded}
             checksError={overviewError}
@@ -295,6 +309,12 @@ export function ModelsOverviewTab(): JSX.Element {
     return dataQualityTabEnabled ? (
         <OverviewWithChecks />
     ) : (
-        <OverviewBody failingChecks={[]} checksLoading={false} checksLoaded checksError={null} />
+        <OverviewBody
+            failingChecks={[]}
+            checksStatus="disabled"
+            checksLoading={false}
+            checksLoaded
+            checksError={null}
+        />
     )
 }

@@ -25,10 +25,10 @@ def _load_llm_inputs(observation_id: UUID) -> ScannerLlmInputs | None:
     return async_to_sync(load_scanner_llm_inputs)(str(observation_id))
 
 
-@activity.defn
-@track_activity(side_effect="signal")
-def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> int:
-    """Emit the observation's side-mission findings as PostHog Signals; fails soft, returns the emitted count."""
+def _emit_observation_signals(inputs: EmitObservationSignalInputs) -> list[str]:
+    """Emit the observation's side-mission findings as PostHog Signals; fails soft, returns the problem type
+    of each signal it actually emitted, in emission order. Findings below the confidence floor and findings
+    whose emission fails are left out, so the caller's count and types stay in step."""
     try:
         observation = (
             ReplayObservation.objects.filter(pk=inputs.observation_id, team_id=inputs.team_id)
@@ -36,12 +36,12 @@ def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> int
             .first()
         )
         if observation is None:
-            return 0
+            return []
         snapshot = ScannerSnapshot.load_for(inputs.observation_id, observation.scanner_snapshot)
         # The scanner's `emits_signals` flag is the per-source authorization — there's no separate
         # SignalSourceConfig to consult (the facade allows replay_vision/scanner_finding unconditionally).
         if not snapshot.emits_signals:
-            return 0
+            return []
         # Observation-wide metadata, shared by every finding. `scanner_name`/`scanner_type` come from the
         # frozen snapshot (what actually ran); `scanner_id`/`session_id` are immutable on the row. The
         # `recording_*` fields are the snapshot time bounds — `recording_start_time` is the REC_T=0 anchor,
@@ -71,7 +71,7 @@ def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> int
             base_extra["recording_duration"] = meta.duration_seconds
             base_extra["recording_active_seconds"] = meta.active_seconds
 
-        emitted = 0
+        emitted_problem_types: list[str] = []
         any_failed = False
         for index, signal in enumerate(inputs.signals):
             if signal.confidence < MIN_SIGNAL_CONFIDENCE:
@@ -96,9 +96,9 @@ def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> int
                         "url": signal.url,
                     },
                 )
-                emitted += 1
+                emitted_problem_types.append(signal.problem_type)
                 # Findings go out one network call at a time, so beat between them.
-                activity.heartbeat({"emitted": emitted, "index": index})
+                activity.heartbeat({"emitted": len(emitted_problem_types), "index": index})
             except Exception:
                 # One bad finding never blocks the rest; signals are advisory.
                 any_failed = True
@@ -110,10 +110,26 @@ def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> int
         if any_failed:
             # Per activity, not per finding, so the counter is comparable to the other effects.
             record_side_effect_failure("signal")
-        return emitted
+        return emitted_problem_types
     except Exception:
         # Never fail the observation over emission. Counted here because the swallow means
         # track_activity sees a success.
         record_side_effect_failure("signal")
         logger.exception("replay_vision.signal_emission_failed", observation_id=str(inputs.observation_id))
-        return 0
+        return []
+
+
+@activity.defn
+@track_activity(side_effect="signal")
+def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> int:
+    """Legacy count-returning entry point. Kept so in-flight workflow histories that scheduled it before the
+    problem-types patch still decode an int on replay; new executions use emit_observation_signals_activity."""
+    return len(_emit_observation_signals(inputs))
+
+
+@activity.defn
+@track_activity(side_effect="signal")
+def emit_observation_signals_activity(inputs: EmitObservationSignalInputs) -> list[str]:
+    """Emit the observation's side-mission findings and return each emitted signal's problem type, in emission
+    order — the watch feed counts them to name the kinds of issue a session raised."""
+    return _emit_observation_signals(inputs)

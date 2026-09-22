@@ -127,7 +127,7 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
         handler = SlackThreadHandler(context, turn_trace_id=input.trace_id)
-        handler.run_footer = load_run_footer(input.run_id)
+        handler.run_footer = load_run_footer(input.run_id, integration_id=context.integration_id)
         handler.stop_status_stream(
             ts=input.ts,
             complete_task_id=input.complete_task_id,
