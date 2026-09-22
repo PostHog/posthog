@@ -5337,25 +5337,25 @@ snapshots:
     marketing-analytics-customer-acquisition-cards--unconfigured--light:
         hash: v1.k794b7964.40240d162f715f3da0d8363e08797fb8a9c131852a5d6356c892424e25dfa35c.yeHaH7ecKHVh7IOwmerxuVPzSGclQrUDBwWnoPV0rmw
     marketing-analytics-retention-return-table--all-users--dark:
-        hash: v1.k794b7964.6264efbb674f1d2ad948b6e8856f69a094d69e17470207337238c52738d18184.joOXUxWScKUZyVj5-taM4nWB9gqzB22I8iJwgRauNOA
+        hash: v1.k794b7964.96cadfa4ec3fa4c9077bc65d4c9075ca80691ec89862bc5b76d83609bb4eb9b2.RVLlGI1QG26GFC55_Dv5KdAWGGbRVI1ttz4lL-UxV7M
     marketing-analytics-retention-return-table--all-users--light:
-        hash: v1.k794b7964.0a973ec5c9d94ed2ee1f27fc8a4c413a4e6fad4e5d680feb6261ecb0b453bfc5.68pa0YliERtpe8_vooGChjNDotzdaAyCJISwOQhQQCc
+        hash: v1.k794b7964.2f20c06a8736af6fc49a623032c766f79c9b51a61d7261eba63875a6542a19f0.9k9aRQC8vyCmOahvJzPjP4wjmVaABGtd2flkUKbo5XA
     marketing-analytics-retention-return-table--default--dark:
-        hash: v1.k794b7964.10eab46ec9f4b1ab6c0e0498982027ca451613de6a5ea37cdf9d8ce79c5095eb.T7Q483dORAWSLxcHH1-RJKXoIMORzWToVbXG9NWnH-o
+        hash: v1.k794b7964.ca9c2edd1e65a694c1752e5fd4a0ad91a24f5a3a1da95824bba7537ffa5f3aaa.nMdPbV85kCT1tmv0YtQ0sVO_s0zxXSyvrkfIxfD8Gv8
     marketing-analytics-retention-return-table--default--light:
-        hash: v1.k794b7964.9d6ff8a78cbd4f810f13b52e75d22b678cdcd2c010759549320925170b33e178.dsdL6bi8UEmgPTT-jxSNxEq_YNbF4N2zy1TduLsuP48
+        hash: v1.k794b7964.502f768b4cfe6a1c6c8c658fd2ff6d1fb8b823f2384c1d07431b16b606eb030b.ro8t9vn9pCVkqRD9rTQ-zsJgnqLzi6F2NK6Beyexk18
     marketing-analytics-retention-return-table--empty--dark:
-        hash: v1.k794b7964.340da8ad1ed4d91b6472e7d0215f0295b10602067d123d4484f0fe09c7e0826f.bS8-9AzKCXQ3Ix-27-wnVZVQ-wBS6f2w_UOxMz807Js
+        hash: v1.k794b7964.209477b3a8dccaa7e1ae1c642a46be8f313518df86f2e999121e0f9f2809565a.YAlOcpap2DbuxKPRd8ODAHg9HjrxDaoUymaToMNxrjM
     marketing-analytics-retention-return-table--empty--light:
-        hash: v1.k794b7964.12d9c04519b4fe33eb084b9bf5e8f53ceaa40b26d72afc84d5ded8d9451cfabd.pc7H0RaMxKWFfVOC732sIVNsuUfsjW4w38I4ZE1esEo
+        hash: v1.k794b7964.4d3b4af47fa0d3a6ce4b4f4ed031813fdc66d42cff256888ccb0e6f3749b60f1.kwHtRlelrkr-VUrPJn8tqya10DpB-A-t0pULcghPqFQ
     marketing-analytics-retention-return-table--loading--dark:
-        hash: v1.k794b7964.4c5e4473e31b1954db9a041ce022e6a92c629e454852cf218bddac0e276996bc.X7-47Ixxi7BCYLdzTO-QV84Aphv2l2O8_hnePWNOsXs
+        hash: v1.k794b7964.c7a9f604b6536dd109fe4f779dc104a38cc5c733acf8e77414f0e67669552441.JMz_f6eVnKiYeZ9_dzobPEGEQ5bZootaShoWcDIyKQo
     marketing-analytics-retention-return-table--loading--light:
-        hash: v1.k794b7964.bbd1f61aa361508eb73402430de6089089a7fb8a70159eb5870a1a52f062f8cd.bEjl2HcNNGwb28FByp5V9ElTvVwcKt1aM7X95MK6qhM
+        hash: v1.k794b7964.28b07e6c34bc713636ece46c7de01c86b2784440e94bcd887af02593bf20fbdc.uooAJyNjEUNL_G36OnAsLDWXG2NF_Ziq7s6YEISVrbU
     marketing-analytics-retention-return-table--narrow--dark:
-        hash: v1.k794b7964.67019271111dca09ef78b22f652cf4be578fbc74f62881191546aa0b87ca1f22.OklZvNuLCnUMgEpeiqSv1xX4BjoPdpG9UznSvj3oMUY
+        hash: v1.k794b7964.b0e2457f4e7c3d9cd41b8286764f4a130e45e8aefab1ca1a43bdc707e4cde26f.QWdtbaxu_ftARmnLtcNiGdmKnOaQWP9ZiTYaJfO_2zw
     marketing-analytics-retention-return-table--narrow--light:
-        hash: v1.k794b7964.dfae60d8f5ec1e691c1d49e8da9c7d72cb260dd0be46e20c58497786d4a338b9.fdcRFY9rIoQ9yxTtOAwwv1iSidqzbGlYHbaWTDbVlKo
+        hash: v1.k794b7964.2448e233c83f0224ea1329d50a29360ac6ccd5422b64a575ee8533bf32fb1baa.OKe1fXZkPTGTfTuyN8Q5mm3nhcvCTkhXS45cwXntOZU
     mcp-apps-actions--list--light:
         hash: v1.k794b7964.7bdc20fc1da4e4a172e15101a23f9e72b257280598a56a9883080d8af7a12614.Wz5K1jifC5KxYKDSFTcNkoO4TiCkjFVZxxeVsObrZfo
     mcp-apps-actions--multi-step--light:
