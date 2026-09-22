@@ -54,7 +54,7 @@ Prefix caching is off for this model: vLLM does not enable it for pooling models
 
 ## Container image
 
-`Dockerfile` builds the serving image: the official `vllm/vllm-openai:v0.29.0` image with this package installed on top, so the entry points register the model class and the IO processor at import. Weights stay out of the image. `.github/workflows/cd-ml-inference-decision-image.yml` builds it for amd64 on every master push that touches the package and publishes it as `posthog-ml-inference-decision` to ECR and GHCR; add the `build-ml-inference-image` label to a PR to build it early, into the `-prs` ECR repository.
+`Dockerfile` builds the serving image: the official `vllm/vllm-openai:v0.29.0` image with this package installed on top, so the entry points register the model class and the IO processor at import. Weights stay out of the image. `.github/workflows/cd-ml-inference-decision-image.yml` builds it for amd64 on every master push that touches the package and publishes it as `posthog-ml-inference-decision` to ECR and GHCR; add the `build-ml-inference-image` label to a PR to build it early and push it to GHCR alone, tagged `pr-<number>`.
 
 The entrypoint (`bin/serve.sh`, installed as `kev-vllm-serve`) checks the checkpoint at `MODEL_DIR` against its `manifest.json` and starts `vllm serve` with the flags the parity run used. It binds loopback by default, because TLS and the per-instance bearer terminate in a proxy on the same host, so a GPU host runs it with the host network and the checkpoint mounted:
 

@@ -11,7 +11,8 @@ on:
         paths:
             - 'products/ml_inference/packages/kev-vllm/**'
             - '.github/workflows/cd-ml-inference-decision-image.yml'
-    # paths mirror the push trigger; the build-ml-inference-image label forces a build on a PR touching them.
+    # paths mirror the push trigger; the build-ml-inference-image label forces a build on a PR touching them, pushed
+    # to GHCR only so a GPU host can pull it for a trial before the change lands.
     pull_request:
         types: [opened, synchronize, reopened, labeled]
         paths:
@@ -43,23 +44,7 @@ jobs:
         outputs:
             digest: ${{ steps.build.outputs.digest }}
 
-        # ECR repo + role resolved once at job level: master publishes to the main repo through the default-branch
-        # role; a labeled PR publishes to the -prs repo through the any-branch role.
-        env:
-            ECR_IMAGE: ${{ github.ref == 'refs/heads/master' && 'posthog-ml-inference-decision' || 'posthog-ml-inference-decision-prs' }}
-            ECR_ROLE: ${{ github.ref == 'refs/heads/master' && vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE || vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
-
         steps:
-            - name: Assert master publish role is configured
-              if: github.ref == 'refs/heads/master'
-              env:
-                  MASTER_ROLE: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
-              run: |
-                  if [[ -z "$MASTER_ROLE" ]]; then
-                    echo "::error::AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE is not set, refusing to fall back to the PRS role on master."
-                    exit 1
-                  fi
-
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -73,8 +58,8 @@ jobs:
               uses: ./.github/actions/docker-meta
               with:
                   image-name: posthog-ml-inference-decision
-                  ecr-image-name: ${{ env.ECR_IMAGE }}
-                  aws-role-to-assume: ${{ env.ECR_ROLE }}
+                  aws-role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  push-to-ecr: ${{ github.ref == 'refs/heads/master' }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
