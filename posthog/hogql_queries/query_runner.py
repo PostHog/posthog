@@ -3420,7 +3420,7 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         # Service tokens and shared-link viewers bypass warehouse access control (see Database.create_for),
         # so the source scope a synced table falls back to never gates them and must not partition their
         # key. It still does when a system table carries that scope directly.
-        bypassed_scopes = (
+        bypassed_scopes: frozenset[str] = (
             WAREHOUSE_ACCESS_SCOPES if self.user is not None and not isinstance(self.user, User) else frozenset()
         )
         queried_resources = queried_access_controlled_resources(self.query, self.team, bypassed_scopes=bypassed_scopes)
