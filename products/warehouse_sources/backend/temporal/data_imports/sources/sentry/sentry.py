@@ -909,9 +909,10 @@ def _iter_sessions_rows(
         response = exc.response
         if response is not None and response.status_code == 400:
             try:
-                detail = response.json().get("detail")
+                body = response.json()
             except JSONDecodeError:
-                detail = None
+                body = None
+            detail = body.get("detail") if isinstance(body, dict) else None
             if detail == _NO_PROJECTS_AVAILABLE_DETAIL:
                 logger.warning(
                     "sentry_source.sessions_no_projects_skipped",
