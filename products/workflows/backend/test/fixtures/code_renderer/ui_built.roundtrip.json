@@ -1,0 +1,109 @@
+{
+    "key": "welcome-email",
+    "name": "Welcome email",
+    "description": "",
+    "status": "draft",
+    "exit_condition": "exit_only_at_end",
+    "variables": [],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Trigger",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "user signed up",
+                            "name": "user signed up",
+                            "type": "events",
+                            "order": 0,
+                            "properties": []
+                        }
+                    ],
+                    "properties": [],
+                    "filter_test_accounts": false
+                }
+            }
+        },
+        {
+            "id": "action_delay_0199e2c6-2a1b-7c3d-8e4f-000000000001",
+            "name": "Delay",
+            "type": "delay",
+            "config": { "delay_duration": "1d" }
+        },
+        {
+            "id": "action_function_email_0199e2c6-2a1b-7c3d-8e4f-000000000002",
+            "name": "Email",
+            "type": "function_email",
+            "config": {
+                "template_id": "template-email",
+                "inputs": {
+                    "email": {
+                        "value": {
+                            "from": { "integrationId": 4, "integrationIds": [4] },
+                            "to": { "email": "{{ person.properties.email }}" },
+                            "subject": "Welcome",
+                            "text": "Welcome aboard.",
+                            "html": "<p>Welcome aboard.</p>",
+                            "design": {
+                                "counters": { "u_row": 1, "u_column": 1, "u_content_html": 1 },
+                                "schemaVersion": 16,
+                                "body": {
+                                    "id": "html-wrap-body",
+                                    "headers": [],
+                                    "footers": [],
+                                    "rows": [
+                                        {
+                                            "id": "html-wrap-row",
+                                            "cells": [1],
+                                            "columns": [
+                                                {
+                                                    "id": "html-wrap-column",
+                                                    "contents": [
+                                                        {
+                                                            "id": "html-wrap-content",
+                                                            "type": "html",
+                                                            "values": {
+                                                                "html": "<p>Welcome aboard.</p>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_html_1",
+                                                                    "htmlClassNames": "u_content_html"
+                                                                }
+                                                            }
+                                                        }
+                                                    ],
+                                                    "values": {
+                                                        "_meta": { "htmlID": "u_column_1", "htmlClassNames": "u_column" }
+                                                    }
+                                                }
+                                            ],
+                                            "values": { "_meta": { "htmlID": "u_row_1", "htmlClassNames": "u_row" } }
+                                        }
+                                    ],
+                                    "values": {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "type": "exit",
+            "config": { "reason": "Reached the end" }
+        }
+    ],
+    "edges": [
+        { "from": "trigger_node", "to": "action_delay_0199e2c6-2a1b-7c3d-8e4f-000000000001", "type": "continue" },
+        {
+            "from": "action_delay_0199e2c6-2a1b-7c3d-8e4f-000000000001",
+            "to": "action_function_email_0199e2c6-2a1b-7c3d-8e4f-000000000002",
+            "type": "continue"
+        },
+        { "from": "action_function_email_0199e2c6-2a1b-7c3d-8e4f-000000000002", "to": "exit_node", "type": "continue" }
+    ]
+}

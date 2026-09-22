@@ -221,6 +221,20 @@ def _dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _is_set(value: Any) -> bool:
+    """Whether a stored field carries a value the editor's defaults do not: `""`, `[]`, `{}`, None and
+    whitespace all count as unset, and so does a container that holds nothing but those."""
+    if value is None or isinstance(value, bool | int | float):
+        return value is not None
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, dict):
+        return any(_is_set(entry) for entry in value.values())
+    if isinstance(value, list | tuple):
+        return any(_is_set(entry) for entry in value)
+    return True
+
+
 @frozen
 class _Placement:
     """One action at one place in the path. `arms` is set on a branch, one path per condition."""
@@ -397,7 +411,7 @@ class _Renderer:
 
     def warn_step_settings(self, action: dict[str, Any]) -> None:
         name = self._name(action)
-        if action.get("description"):
+        if _is_set(action.get("description")):
             self.warn(action["id"], f'The description of "{name}" is dropped. A step has no description in {PACKAGE}.')
         filters = action.get("filters")
         if isinstance(filters, dict) and any(
@@ -565,8 +579,14 @@ class _Renderer:
                 action["id"],
                 f'The email design of "{name}" was edited in the visual editor. {PACKAGE} rebuilds the design from html, so that layout is dropped.',
             )
-        for key in message:
-            if key not in ("from", "to", "subject", "text", "html", "design", "preheader"):
+        if isinstance(recipient, dict) and _is_set({k: v for k, v in recipient.items() if k != "email"}):
+            self.warn(
+                action["id"],
+                f'The recipient of "{name}" carries more than an address. {PACKAGE} sends to the address only.',
+            )
+        # The editor stores `cc`, `bcc` and `replyTo` empty on every email, so only a value is a loss.
+        for key, value in message.items():
+            if key not in ("from", "to", "subject", "text", "html", "design", "preheader") and _is_set(value):
                 self.warn(
                     action["id"],
                     f'The field "{key}" of the email in "{name}" is dropped. {PACKAGE} has no field for it.',
@@ -807,7 +827,9 @@ class _Renderer:
         variables = self.render_variables()
         if variables:
             options["variables"] = variables
-        if definition.get("conversion"):
+        # The editor stores `{window_minutes: null, filters: []}` on a new workflow, which is no goal.
+        conversion = _dict(definition.get("conversion"))
+        if _is_set(conversion.get("filters")) or _is_set(conversion.get("events")):
             self.warn(None, f"The conversion goal is dropped. {PACKAGE} cannot declare one.")
         if definition.get("trigger_masking"):
             self.warn(TRIGGER_ID, f"The trigger masking is dropped. {PACKAGE} cannot declare it.")
