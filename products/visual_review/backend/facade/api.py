@@ -20,6 +20,7 @@ from datetime import datetime
 from uuid import UUID
 
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
@@ -364,6 +365,59 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
         totals=totals,
         truncated=raw.truncated,
         generated_at=raw.generated_at,
+    )
+
+
+def get_toleration_pileups(
+    repo_id: UUID,
+    *,
+    window_days: int = contracts.TOLERATION_PILEUP_WINDOW_DAYS,
+    min_tolerations: int = contracts.VARIANT_PILEUP_MIN,
+    min_automatic_tolerations: int | None = None,
+    include_quarantined: bool = True,
+    run_type: str | None = None,
+    limit: int = 100,
+) -> contracts.TolerationPileups:
+    """Snapshot identities that keep getting tolerated, biggest manual pile first.
+
+    Backs the pile-ups endpoint, which agents read. The defaults are the debt digest's rule, except
+    that quarantined identities stay in the list and are marked, so a reader sees open and muted
+    piles alike.
+    """
+    now = timezone.now()
+    quarantined_keys = quarantine.active_quarantine_keys(repo_id, now=now)
+    pileups = toleration.list_toleration_pileups(
+        repo_id,
+        now=now,
+        window_days=window_days,
+        min_intentional=min_tolerations,
+        min_automatic=min_automatic_tolerations,
+    )
+    matching = sorted(
+        (
+            (key, counts)
+            for key, counts in pileups.items()
+            if (include_quarantined or key not in quarantined_keys) and (run_type is None or key.run_type == run_type)
+        ),
+        key=lambda item: (-item[1].intentional, -item[1].automatic, item[0].run_type, item[0].identifier),
+    )
+    return contracts.TolerationPileups(
+        entries=[
+            contracts.TolerationPileupEntry(
+                identifier=key.identifier,
+                run_type=key.run_type,
+                intentional_count=counts.intentional,
+                automatic_count=counts.automatic,
+                is_quarantined=key in quarantined_keys,
+            )
+            for key, counts in matching[:limit]
+        ],
+        window_days=window_days,
+        min_tolerations=min_tolerations,
+        min_automatic_tolerations=min_automatic_tolerations,
+        total=len(matching),
+        truncated=len(matching) > limit,
+        generated_at=now,
     )
 
 
