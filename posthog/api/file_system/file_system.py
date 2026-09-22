@@ -8,7 +8,7 @@ from typing import Any, Optional, cast
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
+from django.db.models import Case, Exists, F, IntegerField, Q, QuerySet, Value, When
 from django.db.models.functions import Concat, Lower
 
 from drf_spectacular.utils import extend_schema
@@ -34,6 +34,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.decorators import disallow_if_impersonated
+from posthog.exceptions import Conflict
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
     FileSystem,
@@ -83,6 +84,16 @@ def validate_file_system_path(path: Any) -> str:
     if len(split_path(path)) > MAX_PATH_SEGMENTS:
         raise serializers.ValidationError(f"Path can be at most {MAX_PATH_SEGMENTS} levels deep.")
     return path
+
+
+class FileSystemDeleteQuerySerializer(serializers.Serializer):
+    recursive = serializers.BooleanField(
+        default=True,
+        help_text=(
+            "Delete folder contents too (default: true). Set false to delete only empty folders. "
+            "Nonempty folders return HTTP 409 with code directory_not_empty."
+        ),
+    )
 
 
 class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
@@ -760,15 +771,31 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         return deleted_objects
 
-    def destroy(self, request, *args, **kwargs):
+    @extend_schema(parameters=[FileSystemDeleteQuerySerializer])
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query = FileSystemDeleteQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
         instance = self.get_object()
         original_path = instance.path
         instance_created_by = instance.created_by
         deleted_objects: list[dict[str, Any]]
 
         with transaction.atomic():
-            reaches_backing_object = self._ensure_can_delete(instance)
-            deleted_objects = self._delete_file_system_entry(instance, reaches_backing_object)
+            if instance.type == "folder" and not query.validated_data["recursive"]:
+                descendants = self._scope_by_project_and_environment(
+                    FileSystem.objects.filter(path__startswith=f"{instance.path}/")
+                )
+                empty_folder = FileSystem.objects.filter(
+                    pk=instance.pk, team_id=instance.team_id, path=instance.path, type="folder"
+                ).filter(~Exists(descendants))
+                # Keep the emptiness predicate in the DELETE statement. Folders have no dependent rows,
+                # and the view-log cleanup signal only applies to files, so no collector is needed.
+                if not empty_folder._raw_delete(empty_folder.db):
+                    raise Conflict("Folder is not empty.", code="directory_not_empty")
+                deleted_objects = []
+            else:
+                reaches_backing_object = self._ensure_can_delete(instance)
+                deleted_objects = self._delete_file_system_entry(instance, reaches_backing_object)
 
         if instance.type == "folder":
             leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{original_path}/"))
