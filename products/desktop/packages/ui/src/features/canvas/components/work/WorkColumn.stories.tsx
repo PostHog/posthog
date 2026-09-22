@@ -22,7 +22,7 @@ function task(index: number, title: string, hoursAgo: number): Task {
     origin_product: "user_created",
     channel: "channel-personal",
     created_by: { id: ME_ID, uuid: "me-uuid", first_name: "Sam", email: null },
-  } as Task;
+  };
 }
 
 const TASK_TITLES = [

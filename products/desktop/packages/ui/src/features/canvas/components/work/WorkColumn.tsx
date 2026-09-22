@@ -356,6 +356,7 @@ export function WorkColumn() {
   );
   const canExpandRecent =
     needle === "" && matchingItems.length > RECENT_COLLAPSED_COUNT;
+  const recentFills = recentOpen && recentExpanded;
   const optionValues = useMemo(
     () => [
       ...shownItems.map((item) => item.key),
@@ -398,14 +399,11 @@ export function WorkColumn() {
         <ChromeBar>
           <h2 className="font-bold text-base">Work</h2>
         </ChromeBar>
-        <AutocompleteList className="sidebar-autocomplete-tree !max-h-none !flex !px-2 !pt-2 !pb-2 min-h-0 flex-1 flex-col overflow-hidden">
+        <AutocompleteList className="sidebar-autocomplete-tree !max-h-none !px-2 !pt-2 !pb-2 flex min-h-0 flex-1 flex-col overflow-hidden">
           {/* The expanded list keeps a share of the column instead of all of it,
               so the spaces below it stay on screen. */}
           <div
-            className={cn(
-              "flex min-h-0 flex-col",
-              recentExpanded && recentOpen && "flex-[3]",
-            )}
+            className={cn("flex min-h-0 flex-col", recentFills && "flex-[3]")}
           >
             <SectionHeading
               label="Recent"
@@ -521,7 +519,7 @@ export function WorkColumn() {
           <div
             className={cn(
               "mt-2 flex min-h-0 flex-col",
-              recentExpanded && recentOpen ? "flex-[2]" : "flex-1",
+              recentFills ? "flex-[2]" : "flex-1",
             )}
           >
             <SectionHeading
