@@ -110,8 +110,12 @@ impl EventFactory {
         }
         share += u16::from(self.mix.dangerous_merges);
         if roll < share {
-            // Fixed pairs bound a person to two pool users; the last user of an odd pool has no partner.
-            return match self.distinct_ids.get(index ^ 1) {
+            // Fixed pairs bound a person to two pool users. Only the even user
+            // merges, so the pair has one survivor on every backend.
+            return match (index % 2 == 0)
+                .then(|| self.distinct_ids.get(index + 1))
+                .flatten()
+            {
                 Some(partner) => Self::dangerous_merge_event(base, partner),
                 None => RawEvent {
                     event: self.random_event_name(rng),
@@ -156,10 +160,17 @@ impl EventFactory {
             seeded.push_back((anon_id.clone(), Instant::now()));
             anon_id
         };
+        // The shared key is contested between the seed and the survivor; the
+        // per-id key has one writer and names which seeds reached the person.
+        let seed_value = Uuid::now_v7().to_string();
         let mut set = HashMap::new();
         set.insert(
             "loadgen_anon_seed".to_string(),
-            Value::String(Uuid::now_v7().to_string()),
+            Value::String(seed_value.clone()),
+        );
+        set.insert(
+            format!("loadgen_anon_seed_{seed_id}"),
+            Value::String(seed_value),
         );
         RawEvent {
             event: self.random_event_name(rng),
@@ -381,14 +392,15 @@ mod tests {
         let plain = batch.len() - attaches - seeds - dangerous - updates;
 
         // Percentages are drawn per event; allow ±5 points on 2000 samples.
+        // Odd users drawn for a dangerous merge send a plain event instead.
         assert!((attaches as i64 - 400).abs() < 100, "attaches: {attaches}");
         assert!((seeds as i64 - 200).abs() < 100, "seeds: {seeds}");
         assert!(
-            (dangerous as i64 - 200).abs() < 100,
+            (dangerous as i64 - 100).abs() < 100,
             "dangerous: {dangerous}"
         );
         assert!((updates as i64 - 600).abs() < 100, "updates: {updates}");
-        assert!((plain as i64 - 600).abs() < 100, "plain: {plain}");
+        assert!((plain as i64 - 700).abs() < 100, "plain: {plain}");
     }
 
     #[test]
@@ -404,7 +416,12 @@ mod tests {
         let (seed, claim) = (&batch[0], &batch[1]);
         assert!(distinct_id(seed).starts_with("loadgen-anon-"));
         assert_ne!(seed.event, "$identify");
-        assert!(seed.set.as_ref().unwrap().contains_key("loadgen_anon_seed"));
+        let seed_set = seed.set.as_ref().unwrap();
+        assert!(seed_set.contains_key("loadgen_anon_seed"));
+        assert_eq!(
+            seed_set[&format!("loadgen_anon_seed_{}", distinct_id(seed))],
+            seed_set["loadgen_anon_seed"]
+        );
 
         assert_eq!(claim.event, "$identify");
         assert!(distinct_id(claim).starts_with("loadgen-user-"));
@@ -480,11 +497,23 @@ mod tests {
                 .unwrap()
         };
 
-        for event in f.batch(50, &mut rng) {
-            assert_eq!(event.event, "$merge_dangerously");
-            let partner = event.properties["alias"].as_str().unwrap();
-            assert_eq!(index(partner), index(distinct_id(&event)) ^ 1);
+        let batch = f.batch(200, &mut rng);
+        let merges = batch.iter().filter(|e| e.event == "$merge_dangerously");
+        let mut seen = 0;
+        for event in merges {
+            let sender = index(distinct_id(event));
+            assert_eq!(sender % 2, 0, "only the even user of a pair merges");
+            assert_eq!(
+                index(event.properties["alias"].as_str().unwrap()),
+                sender + 1
+            );
+            seen += 1;
         }
+        assert!(seen > 0);
+        assert!(batch
+            .iter()
+            .filter(|e| index(distinct_id(e)) % 2 == 1)
+            .all(|e| e.event != "$merge_dangerously"));
     }
 
     #[test]
