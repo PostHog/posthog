@@ -41,6 +41,11 @@ import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
 import { type ExecLearnGuide, LEARN_COMMAND_LINE } from '@/tools/exec-learn'
 
+/** Naming a command the catalog withholds sends the agent down a path it cannot take. */
+const WHATS_NEW_WITH_DOCS_SEARCH =
+    "Check what's new via the `docs-search` tool or the changelog (https://posthog.com/changelog.md)."
+const WHATS_NEW_CHANGELOG_ONLY = "Check what's new in the changelog (https://posthog.com/changelog.md)."
+
 export interface InstructionsContext {
     guidelines: string
     groupTypes?: GroupType[] | undefined
@@ -59,6 +64,17 @@ export interface InstructionsContext {
      *  advertised to this client. Gates the Python-in-a-notebook section so we never
      *  tell an agent to put its analysis in a cell type it can't create. */
     notebookCellsEnabled?: boolean | undefined
+    /** Whether `docs-search` is advertised to this client. Gates every mention of
+     *  the tool, so the prompt never names a command `search` and `call` cannot
+     *  resolve. Carried as a field rather than derived from `tools`, which
+     *  `buildExecCommandReference` drops on purpose. */
+    docsSearchEnabled?: boolean | undefined
+}
+
+/** Resolve the field, falling back to the advertised tool list for callers that
+ *  build a context without it (the CLI's `--agent-help`). */
+function docsSearchAvailable(ctx: InstructionsContext): boolean {
+    return ctx.docsSearchEnabled ?? ctx.tools?.some(({ name }) => name === 'docs-search') ?? false
 }
 
 /**
@@ -69,11 +85,13 @@ export interface InstructionsContext {
  */
 export class InstructionsFormatter {
     private knowledgeFirstSections(ctx: InstructionsContext): string[] {
-        const docsSearchEnabled = ctx.tools?.some(({ name }) => name === 'docs-search')
         const businessKnowledgeSearchEnabled = ctx.tools?.some(
             ({ name }) => name === 'business-knowledge-documents-search'
         )
-        return this.knowledgeFirstSectionsForCapabilities({ docsSearchEnabled, businessKnowledgeSearchEnabled })
+        return this.knowledgeFirstSectionsForCapabilities({
+            docsSearchEnabled: docsSearchAvailable(ctx),
+            businessKnowledgeSearchEnabled,
+        })
     }
 
     private knowledgeFirstSectionsForCapabilities(opts: {
@@ -316,13 +334,15 @@ export class InstructionsFormatter {
             AGENT_FEEDBACK,
             EXAMPLES,
         ]
+        const docsSearchEnabled = docsSearchAvailable(ctx)
         const renderCtx: InstructionsContext = opts.stripEnvContext
             ? {
                   guidelines: ctx.guidelines,
                   queryTools: ctx.queryTools,
+                  docsSearchEnabled,
                   ...(opts.keepEnvContext ? { metadata: ctx.metadata, groupTypes: ctx.groupTypes } : {}),
               }
-            : { ...ctx, tools: undefined }
+            : { ...ctx, tools: undefined, docsSearchEnabled }
         // Tool domains are temporarily omitted from the command reference while we
         // probe claude.ai's per-tool size cap (it silently drops oversized entries);
         // agents still discover domains at runtime via the `search` command, and
@@ -357,6 +377,7 @@ export class InstructionsFormatter {
             query_tools: ctx.queryTools ? buildQueryToolsBlock(ctx.queryTools) : '',
             entity_schema_discovery: ENTITY_SCHEMA_DISCOVERY.trim(),
             extra_commands: opts.extraCommands ?? '',
+            whats_new_check: docsSearchAvailable(ctx) ? WHATS_NEW_WITH_DOCS_SEARCH : WHATS_NEW_CHANGELOG_ONLY,
         }
         const body = sections
             .map((s) => s.trim())

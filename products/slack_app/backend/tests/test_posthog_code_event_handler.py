@@ -197,7 +197,7 @@ class TestPostHogCodeEventHandler(SimpleTestCase):
 
 class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     def setUp(self):
-        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
+        from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -1263,7 +1263,7 @@ class TestChannelApprovalGate(TestCase):
     def setUp(self):
         from django.utils import timezone
 
-        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
+        from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -1418,7 +1418,7 @@ class TestChannelApprovalGate(TestCase):
 
 class TestAssistantEvents(TestCase):
     def setUp(self):
-        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
+        from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -1539,7 +1539,7 @@ class TestQueueWorkflowDispatch(TestCase):
     def setUp(self):
         from django.utils import timezone
 
-        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
+        from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()

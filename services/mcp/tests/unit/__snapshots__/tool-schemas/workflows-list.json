@@ -23,7 +23,7 @@
         },
         "origin_product": {
             "description": "Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
-            "enum": ["loops"],
+            "enum": ["broadcasts", "loops"],
             "type": "string"
         },
         "search": {
@@ -40,8 +40,7 @@
             "type": "string"
         },
         "type": {
-            "description": "Filter by workflow type. `loop` returns workflows owned by a Desktop loop; `messaging` returns the remaining workflows with an email, SMS, or push action; `automation` returns the rest.",
-            "enum": ["automation", "loop", "messaging"],
+            "description": "Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.",
             "type": "string"
         },
         "updated_at": {
