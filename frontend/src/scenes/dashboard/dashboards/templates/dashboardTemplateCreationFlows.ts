@@ -27,16 +27,16 @@ export function runDashboardTemplateClickFlow(
     if (ctx.isLoading) {
         return
     }
-    ctx.setIsLoading(true)
     const variables = template.variables ?? []
     if (variables.length === 0) {
+        ctx.setIsLoading(true)
         ctx.createDashboardFromTemplate(template, variables, ctx.redirectAfterCreation)
+        // Routing to the variable step starts no request, so it must not set `isLoading`: that latched on
+        // and left the guard above swallowing every later click.
+    } else if (!ctx.newDashboardModalVisible) {
+        ctx.showVariableSelectModal(template)
     } else {
-        if (!ctx.newDashboardModalVisible) {
-            ctx.showVariableSelectModal(template)
-        } else {
-            ctx.setActiveDashboardTemplate(template)
-        }
+        ctx.setActiveDashboardTemplate(template)
     }
     ctx.onItemClick?.(template)
 }

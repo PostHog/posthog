@@ -18,7 +18,11 @@ jest.mock('kea', () => ({
 }))
 
 jest.mock('@posthog/lemon-ui', () => ({
-    LemonButton: ({ children, ...props }: any) => <button {...props}>{children}</button>,
+    LemonButton: ({ children, loading, ...props }: any) => (
+        <button {...props} data-loading={loading ? 'true' : undefined}>
+            {children}
+        </button>
+    ),
     LemonInput: ({ value, onChange, fullWidth: _fullWidth, ...props }: any) => (
         <input value={value} onChange={(event) => onChange?.(event.target.value)} {...props} />
     ),
@@ -51,8 +55,17 @@ jest.mock('./DashboardTemplateVariables', () => ({
 }))
 
 jest.mock('lib/ui/DialogPrimitive/DialogPrimitive', () => ({
-    DialogPrimitive: ({ children, className }: { children: ReactNode; className?: string }) => (
+    DialogPrimitive: ({
+        children,
+        className,
+        onOpenChange,
+    }: {
+        children: ReactNode
+        className?: string
+        onOpenChange?: (open: boolean) => void
+    }) => (
         <div data-attr="dialog-primitive" data-class-name={className}>
+            <button type="button" data-attr="dialog-dismiss" onClick={() => onOpenChange?.(false)} />
             {children}
         </div>
     ),
@@ -109,12 +122,14 @@ const Z_INDEX_CLASS = 'z-[calc(var(--z-popover)-1)]'
 
 describe('NewDashboardModal', () => {
     let newDashboardValues: Record<string, unknown>
+    let hideNewDashboardModal: jest.Mock
 
     beforeEach(() => {
         jest.clearAllMocks()
         mockedUseValues.mockReset()
         mockedUseActions.mockReset()
 
+        hideNewDashboardModal = jest.fn()
         newDashboardValues = {
             newDashboardModalVisible: true,
             activeDashboardTemplate: {
@@ -167,7 +182,7 @@ describe('NewDashboardModal', () => {
         mockedUseActions.mockImplementation((logic: unknown) => {
             if (isNewDashboardLogicRef(logic)) {
                 return {
-                    hideNewDashboardModal: jest.fn(),
+                    hideNewDashboardModal,
                     clearActiveDashboardTemplate: jest.fn(),
                     createDashboardFromTemplate: jest.fn(),
                 }
@@ -208,7 +223,20 @@ describe('NewDashboardModal', () => {
         expect(document.querySelector('[data-attr="dashboard-template-variables"]')).toBeInTheDocument()
     })
 
+    it.each([
+        ['dismisses the modal when no create is in flight', false, 1],
+        ['ignores a dismissal while a create is in flight', true, 0],
+    ])('%s', (_name, isLoading, expectedCalls) => {
+        newDashboardValues = { ...newDashboardValues, isLoading }
+
+        render(<NewDashboardModal />)
+        document.querySelector<HTMLButtonElement>('[data-attr="dialog-dismiss"]')?.click()
+
+        expect(hideNewDashboardModal).toHaveBeenCalledTimes(expectedCalls)
+    })
+
     it('still keeps pickers and portaled menus above the modal on the template picker step', () => {
+        hideNewDashboardModal = jest.fn()
         newDashboardValues = {
             newDashboardModalVisible: true,
             activeDashboardTemplate: null,
