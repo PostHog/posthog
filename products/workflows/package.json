@@ -18,6 +18,7 @@
         "zod": "^4.0.0"
     },
     "devDependencies": {
+        "@posthog/workflows": "workspace:*",
         "@storybook/react": "catalog:",
         "@testing-library/react": "*",
         "@types/papaparse": "*",
