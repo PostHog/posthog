@@ -1203,8 +1203,14 @@ const experimentSetupContext = (): ToolBase<
         if (params.target_url_contains !== undefined) {
             body['target_url_contains'] = params.target_url_contains
         }
+        if (params.target_properties !== undefined) {
+            body['target_properties'] = params.target_properties
+        }
         if (params.metric_event !== undefined) {
             body['metric_event'] = params.metric_event
+        }
+        if (params.metric_properties !== undefined) {
+            body['metric_properties'] = params.metric_properties
         }
         if (params.previous_experiments_limit !== undefined) {
             body['previous_experiments_limit'] = params.previous_experiments_limit

@@ -34,6 +34,10 @@ class TrainingRunNotFound(LookupError):
     """No training run with that id in this team."""
 
 
+class SuggestionNotFound(LookupError):
+    """No suggestion with that id on this pipeline."""
+
+
 class AutoresearchConflict(ValueError):
     """The request is well-formed but the pipeline or run is in the wrong state for it.
 
@@ -46,6 +50,21 @@ class InvalidTarget(ValueError):
 
     The serializer maps it to a validation error on ``target_definition``, so the message is
     user-facing copy.
+    """
+
+
+class ArtifactNotFound(LookupError):
+    """No artifact at that path in the run's bundle."""
+
+
+class InvalidArtifactPath(ValueError):
+    """The artifact path escapes the bundle prefix or is otherwise unusable."""
+
+
+class ArtifactStorageUnavailable(RuntimeError):
+    """Object storage refused or failed the artifact write, so nothing was stored.
+
+    The viewset maps it to a 503 with the message as-is, so the message is user-facing copy.
     """
 
 
@@ -120,6 +139,7 @@ class IterationTrailEntry:
     train_score: float | None
     agent_description: str
     model_spec: dict[str, Any]
+    recipe_snapshot: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -164,6 +184,43 @@ class TrainingRun:
     started_at: datetime | None
     completed_at: datetime | None
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class Iteration:
+    """One recipe attempt within a training run."""
+
+    id: UUID
+    pipeline: UUID
+    training_run: UUID
+    iteration_number: int
+    recipe_hash: str
+    recipe_snapshot: dict[str, Any]
+    model_spec: dict[str, Any]
+    train_score: float | None
+    holdout_score: float | None
+    status: str
+    agent_description: str
+    agent_confidence: float | None
+    parent_suggestion: UUID | None
+    created_at: datetime
+
+
+@dataclass(frozen=True, config={"arbitrary_types_allowed": True})
+class Suggestion:
+    """A free-text hypothesis injected into a running pipeline by a user or agent."""
+
+    id: UUID
+    pipeline: UUID
+    prompt: str
+    priority: str
+    status: str
+    source: str
+    agent_response: str
+    created_by: Any
+    linked_iteration_ids: list[UUID]
+    created_at: datetime
+    updated_at: datetime
 
 
 @dataclass(frozen=True)
@@ -261,3 +318,72 @@ class ResolvedTemplate:
     inference_population: dict[str, Any]
     output_person_property: str
     notes: str
+
+
+# ── Training-run history ───────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class TrainingRunHistoryEntry:
+    run_id: UUID
+    pipeline_id: UUID
+    is_current_pipeline: bool
+    target_event: str
+    horizon_days: int
+    best_holdout_score: float | None
+    iteration_count: int
+    completed_at: datetime | None
+    summary: dict[str, Any] | None
+    iterations: list[IterationTrailEntry]
+
+
+@dataclass(frozen=True)
+class TrainingRunHistory:
+    runs: list[TrainingRunHistoryEntry]
+
+
+# ── Artifact bundle ────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class ArtifactList:
+    paths: list[str]
+    count: int
+
+
+@dataclass(frozen=True)
+class StoredArtifact:
+    path: str
+    size_bytes: int
+    sha256: str
+
+
+@dataclass(frozen=True)
+class ArtifactContent:
+    path: str
+    size_bytes: int
+    sha256: str
+    content_base64: str
+
+
+@dataclass(frozen=True)
+class ArtifactDeleteResult:
+    path: str
+    deleted: bool
+
+
+# ── Feature materialization ────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class MaterializedFeatures:
+    """Sandbox paths and shape of the parquet the agent reads with ``pd.read_parquet``."""
+
+    train_features_path: str
+    train_labels_path: str
+    holdout_features_path: str
+    holdout_labels_path: str
+    n_train: int
+    n_holdout: int
+    n_features: int
+    feature_cols: list[str]

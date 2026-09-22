@@ -435,6 +435,8 @@ jobs:
                         - 'posthog/temporal/ingestion_acceptance_test/**'
                         - 'posthog/temporal/backfill_group_type_created_at/**'
                         - 'posthog/temporal/backfill_materialized_property/**'
+                        - 'products/security/backend/temporal/**'
+                        - 'products/security/backend/logic/**'
                         - 'posthog/kafka_client/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'

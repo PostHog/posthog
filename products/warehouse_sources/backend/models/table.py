@@ -561,6 +561,17 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self.columns = columns
         self.column_order = list(columns.keys())
 
+    def _nested_object_column_type(self, described_type: str) -> str:
+        """The type to store for a described column, as JSON where a key list would go stale.
+
+        Inference describes a JSON object as a named Tuple of the keys its sample held, and that Tuple becomes the
+        `structure` of every read, so a key outside the sample is unreadable. The JSON type carries no key list.
+        An array of objects and a Parquet-backed format keep the Tuple, which reads correctly and types each field.
+        """
+        if self.format != DataWarehouseTableFormat.JSON or clean_type(described_type) != "Tuple":
+            return described_type
+        return "JSON"
+
     def _describe_settings(self) -> dict[str, str | int]:
         settings: dict[str, str | int] = {**DISABLE_HIVE_PARTITIONING_SETTINGS}
         if self._is_csv_format() and self.csv_allow_double_quotes is not None:
@@ -645,9 +656,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                     f"PostHog can't use the column name {column_name!r}. Column names can't contain "
                     "backticks, backslashes, line breaks, or null bytes. Rename the column, then try again."
                 )
+            clickhouse_type = self._nested_object_column_type(str(item[1]))
             columns[column_name] = DataWarehouseTableIntrospectedColumn(
-                hogql=CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
-                clickhouse=item[1],
+                hogql=CLICKHOUSE_HOGQL_MAPPING[clean_type(clickhouse_type)].__name__,
+                clickhouse=clickhouse_type,
                 valid=True,
             )
 

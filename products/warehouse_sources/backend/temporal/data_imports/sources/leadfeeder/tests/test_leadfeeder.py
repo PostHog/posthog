@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder
     _default_start_date,
     _flatten_item,
     _is_offset_exceeded,
+    _split_window,
     _to_date_str,
     _unified_client_config,
     _unified_headers,
@@ -371,6 +372,13 @@ class TestUnifiedClientConfig:
         assert _unified_headers("key123")["X-Api-Key"] == "key123"
 
 
+def _offset_exceeded_response(body: dict[str, Any]) -> Response:
+    resp = Response()
+    resp.status_code = 416
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
 def _http_error(status_code: int, body: dict[str, Any] | None) -> HTTPError:
     resp = Response()
     resp.status_code = status_code
@@ -380,8 +388,15 @@ def _http_error(status_code: int, body: dict[str, Any] | None) -> HTTPError:
 
 
 class TestIsOffsetExceeded:
-    def test_matches_416_with_offset_exceeded_code(self) -> None:
-        assert _is_offset_exceeded(_http_error(416, {"code": "offset_exceeded"})) is True
+    @parameterized.expand(
+        [
+            ("top_level_code", {"code": "offset_exceeded"}),
+            # A JSON:API error body wraps the code in an `errors` list.
+            ("wrapped_in_errors", {"errors": [{"code": "offset_exceeded", "title": "Offset exceeded"}]}),
+        ]
+    )
+    def test_matches_416_naming_the_code(self, _name: str, body: dict[str, Any]) -> None:
+        assert _is_offset_exceeded(_http_error(416, body)) is True
 
     @parameterized.expand(
         [
@@ -392,6 +407,51 @@ class TestIsOffsetExceeded:
     )
     def test_does_not_match(self, _name: str, status_code: int, body: dict[str, Any] | None) -> None:
         assert _is_offset_exceeded(_http_error(status_code, body)) is False
+
+
+class TestSplitWindow:
+    @parameterized.expand(
+        [
+            (
+                "two_days_in_halves",
+                "2026-07-01",
+                "2026-07-02",
+                2,
+                [("2026-07-01", "2026-07-01"), ("2026-07-02", "2026-07-02")],
+            ),
+            (
+                "five_days_in_three",
+                "2026-07-01",
+                "2026-07-05",
+                3,
+                [("2026-07-01", "2026-07-02"), ("2026-07-03", "2026-07-04"), ("2026-07-05", "2026-07-05")],
+            ),
+            # Fewer than two parts would leave the window unchanged and recurse forever.
+            (
+                "one_part_still_splits",
+                "2026-07-01",
+                "2026-07-04",
+                1,
+                [("2026-07-01", "2026-07-02"), ("2026-07-03", "2026-07-04")],
+            ),
+        ]
+    )
+    def test_covers_the_window_without_gaps(
+        self, _name: str, start: str, end: str, parts: int, expected: list[tuple[str, str]]
+    ) -> None:
+        assert [(window.start, window.end) for window in _split_window(start, end, parts)] == expected
+
+    @parameterized.expand(
+        [
+            ("single_day", "2026-07-02", "2026-07-02", 4),
+            ("end_before_start", "2026-07-02", "2026-07-01", 4),
+            ("unparseable_bound", "01/07/2026", "2026-07-02", 4),
+        ]
+    )
+    def test_returns_nothing_when_there_is_no_narrower_window(
+        self, _name: str, start: str, end: str, parts: int
+    ) -> None:
+        assert _split_window(start, end, parts) == []
 
 
 class TestUnifiedRequests:
@@ -434,7 +494,9 @@ class TestUnifiedRequests:
             session,
             [
                 _unified_response([_item("1", "account"), _item("2", "account")]),
+                _unified_response([], page_count=1),
                 _unified_response([_item("100", "company_location")]),
+                _unified_response([], page_count=1),
                 _unified_response([_item("200", "company_location")]),
             ],
         )
@@ -454,6 +516,7 @@ class TestUnifiedRequests:
             session,
             [
                 _unified_response([_item("1", "account")]),
+                _unified_response([], page_count=1),
                 _unified_response([_item("100", "web_visit", started_at="2026-06-01T10:00:00Z")]),
             ],
         )
@@ -468,33 +531,98 @@ class TestUnifiedRequests:
 
     @mock.patch(CLIENT_SESSION_PATCH)
     @time_machine.travel("2026-07-02", tick=False)
-    def test_leads_fan_out_skips_account_past_offset_exceeded(self, MockSession) -> None:
-        # A busy account can have more rows in the sync window than the vendor's search depth
-        # limit allows paging through; the vendor 416s with `offset_exceeded` on the page past that
-        # limit instead of returning an empty page. That must end the account's pagination, not the
-        # whole sync — the next account's rows still need to land.
+    def test_window_reporting_more_pages_than_the_vendor_serves_is_split(self, MockSession) -> None:
+        # A busy account can hold more rows in the sync window than the vendor will page through:
+        # past 100 pages of 100 it answers 416 `offset_exceeded` instead of the next page. The rows
+        # past that point are only reachable through a narrower date window, so a window reporting
+        # more pages than that must be split before any of it is read.
         session = MockSession.return_value
-        offset_exceeded = Response()
-        offset_exceeded.status_code = 416
-        offset_exceeded._content = json.dumps({"code": "offset_exceeded"}).encode()
-        _wire_full(
+        requests = _wire_full(
             session,
             [
-                _unified_response([_item("1", "account"), _item("2", "account")]),
-                _unified_response([_item("100", "company_location")], page_count=2),
-                offset_exceeded,
+                _unified_response([_item("1", "account")]),
+                _unified_response([], page_count=200),
+                _unified_response([], page_count=1),
+                _unified_response([_item("100", "company_location")]),
+                _unified_response([], page_count=1),
                 _unified_response([_item("200", "company_location")]),
             ],
         )
 
         rows = _rows(
-            _source("leads", _make_manager(), start_date_config="2024-01-01", api_version=LEADFEEDER_API_2026_08_07)
+            _source("leads", _make_manager(), start_date_config="2026-01-01", api_version=LEADFEEDER_API_2026_08_07)
         )
 
         assert rows == [
             {"id": "100", "type": "company_location", "account_id": "1"},
-            {"id": "200", "type": "company_location", "account_id": "2"},
+            {"id": "200", "type": "company_location", "account_id": "1"},
         ]
+        windows = [
+            (r["params"]["start_date"], r["params"]["end_date"])
+            for r in requests
+            if "/v1/web-visits/companies" in r["url"]
+        ]
+        # The whole window is covered by halves, each read end to end, with no gap or overlap.
+        assert windows[0] == ("2026-01-01", "2026-07-02")
+        assert set(windows[1:]) == {("2026-01-01", "2026-04-02"), ("2026-04-03", "2026-07-02")}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    @time_machine.travel("2026-07-02", tick=False)
+    def test_offset_exceeded_mid_window_re_reads_the_window_narrower(self, MockSession) -> None:
+        # The page count the vendor reports can understate what it will serve, so a window can still
+        # run into the 416 half way through. The rest of that window must be re-read as narrower
+        # windows; stopping there would silently drop every row past the limit.
+        session = MockSession.return_value
+        requests = _wire_full(
+            session,
+            [
+                _unified_response([_item("1", "account")]),
+                _unified_response([], page_count=1),
+                _unified_response([_item("100", "company_location")], page_count=2),
+                _offset_exceeded_response({"code": "offset_exceeded"}),
+                _unified_response([], page_count=1),
+                _unified_response([_item("200", "company_location")]),
+                _unified_response([], page_count=1),
+                _unified_response([_item("300", "company_location")]),
+            ],
+        )
+
+        rows = _rows(
+            _source("leads", _make_manager(), start_date_config="2026-07-01", api_version=LEADFEEDER_API_2026_08_07)
+        )
+
+        assert [row["id"] for row in rows] == ["100", "200", "300"]
+        windows = {
+            (r["params"]["start_date"], r["params"]["end_date"])
+            for r in requests
+            if "/v1/web-visits/companies" in r["url"]
+        }
+        assert ("2026-07-01", "2026-07-01") in windows
+        assert ("2026-07-02", "2026-07-02") in windows
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    @time_machine.travel("2026-07-02", tick=False)
+    def test_single_day_over_the_limit_keeps_the_rows_it_can_read(self, MockSession) -> None:
+        # A single day can hold more rows than the vendor will page through, and there is no
+        # narrower window to ask for. Keep the rows that were read and finish the table instead of
+        # splitting forever or failing the sync.
+        session = MockSession.return_value
+        requests = _wire_full(
+            session,
+            [
+                _unified_response([_item("1", "account")]),
+                _unified_response([], page_count=150),
+                _unified_response([_item("100", "company_location")], page_count=150),
+                _offset_exceeded_response({"code": "offset_exceeded"}),
+            ],
+        )
+
+        rows = _rows(
+            _source("leads", _make_manager(), start_date_config="2026-07-02", api_version=LEADFEEDER_API_2026_08_07)
+        )
+
+        assert rows == [{"id": "100", "type": "company_location", "account_id": "1"}]
+        assert len(requests) == 4
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_legacy_pin_still_uses_token_api_paths(self, MockSession) -> None:
