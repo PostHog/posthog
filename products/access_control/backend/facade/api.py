@@ -478,6 +478,16 @@ def set_object_access_control(
     return _to_object_rule(rule)
 
 
+def delete_object_access_controls_for_object(*, team_id: int, resource: str, resource_id: str) -> int:
+    """Remove every rule on one object, for every subject. Returns the number of rules removed.
+
+    For the moment an object stops existing: a soft-deleted object cannot be reached, so its
+    rules decide nothing, and a restored object starts from the project defaults.
+    """
+    deleted, _ = AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=resource_id).delete()
+    return deleted
+
+
 # --- Convenience for external callers (avoids importing UUID type at call sites) ---
 
 
