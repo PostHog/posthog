@@ -206,6 +206,8 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         await AccessControl.objects.acreate(
             team=self.team, resource="insight", resource_id=str(insight.pk), access_level="viewer"
         )
+        with self.assertRaisesRegex(MaxToolRetryableError, "Insight not found"):
+            await tool._get_insight(insight.short_id)
         with self.assertRaisesRegex(MaxToolRetryableError, "permission to edit"):
             await tool._save_insight_query(insight, {"kind": "TrendsQuery", "series": [], "interval": "week"})
         await insight.arefresh_from_db()

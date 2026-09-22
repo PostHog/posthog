@@ -158,9 +158,14 @@ def get_or_create_saved_insight(
     )
 
 
-def saved_insight_for_update(*, team_id: int, short_id: str) -> SavedInsightDefinition | None:
-    insight = Insight.objects.filter(team_id=team_id, short_id=short_id, deleted=False).first()
+def saved_insight_for_update(*, team: Team, user: User, short_id: str) -> SavedInsightDefinition | None:
+    access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+    if not access_control.check_access_level_for_resource("insight", "editor"):
+        return None
+    insight = Insight.objects.filter(team=team, short_id=short_id, deleted=False).first()
     if insight is None:
+        return None
+    if not access_control.check_access_level_for_object(insight, "editor"):
         return None
     return SavedInsightDefinition(
         id=insight.pk, short_id=insight.short_id, name=insight.name, query=insight.query or {}

@@ -565,7 +565,9 @@ class CreateInsightTool(MaxTool):
         return [("insight", "editor")]
 
     async def _get_insight(self, insight_id: str) -> SavedInsightDefinition:
-        insight = await database_sync_to_async(saved_insight_for_update)(team_id=self._team.id, short_id=insight_id)
+        insight = await database_sync_to_async(saved_insight_for_update)(
+            team=self._team, user=self._user, short_id=insight_id
+        )
         if insight is None:
             raise MaxToolRetryableError(
                 "Insight not found. insight_id must be the short ID of a saved insight in this project. "
