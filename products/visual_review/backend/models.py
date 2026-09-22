@@ -292,7 +292,7 @@ class RunSnapshot(ProductTeamModel):
             models.UniqueConstraint(fields=["run", "identifier"], name="unique_snapshot_identifier_per_run"),
         ]
         indexes = [
-            # Covering, so the flakiness reads (a run's rows by result, filtered on reason and
+            # Covering, so the flakiness reads (a run's rows by result, filtered on reason, team and
             # identifier) are index-only scans instead of reads of the whole table.
             models.Index(
                 fields=["run", "result"],
@@ -302,6 +302,7 @@ class RunSnapshot(ProductTeamModel):
                     "identifier",
                     "diff_percentage",
                     "tolerated_hash_match",
+                    "team_id",
                 ],
                 name="snapshot_run_result_covering",
             ),

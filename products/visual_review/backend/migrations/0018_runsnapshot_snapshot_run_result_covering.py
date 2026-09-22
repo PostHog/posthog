@@ -23,6 +23,7 @@ class Migration(migrations.Migration):
                     "identifier",
                     "diff_percentage",
                     "tolerated_hash_match",
+                    "team_id",
                 ],
                 name="snapshot_run_result_covering",
             ),
