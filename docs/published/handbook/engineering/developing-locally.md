@@ -717,11 +717,10 @@ See the [Type system guide](type-system) for details on how type generation work
 
 `DELETE /api/projects/<project-id>/file_system/<id>/?recursive=false` removes an empty folder and returns `409` with code `directory_not_empty` if it contains descendants.
 The check includes descendants hidden by object permissions and leaves their contents unchanged.
+The database checks for descendants in the delete statement, so a child added before that statement prevents deletion.
+This does not lock out later tree writes; concurrent creation can recreate a folder at the same path.
 Omitting `recursive`, or setting it to `true`, keeps the existing recursive deletion behavior.
 File deletion continues to use the existing object permissions and reference handling.
-
-The application CSP allows connections to `https://i.copy.sh` so browser clients can download Linux images for v86.
-This allows downloads only; it does not add a script origin or enable JavaScript evaluation.
 
 ## Extra: Working on multiple branches simultaneously
 
