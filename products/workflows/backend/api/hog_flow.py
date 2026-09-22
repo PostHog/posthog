@@ -6,7 +6,7 @@ import dataclasses
 from copy import deepcopy
 from datetime import datetime, timedelta
 from time import monotonic
-from typing import Any, NamedTuple, Optional, cast
+from typing import Any, Final, NamedTuple, Optional, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
@@ -3784,12 +3784,39 @@ class CommaSeparatedListFilter(BaseInFilter, CharFilter):
     pass
 
 
+# A workflow's type is what owns it, else what it does. `loop` and `broadcast` name the surfaces that
+# have their own page, and the behavioural values exclude them: a flow those surfaces own is tagged
+# by surface in the UI (see WorkflowTypeTag), so returning it under `messaging` would contradict the
+# tag on the row. Accepting several lets a list say which surfaces it covers, which is how the
+# workflows page asks for everything except the ones that moved out.
+WORKFLOW_TYPES: Final[tuple[str, ...]] = ("messaging", "automation", "loop", "broadcast")
+OWNED_WORKFLOW_TYPES: Final[dict[str, str]] = {
+    "loop": HogFlow.OriginProduct.LOOPS,
+    "broadcast": HogFlow.OriginProduct.BROADCASTS,
+}
+
+
+def workflow_type_q(requested: set[str]) -> Q:
+    owned = Q(origin_product__in=[OWNED_WORKFLOW_TYPES[t] for t in requested if t in OWNED_WORKFLOW_TYPES])
+    behavioural = requested - set(OWNED_WORKFLOW_TYPES)
+    if not behavioural:
+        return owned
+
+    messaging = Q()
+    for action_type in MESSAGING_ACTION_TYPES:
+        messaging |= Q(actions__contains=[{"type": action_type}])
+    unowned = ~Q(origin_product__in=list(OWNED_WORKFLOW_TYPES.values()))
+    if behavioural == {"messaging", "automation"}:
+        return owned | unowned
+    return owned | (unowned & (messaging if behavioural == {"messaging"} else ~messaging))
+
+
 class HogFlowFilterSet(FilterSet):
     class Meta:
         model = HogFlow
         # `created_by` is filtered by uuid in safely_get_queryset (the list UI's member picker keys on
         # uuid, not pk), so it's deliberately not an exact-match field here.
-        fields = ["id", "created_at", "updated_at", "status"]
+        fields = ["id", "created_at", "updated_at", "status", "origin_product"]
 
 
 class HogFlowPagination(LimitOffsetPagination):
@@ -3915,8 +3942,7 @@ WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogF
             OpenApiParameter(
                 "type",
                 OpenApiTypes.STR,
-                enum=["messaging", "automation", "loop"],
-                description="Filter by workflow type. `loop` returns workflows owned by a Desktop loop; `messaging` returns the remaining workflows with an email, SMS, or push action; `automation` returns the rest.",
+                description="Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.",
             ),
             OpenApiParameter(
                 "origin_product",
@@ -4061,22 +4087,17 @@ class HogFlowViewSet(
 
             workflow_type = self.request.GET.get("type")
             if workflow_type:
-                if workflow_type not in ("messaging", "automation", "loop"):
-                    raise exceptions.ValidationError({"type": "Must be one of: messaging, automation, loop"})
-                if workflow_type == "loop":
-                    queryset = queryset.filter(origin_product=HogFlow.OriginProduct.LOOPS)
-                else:
-                    # A loop-origin workflow renders a "Loop" tag regardless of its actions (see
-                    # WorkflowTypeTag), so it must not also match messaging/automation - otherwise
-                    # picking one of those filters could return rows the UI still labels "Loop".
-                    messaging_q = Q()
-                    for action_type in MESSAGING_ACTION_TYPES:
-                        messaging_q |= Q(actions__contains=[{"type": action_type}])
-                    queryset = queryset.exclude(origin_product=HogFlow.OriginProduct.LOOPS)
-                    queryset = (
-                        queryset.filter(messaging_q) if workflow_type == "messaging" else queryset.exclude(messaging_q)
-                    )
+                requested = {value for value in workflow_type.split(",") if value}
+                unknown = sorted(requested - set(WORKFLOW_TYPES))
+                # A value of only separators names no type. Filtering on nothing would answer with an
+                # empty list, so it is rejected the way any other unusable value is.
+                if unknown or not requested:
+                    named = f"Unknown: {', '.join(unknown)}. " if unknown else ""
+                    raise exceptions.ValidationError({"type": f"{named}Must be one of: {', '.join(WORKFLOW_TYPES)}"})
+                queryset = queryset.filter(workflow_type_q(requested))
 
+            # `?type=loop` and `?type=broadcast` return the same rows, but Desktop's Loops list sends
+            # this param and ships on its own release cadence, so installed builds keep sending it.
             origin_product = self.request.GET.get("origin_product")
             if origin_product:
                 if origin_product not in HogFlow.OriginProduct.values:
