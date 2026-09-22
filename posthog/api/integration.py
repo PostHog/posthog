@@ -1527,12 +1527,15 @@ class IntegrationViewSet(
             if channel:
                 serialized_channel = self._serialize_slack_channel(channel)
                 data = cache.get(key)
-                if data is not None:
-                    remaining_ttl = cache.ttl(key)
+                # ttl() and set(xx=True) are django-redis extensions rather than BaseCache methods,
+                # so a backend without them skips the update instead of failing the lookup.
+                redis_cache = cast(Any, cache)
+                if data is not None and hasattr(cache, "ttl"):
+                    remaining_ttl = redis_cache.ttl(key)
                     if remaining_ttl is not None and remaining_ttl > 0:
                         channels_by_id = {item["id"]: item for item in data["channels"]}
                         channels_by_id[channel_id] = serialized_channel
-                        cache.set(
+                        redis_cache.set(
                             key,
                             {**data, "channels": list(channels_by_id.values())},
                             timeout=remaining_ttl,

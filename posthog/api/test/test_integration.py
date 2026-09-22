@@ -3,6 +3,7 @@ import json
 import time
 import hashlib
 from datetime import timedelta
+from typing import Any, cast
 from urllib.parse import quote, urlencode
 
 import pytest
@@ -2314,7 +2315,6 @@ class TestIntegrationAPIKeyAccess:
             secure_value=hash_key_value("test_key_slack_cache"),
             scopes=["integration:read"],
         )
-        headers = {"HTTP_AUTHORIZATION": "Bearer test_key_slack_cache"}
         base_url = f"/api/environments/{self.team.pk}/integrations/{integration.id}/channels/"
         cache_key = f"slack/{integration.id}/{owns_integration}/channels"
         other_cache_key = f"slack/{integration.id}/{not owns_integration}/channels"
@@ -2337,7 +2337,7 @@ class TestIntegrationAPIKeyAccess:
             return channel
 
         mock_slack_class.return_value.get_channel_by_id.side_effect = resolve_channel
-        response = client.get(base_url, {"channel_id": channel["id"]}, **headers)
+        response = client.get(base_url, {"channel_id": channel["id"]}, HTTP_AUTHORIZATION="Bearer test_key_slack_cache")
         assert response.status_code == status.HTTP_200_OK
         resolved_channel = response.json()["channels"][0]
         assert resolved_channel["name"] == "release-updates"
@@ -2347,11 +2347,13 @@ class TestIntegrationAPIKeyAccess:
         )
 
         if cache_state == "present":
-            response = client.get(base_url, {"search": "release-updates"}, **headers)
+            response = client.get(
+                base_url, {"search": "release-updates"}, HTTP_AUTHORIZATION="Bearer test_key_slack_cache"
+            )
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["channels"] == [resolved_channel]
             assert response.json()["lastRefreshedAt"] == cached_data["lastRefreshedAt"]
-            assert 0 < cache.ttl(cache_key) <= 30
+            assert 0 < cast(Any, cache).ttl(cache_key) <= 30
         else:
             assert cache.get(cache_key) is None
         mock_slack_class.return_value.list_channels.assert_not_called()
