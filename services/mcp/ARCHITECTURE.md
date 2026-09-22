@@ -92,8 +92,6 @@ There are three independent layers that emit signals about each MCP request:
 
 #### MCP Analytics SDK integration
 
-The canonical event is `$mcp_tool_call`.
-The legacy unprefixed `mcp_tool_call` alias is no longer emitted — the transition shim that dual-emitted it through the cutover has been removed (only pre-2026-06-16 history remains under that name).
 The public [event and property reference](https://posthog.com/docs/mcp-analytics/events) owns the shared wire contract.
 The [custom server integration guide](https://posthog.com/docs/mcp-analytics/custom-servers) documents the `PostHogMCP` API used by this Hono server.
 
