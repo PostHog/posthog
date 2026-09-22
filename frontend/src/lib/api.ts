@@ -486,6 +486,9 @@ export class ApiConfig {
     }
 }
 
+/** A workflow's type: the surface that owns it, else what it does. */
+export type HogFlowListType = 'messaging' | 'automation' | 'loop' | 'broadcast'
+
 export class ApiRequest {
     private pathComponents: string[]
     private queryString: string | undefined
@@ -6432,13 +6435,18 @@ const api = {
             search?: string
             status?: HogFlow['status']
             created_by?: string
-            type?: 'messaging' | 'automation' | 'loop'
+            type?: HogFlowListType[]
             /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
             trigger?: string
             limit?: number
             offset?: number
         }): Promise<CountedPaginatedResponse<HogFlow>> {
-            return await new ApiRequest().hogFlows().withQueryString(params).get()
+            // The API reads one comma-separated value; toParams would send a repeated key.
+            const { type, ...rest } = params ?? {}
+            return await new ApiRequest()
+                .hogFlows()
+                .withQueryString({ ...rest, ...(type?.length ? { type: type.join(',') } : {}) })
+                .get()
         },
         async getHogFlow(hogFlowId: HogFlow['id']): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).get()
