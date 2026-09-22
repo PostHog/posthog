@@ -20,6 +20,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.ingress.verify.errors import VerifierUnavailable
+from posthog.ingress.verify.sns_signature import verify_sns_message
 
 logger = structlog.get_logger(__name__)
 
@@ -209,12 +210,11 @@ class SnsSignature:
     """AWS SNS message signature plus a topic-ARN allowlist.
 
     The signature proves "from AWS SNS" and the allowlist proves "from our topic", so
-    neither half is optional. The RSA work stays with the caller-supplied verifier, which
-    owns the certificate fetch and its own cache. That verifier raises `VerifierUnavailable`
-    when it could not obtain the certificate at all.
+    neither half is optional. The signature half is the same for every SNS topic and lives
+    in `sns_signature.py`, which raises `VerifierUnavailable` when it could not obtain the
+    certificate at all; only the allowlist belongs to the endpoint.
     """
 
-    verify_message: Callable[[Mapping[str, Any]], bool]
     allowed_topic_arns: Callable[[], frozenset[str]]
 
     def rejects_headers(self, headers: Mapping[str, str]) -> bool:
@@ -237,7 +237,7 @@ class SnsSignature:
             logger.warning("ingress_sns_unknown_topic", topic=message.get("TopicArn"))
             return VerificationOutcome.INVALID
         try:
-            verified = self.verify_message(message)
+            verified = verify_sns_message(message)
         except VerifierUnavailable:
             # UNAVAILABLE rather than INVALID: the signature was never checked, and SNS reads
             # the invalid-signature status as a verdict and stops delivering.
