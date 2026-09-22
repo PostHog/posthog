@@ -22,8 +22,23 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError
 
 from posthog.clickhouse.query_tagging import Feature, tags_context
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
+
+
+@frozen
+class _ParityReading:
+    """One team's numbers from one read path, plus how the precompute path answered.
+
+    `served_from_precompute` is only true when the read actually read the preagg tables —
+    `dataComputedAt` is set only then. If it is false the path either reported not-ready (no warm
+    window, `not_ready`) or fell back to live (non-precomputable goal or build error). Both make the
+    comparison vacuous, but they are different operator verdicts, so they stay apart."""
+
+    metrics: dict[str, float]
+    served_from_precompute: bool
+    not_ready: bool
 
 
 def _aggregated_query(*, date_from: str, date_to: str) -> dict[str, Any]:
@@ -52,12 +67,7 @@ def _pct_diff(precompute_value: float, live_value: float) -> float:
     return abs(precompute_value - live_value) / live_value * 100
 
 
-def _run(team: Team, query: dict[str, Any], *, use_precompute: bool) -> tuple[dict[str, float], bool, bool]:
-    """Run one path. Returns (metrics, served_from_precompute, not_ready). `served_from_precompute` is only
-    true when the read actually read the preagg tables — `dataComputedAt` is set only then, so if it is None
-    the precompute path either reported not-ready (no warm window) or fell back to live (non-precomputable
-    goal or build error). Both make the comparison vacuous, but they are different operator verdicts, so
-    `not_ready` separates them for the caller rather than reporting a hollow OK for either."""
+def _run(team: Team, query: dict[str, Any], *, use_precompute: bool) -> _ParityReading:
     runner = get_query_runner(query=query, team=team)
     # Force the path under test regardless of the team's flag: the precompute read warms inline under the
     # CACHE_WARMUP tag (its ensures build), the live read scans events.
@@ -67,9 +77,11 @@ def _run(team: Team, query: dict[str, Any], *, use_precompute: bool) -> tuple[di
             response = runner.calculate()
     else:
         response = runner.calculate()
-    served_from_precompute = getattr(response, "dataComputedAt", None) is not None
-    not_ready = bool(getattr(response, "precomputeNotReady", False))
-    return _results_to_dict(response.results), served_from_precompute, not_ready
+    return _ParityReading(
+        metrics=_results_to_dict(response.results),
+        served_from_precompute=getattr(response, "dataComputedAt", None) is not None,
+        not_ready=bool(getattr(response, "precomputeNotReady", False)),
+    )
 
 
 class Command(BaseCommand):
@@ -113,8 +125,8 @@ class Command(BaseCommand):
             if team is None:
                 continue
             try:
-                pre_metrics, served_from_precompute, not_ready = _run(team, query, use_precompute=True)
-                live_metrics, _, _ = _run(team, query, use_precompute=False)
+                precompute = _run(team, query, use_precompute=True)
+                live = _run(team, query, use_precompute=False)
             except Exception as exc:  # noqa: BLE001 — one bad team shouldn't abort the sweep
                 self.stderr.write(f"{team_id}: query failed — {type(exc).__name__}: {exc}")
                 teams_errored.append(team_id)
@@ -122,22 +134,22 @@ class Command(BaseCommand):
 
             # Nothing warm to read yet, so there is nothing to compare. Kept apart from the live fallback
             # below: this one is fixed by warming the window, that one by the goal becoming precomputable.
-            if not_ready:
+            if precompute.not_ready:
                 teams_not_ready.append(team_id)
                 self.stdout.write(f"{team_id:>8}  NOT READY — no warm precompute window, comparison skipped")
                 continue
 
             # The precompute run fell back to live (no precomputable goal, or a build error), so a match
             # here compares live against live and proves nothing. Report it as vacuous, not a pass.
-            if not served_from_precompute:
+            if not precompute.served_from_precompute:
                 teams_vacuous.append(team_id)
                 self.stdout.write(f"{team_id:>8}  VACUOUS — precompute path fell back to live, comparison skipped")
                 continue
 
             team_ok = True
-            for name in sorted(set(pre_metrics) | set(live_metrics)):
-                p = pre_metrics.get(name, 0.0)
-                lv = live_metrics.get(name, 0.0)
+            for name in sorted(set(precompute.metrics) | set(live.metrics)):
+                p = precompute.metrics.get(name, 0.0)
+                lv = live.metrics.get(name, 0.0)
                 diff = _pct_diff(p, lv)
                 ok = diff <= tolerance
                 team_ok = team_ok and ok
