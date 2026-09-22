@@ -84,11 +84,13 @@ class SandboxWarmer:
     ORIGIN_PRODUCT_QUOTA: dict[str, Callable[[Team, User], None] | None] = {
         Task.OriginProduct.POSTHOG_AI: _ai_credits_checker,
         Task.OriginProduct.USER_CREATED: None,
+        Task.OriginProduct.SIGNAL_REPORT: _ai_credits_checker,
     }
 
     ORIGIN_PRODUCT_CAPS: dict[str, WarmPoolCaps] = {
         Task.OriginProduct.POSTHOG_AI: WarmPoolCaps(per_user=2, per_org=10),
         Task.OriginProduct.USER_CREATED: WarmPoolCaps(per_user=10, per_org=100),
+        Task.OriginProduct.SIGNAL_REPORT: WarmPoolCaps(per_user=10, per_org=100),
     }
     _DEFAULT_CAPS: WarmPoolCaps = WarmPoolCaps(per_user=2, per_org=10)
 
