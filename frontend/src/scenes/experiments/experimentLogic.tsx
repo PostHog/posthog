@@ -2758,8 +2758,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     actions.setExperiment({
                         metrics: unmodified.metrics,
                         metrics_secondary: unmodified.metrics_secondary,
-                        primary_metrics_ordered_uuids: unmodified.primary_metrics_ordered_uuids,
-                        secondary_metrics_ordered_uuids: unmodified.secondary_metrics_ordered_uuids,
                     })
                 }
                 return

@@ -3622,6 +3622,12 @@ class ExperimentService:
             [*(experiment.metrics or []), *(experiment.metrics_secondary or [])]
         )
 
+        # Resolved once for both metric arrays, and only when one of them is being validated:
+        # reading the source off the request can cost an OAuth grant lookup.
+        agent_caller = False
+        if not allow_unknown_events and ("metrics" in update_data or "metrics_secondary" in update_data):
+            agent_caller = self._caller_is_agent(serializer_context, event_source)
+
         if "metrics" in update_data:
             update_data["metrics"] = self._assign_uuids_to_metrics(update_data["metrics"], seen=seen_metric_uuids)
             self.validate_experiment_metrics(update_data["metrics"])
@@ -3630,7 +3636,7 @@ class ExperimentService:
                 self.validate_metric_event_names(
                     update_data["metrics"],
                     known_event_names=persisted_event_names,
-                    agent_caller=self._caller_is_agent(serializer_context, event_source),
+                    agent_caller=agent_caller,
                 )
         if "metrics_secondary" in update_data:
             update_data["metrics_secondary"] = self._assign_uuids_to_metrics(
@@ -3644,7 +3650,7 @@ class ExperimentService:
                 self.validate_metric_event_names(
                     update_data["metrics_secondary"],
                     known_event_names=persisted_event_names,
-                    agent_caller=self._caller_is_agent(serializer_context, event_source),
+                    agent_caller=agent_caller,
                 )
 
         enforce_warehouse_metric_access(
