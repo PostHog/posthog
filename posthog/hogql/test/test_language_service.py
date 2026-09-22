@@ -21,6 +21,7 @@ from posthog.hogql.language_service import (
     coordinate_catalog_publication,
     is_language_service_enabled,
 )
+from posthog.hogql.timings import HogQLTimings
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 
@@ -198,23 +199,42 @@ class TestCatalogPublicationCoordination(SimpleTestCase):
 
     @parameterized.expand([(True,), (False,)])
     @patch("posthog.hogql.language_service.get_client")
-    def test_contender_rechecks_without_publishing(self, expected_success: bool, get_client: MagicMock) -> None:
+    @patch("posthog.hogql.timings.perf_counter")
+    def test_contender_rechecks_without_publishing(
+        self, expected_success: bool, perf_counter: MagicMock, get_client: MagicMock
+    ) -> None:
+        now = [0.0]
+        perf_counter.side_effect = lambda: now[0]
         redis_client = get_client.return_value
         redis_client.get.return_value = None
-        redis_client.lock.return_value.acquire.return_value = False
+
+        def fail_to_acquire() -> bool:
+            now[0] += 0.25
+            return False
+
+        redis_client.lock.return_value.acquire.side_effect = fail_to_acquire
         publish_catalog = MagicMock()
+        timings = HogQLTimings()
+
+        def check_catalog() -> LanguageServiceResult | None:
+            now[0] += 0.1
+            return self.result if expected_success else None
 
         result = coordinate_catalog_publication(
             12,
             34,
             "http://language-service:8091",
-            MagicMock(return_value=self.result if expected_success else None),
+            check_catalog,
             publish_catalog,
+            timings=timings,
         )
 
         assert (result is not None) is expected_success
         publish_catalog.assert_not_called()
         redis_client.lock.return_value.release.assert_not_called()
+        timing_values = {timing.k: timing.t for timing in timings.to_list(back_out_stack=False)}
+        assert timing_values["./redis_lock_acquire"] == 0.25
+        assert "./redis_lock_release" not in timing_values
 
     @patch("posthog.hogql.language_service.get_client")
     def test_next_request_recovers_after_unavailable_lease(self, get_client: MagicMock) -> None:
