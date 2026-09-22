@@ -27,7 +27,8 @@ Do not run `sampo publish`; cargo-dist owns publishing for `posthog-cli`.
 
 ### The release bucket
 
-Artifacts are also published to `releases.posthog.com`, a shared S3 and CloudFront origin in the shared-services account, under the `posthog-cli/` prefix.
+Artifacts are also published to `releases.posthog.com`, a shared S3 and CloudFront origin in the prod-us account, under the `posthog-cli/` prefix.
+It sits alongside the other release mirrors there, `context-mill-releases` and `desktop`.
 GitHub releases stay in place as a mirror.
 
 The upload runs before the GitHub release is created, so the objects exist before anything publishes a URL that points at them.
@@ -45,11 +46,11 @@ A prerelease publishes its versioned artifacts and leaves the rolling keys alone
 The step is skipped unless all three variables below are set, so a branch that predates the bucket still releases, and so a half-finished configuration cannot fail the release.
 It needs three repository variables:
 
-| Variable                         | Value                                                                  |
-| -------------------------------- | ---------------------------------------------------------------------- |
-| `AWS_CLI_RELEASES_ROLE_ARN`      | the `github-posthog-cli-releases-publish-role` role in shared-services |
-| `AWS_CLI_RELEASES_BUCKET`        | the shared releases bucket name                                        |
-| `AWS_CLI_RELEASES_CLOUDFRONT_ID` | the distribution fronting it                                           |
+| Variable                         | Value                                                          |
+| -------------------------------- | -------------------------------------------------------------- |
+| `AWS_CLI_RELEASES_ROLE_ARN`      | the `github-posthog-cli-releases-publish-role` role in prod-us |
+| `AWS_CLI_RELEASES_BUCKET`        | the shared releases bucket name                                |
+| `AWS_CLI_RELEASES_CLOUDFRONT_ID` | the distribution fronting it                                   |
 
 The role is scoped to the `posthog-cli/` prefix and to invalidations on that one distribution, so the workflow cannot touch another project's artifacts.
 
