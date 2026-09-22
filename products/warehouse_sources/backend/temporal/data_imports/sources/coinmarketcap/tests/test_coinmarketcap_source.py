@@ -1,4 +1,7 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.source import CoinMarketCapSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coinmarketcap import (
     CoinMarketCapSourceConfig,
@@ -11,15 +14,16 @@ class TestCoinMarketCapSource:
         self.team_id = 123
         self.config = CoinMarketCapSourceConfig(api_key="test-key")
 
-    def test_get_schemas_all_full_refresh(self) -> None:
+    def test_get_schemas_offers_incremental_only_where_a_time_filter_drives_it(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
 
         assert {s.name for s in schemas} == set(ENDPOINTS)
-        # Every CoinMarketCap "latest"/"map" endpoint is a current-state snapshot with no
-        # server-side timestamp filter, so all schemas are full refresh only.
-        assert all(not s.supports_incremental for s in schemas)
-        assert all(not s.supports_append for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
+        incremental = {s.name for s in schemas if s.supports_incremental}
+        # Only global metrics has a `time_start` filter over a single series. Every other table is
+        # either a current-state snapshot or a per-coin series the shared watermark can't bound.
+        assert incremental == set(INCREMENTAL_FIELDS)
+        assert {s.name for s in schemas if s.supports_append} == incremental
+        assert all((s.incremental_fields == INCREMENTAL_FIELDS.get(s.name, [])) for s in schemas)
 
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["fiat_map"])
