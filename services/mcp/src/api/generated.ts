@@ -47389,12 +47389,14 @@ export namespace Schemas {
 
     /**
      * * `loops` - Loops
+     * * `broadcasts` - Broadcasts
      */
     export type HogFlowOriginProductEnum = typeof HogFlowOriginProductEnum[keyof typeof HogFlowOriginProductEnum];
 
 
     export const HogFlowOriginProductEnum = {
       Loops: 'loops',
+      Broadcasts: 'broadcasts',
     } as const;
 
     export interface HogFlowMasking {
@@ -47706,7 +47708,8 @@ export namespace Schemas {
       status?: HogFlowStateEnum;
       /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
        *
-       * * `loops` - Loops */
+       * * `loops` - Loops
+       * * `broadcasts` - Broadcasts */
       origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -48174,7 +48177,8 @@ export namespace Schemas {
       status?: HogFlowStateEnum;
       /** Product surface that owns this workflow. This value cannot change after creation.
        *
-       * * `loops` - Loops */
+       * * `loops` - Loops
+       * * `broadcasts` - Broadcasts */
       readonly origin_product: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -71001,7 +71005,8 @@ export namespace Schemas {
       status?: HogFlowStateEnum;
       /** Product surface that owns this workflow. This value cannot change after creation.
        *
-       * * `loops` - Loops */
+       * * `loops` - Loops
+       * * `broadcasts` - Broadcasts */
       readonly origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -106890,9 +106895,9 @@ export namespace Schemas {
      */
     trigger?: string;
     /**
-     * Filter by workflow type. `loop` returns workflows owned by a Desktop loop; `messaging` returns the remaining workflows with an email, SMS, or push action; `automation` returns the rest.
+     * Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.
      */
-    type?: HogFlowsListType;
+    type?: string;
     updated_at?: string;
     };
 
@@ -106900,6 +106905,7 @@ export namespace Schemas {
 
 
     export const HogFlowsListOriginProduct = {
+      Broadcasts: 'broadcasts',
       Loops: 'loops',
     } as const;
 
@@ -106910,15 +106916,6 @@ export namespace Schemas {
       Active: 'active',
       Archived: 'archived',
       Draft: 'draft',
-    } as const;
-
-    export type HogFlowsListType = typeof HogFlowsListType[keyof typeof HogFlowsListType];
-
-
-    export const HogFlowsListType = {
-      Automation: 'automation',
-      Loop: 'loop',
-      Messaging: 'messaging',
     } as const;
 
     export type HogFlowsAssetsRetrieveParams = {
