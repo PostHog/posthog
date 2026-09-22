@@ -80,6 +80,10 @@ Omitted fields retain their stored values, including fields within `task_digest`
 Missing preferences return disabled, 09:00, and weekdays without changing other stored settings.
 Scheduling and email delivery are implemented separately.
 
+Users can configure their own digest from **Email digest** in the Tasks page header.
+The modal uses the same preferences form as customer analytics notification settings.
+Opening the modal records `customer analytics task digest opened`; successful saves record `customer analytics task digest preferences saved` with a `source` of `tasks` or `settings`.
+
 ## Task digest delivery
 
 The `customer-analytics-task-digest` feature flag controls scheduled digest emails independently of Tasks and the event stream.
