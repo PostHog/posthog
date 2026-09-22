@@ -232,8 +232,12 @@ async def request_model_alias_reconciliation(team_id: int, saved_query_id: str |
 async def execute_trino_model(
     *, organization_id: str, team_id: int, saved_query_id: str | UUID, source_query: object
 ) -> DuckLakeTableResult:
-    from products.managed_warehouse.backend.trino_execution import run_trino_model
-    from products.managed_warehouse.backend.trino_materialization import execute_trino_shadow_materialization
+    from products.managed_warehouse.backend.trino_execution import (  # noqa: PLC0415 -- keeps executor creation off startup paths
+        run_trino_model,
+    )
+    from products.managed_warehouse.backend.trino_materialization import (  # noqa: PLC0415 -- keeps the optional Trino driver off startup paths
+        execute_trino_shadow_materialization,
+    )
 
     return await run_trino_model(
         organization_id,

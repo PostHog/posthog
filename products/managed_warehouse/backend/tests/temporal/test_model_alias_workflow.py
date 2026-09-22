@@ -32,7 +32,8 @@ async def test_dispatch_coalesces_builds_into_one_team_workflow() -> None:
 
 
 @pytest.mark.asyncio
-async def test_refresh_during_failed_pass_is_processed_afterwards() -> None:
+@pytest.mark.parametrize("first_pass_fails", [True, False])
+async def test_refresh_during_failed_or_empty_pass_is_processed_afterwards(first_pass_fails: bool) -> None:
     entered: asyncio.Queue[int] = asyncio.Queue()
     releases = [asyncio.Event(), asyncio.Event(), asyncio.Event()]
     calls = 0
@@ -44,9 +45,9 @@ async def test_refresh_during_failed_pass_is_processed_afterwards() -> None:
         calls += 1
         await entered.put(attempt)
         await releases[attempt].wait()
-        if attempt == 0:
+        if attempt == 0 and first_pass_fails:
             raise ApplicationError("Catalog temporarily unavailable", non_retryable=True)
-        return ModelAliasReconciliation(published=1, active=attempt < 2)
+        return ModelAliasReconciliation(published=1, active=attempt == 1)
 
     async with await WorkflowEnvironment.start_time_skipping() as environment:
         queue = f"model-alias-test-{uuid4()}"
@@ -71,7 +72,7 @@ async def test_refresh_during_failed_pass_is_processed_afterwards() -> None:
                 assert calls == 1
                 releases[0].set()
                 assert await asyncio.wait_for(entered.get(), timeout=10) == 1
-                assert (await handle.query(ReconcileModelAliasesWorkflow.status)).errors
+                assert bool((await handle.query(ReconcileModelAliasesWorkflow.status)).errors) == first_pass_fails
                 await handle.signal(ReconcileModelAliasesWorkflow.refresh)
                 releases[1].set()
                 assert await asyncio.wait_for(entered.get(), timeout=10) == 2

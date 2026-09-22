@@ -132,7 +132,7 @@ class ReconcileModelAliasesWorkflow(PostHogWorkflow):
                     cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
                     retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=dt.timedelta(seconds=10)),
                 )
-                if not self.last_result.active:
+                if not self.last_result.active and not self.pending_ids and not self.full_audit:
                     return
             except ActivityError as error:
                 if isinstance(error.cause, CancelledError):
