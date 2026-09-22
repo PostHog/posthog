@@ -524,6 +524,10 @@ class SurveyBaseQuestionSchemaSerializer(serializers.Serializer):
     )
     optional = serializers.BooleanField(required=False, help_text="Whether respondents may skip this question.")
     buttonText = serializers.CharField(required=False, allow_blank=True, help_text="Custom button label.")
+    skipSubmitButton = serializers.BooleanField(
+        required=False,
+        help_text="Whether to submit the answer when the respondent selects it.",
+    )
 
 
 class SurveyOpenQuestionSchemaSerializer(SurveyBaseQuestionSchemaSerializer):
