@@ -64,15 +64,18 @@ class TestMessageTemplatesAPI(APIBaseTest):
         # created_at is not unique, so a page boundary inside a batch of templates
         # written at the same moment can repeat or skip rows.
         row_ids = sorted(UUIDT() for _ in range(4))
-        for row_id in row_ids:
-            MessageTemplate.objects.create(
+        shared_created_at = timezone.now()
+        MessageTemplate.objects.bulk_create(
+            MessageTemplate(
                 id=row_id,
                 team=self.team,
                 name="Batch template",
                 content={"email": {"subject": "Subject", "text": "Body"}},
                 type="email",
+                created_at=shared_created_at,
             )
-        MessageTemplate.objects.filter(pk__in=row_ids).update(created_at=timezone.now())
+            for row_id in row_ids
+        )
 
         paged_ids: list[str] = []
         for offset in (0, 2, 4):
