@@ -355,7 +355,7 @@ rm -f docker-compose.yml
 cp posthog/docker-compose.base.yml docker-compose.base.yml
 cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
 cp posthog/.env.services .env.services
-envsubst < docker-compose.yml.tmpl > docker-compose.yml
+bash posthog/bin/helpers/render-hobby-compose.sh < docker-compose.yml.tmpl > docker-compose.yml
 rm docker-compose.yml.tmpl
 
 docker-compose pull
