@@ -735,7 +735,8 @@ export const ReplayFiltersTab = ({
     useMountedLogic(actionsModel)
     useMountedLogic(groupsModel)
 
-    const durationFilter = filters.duration?.[0] ?? defaultRecordingDurationFilter
+    const durationFilter = filters.duration?.[0]
+    const durationFilterOrDefault = durationFilter ?? defaultRecordingDurationFilter
 
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
@@ -986,8 +987,9 @@ export const ReplayFiltersTab = ({
                                     ],
                                 })
                             }}
-                            recordingDurationFilter={durationFilter}
-                            durationTypeFilter={durationFilter.key}
+                            recordingDurationFilter={durationFilterOrDefault}
+                            durationTypeFilter={durationFilterOrDefault.key}
+                            unset={!durationFilter}
                             pageKey="session-recordings"
                             size="small"
                         />

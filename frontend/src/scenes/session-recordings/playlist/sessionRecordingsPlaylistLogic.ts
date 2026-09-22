@@ -2430,7 +2430,21 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         ? {
                               ...getDefaultFilters(props.personUUID, props.pinnedFilters, params.filters),
                               ...params.filters,
+                              // A link names every filter it wants, so replay's own duration
+                              // threshold must not join the set. It drops short recordings from a
+                              // list the viewer never narrowed, and the empty state then reads as
+                              // their own filters being too tight. The type says a URL always
+                              // carries a duration; a link that scopes the list rarely does.
+                              duration: params.filters.duration ?? [],
                           }
+                        : {}),
+                    // A URL that names no filters is a plain visit to the list, so a link's empty
+                    // duration must not follow the viewer there. Only a link produces one, and the
+                    // viewer keys say whether this one is still the link's.
+                    ...(!params.filters &&
+                    !values.filters.duration?.length &&
+                    !values.viewerFilterKeys.includes('duration')
+                        ? { duration: DEFAULT_RECORDING_FILTERS.duration }
                         : {}),
                     ...(params.order && !equal(params.order, values.filters.order) ? { order: params.order } : {}),
                     ...(params.order_direction && !equal(params.order_direction, values.filters.order_direction)

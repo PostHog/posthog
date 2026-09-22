@@ -684,7 +684,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
         })
 
-        it('reads filters from the URL and defaults the duration filter', async () => {
+        it('reads filters from the URL and adds no duration filter of its own', async () => {
             router.actions.push('/replay', {
                 filters: {
                     filter_group: {
@@ -705,7 +705,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     filters: {
                         date_from: '-3d',
                         date_to: null,
-                        duration: [{ key: 'active_seconds', operator: 'gt', type: 'recording', value: 5 }],
+                        duration: [],
                         filter_group: {
                             type: FilterLogicalOperator.And,
                             values: [
@@ -719,6 +719,34 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         order: 'start_time',
                         order_direction: 'DESC',
                     },
+                })
+
+            expect(convertUniversalFiltersToRecordingsQuery(logic.values.filters).having_predicates).toEqual([])
+        })
+
+        it('restores the default duration when the next URL names no filters', async () => {
+            router.actions.push('/replay', {
+                filters: {
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
+                            },
+                        ],
+                    },
+                },
+            })
+            await expectLogic(logic).toDispatchActions(['setFilters'])
+            expect(logic.values.filters.duration).toEqual([])
+
+            router.actions.push('/replay/home')
+
+            await expectLogic(logic)
+                .toDispatchActions(['setFilters'])
+                .toMatchValues({
+                    filters: expect.objectContaining({ duration: DEFAULT_RECORDING_FILTERS.duration }),
                 })
         })
 
@@ -760,7 +788,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['setFilters'])
                 .toMatchValues({
-                    filters: { ...getDefaultFilters(), filter_group: filterGroup },
+                    filters: { ...getDefaultFilters(), duration: [], filter_group: filterGroup },
                 })
         })
 
