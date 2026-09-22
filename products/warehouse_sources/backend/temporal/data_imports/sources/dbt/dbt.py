@@ -9,6 +9,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -393,6 +395,13 @@ def _build_params(config: DbtEndpointConfig, incremental_field: str | None, walk
     return params
 
 
+@frozen
+class _ListPage:
+    rows: list[dict[str, Any]]
+    next_offset: int
+    has_more: bool
+
+
 def _iter_offset_pages(
     session: requests.Session,
     base_url: str,
@@ -401,8 +410,8 @@ def _iter_offset_pages(
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     start_offset: int = 0,
-) -> Iterator[tuple[list[dict[str, Any]], int, bool]]:
-    """Walk a dbt limit/offset list endpoint, yielding (rows, next offset, more pages remain)."""
+) -> Iterator[_ListPage]:
+    """Walk a dbt limit/offset list endpoint."""
     offset = start_offset
     while True:
         url = f"{base_url}/api{path}?{urlencode({**params, 'offset': offset})}"
@@ -418,7 +427,7 @@ def _iter_offset_pages(
         next_offset = offset + count
         has_more = count >= DBT_PAGE_LIMIT and not (total_count is not None and next_offset >= total_count)
 
-        yield rows, next_offset, has_more
+        yield _ListPage(rows=rows, next_offset=next_offset, has_more=has_more)
 
         if not has_more:
             return
@@ -494,7 +503,7 @@ def _iter_run_fanout_rows(
     assert runs_path is not None
 
     params = {"limit": DBT_PAGE_LIMIT, "order_by": "-created_at"}
-    for runs, next_offset, has_more in _iter_offset_pages(
+    for page in _iter_offset_pages(
         session,
         base_url,
         runs_path.format(account_id=account_id),
@@ -503,6 +512,7 @@ def _iter_run_fanout_rows(
         logger,
         start_offset=resume.parent_offset if resume is not None else 0,
     ):
+        runs = page.rows
         kept_runs = runs if watermark is None else _rows_above_watermark(runs, "created_at", watermark)
 
         batch: list[dict[str, Any]] = []
@@ -513,8 +523,8 @@ def _iter_run_fanout_rows(
 
         if len(kept_runs) < len(runs):
             break
-        if has_more:
-            resumable_source_manager.save_state(DbtResumeConfig(parent_offset=next_offset))
+        if page.has_more:
+            resumable_source_manager.save_state(DbtResumeConfig(parent_offset=page.next_offset))
 
 
 def _deployment_environment_ids(
@@ -533,13 +543,28 @@ def _deployment_environment_ids(
     assert path is not None
 
     environment_ids: list[int] = []
-    for rows, _next_offset, _has_more in _iter_offset_pages(
+    for page in _iter_offset_pages(
         session, base_url, path.format(account_id=account_id), {"limit": DBT_PAGE_LIMIT}, headers, logger
     ):
         environment_ids.extend(
-            row["id"] for row in rows if row.get("id") is not None and row.get("type") == "deployment"
+            row["id"] for row in page.rows if row.get("id") is not None and row.get("type") == "deployment"
         )
     return environment_ids
+
+
+def _next_page_cursor(page_info: dict[str, Any], cursor: str | None, context: str) -> str | None:
+    """Resolve the cursor of the next page, or None at the end of the connection.
+
+    A connection that claims another page but hands back no cursor, or the same one again, would
+    make the caller re-request the page it just read until the activity times out. Fail instead:
+    silently ending the walk would write a partial table that reads as complete.
+    """
+    if not page_info.get("hasNextPage"):
+        return None
+    next_cursor = page_info.get("endCursor")
+    if not next_cursor or next_cursor == cursor:
+        raise Exception(f"dbt Discovery API reported another page without advancing the cursor. {context}")
+    return next_cursor
 
 
 def _iter_discovery_pages(
@@ -570,7 +595,9 @@ def _iter_discovery_pages(
         rows = [edge["node"] for edge in (connection.get("edges") or []) if edge.get("node")]
 
         page_info = connection.get("pageInfo") or {}
-        next_cursor = page_info.get("endCursor") if page_info.get("hasNextPage") else None
+        next_cursor = _next_page_cursor(
+            page_info, cursor, f"field={discovery.applied_field}, environment={environment_id}"
+        )
 
         yield rows, next_cursor
 
@@ -632,7 +659,7 @@ def _iter_model_historical_run_pages(
             rows.extend(run_applied.get(discovery.applied_field) or [])
 
         page_info = connection.get("pageInfo") or {}
-        next_cursor = page_info.get("endCursor") if page_info.get("hasNextPage") else None
+        next_cursor = _next_page_cursor(page_info, cursor, f"field=models, environment={environment_id}")
 
         yield rows, next_cursor
 
@@ -749,7 +776,7 @@ def get_rows(
     walking_desc = config.sort_mode == "desc" and cursor_field is not None
     params = _build_params(config, incremental_field, walking_desc)
 
-    for rows, next_offset, has_more in _iter_offset_pages(
+    for page in _iter_offset_pages(
         session,
         base_url,
         path.format(account_id=account_id),
@@ -761,18 +788,18 @@ def get_rows(
         if watermark is not None and cursor_field is not None:
             # Newest-first walk: keep rows above the watermark and stop as soon as the page dips
             # below it — everything past that point was synced by a previous run.
-            kept = _rows_above_watermark(rows, cursor_field, watermark)
+            kept = _rows_above_watermark(page.rows, cursor_field, watermark)
             if kept:
                 yield kept
-            if len(kept) < len(rows):
+            if len(kept) < len(page.rows):
                 break
         else:
-            yield rows
+            yield page.rows
 
         # Save AFTER yielding (and only when more pages remain) so a crash re-yields the last page
         # rather than skipping it — merge dedupes on the primary key.
-        if has_more:
-            resumable_source_manager.save_state(DbtResumeConfig(offset=next_offset))
+        if page.has_more:
+            resumable_source_manager.save_state(DbtResumeConfig(offset=page.next_offset))
 
 
 def dbt_source(

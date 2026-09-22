@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Literal, Optional
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.queries import (
     EXPOSURES_QUERY,
@@ -62,7 +64,7 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@frozen
 class DbtRunFanoutConfig:
     """A child resource of a run, fetched once per run in the runs list."""
 
@@ -77,7 +79,7 @@ class DbtRunFanoutConfig:
     string_row_field: Optional[str] = None
 
 
-@dataclass
+@frozen
 class DbtDiscoveryConfig:
     """An endpoint served by the Discovery API (GraphQL) instead of the Admin API."""
 

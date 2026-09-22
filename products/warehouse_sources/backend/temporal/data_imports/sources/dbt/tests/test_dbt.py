@@ -805,6 +805,21 @@ class TestDiscoverySync:
 
         assert _posted_variables(session, 0)["after"] == "cursor-9"
 
+    @pytest.mark.parametrize("end_cursor", [None, "cursor-1"])
+    def test_a_page_that_does_not_advance_the_cursor_fails(self, end_cursor):
+        # hasNextPage with no new cursor would re-request the page just read until the activity
+        # times out. Ending the walk quietly instead would write a partial table that reads as
+        # complete.
+        session = mock.MagicMock()
+        session.get.side_effect = [_page([{"id": 10, "type": "deployment"}])]
+        session.post.side_effect = [
+            _graphql_connection("models", [{"uniqueId": "model.a.b"}], has_next=True, end_cursor="cursor-1"),
+            _graphql_connection("models", [{"uniqueId": "model.a.c"}], has_next=True, end_cursor=end_cursor),
+        ]
+
+        with pytest.raises(Exception, match="without advancing the cursor"):
+            self._get_rows(session, _manager(resume=DbtResumeConfig()), "models")
+
     def test_model_historical_runs_asks_once_per_model(self):
         # modelHistoricalRuns takes a single model at a time, so the model list has to be walked
         # first; querying the connection directly returns nothing.
