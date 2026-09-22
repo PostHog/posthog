@@ -90,8 +90,11 @@ const isPostHogDomain = (url: string): boolean => {
     return /^https:\/\/((www|app|eu)\.)?posthog\.com/.test(url)
 }
 
+// Any scheme-qualified target belongs to the browser, not to the app router. A narrower test that
+// named only mailto and http let `chrome-extension://…` through as an app path, which
+// `addProjectIdIfMissing` then rewrote into `/project/<id>/chrome-extension://…`, a dead route.
 const isDirectLink = (url: string): boolean => {
-    return /^(mailto:|https?:\/\/|:\/\/)/.test(url)
+    return /^([a-zA-Z][a-zA-Z\d+\-.]*:|:\/\/)/.test(url)
 }
 
 /** Resolve a `to` target into a concrete href string. */
@@ -143,7 +146,9 @@ export const LinkPrimitive: React.FC<LinkPrimitiveProps & React.RefAttributes<HT
         },
         ref
     ) => {
-        const externalLink = isExternalLink(to)
+        // `isExternalLink` misses schemes such as `chrome-extension:`, and `router.actions.push`
+        // rejects those with a `SecurityError`, so the scheme test widens the same exclusion.
+        const browserOwnedLink = isExternalLink(to) || (typeof to === 'string' && isDirectLink(to))
         const { elementProps: draggableProps } = useLinkDrag(typeof to === 'string' ? to : undefined)
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
@@ -159,7 +164,7 @@ export const LinkPrimitive: React.FC<LinkPrimitiveProps & React.RefAttributes<HT
                 return
             }
 
-            if (!target && to && !externalLink && !disableClientSideRouting && !shouldForcePageLoad(to)) {
+            if (!target && to && !browserOwnedLink && !disableClientSideRouting && !shouldForcePageLoad(to)) {
                 event.preventDefault()
                 if (to && to !== '#' && !preventClick) {
                     if (Array.isArray(to)) {

@@ -30,6 +30,19 @@ describe('Link', () => {
         expect(href.replace(/\s/g, '').toLowerCase()).not.toMatch(/^javascript:/)
     })
 
+    const schemeCases: [scheme: string, target: string][] = [
+        ['chrome-extension', 'chrome-extension://abcdefghijklmnop/index.html'],
+        ['capacitor', 'capacitor://localhost/home'],
+        ['https', 'https://example.com/page'],
+    ]
+
+    it.each(schemeCases)('keeps a %s: target out of the app routes', (scheme, target) => {
+        const text = `launch ${scheme}`
+        render(<Link to={target}>{text}</Link>)
+
+        expect(screen.getByText(text).closest('a')).toHaveAttribute('href', target)
+    })
+
     // The command palette depends on modifier clicks NOT reaching the passed onClick, so it
     // handles them in the capture phase instead. If this ever starts forwarding them, that
     // palette handler and this onClick would both run, opening a new tab and navigating in place.
