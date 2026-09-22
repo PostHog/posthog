@@ -48930,6 +48930,25 @@ export namespace Schemas {
       done: boolean;
     }
 
+    export interface HogFlowCodeWarning {
+      /**
+         * The id of the step the warning is about, or null when it is about the workflow as a whole.
+         * @nullable
+         */
+      readonly action_id: string | null;
+      /** What the source does not carry, and what to do about it before a push. */
+      readonly message: string;
+    }
+
+    export interface HogFlowCode {
+      /** The language of `code`. Always `typescript`. */
+      readonly language: string;
+      /** The workflow as @posthog/workflows source: one file that exports the workflow, ready to load with the CLI. It opens with the warnings as a comment. */
+      readonly code: string;
+      /** Everything the SDK cannot express, one entry per loss. Empty when the source carries the whole workflow. */
+      readonly warnings: readonly HogFlowCodeWarning[];
+    }
+
     /**
      * * `update_action` - update_action
      * * `add_action` - add_action
