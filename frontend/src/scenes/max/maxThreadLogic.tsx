@@ -88,6 +88,7 @@ import {
     MODE_DEFINITIONS,
     TOOL_DEFINITIONS,
     ToolRegistration,
+    getToolDefinition,
     getModeDisplayName,
     messageLength,
 } from './max-constants'
@@ -3295,6 +3296,7 @@ export async function onEventImplementation(
         } else if (isAssistantToolCallMessage(parsedResponse)) {
             if (parsedResponse.ui_payload != null) {
                 for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
+                    getToolDefinition(toolName)?.onResult?.(toolResult)
                     if (values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
                         continue // Static tools (mode-level) don't operate via ui_payload
                     }
