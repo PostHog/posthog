@@ -172,8 +172,7 @@ def _governed_metrics_section(project_has_governed_metrics: bool) -> str:
 
 
 # The close-out summary tool is a sandbox harness tool, not a PostHog MCP tool, so it is absent from
-# the `mcp__posthog__exec` catalog and has to be called under its qualified name. Named here in both
-# spellings because the prompt refers to it by the bare name and calls it by the qualified one.
+# the `mcp__posthog__exec` catalog and has to be called under its qualified name.
 _TASK_SUMMARY_TOOL = "task_summary_update"
 _TASK_SUMMARY_TOOL_ID = f"mcp__posthog-code-tools__{_TASK_SUMMARY_TOOL}"
 
