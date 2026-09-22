@@ -8525,9 +8525,9 @@ snapshots:
     scenes-app-heatmap--unsaved-changes--light:
         hash: v1.k794b7964.9b817d6a0e8ddbd7a518384ea5d98e646c3949ce92d6200e83fa69f88de3aa8a.bcLQMl06OeJSrBNgj4j0UHnlJp0cMH7MKDeZzrB6o5s
     scenes-app-heatmap--unsaved-changes-narrow--dark:
-        hash: v1.k794b7964.a0af73f9dc5f7736bb6f693cd7f5f612792544bca2031faf5bf2edd0d5fb4265.j_X9JteXJbQmsJKgTpOi0ju5BzHxttWRodzSofa1lmE
+        hash: v1.k794b7964.3de6e675908a403fb71ff39b3fe6aedc29cde183c0dbd283016a6ce22005a47c.zbZDfmLiUn5suZV6n93TxU0Fcf2uqZ4796TDTVgAKWI
     scenes-app-heatmap--unsaved-changes-narrow--light:
-        hash: v1.k794b7964.51752209460601bd0c092efa1b558ce8e7463f9fc57abb3864e86a68f4ca7481.9k7F4Q_00I99zqd3sU6sddLo-L7LjG6gM8MPri7UTng
+        hash: v1.k794b7964.b2ea2a1e353f541b6c47098e8fa236f9b0c8d138b69c24e8834cd3da01861b39.0UCam3Yyt0FXcuWNww1k6C1w0_9pOZXSlSDfzXc4hgM
     scenes-app-heatmap-new--authenticated-review--dark:
         hash: v1.k794b7964.631bc050a0445eb0018c9ec039bd86da951df11350757600c0ccc9f25b2f7d90.YMjSo9vcVG36wTfwJwv89REgXYgfZq3tRnVRzAgQIVE
     scenes-app-heatmap-new--authenticated-review--light:
@@ -8565,9 +8565,9 @@ snapshots:
     scenes-app-heatmap-new--unauthorized-iframe--light:
         hash: v1.k794b7964.8e355023754bf9c2c1dc31cbadba79e6b524ad9a66528c649ab150f7eaf0cc05.yqUC0NlgolBVjXQsucJcRfdlu5npQvynKZSy7oAnd_8
     scenes-app-heatmap-recording--recording-mode-with-clickmap--dark:
-        hash: v1.k794b7964.6c923e6ba9f58ab555cc4dc2b9c1789d8a72f549765ddde70c1f3a7b73cdfbe6.QQa2mS_nUNyAH6iXIu6RYQ5wu9YFzB6GjsocU8M4PmQ
+        hash: v1.k794b7964.9369ded2efa326a9d9adaec0de1efb86baa001b7ee4dca6e5fa2446379413c9d.nxftFTmTFr1jVHJQssBp-fdpgkojfMux1YVzeJVtSfk
     scenes-app-heatmap-recording--recording-mode-with-clickmap--light:
-        hash: v1.k794b7964.09522d7c70db3016e974a1cc8def11a5c9594e2f0f4df50fa4cf290d54129c07.kwWeHESZph4vfH_U-uOGsccGiePlAsCnCzuQvd9ptnM
+        hash: v1.k794b7964.966fa455f5651c32d6e6b0cf7092325c4ebb917a8c67eb372598c3bab977e5de.TE80vbs-abW4Nu6I2L_Uw-MHMs5w5xESaNBqrCXiorQ
     scenes-app-heatmaps-saved--list--dark:
         hash: v1.k794b7964.8368377e136c567c3c500c97924486837234c230858baf0eb14678b6900d68c6.qpjMZIE3Ii8vpyLrfaKjCdym7waJtp38DGez1iugMMo
     scenes-app-heatmaps-saved--list--light:
