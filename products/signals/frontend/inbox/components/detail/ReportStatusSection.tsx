@@ -61,7 +61,6 @@ export function ReportStatusSection({
                 <StatusRow label="Report status">{STATUS_LABELS[report.status] ?? report.status}</StatusRow>
                 {externalClaim && <StatusRow label="In progress by">{externalClaim}</StatusRow>}
                 {report.priority && <StatusRow label="Priority">{report.priority}</StatusRow>}
-                {pullRequests.length === 0 && <StatusRow label="Pull request">Not created</StatusRow>}
                 {pullRequests.map((pullRequest, index) => {
                     const prUrl = safeHttpUrl(pullRequest.url)
                     const prRef = prUrl ? parsePrUrlParts(prUrl) : null

@@ -83,6 +83,12 @@ describe('ReportStatusSection', () => {
         expect(container).not.toHaveTextContent('In progress by')
     })
 
+    it('hides pull request rows when the report has no pull request', () => {
+        const { container } = render(<ReportStatusSection report={makeReport({ pull_requests: [] })} />)
+
+        expect(container).not.toHaveTextContent('Pull request')
+    })
+
     it('does not imply approval when GitHub has no review decision', () => {
         render(
             <ReportStatusSection
