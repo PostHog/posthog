@@ -86841,6 +86841,38 @@ export namespace Schemas {
       forwarded: boolean;
     }
 
+    export interface SignalReportMergeRequest {
+      /**
+         * Ids of the duplicate reports to fold into this one (1–10). Each must be a live report in this project: a resolved, archived or deleted report is rejected with 409, as is the survivor's own id. Duplicates in the list are de-duplicated. The whole merge applies or none of it does.
+         * @minItems 1
+         * @maxItems 10
+         */
+      source_report_ids: string[];
+      /**
+         * Optional one-line explanation of why these reports are the same issue. Recorded on each source's 'duplicate of' link and on the note left on the survivor. Capped at 500 characters.
+         * @maxLength 500
+         */
+      reason?: string;
+    }
+
+    export interface SignalReportMergeSourceResult {
+      /** The source report that was folded into the survivor. */
+      id: string;
+      /** How many work-log artefacts moved to the survivor (notes, findings, pull requests, task runs, code references, commits, checks). */
+      artefacts_moved: number;
+      /** How many signals the survivor took on from this source. The signals themselves are re-pointed asynchronously; the survivor's counters already include them. */
+      signals_moved: number;
+      /** Whether an active work claim held by another actor was released before the move. */
+      released_claim: boolean;
+    }
+
+    export interface SignalReportMergeResponse {
+      /** The surviving report, as it stands after the merge. */
+      report: SignalReport;
+      /** One result per merged source, in request order (after de-duplication). */
+      sources: SignalReportMergeSourceResult[];
+    }
+
     export interface SignalReportMetricRefreshRequest {
       /**
          * Reports on screen, in display order. Each report's row metric is refreshed before any report's supporting metrics. At most 20 ids per call.
