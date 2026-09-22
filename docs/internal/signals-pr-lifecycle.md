@@ -45,7 +45,7 @@ A follow-up can refer to a manual fix or a regression; it must not invent a miss
 
 Three link gates hold back automatic implementation, and each one records why on the report:
 
-- A report that duplicates another one does not start its own work when the duplicate's root is resolved or already carries a pull request.
+- A report that duplicates another one does not start its own work when any report on that duplicate chain is resolved or already carries a pull request.
 - A report that depends on another one does not start until that dependency carries a pull request.
 - A report that other reports are `part_of` never starts its own work, because its steps do the work.
 

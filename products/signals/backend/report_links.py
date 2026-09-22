@@ -119,32 +119,49 @@ def incoming_links(
     return [edge for edge in _edges_from_rows(rows, kinds=kinds) if edge.target_id == target_id]
 
 
-def duplicate_root(*, team_id: int, report_id: str | uuid.UUID) -> str:
-    """Follow `duplicate_of` until a report that duplicates nothing, and return that report's id.
+def duplicate_chain(*, team_id: int, report_id: str | uuid.UUID) -> list[str]:
+    """The reports this one duplicates, nearest first, ending at the one that duplicates nothing.
 
-    Every `duplicate_of` reader acts on the root, so a chain A -> B -> C reaches the same verdict
-    from any of its members. The write path rejects a `duplicate_of` cycle, but the visited set and
-    the level budget stand anyway: a reader must never loop on a graph a concurrent write left in a
-    shape it did not expect. Exhausting the budget returns the deepest report reached, which is the
-    most specific answer available without walking further.
+    The whole chain is the answer, not only its last member: a pull request stays on the report
+    whose run opened it, so in A -> B -> C the work can sit on B while C carries none. A reader
+    asking "is this already being done?" has to see every member.
+
+    The write path rejects a `duplicate_of` cycle, but the visited set and the level budget stand
+    anyway: a reader must never loop on a graph a concurrent write left in a shape it did not
+    expect. Exhausting the budget returns the path walked so far, which is the most specific answer
+    available without walking further.
     """
     current = _canonical_report_id(report_id)
     if current is None:
-        return str(report_id)
+        return []
     visited = {current}
+    chain: list[str] = []
     for _ in range(SignalReportArtefact.MAX_REPORT_LINK_GRAPH_LEVELS):
         edges = outgoing_links(team_id=team_id, report_id=current, kinds=(ReportLinkKind.DUPLICATE_OF,))
         if not edges:
-            return current
+            return chain
         # A report duplicates at most one other in practice. When an agent wrote several, the
-        # oldest claim wins so the root does not move as later rows land.
+        # oldest claim wins so the chain does not move as later rows land.
         next_id = edges[0].target_id
         if next_id in visited:
-            return current
+            return chain
         visited.add(next_id)
+        chain.append(next_id)
         current = next_id
     logger.warning("signals report link duplicate chain exceeded budget", report_id=str(report_id), team_id=team_id)
-    return current
+    return chain
+
+
+def duplicate_root(*, team_id: int, report_id: str | uuid.UUID) -> str:
+    """Follow `duplicate_of` until a report that duplicates nothing, and return that report's id.
+
+    The root names the cluster. A reader deciding whether the cluster is already being worked on
+    wants `duplicate_chain` instead, because the work sits wherever it started.
+    """
+    chain = duplicate_chain(team_id=team_id, report_id=report_id)
+    if chain:
+        return chain[-1]
+    return _canonical_report_id(report_id) or str(report_id)
 
 
 def linked_reports(*, team_id: int, report_ids: Collection[str]) -> dict[str, SignalReport]:

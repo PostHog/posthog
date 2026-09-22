@@ -9,6 +9,7 @@ from products.signals.backend.artefact_schemas import ReportLink
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.report_links import (
+    duplicate_chain,
     duplicate_root,
     has_open_or_merged_pull_request,
     incoming_links,
@@ -118,6 +119,8 @@ class TestReportLinkReaders(BaseTest):
         assert duplicate_root(team_id=self.team.id, report_id=leaf.id) == str(root.id)
         assert duplicate_root(team_id=self.team.id, report_id=middle.id) == str(root.id)
         assert duplicate_root(team_id=self.team.id, report_id=root.id) == str(root.id)
+        assert duplicate_chain(team_id=self.team.id, report_id=leaf.id) == [str(middle.id), str(root.id)]
+        assert duplicate_chain(team_id=self.team.id, report_id=root.id) == []
 
     def test_a_chain_deeper_than_the_budget_stops_instead_of_walking_on(self):
         # Written straight to the table: `add_log` refuses a chain this deep, so only rows that

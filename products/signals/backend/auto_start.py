@@ -59,7 +59,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_links import (
-    duplicate_root,
+    duplicate_chain,
     has_open_or_merged_pull_request,
     incoming_links,
     outgoing_links,
@@ -520,6 +520,31 @@ def _capture_autostart_skipped(
         logger.exception("Failed to capture signals_autostart_skipped", report_id=report_id)
 
 
+def _duplicate_already_worked_on(*, team_id: int, chain: list[str]) -> str | None:
+    """The nearest report in the duplicate chain that already holds this work, or None.
+
+    Every member is asked, not only the root, because a pull request stays on the report whose run
+    opened it: in A -> B -> C the fix can be in flight on B while C carries nothing. A member the
+    reader cannot load makes no claim.
+    """
+    if not chain:
+        return None
+    statuses = {
+        str(report_id): status
+        for report_id, status in SignalReport.objects.using("default")
+        .filter(team_id=team_id, id__in=chain)
+        .values_list("id", "status")
+    }
+    with_work = has_open_or_merged_pull_request(team_id=team_id, report_ids=chain)
+    for candidate in chain:
+        status = statuses.get(candidate)
+        if status is None:
+            continue
+        if candidate in with_work or status == SignalReport.Status.RESOLVED:
+            return candidate
+    return None
+
+
 def _evaluate_link_gates(team_id: int, report_id: str) -> AutostartSkip | None:
     """Which typed link, if any, says this report must not open its own pull request.
 
@@ -533,24 +558,18 @@ def _evaluate_link_gates(team_id: int, report_id: str) -> AutostartSkip | None:
     links = outgoing_links(team_id=team_id, report_id=report_id)
 
     if any(edge.kind == ReportLinkKind.DUPLICATE_OF for edge in links):
-        root_id = duplicate_root(team_id=team_id, report_id=report_id)
-        root = (
-            SignalReport.objects.using("default")
-            .filter(team_id=team_id, id=root_id)
-            .only("id", "status", "team")
-            .first()
+        deciding_id = _duplicate_already_worked_on(
+            team_id=team_id, chain=duplicate_chain(team_id=team_id, report_id=report_id)
         )
-        if root is not None:
-            root_has_work = root_id in has_open_or_merged_pull_request(team_id=team_id, report_ids=[root_id])
-            if root_has_work or root.status == SignalReport.Status.RESOLVED:
-                return AutostartSkip(
-                    skip_reason="duplicate_of",
-                    linked_report_id=root_id,
-                    detail=(
-                        "No work started here because this report duplicates another one that is already "
-                        "resolved or has a pull request."
-                    ),
-                )
+        if deciding_id is not None:
+            return AutostartSkip(
+                skip_reason="duplicate_of",
+                linked_report_id=deciding_id,
+                detail=(
+                    "No work started here because this report duplicates another one that is already "
+                    "resolved or has a pull request."
+                ),
+            )
 
     dependency_ids = [edge.target_id for edge in links if edge.kind == ReportLinkKind.DEPENDS_ON]
     if dependency_ids:

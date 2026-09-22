@@ -940,6 +940,7 @@ def _link(team_id: int, source: SignalReport, target: SignalReport, kind: Report
     [
         ("duplicate_of_resolved", "duplicate_of"),
         ("duplicate_of_with_pr", "duplicate_of"),
+        ("duplicate_chain_with_pr_midway", "duplicate_of"),
         ("depends_on_without_pr", "blocked_by_dependency"),
         ("depends_on_with_open_pr", None),
         ("incoming_part_of", "plan_parent"),
@@ -1002,6 +1003,13 @@ async def test_typed_links_hold_back_autostart(link, expect_skip_reason, link_be
             root = _report()
             _attach_open_pr(root, 21)
             _link(team.id, report, root, ReportLinkKind.DUPLICATE_OF)
+        elif link == "duplicate_chain_with_pr_midway":
+            # The work sits on the report the run started from, not on the root of the chain.
+            root = _report()
+            midway = _report()
+            _attach_open_pr(midway, 23)
+            _link(team.id, midway, root, ReportLinkKind.DUPLICATE_OF)
+            _link(team.id, report, midway, ReportLinkKind.DUPLICATE_OF)
         elif link == "depends_on_without_pr":
             _link(team.id, report, _report(), ReportLinkKind.DEPENDS_ON)
         elif link == "depends_on_with_open_pr":

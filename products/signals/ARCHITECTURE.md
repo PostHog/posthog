@@ -1433,7 +1433,8 @@ A `report_link` artefact is one directed row on the report the sentence starts f
 
 - `outgoing_links` is a seek on `(report, type)`: what this report says about others.
 - `incoming_links` is a team-scoped scan, because `content` is a `TextField` and no row is mirrored. Candidates are narrowed with `content__contains` on the target's UUID and then confirmed by parsing, so a free-text `reason` that quotes a UUID is not an edge to it. A deleted source report is dropped by default; the recurrence chain is the one reader that asks for them, because it walks _through_ deleted intermediates to find the live successor. If the scan ever shows up in query timings, the fix is a materialised target column or a JSON index, not a mirror row.
-- `duplicate_root` follows `duplicate_of` to the report that duplicates nothing. Every `duplicate_of` reader acts on the root, so a chain reaches the same verdict from any of its members.
+- `duplicate_chain` follows `duplicate_of` and returns every report on the path, nearest first. A reader deciding whether the cluster is already being worked on needs all of them, because a pull request stays on the report whose run opened it: in A -> B -> C the fix can be in flight on B while C carries none.
+- `duplicate_root` returns the last member of that chain, which is the id that names the cluster.
 
 Rows that no longer parse name no edge, the same tolerance every other read of the artefact log has, and both readers are bounded by the graph budgets on `SignalReportArtefact`.
 
@@ -1445,7 +1446,7 @@ Rows that no longer parse name no edge, the same tolerance every other read of t
 
 | `skip_reason`           | Rule                                                                                                                                |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `duplicate_of`          | The report has an outgoing `duplicate_of` edge, and its root is `resolved` or carries a pull request that is not known to be closed |
+| `duplicate_of`          | The report has an outgoing `duplicate_of` edge, and some report on that chain is `resolved` or carries a pull request that is not known to be closed |
 | `blocked_by_dependency` | Some outgoing `depends_on` target carries no pull request, or only ones known to be closed                                          |
 | `plan_parent`           | The report has incoming `part_of` edges, so it is the plan and the steps do the work                                                |
 
