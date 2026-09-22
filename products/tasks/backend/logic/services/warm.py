@@ -158,7 +158,10 @@ class SandboxWarmer:
         (429) when the warm pool is full.
         """
         # Quota is a gateway/cache call — check it before taking the row lock, never while holding it.
-        self.enforce_quota(self.task.origin_product, self.task.team, self.user)
+        origin_product = self.task.origin_product
+        team = self.task.team
+        self.enforce_quota(origin_product, team, self.user)
+        pool_full = self.at_capacity(origin_product, team, self.user)
 
         new_run: TaskRun
         with transaction.atomic():
@@ -202,7 +205,7 @@ class SandboxWarmer:
                     if resume_source is None:
                         raise WarmSourceChanged
 
-            if self.at_capacity(locked.origin_product, locked.team, self.user):
+            if pool_full:
                 raise Throttled(detail="Warm-pool capacity reached. Release an idle warm session and try again.")
 
             run_state: dict[str, Any] = {
