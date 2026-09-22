@@ -89,7 +89,7 @@ import type {
     AccessControlLevel,
     DashboardTileBasicType,
     InsightShortId,
-    QueryBasedInsightModel,
+    InsightModel,
     SetInsightOptions,
     UserBasicType,
 } from '../../types'
@@ -145,8 +145,8 @@ export interface insightDataLogicValues {
     insightQuery: DataNode<Record<string, any>> // dataNodeLogic
     queryId: string | null // dataNodeLogic
     filterTestAccountsDefault: boolean // filterTestAccountsDefaultsLogic
-    insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> // insightLogic
-    savedInsight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> // insightLogic
+    insight: Partial<InsightModel<Node<Record<string, any>>>> // insightLogic
+    savedInsight: Partial<InsightModel<Node<Record<string, any>>>> // insightLogic
     currentTeamId: number | null // teamLogic
     canEditInSqlEditor: boolean
     exportContext: ExportContext | undefined
@@ -374,23 +374,23 @@ export interface insightDataLogicActions {
         }
     } // insightLogic
     setInsight: (
-        insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
+        insight: Partial<InsightModel<Node<Record<string, any>>>>,
         options: SetInsightOptions
     ) => {
-        insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
+        insight: Partial<InsightModel<Node<Record<string, any>>>>
         options: SetInsightOptions
     } // insightLogic
     setInsightMetadata: (
         metadataUpdate: Partial<
-            Pick<QueryBasedInsightModel<Node<Record<string, any>>>, 'description' | 'favorited' | 'name' | 'tags'>
+            Pick<InsightModel<Node<Record<string, any>>>, 'description' | 'favorited' | 'name' | 'tags'>
         >
     ) => {
         metadataUpdate: Partial<
-            Pick<QueryBasedInsightModel<Node<Record<string, any>>>, 'description' | 'favorited' | 'name' | 'tags'>
+            Pick<InsightModel<Node<Record<string, any>>>, 'description' | 'favorited' | 'name' | 'tags'>
         >
     } // insightLogic
-    renameInsightSuccess: (item: QueryBasedInsightModel<Node<Record<string, any>>>) => {
-        item: QueryBasedInsightModel<Node<Record<string, any>>>
+    renameInsightSuccess: (item: InsightModel<Node<Record<string, any>>>) => {
+        item: InsightModel<Node<Record<string, any>>>
     } // insightsModel
     cancelChanges: () => {
         value: true
@@ -458,7 +458,7 @@ export interface insightDataLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         query: (
             propsQuery: QuerySchema | null | undefined,
-            insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
+            insight: Partial<InsightModel<Node<Record<string, any>>>>,
             internalQuery: Node<Record<string, any>> | null,
             filterTestAccountsDefault: boolean,
             isDataWarehouseQuery: boolean
@@ -467,11 +467,11 @@ export interface insightDataLogicMeta {
         propsQuery: (arg: any) => QuerySchema | null | undefined
         exportContext: (
             query: Node<Record<string, any>> | null,
-            insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
+            insight: Partial<InsightModel<Node<Record<string, any>>>>
         ) => ExportContext | undefined
         queryChanged: (
             query: Node<Record<string, any>> | null,
-            savedInsight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
+            savedInsight: Partial<InsightModel<Node<Record<string, any>>>>,
             filterTestAccountsDefault: boolean
         ) => boolean
         insightData: (
@@ -645,7 +645,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             (s) => [s.propsQuery, s.insight, s.internalQuery, s.filterTestAccountsDefault, s.isDataWarehouseQuery],
             (
                 propsQuery: null | import('~/queries/schema/schema-general').QuerySchema | undefined,
-                insight: Partial<import('~/types').QueryBasedInsightModel<Node<Record<string, any>>>>,
+                insight: Partial<import('~/types').InsightModel<Node<Record<string, any>>>>,
                 internalQuery: Node | null,
                 filterTestAccountsDefault: boolean,
                 isDataWarehouseQuery: boolean
@@ -671,10 +671,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
         exportContext: [
             (s) => [s.query, s.insight],
-            (
-                query: Node | null,
-                insight: Partial<import('~/types').QueryBasedInsightModel<Node<Record<string, any>>>>
-            ) => {
+            (query: Node | null, insight: Partial<import('~/types').InsightModel<Node<Record<string, any>>>>) => {
                 if (!query) {
                     // if we're here without a query then an empty query context is not the problem
                     return undefined
@@ -697,7 +694,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             (s) => [s.query, s.savedInsight, s.filterTestAccountsDefault],
             (
                 query: Node | null,
-                savedInsight: Partial<import('~/types').QueryBasedInsightModel<Node<Record<string, any>>>>,
+                savedInsight: Partial<import('~/types').InsightModel<Node<Record<string, any>>>>,
                 filterTestAccountsDefault: boolean
             ) => {
                 let savedOrDefaultQuery

@@ -25,7 +25,6 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.git import extract_explicit_repo, extract_linked_repo, extract_repo_from_scopes
-from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
     Integration,
@@ -94,6 +93,7 @@ from products.slack_app.backend.services.slack_messages import (
     parse_slack_file_refs,
     post_slack_thread_reply,
 )
+from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 from products.slack_app.backend.services.slack_settings import resolve_untagged_followup_mode
 from products.slack_app.backend.services.slack_user_info import (
     clear_workspace_profile_cache,
@@ -1611,7 +1611,7 @@ def resolve_posthog_user_from_event(
         candidate_org_ids=org_ids,
     )
     if linked_user is not None and is_slack_app_oauth_enabled(probe_integration):
-        return linked_user if linked_user.is_active else None
+        return linked_user
 
     if slack_email is None:
         slack_email = get_slack_email_for_user(probe_integration, slack_user_id)
