@@ -14,7 +14,7 @@ Do not restrict a project-level insight operation to only `team_id=self.team_id`
 - On Enterprise installs, `EnterpriseInsightsViewSet` adds `CanEditInsight` for unsafe detail actions. A new unsafe detail action must keep object permission checks.
 - Detail-false bulk actions do not receive DRF object permissions. Filter every target through `_bulk_filter_editable_insights`, or perform the equivalent per-insight editor check. Return skipped targets without changing them.
 - Restore access to an insight does not grant edit access to every dashboard that contains it. Use `restore_tiles_for_insights` with `user_permissions`, so tiles remain hidden on dashboards the requester cannot edit.
-- Keep `required_scopes` on every API action. Personal API keys reject actions with no declared scope.
+- For an action that supports personal API keys, OAuth, or MCP, declare `required_scopes` or add it to the view set scope-action list. Otherwise, API-key callers receive a 403 response.
 
 ### Shared-link contract
 
