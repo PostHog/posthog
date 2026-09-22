@@ -7,6 +7,7 @@ from posthog.models.integration import Integration
 from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.temporal.ai.slack_app.activities.classifiers import (
     CLASSIFIER_MODEL,
+    CLASSIFIER_PROPERTY,
     classify_posthog_code_task_needs_repo_activity,
     classify_task_needs_repo,
     team_routing_rule_lines,
@@ -195,7 +196,11 @@ class TestClassifyTaskNeedsRepo:
         ) as build_client:
             assert classify_task_needs_repo(text, [SlackThreadMessage(user="Alessandro", text=text)]) is True
 
-        build_client.assert_called_once_with(product="slack_app_routing", ai_product="slack_app_routing")
+        build_client.assert_called_once_with(
+            product="slack_app_routing",
+            ai_product="slack_app_routing",
+            properties={CLASSIFIER_PROPERTY: "task_needs_repo"},
+        )
         kwargs = fake_client.messages.create.call_args.kwargs
         assert kwargs["model"] == CLASSIFIER_MODEL
         assert kwargs["max_tokens"] == 64
