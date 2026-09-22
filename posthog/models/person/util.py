@@ -142,8 +142,14 @@ def _batched_get_persons_by_distinct_ids(
     distinct_ids: list[str],
     operation: str,
     deduplicate_by_person: bool = True,
-    read_options: ReadOptions | None = None,
+    read_options: ReadOptions = _PERSON_MODEL_READ_OPTIONS,
 ) -> list[person_pb2.PersonWithDistinctIds]:
+    """Fetch persons for the given distinct IDs, one RPC per PERSONHOG_BATCH_SIZE batch.
+
+    By default the request asks for the fields ``proto_person_to_model`` reads. Callers that
+    need even less pass ``_UUID_ONLY_READ_OPTIONS``. The matched distinct ID on each result
+    is outside the person message, so a narrow mask never drops it.
+    """
     client = _get_client()
     seen_person_ids: set[int] = set()
     valid_results: list[person_pb2.PersonWithDistinctIds] = []

@@ -2031,8 +2031,17 @@ async fn test_get_persons_by_uuids_loads_only_the_requested_property_columns(
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case::none(PersonPropertyColumns::NONE, false, false, false)]
+#[case::properties_only(PersonPropertyColumns { properties: true, ..PersonPropertyColumns::NONE }, true, false, false)]
+#[case::all(PersonPropertyColumns::ALL, true, true, true)]
 #[tokio::test]
-async fn test_get_persons_by_distinct_ids_in_team_without_properties() {
+async fn test_get_persons_by_distinct_ids_in_team_loads_only_the_requested_property_columns(
+    #[case] columns: PersonPropertyColumns,
+    #[case] expect_properties: bool,
+    #[case] expect_last_updated_at: bool,
+    #[case] expect_last_operation: bool,
+) {
     let ctx = TestContext::new().await;
     let props = serde_json::json!({"email": "test@example.com"});
     ctx.insert_person("props_did_test", Some(props))
@@ -2041,18 +2050,20 @@ async fn test_get_persons_by_distinct_ids_in_team_without_properties() {
 
     let results = ctx
         .storage
-        .get_persons_by_distinct_ids_in_team(
-            ctx.team_id,
-            &["props_did_test".to_string()],
-            PersonPropertyColumns::NONE,
-        )
+        .get_persons_by_distinct_ids_in_team(ctx.team_id, &["props_did_test".to_string()], columns)
         .await
-        .expect("Failed to get persons without props");
+        .expect("Failed to get persons");
     assert_eq!(results.len(), 1);
     let person = results[0].1.as_ref().expect("Person should be found");
-    assert!(person.properties.is_none());
-    assert!(person.properties_last_updated_at.is_none());
-    assert!(person.properties_last_operation.is_none());
+    assert_eq!(person.properties.is_some(), expect_properties);
+    assert_eq!(
+        person.properties_last_updated_at.is_some(),
+        expect_last_updated_at
+    );
+    assert_eq!(
+        person.properties_last_operation.is_some(),
+        expect_last_operation
+    );
 
     ctx.cleanup().await.ok();
 }
