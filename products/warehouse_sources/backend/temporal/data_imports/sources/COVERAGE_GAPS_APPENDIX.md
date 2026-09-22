@@ -2201,7 +2201,7 @@ Today (11): `agent_edits`, `ai_code_commits`, `by_user_agent_edits`, `by_user_mo
 
 Diffed against: <https://cursor.com/docs/account/teams/analytics-api.md>
 
-- [x] `GET /analytics/ai-code/commits` — AI-authored code attribution per commit - Cursor's headline ROI metric, entirely absent today (high)
+- [x] `GET /analytics/ai-code/commits` — AI-authored code attribution per commit - Cursor's headline ROI metric (high)
 - [ ] `GET /analytics/ai-code/changes` — change-level AI vs human code accounting, the finer grain behind the commit metrics (high)
 - [ ] `GET /analytics/team/models` — model usage breakdown; the dimension every cost and adoption question needs alongside spend (high)
 - [ ] `GET /analytics/team/dau` — daily active users, the standard seat-utilization metric (high)
