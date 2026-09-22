@@ -16,7 +16,10 @@ Stopping Linux, reloading PostHog, or switching projects ends the session.
 
 Open `/project/<project-id>/terminal` to boot a Linux VM in your browser.
 The terminal uses xterm.js and v86, with a 9P filesystem that connects Linux file operations to the existing authenticated PostHog APIs.
-The first start loads the bundled, checksum-verified Linux image from PostHog and pinned firmware from the v86 GitHub repository.
+PostHog serves all terminal runtime assets, including the Linux image, firmware, jq, tools, and v86 WebAssembly.
+Starting the terminal does not download software from third-party hosts.
+The bundled SeaBIOS 1.16.2 firmware comes from [the pinned v86 revision](https://github.com/copy/v86/tree/589487c7758a2775f606ec631bd78609497f6e05/bios).
+`frontend/public/terminal/firmware-manifest.json` records its source, build recipe, sizes, and checksums, with the upstream license notices alongside the binaries.
 The image lives at `frontend/public/terminal/buildroot-bzimage.bin` and retains the pinned SHA-256 checksum in `terminalRuntime.ts`.
 The image uses Linux 5.6.15, whose uncached 9P driver can read API files before their sizes are known.
 PostHog serves the bundled jq 1.8.2 Linux i386 binary itself because GitHub release downloads do not support browser CORS.

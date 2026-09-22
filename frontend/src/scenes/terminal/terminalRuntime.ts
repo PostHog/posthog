@@ -3,11 +3,11 @@ import wasmUrl from 'v86/build/v86.wasm?url'
 
 import kernelUrl from 'public/terminal/buildroot-bzimage.bin?url'
 import jqUrl from 'public/terminal/jq-linux-i386.bin?url'
+import biosUrl from 'public/terminal/seabios.bin?url'
 import toolsUrl from 'public/terminal/tools-linux-i386.tar.gz.bin?url'
+import vgaBiosUrl from 'public/terminal/vgabios.bin?url'
 
 import { NinePServer } from './ninepServer'
-
-const FIRMWARE = 'https://raw.githubusercontent.com/copy/v86/589487c7758a2775f606ec631bd78609497f6e05/bios'
 
 function browserClock(): { timestamp: number; timezone: string } {
     const now = new Date()
@@ -53,16 +53,8 @@ export class TerminalRuntime {
 
     async start(server: NinePServer, signal: AbortSignal, onReady: () => void): Promise<void> {
         const [bios, vgaBios, kernel, jq, tools] = await Promise.all([
-            verifiedImage(
-                `${FIRMWARE}/seabios.bin`,
-                '73e3f359102e3a9982c35fce98eb7cd08f18303ac7f1ba6ebfbe6cdc1c244d98',
-                signal
-            ),
-            verifiedImage(
-                `${FIRMWARE}/vgabios.bin`,
-                'a4bc0d80cc3ca028c73dafa8fee396b8d054ce87ebd8abfbd31b06b437607880',
-                signal
-            ),
+            verifiedImage(biosUrl, '73e3f359102e3a9982c35fce98eb7cd08f18303ac7f1ba6ebfbe6cdc1c244d98', signal),
+            verifiedImage(vgaBiosUrl, 'a4bc0d80cc3ca028c73dafa8fee396b8d054ce87ebd8abfbd31b06b437607880', signal),
             verifiedImage(
                 // This image's uncached 9P reads work before API file sizes are known; Linux 6.8 clamps them to zero.
                 kernelUrl,
