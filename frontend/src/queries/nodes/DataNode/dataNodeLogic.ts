@@ -914,6 +914,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             responseErrorObject: Record<string, any> | null,
             queryScanResult: QueryScanPollResult | null
