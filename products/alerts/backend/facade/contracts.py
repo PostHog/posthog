@@ -84,7 +84,7 @@ class SourceEvaluationInputs:
 
 
 @frozen
-class PlatformAlertCheck:
+class PlatformAlertCheckInput:
     """One configuration and its runtime state, as a source adapter reads it.
 
     Flat rather than nested, because a source never holds the rows and has nothing to do with
