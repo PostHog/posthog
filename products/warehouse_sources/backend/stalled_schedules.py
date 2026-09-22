@@ -139,8 +139,8 @@ def stalled_schema_queryset(
     five-minute schema and a daily one. A daily schema therefore needs days of silence to
     qualify, which is the cost of not flagging every schema that merely ran slowly.
 
-    A candidate set: `find_stalled_schemas` drops the rows whose `last_full_run_at` shows a run
-    inside the same window, which cannot be compared in SQL against a timestamp column.
+    A candidate set: the run stamp that settles it lives in `sync_type_config`, which SQL cannot
+    compare against a timestamp column, so `find_stalled_schemas` applies it in Python.
     """
     stall_window = ExpressionWrapper(
         Greatest(
@@ -213,17 +213,17 @@ def find_stalled_schemas(
     now = timezone.now()
     stalled = []
     for schema in schemas:
-        # The queryset already excludes a null stamp. The check is here because the column is
-        # nullable, so the subtraction below has no other way to know.
-        if schema.last_synced_at is None:
+        last_run_at = schema.last_run_at
+        # The queryset already excludes a null stamp, which makes `last_run_at` non-null too.
+        # The checks are here because the column is nullable, so the arithmetic below has no
+        # other way to know.
+        if last_run_at is None or schema.last_synced_at is None:
             continue
-        # A run that extracts nothing advances `last_full_run_at` and deliberately leaves
-        # `last_synced_at` alone, so a schema whose source is simply quiet keeps an old sync
-        # stamp while its schedule fires on time. This predicate reports schedules that stopped
-        # running, so the later of the two stamps is what answers it. The window comes off the
-        # annotation rather than being recomputed, so both stamps are judged the same way.
-        last_run_at = max(filter(None, (schema.last_synced_at, schema.last_full_run)))
-        if now - last_run_at <= schema.stalled_after - schema.last_synced_at:
+        # A stalled schedule is one that stopped running, not one whose source stopped changing,
+        # so `last_run_at` is what the window applies to (see the property). The window comes off
+        # the annotation so both stamps are judged against one cadence.
+        stall_window = schema.stalled_after - schema.last_synced_at
+        if now - last_run_at <= stall_window:
             continue
         # Streaming CDC and cdc_halted are excluded here rather than in the queryset (see the
         # comment there): a paused per-schema schedule is streaming CDC's steady state, and

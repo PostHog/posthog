@@ -521,6 +521,19 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return stamped if stamped.tzinfo is not None else None
 
     @property
+    def last_run_at(self) -> datetime | None:
+        """When a sync last ran, whether or not it moved any rows.
+
+        Neither stamp answers this alone. A run that extracts nothing advances `last_full_run_at`
+        and deliberately leaves `last_synced_at` where it is, because that column doubles as the
+        signals watermark; a fast return on a negative probe does the reverse. Ask this when the
+        question is whether runs are happening, and `last_synced_at` when it is how old the data
+        is.
+        """
+        stamps = [stamp for stamp in (self.last_synced_at, self.last_full_run) if stamp is not None]
+        return max(stamps) if stamps else None
+
+    @property
     def incremental_field_lookback_seconds(self) -> int | None:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_lookback_seconds", None)
