@@ -1374,15 +1374,11 @@ class RespondToSuggestionSerializer(serializers.Serializer):
         allow_blank=True,
         max_length=2000,
         help_text=(
-            "Plain-English note on how the suggestion was interpreted and acted upon. Required when "
-            "dismissing. Omit it to keep the note already recorded; send an empty string to clear it."
+            "Plain-English note on how the suggestion was interpreted and acted upon. A dismissal needs a "
+            "note, sent now or recorded earlier. Omit it to keep the note already recorded; send an empty "
+            "string to clear it."
         ),
     )
-
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if attrs["status"] == "dismissed" and not (attrs.get("agent_response") or "").strip():
-            raise serializers.ValidationError({"agent_response": "Explain why the suggestion was dismissed."})
-        return attrs
 
 
 class CompleteTrainingRunSerializer(serializers.Serializer):

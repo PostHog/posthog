@@ -680,6 +680,8 @@ def _parent_suggestion_row(
         )
     if suggestion is None:
         raise AutoresearchConflict("parent_suggestion not found on this pipeline.")
+    if suggestion.status == AutoresearchSuggestion.Status.DISMISSED:
+        raise AutoresearchConflict("parent_suggestion was dismissed, so an iteration cannot act on it.")
     return suggestion
 
 
@@ -1126,9 +1128,11 @@ def respond_to_suggestion(
             raise AutoresearchConflict(
                 "Record an iteration with parent_suggestion set before marking a suggestion acted_on."
             )
+        note = row.agent_response if agent_response is None else agent_response
+        if status == AutoresearchSuggestion.Status.DISMISSED and not note.strip():
+            raise AutoresearchConflict("Explain why the suggestion was dismissed in agent_response.")
         row.status = status
-        if agent_response is not None:
-            row.agent_response = agent_response
+        row.agent_response = note
         row.save(update_fields=["status", "agent_response", "updated_at"])
     return _suggestion_to_contract(row)
 

@@ -648,6 +648,10 @@ class TestAutoresearchSuggestionAPI(TeamScopedTestMixin, APIBaseTest):
         )
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_create_suggestion_on_a_missing_pipeline_returns_404(self):
+        resp = self.client.post(self._suggestions_url(uuid.uuid4()), {"prompt": "try XGBoost"}, format="json")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
     def test_create_suggestion_missing_prompt_returns_400(self):
         pipeline = self._make_pipeline()
         resp = self.client.post(self._suggestions_url(pipeline.id), {}, format="json")
@@ -796,7 +800,12 @@ class TestAutoresearchSuggestionAPI(TeamScopedTestMixin, APIBaseTest):
         suggestion = self._make_suggestion(self._make_pipeline())
         resp = self._respond(suggestion, {"status": "dismissed"})
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
-        assert "agent_response" in resp.json()["attr"]
+        assert "agent_response" in str(resp.json())
+        # A reason recorded earlier satisfies a repeated dismissal that omits the note.
+        assert self._respond(suggestion, {"status": "dismissed", "agent_response": "dead end"}).status_code == 200
+        resp = self._respond(suggestion, {"status": "dismissed"})
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["agent_response"] == "dead end"
 
     def test_respond_after_pipeline_archived_returns_400(self):
         pipeline = self._make_pipeline()

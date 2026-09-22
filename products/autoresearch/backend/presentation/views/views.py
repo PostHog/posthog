@@ -875,7 +875,9 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMix
                 # The permission class rejects anonymous callers, so this is always a real user.
                 created_by=cast(User, request.user),
             )
-        except (PipelineNotFound, AutoresearchConflict) as exc:
+        except PipelineNotFound as exc:
+            raise NotFound(str(exc)) from exc
+        except AutoresearchConflict as exc:
             raise ValidationError(str(exc)) from exc
         return Response(AutoresearchSuggestionSerializer(instance=suggestion).data, status=201)
 

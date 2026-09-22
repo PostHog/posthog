@@ -164,7 +164,7 @@ export const AutoresearchSuggestionsRespondCreateBody = /* @__PURE__ */ zod
             .max(autoresearchSuggestionsRespondCreateBodyAgentResponseMax)
             .optional()
             .describe(
-                'Plain-English note on how the suggestion was interpreted and acted upon. Required when dismissing. Omit it to keep the note already recorded; send an empty string to clear it.'
+                'Plain-English note on how the suggestion was interpreted and acted upon. A dismissal needs a note, sent now or recorded earlier. Omit it to keep the note already recorded; send an empty string to clear it.'
             ),
     })
     .describe('Input for the agent to record how it interpreted a steering suggestion.')
