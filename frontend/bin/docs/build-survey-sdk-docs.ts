@@ -24,6 +24,38 @@ const SDK_ORDER: SurveySdkType[] = [
     'posthog_flutter',
 ]
 
+const SDK_SUPPORT_NOTES = `## Android survey UI
+
+The Android versions in the table refer to \`posthog-android\`.
+The built-in survey UI also requires \`posthog-android-surveys-compose\` 0.2.2+ for choice shuffling, 0.3.0+ for auto-submit, and 0.4.0+ for persistent resume.
+Custom survey delegates must implement these UI behaviors themselves.
+
+## Partial responses and resume
+
+Partial response collection saves submitted answers after each question when enabled for the survey.
+React Native 4.75.0+, iOS 3.79.0+, and Android 3.70.0+ can also restore unfinished surveys after an app restart, including saved answers and the next question.
+Completion, dismissal, SDK reset, and incompatible survey changes clear saved progress.
+Custom iOS delegates must opt in with \`supportsSurveyResume\` and honor \`initialQuestionIndex\`; custom Android delegates must implement \`PostHogSurveysResumeAwareDelegate\`.
+
+Flutter does not yet support persistent resume.
+Partial response collection depends on the resolved native SDK: iOS 3.79.0+ or Android 3.70.0+.
+Flutter 5.45.0 permits older native versions, so its version alone does not guarantee partial response support.
+The same limitation applies to feature flag variant targeting, which requires iOS 3.78.0+ or Android 3.67.0+.
+The Flutter cells remain marked as not yet supported until the SDK guarantees these native dependencies.
+
+## Selection behavior
+
+Choice option shuffling is available for single-choice and multiple-choice questions in all five SDKs listed above.
+The open-ended "Other" option stays last, and the choice order stays stable while the user answers.
+Auto-submit applies to ratings and single-choice questions without an open-ended choice.
+Multiple-choice questions and questions with an open-ended choice keep the submit button.
+
+## Cancellation events
+
+Cancellation events remove a survey from the event-triggered display queue when a configured event occurs.
+They are separate from the dismissal event emitted when a user closes a survey.
+Cancellation events remain available only in the JavaScript Web SDK.`
+
 function generateMarkdown(): string {
     const lines: string[] = [
         '---',
@@ -85,6 +117,8 @@ function generateMarkdown(): string {
     for (const row of dataRows) {
         lines.push(formatRow(row))
     }
+
+    lines.push('', SDK_SUPPORT_NOTES)
 
     return lines.join('\n')
 }
