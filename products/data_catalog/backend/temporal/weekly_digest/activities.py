@@ -79,7 +79,7 @@ def _get_org_batch_page(input: OrgBatchPageInput) -> OrgBatchPageResult:
     workflow_input = input.workflow_input
     cutoff: datetime | None = None
 
-    if workflow_input.org_ids:
+    if workflow_input.org_ids is not None:
         page_org_ids, next_cursor = paginate_index(list(workflow_input.org_ids), input.cursor, input.page_size)
         source = "configured"
     else:

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from temporalio.client import Schedule, ScheduleActionStartWorkflow
@@ -19,6 +20,7 @@ from products.data_catalog.backend.models import Metric
 from products.data_catalog.backend.temporal.schedule import create_data_catalog_weekly_digest_schedule
 from products.data_catalog.backend.temporal.weekly_digest.activities import (
     _build_and_send_for_org,
+    _get_org_batch_page,
     _send_digest_for_user,
 )
 from products.data_catalog.backend.temporal.weekly_digest.email_context import (
@@ -26,7 +28,11 @@ from products.data_catalog.backend.temporal.weekly_digest.email_context import (
     build_subject,
     catalog_url,
 )
-from products.data_catalog.backend.temporal.weekly_digest.types import DigestOutcome
+from products.data_catalog.backend.temporal.weekly_digest.types import (
+    DataCatalogWeeklyDigestInput,
+    DigestOutcome,
+    OrgBatchPageInput,
+)
 
 _ACTIVITIES = "products.data_catalog.backend.temporal.weekly_digest.activities"
 
@@ -206,6 +212,32 @@ class TestBuildAndSendForOrg(APIBaseTest):
         counts = _build_and_send_for_org(str(self.organization.id))
 
         assert counts.sent == expected_sent
+
+
+class TestOrgBatchPage(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.is_email_patcher = patch(f"{_ACTIVITIES}.is_email_available", return_value=True)
+        self.is_email_patcher.start()
+        self.close_conn_patcher = patch(f"{_ACTIVITIES}.close_old_connections")
+        self.close_conn_patcher.start()
+        self.user.last_login = timezone.now()
+        self.user.save()
+
+    def tearDown(self) -> None:
+        self.close_conn_patcher.stop()
+        self.is_email_patcher.stop()
+        super().tearDown()
+
+    def _page(self, org_ids: list[str] | None) -> list[str]:
+        result = _get_org_batch_page(OrgBatchPageInput(workflow_input=DataCatalogWeeklyDigestInput(org_ids=org_ids)))
+        return [org_id for batch in result.batches for org_id in batch]
+
+    def test_an_empty_target_list_selects_no_organizations(self) -> None:
+        assert self._page([]) == []
+
+    def test_no_target_list_discovers_active_organizations(self) -> None:
+        assert str(self.organization.id) in self._page(None)
 
 
 # The workflow is registered on WEEKLY_DIGEST_TASK_QUEUE by the worker bootstrap, but the schedule
