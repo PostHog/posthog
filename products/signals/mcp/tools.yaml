@@ -287,8 +287,6 @@ tools:
                 - updated_at
     inbox-reports-merge:
         operation: signals_reports_merge_create
-        # Enable once the merge route has deployed everywhere: an MCP tool that reaches clients
-        # ahead of its Django route answers 404 for the whole agent fleet until Django catches up.
         enabled: false
         scopes:
             - task:write
