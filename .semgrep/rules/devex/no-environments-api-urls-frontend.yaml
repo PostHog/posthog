@@ -50,19 +50,6 @@ rules:
               # Each file below still constructs hand-coded `/api/environments/`
               # or `api/environments/` URLs. Removing a file from this list
               # re-enables the gate for it.
-              - '/frontend/src/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic.tsx'
-              - '/frontend/src/lib/approvals/approvalsGateLogic.ts'
-              - '/frontend/src/lib/components/HelpMenu/healthSummaryLogic.tsx'
-              - '/frontend/src/lib/components/PropertiesTimeline/propertiesTimelineLogic.ts'
-              - '/frontend/src/lib/components/PropertyFilters/components/TaxonomicPropertyFilter.tsx'
-              - '/frontend/src/lib/components/PropertyFilters/components/groupKeySelectLogic.ts'
-              - '/frontend/src/lib/components/TaxonomicFilter/taxonomicFilterLogic.tsx'
-              - '/frontend/src/lib/components/TaxonomicFilter/utils/buildGroupAnalyticsGroups.ts'
-              - '/frontend/src/lib/components/TaxonomicFilter/utils/buildTaxonomicGroups.tsx'
-              - '/frontend/src/lib/logic/eventIngestionRestrictionLogic.ts'
-              - '/frontend/src/models/dashboardsModel.tsx'
-              - '/frontend/src/models/propertyDefinitionsModel.ts'
-              - '/frontend/src/queries/nodes/DataNode/dataNodeLogic.ts'
               - '/frontend/src/scenes/approvals/approvalLogic.tsx'
               - '/frontend/src/scenes/approvals/approvalsLogic.tsx'
               - '/frontend/src/scenes/approvals/changeRequestsLogic.ts'
