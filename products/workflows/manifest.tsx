@@ -102,7 +102,7 @@ export const manifest: ProductManifest = {
             iconType: 'broadcasts',
             iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
             flag: FEATURE_FLAGS.BROADCASTS,
-                sceneKey: 'Broadcasts',
+            sceneKey: 'Broadcasts',
         },
     ],
 }
