@@ -16,6 +16,7 @@ import { insightsRetrieve } from 'products/product_analytics/frontend/generated/
 
 import { PosthogCommands } from './posthogCommands'
 import { PosthogFilesystem } from './posthogFilesystem'
+import { MAX_TERMINAL_FILE_BYTES } from './terminalFilesystem'
 
 jest.mock('~/generated/core/api', () => ({ fileSystemList: jest.fn() }))
 jest.mock('products/notebooks/frontend/generated/api', () => ({
@@ -307,5 +308,9 @@ describe('PostHog terminal commands', () => {
         jest.mocked(notebooksRetrieve).mockRejectedValue(new Error('Not allowed'))
         await request.save!(new TextEncoder().encode(JSON.stringify({ argv: ['notebook-get', './Notes.md'], cwd })))
         expect(await read()).toEqual({ ok: false, error: 'Not allowed' })
+        jest.mocked(notebooksRetrieve).mockRejectedValue(new Error('x'.repeat(MAX_TERMINAL_FILE_BYTES + 1)))
+        await request.save!(new TextEncoder().encode(JSON.stringify({ argv: ['notebook-get', './Notes.md'], cwd })))
+        expect((await response.open!()).bytes.length).toBeLessThan(MAX_TERMINAL_FILE_BYTES)
+        expect(await read()).toEqual({ ok: false, error: expect.stringContaining('exceeds 4 MiB') })
     })
 })
