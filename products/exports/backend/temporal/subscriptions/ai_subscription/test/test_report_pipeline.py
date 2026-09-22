@@ -600,6 +600,7 @@ async def test_synthesis_prompt_carries_the_failure_marker(
     assert QUERY_FAILED_PREFIX in system_message  # {{{failure_marker}}} substituted from the constant
     assert "{{{" not in system_message  # no placeholder left unrendered
     assert "Use that evidence to answer the prompt" in system_message
+    assert "prefer the <computed_context> values" in system_message
 
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
