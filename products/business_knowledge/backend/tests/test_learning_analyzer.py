@@ -325,16 +325,20 @@ class TestLearningAnalyzer:
             pii_result,
         ]
         client = MagicMock()
+        analytics = MagicMock()
+        analytics.disabled = False
+        analytics.default_client = client if analytics_client == "ready" else None
+
+        def _install_client() -> MagicMock:
+            analytics.default_client = client
+            return client
+
+        analytics.setup.side_effect = _install_client
 
         with (
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
             patch(f"{_MODULE}._build_model", return_value=model),
-            patch(
-                f"{_MODULE}.posthoganalytics.default_client",
-                client if analytics_client == "ready" else None,
-            ),
-            patch(f"{_MODULE}.posthoganalytics.disabled", False),
-            patch(f"{_MODULE}.posthoganalytics.setup", return_value=client) as setup_client,
+            patch(f"{_MODULE}.posthoganalytics", analytics),
             patch(f"{_MODULE}.generate_embedding") as embed,
             patch(f"{_MODULE}.logic.search_knowledge") as search,
             patch(f"{_MODULE}.logic.create_generated_knowledge_document") as publish,
@@ -365,9 +369,9 @@ class TestLearningAnalyzer:
             for call in structured_model.invoke.call_args_list
         ] == ["support_learning_extraction", "support_learning_pii"]
         if analytics_client == "ready":
-            setup_client.assert_not_called()
+            analytics.setup.assert_not_called()
         else:
-            setup_client.assert_called_once_with()
+            analytics.setup.assert_called_once_with()
         embed.assert_not_called()
         search.assert_not_called()
         publish.assert_not_called()
