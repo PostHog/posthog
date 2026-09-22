@@ -1,8 +1,16 @@
+"""The AWS SNS message signature: the signing certificate, and the RSA check over it.
+
+Nothing here is specific to one topic or one product. `SnsSignature` in `schemes.py` calls
+`verify_sns_message()` to prove a message is from SNS, and then checks the `TopicArn` against
+the endpoint's allowlist to prove it is from our topic.
+"""
+
 import re
 import time
 import base64
 import hashlib
 import logging
+from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlparse
 
@@ -14,6 +22,8 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from cryptography.x509 import load_pem_x509_certificate
+
+from posthog.ingress.verify.errors import VerifierUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +125,7 @@ def _fetch_signing_cert(cert_url: str) -> bytes | None:
     return response.content
 
 
-def _string_to_sign(message: dict[str, Any]) -> str | None:
+def _string_to_sign(message: Mapping[str, Any]) -> str | None:
     keys = _SIGNED_KEYS_BY_TYPE.get(message.get("Type", ""))
     if keys is None:
         return None
@@ -128,12 +138,13 @@ def _string_to_sign(message: dict[str, Any]) -> str | None:
     return "".join(parts)
 
 
-def verify_sns_message(message: dict[str, Any]) -> bool:
+def verify_sns_message(message: Mapping[str, Any]) -> bool:
     """
     Verify an SNS message's authenticity: signing cert served by SNS over HTTPS, RSA signature over
-    the canonical string-to-sign. Returns False (never raises) on any mismatch so callers fail
-    closed. Signature proves "from AWS SNS" — callers must still check TopicArn against an
-    allowlist to prove "from *our* topic".
+    the canonical string-to-sign. Returns False on any mismatch so callers fail closed, and raises
+    `VerifierUnavailable` when the certificate could not be obtained at all, which says nothing
+    about the signature. Signature proves "from AWS SNS" — callers must still check TopicArn
+    against an allowlist to prove "from *our* topic".
     """
     # Only SignatureVersion 2 (SHA256) is accepted. Version 1 signs with SHA1, which is not
     # collision resistant — and since we own the SNS topic, we simply configure it with
@@ -160,7 +171,10 @@ def verify_sns_message(message: dict[str, Any]) -> bool:
         return False
     cert_pem = _fetch_signing_cert(cert_url)
     if cert_pem is None:
-        return False
+        # No certificate means no check ran, whether the fetch failed, a recent failure is still
+        # cached, or the budget for new URLs is spent. False would report a message AWS may have
+        # signed correctly as forged.
+        raise VerifierUnavailable("SNS signing certificate could not be obtained")
     try:
         public_key = load_pem_x509_certificate(cert_pem).public_key()
         if not isinstance(public_key, RSAPublicKey):
