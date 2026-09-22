@@ -27,27 +27,39 @@ describe('retryIfRetriable backoff', () => {
     it('jitters each sleep down by up to the default factor', async () => {
         const sleeps = captureSleeps()
         jest.spyOn(Math, 'random').mockReturnValue(0) // worst case: the full downward jitter
-        await retryIfRetriable(failThenSucceed(2), 5, 100)
+        await retryIfRetriable(failThenSucceed(2), { tries: 5, sleepMs: 100 })
         // 100 and 200 backoff, each scaled by (1 - DEFAULT_JITTER_FACTOR).
         expect(sleeps).toEqual([100 * (1 - DEFAULT_JITTER_FACTOR), 200 * (1 - DEFAULT_JITTER_FACTOR)])
     })
 
     it('is deterministic when jitter is explicitly disabled', async () => {
         const sleeps = captureSleeps()
-        await retryIfRetriable(failThenSucceed(2), 5, 100, 0)
+        await retryIfRetriable(failThenSucceed(2), { tries: 5, sleepMs: 100, jitter: 0 })
         expect(sleeps).toEqual([100, 200])
     })
 
     it('applies a stronger jitter factor when asked', async () => {
         const sleeps = captureSleeps()
         jest.spyOn(Math, 'random').mockReturnValue(0)
-        await retryIfRetriable(failThenSucceed(1), 5, 100, 1) // full jitter -> floor is 0
+        await retryIfRetriable(failThenSucceed(1), { tries: 5, sleepMs: 100, jitter: 1 }) // full jitter -> floor is 0
         expect(sleeps[0]).toBe(0)
     })
 
     it('grows each backoff by a custom factor', async () => {
         const sleeps = captureSleeps()
-        await retryIfRetriable(failThenSucceed(3), 5, 100, 0, 4)
+        await retryIfRetriable(failThenSucceed(3), { tries: 5, sleepMs: 100, jitter: 0, backoffFactor: 4 })
         expect(sleeps).toEqual([100, 400, 1600])
+    })
+
+    it('caps each backoff at maxSleepMs', async () => {
+        const sleeps = captureSleeps()
+        await retryIfRetriable(failThenSucceed(3), {
+            tries: 5,
+            sleepMs: 100,
+            jitter: 0,
+            backoffFactor: 4,
+            maxSleepMs: 500,
+        })
+        expect(sleeps).toEqual([100, 400, 500])
     })
 })

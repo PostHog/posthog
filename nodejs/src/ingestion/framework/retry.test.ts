@@ -158,11 +158,11 @@ describe('retry', () => {
             expect(await getRetryAttempts('retry_site', 'exhausted')).toEqual({ count: 1, sum: 3 })
         })
 
-        it('forwards backoffFactor to the backoff schedule', async () => {
+        it('forwards the whole retry schedule to retryIfRetriable', async () => {
             let attempts = 0
             const script = (): void => {
                 attempts++
-                if (attempts < 4) {
+                if (attempts < 5) {
                     throw new RetriableError('Temporary failure')
                 }
             }
@@ -173,10 +173,12 @@ describe('retry', () => {
                 sleepMs: 100,
                 jitter: 0,
                 backoffFactor: 4,
+                maxSleepMs: 1000,
             })
 
             expect(results.every(isOkResult)).toBe(true)
-            expect(mockSleep.mock.calls.map(([ms]) => ms)).toEqual([100, 400, 1600])
+            // The factor grows the sleep until the cap holds it.
+            expect(mockSleep.mock.calls.map(([ms]) => ms)).toEqual([100, 400, 1000, 1000])
         })
 
         it('defaults the metric name to the step name', async () => {

@@ -50,22 +50,32 @@ export function getNextRetryMs(baseMs: number, multiplier: number, attempt: numb
 /** Fraction of each backoff to jitter by default, de-correlating retries across workers. */
 export const DEFAULT_JITTER_FACTOR = 0.05
 
+export interface RetrySchedule {
+    /** Total attempts including the first. */
+    tries?: number
+    /** Sleep before the first retry, in ms. */
+    sleepMs?: number
+    /** Multiplier applied to the sleep after each retry. */
+    backoffFactor?: number
+    /** Upper bound on any single sleep, in ms. */
+    maxSleepMs?: number
+    /** Fraction of each sleep to jitter down by. Pass 0 to opt out. */
+    jitter?: number
+}
+
 /**
  * Retry a function, respecting `error.isRetriable`.
  *
- * Each sleep is jittered down by up to `jitterFactor` of the backoff so
- * concurrent callers don't retry in lockstep. Pass `0` to opt out.
- *
- * Each backoff grows by `backoffFactor`, capped at `defaultRetryConfig.MAX_INTERVAL`.
+ * Each sleep is jittered down so concurrent callers don't retry in lockstep.
+ * Every schedule field falls back to `defaultRetryConfig`.
  */
-export async function retryIfRetriable<T>(
-    fn: () => Promise<T>,
-    tries = 3,
-    sleepMs = 100,
-    jitterFactor = DEFAULT_JITTER_FACTOR,
-    backoffFactor = defaultRetryConfig.BACKOFF_FACTOR
-): Promise<T> {
-    let currentSleepMs = sleepMs
+export async function retryIfRetriable<T>(fn: () => Promise<T>, options: RetrySchedule = {}): Promise<T> {
+    const tries = options.tries ?? defaultRetryConfig.MAX_RETRIES_DEFAULT
+    const backoffFactor = options.backoffFactor ?? defaultRetryConfig.BACKOFF_FACTOR
+    const maxSleepMs = options.maxSleepMs ?? defaultRetryConfig.MAX_INTERVAL
+    const jitter = options.jitter ?? DEFAULT_JITTER_FACTOR
+
+    let currentSleepMs = options.sleepMs ?? defaultRetryConfig.RETRY_INTERVAL_DEFAULT
     for (let i = 0; i < tries; i++) {
         try {
             return await fn()
@@ -76,10 +86,9 @@ export async function retryIfRetriable<T>(
             }
 
             // Fall through, `fn` will retry after sleep.
-            const jitteredSleepMs =
-                jitterFactor > 0 ? currentSleepMs * (1 - jitterFactor + Math.random() * jitterFactor) : currentSleepMs
+            const jitteredSleepMs = jitter > 0 ? currentSleepMs * (1 - jitter + Math.random() * jitter) : currentSleepMs
             await sleep(jitteredSleepMs)
-            currentSleepMs = Math.min(currentSleepMs * backoffFactor, defaultRetryConfig.MAX_INTERVAL)
+            currentSleepMs = Math.min(currentSleepMs * backoffFactor, maxSleepMs)
         }
     }
 
