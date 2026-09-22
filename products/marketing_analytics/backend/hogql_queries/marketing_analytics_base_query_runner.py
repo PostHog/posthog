@@ -93,7 +93,7 @@ COSTS_PRECOMPUTE_TTL_SECONDS = {"0d": 6 * 60 * 60, "1d": 24 * 60 * 60, "default"
 # Cap for a cost window that materialized zero rows. Short enough that a source which was mid-sync
 # heals the same day, long enough that a genuinely empty window isn't re-scanned on every read.
 # This bounds recomputation, not what a reader sees: the read path serves stale within
-# STALE_WHILE_REVALIDATE_SECONDS, so a $0 window can still be handed back for up to the sum of both.
+# PRECOMPUTE_ONLY_MAX_STALE_SECONDS, so a $0 window can still be handed back for up to the sum of both.
 COSTS_EMPTY_RESULT_TTL_SECONDS = 6 * 60 * 60  # 6 hours
 
 # How far back the cap above applies, measured from the window's end. A warehouse sync that is going
