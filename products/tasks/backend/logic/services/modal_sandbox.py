@@ -617,7 +617,8 @@ def _build_canvas_template_image() -> modal.Image:
     )
 
 
-_template_image_cache: TTLCache = TTLCache(maxsize=4, ttl=300)
+# One entry per template, so a worker serving every template evicts nothing.
+_template_image_cache: TTLCache = TTLCache(maxsize=8, ttl=300)
 _template_image_lock = threading.Lock()
 
 

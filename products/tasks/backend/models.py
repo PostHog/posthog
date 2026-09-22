@@ -798,6 +798,11 @@ class Task(DeletedMetaFields, models.Model):
                 task.origin_product == Task.OriginProduct.WORKFLOW and "config_snapshot" not in state
             )
             carry_sandbox_template = "sandbox_template" not in state
+            if not carry_sandbox_template:
+                from products.tasks.backend.logic.services.sandbox import parse_requested_sandbox_template
+
+                # Unknown and VM templates are refused here, before the run row exists.
+                parse_requested_sandbox_template(state["sandbox_template"])
             previous = task.latest_run if carry_config_snapshot or carry_sandbox_template else None
             previous_state: dict = (previous.state or {}) if previous else {}
             # A workflow task's later runs must keep the connector allowlist selected by the workflow.

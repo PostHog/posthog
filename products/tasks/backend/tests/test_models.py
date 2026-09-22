@@ -248,7 +248,7 @@ class TestTask(TestCase):
         self.assertEqual(Task.objects.count(), 0)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_run_keeps_the_sandbox_template_of_the_previous_run(self, mock_execute_workflow):
+    def test_create_run_keeps_the_previous_template_and_refuses_a_forbidden_one(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
 
@@ -269,6 +269,10 @@ class TestTask(TestCase):
             later_run = task.create_run()
 
         self.assertEqual(later_run.state["sandbox_template"], "autoresearch_base")
+
+        with self.assertRaises(ValueError):
+            task.create_run(extra_state={"sandbox_template": "vm_base"})
+        self.assertEqual(TaskRun.objects.filter(task=task).count(), 2)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_threads_attribution_stamps_into_state(self, mock_execute_workflow):
