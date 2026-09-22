@@ -6864,56 +6864,8 @@ const api = {
             return await new ApiRequest().conversationsTicket(ticketId).get()
         },
 
-        async create(data: {
-            distinct_id: string
-            anonymous_traits?: Record<string, any>
-            channel_source?: string
-        }): Promise<any> {
-            return await new ApiRequest().conversationsTickets().create({ data })
-        },
-
-        async update(
-            ticketId: string,
-            data: Partial<{
-                status: string
-                escalation_reason: string
-                assignee: { type: 'user' | 'role'; id: string | number } | null
-            }>
-        ): Promise<any> {
-            return await new ApiRequest().conversationsTicket(ticketId).update({ data })
-        },
-
-        async delete(ticketId: string): Promise<void> {
-            return await new ApiRequest().conversationsTicket(ticketId).delete()
-        },
-
         async unreadCount(): Promise<{ count: number }> {
             return await new ApiRequest().conversationsTickets().withAction('unread_count').get()
-        },
-
-        async compose(data: {
-            message: string
-            recipient_email: string
-            email_config_id: string
-            recipient_distinct_id?: string
-            email_subject?: string
-            rich_content?: Record<string, unknown> | null
-        }): Promise<{ id: string; ticket_number: number }> {
-            return await new ApiRequest().conversationsTickets().withAction('compose').create({ data })
-        },
-
-        async bulkUpdateStatus(ids: string[], ticketStatus: string): Promise<{ updated: number; ids: string[] }> {
-            return await new ApiRequest()
-                .conversationsTickets()
-                .withAction('bulk_update_status')
-                .create({ data: { ids, status: ticketStatus } })
-        },
-
-        async submitAiFeedback(
-            ticketId: string,
-            data: { message_id: string; rating: 'good' | 'bad'; feedback_text?: string }
-        ): Promise<void> {
-            await new ApiRequest().conversationsTicket(ticketId).withAction('ai_feedback').create({ data })
         },
     },
 
