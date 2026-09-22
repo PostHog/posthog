@@ -691,7 +691,7 @@ def _deliver_route_notification(
         )
         # Added here rather than inside the block builder, which stays free of the integration so it
         # can be tested without one. Approval is read now, not assumed from generation time: a
-        # reviewer can be added to a retained report after the org has revoked it.
+        # reviewer can be added to a retained report after the org revoked it.
         ai_enabled = bool(report.team.organization.is_ai_data_processing_approved)
         if invite := slack_followup_invite(route.integration, utm_tags=_INBOX_INVITE_UTM_TAGS, ai_enabled=ai_enabled):
             blocks.append(invite)

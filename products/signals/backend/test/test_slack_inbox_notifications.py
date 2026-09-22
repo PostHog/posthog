@@ -404,10 +404,9 @@ def test_dispatch_posts_to_team_channel_without_per_user_config(org_and_team, ai
     call_kwargs = fake_client.chat_postMessage.call_args.kwargs
     assert call_kwargs["channel"] == "CTEAM"
     assert "<@U_TEAM>" in call_kwargs["blocks"][2]["elements"][0]["text"]
-    # The follow-up invite closes the message, and only while the org still approves AI data
-    # processing — a reviewer can be added to a retained report after that approval is revoked.
-    # Which of the invite's two variants renders is the shared builder's decision, tested in
-    # products/slack_app; here it only has to be attached.
+    # The invite closes the message, and only while the org still approves AI data processing:
+    # a reviewer can be added to a retained report after that approval is revoked. Which of the
+    # two variants renders is the shared builder's decision, tested in products/slack_app.
     assert ("@PostHog" in call_kwargs["blocks"][-1]["elements"][0]["text"]) is ai_approved
 
 
