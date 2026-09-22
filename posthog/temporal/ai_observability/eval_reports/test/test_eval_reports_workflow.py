@@ -26,18 +26,6 @@ from posthog.temporal.ai_observability.eval_reports.workflow import (
 
 
 @pytest.mark.asyncio
-async def test_no_longer_reportable_stops_before_generation() -> None:
-    with patch(
-        "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
-        return_value=None,
-    ) as execute:
-        await GenerateAndDeliverEvalReportWorkflow().run(
-            GenerateAndDeliverEvalReportWorkflowInput(report_id="report-id", manual=True)
-        )
-    execute.assert_awaited_once()
-
-
-@pytest.mark.asyncio
 async def test_generate_workflow_forwards_sentiment_output_type() -> None:
     trace_uuid = UUID("11111111-1111-4111-8111-111111111111")
     session_uuid = UUID("22222222-2222-4222-8222-222222222222")

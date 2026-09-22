@@ -1,12 +1,38 @@
+import math
+
 import pytest
 
 from products.ai_observability.backend.models.evaluation_configs import (
+    NumericOutputConfig,
+    NumericScoreOutOfBounds,
     validate_evaluation_configs,
     validate_target_config,
 )
 
 
 class TestNumericOutputConfig:
+    @pytest.mark.parametrize(
+        "bounds,score,expected",
+        [
+            ({"max": 0.7}, 7 * 0.1, 0.7),
+            ({"min": -0.7}, -7 * 0.1, -0.7),
+            ({"min": 0.7}, math.nextafter(0.7, -math.inf), 0.7),
+            ({"max": -0.7}, math.nextafter(-0.7, math.inf), -0.7),
+            ({"min": 0, "max": 1}, 0.123456789, 0.123456789),
+            ({"max": 0.7}, math.nextafter(0.7, math.inf, steps=2), None),
+            ({"min": -0.7}, math.nextafter(-0.7, -math.inf, steps=2), None),
+            ({"max": 0.7}, 0.700001, None),
+            ({"max": 1e12}, 1e12 + 1, None),
+        ],
+    )
+    def test_score_boundary_roundoff(self, bounds, score, expected):
+        config = NumericOutputConfig.model_validate(bounds)
+        if expected is None:
+            with pytest.raises(NumericScoreOutOfBounds):
+                config.validate_score(score)
+        else:
+            assert config.validate_score(score) == expected
+
     @pytest.mark.parametrize(
         "runtime,config", [("llm_judge", {"prompt": "Score completeness"}), ("hog", {"source": "return 0;"})]
     )

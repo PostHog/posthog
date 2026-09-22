@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -433,8 +434,10 @@ class TestPrepareReportContext(BaseTest):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@pytest.mark.parametrize("remove_passing_rule", [False, True])
-async def test_prepare_activity_reads_current_reportability_and_polarity(team, user, remove_passing_rule) -> None:
+@pytest.mark.parametrize("remove_passing_rule,manual", [(False, False), (True, False), (True, True)])
+async def test_prepare_activity_reads_current_reportability_and_polarity(
+    team, user, remove_passing_rule, manual
+) -> None:
     def _create_report() -> EvaluationReport:
         evaluation = Evaluation.objects.create(
             team=team,
@@ -464,11 +467,24 @@ async def test_prepare_activity_reads_current_reportability_and_polarity(team, u
         await sync_to_async(Evaluation.objects.filter(id=report.evaluation_id).update)(
             output_config={"passing_rule": None}
         )
-    context = await prepare_report_context_activity(PrepareReportContextInput(report_id=str(report.id)))
+    inputs = PrepareReportContextInput(report_id=str(report.id), manual=manual)
     if remove_passing_rule:
-        assert context is None
+        next_delivery_date = report.next_delivery_date
+        with pytest.raises(ApplicationError, match="set a passing rule") as error:
+            await prepare_report_context_activity(inputs)
+        assert error.value.non_retryable
+        assert error.value.type == "ReportNotEligible"
+        await sync_to_async(report.refresh_from_db)()
+        assert report.last_delivered_at is None
+        if manual:
+            assert report.next_delivery_date == next_delivery_date
+            assert report.last_attempted_at is None
+        else:
+            assert report.next_delivery_date is not None
+            assert report.next_delivery_date > timezone.now()
+            assert report.last_attempted_at is not None
     else:
-        assert context is not None
+        context = await prepare_report_context_activity(inputs)
         assert context.true_is_failure is True
 
 

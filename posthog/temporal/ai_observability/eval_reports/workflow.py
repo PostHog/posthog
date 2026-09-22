@@ -300,8 +300,6 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
             start_to_close_timeout=PREPARE_ACTIVITY_TIMEOUT,
             retry_policy=FETCH_RETRY_POLICY,
         )
-        if context is None:
-            return
         trace_id = str(temporalio.workflow.uuid4())
         session_id = str(temporalio.workflow.uuid4())
 

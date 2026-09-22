@@ -89,7 +89,7 @@ class NumericOutputConfig(BaseModel):
         if self.min is not None and self.max is not None and self.min > self.max:
             raise ValueError("Minimum score cannot exceed maximum score")
         if self.passing_rule is not None:
-            self.validate_score(self.passing_rule.threshold)
+            self.passing_rule.threshold = self.validate_score(self.passing_rule.threshold)
         return self
 
     def validate_score(self, value: object) -> float:
@@ -101,10 +101,15 @@ class NumericOutputConfig(BaseModel):
             raise ValueError("Numeric evaluations must return a finite number") from error
         if not math.isfinite(score):
             raise ValueError("Numeric evaluations must return a finite number")
+        # One representable step absorbs arithmetic roundoff without rounding genuine outliers.
         if self.min is not None and score < self.min:
-            raise NumericScoreOutOfBounds(f"Score must be at least {self.min}")
+            if score < math.nextafter(self.min, -math.inf):
+                raise NumericScoreOutOfBounds(f"Score must be at least {self.min}")
+            score = self.min
         if self.max is not None and score > self.max:
-            raise NumericScoreOutOfBounds(f"Score must be at most {self.max}")
+            if score > math.nextafter(self.max, math.inf):
+                raise NumericScoreOutOfBounds(f"Score must be at most {self.max}")
+            score = self.max
         return score
 
 

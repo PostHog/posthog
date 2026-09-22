@@ -1,6 +1,7 @@
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -269,6 +270,7 @@ describe('llmEvaluationLogic', () => {
             [DEFAULT_HOG_SOURCE, 'return 0;'],
             ['return 42;', 'return 42;'],
         ])('updates only untouched Hog source %s when selecting numeric output', (source, expected) => {
+            const warning = jest.spyOn(lemonToast, 'warning')
             logic.actions.setEvaluationType('hog')
             logic.actions.setHogSource(source)
             logic.actions.setTrueIsFailure(true)
@@ -278,6 +280,14 @@ describe('llmEvaluationLogic', () => {
                 evaluation_config: { source: expected },
             })
             expect(logic.values.evaluation?.output_config).not.toHaveProperty('true_is_failure')
+            if (source === expected) {
+                expect(warning).toHaveBeenCalledWith(
+                    'Your code was kept. Update it to return a number and test it before enabling this evaluation.'
+                )
+            } else {
+                expect(warning).not.toHaveBeenCalled()
+            }
+            warning.mockRestore()
             const numericConfig = { min: 0, max: 10, passing_rule: { operator: 'gte' as const, threshold: 7 } }
             logic.actions.patchOutputConfig(numericConfig)
             logic.actions.setOutputType('boolean')
@@ -1557,7 +1567,11 @@ return result`,
                 logic.actions.setEvaluationType('hog')
                 logic.actions.setOutputType(outputType)
                 if (outputType === 'numeric') {
-                    logic.actions.patchOutputConfig({ min: 0, max: 10 })
+                    logic.actions.patchOutputConfig({
+                        min: 0,
+                        max: 10,
+                        passing_rule: { operator: 'gte', threshold: 7 },
+                    })
                 }
                 logic.actions.setEvaluationTarget('trace')
                 logic.actions.patchTargetConfig({ window_seconds: 120 })
@@ -1572,7 +1586,9 @@ return result`,
                     target: 'trace',
                     output_type: outputType,
                     output_config:
-                        outputType === 'numeric' ? { min: 0, max: 10, allows_na: false } : { allows_na: false },
+                        outputType === 'numeric'
+                            ? { min: 0, max: 10, allows_na: false, passing_rule: { operator: 'gte', threshold: 7 } }
+                            : { allows_na: false },
                     target_config: { window_seconds: 120 },
                 })
                 expect(requestBody).not.toHaveProperty('allows_na')

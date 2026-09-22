@@ -240,10 +240,12 @@ function isTestableHogEvaluation(evaluation: EvaluationConfig | null): evaluatio
     return evaluation?.evaluation_type === 'hog'
 }
 
-function buildHogTestRequest(evaluation: TestableHogEvaluation): TestHogRequestApi {
+function buildHogTestRequest(evaluation: TestableHogEvaluation, forComparison = false): TestHogRequestApi {
     const outputConfig = { ...evaluation.output_config }
-    // Passing rules only grade the preview locally; they do not change its execution.
-    delete outputConfig.passing_rule
+    // Rule edits re-grade the same sample, so they do not invalidate an in-flight preview.
+    if (forComparison) {
+        delete outputConfig.passing_rule
+    }
     const request: TestHogRequestApi = {
         source: evaluation.evaluation_config.source,
         sample_count: 5,
@@ -657,7 +659,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     }
 
                     const request = buildHogTestRequest(evaluation)
-                    const requestFingerprint = JSON.stringify(request)
+                    const requestFingerprint = JSON.stringify(buildHogTestRequest(evaluation, true))
                     let results: TestHogResultItemApi[]
                     try {
                         const response = await evaluationsTestHogCreate(teamId.toString(), request)
@@ -691,7 +693,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     const currentEvaluation = values.evaluation
                     if (
                         !isTestableHogEvaluation(currentEvaluation) ||
-                        JSON.stringify(buildHogTestRequest(currentEvaluation)) !== requestFingerprint
+                        JSON.stringify(buildHogTestRequest(currentEvaluation, true)) !== requestFingerprint
                     ) {
                         return null
                     }
@@ -995,6 +997,19 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     })),
 
     listeners(({ actions, values, props }) => ({
+        setOutputType: ({ outputType, previousEvaluation }) => {
+            if (
+                props.evaluationId === 'new' &&
+                previousEvaluation?.evaluation_type === 'hog' &&
+                previousEvaluation.output_type !== outputType &&
+                isTestableHogEvaluation(values.evaluation) &&
+                previousEvaluation.evaluation_config.source === values.evaluation?.evaluation_config.source
+            ) {
+                lemonToast.warning(
+                    `Your code was kept. Update it to return a ${outputType === 'numeric' ? 'number' : 'boolean'} and test it before enabling this evaluation.`
+                )
+            }
+        },
         loadEvaluationSuccess: () => {
             actions.loadRunsStats()
         },

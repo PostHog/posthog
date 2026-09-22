@@ -12,6 +12,7 @@ from django.db.models import Q
 import temporalio.activity
 from dateutil.rrule import rrulestr
 from structlog import get_logger
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql import ast
 
@@ -51,6 +52,8 @@ from posthog.temporal.ai_observability.eval_reports.types import (
     UpdateNextDeliveryDateInput,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
+
+from products.ai_observability.backend.models.evaluation_configs import evaluation_supports_reports
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -597,18 +600,31 @@ def _period_for_scheduled_report(report, now: dt.datetime) -> dt.timedelta:
 @temporalio.activity.defn
 async def prepare_report_context_activity(
     inputs: PrepareReportContextInput,
-) -> PrepareReportContextOutput | None:
+) -> PrepareReportContextOutput:
     """Load evaluation from Postgres and calculate time windows."""
 
     @database_sync_to_async(thread_sensitive=False)
-    def prepare() -> PrepareReportContextOutput | None:
+    def prepare() -> PrepareReportContextOutput:
         from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 
-        report = EvaluationReport.objects.reportable().select_related("evaluation").filter(id=inputs.report_id).first()
+        report = EvaluationReport.objects.select_related("evaluation").filter(id=inputs.report_id).first()
         if report is None:
-            return None
+            raise ApplicationError(
+                "This evaluation report no longer exists.", type="ReportNotFound", non_retryable=True
+            )
         evaluation = report.evaluation
         now = dt.datetime.now(tz=dt.UTC)
+        if not evaluation_supports_reports(evaluation.output_type, evaluation.target, evaluation.output_config):
+            if not inputs.manual:
+                report.last_attempted_at = now
+                report.set_next_delivery_date()
+                report.save(update_fields=["last_attempted_at", "next_delivery_date"])
+            # Activity failures remain readable by workflow workers from an older release.
+            raise ApplicationError(
+                "This evaluation no longer supports reports. For numeric evaluations, set a passing rule and generate the report again.",
+                type="ReportNotEligible",
+                non_retryable=True,
+            )
 
         period_end = now
 
