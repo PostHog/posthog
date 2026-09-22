@@ -351,12 +351,34 @@ A trends chart and a graph built from SQL, as they arrive in `charts`:
       "display": "ActionsBar",
       "chartSettings": { "xAxis": { "column": "exception_type" }, "yAxis": [{ "column": "people" }] }
     }
+  },
+  {
+    "chart_id": "exceptions-by-type-daily",
+    "title": "Exceptions per day, by type",
+    "query": {
+      "kind": "DataVisualizationNode",
+      "source": {
+        "kind": "HogQLQuery",
+        "query": "SELECT toDate(timestamp) AS day, exception_type, count() AS occurrences FROM ... GROUP BY day, exception_type ORDER BY day"
+      },
+      "display": "ActionsLineGraph",
+      "chartSettings": {
+        "xAxis": { "column": "day" },
+        "yAxis": [{ "column": "occurrences" }],
+        "seriesBreakdownColumn": "exception_type",
+        "showLegend": true
+      }
+    }
   }
 ]
 ```
 
 **A graph from SQL needs its axes named.** Setting `display` without `chartSettings` draws an empty box; `chartSettings.xAxis.column` and `chartSettings.yAxis[].column` say which columns of the result are which.
 Omit `display` altogether and the node renders the result table, which reads better than a chart for a handful of rows.
+
+**A graph from SQL needs one row per x-axis value.** The x axis is built from the result rows in the order they arrive, so a query that also groups by a second dimension puts several rows at the same x position and the line zigzags instead of trending.
+Either aggregate the query down to one row per x value, or name the second dimension in `chartSettings.seriesBreakdownColumn`, which pivots those rows into one series per value of that column.
+For a time series per segment, an `InsightVizNode` wrapping a `TrendsQuery` with a `breakdownFilter` is usually cleaner than SQL.
 
 **Only the node's `kind` and its serialized size are checked on write.** A well-formed node of an allowed kind carrying a broken query is stored without complaint, then fails to draw when a reader opens the report, and nothing reports that back to the scout.
 So a scout should attach a query it has already run in the same session, or point at an insight that already exists via `SavedInsightNode`, rather than composing a node from memory.

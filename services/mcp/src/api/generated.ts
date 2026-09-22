@@ -49305,12 +49305,12 @@ export namespace Schemas {
       breakdownValue: string;
       eligible30d: number;
       eligible7d: number;
-      /** Median elapsed days to a second session within 30 days, among observed returners. */
+      /** Estimated median calendar days from the first session to the first return on a later day, using the project's timezone. Includes observed returns within 30 days. Same-day visits do not count. */
       medianReturnDays: number | null;
       previous: boolean;
       returned30d: number;
       returned7d: number;
-      /** People with an observed second session within 30 days, including incomplete windows. */
+      /** People who returned on a later calendar day in the project's timezone within 30 days of their first session, including incomplete windows. */
       returners: number;
     }
 
@@ -56490,6 +56490,7 @@ export namespace Schemas {
       readonly template_auth_type: MCPAuthTypeEnum | null;
       /** How members connect to this server: the template's type for catalog servers, or the type the custom server was added with. Null only for custom servers registered before the type was recorded; members then choose. */
       readonly auth_type: MCPAuthTypeEnum | null;
+      /** True when this server is enabled and available to the project. */
       readonly is_team_enabled: boolean;
       /** Deprecated brand icon key from the linked template. Empty for custom servers. */
       readonly icon_key: string;
