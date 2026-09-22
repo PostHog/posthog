@@ -397,7 +397,7 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
         if unknown:
             raise Exception(
                 f"Real-time filters cannot read {', '.join(unknown)}. "
-                f"Those exist when a query runs, not while an event is being processed."
+                f"Check the spelling, or use a field or function that real-time filters support."
             )
 
         # context.errors here only contains "function not implemented" errors from the
