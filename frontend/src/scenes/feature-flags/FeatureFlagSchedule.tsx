@@ -65,6 +65,7 @@ import {
     isSchedulePaused,
     maxRolloutPercentage,
     maxUntargetedRolloutPercentage,
+    projectedRolloutPercentage,
     sharedAggregationTarget,
 } from './scheduleOccurrences'
 import { ScheduleTimeline } from './ScheduleTimeline'
@@ -582,7 +583,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         </div>
                         <ScheduleTimeline
                             occurrences={scheduleTimelineOccurrences}
-                            currentRolloutPercentage={maxRolloutPercentage(featureFlag.filters.groups)}
+                            currentRolloutPercentage={projectedRolloutPercentage(featureFlag.filters)}
                             timezone={scheduleTimezone}
                         />
                     </div>

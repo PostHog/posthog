@@ -140,7 +140,7 @@ export function ScheduleTimeline({
     timezone,
 }: {
     occurrences: ScheduleOccurrence[]
-    /** The flag's max rollout across condition sets today, the step line's starting level. */
+    /** What the flag reaches today, the step line's starting level. See projectedRolloutPercentage. */
     currentRolloutPercentage: number | null
     timezone: string
 }): JSX.Element | null {

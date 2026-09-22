@@ -1,6 +1,7 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
 
 import {
+    FeatureFlagFilters,
     FeatureFlagGroupType,
     FeatureFlagType,
     RecurrenceInterval,
@@ -116,6 +117,26 @@ export function maxUntargetedRolloutPercentage(
     )
 }
 
+/**
+ * What the flag reaches on its own aggregation target, which a condition set that a property filter
+ * narrows does not raise. Such a set serves its percentage of a segment, and the flag definition
+ * does not say how large the segment is, so counting one at 100% pins the level at 100% while the
+ * flag still reaches almost nobody.
+ *
+ * The step line starts at this level and every projected occurrence sits on it, so both ends have
+ * to come from here. Read one end across every condition set instead and a targeted set lifts that
+ * end alone, drawing a gain or a loss of reach the flag never makes.
+ */
+export function projectedRolloutPercentage(
+    filters: Pick<FeatureFlagFilters, 'groups' | 'aggregation_group_type_index'>
+): number | null {
+    return maxUntargetedRolloutPercentage(
+        filters.groups,
+        filters.aggregation_group_type_index,
+        resolveAggregationGroupTypeIndex(undefined, filters.aggregation_group_type_index)
+    )
+}
+
 /** A paused recurring schedule keeps its recurrence config but has is_recurring=false. */
 export function isSchedulePaused(sc: ScheduledChangeType): boolean {
     return !sc.is_recurring && (!!sc.recurrence_interval || !!sc.cron_expression)
@@ -224,13 +245,8 @@ export function expandScheduleOccurrences(
     // Grows as each add applies, the way add_release_condition appends its sets to the flag's, so a
     // later add is judged against everything the flag holds by then.
     let conditionSets = flag.filters.groups ?? []
-    // The projected level is what the flag reaches on its own aggregation target, so a condition set
-    // that a property filter narrows contributes nothing to it. A set narrowed to a segment serves
-    // its percentage of that segment, and the flag definition does not say how large the segment is,
-    // so counting one at 100% pins the level at 100% while the flag still reaches almost nobody.
-    const flagTarget = resolveAggregationGroupTypeIndex(undefined, flag.filters.aggregation_group_type_index)
     const projectedRollout = (groups: FeatureFlagGroupType[]): number | null =>
-        maxUntargetedRolloutPercentage(groups, flag.filters.aggregation_group_type_index, flagTarget)
+        projectedRolloutPercentage({ groups, aggregation_group_type_index: flag.filters.aggregation_group_type_index })
     let rolloutPercentage = projectedRollout(conditionSets)
     let variantCount = flag.filters.multivariate?.variants.length ?? null
 
