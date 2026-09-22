@@ -907,15 +907,17 @@ class GitLabLookup:
     code_sample: str
 
 
-def _host_of(url: str) -> str:
-    return (urllib.parse.urlparse(url).hostname or "").lower()
+def _is_https_host(url: str, host: str) -> bool:
+    parsed = urllib.parse.urlparse(url)
+    return parsed.scheme == "https" and (parsed.hostname or "").lower() == host
 
 
 def gitlab_credentials(team_id: int, repository: Repository) -> list[GitLabCredential]:
-    """The shared token first, then the team's integrations on the repository's host.
+    """The shared token first, then the team's integrations on the repository's host, over https.
 
     An integration on another host never receives the search, since the code sample is source
-    code and the host cannot hold the repository.
+    code and the host cannot hold the repository. One stored with a plain http URL is skipped for
+    the same reason: the token and the code sample would cross the network in the clear.
     """
     credentials: list[GitLabCredential] = []
     if settings.GITLAB_TOKEN and repository.host == "gitlab.com":
@@ -928,8 +930,12 @@ def gitlab_credentials(team_id: int, repository: Repository) -> list[GitLabCrede
         except Exception:
             logger.warning("source_links_gitlab_integration_failed", integration_id=integration.id, exc_info=True)
             continue
-        if token and _host_of(hostname) == repository.host:
-            credentials.append(GitLabCredential(host_url=hostname, token=token))
+        if not token:
+            continue
+        if not _is_https_host(hostname, repository.host):
+            logger.warning("source_links_gitlab_integration_skipped", integration_id=integration.id, host=hostname)
+            continue
+        credentials.append(GitLabCredential(host_url=hostname, token=token))
     return credentials
 
 

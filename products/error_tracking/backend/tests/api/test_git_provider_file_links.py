@@ -350,9 +350,9 @@ class TestGitProviderFileLinksGitLab(_SourceLinksTestMixin):
             self.addCleanup(patcher.stop)
         self.release = self._release({"remote_url": "https://gitlab.com/acme/app.git", "commit_id": COMMIT})
 
-    def _integration(self, hostname: str) -> Integration:
+    def _integration(self, hostname: str, token: str = "t") -> Integration:
         return Integration.objects.create(
-            team=self.team, kind="gitlab", config={"hostname": hostname}, sensitive_config={"access_token": "t"}
+            team=self.team, kind="gitlab", config={"hostname": hostname}, sensitive_config={"access_token": token}
         )
 
     def test_links_the_exact_file_name_at_the_release_commit(self) -> None:
@@ -375,9 +375,12 @@ class TestGitProviderFileLinksGitLab(_SourceLinksTestMixin):
         assert params == {"scope": "blobs", "search": "run()", "per_page": 100, "ref": COMMIT}
         assert kwargs["allow_redirects"] is False
 
-    def test_only_integrations_on_the_repository_host_receive_the_code_line(self) -> None:
-        self._integration("https://gitlab.example.com/")
-        self._integration("https://gitlab.com/")
+    def test_only_https_integrations_on_the_repository_host_receive_the_code_line(self) -> None:
+        # The search carries the token and a line of source code, so another host must not get
+        # it, and a plain http URL would send both in the clear.
+        self._integration("https://gitlab.example.com/", token="other-host")
+        self._integration("http://gitlab.com/", token="plain-http")
+        self._integration("https://gitlab.com/", token="t")
         self.gitlab.blobs = []
         utils = self._frame(self._symbol_set(), "frame-utils", "../src/utils.ts")
 
