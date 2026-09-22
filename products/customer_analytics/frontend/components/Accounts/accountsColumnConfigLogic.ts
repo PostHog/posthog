@@ -273,7 +273,7 @@ export function buildAccountColumnGroups(
                     directOptions.push({
                         name: 'tags',
                         expression: ACCOUNTS_TAGS_COLUMN,
-                        type: joinedTable?.fields?.names?.type,
+                        type: 'tags',
                     })
                     continue
                 }

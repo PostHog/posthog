@@ -162,7 +162,7 @@ describe('accountsColumnConfigLogic column groups and translation', () => {
         expect(groups.find((group) => group.key === 'account_properties')?.options).toContainEqual({
             name: 'tags',
             expression: ACCOUNTS_TAGS_COLUMN,
-            type: 'array',
+            type: 'tags',
         })
     })
 
