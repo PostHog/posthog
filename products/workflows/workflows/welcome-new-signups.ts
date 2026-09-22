@@ -2,6 +2,8 @@ import { branch, delay, email, onEvent, path, person, workflow } from '@posthog/
 
 const welcomeEmail = email({
     name: 'Send the welcome email',
+    // The id of the project's verified email sender, listed under Workflows, Channels.
+    from: { integrationIds: [1] },
     to: '{person.properties.email}',
     subject: 'Welcome to PostHog',
     text: 'Thanks for signing up. Your first events show up in Activity as soon as your SDK sends them.',
