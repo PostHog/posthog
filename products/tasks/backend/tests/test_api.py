@@ -14953,6 +14953,25 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(response.json()["code"], "ai_credits_exhausted")
         mock_workflow.assert_not_called()
 
+    @patch("ee.billing.quota_limiting.is_team_limited", side_effect=_limited_for_ai_credits)
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
+    def test_ai_credits_answer_stays_behind_the_404_for_a_task_the_caller_cannot_drive(self, _mock_gate, _mock_limited):
+        # A PostHog AI task belongs to whoever created it, so another member's task must answer 404
+        # rather than the organization's credit state, which would confirm that the task exists.
+        other_user = self.create_organization_user()
+        task = self.create_task(created_by=other_user)
+        task.origin_product = Task.OriginProduct.POSTHOG_AI
+        task.save()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {"environment": "cloud"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.json())
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+
     @patch("products.tasks.backend.facade.api.warm_task_sandbox")
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)

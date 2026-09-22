@@ -1704,23 +1704,30 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _cloud_run_access_response(self, task_id: str) -> Response | None:
         user = cast(User, self.request.user)
-        if tasks_facade.task_runtime(
-            task_id, self.team_id, self._user_id(), for_control=True
-        ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, user):
+        control = tasks_facade.task_control_runtime_and_origin(task_id, self.team_id, self._user_id())
+        if (
+            control is not None
+            and control.runtime == tasks_facade.TaskRuntime.PI
+            and not tasks_facade.pi_cloud_runtime_enabled(self.team, user)
+        ):
             return _pi_cloud_runtime_disabled_response()
         if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
             access_response := code_access_required_response(self.request, self.organization, task_id=task_id)
         ):
             return access_response
-        if credits_response := self._ai_credits_response(task_id):
+        if credits_response := self._ai_credits_response(control):
             return credits_response
         return usage_limit_response(user, self.team_id)
 
-    def _ai_credits_response(self, task_id: str) -> Response | None:
+    def _ai_credits_response(self, control: tasks_facade.ControlVisibleTask | None) -> Response | None:
         """The spend backstop for a PostHog AI task, which takes the AI-credits limit in place of the
         Desktop funding gate. Applied wherever this viewset creates or launches a cloud run, so the
-        limit does not depend on which endpoint the client used."""
-        if tasks_facade.task_origin_product(task_id, self.team_id) != tasks_facade.TaskOriginProduct.POSTHOG_AI:
+        limit does not depend on which endpoint the client used.
+
+        Reads the origin through the control predicate, so a task this caller cannot drive answers
+        nothing here and the endpoint's own 404 stays the only thing it learns.
+        """
+        if control is None or control.origin_product != tasks_facade.TaskOriginProduct.POSTHOG_AI:
             return None
         return _ai_credits_limit_response(self.team)
 
@@ -1887,9 +1894,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ):
             return _agent_run_disabled_response()
 
-        if tasks_facade.task_runtime(
-            task_id, self.team_id, self._user_id(), for_control=True
-        ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user):
+        control = tasks_facade.task_control_runtime_and_origin(task_id, self.team_id, self._user_id())
+        if (
+            control is not None
+            and control.runtime == tasks_facade.TaskRuntime.PI
+            and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user)
+        ):
             return _pi_cloud_runtime_disabled_response()
 
         if startable == "not_cloud":
@@ -1922,7 +1932,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             access_response := code_access_required_response(request, self.organization, task_id=task_id)
         ):
             return access_response
-        if credits_response := self._ai_credits_response(task_id):
+        if credits_response := self._ai_credits_response(control):
             return credits_response
         if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response

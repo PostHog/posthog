@@ -321,7 +321,6 @@ __all__ = [
     "task_accessible_for_run_view",
     "task_channel_id",
     "task_exempt_from_code_access",
-    "task_origin_product",
     "task_exists",
     "task_ids_with_pr_url_subquery",
     "get_pull_requests_for_tasks",
@@ -5838,14 +5837,6 @@ def task_control_runtime_and_origin(
         return None
     runtime, origin_product = row
     return ControlVisibleTask(runtime=runtime, origin_product=origin_product)
-
-
-def task_origin_product(task_id: str | UUID, team_id: int) -> str | None:
-    """The origin product of a live task in this team, for the entitlement and quota decisions that
-    depend on how the run is funded. Visibility is gated separately by the caller."""
-    return (
-        Task.objects.filter(id=task_id, team_id=team_id, deleted=False).values_list("origin_product", flat=True).first()
-    )
 
 
 def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_control: bool = False) -> bool:
