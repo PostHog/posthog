@@ -3415,7 +3415,9 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
     def _bypassed_access_scopes(self) -> frozenset[str]:
         """Scopes whose access control the principal skips. Service tokens and shared-link viewers bypass
         warehouse access control (see Database.create_for); real users and userless runs bypass nothing."""
-        if self.user is None or isinstance(self.user, User):
+        # `user` is typed Optional[User] but shared renders and service tokens pass other principals at runtime.
+        user = cast("Optional[User | SyntheticUser | SharedLinkUser]", self.user)
+        if user is None or isinstance(user, User):
             return frozenset()
         return WAREHOUSE_ACCESS_SCOPES
 
