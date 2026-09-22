@@ -30,6 +30,8 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.middleware import (
+    CSP_ENFORCE_APP_POLICY_FLAG,
+    CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG,
     CSPMiddleware,
     ManagedProxyClientIPMiddleware,
     ManagedProxyClientIPOutcome,
@@ -2909,6 +2911,7 @@ class TestAppCspHeaderName(SimpleTestCase):
         # A customer's site frames each of these. The app policy names only PostHog origins in
         # frame-ancestors, so enforcing it here stops the document rendering on their page.
         assert app_csp_header_name(self._request(path)) == "Content-Security-Policy-Report-Only"
+        assert app_csp_header_name(self._request(path, distinct_id=None)) == "Content-Security-Policy-Report-Only"
 
     @parameterized.expand(
         [
@@ -2937,17 +2940,84 @@ class TestAppCspHeaderName(SimpleTestCase):
         # Local evaluation keeps a flag network call out of every HTML response.
         assert mock_flag.call_args.kwargs["only_evaluate_locally"] is True
 
-    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
-    def test_anonymous_request_stays_report_only(self, mock_flag):
-        # Nothing identifies an anonymous viewer, so the flag cannot bucket them. Login and signup
-        # keep the report-only header until enforcement covers everyone.
-        assert app_csp_header_name(self._request("/login", distinct_id=None)) == "Content-Security-Policy-Report-Only"
-        mock_flag.assert_not_called()
+    @parameterized.expand(
+        [
+            ("login", "/login", None, CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG, "Content-Security-Policy"),
+            ("signup", "/signup", None, CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG, "Content-Security-Policy"),
+            ("reset_link", "/reset/abc/def", None, CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG, "Content-Security-Policy"),
+            (
+                "reset_2fa_link",
+                "/reset_2fa/abc/def",
+                None,
+                CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG,
+                "Content-Security-Policy",
+            ),
+            (
+                "verify_email_link",
+                "/verify_email/abc/def",
+                None,
+                CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG,
+                "Content-Security-Policy",
+            ),
+            ("login_without_a_flag", "/login", None, None, "Content-Security-Policy-Report-Only"),
+            (
+                "login_with_the_app_flag",
+                "/login",
+                None,
+                CSP_ENFORCE_APP_POLICY_FLAG,
+                "Content-Security-Policy-Report-Only",
+            ),
+            ("signed_in", "/login", "abc", CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG, "Content-Security-Policy-Report-Only"),
+            (
+                "other_signed_out_page",
+                "/messaging-preferences/abc",
+                None,
+                CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG,
+                "Content-Security-Policy-Report-Only",
+            ),
+            (
+                "login_prefix_without_separator",
+                "/loginfoo",
+                None,
+                CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG,
+                "Content-Security-Policy-Report-Only",
+            ),
+        ]
+    )
+    @patch("posthog.middleware.posthoganalytics.feature_enabled")
+    def test_each_flag_enforces_only_its_own_pages(
+        self,
+        _name: str,
+        path: str,
+        distinct_id: str | None,
+        enabled_flag: str | None,
+        expected: str,
+        mock_flag: MagicMock,
+    ) -> None:
+        mock_flag.side_effect = lambda key, *args, **kwargs: key == enabled_flag
+        assert app_csp_header_name(self._request(path, distinct_id=distinct_id)) == expected
 
+    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
+    def test_each_signed_out_document_draws_its_own_bucket(self, mock_flag: MagicMock) -> None:
+        app_csp_header_name(self._request("/login", distinct_id=None))
+        app_csp_header_name(self._request("/login", distinct_id=None))
+        # A fixed id would put every signed-out visitor in one bucket, so a rollout percentage
+        # would enforce for everyone or nobody.
+        first, second = (call.args[1] for call in mock_flag.call_args_list)
+        assert first != second
+        assert mock_flag.call_args.kwargs["only_evaluate_locally"] is True
+        assert mock_flag.call_args.kwargs["send_feature_flag_events"] is False
+
+    @parameterized.expand([("signed_in", "abc"), ("signed_out", None)])
     @patch("posthog.middleware.posthoganalytics.feature_enabled", side_effect=Exception("flags unavailable"))
-    def test_a_failing_flag_lookup_leaves_the_policy_report_only(self, _mock_flag):
+    def test_a_failing_flag_lookup_leaves_the_policy_report_only(
+        self, _name: str, distinct_id: str | None, _mock_flag: MagicMock
+    ) -> None:
         # Fail safe: an enforced policy that nobody meant to turn on breaks the page.
-        assert app_csp_header_name(self._request("/")) == "Content-Security-Policy-Report-Only"
+        assert (
+            app_csp_header_name(self._request("/login", distinct_id=distinct_id))
+            == "Content-Security-Policy-Report-Only"
+        )
 
 
 class TestNarrowedAppPolicy(SimpleTestCase):

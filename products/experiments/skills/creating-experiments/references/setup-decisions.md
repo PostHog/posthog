@@ -61,6 +61,9 @@ Keep the test-account filter on (creation turns it on by default) and say so. If
    - If it doesn't, build an inline metric.
 3. Otherwise pick a shape from the metric templates in `configuring-experiment-analytics` (`references/metric-templates.md`). Tier: best guess.
 
+If the metric counts only some occurrences of its event, for example a purchase with one payment method, pass those filters as `metric_properties` on the setup-context call. Use the same filters on the metric you build.
+Without them, `candidate_metric` reports a baseline for every occurrence of the event, and the running time below is too optimistic. `candidate_metric.metric_properties` echoes the filters the tool read.
+
 Every conversion window carries a unit (`conversion_window_unit`). A window without a unit is ignored.
 
 ## Feasibility and running time
@@ -81,7 +84,13 @@ When `candidate_metric.status` is `ok` and it has baseline stats:
 
 The estimate assumes people are exposed on the target surface. If the flag is evaluated more widely (across the whole app, or on a page before the one that changes), the exposed population is larger and converts less. The baseline and the running time are then too optimistic. Say so, and consider a custom exposure on the surface event.
 
-`target_url_contains` is a substring match on the URL: a bare domain matches every page on it and overstates the page's traffic. Pass the most specific fragment you can.
+Check how the call scoped the target surface before you trust these numbers. `target_surface.target_properties` and `target_surface.target_url_contains` echo the filters the tool read.
+`target_url_contains` is a substring match on `$current_url`, so a bare domain matches any host that contains it, and a homepage path matches every page under it. Both overstate the page's traffic and the exposure rate.
+If the echo came back wider than the surface under test, the numbers here are too optimistic.
+Correct the scope and call the tool once more: an exact `$host` and an exact `$pathname` in `target_properties` for one page, or an exact `$host` with only the path fragment in `target_url_contains` for a wider surface.
+Read the numbers from the second response.
+A `persons_reached` of 0 straight after an exact filter usually means the value is not the one the project records, such as `/pricing` against `/pricing/`.
+Read the shape back with `read-data-schema` (`event_property_values`, a sample of the values) and correct the filter, rather than widening it.
 
 Tier: confident on the arithmetic, best guess on the inputs (the baseline is an estimate over `candidate_metric.window_days`).
 
