@@ -25,7 +25,12 @@ from pydantic import BaseModel, ValidationError
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.signals.backend.artefact_schemas import PriorityAssessment, SignalFinding, TaskRunArtefact
+from products.signals.backend.artefact_schemas import (
+    PriorityAssessment,
+    SignalFinding,
+    SuggestedReviewers,
+    TaskRunArtefact,
+)
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.pull_request_body import BodyEditOutcome, edit_pull_request_body
@@ -157,13 +162,31 @@ def _latest_artefact_as(
 
 
 def _cause_commit(team_id: int, report_id: str, repository: str) -> OriginLink | None:
-    """The first commit of the newest finding, which the research prompt orders causative first."""
+    """The first commit of the newest finding, which the research prompt orders causative first.
+
+    A finding stores a short hash with no repository, so research into another repository could
+    produce a hash that does not exist here. The commit links only when the suggested reviewers
+    carry the same commit under this pull request's repository.
+    """
     finding = _latest_artefact_as(team_id, report_id, SignalReportArtefact.ArtefactType.SIGNAL_FINDING, SignalFinding)
-    if finding is None:
+    reviewers = _latest_artefact_as(
+        team_id, report_id, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS, SuggestedReviewers
+    )
+    if finding is None or reviewers is None:
         return None
+    commit_prefix = f"https://github.com/{repository}/commit/".lower()
+    known_commits = [
+        commit.url
+        for reviewer in reviewers.root
+        for commit in reviewer.relevant_commits
+        if commit.url.lower().startswith(commit_prefix)
+    ]
     for sha in finding.relevant_commit_hashes:
-        if _COMMIT_SHA_RE.match(sha):
-            return OriginLink(label=f"`{sha[:8]}`", url=f"https://github.com/{repository}/commit/{sha}")
+        if not _COMMIT_SHA_RE.match(sha):
+            continue
+        for url in known_commits:
+            if url.lower().removeprefix(commit_prefix).startswith(sha.lower()):
+                return OriginLink(label=f"`{sha[:8]}`", url=url)
     return None
 
 
@@ -254,10 +277,12 @@ class PullRequestOrigin:
         if self.run_start is None:
             return None
         if not self.run_start.automatic:
-            return "- Started by: a person, from the inbox"
+            return "- Task started by: a person, from the inbox"
         if self.run_start.priority:
-            return f"- Started by: auto-start, after the report was rated {self.run_start.priority} and ready to fix"
-        return "- Started by: auto-start, after the report was rated ready to fix"
+            return (
+                f"- Task started by: auto-start, after the report was rated {self.run_start.priority} and ready to fix"
+            )
+        return "- Task started by: auto-start, after the report was rated ready to fix"
 
     def render(self) -> str:
         lines = [source.render() for source in self.sources]

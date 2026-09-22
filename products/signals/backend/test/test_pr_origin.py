@@ -117,12 +117,40 @@ class TestPullRequestOrigin(BaseTest):
         SignalReportArtefact.objects.create(
             team=self.team,
             report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps(
+                [
+                    {
+                        "github_login": "someone",
+                        "relevant_commits": [
+                            {
+                                "reason": "added the capture",
+                                "sha": "a59c3290",
+                                "url": "https://github.com/acme/web/commit/a59c3290fe9bb4d4",
+                            },
+                            {
+                                "reason": "elsewhere",
+                                "sha": "bbbbbbbb",
+                                "url": "https://github.com/acme/other/commit/bbbbbbbbcccc",
+                            },
+                        ],
+                    }
+                ]
+            ),
+        )
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
             type=SignalReportArtefact.ArtefactType.SIGNAL_FINDING,
             content=json.dumps(
                 {
                     "signal_id": "s1",
                     "relevant_code_paths": ["ee/api/vercel/webhooks.py"],
-                    "relevant_commit_hashes": {"not-a-sha": "junk", "a59c3290": "added the capture"},
+                    "relevant_commit_hashes": {
+                        "not-a-sha": "junk",
+                        "bbbbbbbb": "other repository",
+                        "a59c3290": "added the capture",
+                    },
                     "data_queried": "a customer's private details",
                     "verified": True,
                 }
@@ -164,8 +192,9 @@ class TestPullRequestOrigin(BaseTest):
         assert "run:1:finding:2" not in section
         assert "- Scout: `signals-scout-error-tracking`" in section
         assert "- First signal: 2026-09-15" in section
-        assert "[`a59c3290`](https://github.com/acme/web/commit/a59c3290)" in section
-        assert "- Started by: auto-start, after the report was rated P2 and ready to fix" in section
+        assert "[`a59c3290`](https://github.com/acme/web/commit/a59c3290fe9bb4d4)" in section
+        assert "bbbbbbbb" not in section
+        assert "- Task started by: auto-start, after the report was rated P2 and ready to fix" in section
         assert "- Issues: [#12](https://github.com/acme/web/issues/12), GitHub issue, ENG-1" in section
         assert "private" not in section
         assert "secret-title" not in section

@@ -1286,7 +1286,7 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 
 **Origin section per pull request** (`backend/pr_origin.py`, always on).
 
-A reviewer needs to know where a self-driving pull request came from, not only the problem it fixes. The backend writes an `## Origin` section below the Problem section, so the agent cannot paraphrase it. The section lists the source types with PostHog entity links, the scout when it ships with PostHog, the first signal date, the inbox report, the likely cause commit from the newest `signal_finding`, and whether auto-start or a person started the run.
+A reviewer needs to know where a self-driving pull request came from, not only the problem it fixes. The backend writes an `## Origin` section below the Problem section, so the agent cannot paraphrase it. The section lists the source types with PostHog entity links, the scout when it ships with PostHog, the first signal date, the inbox report, the likely cause commit from the newest `signal_finding` (linked only when the suggested reviewers carry it under the pull request's repository), and whether auto-start or a person started the run.
 
 Pull requests are often public, so the section renders an allowlist only. Signal content, ticket text, counts, sequential ticket numbers, custom scout names, and issue URLs outside the pull request's own repository never reach it. `fetch_origin_sources_for_report` aggregates in ClickHouse, so a large report returns a bounded result.
 
