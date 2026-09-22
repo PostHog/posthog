@@ -1,4 +1,5 @@
 import {
+    SuggestionRetriggerEditor,
     TemplateLanguage,
     insideTemplateExpression,
     retriggerSuggestionsAfterDeletion,
@@ -6,17 +7,14 @@ import {
 
 import { HogLanguage } from '~/queries/schema/schema-general'
 
-type ContentChangeListener = (event: {
-    isFlush: boolean
-    changes: Array<{ text: string; rangeLength: number }>
-}) => void
+type ContentChangeListener = Parameters<SuggestionRetriggerEditor['onDidChangeModelContent']>[0]
 
 /** The slice of IStandaloneCodeEditor the retrigger reads, driven by hand in the tests. */
 function fakeEditor(
     textBeforeCursor: string,
     initialLanguage: string = HogLanguage.hogTemplate
 ): {
-    editor: any
+    editor: SuggestionRetriggerEditor
     trigger: jest.Mock
     delete_: () => void
     insert: () => void
@@ -71,13 +69,26 @@ describe('suggestionRetrigger', () => {
         [HogLanguage.liquid, '{{ person.pro', true],
         [HogLanguage.liquid, '{% if person.pro', true],
         [HogLanguage.liquid, '{{ person.properties.name }} ', false],
+        [HogLanguage.liquid, '{{ "}}" | append: person.pro', true],
+        [HogLanguage.liquid, "{% if person.name == '%}' and person.pro", true],
+        [HogLanguage.liquid, '{{ "}}" | append: person.name }}', false],
+        [HogLanguage.liquid, "{% if person.name == '%}' %}", false],
+        [HogLanguage.liquid, '{{ person.name %} person.pro', true],
+        [HogLanguage.liquid, '{% if person.name }} and person.pro', true],
+        [HogLanguage.liquid, '{{ person.name }} {% if person.pro', true],
+        [HogLanguage.liquid, "Don't forget {{ person.name }} then {{ person.pro", true],
+        [HogLanguage.liquid, '{{ "{%" }} outside', false],
+        [HogLanguage.liquid, '{{ "escaped \\" }}" | append: person.pro', true],
         [HogLanguage.liquid, 'Hi there ', false],
     ])('insideTemplateExpression for %s with %p is %p', (language, before, expected) => {
         expect(insideTemplateExpression(before, language)).toBe(expected)
     })
 
-    test('a burst of deletions fires a single trigger only after the pause', () => {
-        const { editor, trigger, delete_ } = fakeEditor('Hi {person.pro')
+    test.each([
+        [HogLanguage.hogTemplate, 'Hi {person.pro'],
+        [HogLanguage.liquid, '{{ "}}" | append: person.pro'],
+    ])('a burst of deletions fires a single trigger only after the pause in %s', (language, text) => {
+        const { editor, trigger, delete_ } = fakeEditor(text, language)
         retriggerSuggestionsAfterDeletion(editor)
 
         for (let i = 0; i < 10; i++) {

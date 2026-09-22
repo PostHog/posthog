@@ -569,6 +569,8 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             ("hog_template_nested", HogLanguage.HOG_TEMPLATE, "Hi {person.properties.|} bye", ["email", "name"]),
             ("liquid", HogLanguage.LIQUID, "Hi {{ person.| }} bye", ["properties"]),
             ("liquid_nested", HogLanguage.LIQUID, "Hi {{ person.properties.| }} bye", ["email", "name"]),
+            ("hog_json", HogLanguage.HOG_JSON, '{"message": "Hi {person.|} bye"}', ["properties"]),
+            ("hog_json_nested", HogLanguage.HOG_JSON, '{"message": "Hi {person.properties.|} bye"}', ["email", "name"]),
         ]
     )
     def test_autocomplete_template_drills_into_globals(
@@ -586,6 +588,14 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             ("liquid_first", HogLanguage.LIQUID, "Hi {{ pe|rson.properties.email }}", ["event", "person"]),
             ("liquid_middle", HogLanguage.LIQUID, "Hi {{ person.pro|perties.email }}", ["properties"]),
             ("liquid_last", HogLanguage.LIQUID, "Hi {{ person.properties.em|ail }}", ["email", "name"]),
+            (
+                "hog_json_first",
+                HogLanguage.HOG_JSON,
+                '{"message": "Hi {pe|rson.properties.email}"}',
+                ["event", "person"],
+            ),
+            ("hog_json_middle", HogLanguage.HOG_JSON, '{"message": "Hi {person.pro|perties.email}"}', ["properties"]),
+            ("hog_json_last", HogLanguage.HOG_JSON, '{"message": "Hi {person.properties.em|ail}"}', ["email", "name"]),
         ]
     )
     def test_autocomplete_template_suggests_the_level_of_the_chain_element_under_the_cursor(
@@ -606,6 +616,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             ("hog_template_start", HogLanguage.HOG_TEMPLATE, "Hi {| person.properties.email} bye"),
             ("liquid_empty", HogLanguage.LIQUID, "Hi there {{ |}}"),
             ("liquid_start", HogLanguage.LIQUID, "Hi {{| person.properties.email }} bye"),
+            ("hog_json_empty", HogLanguage.HOG_JSON, '{"message": "Hi {|}"}'),
         ]
     )
     def test_autocomplete_template_suggests_top_level_globals_at_the_start_of_an_expression(

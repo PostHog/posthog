@@ -44,13 +44,18 @@ describe('cyclotron job template suggestions', () => {
 
     it.each([false, true])('inserts at the initial cursor when the editor starts focused: %s', (startsFocused) => {
         let focusEditor = (): void => {}
+        let moveCursor = (): void => {}
+        let column = 1
         const disposeCursor = jest.fn()
         const disposeFocus = jest.fn()
         const editorInstance = {
-            getPosition: () => ({ lineNumber: 1, column: 1 }),
-            getModel: () => ({ getOffsetAt: () => 0 }),
+            getPosition: () => ({ lineNumber: 1, column }),
+            getModel: () => ({ getOffsetAt: (position: { column: number }) => position.column - 1 }),
             hasTextFocus: () => startsFocused,
-            onDidChangeCursorPosition: () => ({ dispose: disposeCursor }),
+            onDidChangeCursorPosition: (callback: () => void) => {
+                moveCursor = callback
+                return { dispose: disposeCursor }
+            },
             onDidFocusEditorText: (callback: () => void) => {
                 focusEditor = callback
                 return { dispose: disposeFocus }
@@ -66,6 +71,11 @@ describe('cyclotron job template suggestions', () => {
         }
         expect(insertTemplateReference('Hi there', '{person.name}', result.current.cursorOffset())).toBe(
             '{person.name}Hi there'
+        )
+        column = 4
+        act(() => moveCursor())
+        expect(insertTemplateReference('Hi there', '{person.name}', result.current.cursorOffset())).toBe(
+            'Hi {person.name}there'
         )
         unmount()
         expect(disposeCursor).toHaveBeenCalledTimes(1)

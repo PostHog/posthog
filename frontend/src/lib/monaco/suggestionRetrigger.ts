@@ -1,8 +1,19 @@
-import type { IDisposable, editor } from 'monaco-editor'
+import type { IDisposable, IPosition, editor } from 'monaco-editor'
 
 import { HogLanguage } from '~/queries/schema/schema-general'
 
 export type TemplateLanguage = HogLanguage.hogTemplate | HogLanguage.liquid
+
+export type SuggestionRetriggerEditor = Pick<editor.IStandaloneCodeEditor, 'hasTextFocus' | 'trigger'> & {
+    getPosition: () => IPosition | null
+    getModel: () => Pick<editor.ITextModel, 'getValue' | 'getOffsetAt' | 'getLanguageId'> | null
+    onDidChangeModelContent: (
+        listener: (event: {
+            isFlush: boolean
+            changes: Pick<editor.IModelContentChange, 'text' | 'rangeLength'>[]
+        }) => void
+    ) => IDisposable
+}
 
 /** How long backspacing has to pause before suggestions reopen. Shorter than this and holding
  * backspace would still fire a backend autocomplete request per repeated keystroke. */
@@ -19,12 +30,23 @@ export function isTemplateLanguage(language: string | undefined): language is Te
  */
 export function insideTemplateExpression(textBeforeCursor: string, language: TemplateLanguage): boolean {
     if (language === HogLanguage.liquid) {
-        const open = Math.max(textBeforeCursor.lastIndexOf('{{'), textBeforeCursor.lastIndexOf('{%'))
-        if (open === -1) {
-            return false
+        let closingDelimiter: '}}' | '%}' | null = null
+        for (let index = 0; index < textBeforeCursor.length; index++) {
+            const character = textBeforeCursor[index]
+            const delimiter = textBeforeCursor.slice(index, index + 2)
+            if (closingDelimiter === null) {
+                if (delimiter === '{{' || delimiter === '{%') {
+                    closingDelimiter = delimiter === '{{' ? '}}' : '%}'
+                    index++
+                }
+            } else if (character === "'" || character === '"') {
+                index = skipStringLiteral(textBeforeCursor, index)
+            } else if (delimiter === closingDelimiter) {
+                closingDelimiter = null
+                index++
+            }
         }
-        const close = Math.max(textBeforeCursor.lastIndexOf('}}'), textBeforeCursor.lastIndexOf('%}'))
-        return close < open
+        return closingDelimiter !== null
     }
     let depth = 0
     for (let index = 0; index < textBeforeCursor.length; index++) {
@@ -65,7 +87,7 @@ function skipStringLiteral(text: string, openingQuoteIndex: number): number {
  * request, and those share the project's query rate limit - one request per pause is fine, one per
  * deleted character is not.
  */
-export function retriggerSuggestionsAfterDeletion(editorInstance: editor.IStandaloneCodeEditor): IDisposable {
+export function retriggerSuggestionsAfterDeletion(editorInstance: SuggestionRetriggerEditor): IDisposable {
     let timeout: ReturnType<typeof setTimeout> | null = null
 
     const cancel = (): void => {
