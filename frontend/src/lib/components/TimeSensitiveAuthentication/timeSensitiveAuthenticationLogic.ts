@@ -85,9 +85,6 @@ export interface timeSensitiveAuthenticationLogicActions {
     beginPasskey2FA: () => {
         value: true
     }
-    beginSsoReauthentication: (provider: SSOProvider) => {
-        provider: SSOProvider
-    }
     beginPasskey2FAFailure: (
         error: string,
         errorObject?: any
@@ -105,6 +102,9 @@ export interface timeSensitiveAuthenticationLogicActions {
         payload?: {
             value: true
         }
+    }
+    beginSsoReauthentication: (provider: SSOProvider) => {
+        provider: SSOProvider
     }
     checkPasskeysAvailable: () => {
         value: true
