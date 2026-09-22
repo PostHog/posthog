@@ -1945,7 +1945,9 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         team = self.team
         assert request.user.is_authenticated
 
-        limit, offset = paging_params(request)
+        paging = paging_params(request)
+        limit = paging.limit
+        offset = paging.offset
         is_csv_request = self.request.accepted_renderer.format == "csv" or request.GET.get("is_csv_export")
         if is_csv_request and not limit:
             limit, offset = CSV_EXPORT_LIMIT, 0

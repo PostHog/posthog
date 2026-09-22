@@ -17,6 +17,11 @@ if TYPE_CHECKING:
 def parse_property_group_data(data: Any) -> PropertyGroup:
     """Parse a `properties` value into a PropertyGroup, in any shape the API has ever accepted."""
     if isinstance(data, str):
+        # `?properties=` reaches here as an empty string once the request dict is passed straight
+        # through. The filter layer that used to sit in front dropped a falsy query param before
+        # parsing, so an empty value has to keep meaning "no properties" instead of failing.
+        if not data.strip():
+            return PropertyGroup(type=PropertyOperatorType.AND, values=[])
         try:
             loaded_props = json.loads(data)
         except json.decoder.JSONDecodeError:
@@ -133,22 +138,22 @@ def expand_cohort_properties(prop_group: PropertyGroup, team: "Team") -> Propert
     """
     from .util import clear_excess_levels  # noqa: PLC0415 — avoids a circular import
 
-    return clear_excess_levels(_expand_cohort_group(prop_group, team), skip=True)
+    return clear_excess_levels(expand_cohort_group(prop_group, team), skip=True)
 
 
-def _expand_cohort_group(prop_group: PropertyGroup, team: "Team") -> PropertyGroup:
+def expand_cohort_group(prop_group: PropertyGroup, team: "Team") -> PropertyGroup:
     new_values: list[Any] = []
     for value in prop_group.values:
         if isinstance(value, PropertyGroup):
-            new_values.append(_expand_cohort_group(value, team))
+            new_values.append(expand_cohort_group(value, team))
         elif isinstance(value, Property):
-            new_values.append(_expand_cohort_property(value, team))
+            new_values.append(expand_cohort_property(value, team))
 
     prop_group.values = new_values
     return prop_group
 
 
-def _expand_cohort_property(property: Property, team: "Team") -> PropertyGroup:
+def expand_cohort_property(property: Property, team: "Team") -> PropertyGroup:
     if property.type != "cohort":
         # PropertyOperatorType doesn't really matter here, since only one value.
         return PropertyGroup(type=PropertyOperatorType.AND, values=[property])

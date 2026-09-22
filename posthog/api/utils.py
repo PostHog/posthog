@@ -30,6 +30,7 @@ from posthog.schema import QueryTiming
 
 from posthog.api.documentation import extend_schema
 from posthog.constants import LIMIT, OFFSET
+from posthog.dataclasses import frozen
 from posthog.exceptions import (
     RequestParsingError,
     UnspecifiedCompressionFallbackParsingError,
@@ -748,8 +749,26 @@ def log_activity_from_viewset(
         pass
 
 
-def paging_params(request: request.Request) -> tuple[int, int]:
+@frozen
+class Paging:
+    """A page of results asked for by `limit` and `offset`. Either is 0 when the client sends neither."""
+
+    limit: int
+    offset: int
+
+
+def _paging_param(raw: str | None, name: str) -> int:
+    if not raw:
+        return 0
+    try:
+        return int(raw)
+    except ValueError as error:
+        raise ValidationError(f"'{name}' must be an integer") from error
+
+
+def paging_params(request: request.Request) -> Paging:
     """Read the `limit` and `offset` query params, defaulting either to 0 when absent or empty."""
-    limit_raw = request.GET.get(LIMIT)
-    offset_raw = request.GET.get(OFFSET)
-    return (int(limit_raw) if limit_raw else 0, int(offset_raw) if offset_raw else 0)
+    return Paging(
+        limit=_paging_param(request.GET.get(LIMIT), LIMIT),
+        offset=_paging_param(request.GET.get(OFFSET), OFFSET),
+    )
