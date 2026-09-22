@@ -1,5 +1,4 @@
 import json
-from collections.abc import Sequence
 from typing import Any, cast
 from uuid import UUID
 
@@ -283,16 +282,33 @@ class LLMPromptViewSet(
         code-level fallback covers a missing prompt while a tag inside content
         would reach the caller's LLM as literal text.
         """
-        if not any(
-            isinstance(item.get("prompt"), str) and PROMPT_REFERENCE_REGEX.search(item["prompt"]) for item in items
-        ):
+
+        def has_tags(item: dict[str, Any]) -> bool:
+            return isinstance(item.get("prompt"), str) and bool(PROMPT_REFERENCE_REGEX.search(item["prompt"]))
+
+        # A tag-free row is trivially resolved: its raw and assembled content are
+        # identical, so it gets [] without consulting the flag. Null stays the
+        # marker for tags that were left in place.
+        for item in items:
+            if not has_tags(item):
+                item["resolved_references"] = []
+        if not any(has_tags(item) for item in items):
             return items
         if not prompt_partials_enabled(self.team):
             return items
         resolved_items: list[dict[str, Any]] = []
+        shared_memo: dict[tuple[str, str | None, str | None], str] = {}
         for item in items:
+            if not has_tags(item):
+                resolved_items.append(item)
+                continue
             try:
-                resolved_items.append(assemble_prompt_payload(self.team, item))
+                assembled = assemble_prompt_payload(self.team, item, memoized=shared_memo)
+                # The outline is derived from content, so it must describe what
+                # this response returns. prompt_size_bytes stays the stored size:
+                # it backs the list ordering.
+                assembled["outline"] = get_prompt_outline(assembled.get("prompt"))
+                resolved_items.append(assembled)
             except PromptReferenceResolutionError as err:
                 logger.warning(
                     "llm_prompt_labeled_list_reference_unresolved",
@@ -302,13 +318,13 @@ class LLMPromptViewSet(
                 )
         return resolved_items
 
-    def _track_list_fetch(self, prompts: Sequence[LLMPrompt], label: str | None, resolved_reference_count: int) -> None:
+    def _track_list_fetch(self, served_count: int, label: str | None, resolved_reference_count: int) -> None:
         # One event per request, not per prompt: the event is billed into the calling
         # team's own project, so a page of N prompts would bill N events per call.
         properties = {
             "prompt_fetch_path": "list",
             "prompt_label": label,
-            "prompt_count": len(prompts),
+            "prompt_count": served_count,
             "prompt_resolved_reference_count": resolved_reference_count,
         }
         if not settings.TEST:
@@ -815,7 +831,7 @@ class LLMPromptViewSet(
             # page is not a prompt fetch. The browser session separates a prompt
             # served to an application from someone looking at the list.
             resolved_reference_count = sum(len(item.get("resolved_references") or []) for item in data)
-            self._track_list_fetch(prompts, label, resolved_reference_count)
+            self._track_list_fetch(len(data), label, resolved_reference_count)
 
         if page is not None:
             return self.get_paginated_response(data)

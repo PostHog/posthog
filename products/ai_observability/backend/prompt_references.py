@@ -306,7 +306,9 @@ def _confirm_reference_missing(team_id: int, name: str, version: str | None, lab
         return False
 
 
-def assemble_prompt_payload(team: Team, payload: dict[str, Any]) -> dict[str, Any]:
+def assemble_prompt_payload(
+    team: Team, payload: dict[str, Any], memoized: dict[tuple[str, str | None, str | None], str] | None = None
+) -> dict[str, Any]:
     """Splice referenced prompts' content into a fetched payload.
 
     Each referenced prompt resolves through the same cached read path as the
@@ -325,8 +327,11 @@ def assemble_prompt_payload(team: Team, payload: dict[str, Any]) -> dict[str, An
     # can hold ~35k copies of one small tag whose label later moves to a large
     # version. Memoizing bounds the cache reads to the unique references, and
     # the running size check aborts before a large assembly is materialized,
-    # so a fetch never allocates more than the payload cap.
-    memoized: dict[tuple[str, str | None, str | None], str] = {}
+    # so a fetch never allocates more than the payload cap. Callers assembling
+    # several payloads in one request pass a shared memo so a partial used by
+    # many prompts is read once.
+    if memoized is None:
+        memoized = {}
     # Running total of the true assembled size: each replacement removes the
     # tag's bytes and adds the spliced content's bytes.
     assembled_bytes = len(content.encode("utf-8"))
