@@ -206,13 +206,19 @@ def _make_iso_normalizer(*field_names: str) -> Callable[[dict[str, Any]], dict[s
     return normalize
 
 
-def _build_windows(start_ms: int, end_ms: int, window_days: int = MAX_WINDOW_DAYS) -> Iterator[tuple[int, int]]:
+@frozen
+class Window:
+    start_ms: int
+    end_ms: int
+
+
+def _build_windows(start_ms: int, end_ms: int, window_days: int = MAX_WINDOW_DAYS) -> Iterator[Window]:
     """Chunk [start_ms, end_ms] into inclusive windows of at most `window_days`."""
     window_ms = int(timedelta(days=window_days).total_seconds() * 1000)
     window_start = start_ms
     while window_start <= end_ms:
         window_end = min(window_start + window_ms - 1, end_ms)
-        yield window_start, window_end
+        yield Window(start_ms=window_start, end_ms=window_end)
         window_start = window_end + 1
 
 
@@ -467,15 +473,15 @@ def _get_windowed_rows(
         raise ValueError(f"No normalizer defined for windowed endpoint: {config.name}")
 
     first_page = window_start.first_page
-    for start, end in _build_windows(window_start.start_ms, end_ms, config.window_days):
+    for window in _build_windows(window_start.start_ms, end_ms, config.window_days):
         yield from _paginate_window(
             session,
             config,
             logger,
             resumable_source_manager,
             normalize,
-            start,
-            end,
+            window.start_ms,
+            window.end_ms,
             end_ms,
             first_page,
         )

@@ -82,11 +82,11 @@ class TestCursorTransport:
         windows = list(_build_windows(start_ms, end_ms))
 
         assert len(windows) == expected_windows
-        assert windows[0][0] == start_ms
-        assert windows[-1][1] == end_ms
-        for (_, prev_end), (next_start, _) in zip(windows, windows[1:]):
-            assert next_start == prev_end + 1  # inclusive bounds — no gap, no overlap
-        assert all(end - start < WINDOW_MS for start, end in windows)
+        assert windows[0].start_ms == start_ms
+        assert windows[-1].end_ms == end_ms
+        for previous, following in zip(windows, windows[1:]):
+            assert following.start_ms == previous.end_ms + 1  # inclusive bounds — no gap, no overlap
+        assert all(window.end_ms - window.start_ms < WINDOW_MS for window in windows)
 
     def test_usage_event_id_is_deterministic_and_distinct(self):
         event = {"timestamp": "1700000000000", "userEmail": "a@b.com", "model": "gpt-5"}
@@ -394,9 +394,9 @@ class TestCursorTransport:
 
         windows = _build_windows(end_ms - cursor.DEFAULT_LOOKBACK_DAYS * DAY_MS, end_ms, window_days)
 
-        for window_start, window_end in windows:
-            start_date = date.fromisoformat(_to_iso_date(window_start))
-            end_date = date.fromisoformat(_to_iso_date(window_end))
+        for window in windows:
+            start_date = date.fromisoformat(_to_iso_date(window.start_ms))
+            end_date = date.fromisoformat(_to_iso_date(window.end_ms))
             assert (end_date - start_date).days + 1 <= 30
 
     def test_windowed_first_sync_starts_at_lookback(self):
