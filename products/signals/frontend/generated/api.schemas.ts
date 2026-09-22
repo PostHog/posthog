@@ -808,6 +808,31 @@ export interface PatchedSignalReportContentUpdateApi {
     summary?: string
 }
 
+/**
+ * * `deletion_started` - deletion_started
+ * * `already_running` - already_running
+ */
+export type SignalReportDeletionStatusStatusEnumApi =
+    (typeof SignalReportDeletionStatusStatusEnumApi)[keyof typeof SignalReportDeletionStatusStatusEnumApi]
+
+export const SignalReportDeletionStatusStatusEnumApi = {
+    DeletionStarted: 'deletion_started',
+    AlreadyRunning: 'already_running',
+} as const
+
+/**
+ * Envelope the report delete returns once it has kicked off the deletion workflow.
+ */
+export interface SignalReportDeletionStatusApi {
+    /** Whether this request started the deletion or found one already running.
+     *
+     * * `deletion_started` - deletion_started
+     * * `already_running` - already_running */
+    status: SignalReportDeletionStatusStatusEnumApi
+    /** Report being deleted. */
+    report_id: string
+}
+
 export interface SignalReportClaimApi {
     /** Active claim ID returned by an earlier call. Stale claims are rejected. */
     claim_id?: string
@@ -1166,12 +1191,27 @@ export interface SignalReportRefundResponseApi {
 }
 
 /**
- * Envelope returned by the report actions that only kick off a Temporal workflow.
+ * * `reingestion_started` - reingestion_started
+ * * `already_running` - already_running
  */
-export interface SignalReportWorkflowStatusApi {
-    /** Outcome of the request: the workflow was started, or one was already running. */
-    status: string
-    /** Report the workflow runs against. */
+export type SignalReportReingestionStatusStatusEnumApi =
+    (typeof SignalReportReingestionStatusStatusEnumApi)[keyof typeof SignalReportReingestionStatusStatusEnumApi]
+
+export const SignalReportReingestionStatusStatusEnumApi = {
+    ReingestionStarted: 'reingestion_started',
+    AlreadyRunning: 'already_running',
+} as const
+
+/**
+ * Envelope the reingest action returns once it has kicked off the re-ingestion workflow.
+ */
+export interface SignalReportReingestionStatusApi {
+    /** Whether this request started the re-ingestion or found one already running.
+     *
+     * * `reingestion_started` - reingestion_started
+     * * `already_running` - already_running */
+    status: SignalReportReingestionStatusStatusEnumApi
+    /** Report being re-ingested. */
     report_id: string
 }
 

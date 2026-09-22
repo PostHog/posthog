@@ -73,6 +73,7 @@ import type {
     SignalReportBulkStateResponseApi,
     SignalReportCheckApi,
     SignalReportClaimApi,
+    SignalReportDeletionStatusApi,
     SignalReportFeedbackRequestApi,
     SignalReportFeedbackResponseApi,
     SignalReportMetricRefreshRequestApi,
@@ -80,9 +81,9 @@ import type {
     SignalReportRefundRequestApi,
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
+    SignalReportReingestionStatusApi,
     SignalReportStateRequestApi,
     SignalReportSuggestedReviewersArtefactApi,
-    SignalReportWorkflowStatusApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
     SignalScoutCreateApi,
@@ -320,8 +321,12 @@ export const getSignalsReportsDestroyUrl = (projectId: string, id: string) => {
  * Soft-delete a report and its signals via the deletion workflow.
  * @summary Delete a signal report
  */
-export const signalsReportsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getSignalsReportsDestroyUrl(projectId, id), {
+export const signalsReportsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalReportDeletionStatusApi> => {
+    return apiMutator<SignalReportDeletionStatusApi>(getSignalsReportsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
@@ -680,8 +685,8 @@ export const signalsReportsReingestCreate = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<SignalReportWorkflowStatusApi> => {
-    return apiMutator<SignalReportWorkflowStatusApi>(getSignalsReportsReingestCreateUrl(projectId, id), {
+): Promise<SignalReportReingestionStatusApi> => {
+    return apiMutator<SignalReportReingestionStatusApi>(getSignalsReportsReingestCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
     })

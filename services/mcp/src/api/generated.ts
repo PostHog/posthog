@@ -86558,6 +86558,31 @@ export namespace Schemas {
       release?: boolean;
     }
 
+    /**
+     * * `deletion_started` - deletion_started
+     * * `already_running` - already_running
+     */
+    export type SignalReportDeletionStatusStatusEnum = typeof SignalReportDeletionStatusStatusEnum[keyof typeof SignalReportDeletionStatusStatusEnum];
+
+
+    export const SignalReportDeletionStatusStatusEnum = {
+      DeletionStarted: 'deletion_started',
+      AlreadyRunning: 'already_running',
+    } as const;
+
+    /**
+     * Envelope the report delete returns once it has kicked off the deletion workflow.
+     */
+    export interface SignalReportDeletionStatus {
+      /** Whether this request started the deletion or found one already running.
+       *
+       * * `deletion_started` - deletion_started
+       * * `already_running` - already_running */
+      status: SignalReportDeletionStatusStatusEnum;
+      /** Report being deleted. */
+      report_id: string;
+    }
+
     export interface SignalReportFeedbackRequest {
       /** The rating left on the report: 'positive' (thumbs up) or 'negative' (thumbs down).
        *
@@ -86657,6 +86682,31 @@ export namespace Schemas {
       period_billable_credits: number;
       /** Whether autonomous PR generation is currently paused for this project because the organization is over its self-driving credits quota. Read from the quota limiter, so it reflects the same state the pipeline gates enforce. */
       quota_limited: boolean;
+    }
+
+    /**
+     * * `reingestion_started` - reingestion_started
+     * * `already_running` - already_running
+     */
+    export type SignalReportReingestionStatusStatusEnum = typeof SignalReportReingestionStatusStatusEnum[keyof typeof SignalReportReingestionStatusStatusEnum];
+
+
+    export const SignalReportReingestionStatusStatusEnum = {
+      ReingestionStarted: 'reingestion_started',
+      AlreadyRunning: 'already_running',
+    } as const;
+
+    /**
+     * Envelope the reingest action returns once it has kicked off the re-ingestion workflow.
+     */
+    export interface SignalReportReingestionStatus {
+      /** Whether this request started the re-ingestion or found one already running.
+       *
+       * * `reingestion_started` - reingestion_started
+       * * `already_running` - already_running */
+      status: SignalReportReingestionStatusStatusEnum;
+      /** Report being re-ingested. */
+      report_id: string;
     }
 
     export interface SignalReportStateRequest {
@@ -86807,16 +86857,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly task_id: string | null;
-    }
-
-    /**
-     * Envelope returned by the report actions that only kick off a Temporal workflow.
-     */
-    export interface SignalReportWorkflowStatus {
-      /** Outcome of the request: the workflow was started, or one was already running. */
-      status: string;
-      /** Report the workflow runs against. */
-      report_id: string;
     }
 
     /**
