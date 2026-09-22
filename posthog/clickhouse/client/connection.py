@@ -410,7 +410,7 @@ def get_kwargs_for_client(
     return base_kwargs
 
 
-def _is_file_backed_user(creds: ClickHouseCredentials, workload: Workload, user: str | None) -> bool:
+def is_file_backed_user(creds: ClickHouseCredentials, workload: Workload, user: str | None) -> bool:
     # True when the resolved connection authenticates as a user whose credential comes from a
     # rotating token file. The LOGS and readonly paths resolve to their own static credentials, so
     # they are excluded and keep the static password.
@@ -431,7 +431,7 @@ def get_http_kwargs(
     """
     kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
     creds = get_clickhouse_creds(ch_user)
-    if _is_file_backed_user(creds, workload, kwargs.get("user")):
+    if is_file_backed_user(creds, workload, kwargs.get("user")):
         kwargs["password"] = creds.read_password()
     return kwargs
 
@@ -471,7 +471,7 @@ def get_pool(
     creds = get_clickhouse_creds(ch_user)
     # A file-backed user reads its credential fresh on every checkout, so the pool is keyed on
     # identity rather than the rotating credential and stamps the credential in RefreshingChPool.pull.
-    if _is_file_backed_user(creds, workload, kwargs.get("user")):
+    if is_file_backed_user(creds, workload, kwargs.get("user")):
         kwargs.pop("password", None)
         return make_ch_pool(credential_provider=creds.read_password, **kwargs)
     return make_ch_pool(**kwargs)

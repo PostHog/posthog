@@ -8,13 +8,15 @@ import structlog
 
 from posthog.comment.formatting import escape_slack_mrkdwn
 from posthog.dataclasses import frozen
-from posthog.helpers.slack_scopes import bot_is_ready
 from posthog.models.integration import Integration
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 
+from products.signals.backend.facade import api as signals_facade
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
+from products.slack_app.backend.services.slack_fork_context import get_pending_fork
+from products.slack_app.backend.services.slack_scopes import bot_is_ready
 
 logger = structlog.get_logger(__name__)
 
@@ -193,6 +195,21 @@ def resolve_from_candidates(
             # revoked can't ride the thread mapping past the gate.
             if target is not None and (accessible_team_ids is None or target.team_id in accessible_team_ids):
                 return ResolutionResult(integration=target, source="thread", candidates=accessible)
+
+        for candidate in accessible:
+            if get_pending_fork(candidate.id, channel, thread_ts) is not None:
+                return ResolutionResult(integration=candidate, source="thread", candidates=accessible)
+
+        report_team_id = signals_facade.report_team_id_for_slack_thread(
+            team_ids=[candidate.team_id for candidate in accessible],
+            slack_workspace_id=slack_team_id,
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+        if report_team_id is not None:
+            return ResolutionResult(
+                integration=candidates_by_team_id[report_team_id], source="thread", candidates=accessible
+            )
 
     if slack_user_id:
         # One query returns at most two rows: the per-user row and the

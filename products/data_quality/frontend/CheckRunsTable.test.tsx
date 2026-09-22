@@ -36,11 +36,10 @@ function metricRun(overrides: Partial<DataQualityCheckRunApi>): DataQualityCheck
 
 describe('CheckRunsTable', () => {
     afterEach(cleanup)
-    it('shows metric failures and execution errors without an observed metric value', () => {
+    it('describes each run in the terms of its check type', () => {
         initKeaTests()
         render(
             <CheckRunsTable
-                subjectType="metric"
                 runs={[
                     PASSING_METRIC_RUN,
                     metricRun({
@@ -64,8 +63,28 @@ describe('CheckRunsTable', () => {
         expect(screen.getByText('passed')).toBeInTheDocument()
         expect(screen.getByText('failed')).toBeInTheDocument()
         expect(screen.getByText('errored')).toBeInTheDocument()
-        expect(screen.getByText('7')).toBeInTheDocument()
+        expect(screen.getByText('7 rows returned')).toBeInTheDocument()
         expect(screen.getByText('Unknown column signups')).toBeInTheDocument()
-        expect(screen.queryByText('Observed value')).not.toBeInTheDocument()
+        expect(screen.queryByText('Failed rows')).not.toBeInTheDocument()
+    })
+
+    it('shows a freshness run as how old its newest row is', () => {
+        initKeaTests()
+        render(
+            <CheckRunsTable
+                runs={[
+                    metricRun({
+                        subject_type: 'table',
+                        check_type: 'freshness',
+                        column_name: 'last_updated_time',
+                        check_config: { max_age_minutes: 2160 },
+                        status: 'failed',
+                        failed_row_count: 1,
+                        observed_value: 147117,
+                    }),
+                ]}
+            />
+        )
+        expect(screen.getByText('1d 16h old')).toBeInTheDocument()
     })
 })

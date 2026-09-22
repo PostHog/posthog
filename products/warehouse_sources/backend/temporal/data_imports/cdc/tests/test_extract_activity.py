@@ -253,12 +253,16 @@ class TestGetCDCAdapter:
         adapter = get_cdc_adapter(source)
         assert isinstance(adapter, PostgresCDCAdapter)
 
-    def test_raises_for_unsupported_source(self):
-        from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import get_cdc_adapter
+    @parameterized.expand([("no_adapter_for_the_type", "MySQL"), ("not_a_source_type_at_all", "UnsupportedDB")])
+    def test_raises_a_typed_error_for_an_unsupported_source(self, _name, source_type):
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import (
+            CDCUnsupportedSourceTypeError,
+            get_cdc_adapter,
+        )
 
         source = _make_source()
-        source.source_type = "UnsupportedDB"
-        with pytest.raises(ValueError, match="CDC is not supported"):
+        source.source_type = source_type
+        with pytest.raises(CDCUnsupportedSourceTypeError, match="CDC is not supported"):
             get_cdc_adapter(source)
 
     def test_create_reader_extracts_params(self):
@@ -356,6 +360,27 @@ def _make_extract_activity(source, log=None) -> CDCExtractActivity:
     activity_obj.source = source
     activity_obj.log = log or MagicMock()
     return activity_obj
+
+
+class TestSetupSelfCleansUnrunnableSchedules:
+    @parameterized.expand([("no_adapter_for_the_type", "MySQL"), ("not_a_source_type_at_all", "UnsupportedDB")])
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_a_source_type_without_cdc_deletes_the_schedule_instead_of_failing(
+        self, _name, source_type, _mock_close_conns, MockSourceModel, mock_get_adapter
+    ):
+        source = _make_source()
+        source.source_type = source_type
+        MockSourceModel.objects.get.return_value = source
+        MockSourceModel.DoesNotExist = ExternalDataSource.DoesNotExist
+
+        act = _make_extract_activity(source)
+        with patch.object(act, "_delete_own_schedule") as mock_delete:
+            assert act._setup() is False
+
+        mock_delete.assert_called_once()
+        mock_get_adapter.assert_not_called()
 
 
 class TestBackpressureGuard:

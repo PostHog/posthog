@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
-import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { FunnelVizType, InsightLogicProps, InsightShortId, InsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/AlertAdvancedOptionsSection'
 import { AlertErrorBanner, AlertStateIndicator } from 'products/alerts/frontend/components/AlertDefinition'
@@ -71,7 +71,7 @@ type AlertModalProps = AlertModalCommonProps &
         | {
               alert?: never
               alertId?: AlertType['id']
-              insightId: QueryBasedInsightModel['id']
+              insightId: InsightModel['id']
               insightShortId: InsightShortId
               insightLogicProps: InsightLogicProps
           }
@@ -80,7 +80,7 @@ type AlertModalProps = AlertModalCommonProps &
 interface ResolvedAlertModalProps extends AlertModalCommonProps {
     initialAlert?: AlertType
     alertId?: AlertType['id']
-    insightId: QueryBasedInsightModel['id']
+    insightId: InsightModel['id']
     insightShortId: InsightShortId
     insightLogicProps: InsightLogicProps
 }

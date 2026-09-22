@@ -132,3 +132,17 @@ def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVar
 def get_query_specific_instructions(kind: str) -> str:
     """Analysis guidance for a query kind, used by LLM insight and subscription summaries."""
     return logic.get_query_specific_instructions(kind)
+
+
+def get_or_create_saved_insight(
+    *,
+    team_id: int,
+    user_id: int,
+    short_id: str,
+    name: str | None,
+    description: str | None,
+    query: dict[str, object] | None,
+) -> tuple[int, bool]:
+    return logic.get_or_create_saved_insight(
+        team_id=team_id, user_id=user_id, short_id=short_id, name=name, description=description, query=query
+    )
