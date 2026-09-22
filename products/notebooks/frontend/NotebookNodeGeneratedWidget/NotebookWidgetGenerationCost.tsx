@@ -10,8 +10,8 @@ export function NotebookWidgetGenerationCost({ cost }: { cost: string | null | u
                         {Number(cost) > 0 && Number(cost) < 0.01 ? '< $0.01' : `$${Number(cost).toFixed(2)}`}
                     </div>
                     <div className="mt-1 text-xs text-muted">
-                        Includes this version's generation, security review, retries, and 20% markup. Final AI credits
-                        may differ due to billing rounding.
+                        Includes this version's generation, security review, retries, and 20% markup. Final PostHog AI
+                        credits may differ due to billing rounding.
                     </div>
                 </>
             ) : (

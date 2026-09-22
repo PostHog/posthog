@@ -2,11 +2,11 @@
 
 Notebooks can generate interactive widgets from instructions and the notebook's SQL and Python dataframe context.
 
-Generated widgets are in beta. Generation uses AI credits based on model token costs plus a 20% markup, including security review and retries.
+Generated widgets are in beta. Generation uses PostHog AI credits based on model token costs plus a 20% markup, including security review and retries.
 The insert menu, notebook widget toolbar, generation dialog, and reusable widget page show a **BETA** label.
 Before generating, improving, or regenerating a widget, the form explains the token-based charge and markup.
 The notebook edit panel and reusable widget page show the selected version's estimated generation charge in USD, including all model requests in that successful generation job.
-Costs come from recorded gateway usage and include the same markup as AI credit billing; final credits can differ because billing rounds aggregated usage.
+Costs come from recorded gateway usage and include the same markup as PostHog AI credit billing; final credits can differ because billing rounds aggregated usage.
 Older versions and generations without available usage records show “Cost unavailable for this version.”
 The estimate does not include separate failed or canceled generation jobs, or notebook compute.
 
