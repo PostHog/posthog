@@ -91,6 +91,12 @@ MAX_TREE_SPLIT_DEPTH = 4
 TREE_LISTING_DEADLINE_SECONDS = 30
 TREE_LOCK_SECONDS = TREE_LISTING_DEADLINE_SECONDS + GITHUB_API_TIMEOUT_SECONDS
 
+# Reading the stored maps of one request is capped in wall-clock time as well. A build that writes
+# one map per file gives the event a symbol set per frame, and each set that is not mapped yet
+# costs an object storage round trip. The frames of a set the deadline stops get no link on this
+# load, and nothing is stored for that set, so the next load reads it.
+SYMBOL_SET_BATCH_DEADLINE_SECONDS = 15
+
 _PROVIDER_HOSTS: dict[str, GitProvider] = {"github.com": "github", "gitlab.com": "gitlab"}
 _REPO_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 _COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
@@ -1090,10 +1096,14 @@ def _resolve(team_id: int, release_id: str, raw_ids: list[str]) -> Resolution:
 
     # Every symbol set of the event lives at the same target, so the tree is built at most once.
     load_tree = functools.cache(lambda: github_tree(api, target))
+    deadline = time.time() + SYMBOL_SET_BATCH_DEADLINE_SECONDS
     links: list[SourceLink] = []
     for symbol_set_frames in by_symbol_set.values():
         symbol_set = symbol_set_frames[0].symbol_set
         if symbol_set is None:
+            continue
+        if time.time() > deadline:
+            SOURCE_LINK_FRAMES.labels("github", "cut_off").inc(len(symbol_set_frames))
             continue
         mapping = github_paths_for_symbol_set(
             symbol_set, target, [frame.contents["source"] for frame in symbol_set_frames], load_tree

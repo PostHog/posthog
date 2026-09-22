@@ -195,6 +195,30 @@ class TestGitProviderFileLinksResolve(_SourceLinksTestMixin):
         assert second == first
         assert len(self.api.calls) == 1
 
+    def test_a_symbol_set_cut_off_by_the_deadline_is_read_again_on_the_next_load(self) -> None:
+        release = self._release({"remote_url": "https://github.com/acme/app", "commit_id": COMMIT})
+        three = self._frame(self._symbol_set(), "frame-three", "../src/three.ts")
+        two = self._frame(self._symbol_set(), "frame-two", "../src/two.ts")
+        counted_before = _frames_counted("github", "cut_off")
+
+        with time_machine.travel(datetime(2026, 1, 1, tzinfo=UTC), tick=False) as traveller:
+
+            def slow_read(_symbol_set: Any) -> list[str]:
+                traveller.shift(timedelta(seconds=16))
+                return ["../src/three.ts", "../src/two.ts"]
+
+            with patch(
+                "products.error_tracking.backend.logic.source_links.symbol_set_sources", side_effect=slow_read
+            ) as reads:
+                first = self._resolve(str(release.id), [three, two])
+
+            assert reads.call_count == 1
+            assert _frames_counted("github", "cut_off") - counted_before == 1
+            second = self._resolve(str(release.id), [three, two])
+
+        assert len(first) == 1
+        assert set(second) == {three, two}
+
     @parameterized.expand(
         [
             ("stored_map_read", ["../src/three.ts"], 1),
