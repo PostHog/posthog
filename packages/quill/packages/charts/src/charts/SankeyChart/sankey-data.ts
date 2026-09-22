@@ -34,6 +34,8 @@ export interface SankeyNodeDatum<Meta = unknown> {
     label: string
     color: string
     meta?: Meta
+    /** Position in the `nodes` prop and in `layout.nodes`. */
+    index: number
     column: number
     /** Sum of the larger side's link values (in or out). */
     value: number
@@ -51,6 +53,8 @@ export interface SankeyLinkDatum<NodeMeta = unknown, LinkMeta = NodeMeta> {
     value: number
     color: string
     meta?: LinkMeta
+    /** Position in the `links` prop and in `layout.links`; what `SankeyHighlight.linkIndices` names. */
+    index: number
     y0: number
     y1: number
     width: number
@@ -233,6 +237,7 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
             label: node.label,
             color: node.color,
             meta: node.meta as NodeMeta | undefined,
+            index: node.index,
             column: node.layer,
             value: node.value,
             x0: node.x0,
@@ -244,7 +249,7 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
         return datum
     })
 
-    const outLinks = graph.links.map((link): SankeyLinkDatum<NodeMeta, LinkMeta> => {
+    const outLinks = graph.links.map((link, index): SankeyLinkDatum<NodeMeta, LinkMeta> => {
         const source = datumByIndex.get(link.source.index)!
         const target = datumByIndex.get(link.target.index)!
         return {
@@ -253,6 +258,7 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
             value: link.value,
             color: link.color ? resolveColor(link.color) : source.color,
             meta: link.meta as LinkMeta | undefined,
+            index,
             y0: link.y0,
             y1: link.y1,
             width: link.width,

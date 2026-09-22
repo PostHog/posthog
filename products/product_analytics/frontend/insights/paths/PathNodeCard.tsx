@@ -93,7 +93,7 @@ export function PathNodeCard({
             onMouseLeaveInside={onMouseLeave}
         >
             <div
-                className={`PathNodeCard absolute rounded bg-surface-primary p-1${node.active ? ' PathNodeCard--active' : ''}`}
+                className={`PathNodeCard absolute rounded bg-surface-primary p-1 pointer-events-auto${node.active ? ' PathNodeCard--active' : ''}`}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={getCardStyle(
                     node,
@@ -102,6 +102,9 @@ export function PathNodeCard({
                     canvasHeight
                 )}
                 data-attr="path-node-card-button"
+                // Inside the chart overlay, the card owns the cursor: the chart stops hit-testing
+                // the nodes and ribbons under it.
+                data-hog-charts-interactive-overlay
                 onMouseEnter={onMouseEnter}
                 onMouseLeave={onMouseLeave}
             >

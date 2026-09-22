@@ -12,8 +12,8 @@ import type { ChartDrawArgs, ChartMargins, ChartScales } from '../../core/types'
 import { defaultResolveValue } from '../../core/types'
 import { Tooltip } from '../../overlays/Tooltip'
 import { PieTooltip } from '../PieChart/PieTooltip'
-import { drawSankey, drawSankeyHover, sankeyActiveFlow } from './draw-sankey'
-import type { SankeyActiveFlow } from './draw-sankey'
+import { drawSankey, drawSankeyHover, emphasisForHighlight, emphasisForHit } from './draw-sankey'
+import type { SankeyEmphasis } from './draw-sankey'
 import { SankeyLayoutContext } from './sankey-context'
 import type { SankeyLayoutContextValue } from './sankey-context'
 import { computeSankeyLayout, defaultValueFormatter, hoverIndexToHit } from './sankey-data'
@@ -70,6 +70,8 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
     tooltip,
     onNodeClick,
     onLinkClick,
+    onHoverChange,
+    highlight,
     className,
     dataAttr,
     children,
@@ -146,32 +148,46 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
         showTooltip,
         onNodeClick,
         onLinkClick,
+        onHoverChange,
     })
 
+    // A controlled highlight paints on the static layer, so a change to it is a full repaint
+    // rather than a hover animation frame. The graph is small enough that this is cheap, and it
+    // keeps the hover overlay free to stay dark while the host owns emphasis.
+    const emphasis = useMemo(
+        () => (highlight ? emphasisForHighlight(layout as SankeyChartLayout<unknown, unknown>, highlight) : null),
+        [layout, highlight]
+    )
     const drawStatic = useCallback(
-        ({ ctx: drawCtx }: ChartDrawArgs) =>
-            drawSankey(drawCtx, layout as SankeyChartLayout<unknown, unknown>, { linkOpacity }),
-        [layout, linkOpacity]
+        ({ ctx: drawCtx, theme: drawTheme }: ChartDrawArgs) =>
+            drawSankey(drawCtx, layout as SankeyChartLayout<unknown, unknown>, {
+                linkOpacity,
+                emphasis,
+                backgroundColor: drawTheme.backgroundColor,
+            }),
+        [layout, linkOpacity, emphasis]
     )
     // The hover fade repaints every frame; resolve the connected flow once per hovered item.
-    const activeFlowFor = useMemo(() => {
-        let cached: { index: number; flow: SankeyActiveFlow | null } | null = null
-        return (index: number): SankeyActiveFlow | null => {
+    const hoverEmphasisFor = useMemo(() => {
+        let cached: { index: number; emphasis: SankeyEmphasis | null } | null = null
+        return (index: number): SankeyEmphasis | null => {
             if (cached?.index !== index) {
                 const untyped = layout as SankeyChartLayout<unknown, unknown>
-                cached = { index, flow: sankeyActiveFlow(untyped, hoverIndexToHit(untyped, index)) }
+                cached = { index, emphasis: emphasisForHit(untyped, hoverIndexToHit(untyped, index)) }
             }
-            return cached.flow
+            return cached.emphasis
         }
     }, [layout])
     const drawHover = useCallback(
         ({ ctx: drawCtx, hoverIndex: index, hoverProgress, theme: drawTheme }: ChartDrawArgs): boolean =>
-            drawSankeyHover(drawCtx, layout as SankeyChartLayout<unknown, unknown>, activeFlowFor(index), {
-                linkOpacity,
-                backgroundColor: drawTheme.backgroundColor,
-                progress: hoverProgress,
-            }),
-        [layout, linkOpacity, activeFlowFor]
+            emphasis
+                ? false
+                : drawSankeyHover(drawCtx, layout as SankeyChartLayout<unknown, unknown>, hoverEmphasisFor(index), {
+                      linkOpacity,
+                      backgroundColor: drawTheme.backgroundColor,
+                      progress: hoverProgress,
+                  }),
+        [layout, linkOpacity, emphasis, hoverEmphasisFor]
     )
 
     useChartDraw({

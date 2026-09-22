@@ -50,10 +50,17 @@ describe('SankeyChart', () => {
         expect(chart.canvas.getAttribute('aria-label')).toBe('Sankey chart with 3 nodes and 2 links')
     })
 
-    it('shows the hovered node in the tooltip and fires onNodeClick for it', async () => {
+    it('shows the hovered node in the tooltip, reports it once, and fires onNodeClick for it', async () => {
         const onNodeClick = jest.fn()
+        const onHoverChange = jest.fn()
         const { chart, rerender } = renderHogChart(
-            <SankeyChart nodes={NODES} links={LINKS} theme={THEME} onNodeClick={onNodeClick} />,
+            <SankeyChart
+                nodes={NODES}
+                links={LINKS}
+                theme={THEME}
+                onNodeClick={onNodeClick}
+                onHoverChange={onHoverChange}
+            />,
             { nativeTooltip: true }
         )
         await waitFor(() => {
@@ -65,6 +72,16 @@ describe('SankeyChart', () => {
         fireEvent.click(chart.element)
         expect(onNodeClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'a', value: 12 }))
 
+        // Repeated moves inside one node report a single hover; leaving reports null.
+        fireEvent.mouseMove(chart.element, nodeCenter('a'))
+        expect(onHoverChange.mock.calls).toEqual([[{ kind: 'node', node: expect.objectContaining({ id: 'a' }) }]])
+        fireEvent.mouseLeave(chart.element)
+        expect(onHoverChange).toHaveBeenLastCalledWith(null)
+
+        await waitFor(() => {
+            fireEvent.mouseMove(chart.element, nodeCenter('a'))
+            expect(getHogChartTooltip()?.textContent).toContain('Tool A')
+        })
         onNodeClick.mockClear()
         rerender(
             <SankeyChart
@@ -72,6 +89,7 @@ describe('SankeyChart', () => {
                 links={LINKS}
                 theme={THEME}
                 onNodeClick={onNodeClick}
+                onHoverChange={onHoverChange}
                 config={{ nodeWidth: 24 }}
             />
         )
