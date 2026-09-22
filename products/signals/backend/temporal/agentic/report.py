@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, TypeVar
@@ -51,6 +52,7 @@ from products.signals.backend.report_generation.reviewer_telemetry import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_links import (
+    ReportEdge,
     linked_reports as fetch_linked_reports,
     outgoing_links,
 )
@@ -286,6 +288,7 @@ _RESEARCH_CONTEXT_LINK_KINDS = (
 # Enough code paths to point the agent at the right files without pasting a predecessor's whole
 # investigation into the prompt.
 _MAX_LINKED_CODE_PATHS = 5
+_MAX_LINKED_REPORTS = 10
 
 
 async def _load_linked_report_context(team_id: int, report_id: str) -> list[LinkedReportContext]:
@@ -301,16 +304,30 @@ async def _load_linked_report_context(team_id: int, report_id: str) -> list[Link
 def _collect_linked_report_context(team_id: int, report_id: str) -> list[LinkedReportContext]:
     from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 
-    edges = outgoing_links(team_id=team_id, report_id=report_id, kinds=_RESEARCH_CONTEXT_LINK_KINDS)
+    unique_edges: dict[tuple[ReportLinkKind, str], ReportEdge] = {}
+    for edge in outgoing_links(team_id=team_id, report_id=report_id, kinds=_RESEARCH_CONTEXT_LINK_KINDS):
+        unique_edges.setdefault((edge.kind, edge.target_id), edge)
+    edges = list(unique_edges.values())[:_MAX_LINKED_REPORTS]
     if not edges:
         return []
     reports = fetch_linked_reports(team_id=team_id, report_ids=[edge.target_id for edge in edges])
     if not reports:
         return []
-    # A report the safety judge suppressed must not have its prose read back into another prompt.
-    visible = {
-        target_id: report for target_id, report in reports.items() if not _is_safety_suppressed(target_id, team_id)
-    }
+    judgments = (
+        SignalReportArtefact.objects.using("default")
+        .filter(team_id=team_id, report_id__in=reports, type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT)
+        .order_by("report_id", "-created_at", "-id")
+        .distinct("report_id")
+        .values_list("report_id", "content")
+    )
+    visible: dict[str, SignalReport] = {}
+    for target_id, content in judgments:
+        try:
+            verdict = json.loads(content)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(verdict, dict) and verdict.get("choice") is True:
+            visible[str(target_id)] = reports[str(target_id)]
     prs_by_report = fetch_implementation_prs_for_reports(list(visible), team_id=team_id)
     findings_by_report = _code_paths_by_report(team_id, list(visible))
     context: list[LinkedReportContext] = []
@@ -336,12 +353,12 @@ def _code_paths_by_report(team_id: int, report_ids: list[str]) -> dict[str, list
     """The code paths each linked report's findings named, newest finding first, deduplicated."""
     paths: dict[str, list[str]] = {}
     rows = (
-        SignalReportArtefact.objects.filter(
-            team_id=team_id, report_id__in=report_ids, type=SignalReportArtefact.ArtefactType.SIGNAL_FINDING
-        )
-        .order_by("-created_at")
+        SignalReportArtefact.objects.using("default")
+        .filter(team_id=team_id, report_id__in=report_ids, type=SignalReportArtefact.ArtefactType.SIGNAL_FINDING)
+        .order_by("-created_at", "-id")
         .values_list("report_id", "content")
     )
+    seen_signals: set[tuple[str, str]] = set()
     for row_report_id, content in rows:
         key = str(row_report_id)
         collected = paths.setdefault(key, [])
@@ -351,6 +368,10 @@ def _code_paths_by_report(team_id: int, report_ids: list[str]) -> dict[str, list
             finding = SignalFinding.model_validate_json(content)
         except ValidationError:
             continue
+        signal_key = (key, finding.signal_id)
+        if signal_key in seen_signals:
+            continue
+        seen_signals.add(signal_key)
         for path in finding.relevant_code_paths:
             if path not in collected and len(collected) < _MAX_LINKED_CODE_PATHS:
                 collected.append(path)

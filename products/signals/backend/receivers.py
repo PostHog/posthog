@@ -426,7 +426,11 @@ def roll_up_plan_parents_when_report_closes(
     The roll-up walks the whole ancestor chain itself and marks the reports it moved, so this
     receiver stops on its own writes instead of starting a second walk per level.
     """
-    if instance.status not in (SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED):
+    if instance.status not in (
+        SignalReport.Status.RESOLVED,
+        SignalReport.Status.SUPPRESSED,
+        SignalReport.Status.DELETED,
+    ):
         return
     if getattr(instance, "_plan_rollup", False):
         return

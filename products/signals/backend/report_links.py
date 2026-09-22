@@ -78,9 +78,8 @@ def outgoing_links(
     if source_id is None:
         return []
     rows = (
-        SignalReportArtefact.objects.filter(
-            team_id=team_id, report_id=source_id, type=SignalReportArtefact.ArtefactType.REPORT_LINK
-        )
+        SignalReportArtefact.objects.using("default")
+        .filter(team_id=team_id, report_id=source_id, type=SignalReportArtefact.ArtefactType.REPORT_LINK)
         .order_by("created_at", "id")
         .values_list("report_id", "content")[: SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS]
     )
@@ -103,7 +102,7 @@ def incoming_links(
     target_id = _canonical_report_id(report_id)
     if target_id is None:
         return []
-    candidates = SignalReportArtefact.objects.filter(
+    candidates = SignalReportArtefact.objects.using("default").filter(
         team_id=team_id,
         type=SignalReportArtefact.ArtefactType.REPORT_LINK,
         content__contains=target_id,
@@ -153,7 +152,8 @@ def linked_reports(*, team_id: int, report_ids: Collection[str]) -> dict[str, Si
     if not report_ids:
         return {}
     rows = (
-        SignalReport.objects.filter(team_id=team_id, id__in=list(report_ids))
+        SignalReport.objects.using("default")
+        .filter(team_id=team_id, id__in=list(report_ids))
         .exclude(status=SignalReport.Status.DELETED)
         .only("id", "title", "summary", "status", "team")
     )

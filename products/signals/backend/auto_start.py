@@ -531,7 +531,12 @@ def _evaluate_link_gates(team_id: int, report_id: str) -> AutostartSkip | None:
 
     if any(edge.kind == ReportLinkKind.DUPLICATE_OF for edge in links):
         root_id = duplicate_root(team_id=team_id, report_id=report_id)
-        root = SignalReport.objects.filter(team_id=team_id, id=root_id).only("id", "status", "team").first()
+        root = (
+            SignalReport.objects.using("default")
+            .filter(team_id=team_id, id=root_id)
+            .only("id", "status", "team")
+            .first()
+        )
         if root is not None:
             root_has_work = root_id in has_open_or_merged_pull_request(team_id=team_id, report_ids=[root_id])
             if root_has_work or root.status == SignalReport.Status.RESOLVED:
@@ -654,7 +659,7 @@ def _create_implementation_task_if_absent(
     free_trial_enabled: bool | None = None,
     supersede: SupersedeDecision = NO_SUPERSEDE,
     dispatch: ImplementationDispatch | None = None,
-) -> bool:
+) -> bool | AutostartSkip:
     """Create the implementation task and record it (gate row + work-log artefact), serialized per report.
 
     Auto-start is re-evaluated from several independent paths — the reviewer-edit on-commit hook,
@@ -663,7 +668,7 @@ def _create_implementation_task_if_absent(
     workflow, duplicate draft PR, duplicate spend). Locking the `SignalReport` row and re-checking
     inside the lock makes the decision atomic: the second evaluation blocks, then sees the gate and
     returns ``False``. Returns ``True`` if it created the task, ``False`` if one already exists / the
-    report is gone.
+    report is gone. Returns `AutostartSkip` when a link blocks the task under the lock.
 
     The same lock is where billing exemptions freeze (`_stamp_billing_exemption`): the reason is
     decided and written before the task exists, so it can never race a billable PR run.
@@ -751,6 +756,9 @@ def _create_implementation_task_if_absent(
             # Re-checked under the lock: the caller resolved the supersede decision outside it, so a
             # racing evaluation that already stamped this pass must not open a second replacement.
             return False
+        link_skip = _evaluate_link_gates(team_id, report_id)
+        if link_skip is not None:
+            return link_skip
         if supersede.allowed and claim is not None:
             release_claim(claim, ArtefactAttribution.system(), takeover=True)
         # Both stamps move together. The task about to start is built from the report as it stands
@@ -1295,6 +1303,9 @@ async def maybe_autostart_implementation_task(
                 team_id=team_id, report_id=report_id, remaining_retries=remaining_retries - 1, dispatch=dispatch
             )
         raise ReportChangedDuringAutostart("Report kept changing during autostart")
+    if isinstance(created, AutostartSkip):
+        await database_sync_to_async(_record_link_gate_skip, thread_sensitive=False)(team_id, report_id, created)
+        return AutostartOutcome(status="blocked", reason=created.detail)
     if not created:
         # Another evaluation won the race and already created the implementation task.
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason="lost create race")

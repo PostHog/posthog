@@ -1,4 +1,10 @@
+from concurrent.futures import ThreadPoolExecutor
+
+import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.db import OperationalError, connection, transaction
 
 from parameterized import parameterized
 
@@ -10,7 +16,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportPullRequest,
 )
-from products.signals.backend.plan_rollup import roll_up_plan_parents
+from products.signals.backend.plan_rollup import _rolled_up_status, roll_up_plan_parents
 from products.signals.backend.pull_requests import update_pull_request_state
 from products.signals.backend.report_links import outgoing_links
 from products.signals.backend.temporal.grouping import _link_check_follow_up
@@ -97,9 +103,10 @@ class TestPlanRollup(BaseTest):
         assert child.status == SignalReport.Status.RESOLVED
         assert parent.status == SignalReport.Status.RESOLVED
 
-    def test_the_verdict_rolls_up_through_a_plan_of_plans(self):
+    @parameterized.expand([("ready",), ("resolved",)])
+    def test_the_verdict_rolls_up_through_a_plan_of_plans(self, parent_status):
         grandparent = self._report("programme")
-        parent = self._report("plan")
+        parent = self._report("plan", status=parent_status)
         child = self._report("step")
         self._part_of(parent, grandparent)
         self._part_of(child, parent)
@@ -111,15 +118,15 @@ class TestPlanRollup(BaseTest):
         assert parent.status == SignalReport.Status.RESOLVED
         assert grandparent.status == SignalReport.Status.RESOLVED
 
-    def test_a_deleted_step_is_not_a_verdict(self):
+    @parameterized.expand([("delete_first", True), ("delete_last", False)])
+    def test_a_deleted_step_is_not_a_verdict(self, _name, delete_first):
         parent = self._report("plan")
         done, removed = self._report("done"), self._report("removed")
         self._part_of(done, parent)
         self._part_of(removed, parent)
-        removed.status = SignalReport.Status.DELETED
-        removed.save(update_fields=["status"])
-
-        self._close(done, SignalReport.Status.RESOLVED)
+        steps = [(removed, SignalReport.Status.DELETED), (done, SignalReport.Status.RESOLVED)]
+        for step, status in steps if delete_first else reversed(steps):
+            self._close(step, status)
 
         parent.refresh_from_db()
         assert parent.status == SignalReport.Status.RESOLVED
@@ -198,3 +205,35 @@ class TestCheckFollowUpLink(BaseTest):
         )
 
         assert outgoing_links(team_id=self.team.id, report_id=report.id) == []
+
+
+@pytest.mark.django_db(transaction=True)
+def test_plan_status_decision_holds_parent_lock(team):
+    parent = SignalReport.objects.create(team=team, status=SignalReport.Status.READY)
+    child = SignalReport.objects.create(team=team, status=SignalReport.Status.SUPPRESSED)
+    SignalReportArtefact.add_log(
+        team_id=team.id,
+        report_id=str(child.id),
+        content=ReportLink(kind=ReportLinkKind.PART_OF, report_id=str(parent.id)),
+        attribution=ArtefactAttribution.system(),
+    )
+
+    def try_concurrent_parent_change():
+        try:
+            with transaction.atomic():
+                report = SignalReport.objects.select_for_update(nowait=True).get(team_id=team.id, id=parent.id)
+                report.save(update_fields=report.transition_to(SignalReport.Status.RESOLVED))
+        finally:
+            connection.close()
+
+    def status_with_concurrent_change(**kwargs):
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            with pytest.raises(OperationalError, match="could not obtain lock"):
+                executor.submit(try_concurrent_parent_change).result(timeout=10)
+        return _rolled_up_status(**kwargs)
+
+    with patch("products.signals.backend.plan_rollup._rolled_up_status", side_effect=status_with_concurrent_change):
+        roll_up_plan_parents(team_id=team.id, report_id=str(child.id))
+
+    parent.refresh_from_db()
+    assert parent.status == SignalReport.Status.SUPPRESSED

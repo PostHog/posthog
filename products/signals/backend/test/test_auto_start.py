@@ -946,7 +946,8 @@ def _link(team_id: int, source: SignalReport, target: SignalReport, kind: Report
         ("none", None),
     ],
 )
-async def test_typed_links_hold_back_autostart(link, expect_skip_reason):
+@pytest.mark.parametrize("link_before_lock", [False, True])
+async def test_typed_links_hold_back_autostart(link, expect_skip_reason, link_before_lock):
     # A duplicate opening its own pull request, or a child stacking on a branch that does not
     # exist yet, is billable work the team throws away. The `plan_parent` case is the inverse: the
     # steps carry the work, so a run on the plan itself would duplicate all of them. Committed rows
@@ -968,7 +969,16 @@ async def test_typed_links_hold_back_autostart(link, expect_skip_reason):
                 team=team, status=status, title="t", summary="s", signal_count=0, total_weight=0.0
             )
 
-        def _attach_open_pr(report: SignalReport, number: int) -> None:
+        report = _report()
+        return team, report
+
+    team, report = await sync_to_async(_setup)()
+
+    def _write_link(*_args):
+        def _report(status: str = SignalReport.Status.READY) -> SignalReport:
+            return SignalReport.objects.create(team=team, status=status, title="linked", summary="s")
+
+        def _attach_open_pr(target: SignalReport, number: int) -> None:
             pr = SignalReportPullRequest.objects.for_team(team.id).create(
                 team_id=team.id,
                 repository="owner/repo",
@@ -976,16 +986,15 @@ async def test_typed_links_hold_back_autostart(link, expect_skip_reason):
                 url=f"https://github.com/owner/repo/pull/{number}",
                 state="open",
             )
-            pr_link = SignalReportArtefact.add_log(
+            row = SignalReportArtefact.add_log(
                 team_id=team.id,
-                report_id=str(report.id),
+                report_id=str(target.id),
                 content=PullRequestLink(url=pr.url),
                 attribution=ArtefactAttribution.system(),
             )
-            pr_link.pull_request = pr
-            pr_link.save(update_fields=["pull_request"])
+            row.pull_request = pr
+            row.save(update_fields=["pull_request"])
 
-        report = _report()
         if link == "duplicate_of_resolved":
             root = _report(SignalReport.Status.RESOLVED)
             _link(team.id, report, root, ReportLinkKind.DUPLICATE_OF)
@@ -1001,9 +1010,10 @@ async def test_typed_links_hold_back_autostart(link, expect_skip_reason):
             _link(team.id, report, dependency, ReportLinkKind.DEPENDS_ON)
         elif link == "incoming_part_of":
             _link(team.id, _report(), report, ReportLinkKind.PART_OF)
-        return team, report
+        return AgentRuntime()
 
-    team, report = await sync_to_async(_setup)()
+    if not link_before_lock:
+        await sync_to_async(_write_link)()
 
     def _fake_create_and_run_task(**kwargs):
         task = Task.objects.create(
@@ -1017,7 +1027,11 @@ async def test_typed_links_hold_back_autostart(link, expect_skip_reason):
 
     with (
         patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
-        patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
+        patch(
+            "products.signals.backend.auto_start.resolve_agent_runtime",
+            side_effect=_write_link if link_before_lock else None,
+            return_value=AgentRuntime(),
+        ),
         patch("products.signals.backend.auto_start.posthoganalytics.capture") as capture_mock,
     ):
         outcome = await maybe_autostart_implementation_task(
