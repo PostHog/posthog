@@ -19,8 +19,17 @@ logger = structlog.get_logger(__name__)
 
 class LinkSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    short_code = serializers.CharField(required=True, allow_null=False)
-    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    short_code = serializers.CharField(
+        required=True,
+        allow_null=False,
+        help_text="The unique code/path that identifies the short link, e.g. 'abc123'",
+    )
+    _create_in_folder = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        help_text="Folder path to file the link under in the project tree.",
+    )
 
     class Meta:
         model = Link
@@ -36,6 +45,13 @@ class LinkSerializer(serializers.ModelSerializer):
             "_create_in_folder",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
+        extra_kwargs = {
+            "redirect_url": {"help_text": "Destination the short link redirects to."},
+            # The model's help text still names hog.gg, but create() accepts only phog.gg.
+            # Overriding here keeps the published schema honest without a migration.
+            "short_link_domain": {"help_text": "Domain the short link is hosted on. Only phog.gg is accepted."},
+            "description": {"help_text": "Free-form note about what the link is for."},
+        }
 
     def create(self, validated_data: dict[str, Any]) -> Link:
         team = Team.objects.get(id=self.context["team_id"])
@@ -63,8 +79,6 @@ class LinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = LinkSerializer
     lookup_field = "id"
     permission_classes = [IsAuthenticated]
-    # Use the team from the user's current context when not in a team-specific route
-    param_derived_from_user_current_team = "team_id"
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.team_id).order_by("-created_at")

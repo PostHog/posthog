@@ -130,7 +130,7 @@ class TestLink(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             short_code="test1",
             created_by=self.user,
         )
-        _link2 = Link.objects.create(
+        link2 = Link.objects.create(
             team=team2,
             redirect_url="https://example2.com",
             short_link_domain="phog.gg",
@@ -143,6 +143,12 @@ class TestLink(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(str(response.json()["results"][0]["id"]), str(link1.id))
+
+        # The project in the URL decides, not the caller's current team
+        response = self.client.get(f"/api/projects/{team2.id}/links")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(str(response.json()["results"][0]["id"]), str(link2.id))
 
     def test_create_link_in_specific_folder(self):
         response = self.client.post(
