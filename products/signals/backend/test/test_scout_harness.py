@@ -482,6 +482,46 @@ class TestCheckoutSection(SimpleTestCase):
         assert "git blame" in section
 
 
+class TestCloseOutTaskSummary(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("signal", []),
+            ("report_both", ["emit_report", "edit_report"]),
+            ("report_emit_only", ["emit_report"]),
+            ("report_edit_only", ["edit_report"]),
+        ]
+    )
+    def test_close_out_asks_for_the_run_row_summary_on_every_channel(
+        self, _name: str, allowed_tools: list[str]
+    ) -> None:
+        # The run row is what a reader sees without opening the transcript, and the harness only
+        # writes it when the scout calls the tool. Each channel renders its own close-out step, so
+        # a channel that drops the instruction leaves its scouts with a blank run row and nothing
+        # in the rendered prompt to show why.
+        prompt = build_run_prompt(
+            LoadedSkill(
+                name="signals-scout-close-out",
+                version=1,
+                body="watch",
+                description="d",
+                allowed_tools=allowed_tools,
+                files=[],
+                skill_id="skill-1",
+                origin="canonical",
+                authors=[],
+            ),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=1,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        )
+
+        close_out_step = next(line for line in prompt.splitlines() if "**Close out.**" in line)
+        writing_summary = prompt.split("# Writing the summary")[1].split("\n# ")[0]
+
+        assert "task_summary_update" in close_out_step
+        assert "task_summary_update" in writing_summary
+
+
 class TestPromptCrossReferences(SimpleTestCase):
     @parameterized.expand(
         [
