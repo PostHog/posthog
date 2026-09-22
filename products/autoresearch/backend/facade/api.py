@@ -24,14 +24,6 @@ from posthog.models.user import User
 from posthog.storage.object_storage import ObjectStorageError
 
 from products.actions.backend.models.action import Action
-from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.sandbox import (
-    SandboxExecutionError,
-    SandboxNotFoundError,
-    SandboxNotRunningError,
-    SandboxTimeoutError,
-    get_sandbox_class_for_sandbox_id,
-)
 
 from ..dataset import templates as templates_module
 from ..dataset.labeling import (
@@ -42,13 +34,6 @@ from ..dataset.templates import TemplateKey as _TemplateKey
 from ..dataset.validation import (
     ValidationWarningCode as _ValidationWarningCode,
     validate_pipeline_definition as _validate_pipeline_definition,
-)
-from ..inference.sandbox import (
-    SandboxInferenceError,
-    features_parquet,
-    label_classes,
-    labels_parquet,
-    materialize_training_data,
 )
 from ..models import (
     AutoresearchIteration,
@@ -796,6 +781,10 @@ def materialize_features(
     The rows never pass through the agent's context and there is no row cap. The destination
     paths are fixed by the framework — the agent supplies the query, never where it lands.
     """
+    # The inference sandbox imports pandas and pyarrow; the router imports this module for
+    # every web worker, so the heavy path loads only when a run materializes.
+    from ..inference.sandbox import SandboxInferenceError, label_classes, materialize_training_data  # noqa: PLC0415
+
     training_run = _training_run_row(team_id, training_run_id, pipeline_id=pipeline_id, with_iterations=False)
     if training_run.status != AutoresearchTrainingRun.Status.RUNNING:
         raise AutoresearchConflict("Can only materialize features for a running training run.")
@@ -811,11 +800,15 @@ def materialize_features(
         raise AutoresearchConflict("features_sql produced no training rows.")
     if not data.feature_cols:
         raise AutoresearchConflict("features_sql produced no numeric feature columns.")
-    # The holdout fold is fixed per person, so another features_sql cannot repair a split with no
-    # holdout AUC. Refusing here tells the agent the population is too thin instead of letting it
-    # spend the run on iterations completion can never score.
+    # The folds are fixed per person, so another features_sql cannot repair a split that cannot
+    # be fitted or scored. Refusing here tells the agent the population is too thin instead of
+    # letting it spend the run on iterations completion can never score.
     if not data.holdout_rows:
         raise AutoresearchConflict("The population is too small to hold out an evaluation set. Widen the population.")
+    if len(label_classes(data.train_rows)) < 2:
+        raise AutoresearchConflict(
+            "The training set has only one label class, so no model can be fitted. Widen the population."
+        )
     if len(label_classes(data.holdout_rows)) < 2:
         raise AutoresearchConflict(
             "The holdout set has only one label class, so no holdout AUC can be computed. Widen the population."
@@ -840,6 +833,8 @@ def _resolve_run_sandbox_id(training_run: AutoresearchTrainingRun) -> str:
     The sandbox id comes from the team-scoped run record, never from the client, and is
     verified to belong to this training run.
     """
+    from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415
+
     if not training_run.task_run_id:
         raise AutoresearchConflict("This training run has no sandbox (e.g. a stub run). Cannot materialize features.")
     task_run = tasks_facade.get_task_run(training_run.task_run_id)
@@ -856,6 +851,18 @@ def _resolve_run_sandbox_id(training_run: AutoresearchTrainingRun) -> str:
 
 def _write_feature_parquets(sandbox_id: str, data: Any) -> dict[str, str]:
     """Serialize the train/holdout matrices to parquet and write them into the agent's sandbox."""
+    # Same reason as in materialize_features: the sandbox providers and pandas stay off the
+    # router's import path.
+    from products.tasks.backend.facade.sandbox import (  # noqa: PLC0415
+        SandboxExecutionError,
+        SandboxNotFoundError,
+        SandboxNotRunningError,
+        SandboxTimeoutError,
+        get_sandbox_class_for_sandbox_id,
+    )
+
+    from ..inference.sandbox import SandboxInferenceError, features_parquet, labels_parquet  # noqa: PLC0415
+
     try:
         sandbox = get_sandbox_class_for_sandbox_id(sandbox_id).get_by_id(sandbox_id)
     except Exception as exc:
@@ -926,6 +933,8 @@ def write_artifact(
         # The fitted model is written by the framework after completion. An agent-written model.pkl
         # would make scoring skip its self-healing fit and serve those bytes on every cadence.
         raise InvalidArtifactPath(f"{artifact_store.MODEL_PKL} is written by the framework and cannot be uploaded.")
+    if rel == artifact_store.FEATURES_SQL:
+        _require_runnable_features_sql(content)
     # Completion validates and freezes the bundle under the run row lock. Writing under the same
     # lock means an upload that started while the run was RUNNING cannot land after completion
     # read the bundle.
@@ -944,6 +953,20 @@ def write_artifact(
         except ObjectStorageError as exc:
             raise ArtifactStorageUnavailable(f"The artifact could not be stored: {exc}") from exc
     return StoredArtifact(path=stored.path, size_bytes=stored.size_bytes, sha256=stored.sha256)
+
+
+def _require_runnable_features_sql(content: bytes) -> None:
+    """Refuse feature SQL the fit would refuse, so a champion never lands without a model."""
+    from ..inference.sandbox import SandboxInferenceError, validate_runnable_feature_sql  # noqa: PLC0415
+
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        return  # the store refuses the bytes with its own message
+    try:
+        validate_runnable_feature_sql(text, source=artifact_store.FEATURES_SQL)
+    except SandboxInferenceError as exc:
+        raise InvalidArtifactPath(str(exc)) from exc
 
 
 def _running_run_for_write(

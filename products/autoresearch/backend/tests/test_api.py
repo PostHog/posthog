@@ -676,6 +676,13 @@ class TestAutoresearchArtifactAPI(TeamScopedTestMixin, APIBaseTest):
         resp = self.client.post(self._artifacts_url("/get"), {"path": "train.py"}, format="json")
         assert resp.status_code == status.HTTP_200_OK
 
+    def test_features_sql_must_be_runnable(self):
+        runnable = b"SELECT a.person_id AS distinct_id, count() AS c FROM {anchors} a GROUP BY a.person_id"
+        resp = self._upload("features.sql", runnable + b" LIMIT 10")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "LIMIT" in str(resp.json())
+        assert self._upload("features.sql", runnable).status_code == status.HTTP_201_CREATED
+
     def test_model_pkl_cannot_be_uploaded(self):
         resp = self._upload("model.pkl", b"\x80\x04")
         assert resp.status_code == status.HTTP_400_BAD_REQUEST

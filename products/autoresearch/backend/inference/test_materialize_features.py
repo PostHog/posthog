@@ -29,15 +29,24 @@ class _FakeSandbox:
         return ExecutionResult(stdout="", stderr="boom" if self._exit_code else "", exit_code=self._exit_code)
 
 
-def _materialized(holdout_rows: list[dict] | None = None, feature_cols: list[str] | None = None) -> MaterializedData:
+def _rows(fold: int, labels: list[int], cols: list[str]) -> list[dict]:
+    return [
+        {"distinct_id": f"p{fold}{i}", "__label": label, "__fold": fold, **dict.fromkeys(cols, i)}
+        for i, label in enumerate(labels)
+    ]
+
+
+def _materialized(
+    train_labels: tuple[int, ...] = (1, 0),
+    holdout_labels: tuple[int, ...] = (0, 1),
+    feature_cols: list[str] | None = None,
+) -> MaterializedData:
     cols = feature_cols or ["pv", "uploads"]
-    row = {"distinct_id": "p1", "__label": 1, "__fold": 1, **dict.fromkeys(cols, 1)}
-    if holdout_rows is None:
-        holdout_rows = [
-            {"distinct_id": "p3", "__label": 0, "__fold": 0, **dict.fromkeys(cols, 0)},
-            {"distinct_id": "p4", "__label": 1, "__fold": 0, **dict.fromkeys(cols, 2)},
-        ]
-    return MaterializedData(feature_cols=cols, train_rows=[row], holdout_rows=holdout_rows)
+    return MaterializedData(
+        feature_cols=cols,
+        train_rows=_rows(1, list(train_labels), cols),
+        holdout_rows=_rows(0, list(holdout_labels), cols),
+    )
 
 
 class TestMaterializeFeatures(TeamScopedTestMixin, APIBaseTest):
@@ -106,13 +115,13 @@ class TestMaterializeFeatures(TeamScopedTestMixin, APIBaseTest):
 
     def _materialize(self, run, *, task_run=None, materialized=None, sandbox=None):
         with (
-            patch("products.autoresearch.backend.facade.api.get_sandbox_class_for_sandbox_id") as mock_resolve,
+            patch("products.tasks.backend.facade.sandbox.get_sandbox_class_for_sandbox_id") as mock_resolve,
             patch(
-                "products.autoresearch.backend.facade.api.materialize_training_data",
+                "products.autoresearch.backend.inference.sandbox.materialize_training_data",
                 return_value=materialized or _materialized(),
             ),
             patch(
-                "products.autoresearch.backend.facade.api.tasks_facade.get_task_run",
+                "products.tasks.backend.facade.api.get_task_run",
                 return_value=task_run or self._fake_task_run(run),
             ),
         ):
@@ -127,7 +136,7 @@ class TestMaterializeFeatures(TeamScopedTestMixin, APIBaseTest):
         resp, mock_resolve = self._materialize(run, sandbox=fake_sandbox)
         assert resp.status_code == status.HTTP_200_OK, resp.json()
         body = resp.json()
-        assert body["n_train"] == 1
+        assert body["n_train"] == 2
         assert body["n_holdout"] == 2
         assert body["n_features"] == 2
         assert body["feature_cols"] == ["pv", "uploads"]
@@ -179,14 +188,15 @@ class TestMaterializeFeatures(TeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_holdout_rows", [], "too small"),
-            ("single_class_holdout", [{"distinct_id": "p3", "pv": 0, "uploads": 0, "__label": 0}], "one label class"),
+            ("no_holdout_rows", (1, 0), (), "too small"),
+            ("single_class_holdout", (1, 0), (0,), "holdout set has only one label class"),
+            ("single_class_training", (1, 1), (0, 1), "training set has only one label class"),
         ]
     )
-    def test_rejects_unscorable_holdout(self, _name: str, holdout_rows, message: str):
+    def test_rejects_unscorable_split(self, _name: str, train_labels, holdout_labels, message: str):
         run = self._run(task_run_id=uuid.uuid4())
         fake_sandbox = _FakeSandbox()
-        resp, _ = self._materialize(run, materialized=_materialized(holdout_rows=holdout_rows), sandbox=fake_sandbox)
+        resp, _ = self._materialize(run, materialized=_materialized(train_labels, holdout_labels), sandbox=fake_sandbox)
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert message in str(resp.json())
         assert fake_sandbox.writes == {}
