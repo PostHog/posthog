@@ -4,7 +4,6 @@ import {
   buildSignalReportListOrdering,
   buildStatusFilterParam,
   buildSuggestedReviewerFilterParam,
-  INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
   INBOX_DISMISSED_STATUS_FILTER,
   INBOX_REFETCH_INTERVAL_MS,
 } from "@posthog/core/inbox/reportFiltering";
@@ -72,10 +71,12 @@ export function useInboxReports(options?: { enabled?: boolean }) {
   );
   const priorityFilter = useInboxFilterStore((s) => s.priorityFilter);
 
+  // No `actionability` param: it drops every report the pipeline never judged,
+  // and a failed run is exactly that — it stopped before a judgment existed.
+  // `partitionInboxReports` applies the actionability rule per section instead.
   const params: SignalReportsQueryParams = {
     status: buildStatusFilterParam(statusFilter),
     ordering: buildSignalReportListOrdering(sortField, sortDirection),
-    actionability: INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
     source_product:
       sourceProductFilter.length > 0
         ? sourceProductFilter.join(",")

@@ -1,7 +1,5 @@
 import {
   buildStatusFilterParam,
-  INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
-  INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
   sortInboxReports,
 } from "@posthog/core/inbox/reportFiltering";
 import {
@@ -125,12 +123,14 @@ export function useInboxSectionedReports(options?: {
     statusFilter: "ready",
     hasImplementationPr: true,
   });
+  // The server view, not a status/actionability/PR combination: Needs decision
+  // also holds failed reports, whose run stopped before it could produce an
+  // actionability judgment. The default status filter is a superset of the
+  // view's statuses, so the view decides what comes back.
   const needsDecisionQuery = useInboxAllReports({
     ...SECTION_QUERY_DEFAULTS,
     enabled: showNeedsDecision,
-    statusFilter: INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
-    actionabilityFilter: INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
-    hasImplementationPr: false,
+    inboxView: "needs_decision",
   });
   const terminalQuery = useInboxAllReports({
     ...SECTION_QUERY_DEFAULTS,

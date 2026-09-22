@@ -5366,6 +5366,9 @@ export class PostHogAPIClient {
     if (params?.channel_id) {
       url.searchParams.set("channel_id", params.channel_id);
     }
+    if (params?.view) {
+      url.searchParams.set("view", params.view);
+    }
 
     const response = await this.api.fetcher.fetch({
       method: "get",
