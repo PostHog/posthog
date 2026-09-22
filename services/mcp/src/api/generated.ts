@@ -46787,6 +46787,11 @@ export namespace Schemas {
       math_property?: string | null;
     }
 
+    export interface HandsFreeToken {
+      /** Single-use ElevenLabs Scribe realtime token, valid for 15 minutes. */
+      token: string;
+    }
+
     /**
      * 409 body when a guarded write was based on a stale head.
      */
@@ -57732,7 +57737,10 @@ export namespace Schemas {
 
     export interface MaxCoreMemory {
       readonly id: string;
-      /** @maxLength 10000 */
+      /**
+         * What Max remembers about the project, as free-form text.
+         * @maxLength 10000
+         */
       text: string;
       scraping_status?: CoreMemoryScrapingStatusEnum | BlankEnum | null;
     }
@@ -71833,7 +71841,10 @@ export namespace Schemas {
 
     export interface PatchedMaxCoreMemory {
       readonly id?: string;
-      /** @maxLength 10000 */
+      /**
+         * What Max remembers about the project, as free-form text.
+         * @maxLength 10000
+         */
       text?: string;
       scraping_status?: CoreMemoryScrapingStatusEnum | BlankEnum | null;
     }
@@ -93150,14 +93161,6 @@ export namespace Schemas {
       force_refresh?: boolean;
     }
 
-    export interface Synthesize {
-      /**
-         * The text the assistant should speak aloud.
-         * @maxLength 2000
-         */
-      text: string;
-    }
-
     export interface TaggerCreate {
       /** @maxLength 400 */
       name: string;
@@ -108882,8 +108885,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type MaxHandsFreeTokenCreate200 = { [key: string]: unknown };
 
     export type MaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
 
