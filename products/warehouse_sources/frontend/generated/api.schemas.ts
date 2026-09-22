@@ -6669,6 +6669,57 @@ export interface ExternalDataSourceConnectionOptionApi {
 }
 
 /**
+ * Values of the sibling fields named by the picker's `credentialFields`. Any other key is rejected.
+ */
+export type CredentialAccountsRequestApiCredentials = { [key: string]: string }
+
+/**
+ * Body for listing accounts from credentials the user has typed but not yet submitted.
+ */
+export interface CredentialAccountsRequestApi {
+    /** The data warehouse source type whose picker is asking (e.g. 'AppleSearchAds'). */
+    source_type: string
+    /** Values of the sibling fields named by the picker's `credentialFields`. Any other key is rejected. */
+    credentials: CredentialAccountsRequestApiCredentials
+    /**
+     * Vendor API version the source is pinned to. Defaults to the source's current default.
+     * @nullable
+     */
+    api_version?: string | null
+}
+
+/**
+ * A selectable account/resource exposed by an OAuth integration, in the shared shape every ad
+ * platform produces (see ``IntegrationAccount`` in the data-imports common module). One serializer
+ * and one frontend selector work across all platforms.
+ */
+export interface IntegrationAccountApi {
+    /** The identifier stored in the source config and used for API calls (numeric account id as a string, a site url, etc.). */
+    value: string
+    /** Primary human-readable label for the account. */
+    display_name: string
+    /** True when this account belongs to the connected user's own (primary) account context, rather than one they merely have access to. Sorted/marked first. */
+    is_primary: boolean
+    /** Short status chips for the account, e.g. ['Active'] or ['Pause']. */
+    badges: string[]
+    /**
+     * Optional grouping label for hierarchical platforms (e.g. the owning customer/manager name).
+     * @nullable
+     */
+    group: string | null
+    /**
+     * Extra identifier shown in parentheses and searchable, e.g. the alphanumeric account number.
+     * @nullable
+     */
+    secondary_text: string | null
+}
+
+export interface IntegrationAccountsResponseApi {
+    /** All accounts the connected integration can access. */
+    accounts: IntegrationAccountApi[]
+}
+
+/**
  * Validate credentials and preview available tables from a remote database.
  *
  * The request body contains source_type plus flat source-specific credential fields
@@ -9443,37 +9494,6 @@ export interface DraftCustomManifestResponseApi {
      * @nullable
      */
     error: string | null
-}
-
-/**
- * A selectable account/resource exposed by an OAuth integration, in the shared shape every ad
- * platform produces (see ``IntegrationAccount`` in the data-imports common module). One serializer
- * and one frontend selector work across all platforms.
- */
-export interface IntegrationAccountApi {
-    /** The identifier stored in the source config and used for API calls (numeric account id as a string, a site url, etc.). */
-    value: string
-    /** Primary human-readable label for the account. */
-    display_name: string
-    /** True when this account belongs to the connected user's own (primary) account context, rather than one they merely have access to. Sorted/marked first. */
-    is_primary: boolean
-    /** Short status chips for the account, e.g. ['Active'] or ['Pause']. */
-    badges: string[]
-    /**
-     * Optional grouping label for hierarchical platforms (e.g. the owning customer/manager name).
-     * @nullable
-     */
-    group: string | null
-    /**
-     * Extra identifier shown in parentheses and searchable, e.g. the alphanumeric account number.
-     * @nullable
-     */
-    secondary_text: string | null
-}
-
-export interface IntegrationAccountsResponseApi {
-    /** All accounts the connected integration can access. */
-    accounts: IntegrationAccountApi[]
 }
 
 /**
@@ -13720,6 +13740,26 @@ export interface SourceFieldOauthAccountSelectConfigApi {
     type: 'oauth-account-select'
 }
 
+/**
+ * Account picker for a source whose credentials are typed into the form, not held by an
+ * `Integration` row. Same `IntegrationAccount` shape and same picker as `oauth-account-select`;
+ * only where the credentials come from differs.
+ *
+ * `credentialFields` is the security boundary. The listing endpoint accepts those field names and
+ * no others, so the picker cannot be used to push arbitrary connection details into a source's
+ * client.
+ */
+export interface SourceFieldCredentialAccountSelectConfigApi {
+    caption?: string | null
+    /** Names of the sibling fields whose values the account listing needs. The form sends exactly these, and the listing endpoint accepts exactly these. */
+    credentialFields: string[]
+    label: string
+    name: string
+    placeholder?: string | null
+    required?: boolean | null
+    type: 'credential-account-select'
+}
+
 export interface SourceFieldFileUploadJsonFormatConfigApi {
     format?: '.json'
     keys: '*' | string[]
@@ -13747,6 +13787,7 @@ export interface SourceFieldSelectConfigOptionApi {
               | SourceFieldSelectConfigApi
               | SourceFieldOauthConfigApi
               | SourceFieldOauthAccountSelectConfigApi
+              | SourceFieldCredentialAccountSelectConfigApi
               | SourceFieldFileUploadConfigApi
               | SourceFieldSSHTunnelConfigApi
           )[]
@@ -13777,6 +13818,7 @@ export interface SourceFieldSwitchGroupConfigApi {
         | SourceFieldSelectConfigApi
         | SourceFieldOauthConfigApi
         | SourceFieldOauthAccountSelectConfigApi
+        | SourceFieldCredentialAccountSelectConfigApi
         | SourceFieldFileUploadConfigApi
         | SourceFieldSSHTunnelConfigApi
     )[]
@@ -13832,6 +13874,7 @@ export interface SourceConfigResponseApi {
         | SourceFieldSelectConfigApi
         | SourceFieldOauthConfigApi
         | SourceFieldOauthAccountSelectConfigApi
+        | SourceFieldCredentialAccountSelectConfigApi
         | SourceFieldFileUploadConfigApi
         | SourceFieldSSHTunnelConfigApi
     )[]
@@ -13855,6 +13898,7 @@ export interface SourceConfigResponseApi {
               | SourceFieldSelectConfigApi
               | SourceFieldOauthConfigApi
               | SourceFieldOauthAccountSelectConfigApi
+              | SourceFieldCredentialAccountSelectConfigApi
               | SourceFieldFileUploadConfigApi
               | SourceFieldSSHTunnelConfigApi
           )[]

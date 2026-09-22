@@ -405,6 +405,9 @@ tools:
             only re-call if `exists: false`. For Stripe the signing_secret is auto-captured from the Stripe API response
             and stored securely; if auto-registration fails (e.g. the API key lacks webhook permissions), the user must
             create the webhook manually in Stripe and submit the signing_secret via update-webhook-inputs.
+    external-data-sources-credential-accounts-create:
+        operation: external_data_sources_credential_accounts_create
+        enabled: false
     external-data-sources-db-schema:
         operation: external_data_sources_database_schema_create
         enabled: false

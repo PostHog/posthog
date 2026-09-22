@@ -644,6 +644,32 @@ export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ 
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * List the accounts a source's typed-in credentials can reach, in the shared
+ * IntegrationAccount shape.
+ *
+ * The OAuth twin takes an integration id because the token already lives on the server. Here
+ * the credentials are still in the form, so they arrive in the body — POST, not GET, to keep a
+ * private key out of the URL and out of anything that logs one. Nothing is cached for the same
+ * reason: the cache key would have to include the credentials.
+ */
+export const ExternalDataSourcesCredentialAccountsCreateBody = /* @__PURE__ */ zod
+    .object({
+        source_type: zod
+            .string()
+            .describe("The data warehouse source type whose picker is asking (e.g. 'AppleSearchAds')."),
+        credentials: zod
+            .record(zod.string(), zod.string())
+            .describe(
+                "Values of the sibling fields named by the picker's `credentialFields`. Any other key is rejected."
+            ),
+        api_version: zod
+            .string()
+            .nullish()
+            .describe("Vendor API version the source is pinned to. Defaults to the source's current default."),
+    })
+    .describe('Body for listing accounts from credentials the user has typed but not yet submitted.')
+
+/**
  * Create, Read, Update and Delete External data Sources.
  */
 export const ExternalDataSourcesDatabaseSchemaCreateBody = /* @__PURE__ */ zod
