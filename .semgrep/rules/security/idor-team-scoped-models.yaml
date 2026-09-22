@@ -80,6 +80,7 @@ rules:
                               |AITrainingDeletionRequest
                               |Alert
                               |AlertConfiguration
+                              |AlertSeriesPoint
                               |Annotation
                               |Announcement
                               |AnnouncementDelivery
@@ -516,6 +517,7 @@ rules:
                         |AITrainingDeletionRequest
                         |Alert
                         |AlertConfiguration
+                        |AlertSeriesPoint
                         |Annotation
                         |Announcement
                         |AnnouncementDelivery
