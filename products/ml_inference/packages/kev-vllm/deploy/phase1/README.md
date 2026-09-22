@@ -21,15 +21,13 @@ Before running `bootstrap.sh`:
 4. The checkpoint on disk at `MODEL_DIR`, fetched with `aws s3 sync` from the published version (see the package README) and verified with `kev-vllm-checkpoint verify`. The container serves as an unprivileged user, so the directory has to be readable by everyone; the bootstrap script sets that, and a home directory on Ubuntu is not traversable by other users, so keep it outside `/home`.
 5. A bearer: `openssl rand -hex 32`. The same value goes to the gateway as `AI_GATEWAY_KEV_API_KEY`.
 
-Then, as root:
+Then, from your machine, with the environment's values in `envs/<environment>.env` copied from `envs/prod-us.env.example` (the box, the bucket and region, and the secrets as `op://` references, so 1Password prompts once and nothing lands on disk; a new region is a new file):
 
 ```bash
-INSTANCE_HOST=kev-1.<zone> ACME_EMAIL=<contact> ROUTE53_ZONE_ID=<zone id> \
-  AWS_ACCESS_KEY_ID=<key> AWS_SECRET_ACCESS_KEY=<secret> KEV_BEARER=<bearer> MODEL_DIR=/srv/models/kev-4b \
-  IMAGE=ghcr.io/posthog/posthog-ml-inference-decision:sha-<commit>@sha256:<digest> ./bootstrap.sh
+deploy/phase1/lambda-host.sh prod-us all
 ```
 
-The script writes the env file and the units, builds the Caddy image, pulls the serving image, starts both services, waits for the certificate, requires a 200 through Caddy with the bearer and a 401 without it, and fails if anything answers on port 80.
+`lambda-host.sh` loads the SSH key into a throwaway agent, copies this directory to the box, downloads the checkpoint through presigned URLs and verifies it with the serving image, streams the env file over SSH into `/etc/kev-vllm/env`, and runs `bootstrap.sh` there. That script builds the Caddy image, pulls the serving image, starts both services, waits for the certificate, requires a 200 through Caddy with the bearer and a 401 without it, and fails if anything answers on port 80. `stage` and `bootstrap` also run as separate steps.
 
 On the gateway side the host is a served host of kind `kev-vllm` with `base_url` `https://kev-1.<zone>/v1`, the bearer in `AI_GATEWAY_KEV_API_KEY`, and the enrolled teams in `AI_GATEWAY_SYSTEMONE_TEAM_IDS`.
 

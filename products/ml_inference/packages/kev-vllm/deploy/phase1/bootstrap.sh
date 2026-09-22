@@ -5,15 +5,20 @@
 # container runtime, with the checkpoint at MODEL_DIR and the DNS name in INSTANCE_HOST already resolving to this
 # instance.
 #
-#   sudo INSTANCE_HOST=kev-1.example.com ACME_EMAIL=ops@example.com ROUTE53_ZONE_ID=Z... \
-#     AWS_ACCESS_KEY_ID=AKIA... AWS_SECRET_ACCESS_KEY=... KEV_BEARER="$(openssl rand -hex 32)" \
-#     MODEL_DIR=/srv/models/kev-4b IMAGE=ghcr.io/posthog/posthog-ml-inference-decision:sha-<commit>@sha256:<digest> \
-#     deploy/phase1/bootstrap.sh
+# Normally run through lambda-host.sh from an engineer's machine, which fills /etc/kev-vllm/env first; by hand, the
+# same variables can be exported before calling it.
 #
 # This is the phase 1 layout from the ML inference RFC: launched by hand, temporary by construction. Phase 2 renders
 # the same files from cloud-init.
 set -euo pipefail
 
+# lambda-host.sh streams the values into /etc/kev-vllm/env before calling this, so they never sit on a command line.
+if [ -f /etc/kev-vllm/env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . /etc/kev-vllm/env
+  set +a
+fi
 INSTANCE_HOST=${INSTANCE_HOST:?the DNS name of this instance}
 ACME_EMAIL=${ACME_EMAIL:?contact email for the ACME account}
 ROUTE53_ZONE_ID=${ROUTE53_ZONE_ID:?the zone the name lives in}
