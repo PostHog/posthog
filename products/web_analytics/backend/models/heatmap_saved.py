@@ -57,9 +57,9 @@ class SavedHeatmap(UUIDTModel):
 
     @property
     def has_content(self) -> bool:
-        return self.snapshots.filter(
-            models.Q(content__isnull=False) | models.Q(content_location__isnull=False)
-        ).exists()
+        # Only inline bytes count: the content endpoint cannot serve a content_location pointer yet,
+        # so a client that trusts this flag for such a snapshot gets JSON where it expects an image.
+        return self.snapshots.filter(content__isnull=False).exists()
 
     def get_analytics_metadata(self) -> dict:
         return {
