@@ -4114,7 +4114,12 @@ jobs:
                               esac
                               ;;
                           queued|in_progress|pending|waiting|requested) ;;
-                          *) echo "::error::Depot gate concluded $gate for $SHA"; exit 1 ;;
+                          *)
+                              # A rerun of this workflow does not start Depot again; it only reads the same gate.
+                              echo "::error::Depot gate concluded $gate for $SHA"
+                              echo "::error::To retry, re-run the failed jobs in Depot, then re-run this job. Or push a new commit. Depot run: $(jq -r '[.check_runs[]] | max_by(.id) | .details_url // "unknown"' /tmp/relay-gate)"
+                              exit 1
+                              ;;
                       esac
                       # The gate check only appears when the matrix is done, so once Depot has
                       # started, a slower poll costs at most a minute of latency.
