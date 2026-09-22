@@ -6,10 +6,14 @@ import { LemonBanner, LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui
 import { passkeySettingsLogic } from './passkeySettingsLogic'
 
 function RegistrationBanners(): JSX.Element | null {
-    const { registrationStep, error } = useValues(passkeySettingsLogic)
-    const { clearError } = useActions(passkeySettingsLogic)
+    const { registrationStep, pendingVerificationId, error } = useValues(passkeySettingsLogic)
+    const { clearError, verifyPasskey } = useActions(passkeySettingsLogic)
 
-    if (!error && registrationStep !== 'complete' && registrationStep !== 'verifying') {
+    const showsStep =
+        registrationStep === 'complete' ||
+        registrationStep === 'verifying' ||
+        registrationStep === 'awaiting_verification'
+    if (!error && !showsStep) {
         return null
     }
 
@@ -21,13 +25,24 @@ function RegistrationBanners(): JSX.Element | null {
                 </LemonBanner>
             )}
 
-            {registrationStep === 'complete' && (
-                <LemonBanner type="success">Passkey added and verified successfully!</LemonBanner>
+            {registrationStep === 'complete' && <LemonBanner type="success">Passkey added and verified.</LemonBanner>}
+
+            {registrationStep === 'awaiting_verification' && pendingVerificationId !== null && (
+                <LemonBanner
+                    type="info"
+                    action={{
+                        children: 'Verify passkey',
+                        onClick: () => verifyPasskey(pendingVerificationId),
+                        'data-attr': 'verify-new-passkey',
+                    }}
+                >
+                    Your passkey is saved. Verify it now to use it for sign-in.
+                </LemonBanner>
             )}
 
             {registrationStep === 'verifying' && (
                 <LemonBanner type="info" icon={<Spinner />}>
-                    Please verify your passkey to complete registration...
+                    Waiting for your passkey...
                 </LemonBanner>
             )}
         </>

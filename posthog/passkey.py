@@ -29,8 +29,10 @@ from webauthn.helpers.structs import (
 )
 from webauthn.registration.verify_registration_response import VerifiedRegistration
 
-# Challenge timeout in milliseconds (1 minute)
-CHALLENGE_TIMEOUT_MS = 60000
+# Challenge timeout in milliseconds (5 minutes). The WebAuthn spec recommends this range for
+# flows that use a security key or a phone, because the user must plug in, scan a code, or
+# approve on a second device before the authenticator answers.
+CHALLENGE_TIMEOUT_MS = 300000
 
 # Secure public key algorithms - rejects weak algorithms like RSA with small key sizes
 SUPPORTED_PUB_KEY_ALGS = [

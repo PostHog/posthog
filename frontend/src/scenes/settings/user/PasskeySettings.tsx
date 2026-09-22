@@ -13,11 +13,20 @@ import { passkeySettingsLogic } from './passkeySettingsLogic'
 export function PasskeySettings(): JSX.Element {
     const { passkeys, passkeysLoading } = useValues(passkeySettingsLogic)
     const { user } = useValues(userLogic)
-    const { loadPasskeys } = useActions(passkeySettingsLogic)
+    const { loadPasskeys, prepareRegistration } = useActions(passkeySettingsLogic)
+    const hasSSOEnforcement = !!user?.has_sso_enforcement
 
     useEffect(() => {
         loadPasskeys()
     }, [loadPasskeys])
+
+    useEffect(() => {
+        // Fetch the registration options before the user clicks, so the browser prompt opens
+        // inside the click's user activation instead of after a request has spent it.
+        if (!hasSSOEnforcement) {
+            prepareRegistration()
+        }
+    }, [hasSSOEnforcement, prepareRegistration])
 
     if (passkeysLoading) {
         return (
@@ -29,7 +38,6 @@ export function PasskeySettings(): JSX.Element {
     }
 
     const hasExistingPasskeys = passkeys.length > 0
-    const hasSSOEnforcement = !!user?.has_sso_enforcement
 
     return (
         <div className="space-y-4">
