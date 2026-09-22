@@ -150,7 +150,9 @@ function measureColumns(table: HTMLTableElement, measurements: ColumnMeasurement
     measurementTable.inert = true
     measurementTable.setAttribute('aria-hidden', 'true')
 
-    const sourceHeaderCells = Array.from(measurements[0]?.header.parentElement?.cells ?? [])
+    const sourceHeaderCells = Array.from(measurements[0]?.header.parentElement?.children ?? []).filter(
+        (cell): cell is HTMLTableCellElement => cell instanceof HTMLTableCellElement
+    )
     const measurementsByHeader = new Map(measurements.map((measurement) => [measurement.header, measurement]))
     const headerRow = measurementTable.createTHead().insertRow()
     for (const header of sourceHeaderCells) {
