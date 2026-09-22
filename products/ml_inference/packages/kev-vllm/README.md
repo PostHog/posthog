@@ -40,6 +40,20 @@ The answer is under `data.answers`, in Kev's format, with `data.probabilities_ra
 
 Prefix caching is off for this model: vLLM does not enable it for pooling models on hybrid backbones, so every row recomputes its state. Batching across rows and requests still applies.
 
+## Container image
+
+`Dockerfile` builds the serving image: the official `vllm/vllm-openai:v0.29.0` image with this package installed on top, so the entry points register the model class and the IO processor at import. Weights stay out of the image. `.github/workflows/cd-ml-inference-decision-image.yml` builds it for amd64 on every master push that touches the package and publishes it as `posthog-ml-inference-decision` to ECR and GHCR; add the `build-ml-inference-image` label to a PR to build it early and push it to GHCR alone, tagged `pr-<number>`.
+
+The entrypoint (`bin/serve.sh`, installed as `kev-vllm-serve`) checks the checkpoint at `MODEL_DIR` against its `manifest.json` and starts `vllm serve` with the flags the parity run used. It binds loopback by default, because TLS and the per-instance bearer terminate in a proxy on the same host, so a GPU host runs it with the host network and the checkpoint mounted:
+
+```bash
+docker run --rm --gpus all --network host --ipc host \
+  -v /srv/models/kev-4b:/models/kev-4b:ro \
+  ghcr.io/posthog/posthog-ml-inference-decision:sha-<commit>@sha256:<digest>
+```
+
+The container serves as an unprivileged user (uid 10001), so the mounted checkpoint must be world-readable and outside a home directory. `HOST=0.0.0.0` exposes the port directly for a bring-up box behind a firewall or tunnel. `MODEL_NAME`, `PORT`, `MAX_MODEL_LEN` and `GPU_MEMORY_UTILIZATION` override the defaults, and any extra arguments go to `vllm serve`. `kev-vllm-checkpoint verify <dir>` is the same manifest check on its own.
+
 ## Parity
 
 ```bash
@@ -65,6 +79,14 @@ Measured 2026-09-22 on a Lambda 2x H100 SXM instance (one GPU used), vLLM 0.29.0
 | Engine start after weights are on disk                               | 31 s                                                                                                |
 
 MLHog's `models/kev/load_generator.py` produced the throughput row: a closed loop of N workers over the parity records.
+
+## Date facts
+
+Kev cannot subtract dates, so its author ships an opt-in preprocessor that appends the day count between any two absolute dates in the state ("July 4, 2026 is 8 days after June 26, 2026."). `kev_compat.with_date_facts` is that function, made idempotent so a client that already applied it is not doubled up, and the IO processor applies it to every request when the server runs with `KEV_DATE_FACTS=1`. It is off by default so the served numbers match Kev's published ones.
+
+## Evals
+
+The eval runner that scores a served model on Kev's labelled suites, with and without date facts, lives in the MLHog repository under `models/kev/`, next to the other model work. Measured there on 2026-09-22 against this server on an H100: date facts move the deadline questions of Kev's transfer-v4 development split from 0.60 to 0.85 and change nothing else by more than half a point.
 
 ## Tests
 

@@ -4,6 +4,7 @@
 across requests. `post_process` maps each row's probability vector back onto the question it came from.
 """
 
+import os
 import threading
 import time
 from collections import deque
@@ -16,7 +17,7 @@ from vllm.outputs import PoolingRequestOutput
 from vllm.plugins.io_processors.interface import IOProcessor
 from vllm.renderers import BaseRenderer
 
-from kev_vllm.kev_compat import SystemOneRequest, encode, output_tokens, rows_of, to_answers, to_record
+from kev_vllm.kev_compat import SystemOneRequest, encode, output_tokens, rows_of, to_answers, to_record, with_date_facts
 
 # Serving limits, as kev.serve: the per-branch cap mirrors Jev's window and the base model bounds both.
 INFER_MAX_STATE, INFER_MAX_BRANCH = 8192, 8192
@@ -32,6 +33,8 @@ class KevIOProcessor(IOProcessor[SystemOneRequest, dict]):
         model_config = vllm_config.model_config
         self.tokenizer = AutoTokenizer.from_pretrained(model_config.tokenizer, revision=model_config.tokenizer_revision)
         self.served_model = model_config.served_model_name
+        # Kev's opt-in preprocessor: the model cannot subtract dates, so state the day count between any two it mentions.
+        self.date_facts = os.environ.get("KEV_DATE_FACTS") == "1"
         # request_id -> (question metadata, input token count, enqueued at); vLLM calls pre_process and post_process
         # with the same id
         self._pending: dict[str | None, deque[tuple[list[dict], int, float]]] = {}
@@ -42,6 +45,8 @@ class KevIOProcessor(IOProcessor[SystemOneRequest, dict]):
         return SystemOneRequest.model_validate(data)
 
     def pre_process(self, prompt: SystemOneRequest, request_id: str | None = None, **kwargs) -> Sequence[TokensPrompt]:
+        if self.date_facts:
+            prompt = prompt.model_copy(update={"state": with_date_facts(prompt.state)})
         record, meta = to_record(prompt)
         enc = encode(self.tokenizer, record, max_state=INFER_MAX_STATE, max_branch=INFER_MAX_BRANCH)
         state_ids, _, rows = rows_of(enc)

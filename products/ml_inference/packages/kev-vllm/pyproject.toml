@@ -22,6 +22,7 @@ export = ["kev", "peft>=0.21", "accelerate>=1.15", "safetensors>=0.5", "huggingf
 [project.scripts]
 kev-vllm-export = "kev_vllm.export:main"
 kev-vllm-parity = "kev_vllm.parity:main"
+kev-vllm-checkpoint = "kev_vllm.checkpoint:main"
 
 [project.entry-points."vllm.general_plugins"]
 kev = "kev_vllm.plugin:register"
