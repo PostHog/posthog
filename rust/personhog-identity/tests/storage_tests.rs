@@ -1,13 +1,11 @@
 mod common;
 
-use std::collections::HashSet;
 use std::time::Duration;
 
 use chrono::{TimeZone, Utc};
 use common::TestContext;
 
 use personhog_common::persons::person_uuid;
-use personhog_identity::storage::postgres::resolve_distinct_ids_sql;
 use personhog_identity::storage::{AttachOutcome, IdentityStorage, PersonStub, StubOutcome};
 
 /// Storage-assertion helpers used only by this test binary.
@@ -762,40 +760,50 @@ async fn resolve_returns_only_existing_keys() {
 }
 
 #[tokio::test]
-async fn resolve_plan_touches_only_the_batch_teams_partitions() {
+async fn resolve_does_not_lock_person_partitions_outside_the_batch() {
     let ctx = TestContext::new().await;
-    let other_team = ctx.team_id + 1;
+    let person_id = ctx.insert_person_with_distinct_id("pruned").await;
 
-    let plan: Vec<String> = sqlx::query_scalar(&format!(
-        "EXPLAIN (COSTS OFF) {}",
-        resolve_distinct_ids_sql(&ctx.tables)
+    let own_partition: String = sqlx::query_scalar(&format!(
+        "SELECT tableoid::regclass::text FROM {} WHERE team_id = $1 AND id = $2",
+        ctx.tables.person
     ))
-    .bind(vec![ctx.team_id as i32, other_team as i32])
-    .bind(vec!["a".to_string(), "b".to_string()])
-    .fetch_all(&ctx.pool)
+    .bind(ctx.team_id as i32)
+    .bind(person_id)
+    .fetch_one(&ctx.pool)
     .await
-    .expect("explain should succeed");
+    .expect("person row should name its partition");
+    let other_partition: String = sqlx::query_scalar(
+        "SELECT inhrelid::regclass::text FROM pg_inherits
+         WHERE inhparent = $1::regclass AND inhrelid::regclass::text <> $2
+         ORDER BY 1 LIMIT 1",
+    )
+    .bind(&ctx.tables.person)
+    .bind(&own_partition)
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("person table should have another partition");
 
-    let partition_marker = format!(" on {}_p", ctx.tables.person);
-    let partitions: HashSet<&str> = plan
-        .iter()
-        .filter_map(|line| {
-            let rest = &line[line.find(&partition_marker)? + " on ".len()..];
-            rest.split_whitespace().next()
-        })
-        .collect();
+    let mut blocker = ctx.pool.begin().await.expect("begin should succeed");
+    sqlx::query(&format!(
+        "LOCK TABLE {other_partition} IN ACCESS EXCLUSIVE MODE"
+    ))
+    .execute(&mut *blocker)
+    .await
+    .expect("lock should succeed");
 
-    assert!(
-        !partitions.is_empty(),
-        "plan should scan the person table:\n{}",
-        plan.join("\n")
-    );
-    assert!(
-        partitions.len() <= 2,
-        "plan should scan at most one partition per team in the batch, got {}:\n{}",
-        partitions.len(),
-        plan.join("\n")
-    );
+    let resolved = tokio::time::timeout(
+        Duration::from_secs(5),
+        ctx.storage
+            .resolve_distinct_ids(&[(ctx.team_id, "pruned".to_string())]),
+    )
+    .await
+    .expect("resolve waited on a person partition its batch does not touch")
+    .expect("resolve should succeed");
+    assert_eq!(resolved[&(ctx.team_id, "pruned".to_string())].id, person_id);
+
+    blocker.rollback().await.ok();
+    ctx.cleanup().await.ok();
 }
 
 #[tokio::test]
