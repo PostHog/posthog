@@ -86,9 +86,21 @@ class TestDecide:
             score=2.5, confidence=0.4, probabilities={"1": 0.2, "2": 0.3, "3": 0.5}
         )
 
-    def test_rejects_an_answer_of_no_known_type(self) -> None:
-        with pytest.raises(ValueError):
-            decisions.parse_result({"answers": {"q": {"verdict": "maybe"}}})
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {},
+            [],
+            {"model": "kev-latest", "answers": {}, "usage": {}},
+            {"model": "kev-latest", "answers": {"q": {"verdict": "maybe"}}, "usage": {"input_tokens": 1}},
+            {"model": "kev-latest", "answers": {"q": "yes"}, "usage": {"input_tokens": 1}},
+        ],
+    )
+    def test_rejects_a_200_that_is_not_a_decision(self, payload: object) -> None:
+        with pytest.raises(decisions.DecisionGatewayError) as raised:
+            decisions.parse_result(payload)
+
+        assert raised.value.status_code == 200
 
     def test_surfaces_a_gateway_refusal_with_its_status(self) -> None:
         transport = httpx.MockTransport(lambda _request: httpx.Response(404, json={"error": {"code": "not_found"}}))

@@ -92,18 +92,28 @@ def _wire_body(request: DecisionRequest) -> dict[str, Any]:
     return {"model": request.model, "state": request.state, "questions": questions}
 
 
-def parse_result(payload: dict[str, Any]) -> DecisionResult:
-    answers = {question_id: _parse_answer(answer) for question_id, answer in payload.get("answers", {}).items()}
-    usage = payload.get("usage") or {}
-    return DecisionResult(
-        model=str(payload.get("model", "")),
-        answers=answers,
-        input_tokens=int(usage.get("input_tokens", 0)),
-        latency_ms=payload.get("latency_ms"),
-    )
+def parse_result(payload: Any) -> DecisionResult:
+    """A 200 that is not a decision is a contract break, not an empty decision, so it fails like a refusal."""
+    if not isinstance(payload, dict):
+        raise DecisionGatewayError(200, "decision response is not a JSON object")
+    answers = payload.get("answers")
+    usage = payload.get("usage")
+    model = payload.get("model")
+    if not isinstance(answers, dict) or not isinstance(usage, dict) or not isinstance(model, str) or not model:
+        raise DecisionGatewayError(200, f"decision response is missing model, answers, or usage: {sorted(payload)}")
+    input_tokens = usage.get("input_tokens")
+    if not isinstance(input_tokens, int):
+        raise DecisionGatewayError(200, "decision response usage has no input_tokens")
+    try:
+        parsed = {question_id: _parse_answer(answer) for question_id, answer in answers.items()}
+    except (ValueError, TypeError, KeyError) as error:
+        raise DecisionGatewayError(200, f"decision response has an unreadable answer: {error}") from error
+    return DecisionResult(model=model, answers=parsed, input_tokens=input_tokens, latency_ms=payload.get("latency_ms"))
 
 
-def _parse_answer(answer: dict[str, Any]) -> DecisionAnswer:
+def _parse_answer(answer: Any) -> DecisionAnswer:
+    if not isinstance(answer, dict):
+        raise ValueError(f"answer is not an object: {answer!r}")
     if DecisionQuestionType.NOUL.value in answer:
         return NoulAnswer(probability=answer["noul"])
     if DecisionQuestionType.CHOICE.value in answer:

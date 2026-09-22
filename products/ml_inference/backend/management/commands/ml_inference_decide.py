@@ -13,8 +13,9 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser: Any) -> None:
         parser.add_argument("--team-id", type=int, required=True)
-        parser.add_argument("--state", help="the state text; use --state-file for anything long")
-        parser.add_argument("--state-file", type=Path)
+        state = parser.add_mutually_exclusive_group(required=True)
+        state.add_argument("--state", help="the state text; use --state-file for anything long")
+        state.add_argument("--state-file", type=Path)
         parser.add_argument(
             "--questions-json",
             required=True,
@@ -28,10 +29,7 @@ class Command(BaseCommand):
         if not options["force"] and not api.decisions_enabled(team_id):
             raise CommandError(f"decisions are not enabled for team {team_id}; pass --force to ask anyway")
         state = self._state(options)
-        questions = {
-            question_id: DecisionQuestion(**question)
-            for question_id, question in json.loads(options["questions_json"]).items()
-        }
+        questions = self._questions(options["questions_json"])
         result = api.decide(DecisionRequest(team_id=team_id, state=state, questions=questions, model=options["model"]))
         self.stdout.write(
             json.dumps(
@@ -48,6 +46,21 @@ class Command(BaseCommand):
     def _state(self, options: dict[str, Any]) -> str:
         if options["state_file"] is not None:
             return Path(options["state_file"]).read_text()
-        if options["state"] is None:
-            raise CommandError("pass --state or --state-file")
         return str(options["state"])
+
+    def _questions(self, raw: str) -> dict[str, DecisionQuestion]:
+        try:
+            decoded = json.loads(raw)
+        except json.JSONDecodeError as error:
+            raise CommandError(f"--questions-json is not valid JSON: {error}") from error
+        if not isinstance(decoded, dict):
+            raise CommandError("--questions-json must be a JSON object keyed by question id")
+        questions: dict[str, DecisionQuestion] = {}
+        for question_id, question in decoded.items():
+            if not isinstance(question, dict):
+                raise CommandError(f"question {question_id!r} must be an object with type and instructions")
+            try:
+                questions[question_id] = DecisionQuestion(**question)
+            except (TypeError, ValueError) as error:
+                raise CommandError(f"question {question_id!r} is invalid: {error}") from error
+        return questions
