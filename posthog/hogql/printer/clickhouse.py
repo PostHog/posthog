@@ -126,6 +126,7 @@ INLINE_SENTINEL_LITERALS = frozenset(
         "Tuple",
         " ",
         "T",
+        "Z",
         '"',
     }
 )

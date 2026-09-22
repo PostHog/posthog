@@ -382,12 +382,21 @@ def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.E
         args=[ast.Call(name="accurateCast", args=[clone_expr(value), _sentinel("Dynamic")])],
         type=ast.StringType(nullable=False),
     )
+    # ClickHouse infers DateTime for ISO strings at ingest and toString drops the zone, so mark the
+    # rendered text as UTC; otherwise a later parse reads it as team-local wall clock.
     datetime_string = ast.Call(
-        name="replaceOne",
+        name="concat",
         args=[
-            ast.Call(name="toString", args=[clone_expr(value)], type=ast.StringType(nullable=False)),
-            _sentinel(" "),
-            _sentinel("T"),
+            ast.Call(
+                name="replaceOne",
+                args=[
+                    ast.Call(name="toString", args=[clone_expr(value)], type=ast.StringType(nullable=False)),
+                    _sentinel(" "),
+                    _sentinel("T"),
+                ],
+                type=ast.StringType(nullable=False),
+            ),
+            _sentinel("Z"),
         ],
         type=ast.StringType(nullable=False),
     )
