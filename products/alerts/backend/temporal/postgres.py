@@ -52,7 +52,7 @@ def _missing_privileges(granted: dict[str, tuple[bool, ...]]) -> list[str]:
 def check_postgres_connection() -> None:
     with execute_with_timeout(1000, database="default") as cursor:
         cursor.execute(PRIVILEGE_SQL, [list(required_tables())])
-        granted = {row[0]: (row[1], row[2]) for row in cursor.fetchall()}
+        granted = {row[0]: row[1:] for row in cursor.fetchall()}
     missing = _missing_privileges(granted)
     if missing:
         raise WriteReadinessError(f"The database role cannot write: {'; '.join(missing)}")
