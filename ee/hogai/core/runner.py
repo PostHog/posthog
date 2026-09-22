@@ -240,6 +240,7 @@ class BaseAgentRunner(ABC):
                     region,
                     flush_at=1,
                     before_send=ai_event_truncator,
+                    capture_trace_context=True,
                 )
 
             # Local deployment or hobby
