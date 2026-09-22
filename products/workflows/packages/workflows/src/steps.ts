@@ -88,6 +88,7 @@ export interface BranchSpec {
 interface StepBase {
     readonly name: string
     readonly id?: string
+    readonly description?: string
 }
 
 /**
@@ -103,8 +104,15 @@ export type Step =
     | Readonly<StepBase & { kind: 'email'; email: EmailMessage }>
     | Readonly<StepBase & { kind: 'branch'; branches: readonly [BranchSpec, ...BranchSpec[]] }>
 
-function withId<T extends object>(options: { readonly id?: string }, step: T): Readonly<T & { id?: string }> {
-    return Object.freeze(options.id === undefined ? step : { ...step, id: options.id })
+function withMeta<T extends object>(
+    options: { readonly id?: string; readonly description?: string },
+    step: T
+): Readonly<T & { id?: string; description?: string }> {
+    return Object.freeze({
+        ...step,
+        ...(options.id === undefined ? {} : { id: options.id }),
+        ...(options.description === undefined ? {} : { description: options.description }),
+    })
 }
 
 /**
@@ -118,6 +126,7 @@ function withId<T extends object>(options: { readonly id?: string }, step: T): R
  * @param options - The step's label, and an optional action id.
  * @param options.name - The label, which also gives the action id its slug.
  * @param options.id - Pins the action id, so a rename keeps the id a live run is on.
+ * @param options.description - What the step is for, shown on the step in the editor.
  * @returns A step value to place with `path`.
  * @throws {WorkflowError} At emit, `invalid_duration` for a value the type let through,
  * and `duration_over_unit_cap` for a wait PostHog would clamp.
@@ -129,8 +138,8 @@ function withId<T extends object>(options: { readonly id?: string }, step: T): R
  * const waitAnHourAndAHalf = delay('1.5h', { name: 'Wait ninety minutes' })
  * ```
  */
-export function delay(duration: Duration, options: { name: string; id?: string }): Step {
-    return withId(options, { kind: 'delay' as const, name: options.name, duration })
+export function delay(duration: Duration, options: { name: string; id?: string; description?: string }): Step {
+    return withMeta(options, { kind: 'delay' as const, name: options.name, duration })
 }
 
 /**
@@ -148,6 +157,7 @@ export function delay(duration: Duration, options: { name: string; id?: string }
  * @param options - The template to run and the inputs to give it.
  * @param options.name - The label, which also gives the action id its slug.
  * @param options.id - Pins the action id, so a rename keeps the id a live run is on.
+ * @param options.description - What the step is for, shown on the step in the editor.
  * @param options.templateId - A live template id, for example `template-slack`.
  * @param options.inputs - Input values keyed by the template's input schema. Pass a
  * `secret` as the value of a whole input.
@@ -168,10 +178,11 @@ export function delay(duration: Duration, options: { name: string; id?: string }
 export function fn(options: {
     name: string
     id?: string
+    description?: string
     templateId: string
     inputs: Readonly<Record<string, unknown>>
 }): Step {
-    return withId(options, {
+    return withMeta(options, {
         kind: 'function' as const,
         name: options.name,
         templateId: options.templateId,
@@ -189,6 +200,7 @@ export function fn(options: {
  * @param options - The request to send.
  * @param options.name - The label, which also gives the action id its slug.
  * @param options.id - Pins the action id, so a rename keeps the id a live run is on.
+ * @param options.description - What the step is for, shown on the step in the editor.
  * @param options.url - The endpoint to call.
  * @param options.method - The HTTP method. Defaults to `POST`.
  * @param options.body - The JSON body. Values may hold hog templating. Defaults to `{}`.
@@ -213,6 +225,7 @@ export function fn(options: {
 export function webhook(options: {
     name: string
     id?: string
+    description?: string
     url: string
     method?: 'POST' | 'PUT' | 'PATCH' | 'GET' | 'DELETE'
     body?: Record<string, unknown>
@@ -232,6 +245,7 @@ export function webhook(options: {
     }
     return fn({
         ...(options.id === undefined ? {} : { id: options.id }),
+        ...(options.description === undefined ? {} : { description: options.description }),
         name: options.name,
         templateId: 'template-webhook',
         inputs,
@@ -310,6 +324,7 @@ function htmlWrapDesign(html: string): EmailDesign {
  * @param options - The message to send.
  * @param options.name - The label, which also gives the action id its slug.
  * @param options.id - Pins the action id, so a rename keeps the id a live run is on.
+ * @param options.description - What the step is for, shown on the step in the editor.
  * @param options.from - Which verified senders to send from, and the address and name
  * to show. See `EmailSenderOptions`.
  * @param options.to - The recipient. Usually hog templating such as
@@ -343,6 +358,7 @@ function htmlWrapDesign(html: string): EmailDesign {
 export function email(options: {
     name: string
     id?: string
+    description?: string
     from: EmailSenderOptions
     to: string
     subject: string
@@ -368,7 +384,7 @@ export function email(options: {
         design: htmlWrapDesign(options.html),
         ...(options.preheader === undefined ? {} : { preheader: options.preheader }),
     }
-    return withId(options, { kind: 'email' as const, name: options.name, email: message })
+    return withMeta(options, { kind: 'email' as const, name: options.name, email: message })
 }
 
 /**
@@ -388,6 +404,7 @@ export function email(options: {
  * @param options - The branch's label and its arms.
  * @param options.name - The label, which also gives the action id its slug.
  * @param options.id - Pins the action id, so a rename keeps the id a live run is on.
+ * @param options.description - What the step is for, shown on the step in the editor.
  * @param options.branches - One arm or more, tried in order. `emit` derives each arm's
  * edge index from its position, so a condition and the edge that runs it always agree.
  * @returns A step value to place with `path`.
@@ -417,8 +434,13 @@ export function email(options: {
  * })
  * ```
  */
-export function branch(options: { name: string; id?: string; branches: readonly [BranchSpec, ...BranchSpec[]] }): Step {
-    return withId(options, { kind: 'branch' as const, name: options.name, branches: options.branches })
+export function branch(options: {
+    name: string
+    id?: string
+    description?: string
+    branches: readonly [BranchSpec, ...BranchSpec[]]
+}): Step {
+    return withMeta(options, { kind: 'branch' as const, name: options.name, branches: options.branches })
 }
 
 /**

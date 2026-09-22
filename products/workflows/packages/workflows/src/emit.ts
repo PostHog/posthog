@@ -435,6 +435,12 @@ function place(steps: readonly Step[], ids: Ids, inBranch: boolean): Placement[]
     })
 }
 
+// PostHog's action serializer defaults a missing description to an empty string, so a step
+// without one leaves the key out and a second push still finds nothing changed.
+function descriptionOf(step: Step): { description?: string } {
+    return step.description === undefined ? {} : { description: step.description }
+}
+
 // Returns the id of the path's first node, which the caller needs for the edge into it.
 function emitPath(placements: readonly Placement[], continuation: string, context: Context): string {
     placements.forEach((placement, position) => {
@@ -443,7 +449,13 @@ function emitPath(placements: readonly Placement[], continuation: string, contex
 
         if (step.kind === 'delay') {
             checkDuration(step.duration, step)
-            context.actions.push({ id, name: step.name, type: 'delay', config: { delay_duration: step.duration } })
+            context.actions.push({
+                id,
+                name: step.name,
+                ...descriptionOf(step),
+                type: 'delay',
+                config: { delay_duration: step.duration },
+            })
             context.edges.push({ from: id, to: next, type: 'continue' })
             return
         }
@@ -452,6 +464,7 @@ function emitPath(placements: readonly Placement[], continuation: string, contex
             context.actions.push({
                 id,
                 name: step.name,
+                ...descriptionOf(step),
                 type: 'function',
                 config: { template_id: step.templateId, inputs: resolveInputs(step, id, context) },
             })
@@ -466,6 +479,7 @@ function emitPath(placements: readonly Placement[], continuation: string, contex
             context.actions.push({
                 id,
                 name: step.name,
+                ...descriptionOf(step),
                 type: 'function_email',
                 config: { template_id: 'template-email', inputs: { email: { value: step.email } } },
             })
@@ -477,7 +491,13 @@ function emitPath(placements: readonly Placement[], continuation: string, contex
             name: spec.name,
             filters: { properties: [...spec.when] },
         }))
-        context.actions.push({ id, name: step.name, type: 'conditional_branch', config: { conditions } })
+        context.actions.push({
+            id,
+            name: step.name,
+            ...descriptionOf(step),
+            type: 'conditional_branch',
+            config: { conditions },
+        })
         // The fall-through edge is the no-match path out of the branch.
         context.edges.push({ from: id, to: next, type: 'continue' })
 

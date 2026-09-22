@@ -272,6 +272,32 @@ describe('@posthog/workflows', () => {
         assert.strictEqual(JSON.stringify(onboarding.emit({ env }).definition), before)
     })
 
+    // The PostHog editor stores a description on every step, so a workflow that goes
+    // through the editor and back has to keep one.
+    test('emits a step description onto the action', () => {
+        const described = workflow({
+            key: 'described',
+            name: 'Described',
+            on: onSchedule(),
+            steps: path(delay('1d', { name: 'Wait a day', description: 'Give them a day to look around.' })),
+            exit: { reason: 'Done' },
+        })
+
+        assert.deepStrictEqual(action(described.emit().definition.actions, 'wait_a_day'), {
+            id: 'wait_a_day',
+            name: 'Wait a day',
+            description: 'Give them a day to look around.',
+            type: 'delay',
+            config: { delay_duration: '1d' },
+        })
+    })
+
+    // PostHog defaults the field to an empty string, so leaving the key out keeps a pushed
+    // definition equal to the one PostHog stores.
+    test('leaves the description off a step that sets none', () => {
+        assert.ok(!('description' in action(onboarding.emit({ env }).definition.actions, 'wait_a_day')))
+    })
+
     test('makes one node per placement, so a reused step is not one shared node', () => {
         const { definition } = onboarding.emit({ env })
         const placements = definition.actions.filter((candidate) => candidate.name === 'Tell the CRM to follow up')

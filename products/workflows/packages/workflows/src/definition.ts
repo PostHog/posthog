@@ -148,6 +148,12 @@ export type EmailDesign = Readonly<Record<string, unknown>>
 interface ActionBase {
     readonly id: string
     readonly name: string
+    /**
+     * What the step is for, from the step's `description`.
+     *
+     * Absent when the step sets none, which PostHog stores as an empty string.
+     */
+    readonly description?: string
 }
 
 /**
