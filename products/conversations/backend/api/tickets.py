@@ -550,6 +550,12 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
         return super().update(instance, validated_data)
 
 
+class TicketUnreadCountResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField(
+        min_value=0, help_text="Unread messages across the non-resolved tickets the caller can see."
+    )
+
+
 TICKET_ID_PARAM = OpenApiParameter(
     name="id",
     type=OpenApiTypes.STR,
@@ -1295,6 +1301,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         return Response({"updated": len(changed), "ids": [str(t.id) for t, _ in changed]})
 
+    @extend_schema(
+        summary="Count unread tickets",
+        responses={200: TicketUnreadCountResponseSerializer},
+    )
     @action(detail=False, methods=["get"])
     def unread_count(self, request, *args, **kwargs):
         """
