@@ -122,6 +122,8 @@ REQUIRED WORKAROUNDS:
    ✅ SELECT p.id FROM persons p
       WHERE p.id IN (SELECT DISTINCT person_id FROM flag_evaluations WHERE flag_key = 'my-flag')
    A CROSS JOIN with the equality moved into WHERE also works.
+   The distinct_id join matches raw ids only, so it pairs a logged-out evaluation with the logged-out
+   events alone. Use the WHERE IN form when the question is about people rather than devices.
 
 NEVER use the person_id of events or flag_evaluations directly in JOIN ON constraints - always use one
 of the workarounds above.

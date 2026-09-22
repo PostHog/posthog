@@ -156,6 +156,18 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert "person_distinct_id_overrides" not in self._execute("flag_key").clickhouse
         assert "person_distinct_id_overrides" in self._execute("person_id").clickhouse
 
+    def test_asterisk_carries_the_corrected_person_and_no_second_person_column(self):
+        # Let the stored column into the expansion and it takes the slot `person_id` held, so the SQL
+        # editor's default query shifts every later column and shows two person ids that disagree.
+        merged_person_id = uuid.uuid4()
+        self._override(merged_person_id, version=1)
+
+        response = self._execute("*")
+        columns = response.columns or []
+
+        assert "flag_evaluation_person_id" not in columns
+        assert response.results[0][columns.index("person_id")] == merged_person_id
+
     def test_numeric_property_compares_as_a_number(self):
         # Drop this table from any of the property-type dispatches and the read stays a String, so
         # the comparison no longer answers the numeric question.

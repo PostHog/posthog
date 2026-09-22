@@ -24,23 +24,22 @@ FLAG_EVALUATIONS_CLICKHOUSE_TABLE = "flag_evaluations"
 
 # The expression the events table uses under the persons-on-events modes that apply overrides. This table
 # applies it for every team instead of following the mode, because the mode decides where person properties
-# come from and this table stores none. A team on a non-override mode therefore reads a merge-aware person
-# here, and from `events` the write-time person until the squash rewrites it.
-# The table and its `poe` subtable both read this name, but pydantic deep-copies mutable field defaults
-# per instantiation and the catalog is pickled per build, so they are separate objects that carry the
-# same expression rather than one shared field. The tests in test_flag_evaluations.py select `person_id`
-# and `person.id` together, so the two drifting apart fails there.
-_PERSON_ID = ExpressionField(
-    name="person_id",
-    expr=parse_expr(
-        # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
-        "if(not(empty(override.distinct_id)), override.person_id, flag_evaluation_person_id)",
-        start=None,
-    ),
-    isolate_scope=True,
-    description="The person the evaluation is attributed to, corrected for any later identify or merge, so "
-    "`uniq(person_id)` counts a merged person once.",
-)
+# come from and this table stores none. A team on `PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS` therefore
+# reads a merge-aware person here, and from `events` the write-time person until the squash rewrites it.
+# The table and its `poe` subtable each take their own copy. The tests in test_flag_evaluations.py select
+# `person_id` and `person.id` together, so the two drifting apart fails there.
+def _person_id() -> ExpressionField:
+    return ExpressionField(
+        name="person_id",
+        expr=parse_expr(
+            # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
+            "if(not(empty(override.distinct_id)), override.person_id, flag_evaluation_person_id)",
+            start=None,
+        ),
+        isolate_scope=True,
+        description="The person the evaluation is attributed to, corrected for any later identify or merge, so "
+        "`uniq(person_id)` counts a merged person once.",
+    )
 
 
 class FlagEvaluationsPersonSubTable(VirtualTable):
@@ -52,7 +51,7 @@ class FlagEvaluationsPersonSubTable(VirtualTable):
     """
 
     fields: dict[str, FieldOrTable] = {
-        "id": _PERSON_ID,
+        "id": _person_id(),
     }
 
     def to_printed_clickhouse(self, context):
@@ -118,7 +117,7 @@ class FlagEvaluationsTable(Table):
             resolver=PERSON_DISTINCT_ID_OVERRIDES,
             hidden=True,
         ),
-        "person_id": _PERSON_ID,
+        "person_id": _person_id(),
         "flag_key": StringDatabaseField(
             name="flag_key",
             nullable=False,
@@ -159,6 +158,11 @@ class FlagEvaluationsTable(Table):
         "$group_3": StringDatabaseField(name="$group_3", nullable=False, description="Key of the type-3 group."),
         "$group_4": StringDatabaseField(name="$group_4", nullable=False, description="Key of the type-4 group."),
     }
+
+    def avoid_asterisk_fields(self) -> list[str]:
+        # The stored person is a filtering escape hatch, not a second person column in `SELECT *`. Only the
+        # asterisk reads this list, so the column stays in the schema browser and in `information_schema`.
+        return ["flag_evaluation_person_id"]
 
     def to_printed_clickhouse(self, context):
         return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
