@@ -1,0 +1,23 @@
+# The proxy in front of vLLM on a decision instance: public certificate through ACME, the per-instance bearer on every
+# request, and only the decision endpoint, health and metrics exposed. vLLM itself binds loopback (see bin/serve.sh).
+#
+# Environment (from /etc/kev-vllm/env): INSTANCE_HOST is the instance's DNS name, ACME_EMAIL the certificate contact,
+# KEV_BEARER the per-instance bearer. With INSTANCE_HOST=localhost:8443 Caddy issues a locally trusted certificate
+# instead of calling ACME, which is how the file is tested.
+{
+	email {$ACME_EMAIL}
+}
+
+{$INSTANCE_HOST} {
+	@unauthorized {
+		not header Authorization "Bearer {$KEV_BEARER}"
+	}
+	@served path /pooling /health /metrics
+
+	# A route keeps the written order; Caddy's default order would put the 404 before the proxy.
+	route {
+		respond @unauthorized 401
+		reverse_proxy @served 127.0.0.1:8000
+		respond 404
+	}
+}

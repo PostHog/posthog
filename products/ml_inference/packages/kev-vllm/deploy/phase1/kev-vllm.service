@@ -1,0 +1,20 @@
+[Unit]
+Description=Kev decision model on vLLM
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/kev-vllm/env
+ExecStartPre=-/usr/bin/docker rm -f kev-vllm
+ExecStart=/usr/bin/docker run --rm --name kev-vllm --gpus all --network host --ipc host \
+    --env PORT=8000 --env KEV_DATE_FACTS=${KEV_DATE_FACTS} \
+    --volume ${MODEL_DIR}:/models/kev-4b:ro \
+    ${IMAGE}
+ExecStop=/usr/bin/docker stop kev-vllm
+Restart=always
+RestartSec=10
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target
