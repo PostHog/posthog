@@ -13,6 +13,7 @@ from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
 from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
+from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models import Team
 from posthog.models.integration import Integration
 from posthog.redis import get_client
@@ -672,6 +673,37 @@ class TestScoutSlackDelivery(BaseTest):
         assert fake_client.chat_postMessage.call_count == 2
         reply = fake_client.chat_postMessage.call_args_list[1].kwargs
         assert reply["thread_ts"] == "1785418710.000400"
+
+    @parameterized.expand(
+        [
+            ("bot_ready", REQUIRED_SLACK_SCOPES, "mention *@PostHog*"),
+            ("bot_not_ready", frozenset({"chat:write"}), "Set up the @PostHog bot"),
+        ]
+    )
+    def test_followup_invite_matches_install_readiness(
+        self, _name: str, scopes: frozenset[str], expected_fragment: str
+    ) -> None:
+        emission = self._make_emission()
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.SLACK,
+            config={"scope": ",".join(sorted(scopes))},
+        )
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000600"}
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            post_scout_emission_to_slack(
+                emission,
+                delivery_id=str(emission.id),
+                integration_id=integration.id,
+                channel="CSCOUTS|#scout-findings",
+            )
+
+        reply = fake_client.chat_postMessage.call_args_list[1].kwargs
+        assert expected_fragment in reply["text"]
+        assert expected_fragment in reply["blocks"][0]["elements"][0]["text"]
 
     def test_reply_transport_failure_does_not_fail_delivery(self) -> None:
         # The parent message already landed, so a failing follow-up reply — even a non-SlackApiError

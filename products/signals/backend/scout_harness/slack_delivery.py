@@ -15,6 +15,7 @@ from slack_sdk.web import SlackResponse, WebClient
 
 from posthog.dataclasses import frozen
 from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
+from posthog.helpers.slack_subscription_explore import build_explore_hint_text
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.redis import get_client
 
@@ -80,8 +81,9 @@ DELIVERABLE_REPORT_STATUSES = frozenset((SignalReport.Status.READY, SignalReport
 # way.
 MAX_SLACK_NOTE_SNAPSHOT_LEN = 6000
 
-# Posted as an in-thread reply under every scout Slack message, inviting @PostHog follow-ups.
-_SCOUT_SLACK_REPLY_TEXT = "💬 If you have questions, reply in this thread and mention *`@PostHog`*!"
+# Its own campaign rather than the subscription one the shared hint was written for, so a bot
+# install that starts from a scout report is attributable to scouts.
+_SCOUT_EXPLORE_UTM_TAGS = "utm_source=posthog&utm_campaign=scout_report&utm_medium=slack"
 
 
 @dataclass(frozen=True)
@@ -154,29 +156,38 @@ def _post_scout_slack_reply(
     channel_id: str,
     thread_ts: object,
     scout_team_id: int,
-    integration_team_id: int,
+    integration: Integration,
 ) -> None:
     """Invite @PostHog follow-ups when the Slack connection uses the scout's environment.
+
+    The invite is the shared report hint, so an install that lacks the scopes the bot needs is
+    offered the setup link instead of a mention nothing would answer.
 
     Best-effort and non-blocking: the scout message itself has already been delivered, so a failed
     or missing follow-up never fails the delivery (and so never re-posts the parent on retry).
     """
-    if integration_team_id != scout_team_id:
+    if integration.team_id != scout_team_id:
         logger.info(
             "scout_slack_followup_reply_skipped_environment_mismatch",
             scout_team_id=scout_team_id,
-            integration_team_id=integration_team_id,
+            integration_team_id=integration.team_id,
             channel=channel_id,
         )
         return
     if not isinstance(thread_ts, str) or not thread_ts:
         return
+    # Passed as enabled rather than read from the organization, unlike the subscription callers.
+    # An organization receives a scout report only after it approves AI data processing, so the
+    # report this reply hangs under is already the nudge that gate exists to withhold.
+    hint = build_explore_hint_text(integration, utm_tags=_SCOUT_EXPLORE_UTM_TAGS, ai_enabled=True)
+    if hint is None:
+        return
     try:
         client.chat_postMessage(  # type: ignore[attr-defined]
             channel=channel_id,
             thread_ts=thread_ts,
-            blocks=[{"type": "context", "elements": [{"type": "mrkdwn", "text": _SCOUT_SLACK_REPLY_TEXT}]}],
-            text=_SCOUT_SLACK_REPLY_TEXT,
+            blocks=[{"type": "context", "elements": [{"type": "mrkdwn", "text": hint}]}],
+            text=hint,
             unfurl_links=False,
             unfurl_media=False,
         )
@@ -321,7 +332,7 @@ def post_scout_emission_to_slack(
         channel_id=channel_id,
         thread_ts=response.get("ts"),
         scout_team_id=emission.team_id,
-        integration_team_id=integration.team_id,
+        integration=integration,
     )
 
 
@@ -773,5 +784,5 @@ def post_scout_report_to_slack(
         channel_id=channel_id,
         thread_ts=thread_ts,
         scout_team_id=run.team_id,
-        integration_team_id=integration.team_id,
+        integration=integration,
     )
