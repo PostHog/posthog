@@ -30294,7 +30294,10 @@ export namespace Schemas {
        * * `choice` - Multiple choice
        * * `score` - Rating scale */
       type: DecisionQuestionTypeEnum;
-      /** The question to ask about the state, phrased for the model. */
+      /**
+         * The question to ask about the state, phrased for the model.
+         * @maxLength 2000
+         */
       instructions: string;
       /** For a multiple choice question, the options keyed by name. For a rating question, the scale labels in order from lowest to highest, at least two. Omitted for a yes/no question. */
       criteria?: DecisionQuestionCriteria;
@@ -30306,11 +30309,17 @@ export namespace Schemas {
     export type DecideRequestQuestions = {[key: string]: DecisionQuestion};
 
     export interface DecideRequest {
-      /** The text the questions are about, for example a support ticket or a session summary. */
+      /**
+         * The text the questions are about, for example a support ticket or a session summary.
+         * @maxLength 65536
+         */
       state: string;
       /** The questions to ask, keyed by an id of your choice, at most 32 per request. Answers come back under the same ids. */
       questions: DecideRequestQuestions;
-      /** The decision model to ask, as a gateway model id. */
+      /**
+         * The decision model to ask, as a gateway model id.
+         * @maxLength 200
+         */
       model?: string;
     }
 
