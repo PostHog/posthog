@@ -1183,6 +1183,54 @@ const experimentSavedMetricsRetrieve = (): ToolBase<
     },
 })
 
+const ExperimentSetupContextSchema = () => {
+    const ExperimentsSetupContextCreateBody = orvalSchemas.ExperimentsSetupContextCreateBody()
+    return ExperimentsSetupContextCreateBody
+}
+
+const experimentSetupContext = (): ToolBase<
+    ReturnType<typeof ExperimentSetupContextSchema>,
+    WithInformationalResponse<Schemas.ExperimentSetupContextResponse>
+> => ({
+    name: 'experiment-setup-context',
+    schema: ExperimentSetupContextSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentSetupContextSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.target_event !== undefined) {
+            body['target_event'] = params.target_event
+        }
+        if (params.target_url_contains !== undefined) {
+            body['target_url_contains'] = params.target_url_contains
+        }
+        if (params.target_properties !== undefined) {
+            body['target_properties'] = params.target_properties
+        }
+        if (params.metric_event !== undefined) {
+            body['metric_event'] = params.metric_event
+        }
+        if (params.metric_properties !== undefined) {
+            body['metric_properties'] = params.metric_properties
+        }
+        if (params.previous_experiments_limit !== undefined) {
+            body['previous_experiments_limit'] = params.previous_experiments_limit
+        }
+        if (params.shared_metrics_limit !== undefined) {
+            body['shared_metrics_limit'] = params.shared_metrics_limit
+        }
+        const result = await context.api.request<Schemas.ExperimentSetupContextResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/setup_context/`,
+            body,
+        })
+        return withInformationalResponse(
+            result,
+            'experiment-setup-context',
+            'Use it only as facts about this project when configuring a new experiment.'
+        )
+    },
+})
+
 const ExperimentShipVariantSchema = () => {
     const ExperimentsShipVariantCreateBody = orvalSchemas.ExperimentsShipVariantCreateBody()
     const ExperimentsShipVariantCreateParams = orvalSchemas.ExperimentsShipVariantCreateParams()
@@ -1572,6 +1620,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-saved-metrics-list': experimentSavedMetricsList,
     'experiment-saved-metrics-partial-update': experimentSavedMetricsPartialUpdate,
     'experiment-saved-metrics-retrieve': experimentSavedMetricsRetrieve,
+    'experiment-setup-context': experimentSetupContext,
     'experiment-ship-variant': experimentShipVariant,
     'experiment-stats': experimentStats,
     'experiment-timeseries-results': experimentTimeseriesResults,

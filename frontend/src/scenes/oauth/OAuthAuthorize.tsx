@@ -311,10 +311,12 @@ export const OAuthAuthorize = (): JSX.Element => {
                                 </div>
                             )}
 
-                            {scopesWereDefaulted && isMcpResource && (
+                            {scopesWereDefaulted && (
                                 <LemonBanner type="info">
-                                    <strong>No permissions requested.</strong> This application didn't request specific
-                                    permissions. Showing all permissions the PostHog MCP server supports.
+                                    <strong>No permissions requested.</strong>{' '}
+                                    {isMcpResource
+                                        ? "This application didn't request specific permissions. Showing all permissions the PostHog MCP server supports."
+                                        : "This application didn't request specific permissions, so everything it can access is selected below. Change anything you don't want to grant."}
                                 </LemonBanner>
                             )}
 

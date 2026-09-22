@@ -1646,6 +1646,7 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             "expires_at",
             "last_run_at",
             "last_outcome",
+            "dispatched_at",
             "consecutive_errors",
             "created_at",
             "updated_at",
@@ -1678,6 +1679,14 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             "expires_at": {"help_text": "Horizon after which the check retires without running again."},
             "last_run_at": {"help_text": "When the check last ran; null before its first run."},
             "last_outcome": {"help_text": "Verdict of the most recent run."},
+            "dispatched_at": {
+                "help_text": (
+                    "When the `agent` check's scout run started, cleared as soon as a verdict is recorded. "
+                    "A non-null value is what tells a reader the check is running rather than waiting, "
+                    "because dispatch also pushes `next_run_at` out to the result window. "
+                    "Always null on a `metric_threshold` check, which is measured in the tick that collects it."
+                )
+            },
             "consecutive_errors": {"help_text": "Runs that could not be measured since the last clean one."},
         }
 

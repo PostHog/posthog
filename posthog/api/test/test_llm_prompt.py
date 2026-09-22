@@ -1461,33 +1461,39 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
         assert results[0]["latest_version"] == 2
         assert results[0]["prompt"] == "Prompt content"
 
+    @override_settings(TEST=False)
+    @patch("posthog.api.llm_prompt.capture_internal")
     @patch("posthog.api.llm_prompt.report_team_action")
-    def test_list_with_label_reports_one_fetch_per_returned_prompt(self, mock_report: Any) -> None:
+    def test_list_with_label_reports_one_fetch_per_request(self, mock_report: Any, mock_capture: Any) -> None:
         self.create_prompt_version(name="prompt-a", version=1, is_latest=False)
         self.create_prompt_version(name="prompt-a", version=2)
         self.create_prompt_version(name="prompt-b", version=1)
         assert self._set_label("prompt-a", "production", 1).status_code == status.HTTP_201_CREATED
         assert self._set_label("prompt-b", "production", 1).status_code == status.HTTP_201_CREATED
         mock_report.reset_mock()
+        mock_capture.reset_mock()
 
         response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?label=production")
 
         assert response.status_code == status.HTTP_200_OK
+        # One event per request, never one per prompt: per-prompt events bill a page
+        # of N prompts as N events into the calling team's project.
+        expected_properties = {"prompt_fetch_path": "list", "prompt_label": "production", "prompt_count": 2}
         fetch_properties = [
             call.args[2] for call in mock_report.call_args_list if call.args[1] == "llma prompt fetched"
         ]
-        assert sorted(
-            (p["prompt_name"], p["prompt_version"], p["prompt_label"], p["prompt_is_latest"], p["prompt_fetch_path"])
-            for p in fetch_properties
-        ) == [
-            ("prompt-a", 1, "production", False, "list"),
-            ("prompt-b", 1, "production", True, "list"),
-        ]
+        assert fetch_properties == [expected_properties]
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.kwargs["event_name"] == "$llm_prompt_fetched"
+        assert mock_capture.call_args.kwargs["distinct_id"] == str(self.team.uuid)
+        assert mock_capture.call_args.kwargs["properties"] == expected_properties
 
         # The unlabeled list backs the prompts UI page and must not count as fetches.
         mock_report.reset_mock()
+        mock_capture.reset_mock()
         assert self.client.get(f"/api/environments/{self.team.id}/llm_prompts/").status_code == status.HTTP_200_OK
         assert not any(call.args[1] == "llma prompt fetched" for call in mock_report.call_args_list)
+        mock_capture.assert_not_called()
 
     def test_archive_prompt_deletes_its_labels(self):
         self.create_prompt_version(version=1)

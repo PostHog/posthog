@@ -1182,6 +1182,10 @@ export const signalsScoutEditReportBodySuggestedPromptsItemMax = 200
 
 export const signalsScoutEditReportBodySuggestedPromptsMax = 3
 
+export const signalsScoutEditReportBodyLinksItemReasonMax = 500
+
+export const signalsScoutEditReportBodyLinksMax = 10
+
 export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
     .object({
         report_id: zod.string().describe('Id of the report to edit (must belong to this project).'),
@@ -1428,6 +1432,34 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report."
+            ),
+        links: zod
+            .array(
+                zod
+                    .object({
+                        kind: zod
+                            .enum(['depends_on', 'part_of', 'follow_up_of', 'duplicate_of', 'recurrence_of'])
+                            .describe(
+                                '\* `depends_on` - Depends on\n\* `part_of` - Part of\n\* `follow_up_of` - Follow-up of\n\* `duplicate_of` - Duplicate of\n\* `recurrence_of` - Recurrence of'
+                            )
+                            .describe(
+                                "How the edited report relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.\n\n\* `depends_on` - Depends on\n\* `part_of` - Part of\n\* `follow_up_of` - Follow-up of\n\* `duplicate_of` - Duplicate of\n\* `recurrence_of` - Recurrence of"
+                            ),
+                        report_id: zod
+                            .string()
+                            .describe('Id of the report to link to. Must be another report in this project.'),
+                        reason: zod
+                            .string()
+                            .max(signalsScoutEditReportBodyLinksItemReasonMax)
+                            .optional()
+                            .describe('Optional one-line note on why the reports are linked this way.'),
+                    })
+                    .describe('One typed, directed link to write on the report being edited.')
+            )
+            .max(signalsScoutEditReportBodyLinksMax)
+            .optional()
+            .describe(
+                "Typed, directed links from this report to others, recording how the work relates. Use `depends_on` when you split one finding into a stack and the second report's fix cannot land until the first one's does, so the order is recorded rather than left to a reader of the diffs. Additive: links join what the report already has rather than replacing them, and only this report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project."
             ),
         supersedes_implementation: zod
             .boolean()
@@ -1783,7 +1815,8 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
             .number()
             .min(signalsScoutEmitSignalBodyConfidenceMin)
             .max(signalsScoutEmitSignalBodyConfidenceMax)
-            .describe("Agent's confidence the finding is real in [0, 1]. Persisted in `extra`."),
+            .nullish()
+            .describe('Deprecated and ignored. Nothing reads it; omit it. Still range-checked when supplied.'),
         evidence: zod
             .array(
                 zod
