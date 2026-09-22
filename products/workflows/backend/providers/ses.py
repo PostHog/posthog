@@ -28,7 +28,25 @@ logger = logging.getLogger(__name__)
 
 # DELIVERY_COMPLAINT is the complaint denominator rather than SEND, because AWS defines it as
 # deliveries excluding recipients at ISPs it has no feedback-loop agreement with.
-ISP_METRICS: tuple[str, ...] = ("SEND", "DELIVERY", "PERMANENT_BOUNCE", "COMPLAINT", "DELIVERY_COMPLAINT")
+# TRANSIENT_BOUNCE is queried because without it a provider that defers rather than rejects reads
+# as a low delivery rate with no bounces, and nothing accounts for the difference.
+ISP_METRICS: tuple[str, ...] = (
+    "SEND",
+    "DELIVERY",
+    "PERMANENT_BOUNCE",
+    "TRANSIENT_BOUNCE",
+    "COMPLAINT",
+    "DELIVERY_COMPLAINT",
+)
+
+# Subject for the identity-wide queries, which carry no ISP dimension. They give the denominator
+# the per-provider rows are subtracted from.
+ISP_IDENTITY_TOTAL = "__identity_total__"
+
+# Reported provider name for that subtraction. SES has a catch-all bucket for recipients it cannot
+# attribute, and rejects its name ("Unknown ISP") as a dimension value with BadRequestException, so
+# the only way to show that volume is to derive it.
+ISP_OTHER = "__other__"
 
 # SES caps a BatchGetMetricData request at ten queries.
 METRIC_QUERY_BATCH_SIZE = 10
@@ -48,14 +66,6 @@ METRIC_QUERY_BUDGET_SECONDS = 20
 
 
 @frozen
-class IspDailyPoint:
-    date: str
-    emails_sent: int
-    delivery_rate: float
-    bounce_rate: float
-
-
-@frozen
 class IspSendingMetrics:
     isp: str
     emails_sent: int
@@ -64,11 +74,14 @@ class IspSendingMetrics:
     # reads as a healthy provider. Unknown is reported as unknown rather than as a number.
     delivery_rate: float | None
     bounce_rate: float | None
+    transient_bounce_rate: float | None
     # Also None when the provider runs no feedback loop, or when nothing was delivered to measure
     # complaints against: both are "no rate exists", as against "we could not load it".
     complaint_rate: float | None
-    # Oldest bucket first. Buckets SES returned nothing for are absent rather than zero-filled.
-    daily: tuple[IspDailyPoint, ...]
+    # The deliveries complaint_rate divides by, which is far smaller than emails_sent. A caller
+    # judging whether the rate rests on enough volume has to weigh it against this, not against
+    # what was sent.
+    complaint_base: int
     # Rates whose metric AWS did not return, so the reader can be told the number is missing rather
     # than shown one. A null rate that is not listed here has no value to state at all.
     unavailable: tuple[str, ...] = ()
@@ -91,6 +104,14 @@ class IspQueryPlan:
 
 
 @frozen
+class IspBatchAnswer:
+    """What one batch produced: the responses SES returned, and the subjects it refused outright."""
+
+    responses: tuple[Mapping[str, Any], ...]
+    rejected: frozenset[IspMetric]
+
+
+@frozen
 class IspMetricSeries:
     """Daily counts per provider and metric, and the subjects SES returned no answer for."""
 
@@ -109,7 +130,7 @@ def _build_isp_queries(domains: Sequence[str], isps: Sequence[str], start: datet
     queries: list[dict[str, Any]] = []
     subjects: dict[str, IspMetric] = {}
     for domain in domains:
-        for isp in isps:
+        for isp in (*isps, ISP_IDENTITY_TOTAL):
             for metric in ISP_METRICS:
                 query_id = f"q{len(queries)}"
                 subjects[query_id] = IspMetric(isp=isp, metric=metric)
@@ -118,7 +139,11 @@ def _build_isp_queries(domains: Sequence[str], isps: Sequence[str], start: datet
                         "Id": query_id,
                         "Namespace": "VDM",
                         "Metric": metric,
-                        "Dimensions": {"EMAIL_IDENTITY": domain, "ISP": isp},
+                        "Dimensions": (
+                            {"EMAIL_IDENTITY": domain}
+                            if isp == ISP_IDENTITY_TOTAL
+                            else {"EMAIL_IDENTITY": domain, "ISP": isp}
+                        ),
                         "StartDate": start,
                         "EndDate": end,
                     }
@@ -141,8 +166,10 @@ def _isp_rows_from_series(isps: Sequence[str], series: IspMetricSeries) -> list[
             continue
         delivered_by_date = buckets.get(IspMetric(isp=isp, metric="DELIVERY"), {})
         bounced_by_date = buckets.get(IspMetric(isp=isp, metric="PERMANENT_BOUNCE"), {})
+        deferred_by_date = buckets.get(IspMetric(isp=isp, metric="TRANSIENT_BOUNCE"), {})
         delivery_failed = IspMetric(isp=isp, metric="DELIVERY") in failed
         bounce_failed = IspMetric(isp=isp, metric="PERMANENT_BOUNCE") in failed
+        transient_failed = IspMetric(isp=isp, metric="TRANSIENT_BOUNCE") in failed
         complaint_failed = (
             IspMetric(isp=isp, metric="COMPLAINT") in failed
             or IspMetric(isp=isp, metric="DELIVERY_COMPLAINT") in failed
@@ -156,6 +183,9 @@ def _isp_rows_from_series(isps: Sequence[str], series: IspMetricSeries) -> list[
                 # denominator at the boundary. Clamp, as the project-wide rates do.
                 delivery_rate=None if delivery_failed else min(1.0, sum(delivered_by_date.values()) / emails_sent),
                 bounce_rate=None if bounce_failed else min(1.0, sum(bounced_by_date.values()) / emails_sent),
+                transient_bounce_rate=(
+                    None if transient_failed else min(1.0, sum(deferred_by_date.values()) / emails_sent)
+                ),
                 complaint_rate=(
                     None
                     if complaint_failed or not complaint_base
@@ -163,36 +193,75 @@ def _isp_rows_from_series(isps: Sequence[str], series: IspMetricSeries) -> list[
                         1.0, sum(buckets.get(IspMetric(isp=isp, metric="COMPLAINT"), {}).values()) / complaint_base
                     )
                 ),
-                # The trend is a delivery-rate series, so a failed DELIVERY query leaves nothing
-                # to draw. An empty series renders no line rather than a flat one at zero.
+                complaint_base=0 if complaint_failed else complaint_base,
                 unavailable=tuple(
                     name
                     for name, missing in (
                         ("delivery", delivery_failed),
                         ("bounce", bounce_failed),
+                        ("transient_bounce", transient_failed),
                         ("complaint", complaint_failed),
                     )
                     if missing
                 ),
-                daily=()
-                if delivery_failed
-                else tuple(
-                    IspDailyPoint(
-                        date=date,
-                        emails_sent=sent,
-                        delivery_rate=min(1.0, delivered_by_date.get(date, 0) / sent),
-                        bounce_rate=0.0 if bounce_failed else min(1.0, bounced_by_date.get(date, 0) / sent),
-                    )
-                    # A rate over zero sends is undefined, and zero-filling draws a cliff in
-                    # the trend that never happened.
-                    for date, sent in sorted(sent_by_date.items())
-                    if sent > 0
-                ),
             )
         )
 
+    other = _other_provider_row(isps, series)
+    if other is not None:
+        rows.append(other)
+
     rows.sort(key=lambda row: -row.emails_sent)
     return rows
+
+
+def _other_provider_row(isps: Sequence[str], series: IspMetricSeries) -> IspSendingMetrics | None:
+    """
+    The volume a domain sent that no named provider accounts for.
+
+    Named providers rarely cover everything a domain sends. The rest lands in a bucket SES will not
+    let us query by name, so the row is the identity-wide total minus the named providers. Without
+    it the table drops that volume without saying so, and on some domains it is most of the mail.
+
+    Returns None when the subtraction would be unsound. A named provider whose SEND query failed
+    has no counts to subtract, so its volume would surface here as unattributed.
+    """
+    if any(
+        IspMetric(isp=isp, metric=metric) in series.failed
+        for metric in ISP_METRICS
+        for isp in (*isps, ISP_IDENTITY_TOTAL)
+    ):
+        return None
+
+    def remainder(metric: str) -> dict[str, int]:
+        left = dict(series.buckets.get(IspMetric(isp=ISP_IDENTITY_TOTAL, metric=metric), {}))
+        for isp in isps:
+            for date, value in series.buckets.get(IspMetric(isp=isp, metric=metric), {}).items():
+                left[date] = left.get(date, 0) - value
+        # A negative remainder means the named rows already cover the day, so there is nothing left
+        # to report. Feedback arriving late can also push one past its own total.
+        return {date: value for date, value in left.items() if value > 0}
+
+    sent_by_date = remainder("SEND")
+    emails_sent = sum(sent_by_date.values())
+    if emails_sent == 0:
+        return None
+
+    delivered_by_date = remainder("DELIVERY")
+    bounced_by_date = remainder("PERMANENT_BOUNCE")
+    deferred_by_date = remainder("TRANSIENT_BOUNCE")
+    complaint_base = sum(remainder("DELIVERY_COMPLAINT").values())
+    return IspSendingMetrics(
+        isp=ISP_OTHER,
+        emails_sent=emails_sent,
+        delivery_rate=min(1.0, sum(delivered_by_date.values()) / emails_sent),
+        bounce_rate=min(1.0, sum(bounced_by_date.values()) / emails_sent),
+        transient_bounce_rate=min(1.0, sum(deferred_by_date.values()) / emails_sent),
+        complaint_rate=(
+            None if not complaint_base else min(1.0, sum(remainder("COMPLAINT").values()) / complaint_base)
+        ),
+        complaint_base=complaint_base,
+    )
 
 
 class SESProvider:
@@ -764,30 +833,87 @@ class SESProvider:
                 raise TimeoutError(
                     f"SES metric queries exceeded {METRIC_QUERY_BUDGET_SECONDS}s for {domain_count} domain(s)"
                 )
-            response = self.ses_v2_metrics_client.batch_get_metric_data(Queries=list(batch))  # type: ignore[arg-type]
-            for result in response.get("Results", []):
-                buckets = buckets_by_subject[plan.subjects[result["Id"]]]
-                # AWS documents Values as "cumulative / sum" without saying which, so this reads
-                # them as per-bucket counts. If they are running totals, summed deliveries overshoot
-                # sends and every provider pins to a 100% delivery rate against the clamp.
-                for timestamp, value in zip(result.get("Timestamps", []), result.get("Values", []), strict=False):
-                    buckets[timestamp.date().isoformat()] += value
-            for error in response.get("Errors", []):
-                subject = plan.subjects.get(error.get("Id", ""))
-                if subject is not None:
-                    failed.add(subject)
-                # A per-query failure leaves that metric at zero, which understates a rate rather
-                # than breaking the panel. Log it so a systematic failure stays visible. A
-                # malformed ISP name is different: SES fails the whole request, which the caller
-                # turns into an absent breakdown.
-                # "message" is reserved: LogRecord already has one, and passing it in `extra`
-                # raises KeyError inside makeRecord, turning a logged warning into a lost breakdown.
-                logger.warning(
-                    "SES metric query failed",
-                    extra={
-                        "query": subject,
-                        "code": error.get("Code"),
-                        "error_message": error.get("Message"),
-                    },
-                )
+            answer = self._answer_metric_batch(batch, plan, deadline)
+            failed.update(answer.rejected)
+            for response in answer.responses:
+                self._absorb_metric_response(response, plan, buckets_by_subject, failed)
         return IspMetricSeries(buckets=buckets_by_subject, failed=frozenset(failed))
+
+    def _answer_metric_batch(
+        self, batch: Sequence[dict[str, Any]], plan: IspQueryPlan, deadline: float
+    ) -> IspBatchAnswer:
+        """
+        Run one batch, reissuing it per provider if SES refuses the whole request.
+
+        SES validates dimension values per request, so one name it will not accept fails every
+        query sent alongside it. A batch carries several providers, and a subject is keyed by
+        provider and metric with no domain, so failing the batch would drop a provider SES does
+        accept from the whole breakdown rather than from this request. Reissuing keeps it, and
+        costs the extra calls only when a name is bad. Grouping by provider rather than by a fixed
+        count keeps each retry whole even when a batch boundary splits a provider.
+        """
+        try:
+            return IspBatchAnswer(
+                responses=(self.ses_v2_metrics_client.batch_get_metric_data(Queries=list(batch)),),  # type: ignore[arg-type]
+                rejected=frozenset(),
+            )
+        except ClientError as rejection:
+            if rejection.response.get("Error", {}).get("Code") != "BadRequestException":
+                raise
+
+        responses: list[Mapping[str, Any]] = []
+        rejected: set[IspMetric] = set()
+        by_provider: dict[str, list[dict[str, Any]]] = {}
+        for query in batch:
+            by_provider.setdefault(plan.subjects[query["Id"]].isp, []).append(query)
+        for group in by_provider.values():
+            if monotonic() + METRIC_CALL_WORST_CASE_SECONDS > deadline:
+                raise TimeoutError(
+                    f"SES metric queries exceeded {METRIC_QUERY_BUDGET_SECONDS}s splitting a rejected batch"
+                )
+            subjects = [plan.subjects[query["Id"]] for query in group]
+            try:
+                responses.append(self.ses_v2_metrics_client.batch_get_metric_data(Queries=list(group)))  # type: ignore[arg-type]
+            except ClientError as rejection:
+                if rejection.response.get("Error", {}).get("Code") != "BadRequestException":
+                    raise
+                rejected.update(subjects)
+                logger.warning(
+                    "SES rejected a metric query; dropping the provider",
+                    extra={"provider": subjects[0].isp},
+                )
+        return IspBatchAnswer(responses=tuple(responses), rejected=frozenset(rejected))
+
+    def _absorb_metric_response(
+        self,
+        response: Mapping[str, Any],
+        plan: IspQueryPlan,
+        buckets_by_subject: dict[IspMetric, dict[str, int]],
+        failed: set[IspMetric],
+    ) -> None:
+        """Fold one response into the running series, recording the queries it could not answer."""
+        for result in response.get("Results", []):
+            buckets = buckets_by_subject[plan.subjects[result["Id"]]]
+            # AWS documents Values as "cumulative / sum" without saying which, so this reads
+            # them as per-bucket counts. If they are running totals, summed deliveries overshoot
+            # sends and every provider pins to a 100% delivery rate against the clamp.
+            for timestamp, value in zip(result.get("Timestamps", []), result.get("Values", []), strict=False):
+                buckets[timestamp.date().isoformat()] += value
+        for error in response.get("Errors", []):
+            subject = plan.subjects.get(error.get("Id", ""))
+            if subject is not None:
+                failed.add(subject)
+            # A per-query failure leaves that metric at zero, which understates a rate rather
+            # than breaking the panel. Log it so a systematic failure stays visible. A malformed
+            # ISP name is different: SES rejects the request rather than the query, which
+            # _answer_metric_batch narrows down to the one provider it names.
+            # "message" is reserved: LogRecord already has one, and passing it in `extra`
+            # raises KeyError inside makeRecord, turning a logged warning into a lost breakdown.
+            logger.warning(
+                "SES metric query failed",
+                extra={
+                    "query": subject,
+                    "code": error.get("Code"),
+                    "error_message": error.get("Message"),
+                },
+            )

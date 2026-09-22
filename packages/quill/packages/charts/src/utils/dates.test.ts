@@ -322,6 +322,13 @@ describe('createXAxisTickCallback', () => {
         })
     })
 
+    it('infers daily labels across a daylight-saving transition', () => {
+        const labels = ['2026-03-08', '2026-03-09']
+        const callback = createXAxisTickCallback({ allDays: labels, timezone: 'America/New_York' })
+
+        expect(labels.map((label, index) => callback?.(label, index))).toEqual(['Mar 8', 'Mar 9'])
+    })
+
     describe('fallbacks', () => {
         it.each([
             { scenario: 'allDays is empty', allDays: [] as (string | number)[] },
@@ -355,6 +362,8 @@ describe('createTooltipDateFormatter', () => {
         // Week/month buckets span multiple days, so a weekday would mislead
         { interval: 'week' as const, label: '2026-06-01', expected: 'Jun 1, 2026' },
         { interval: 'month' as const, label: '2026-06-01', expected: 'Jun 2026' },
+        { interval: 'quarter' as const, label: '2026-06-01', expected: 'Q2 2026' },
+        { interval: 'year' as const, label: '2026-01-01', expected: '2026' },
     ])('formats a $interval bucket header', ({ interval, label, expected }) => {
         const format = createTooltipDateFormatter({ interval, timezone: 'UTC' })
         expect(format(label)).toBe(expected)
@@ -364,6 +373,13 @@ describe('createTooltipDateFormatter', () => {
         // 2026-06-07T02:00 UTC is still Saturday June 6 in US/Pacific
         const format = createTooltipDateFormatter({ interval: 'hour', timezone: 'US/Pacific' })
         expect(format('2026-06-07T02:00:00Z')).toBe('Sat, Jun 6, 19:00')
+    })
+
+    it('adds offsets to repeated local times during a DST fallback', () => {
+        const labels = ['2026-11-01T01:00:00-07:00', '2026-11-01T01:00:00-08:00']
+        const format = createTooltipDateFormatter({ interval: 'hour', timezone: 'US/Pacific', allDays: labels })
+
+        expect(labels.map(format)).toEqual(['Sun, Nov 1, 01:00 (-07:00)', 'Sun, Nov 1, 01:00 (-08:00)'])
     })
 
     it('passes non-date labels through unchanged', () => {

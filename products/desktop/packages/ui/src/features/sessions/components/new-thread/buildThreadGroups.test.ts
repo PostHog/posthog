@@ -69,6 +69,53 @@ describe("buildThreadGroups MCP detection", () => {
     expect(grouping.keepMounted).toEqual([0]);
   });
 
+  it("keeps an MCP tool standalone when only its result supplies metadata", () => {
+    const action = toolCallItem("action", undefined, {
+      title: "show_actions",
+      rawInput: {
+        actions: [
+          { kind: "open_space", label: "Open space", channel_id: "space-1" },
+        ],
+      },
+    });
+    resolveToolCall(action, {
+      toolCallId: "action",
+      status: "completed",
+      _meta: {
+        posthog: {
+          toolName: "mcp__posthog-code-tools__show_actions",
+          mcp: { server: "posthog-code-tools", tool: "show_actions" },
+        },
+      },
+    });
+
+    expect(isGroupableItem(action)).toBe(false);
+    const grouping = buildThreadGroups([action], {});
+    expect(grouping.rows[0].kind).toBe("item");
+    expect(grouping.keepMounted).toEqual([0]);
+  });
+
+  it("uses the nested PostHog action in a live group label", () => {
+    const item = toolCallItem("mcp-exec", undefined, {
+      title: "Execute PostHog command",
+      status: "in_progress",
+      details: {
+        kind: "tool",
+        name: "mcp_posthog_exec",
+        args: '{"command":"call feature-flag-get-all"}',
+      },
+    });
+    if (item.type === "session_update") {
+      item.turnContext.turnComplete = false;
+    }
+
+    const grouping = buildThreadGroups([item], {});
+    const row = grouping.rows[0];
+    expect(row.kind).toBe("tool_group");
+    if (row.kind !== "tool_group") return;
+    expect(row.summary.liveLabel).toBe("posthog - Get feature flags");
+  });
+
   it("folds non-MCP tool calls into a collapsed group", () => {
     const plain = toolCallItem("t1", {
       posthog: { toolName: "Bash" },

@@ -51,7 +51,7 @@ export interface ConfigVersionApi {
     name: string
     /** Server-assigned version identity, e.g. v3. */
     version: string
-    /** System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters. */
+    /** System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters. */
     prompt_text: string
     /** Gateway model id this version was authored against. */
     model: string
@@ -116,7 +116,7 @@ export interface RunRequestApi {
      */
     label: string
     /**
-     * System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters.
+     * System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters.
      * @maxLength 20000
      */
     prompt_text: string
@@ -149,7 +149,7 @@ export interface SaveRequestApi {
      */
     version?: string
     /**
-     * System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters.
+     * System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters.
      * @maxLength 20000
      */
     prompt_text: string
@@ -162,6 +162,39 @@ export interface SaveRequestApi {
     input_fields?: string[]
     /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. At most 20 fields. */
     output_fields: OutputFieldApi[]
+}
+
+export interface RescoreRequestApi {
+    /** Organization to re-score, from the $group_key of the wizard's $groupidentify event. */
+    organization_id: string
+}
+
+/**
+ * * `disabled` - disabled
+ * * `no_enrichment_record` - no_enrichment_record
+ * * `dispatch_backlog_full` - dispatch_backlog_full
+ * * `dispatch_failed` - dispatch_failed
+ */
+export type RescoreResponseReasonEnumApi =
+    (typeof RescoreResponseReasonEnumApi)[keyof typeof RescoreResponseReasonEnumApi]
+
+export const RescoreResponseReasonEnumApi = {
+    Disabled: 'disabled',
+    NoEnrichmentRecord: 'no_enrichment_record',
+    DispatchBacklogFull: 'dispatch_backlog_full',
+    DispatchFailed: 'dispatch_failed',
+} as const
+
+export interface RescoreResponseApi {
+    /** Whether the re-score workflow was dispatched. */
+    queued: boolean
+    /** Why nothing was dispatched. Null when queued.
+     *
+     * * `disabled` - disabled
+     * * `no_enrichment_record` - no_enrichment_record
+     * * `dispatch_backlog_full` - dispatch_backlog_full
+     * * `dispatch_failed` - dispatch_failed */
+    reason: RescoreResponseReasonEnumApi | null
 }
 
 export interface ProductPushCampaignApi {
@@ -428,6 +461,13 @@ export const SdkHealthReportHealthEnumApi = {
  * * `posthog-kmp` - posthog-kmp
  * * `posthog-dotnet` - posthog-dotnet
  * * `posthog-elixir` - posthog-elixir
+ * * `posthog-unity` - posthog-unity
+ * * `posthog-node-mcp` - posthog-node-mcp
+ * * `posthog-python-mcp` - posthog-python-mcp
+ * * `posthog-edge` - posthog-edge
+ * * `posthog-convex` - posthog-convex
+ * * `posthog-rails` - posthog-rails
+ * * `posthog-aspnetcore` - posthog-aspnetcore
  */
 export type LibEnumApi = (typeof LibEnumApi)[keyof typeof LibEnumApi]
 
@@ -447,6 +487,13 @@ export const LibEnumApi = {
     PosthogKmp: 'posthog-kmp',
     PosthogDotnet: 'posthog-dotnet',
     PosthogElixir: 'posthog-elixir',
+    PosthogUnity: 'posthog-unity',
+    PosthogNodeMcp: 'posthog-node-mcp',
+    PosthogPythonMcp: 'posthog-python-mcp',
+    PosthogEdge: 'posthog-edge',
+    PosthogConvex: 'posthog-convex',
+    PosthogRails: 'posthog-rails',
+    PosthogAspnetcore: 'posthog-aspnetcore',
 } as const
 
 /**
@@ -525,7 +572,14 @@ export interface SdkAssessmentApi {
      * * `posthog-react-native` - posthog-react-native
      * * `posthog-kmp` - posthog-kmp
      * * `posthog-dotnet` - posthog-dotnet
-     * * `posthog-elixir` - posthog-elixir */
+     * * `posthog-elixir` - posthog-elixir
+     * * `posthog-unity` - posthog-unity
+     * * `posthog-node-mcp` - posthog-node-mcp
+     * * `posthog-python-mcp` - posthog-python-mcp
+     * * `posthog-edge` - posthog-edge
+     * * `posthog-convex` - posthog-convex
+     * * `posthog-rails` - posthog-rails
+     * * `posthog-aspnetcore` - posthog-aspnetcore */
     lib: LibEnumApi
     /** Human-readable SDK name matching the SDK Health UI (e.g. 'Python', 'Node.js', 'Web', 'iOS'). */
     readable_name: string

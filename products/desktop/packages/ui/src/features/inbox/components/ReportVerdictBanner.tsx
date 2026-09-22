@@ -8,29 +8,34 @@ import {
 } from "@phosphor-icons/react";
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import {
+  resolveInboxReportDetailCache,
+  updateInboxReportCaches,
+} from "@posthog/core/inbox/inboxQuery";
+import {
   canCreateImplementationPr,
   canResolveReport,
 } from "@posthog/core/inbox/reportActions";
-import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
 import {
-  deriveReportVerdict,
-  type ReportVerdictTone,
-} from "@posthog/core/inbox/reportVerdict";
+  deriveReportImplementationState,
+  needsImplementationDecision,
+  REPORT_IMPLEMENTATION_LABELS,
+} from "@posthog/core/inbox/reportImplementation";
+import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
+import { deriveReportVerdict } from "@posthog/core/inbox/reportVerdict";
 import {
   Button,
-  cn,
   Field,
   FieldDescription,
   FieldLabel,
   Popover,
   PopoverContent,
   PopoverTrigger,
-  Spinner,
   Textarea,
 } from "@posthog/quill";
 import type { InboxReportActionSurface } from "@posthog/shared/analytics-events";
 import type { SignalReport, Task } from "@posthog/shared/types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { ReportVerdictCallout } from "@posthog/ui/features/inbox/components/ReportVerdictCallout";
 import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrReport";
 import { useDiscussReport } from "@posthog/ui/features/inbox/hooks/useDiscussReport";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
@@ -46,7 +51,8 @@ import {
 } from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
-import { useOpenTask } from "@posthog/ui/router/useOpenTask";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { openTaskInput, useOpenTask } from "@posthog/ui/router/useOpenTask";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
@@ -57,20 +63,53 @@ const isMac =
 // Same sizing as PrDecisionBlock: the decision is the page's one ask.
 const BIG_BUTTON = "h-9 gap-2 px-4 text-[14px]";
 
-const TONE_CLASS: Record<ReportVerdictTone, string> = {
-  decision: "border-(--amber-6) bg-(--amber-2)",
-  danger: "border-(--red-6) bg-(--red-2)",
-  progress: "border-(--gray-5) bg-(--gray-1)",
-  info: "border-(--gray-5) bg-(--gray-1)",
-};
-
 type ReportVerdictBannerVariant = "full" | "header-actions" | "triage-actions";
+
+const TYPING_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
+
+/**
+ * An open dialog owns the keyboard because its buttons are not typing targets
+ * and actions must not open underneath it.
+ */
+function isHotkeyBlocked(event: KeyboardEvent): boolean {
+  if (event.metaKey || event.ctrlKey || event.altKey) return true;
+  const target = event.target;
+  if (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || TYPING_TAGS.has(target.tagName))
+  ) {
+    return true;
+  }
+  return (
+    document.querySelector('[role="dialog"], [role="alertdialog"]') !== null
+  );
+}
+
+/**
+ * Bind one banner action to a window-level shortcut. Shortcuts use the same
+ * guards as their buttons, so pass `undefined` while the action is unavailable.
+ */
+function useActionHotkey(
+  key: string | undefined,
+  run: (event: KeyboardEvent) => void,
+): void {
+  useEffect(() => {
+    if (!key) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== key || isHotkeyBlocked(event)) return;
+      run(event);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [key, run]);
+}
 
 interface ReportVerdictBannerProps {
   report: SignalReport;
   variant?: ReportVerdictBannerVariant;
   prHotkey?: string;
   resolveHotkey?: string;
+  dismissHotkey?: string;
   /** Hide the full banner after the reader starts or resumes report work. */
   initialEngagementOnly?: boolean;
   /** Called after an action opens the report's conversation dock. */
@@ -90,6 +129,7 @@ export function ReportVerdictBanner({
   variant = "full",
   prHotkey,
   resolveHotkey,
+  dismissHotkey,
   initialEngagementOnly = false,
   onEngaged,
   surface = "detail_pane",
@@ -98,7 +138,8 @@ export function ReportVerdictBanner({
   const compact = variant === "header-actions";
   const triageActions = variant === "triage-actions";
   const buttonClass = BIG_BUTTON;
-  const { data: artefactsResp } = useInboxReportArtefacts(report.id);
+  const { data: artefactsResp, isLoading: artefactsLoading } =
+    useInboxReportArtefacts(report.id);
   const cloudRepository = extractRepoSelectionRepository(
     artefactsResp?.results,
   );
@@ -113,6 +154,18 @@ export function ReportVerdictBanner({
     isLoading: reportTasksLoading,
     isError: reportTasksFailed,
   } = useReportTasks(report.id, report.status);
+  const assignedTask = reportTasks?.find(
+    (entry) => entry.task.id === report.assignee?.task_id,
+  )?.task;
+  const implementationState = deriveReportImplementationState(
+    report,
+    assignedTask,
+    // A settled lookup that still has no assigned task means the task is gone:
+    // fetchReportTasks drops a row whose task returns 404. Treat that as a
+    // failed lookup, the same way the batch list does, so the banner shows the
+    // unavailable status instead of staying in "checking" forever.
+    reportTasksFailed || (!!reportTasks && !assignedTask),
+  );
   const continuableTask = findContinuableImplementationTask(reportTasks);
   const canCreatePr = canCreateImplementationPr(report, {
     hasLiveImplementationTask: continuableTask !== null,
@@ -181,17 +234,31 @@ export function ReportVerdictBanner({
     [queryClient, rememberStartedTask, report.id, setChatOpen, onEngaged],
   );
 
+  const handleImplementationStarted = useCallback(
+    (task: Task) => {
+      queryClient.setQueryData(taskDetailQuery(task.id).queryKey, task);
+      rememberStartedTask(report.id, task.id);
+      updateInboxReportCaches(queryClient, [
+        {
+          ...(resolveInboxReportDetailCache(queryClient, report.id) ?? report),
+          work_state: "working",
+          assignee: { kind: "task", task_id: task.id },
+        },
+      ]);
+      void queryClient.invalidateQueries({
+        queryKey: ["inbox", "report-tasks", report.id],
+      });
+    },
+    [queryClient, rememberStartedTask, report],
+  );
+
   const { createPrReport, isCreatingPr } = useCreatePrReport({
     reportId: report.id,
     reportTitle: report.title ?? null,
     cloudRepository,
     surface,
     triageId,
-    // The dock binds to the new task the moment it exists — and only then does
-    // the view advance. A failed create (offline, missing repo/integration/
-    // model, API error) never reaches here, so the report and its actions stay
-    // put instead of opening an empty dock or, in triage, navigating away.
-    onTaskCreated: handleTaskCreated,
+    onTaskCreated: handleImplementationStarted,
   });
   const { discussReport, isDiscussing } = useDiscussReport({
     report,
@@ -226,10 +293,30 @@ export function ReportVerdictBanner({
     });
     setPrFeedback("");
     setPrOpen(false);
-    // The view advances from onTaskCreated once the task exists, not here — a
-    // failed create leaves the report and its actions in place.
     void createPrReport(trimmed || undefined);
   }, [createPrReport, fireAction, prFeedback]);
+
+  const handleComposeImplementation = useCallback(() => {
+    if (artefactsLoading || awaitingChannel) return;
+    fireAction("implement");
+    openTaskInput({
+      initialPrompt: "Implement the recommended next step in this report.",
+      initialCloudRepository: cloudRepository,
+      channelId: taskChannelId ?? undefined,
+      reportAssociation: {
+        reportId: report.id,
+        title: report.title ?? "Untitled report",
+      },
+    });
+  }, [
+    artefactsLoading,
+    awaitingChannel,
+    cloudRepository,
+    fireAction,
+    report.id,
+    report.title,
+    taskChannelId,
+  ]);
 
   const handleOpenPr = useCallback(() => {
     if (!externalPrUrl) return;
@@ -291,28 +378,11 @@ export function ReportVerdictBanner({
     report.status === "suppressed" ||
     report.status === "deleted";
   const showActions = !isTerminalReport;
+  const shouldComposeImplementation =
+    variant === "full" && !hasExistingPr && canCreatePr;
 
-  // Keyboard actions use the same guards as their buttons so shortcuts cannot
-  // bypass loading, disabled, or duplicate-work states.
-  useEffect(() => {
-    if (!prHotkey) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      const matchesPr = event.key === prHotkey;
-      if (!matchesPr) return;
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-      const target = event.target;
-      if (
-        target instanceof HTMLElement &&
-        (target.isContentEditable ||
-          ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
-      ) {
-        return;
-      }
-      // An open dialog owns the keyboard because its buttons are not typing
-      // targets and actions must not open underneath it.
-      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) {
-        return;
-      }
+  const runPrHotkey = useCallback(
+    (event: KeyboardEvent) => {
       if (report.status !== "ready" || isCreatingPr) return;
       if (externalPrUrl) {
         event.preventDefault();
@@ -321,44 +391,30 @@ export function ReportVerdictBanner({
         event.preventDefault();
         setPrOpen(true);
       }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
-    prHotkey,
-    report.status,
-    isCreatingPr,
-    externalPrUrl,
-    canCreatePr,
-    handleOpenPr,
-  ]);
-
-  useEffect(() => {
-    if (!resolveHotkey || !canResolveReport(report)) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.key !== resolveHotkey ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.altKey
-      ) {
-        return;
-      }
-      const target = event.target;
-      if (
-        (target instanceof HTMLElement &&
-          (target.isContentEditable ||
-            ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) ||
-        document.querySelector('[role="dialog"], [role="alertdialog"]')
-      ) {
-        return;
-      }
+    },
+    [report.status, isCreatingPr, externalPrUrl, canCreatePr, handleOpenPr],
+  );
+  const runResolveHotkey = useCallback(
+    (event: KeyboardEvent) => {
       event.preventDefault();
       openResolveDialog();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [openResolveDialog, report, resolveHotkey]);
+    },
+    [openResolveDialog],
+  );
+  const runDismissHotkey = useCallback(
+    (event: KeyboardEvent) => {
+      event.preventDefault();
+      openDismissDialog();
+    },
+    [openDismissDialog],
+  );
+
+  useActionHotkey(prHotkey, runPrHotkey);
+  useActionHotkey(
+    canResolveReport(report) ? resolveHotkey : undefined,
+    runResolveHotkey,
+  );
+  useActionHotkey(dismissHotkey, runDismissHotkey);
 
   if (
     initialEngagementOnly &&
@@ -396,7 +452,20 @@ export function ReportVerdictBanner({
         </Button>
       )}
       {triageActions && dismissButton}
-      {report.status === "ready" && externalPrUrl ? (
+      {shouldComposeImplementation ? (
+        <Button
+          type="button"
+          variant="primary"
+          onClick={handleComposeImplementation}
+          loading={artefactsLoading}
+          disabled={artefactsLoading || awaitingChannel}
+          className={buttonClass}
+          data-attr="inbox-report-implement"
+        >
+          <GitPullRequestIcon size={15} />
+          Implement
+        </Button>
+      ) : report.status === "ready" && externalPrUrl ? (
         <Button
           type="button"
           variant="primary"
@@ -582,6 +651,13 @@ export function ReportVerdictBanner({
   if (variant === "triage-actions") {
     return (
       <>
+        {implementationState &&
+          needsImplementationDecision(implementationState) && (
+            <output className="w-full rounded border border-(--amber-6) bg-(--amber-2) px-3 py-2 text-[13px] text-amber-11">
+              {REPORT_IMPLEMENTATION_LABELS[implementationState]}. Open the
+              report to continue.
+            </output>
+          )}
         {actionsRow}
         {resolveDialog}
         {dismissDialog}
@@ -590,19 +666,11 @@ export function ReportVerdictBanner({
   }
 
   return (
-    <div
-      className={cn(
-        "flex select-none flex-col gap-3 rounded-lg border p-4",
-        TONE_CLASS[verdict.tone],
-      )}
-    >
-      <div className="flex flex-col gap-1">
-        <span className="flex items-center gap-2 font-semibold text-[15px] text-gray-12">
-          {verdict.tone === "progress" && <Spinner />}
-          {verdict.title}
-        </span>
-        <span className="text-[14px] text-gray-11">{verdict.body}</span>
-        {mergedPr && report.implementation_pr_url && (
+    <ReportVerdictCallout
+      verdict={verdict}
+      details={
+        mergedPr &&
+        report.implementation_pr_url && (
           <a
             href={report.implementation_pr_url}
             target="_blank"
@@ -613,11 +681,11 @@ export function ReportVerdictBanner({
             An earlier fix (#{mergedPr.number}) merged, but evidence kept
             arriving afterwards
           </a>
-        )}
-      </div>
-
+        )
+      }
+    >
       {actionsRow}
       {dismissDialog}
-    </div>
+    </ReportVerdictCallout>
   );
 }

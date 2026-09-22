@@ -48,10 +48,26 @@ export function deriveReportVerdict(
       return {
         tone: "decision",
         title: "Waiting on you",
-        body: "The agent needs your input before it can continue.",
+        body: "Review the recommendation. Start an implementation task to add direction and choose a model, or ask for more context.",
       };
     case "potential":
+      return report.dismissal_reason === "already_fixed"
+        ? {
+            tone: "info",
+            title: "Dismissed until new signals",
+            body: "This report was dismissed as already fixed. It can return when another matching signal arrives.",
+          }
+        : {
+            tone: "info",
+            title: "Waiting for new signals",
+            body: "This report is waiting for more matching signals. No investigation is running.",
+          };
     case "candidate":
+      return {
+        tone: "info",
+        title: "Waiting to investigate",
+        body: "No investigation is running yet.",
+      };
     case "in_progress":
       return {
         tone: "progress",

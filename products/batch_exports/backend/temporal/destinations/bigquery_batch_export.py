@@ -37,6 +37,7 @@ from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
+from posthog.models.integration.google_cloud import InvalidGoogleTokenUriError, require_google_token_uri
 from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -81,6 +82,8 @@ from products.batch_exports.backend.temporal.utils import (
 NON_RETRYABLE_ERROR_TYPES = (
     # Raised on missing permissions.
     "Forbidden",
+    # The stored key file names a token endpoint that is not Google's; only a re-upload fixes it.
+    "InvalidGoogleTokenUriError",
     # Invalid token.
     "RefreshError",
     # Usually means the dataset or project_id doesn't exist.
@@ -635,6 +638,7 @@ class BigQueryClient:
     def from_service_account_inputs(
         cls, private_key: str, private_key_id: str, token_uri: str, client_email: str, project_id: str
     ) -> typing.Self:
+        token_uri = require_google_token_uri(token_uri)
         credentials = service_account.Credentials.from_service_account_info(
             {
                 "private_key": private_key,
@@ -1521,6 +1525,8 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                 await ensure_our_google_cloud_credentials_are_valid()
             try:
                 bq_client = BigQueryClient.from_service_account_integration(google_cloud_integration)
+            except InvalidGoogleTokenUriError:
+                raise
             except Exception:
                 LOGGER.exception("Initialize client from service account failed")
                 # TODO: Migrate everyone and remove this
@@ -1552,8 +1558,10 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
             )
 
         max_consumers = 1
+        max_file_size_bytes_per_consumer = settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES
         if str(inputs.team_id) in settings.BATCH_EXPORT_BIGQUERY_USE_MULTIPLE_CONSUMERS_TEAM_IDS:
             max_consumers = settings.BATCH_EXPORT_BIGQUERY_MAX_CONSUMERS
+            max_file_size_bytes_per_consumer = settings.BATCH_EXPORT_BIGQUERY_MULTIPLE_CONSUMERS_UPLOAD_CHUNK_SIZE_BYTES
 
         async with bq_client:
             bigquery_target_table = await bq_client.get_or_create_table(target_table)
@@ -1601,7 +1609,6 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
 
             file_format: typing.Literal["Parquet", "JSONLines"] = "Parquet" if can_perform_merge else "JSONLines"
 
-            max_file_size_bytes_per_consumer = settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES // max_consumers
             barrier_size = max_consumers + 1 if can_perform_merge else max_consumers
             all_consumers_done = asyncio.Barrier(barrier_size)
             merge_done = asyncio.Event()

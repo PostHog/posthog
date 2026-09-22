@@ -1,8 +1,30 @@
 from typing import Any, Literal
+from uuid import UUID
+
+from django.db import connection, transaction
 
 from posthog.dataclasses import frozen
 
 from products.access_control.backend.models.role import RoleMembership
+
+
+def lock_approval_policies(organization_id: UUID, *, shared: bool = False) -> None:
+    """Prevent policy changes between a flag's final policy lookup and its commit.
+
+    FeatureFlagSerializer.update holds a shared lock through lookup and mutation.
+    ApprovalPolicySerializer.create/update hold the exclusive lock, so different flag
+    writes can proceed together while policy creation and enablement wait for them.
+    """
+    # Org scope covers both team policies and the org fallback, including policies not yet created.
+    if not connection.in_atomic_block:
+        raise transaction.TransactionManagementError("Approval policy locks require an atomic block")
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock_shared(hashtextextended(%s, 0))"
+            if shared
+            else "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            [f"approval-policies:{organization_id}"],
+        )
 
 
 @frozen
@@ -299,7 +321,9 @@ class PolicyEngine:
                 for rid in RoleMembership.objects.filter(
                     user=actor,
                     role__organization=org,
-                ).values_list("role_id", flat=True)
+                )
+                .valid_for_authorization()
+                .values_list("role_id", flat=True)
             }
             if user_role_ids & set(bypass_role_ids):
                 return True
@@ -326,8 +350,10 @@ class PolicyEngine:
 
             actor_roles = {
                 str(rid)
-                for rid in RoleMembership.objects.filter(user=actor, role__organization=org).values_list(
-                    "role_id", flat=True
+                for rid in (
+                    RoleMembership.objects.filter(user=actor, role__organization=org)
+                    .valid_for_authorization()
+                    .values_list("role_id", flat=True)
                 )
             }
 

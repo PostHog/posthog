@@ -6,7 +6,12 @@ from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
-from products.review_hog.backend.reviewer.constants import effective_priority, published_priorities_for
+from products.review_hog.backend.reviewer.constants import (
+    REVIEW_MODE_FULL,
+    effective_priority,
+    message_prefix_for_mode,
+    published_priorities_for,
+)
 from products.review_hog.backend.reviewer.diff_position import build_diff_line_map, find_diff_position
 from products.review_hog.backend.reviewer.models.github_meta import PRFile
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
@@ -18,6 +23,7 @@ from products.review_hog.backend.reviewer.tools.github_client import (
     is_app_bot_author,
 )
 from products.review_hog.backend.reviewer.tools.github_threads import REVIEW_HOG_FINDING_MARKER
+from products.review_hog.backend.reviewer.tools.redaction import redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +72,7 @@ def publish_persisted_review(
     token: str,
     urgency_threshold: IssuePriority,
     installation_id: str | None = None,
+    review_mode: str = REVIEW_MODE_FULL,
 ) -> PublishOutcome:
     """Publish an already-computed review for `report_id` at `head_sha`, idempotently.
 
@@ -101,6 +108,7 @@ def publish_persisted_review(
         post_promo=report.published_head_sha is None,
         published_priorities=published_priorities_for(urgency_threshold),
         installation_id=installation_id,
+        review_mode=review_mode,
     )
     if outcome.posted:
         if report.outcomes_emitted_at is not None:
@@ -170,6 +178,7 @@ def publish_review(
     post_promo: bool,
     published_priorities: set[IssuePriority],
     installation_id: str | None = None,
+    review_mode: str = REVIEW_MODE_FULL,
 ) -> PublishOutcome:
     """Publish the review to GitHub: the stored body plus inline comments from the durable rows.
 
@@ -221,6 +230,7 @@ def publish_review(
         marker=marker,
         promo_marker=_promo_marker(report_id),
         installation_id=installation_id,
+        message_prefix=message_prefix_for_mode(review_mode),
     )
     return PublishOutcome(posted=True, review_url=review_url)
 
@@ -258,9 +268,9 @@ def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdic
     """Format a finding + its verdict as an inline comment body.
 
     Leads with the title, then a line of colored severity/category badges (replacing the old
-    `Priority | Category | Lines` text meta); four collapsed sections follow, the validator's verdict
-    first — it is the human-facing evidence, so the reading order is claim (title) → why it's real
-    (validation) → description / fix / AI prompt for whoever wants more. Line refs are omitted from
+    `Priority | Category | Lines` text meta); four collapsed sections follow, the issue description
+    first — the reading order is claim (title) → what the issue is (description) → why it's real
+    (validation) → fix / AI prompt for whoever wants more. Line refs are omitted from
     the top — the comment is anchored inline and the lines live in the AI prompt.
     """
     priority = effective_priority(finding.priority, verdict.adjusted_priority)
@@ -271,18 +281,18 @@ def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdic
         _finding_badge_line(priority, verdict.category),
         "",
         "<details>",
-        "<summary><strong>Why we think it's a valid issue</strong></summary>",
-        "<br>",
-        "",
-        verdict.argumentation,
-        "",
-        "</details>",
-        "",
-        "<details>",
         "<summary><strong>Issue description</strong></summary>",
         "<br>",
         "",
         finding.body,
+        "",
+        "</details>",
+        "",
+        "<details>",
+        "<summary><strong>Why we think it's a valid issue</strong></summary>",
+        "<br>",
+        "",
+        verdict.argumentation,
         "",
         "</details>",
         "",
@@ -438,9 +448,12 @@ def _post_github_review(
     marker: str,
     promo_marker: str,
     installation_id: str | None = None,
+    message_prefix: str = "",
 ) -> str | None:
     """Post the review to GitHub as a PR review, pinned to the reviewed `head_sha`.
 
+    `message_prefix` opens every message this post writes (the promo comment, the review body, each
+    inline comment), so a flash review is labeled as one wherever it shows up on the PR.
     Returns the posted review's permalink, or None on the marker-found idempotency skip.
     """
     # Idempotency: if our own review for this (report, head) is already on the PR — we posted it but
@@ -459,7 +472,7 @@ def _post_github_review(
             installation_id=installation_id,
             endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
             json={
-                "body": "PostHog Review alpha \U0001f994 "
+                "body": f"{message_prefix}PostHog Review alpha \U0001f994 "
                 "If you find any issues helpful - "
                 'please reply "valid", "invalid", etc., '
                 f"for evaluation purposes \U0001f64f\n\n{promo_marker}"
@@ -470,6 +483,17 @@ def _post_github_review(
     # head, so a force-push between review and post would misplace the inline comments. Best-effort:
     # the probe isolates an unresolvable commit (stale/unreachable head) from a comment-positioning
     # failure, so we post unpinned rather than failing (or dropping the inline comments).
+    # The review and validation sandboxes hold live tokens, and the model text arrives here unfiltered.
+    body, redacted = redact_secrets(f"{message_prefix}{body}")
+    scrubbed: list[ReviewComment] = []
+    for comment in comments:
+        comment_body, count = redact_secrets(f"{message_prefix}{comment['body']}")
+        redacted += count
+        scrubbed.append({**comment, "body": comment_body})
+    comments = scrubbed
+    if redacted:
+        logger.warning(f"Redacted {redacted} value(s) from the review for {owner}/{repo}#{pr_number} before posting")
+
     review_payload: dict[str, Any] = {"body": body, "event": "COMMENT"}
     if head_sha:
         try:

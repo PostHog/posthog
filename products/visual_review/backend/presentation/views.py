@@ -91,6 +91,38 @@ def _parse_uuid(value: str, field: str = "id") -> UUID:
         raise ValidationError({field: "Must be a valid UUID."})
 
 
+# Both run-scoped snapshot lookups need a run id AND a snapshot identifier. Clients that
+# read only the prose kept sending one of the two, so the pair is described in one place
+# and each side names the other as required.
+_RUN_ID_PATH_PARAMETER = OpenApiParameter(
+    "id",
+    OpenApiTypes.UUID,
+    OpenApiParameter.PATH,
+    required=True,
+    description=(
+        "UUID of the visual review run to look the snapshot up from. This is a run id, not the "
+        "`id` of a snapshot inside that run. The run supplies the repo and run type to search, so "
+        "the `identifier` query parameter is required alongside it."
+    ),
+)
+
+_SNAPSHOT_IDENTIFIER_PARAMETER = OpenApiParameter(
+    "identifier",
+    str,
+    required=True,
+    description=(
+        "Identifier of the snapshot to look up, for example a Storybook story id plus theme. Read "
+        "it from the `identifier` field of a snapshot in the run. It is a name rather than a UUID, "
+        "and it is required in addition to the run id in the path."
+    ),
+)
+
+_MISSING_IDENTIFIER_DETAIL = (
+    "The identifier query parameter is required. Pass the `identifier` of the snapshot you want, "
+    "which you can read from the run's snapshot list."
+)
+
+
 class SnapshotsPagination(LimitOffsetPagination):
     """Adds quarantined_count to the paginated snapshots envelope so a client can
     show "N quarantined hidden" without a second request. The action sets
@@ -184,6 +216,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             repo_id=_parse_uuid(pk),
             baseline_file_paths=body.baseline_file_paths,
             enable_pr_comments=body.enable_pr_comments,
+            debt_digest_enabled=body.debt_digest_enabled,
         )
 
         try:
@@ -353,7 +386,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             api.get_repo(repo_id, team_id=self.team_id)
         except api.RepoNotFoundError:
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
-        result = api.get_flakiness_overview(repo_id)
+        result = api.get_flakiness_overview(repo_id, self.team_id)
         return Response(FlakinessOverviewSerializer(instance=result).data)
 
 
@@ -594,7 +627,10 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(SnapshotSerializer(instance=snapshot).data)
 
     @extend_schema(
-        parameters=[OpenApiParameter("identifier", str, required=True, description="Snapshot identifier")],
+        parameters=[
+            _RUN_ID_PATH_PARAMETER,
+            _SNAPSHOT_IDENTIFIER_PARAMETER,
+        ],
         responses={200: ToleratedHashEntrySerializer(many=True)},
     )
     @action(detail=True, methods=["get"], url_path="tolerated-hashes")
@@ -602,7 +638,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """List known tolerated hashes for a snapshot identifier."""
         identifier = request.query_params.get("identifier")
         if not identifier:
-            return Response({"detail": "identifier query param required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": _MISSING_IDENTIFIER_DETAIL}, status=status.HTTP_400_BAD_REQUEST)
         try:
             run = api.get_run(_parse_uuid(pk), team_id=self.team_id)
         except api.RunNotFoundError:
@@ -631,7 +667,10 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(AddSnapshotsResultSerializer(instance=result).data)
 
     @extend_schema(
-        parameters=[OpenApiParameter("identifier", str, required=True, description="Snapshot identifier")],
+        parameters=[
+            _RUN_ID_PATH_PARAMETER,
+            _SNAPSHOT_IDENTIFIER_PARAMETER,
+        ],
         responses={200: SnapshotHistoryEntrySerializer(many=True)},
     )
     @action(detail=True, methods=["get"], url_path="snapshot-history")
@@ -639,7 +678,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """Recent change history for a snapshot identifier across runs."""
         identifier = request.query_params.get("identifier")
         if not identifier:
-            return Response({"detail": "identifier query param required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": _MISSING_IDENTIFIER_DETAIL}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             run = api.get_run(_parse_uuid(pk), team_id=self.team_id)
@@ -680,8 +719,8 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         Records the per-snapshot "Accept change" decision. Does not commit the baseline
         or change the GitHub gate — call finalize to ship the run. Works on a quarantined
-        snapshot too: a quarantined NEW snapshot approved here is committed by finalize,
-        which gives a quarantined story a baseline entry without lifting the quarantine.
+        snapshot too: a quarantined snapshot approved here is committed by finalize, which
+        updates a quarantined story's baseline entry without lifting the quarantine.
         """
         body = request.validated_data
         run_id = _parse_uuid(pk)
@@ -711,7 +750,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
         and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
         any still-pending changed/new snapshot is approved first; quarantined snapshots are
-        skipped, but a quarantined NEW snapshot approved by identifier is still committed.
+        skipped, but a quarantined snapshot approved by identifier is still committed.
         With commit_to_github=false the server returns the signed baseline YAML instead of
         committing it.
         """

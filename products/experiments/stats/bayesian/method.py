@@ -7,16 +7,15 @@ and difference types.
 """
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
 from ..shared.enums import DifferenceType
 from ..shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic, StatisticError
-from .enums import PriorType
 from .priors import GaussianPrior
 from .tests import BayesianGaussianTest, BayesianMeanTest, BayesianProportionTest, BayesianResult, BayesianTest
 
 
-@dataclass
+@dataclass(frozen=True)
 class BayesianConfig:
     """Configuration for Bayesian testing."""
 
@@ -26,7 +25,6 @@ class BayesianConfig:
     difference_type: DifferenceType = DifferenceType.RELATIVE
 
     # Prior configuration
-    prior_type: PriorType = PriorType.RELATIVE
     prior_mean: float = 0.0  # Prior belief about effect size
     prior_variance: float = 1.0  # Uncertainty in prior belief
     proper_prior: bool = False  # Whether to use informative prior
@@ -154,125 +152,3 @@ class BayesianMethod:
             )
         except Exception as e:
             raise StatisticError(f"Bayesian test execution failed: {str(e)}") from e
-
-    def get_summary(self, result: BayesianResult) -> dict[str, Any]:
-        """
-        Get human-readable summary of Bayesian test result.
-
-        Args:
-            result: BayesianResult object
-
-        Returns:
-            Dict with summary information
-        """
-        summary: dict[str, Any] = {
-            "preferred_variation": result.preferred_variation,
-            "chance_to_win": result.chance_to_win,
-            "confidence_in_decision": result.confidence_in_decision,
-            "effect_size": result.effect_size,
-            "credible_interval": result.credible_interval,
-            "is_decisive": result.is_decisive,
-            "difference_type": result.difference_type,
-            "ci_level": result.ci_level,
-        }
-
-        # Add effect size interpretation
-        if "relative" in result.difference_type:
-            summary["interpretation"] = {
-                "effect_size": f"{result.effect_size:.1%}",
-                "effect_direction": "positive" if result.effect_size > 0 else "negative",
-                "magnitude": self._interpret_effect_magnitude(abs(result.effect_size)),
-            }
-        else:  # absolute
-            summary["interpretation"] = {
-                "effect_size": result.effect_size,
-                "effect_direction": "positive" if result.effect_size > 0 else "negative",
-            }
-
-        # Add risk assessment
-        summary["risk_assessment"] = {
-            "risk_choosing_control": result.risk_control,
-            "risk_choosing_treatment": result.risk_treatment,
-            "safer_choice": "control" if result.risk_control < result.risk_treatment else "treatment",
-        }
-
-        # Add prior information
-        summary["prior_info"] = {
-            "prior_mean": result.prior_mean,
-            "prior_variance": result.prior_variance,
-            "informative_prior": result.proper_prior,
-        }
-
-        # Add decision recommendation
-        summary["recommendation"] = self._make_recommendation(result)
-
-        return summary
-
-    def _interpret_effect_magnitude(self, abs_effect: float) -> str:
-        """Interpret the magnitude of a relative effect size."""
-        if abs_effect < 0.01:
-            return "negligible"
-        elif abs_effect < 0.05:
-            return "small"
-        elif abs_effect < 0.15:
-            return "moderate"
-        elif abs_effect < 0.30:
-            return "large"
-        else:
-            return "very_large"
-
-    def _make_recommendation(self, result: BayesianResult) -> str:
-        """Make a business recommendation based on the test result."""
-        chance_to_win = result.chance_to_win
-        preferred_variation = result.preferred_variation
-
-        if chance_to_win > 0.95:
-            return f"Strong evidence for {preferred_variation}. Safe to proceed."
-        elif chance_to_win > 0.85:
-            return f"Good evidence for {preferred_variation}. Consider proceeding with monitoring."
-        elif chance_to_win > 0.65:
-            return f"Weak evidence for {preferred_variation}. Consider collecting more data."
-        else:
-            return "Inconclusive evidence. Collect more data before making a decision."
-
-    @classmethod
-    def create_simple_config(
-        cls,
-        ci_level: float = 0.95,
-        inverse: bool = False,
-        difference_type: str = "relative",
-        prior_mean: float = 0.0,
-        prior_variance: float = 1.0,
-        proper_prior: bool = False,
-    ) -> BayesianConfig:
-        """
-        Create a simple configuration with basic parameters.
-
-        Args:
-            ci_level: Credible interval level (default: 0.95 for 95% CI)
-            inverse: Whether "lower is better" (default: False)
-            difference_type: Difference type string (default: "relative")
-            prior_mean: Prior belief about effect size (default: 0.0)
-            prior_variance: Prior uncertainty (default: 1.0)
-            proper_prior: Whether to use informative prior (default: False)
-
-        Returns:
-            BayesianConfig object
-        """
-        # Convert string difference type
-        difference_type_map = {
-            "relative": DifferenceType.RELATIVE,
-            "absolute": DifferenceType.ABSOLUTE,
-        }
-
-        if difference_type not in difference_type_map:
-            raise StatisticError(f"Unknown difference type: {difference_type}")
-
-        return BayesianConfig(
-            ci_level=ci_level,
-            inverse=inverse,
-            difference_type=difference_type_map[difference_type],
-            prior_mean=prior_mean,
-            prior_variance=prior_variance,
-            proper_prior=proper_prior,
-        )

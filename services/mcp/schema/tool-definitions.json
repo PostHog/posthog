@@ -88,13 +88,13 @@
             "readOnlyHint": true
         }
     },
-    "experiment-results-get": {
-        "description": "Run an experiment's metric queries and return primary/secondary metric results plus exposure data in one call, with self-describing per-metric metadata: each row in metrics.primary.results / metrics.secondary.results carries a `metric` summary (uuid, name, metric_type, goal, and source - 'inline' for metrics defined on the experiment, 'shared' for saved metrics, with saved_metric_id/saved_metric_name set on shared rows). Rows are ordered to match the experiment UI (primary_metrics_ordered_uuids / secondary_metrics_ordered_uuids); a row whose metric query failed is kept with data: null so positions stay aligned. Results may be served from cache; pass refresh=true to force fresh computation (slower). Only works with new experiments (not legacy ExperimentTrendsQuery / ExperimentFunnelsQuery). Sibling tools: experiment-metrics-recalculation-latest-retrieve reads the most recent completed background recalculation run instead of executing queries in-call (pair it with experiment-metrics-recalculation-create to refresh); experiment-timeseries-results returns one metric's day-by-day history. Note the response strips UI-only bulk fields (clickhouse_sql, hogql, the legacy insight payload, per-funnel-step step_sessions) while preserving statistical fields (sum, sum_squares, step_counts, credible_intervals, per-breakdown stats).",
+    "experiment-get-by-flag-key": {
+        "description": "Get an experiment by its feature flag key (e.g. \"new-checkout\") — the identifier used in code and shown in the UI. Use this when you have the flag key but not the experiment's numeric ID; use `experiment-get` when you have the ID. Returns the full experiment with `found: true`, or `found: false` with a message when no flag or no linked experiment exists — a miss is data, not an error, so an existence check before `experiment-create` needs no special handling. Archived flags and experiments are included. A miss carries `reason`: `no_flag` or `no_experiment` mean the key is free to create on; `ambiguous` means several experiments share the flag (experiment-duplicate reuses it) and none is the single live one, so `candidates` (id, name, status, archived, dates) lists them to pick from with `experiment-get`. When exactly one is live it is returned directly.",
         "category": "Experiments",
         "feature": "experiments",
-        "summary": "Get experiment metric and exposure results with self-describing per-metric metadata.",
-        "title": "Get experiment results",
-        "required_scopes": ["experiment:read"],
+        "summary": "Get an experiment by its feature flag key.",
+        "title": "Get experiment by flag key",
+        "required_scopes": ["experiment:read", "feature_flag:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -102,12 +102,12 @@
             "readOnlyHint": true
         }
     },
-    "experiment-get-all": {
-        "description": "DEPRECATED: renamed to experiment-list. This alias forwards to experiment-list and will be removed. Call experiment-list directly with the same arguments.",
+    "experiment-results-get": {
+        "description": "Run an experiment's metric queries and return primary/secondary metric results plus exposure data in one call, with self-describing per-metric metadata: each row in metrics.primary.results / metrics.secondary.results carries a `metric` summary (uuid, name, metric_type, goal, and source - 'inline' for metrics defined on the experiment, 'shared' for saved metrics, with saved_metric_id/saved_metric_name set on shared rows). Rows are ordered to match the experiment UI (primary_metrics_ordered_uuids / secondary_metrics_ordered_uuids); a row whose metric query failed is kept with data: null so positions stay aligned. Results may be served from cache; pass refresh=true to force fresh computation (slower). Only works with new experiments (not legacy ExperimentTrendsQuery / ExperimentFunnelsQuery). Sibling tools: experiment-metrics-recalculation-latest-retrieve reads the most recent completed background recalculation run instead of executing queries in-call (pair it with experiment-metrics-recalculation-create to refresh); experiment-timeseries-results returns one metric's day-by-day history. Note the response strips UI-only bulk fields (clickhouse_sql, hogql, the legacy insight payload, per-funnel-step step_sessions) while preserving statistical fields (sum, sum_squares, step_counts, credible_intervals, per-breakdown stats).",
         "category": "Experiments",
         "feature": "experiments",
-        "summary": "Deprecated alias for experiment-list.",
-        "title": "Get all experiments (deprecated)",
+        "summary": "Get experiment metric and exposure results with self-describing per-metric metadata.",
+        "title": "Get experiment results",
         "required_scopes": ["experiment:read"],
         "annotations": {
             "destructiveHint": false,
@@ -279,6 +279,8 @@
         "required_scopes": ["notebook:write"],
         "feature_flag": "notebooks-collaboration",
         "hidden_when_flag_on": "revamped-py-notebooks",
+        "superseded_by": ["notebooks-update-cell", "notebooks-add-cell"],
+        "redirect_hint": "Read the notebook with notebooks-get first: the revamped notebooks are cell-based, so an edit targets one cell.",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -302,7 +304,7 @@
         }
     },
     "notebooks-add-cell": {
-        "description": "Add a cell to a markdown notebook. SQL and Python cells run immediately: the call waits up to ~45s and returns the result — columns, a capped row preview, stdout/stderr (a Python cell's logs and tracebacks), and error — so you can look at the output and decide the next step (fix, or proceed). If the status comes back 'running', poll notebooks-run-cell-result with the run_id. A cell that reads other cells' dataframes references them by dataframe_name; those cells must have completed a run first, so add cells in dependency order. SQL cells are always HogQL: queries against PostHog or data warehouse tables run on ClickHouse, and a SQL cell that references a Python-created dataframe runs on the notebook's local engine automatically — any local dataframe is queryable by name, same syntax. The first Python cell can take longer while the notebook's sandbox kernel starts. Run analysis Python here rather than in a runtime the user can't see — dataframe work, statistics, clustering, forecasting, plotting — so the code and its output stay visible and re-runnable beside the result; the sandbox has pandas, numpy, scipy, scikit-learn, and matplotlib. component cells add other node types: Query, Image, Embed, Latex, FeatureFlag, Survey, Experiment, Person, Cohort, Recording, RecordingPlaylist. Pass a short title on every cell you add, describing what that cell shows — it renders in the cell header and is what a reader skims instead of the code. A notebook holds at most 50 cells; past that the call fails, so start a new notebook rather than retrying.",
+        "description": "Add a cell to a markdown notebook. SQL and Python cells run immediately: the call waits up to ~45s and returns the result — columns, a capped row preview, stdout/stderr (a Python cell's logs and tracebacks), and error — so you can look at the output and decide the next step (fix, or proceed). If the status comes back 'running', poll notebooks-run-cell-result with the run_id. A cell that reads other cells' dataframes references them by dataframe_name; those cells must have completed a run first, so add cells in dependency order. SQL cells are always HogQL: queries against PostHog or data warehouse tables run on ClickHouse, and a SQL cell that references a Python-created dataframe runs on the notebook's local engine automatically — any local dataframe is queryable by name, same syntax. The first Python cell can take longer while the notebook's sandbox kernel starts. Run analysis Python here rather than in a runtime the user can't see — dataframe work, statistics, clustering, forecasting, plotting — so the code and its output stay visible and re-runnable beside the result; the sandbox has pandas, numpy, scipy, scikit-learn, and matplotlib. component cells add other node types: Query, Image, Embed, Latex, FeatureFlag, Survey, Experiment, Person, Cohort, Recording, RecordingPlaylist. Pass a short title on every cell you add, describing what that cell shows — it renders in the cell header and is what a reader skims instead of the code. Cells can read the notebook's variables (see notebooks-get, set with notebooks-set-variables): a SQL cell as a bare `{name}` placeholder, a Python cell as a plain global. A SQL cell reading an undeclared `{name}` fails to run, so declare the variable first. A notebook holds at most 50 cells; past that the call fails, so start a new notebook rather than retrying. A Python cell provisions the notebook's sandbox when none is running, and the user pays for it while it runs, so tell them its hourly_price the first time a run starts one. notebooks-list-frames reports that rate, and notebooks-compute-options lists the presets.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Add a cell to a notebook; SQL/Python cells run immediately.",
@@ -317,7 +319,7 @@
         }
     },
     "notebooks-update-cell": {
-        "description": "Update a SQL or Python cell's code and re-run it, or re-run it unchanged by omitting code (how you refresh a stale cell). Waits up to ~45s and returns the result like notebooks-add-cell, plus stale_dependents: the downstream cells whose inputs this run invalidated. Nothing re-runs automatically — inspect each dependent and re-run it with this tool (no code) or fix it first, walking the graph one hop at a time.",
+        "description": "Update a cell by node_id. For a SQL or Python cell pass `code` to replace its source and re-run it, or omit code to re-run it unchanged (how you refresh a stale cell). For a markdown cell (cell_type 'markdown' in notebooks-get: prose, a heading, a table, a fenced block) pass `markdown` instead: it replaces that block only, runs nothing, and leaves every other cell untouched. That is how you fix wording in a notebook you already shared, instead of appending a correction or recreating it under a new URL. Read the ids with notebooks-get and edit against that same read, because a markdown cell's id is derived from its text and changes once the text changes. Waits up to ~45s and returns the result like notebooks-add-cell, plus stale_dependents: the downstream cells whose inputs this run invalidated. Nothing re-runs automatically — inspect each dependent and re-run it with this tool (no code) or fix it first, walking the graph one hop at a time. The run binds the notebook's current variables, so re-running (no code) is also how a cell picks up a changed variable value. Re-running a Python cell provisions the notebook's sandbox when none is running, and the user pays for it while it runs, so tell them its hourly_price the first time a run starts one.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Update a cell's code and re-run it.",
@@ -341,6 +343,21 @@
         "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "notebooks-set-variables": {
+        "description": "Declare or change a markdown notebook's variables: named, typed values that cells read without hardcoding them — a SQL cell as a bare `{name}` placeholder (bound as a value, never as SQL text), a Python cell as a plain global. Use one for an input the reader will want to change (a country, a date range start, a threshold, a row limit) instead of repeating a literal across cells. The list you pass replaces the whole set, so read the current one from notebooks-get first and include every variable you want to keep. Returns the saved variables and stale_cells: cells whose code reads a variable that was added, removed, retyped, or given a new value. Nothing re-runs automatically — re-run each stale cell with notebooks-update-cell (no code) so its result reflects the new values.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Set a notebook's variables; cells read them as {name} in SQL or globals in Python.",
+        "title": "Set notebook variables",
+        "required_scopes": ["notebook:write"],
+        "feature_flag": "revamped-py-notebooks",
+        "annotations": {
+            "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -487,7 +504,7 @@
         }
     },
     "feature-flag-get-definition-by-key": {
-        "description": "Get a feature flag by its string key (e.g. \"new-checkout\") — the identifier used in code and shown in the UI. Use this when you have the key but not the numeric ID; use `feature-flag-get-definition` when you have the numeric ID.",
+        "description": "Get a feature flag by its string key (e.g. \"new-checkout\") — the identifier used in code and shown in the UI. Use this when you have the key but not the numeric ID; use `feature-flag-get-definition` when you have the numeric ID. Archived flags are included and come back with `archived: true`.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Get a feature flag by its key.",
@@ -712,7 +729,7 @@
         }
     },
     "read-data-schema": {
-        "description": "Use this tool to explore the user's data schema. The user implements PostHog SDKs to collect events, properties, and property values. They are used by users to create insights with visualizations, SQL queries, watch session recordings, filter data, target particular users or groups by traits or behavior, etc. Each event, action, and entity has its own data schema. You must verify that specific combinations exist before using it anywhere else. Events or properties starting from \"$\" are system properties automatically captured by SDKs. Do not rely on your training data or PostHog defaults for events or properties. Always use this tool to confirm what actually exists in the user's project before referencing any event, property, or property value.",
+        "description": "Use this tool to explore the user's data schema. The user implements PostHog SDKs to collect events, properties, and property values. They are used by users to create insights with visualizations, SQL queries, watch session recordings, filter data, target particular users or groups by traits or behavior, etc. Each event, action, and entity has its own data schema. You must verify that specific combinations exist before using it anywhere else. Events or properties starting from \"$\" are system properties automatically captured by SDKs. Do not rely on your training data or PostHog defaults for events or properties. Always use this tool to confirm what actually exists in the user's project before referencing any event, property, or property value.\n\nPut all parameters in `query`. Select the schema with `kind`:\n\n```json\n{ \"query\": { \"kind\": \"events\" } }\n```",
         "category": "Data schema",
         "feature": "data_schema",
         "summary": "Explore the user's events, actions, properties, and property values.",

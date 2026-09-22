@@ -221,6 +221,20 @@ describe('createProcessPersonlessStep', () => {
             expect(fetchForCheckingSpy).not.toHaveBeenCalled()
         })
 
+        it('keeps the event personful when the team is excluded', async () => {
+            const fetchForCheckingSpy = jest.spyOn(personsStore, 'fetchForChecking')
+
+            const step = createProcessPersonlessStep('*', `${teamId}`)
+            const result = await step(createInput({ processPerson: true, normalizedEvent: flagCalledEvent() }))
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (isOkResult(result)) {
+                expect(result.value.processPerson).toBe(true)
+                expect(result.value.personlessPerson).toBeUndefined()
+            }
+            expect(fetchForCheckingSpy).not.toHaveBeenCalled()
+        })
+
         it('applies the default when the team is in the configured team list', async () => {
             const step = createProcessPersonlessStep(`${teamId}`)
             const result = await step(createInput({ processPerson: true, normalizedEvent: flagCalledEvent() }))

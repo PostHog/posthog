@@ -39,7 +39,6 @@ function canvas(over: Partial<DashboardRecord> = {}): DashboardRecord {
     kind: "freeform" as const,
     description: "",
     templateId: "freeform",
-    context: "",
     createdAt: 0,
     updatedAt: 1_000,
     ...over,
@@ -72,12 +71,13 @@ function build(options: Partial<Parameters<typeof buildChannelItems>[0]> = {}) {
 describe("buildChannelItems", () => {
   it("merges canvases and tasks newest-first", () => {
     const items = build({
-      dashboards: [canvas({ id: "old", updatedAt: 1_000 })],
+      dashboards: [canvas({ id: "old", updatedAt: 1_000, createdByUser: ME })],
       feedTasks: [
         task({ id: "new", updated_at: new Date(5_000).toISOString() }),
       ],
     });
     expect(items.map((i) => i.key)).toEqual(["task:new", "canvas:old"]);
+    expect(items.map((item) => item.authorUser)).toEqual([ME, ME]);
   });
 
   it("drops archived tasks but keeps canvases", () => {

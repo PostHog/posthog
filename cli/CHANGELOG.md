@@ -1,5 +1,23 @@
 # posthog-cli
 
+## 0.18.3 — 2026-09-16
+
+### Patch changes
+
+- [b6486bfe18a](https://github.com/PostHog/posthog/commit/b6486bfe18a1476a5959e6334c916faf79309f2e) Stop reporting expected sourcemap upload outcomes as warnings. Missing releases and skipped empty sourcemaps now use lower log levels when uploads continue. — Thanks @posthog[bot]!
+
+## 0.18.2 — 2026-09-11
+
+### Patch changes
+
+- [342f1f1c551](https://github.com/PostHog/posthog/commit/342f1f1c551caeb5883ec191fd5400240f5683e0) Ask the server which chunks it still needs before starting upload batches. A build whose chunks are mostly already uploaded now makes a few API calls instead of two per batch of 50. — Thanks @ablaszkiewicz!
+
+## 0.18.1 — 2026-09-07
+
+### Patch changes
+
+- [fcbcec2ef4d](https://github.com/PostHog/posthog/commit/fcbcec2ef4d1123d985c66dffbc45933a6742558) Remove credentials from the git remote URL stored in release metadata. Rotate any token an earlier version stored. — Thanks @ablaszkiewicz!
+
 ## 0.18.0 — 2026-09-02
 
 ### Minor changes

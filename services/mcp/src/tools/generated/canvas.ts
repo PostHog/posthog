@@ -3,6 +3,11 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/canvas/api'
+import {
+    CanvasStateKeysOnlySchema,
+    CanvasStateReadLimitSchema,
+    validateCanvasStateValueContinuation,
+} from '@/schema/tool-inputs'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CanvasBuildsRetrieveSchema = () => {
@@ -25,7 +30,32 @@ const canvasBuildsRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/builds/`,
             query: {
+                scope: params.scope,
                 version_id: params.version_id,
+            },
+        })
+        return result
+    },
+})
+
+const CanvasConnectorsRetrieveSchema = () => {
+    const CanvasesConnectorsRetrieveQueryParams = orvalSchemas.CanvasesConnectorsRetrieveQueryParams()
+    return CanvasesConnectorsRetrieveQueryParams
+}
+
+const canvasConnectorsRetrieve = (): ToolBase<
+    ReturnType<typeof CanvasConnectorsRetrieveSchema>,
+    Schemas.CanvasConnectorsResponse
+> => ({
+    name: 'canvas-connectors-retrieve',
+    schema: CanvasConnectorsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CanvasConnectorsRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CanvasConnectorsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/connectors/`,
+            query: {
+                mcp_hosts: params.mcp_hosts,
             },
         })
         return result
@@ -177,19 +207,28 @@ const canvasEditCreate = (): ToolBase<
 
 const CanvasLayoutGetSchema = () => {
     const CanvasesLayoutRetrieveParams = orvalSchemas.CanvasesLayoutRetrieveParams()
-    return CanvasesLayoutRetrieveParams.omit({ project_id: true }).extend({
-        id: CanvasesLayoutRetrieveParams.shape['id'].describe('ID of the grid canvas whose layout to read.'),
-    })
+    const CanvasesLayoutRetrieveQueryParams = orvalSchemas.CanvasesLayoutRetrieveQueryParams()
+    return CanvasesLayoutRetrieveParams.omit({ project_id: true })
+        .extend(CanvasesLayoutRetrieveQueryParams.omit({ version_id: true }).shape)
+        .extend({
+            id: CanvasesLayoutRetrieveParams.shape['id'].describe('ID of the grid canvas whose layout to read.'),
+        })
 }
 
-const canvasLayoutGet = (): ToolBase<ReturnType<typeof CanvasLayoutGetSchema>, Schemas.CanvasLayoutResponse> => ({
+const canvasLayoutGet = (): ToolBase<
+    ReturnType<typeof CanvasLayoutGetSchema>,
+    Schemas.CanvasLayoutWithComponentsResponse
+> => ({
     name: 'canvas-layout-get',
     schema: CanvasLayoutGetSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof CanvasLayoutGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.CanvasLayoutResponse>({
+        const result = await context.api.request<Schemas.CanvasLayoutWithComponentsResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/layout/`,
+            query: {
+                include_components: params.include_components,
+            },
         })
         return result
     },
@@ -306,6 +345,40 @@ const canvasList = (): ToolBase<ReturnType<typeof CanvasListSchema>, Schemas.Pag
                 offset: params.offset,
                 search: params.search,
             },
+        })
+        return result
+    },
+})
+
+const CanvasMoveSchema = () => {
+    const CanvasesPartialUpdateBody = orvalSchemas.CanvasesPartialUpdateBody()
+    const CanvasesPartialUpdateParams = orvalSchemas.CanvasesPartialUpdateParams()
+    return CanvasesPartialUpdateParams.omit({ project_id: true })
+        .extend(
+            CanvasesPartialUpdateBody.omit({ name: true, description: true, pinned: true, generation_task_id: true })
+                .shape
+        )
+        .extend({
+            id: CanvasesPartialUpdateParams.shape['id'].describe('ID of the canvas to move.'),
+            channel_id: CanvasesPartialUpdateBody.shape['channel_id']
+                .unwrap()
+                .describe('ID of the visible destination space.'),
+        })
+}
+
+const canvasMove = (): ToolBase<ReturnType<typeof CanvasMoveSchema>, Schemas.Canvas> => ({
+    name: 'canvas-move',
+    schema: CanvasMoveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CanvasMoveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.channel_id !== undefined) {
+            body['channel_id'] = params.channel_id
+        }
+        const result = await context.api.request<Schemas.Canvas>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/`,
+            body,
         })
         return result
     },
@@ -437,7 +510,9 @@ const canvasSourceRetrieve = (): ToolBase<
 const CanvasStateRetrieveSchema = () => {
     const CanvasesStateRetrieveParams = orvalSchemas.CanvasesStateRetrieveParams()
     const CanvasesStateRetrieveQueryParams = orvalSchemas.CanvasesStateRetrieveQueryParams()
-    return CanvasesStateRetrieveParams.omit({ project_id: true }).extend(CanvasesStateRetrieveQueryParams.shape)
+    return CanvasesStateRetrieveParams.omit({ project_id: true })
+        .extend(CanvasesStateRetrieveQueryParams.shape)
+        .extend({ limit: CanvasStateReadLimitSchema, keys_only: CanvasStateKeysOnlySchema })
 }
 
 const canvasStateRetrieve = (): ToolBase<
@@ -452,6 +527,11 @@ const canvasStateRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/state/`,
             query: {
+                key: params.key,
+                key_prefix: params.key_prefix,
+                keys_only: params.keys_only,
+                limit: params.limit,
+                offset: params.offset,
                 scope: params.scope,
             },
         })
@@ -489,6 +569,37 @@ const canvasStateSet = (): ToolBase<ReturnType<typeof CanvasStateSetSchema>, Sch
     },
 })
 
+const CanvasStateValueRetrieveSchema = () => {
+    const CanvasesStateValueRetrieveParams = orvalSchemas.CanvasesStateValueRetrieveParams()
+    const CanvasesStateValueRetrieveQueryParams = orvalSchemas.CanvasesStateValueRetrieveQueryParams()
+    return CanvasesStateValueRetrieveParams.omit({ project_id: true })
+        .extend(CanvasesStateValueRetrieveQueryParams.shape)
+        .superRefine(validateCanvasStateValueContinuation)
+}
+
+const canvasStateValueRetrieve = (): ToolBase<
+    ReturnType<typeof CanvasStateValueRetrieveSchema>,
+    Schemas.CanvasStateValueResponse
+> => ({
+    name: 'canvas-state-value-retrieve',
+    schema: CanvasStateValueRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CanvasStateValueRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CanvasStateValueResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/state/value/`,
+            query: {
+                key: params.key,
+                limit: params.limit,
+                offset: params.offset,
+                revision: params.revision,
+                scope: params.scope,
+            },
+        })
+        return result
+    },
+})
+
 const CanvasValidateCreateSchema = () => {
     const CanvasesValidateCreateBody = orvalSchemas.CanvasesValidateCreateBody()
     const CanvasesValidateCreateParams = orvalSchemas.CanvasesValidateCreateParams()
@@ -520,6 +631,7 @@ const canvasValidateCreate = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'canvas-builds-retrieve': canvasBuildsRetrieve,
+    'canvas-connectors-retrieve': canvasConnectorsRetrieve,
     'canvas-create': canvasCreate,
     'canvas-draft-create': canvasDraftCreate,
     'canvas-drafts-retrieve': canvasDraftsRetrieve,
@@ -528,11 +640,13 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'canvas-layout-patch': canvasLayoutPatch,
     'canvas-layout-publish': canvasLayoutPublish,
     'canvas-list': canvasList,
+    'canvas-move': canvasMove,
     'canvas-promote-create': canvasPromoteCreate,
     'canvas-publish-create': canvasPublishCreate,
     'canvas-publish-current-version': canvasPublishCurrentVersion,
     'canvas-source-retrieve': canvasSourceRetrieve,
     'canvas-state-retrieve': canvasStateRetrieve,
     'canvas-state-set': canvasStateSet,
+    'canvas-state-value-retrieve': canvasStateValueRetrieve,
     'canvas-validate-create': canvasValidateCreate,
 }

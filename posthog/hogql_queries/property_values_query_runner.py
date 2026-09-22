@@ -25,9 +25,9 @@ from posthog.caching.utils import (
     cache_target_age as _cache_target_age,
 )
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.aggregated_property_values import get_event_property_values_from_aggregated_table
 from posthog.models import PropertyDefinition
 from posthog.models.event.new_events_schema import use_new_events_schema
-from posthog.queries.property_values import get_event_property_values_from_aggregated_table
 from posthog.utils import convert_property_value, flatten, get_instance_region, relative_date_parse
 
 from products.access_control.backend.property_access_control import get_restricted_property_names

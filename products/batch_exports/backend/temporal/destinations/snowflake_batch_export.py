@@ -19,6 +19,7 @@ from cryptography.hazmat.primitives import serialization
 from snowflake.connector.connection import SnowflakeConnection
 from snowflake.connector.constants import FIELD_ID_TO_NAME, QueryStatus
 from snowflake.connector.cursor import ResultMetadata
+from snowflake.connector.errorcode import ER_FAILED_TO_CONNECT_TO_DB, ER_RETRYABLE_CODE
 from snowflake.connector.errors import HttpError, InterfaceError, OperationalError
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
@@ -111,6 +112,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "SnowflakeWarehouseUsageError",
     # The linked Integration was deleted or doesn't belong to the team.
     "SnowflakeIntegrationNotFoundError",
+    # Raised when an export has no linked integration, so it cannot authenticate at all.
+    "SnowflakeIntegrationRequiredError",
     # The linked Integration is the wrong kind or has invalid/missing credentials.
     "SnowflakeIntegrationError",
 )
@@ -176,6 +179,16 @@ class SnowflakeAuthenticationError(Exception):
 class SnowflakeIntegrationNotFoundError(Exception):
     def __init__(self, integration_id: int, team_id: int):
         super().__init__(f"Snowflake integration with ID '{integration_id}' not found for team '{team_id}'")
+
+
+class SnowflakeIntegrationRequiredError(Exception):
+    """Raised when a Snowflake export runs without a linked Integration to authenticate with."""
+
+    def __init__(self, batch_export_id: str | None):
+        super().__init__(
+            f"Snowflake batch export '{batch_export_id}' has no linked integration. "
+            "Edit the export and choose a Snowflake connection."
+        )
 
 
 async def _get_snowflake_integration(integration_id: int, team_id: int) -> SnowflakeIntegration:
@@ -470,25 +483,19 @@ class SnowflakeTable(Table):
 
 @dataclasses.dataclass(frozen=False, kw_only=True)
 class SnowflakeInsertInputs(BatchExportInsertInputs):
-    """Inputs for Snowflake."""
+    """Inputs for Snowflake.
 
-    # TODO: do _not_ store credentials in temporal inputs. It makes it very hard
-    # to keep track of where credentials are being stored and increases the
-    # attach surface for credential leaks.
+    Credentials are resolved from the linked Integration in the activity, so they never enter a
+    Temporal payload.
+    """
 
     database: str
     warehouse: str
     schema: str
     table_name: str
-    # When set, account/user/authentication_type and credentials are resolved from this Integration
-    # at run time; otherwise the inline values below are used (legacy path).
+    # Optional so a schedule payload synced before the field existed converts cleanly. The activity
+    # raises `SnowflakeIntegrationRequiredError` when it is missing.
     integration_id: int | None = None
-    user: str | None = None
-    account: str | None = None
-    authentication_type: str = "password"
-    password: str | None = dataclasses.field(default=None, repr=False)
-    private_key: str | None = dataclasses.field(default=None, repr=False)
-    private_key_passphrase: str | None = dataclasses.field(default=None, repr=False)
     role: str | None = None
 
 
@@ -531,6 +538,15 @@ def load_private_key(private_key: str, passphrase: str | None) -> bytes:
     )
 
 
+def _is_connect_error_retryable(err: Exception) -> bool:
+    """Only retry connect failures that another attempt can fix.
+
+    Anything else, like invalid credentials or an unknown account, fails the same way
+    however often we try.
+    """
+    return isinstance(err, OperationalError) and err.errno in (ER_FAILED_TO_CONNECT_TO_DB, ER_RETRYABLE_CODE)
+
+
 class SnowflakeClient:
     """Snowflake connection client used in batch exports."""
 
@@ -566,37 +582,29 @@ class SnowflakeClient:
         self.logger = LOGGER.bind(user=user, account=account, warehouse=warehouse, database=database)
 
     @classmethod
-    def from_inputs(cls, inputs: SnowflakeInsertInputs) -> typing.Self:
-        """Initialize `SnowflakeClient` from `SnowflakeInsertInputs`."""
+    def from_integration(cls, integration: SnowflakeIntegration, inputs: SnowflakeInsertInputs) -> typing.Self:
+        """Initialize `SnowflakeClient` from a resolved Integration and the export's inputs."""
 
-        # account and user are optional on the inputs (integration-backed exports resolve them at run
-        # time in the activity), but they must be resolved by the time we open a connection.
-        account = inputs.account
-        user = inputs.user
-        if account is None or user is None:
-            raise SnowflakeAuthenticationError("Snowflake account and user are required")
-
-        # User could have specified both password and private key in their batch export config.
-        # (for example, if they've already created a batch export with password auth and are now switching to keypair auth)
-        # Therefore we decide which one to use based on the authentication_type.
+        # An integration can hold both a password and a private key, for instance after a rotation
+        # from one to the other, so its authentication_type decides which one to use.
         password = None
         private_key = None
-        if inputs.authentication_type == "password":
-            password = inputs.password
+        if integration.authentication_type == "password":
+            password = integration.password
             if password is None:
                 raise SnowflakeAuthenticationError("Password is required for password authentication")
-        elif inputs.authentication_type == "keypair":
-            if inputs.private_key is None:
+        elif integration.authentication_type == "keypair":
+            if integration.private_key is None:
                 raise SnowflakeAuthenticationError("Private key is required for keypair authentication")
 
-            private_key = load_private_key(inputs.private_key, inputs.private_key_passphrase)
+            private_key = load_private_key(integration.private_key, integration.private_key_passphrase)
 
         else:
-            raise SnowflakeAuthenticationError(f"Invalid authentication type: {inputs.authentication_type}")
+            raise SnowflakeAuthenticationError(f"Invalid authentication type: {integration.authentication_type}")
 
         return cls(
-            user=user,
-            account=account,
+            user=integration.user,
+            account=integration.account,
             warehouse=inputs.warehouse,
             database=inputs.database,
             schema=inputs.schema,
@@ -621,9 +629,12 @@ class SnowflakeClient:
         self.logger.debug("Initializing Snowflake connection")
         self.ensure_snowflake_logger_level("INFO")
 
-        try:
+        async def open_connection() -> SnowflakeConnection:
+            # The semaphore is held for the connect call only, and released before any
+            # retry delay, so that one export waiting to retry does not keep every other
+            # export on this worker from connecting.
             async with CONNECTION_SEMAPHORE:
-                connection = await asyncio.to_thread(
+                return await asyncio.to_thread(
                     snowflake.connector.connect,
                     user=self.user,
                     password=self.password,
@@ -634,20 +645,29 @@ class SnowflakeClient:
                     # wrap role in quotes in case it contains lowercase or special characters
                     role=f'"{self.role}"' if self.role is not None else None,
                     private_key=self.private_key,
-                    # Logins can be slow, and a login timeout raises a
-                    # non-retryable connection error, so allow extra time.
-                    login_timeout=20,
+                    login_timeout=10,
                     # Pin Snowflake's per-session statement count to 1 to block
                     # multi-statement execution. This is already the connector default,
                     # but setting it explicitly means an account-level override cannot
                     # accidentally enable multi-statement execution.
                     session_parameters={"MULTI_STATEMENT_COUNT": 1},
                 )
+
+        connect_with_retries = make_retryable_with_exponential_backoff(
+            open_connection,
+            max_attempts=5,
+            initial_retry_delay=1,
+            max_delay_jitter=1,
+            retryable_exceptions=(OperationalError,),
+            is_exception_retryable=_is_connect_error_retryable,
+        )
+
+        try:
+            connection = await connect_with_retries()
             connection.telemetry_enabled = False
 
         except OperationalError as err:
-            if err.errno == 251012:
-                # 251012: Generic retryable error code
+            if err.errno == ER_RETRYABLE_CODE:
                 raise SnowflakeRetryableConnectionError(
                     "Could not connect to Snowflake but this error may be retried"
                 ) from err
@@ -1389,17 +1409,10 @@ async def insert_into_snowflake_activity_from_stage(
     )
 
     async with Heartbeater():
-        # Integration-backed exports resolve account, user, auth type and credentials at run time;
-        # legacy exports carry them inline.
-        # TODO: require integration
-        if inputs.integration_id is not None:
-            integration = await _get_snowflake_integration(inputs.integration_id, inputs.team_id)
-            inputs.account = integration.account
-            inputs.user = integration.user
-            inputs.authentication_type = integration.authentication_type
-            inputs.password = integration.password
-            inputs.private_key = integration.private_key
-            inputs.private_key_passphrase = integration.private_key_passphrase
+        if inputs.integration_id is None:
+            raise SnowflakeIntegrationRequiredError(inputs.batch_export_id)
+
+        integration = await _get_snowflake_integration(inputs.integration_id, inputs.team_id)
 
         model: BatchExportModel | BatchExportSchema | None = None
         if inputs.batch_export_schema is None:
@@ -1471,7 +1484,7 @@ async def insert_into_snowflake_activity_from_stage(
             dt.datetime.fromisoformat(inputs.data_interval_end),
         )
 
-        async with SnowflakeClient.from_inputs(inputs).connect() as snow_client:
+        async with SnowflakeClient.from_integration(integration, inputs).connect() as snow_client:
             consumer_table = snow_target_table = await snow_client.get_or_create_table(target_table)
             # Exporting directly to target table
             should_delete = False
@@ -1596,12 +1609,6 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         insert_inputs = SnowflakeInsertInputs(
             team_id=inputs.team_id,
             integration_id=inputs.integration_id,
-            user=inputs.user,
-            account=inputs.account,
-            authentication_type=inputs.authentication_type,
-            password=inputs.password,
-            private_key=inputs.private_key,
-            private_key_passphrase=inputs.private_key_passphrase,
             warehouse=inputs.warehouse,
             database=inputs.database,
             schema=inputs.schema,

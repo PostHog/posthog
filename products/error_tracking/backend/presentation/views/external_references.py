@@ -58,6 +58,8 @@ class ErrorTrackingExternalReferenceResultSerializer(serializers.Serializer):
     external_url = serializers.SerializerMethodField(
         help_text="URL of the linked external issue in the provider's system."
     )
+    external_id = serializers.CharField(read_only=True, help_text="Provider-native identifier of the linked issue.")
+    title = serializers.CharField(read_only=True, help_text="Title of the linked issue.")
 
     @extend_schema_field(serializers.CharField())
     def get_external_url(self, reference: contracts.ErrorTrackingExternalReference) -> str:
@@ -102,7 +104,7 @@ class ErrorTrackingExternalReferenceLinkSerializer(serializers.Serializer):
     external_context = ExternalReferenceContextField(
         write_only=True,
         help_text=(
-            "Identifier of the existing external issue to link, as returned by the search-issues endpoint. "
+            "Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. "
             "Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; "
             "linear -> {id}; jira -> {key}."
         ),
@@ -118,7 +120,7 @@ class ErrorTrackingExternalIssueSearchQuerySerializer(serializers.Serializer):
         allow_blank=True,
         default="",
         help_text=(
-            "Text to match against existing issue titles / keys in the provider. GitHub matches it "
+            "Text to match against existing issue titles or identifiers in the provider. GitHub matches titles "
             "as an exact phrase. Leave blank for recent issues."
         ),
     )

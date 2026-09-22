@@ -2,6 +2,7 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 import { HttpResponse } from 'msw'
+import posthog from 'posthog-js'
 
 import { processAllSnapshots, SnapshotSourceType, SourceKey, ViewportResolution } from '@posthog/replay-shared'
 
@@ -243,6 +244,7 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
 
         it('fetch metadata error with 500 sets loadMetaError but not isNotFound', async () => {
             silenceKeaLoadersErrors()
+            const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
             logic.unmount()
             overrideSessionRecordingMocks({
                 getMocks: {
@@ -276,11 +278,14 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
 
             expect(metaLogic.values.isNotFound).toBe(false)
             expect(metaLogic.values.loadMetaError).toBe(true)
+            expect(captureExceptionSpy).toHaveBeenCalled()
+            captureExceptionSpy.mockRestore()
             resumeKeaLoadersErrors()
         })
 
         it('fetch metadata error with 404 sets isNotFound but not loadMetaError', async () => {
             silenceKeaLoadersErrors()
+            const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
             logic.unmount()
             overrideSessionRecordingMocks({
                 getMocks: {
@@ -298,6 +303,8 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
 
             expect(metaLogic.values.isNotFound).toBe(true)
             expect(metaLogic.values.loadMetaError).toBe(false)
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+            captureExceptionSpy.mockRestore()
             resumeKeaLoadersErrors()
         })
 

@@ -101,14 +101,15 @@ export const ConversationsOpenCreateBody = /* @__PURE__ */ zod
                                 'evaluation',
                                 'event',
                                 'insight',
+                                'instructions',
                                 'notebook',
                                 'text',
                             ])
                             .describe(
-                                '\* `action` - action\n\* `dashboard` - dashboard\n\* `error_tracking_issue` - error_tracking_issue\n\* `evaluation` - evaluation\n\* `event` - event\n\* `insight` - insight\n\* `notebook` - notebook\n\* `text` - text'
+                                '\* `action` - action\n\* `dashboard` - dashboard\n\* `error_tracking_issue` - error_tracking_issue\n\* `evaluation` - evaluation\n\* `event` - event\n\* `insight` - insight\n\* `instructions` - instructions\n\* `notebook` - notebook\n\* `text` - text'
                             )
                             .describe(
-                                'Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.\n\n\* `action` - action\n\* `dashboard` - dashboard\n\* `error_tracking_issue` - error_tracking_issue\n\* `evaluation` - evaluation\n\* `event` - event\n\* `insight` - insight\n\* `notebook` - notebook\n\* `text` - text'
+                                "Attachment kind. Entity types carry `id` (+ optional `name`); `text` and `instructions` carry `value`. `instructions` is the caller's own guidance and renders into the trusted context block; every other kind renders into the untrusted block, which tells the agent to read it as data.\n\n\* `action` - action\n\* `dashboard` - dashboard\n\* `error_tracking_issue` - error_tracking_issue\n\* `evaluation` - evaluation\n\* `event` - event\n\* `insight` - insight\n\* `instructions` - instructions\n\* `notebook` - notebook\n\* `text` - text"
                             ),
                         id: zod
                             .unknown()
@@ -120,7 +121,10 @@ export const ConversationsOpenCreateBody = /* @__PURE__ */ zod
                             .string()
                             .optional()
                             .describe('Optional human-readable label rendered in the context block.'),
-                        value: zod.string().optional().describe('Free-text content. Only for `text` attachments.'),
+                        value: zod
+                            .string()
+                            .optional()
+                            .describe('Free-text content. Only for `text` and `instructions` attachments.'),
                     })
                     .describe(
                         'One typed attachment carried by a sandbox message.\n\nDEPRECATED PATH — do not extend. This structured `attached_context` (and its server-side wrap in\n`context_wrapper.py`) exists only for the legacy Max conversations bridge and is removed with it;\nthe live path wraps context client-side (`products\/posthog_ai\/frontend\/utils\/posthogContextBlock.ts`).'
@@ -153,6 +157,21 @@ export const ConversationsQueueCreateBody = /* @__PURE__ */ zod.looseObject({})
 export const ConversationsQueuePartialUpdateBody = /* @__PURE__ */ zod.looseObject({})
 
 export const ConversationsQueueClearCreateBody = /* @__PURE__ */ zod.looseObject({})
+
+/**
+ * Invoke an MCP tool by name.
+ *
+ * This endpoint allows MCP callers to invoke Max AI tools directly
+ * without going through the full LangChain conversation flow.
+ *
+ * Scopes are resolved dynamically per tool via dangerously_get_required_scopes.
+ */
+export const McpToolsCreateBody = /* @__PURE__ */ zod.object({
+    args: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe("Arguments validated against the selected tool's schema."),
+})
 
 /**
  * Run a hybrid (semantic + full-text) RAG search over the PostHog documentation via Inkeep. Returns a markdown body with title, URL, and excerpt for each match for the agent to cite back to the user.

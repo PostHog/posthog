@@ -64,6 +64,19 @@ class TestAshbySource:
         self.source.validate_credentials(self.config, self.team_id, schema_name="candidates")
         mock_check.assert_called_once_with("ashby-key", "candidate.list")
 
+    @pytest.mark.parametrize(
+        "schema_name, expected_path",
+        [("application_history", "application.list"), ("interview_stages", "interviewPlan.list")],
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.ashby.source.check_access")
+    def test_validate_credentials_probes_the_parent_of_a_fanned_out_schema(
+        self, mock_check: mock.MagicMock, schema_name: str, expected_path: str
+    ) -> None:
+        # The child methods need a parent id, so probing them directly always fails.
+        mock_check.return_value = (200, None)
+        self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
+        mock_check.assert_called_once_with("ashby-key", expected_path)
+
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.ashby.source.check_access")
     def test_validate_credentials_uses_default_probe_without_schema(self, mock_check: mock.MagicMock) -> None:
         mock_check.return_value = (200, None)

@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any, cast
 from uuid import uuid4
@@ -7,7 +8,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.db import connection
+from django.db import connection, transaction
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -76,7 +77,6 @@ from products.notebooks.backend.widgets import (
     _extend_prompt_history,
     _materialize_effective_prompt,
     _version_input_contract,
-    _widget_gateway_api_key_value,
     cancel_widget_generation,
     fail_widget_generation_capacity_job,
     fail_widget_generation_job,
@@ -400,11 +400,11 @@ class TestWidgetGeneration(SimpleTestCase):
         assert "public_df" in request["messages"][0]["content"]
         stream.close.assert_called_once()
 
-    def test_generate_request_defaults_to_the_balanced_model(self) -> None:
+    def test_generate_request_defaults_to_sonnet_5(self) -> None:
         serializer = WidgetGenerateRequestSerializer(data={"prompt": "Render a globe", "generation_id": str(uuid4())})
 
         assert serializer.is_valid(), serializer.errors
-        assert serializer.validated_data["model"] == DEFAULT_WIDGET_MODEL
+        assert serializer.validated_data["model"] == "claude-sonnet-5"
 
     def test_generate_request_rejects_an_unlisted_model(self) -> None:
         serializer = WidgetGenerateRequestSerializer(
@@ -494,13 +494,19 @@ class TestWidgetGeneration(SimpleTestCase):
                     '<PythonV2 nodeId="source" returnVariable="locations_df" />\n\n'
                     '<SQLV2 nodeId="summary" returnVariable="summary_df" />\n\n'
                     '<Query nodeId="saved" returnVariable="saved_df" />\n\n'
+                    '<Insight nodeId="insight" dataframeQuery="SELECT 1" />\n\n'
                     '<Widget nodeId="globe" prompt="Render a globe" />\n\n'
                     '<PythonV2 nodeId="later" returnVariable="future_df" />'
                 )
             ),
         )
 
-        assert infer_widget_inputs(notebook, "globe") == ["locations_df", "summary_df", "future_df"]
+        assert infer_widget_inputs(notebook, "globe") == [
+            "locations_df",
+            "summary_df",
+            "insight_df",
+            "future_df",
+        ]
 
     @parameterized.expand([("generated_widget", "GeneratedWidget"), ("genui", "GenUI")])
     def test_rejects_removed_widget_tags(self, _name: str, tag_name: str) -> None:
@@ -572,7 +578,7 @@ class TestWidgetData(APIBaseTest):
             },
         )
 
-    def _mapping(self) -> NotebookWidgetInstance:
+    def _mapping(self, *, pinned: bool = True, with_version: bool = True) -> NotebookWidgetInstance:
         widget = GeneratedWidget.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             name="Render a globe",
@@ -586,6 +592,8 @@ class TestWidgetData(APIBaseTest):
             widget=widget,
             created_by=self.user,
         )
+        if not with_version:
+            return instance
         version = GeneratedWidgetVersion.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             widget=widget,
@@ -606,7 +614,7 @@ class TestWidgetData(APIBaseTest):
         )
         widget.current_version = version
         widget.save(update_fields=["current_version"])
-        instance.pinned_version = version
+        instance.pinned_version = version if pinned else None
         instance.save(update_fields=["pinned_version"])
         return instance
 
@@ -615,14 +623,25 @@ class TestWidgetData(APIBaseTest):
         assert version is not None
         return version
 
-    def test_inspection_uses_latest_successful_run_and_authorizes_it(self) -> None:
+    @parameterized.expand([("all_ready", False), ("unrun_sibling", True)])
+    def test_inspection_uses_latest_successful_run_and_authorizes_it(self, _name: str, unrun_sibling: bool) -> None:
         self._run(value=1)
         latest = self._run(value=2)
         authorize = MagicMock()
+        inputs = [self.INPUT_NAME]
+        if unrun_sibling:
+            self.notebook.content = markdown_content(
+                f'<PythonV2 nodeId="source" returnVariable="{self.INPUT_NAME}" />\n\n'
+                '<SQLV2 nodeId="unrun" code="SELECT 1" returnVariable="unrun_df" />'
+            )
+            inputs.append("unrun_df")
+            with self.assertRaises(WidgetError) as error:
+                inspect_widget_inputs(self.notebook, inputs, authorize)
+            assert error.exception.code == "input_not_ready"
 
-        inspection = inspect_widget_inputs(self.notebook, [self.INPUT_NAME], authorize)
+        inspection = inspect_widget_inputs(self.notebook, inputs, authorize, skip_unready=unrun_sibling)
 
-        assert inspection.resolved_inputs[0].run == latest
+        assert [(item.name, item.run) for item in inspection.resolved_inputs] == [(self.INPUT_NAME, latest)]
         assert inspection.contract[0]["columns"] == [
             {"name": "lat", "type": "float64"},
             {"name": "label", "type": "string"},
@@ -640,7 +659,7 @@ class TestWidgetData(APIBaseTest):
 
         assert error.exception.code == "input_schema_too_large"
 
-    def test_version_contract_keeps_only_frame_authorization_metadata(self) -> None:
+    def test_version_contract_keeps_frame_schema_without_row_data(self) -> None:
         self._run()
         contract = inspect_widget_inputs(self.notebook, [self.INPUT_NAME], lambda _run: None).contract
 
@@ -648,6 +667,7 @@ class TestWidgetData(APIBaseTest):
             {
                 "slot": self.INPUT_NAME,
                 "sourceName": self.INPUT_NAME,
+                "columns": [{"name": "lat", "type": "float64"}, {"name": "label", "type": "string"}],
                 "schemaHash": contract[0]["schemaHash"],
             }
         ]
@@ -1019,20 +1039,32 @@ class TestWidgetData(APIBaseTest):
             version_id=version.canvas_source_version_id,
         )
 
-    def test_generate_endpoint_infers_available_dataframes(self) -> None:
+    @parameterized.expand([("all_ready", False), ("unrun_sibling", True)])
+    def test_generate_endpoint_infers_available_dataframes(self, _name: str, unrun_sibling: bool) -> None:
         latest = self._run()
+        if unrun_sibling:
+            self.notebook.content = markdown_content(
+                f'<PythonV2 nodeId="source" returnVariable="{self.INPUT_NAME}" />\n\n'
+                f'<Widget nodeId="{self.NODE_ID}" prompt="Render a globe" />\n\n'
+                '<SQLV2 nodeId="unrun" code="SELECT 1" returnVariable="unrun_df" />'
+            )
+            self.notebook.save(update_fields=["content"])
         url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.NODE_ID}/generate/"
         result = WidgetStatus(
             lifecycle_status="building",
             error_detail=None,
             artifact_url=None,
             frame_names=[self.INPUT_NAME],
+            input_bindings={},
+            input_contract=[],
             current_version_id=None,
+            pinned_version_id=None,
             widget_id=None,
             instance_id=None,
             has_versions=False,
             active_job=None,
             security_review=None,
+            is_reusable=False,
         )
 
         with patch(
@@ -1045,7 +1077,8 @@ class TestWidgetData(APIBaseTest):
             )
 
         assert response.status_code == 202
-        assert generate.call_args.kwargs["inspection"].resolved_inputs[0].run == latest
+        inputs = generate.call_args.kwargs["inspection"].resolved_inputs
+        assert [(item.name, item.run) for item in inputs] == [(self.INPUT_NAME, latest)]
         assert generate.call_args.kwargs["operation"] == "regenerate"
 
     @parameterized.expand(
@@ -1142,6 +1175,56 @@ class TestWidgetData(APIBaseTest):
         assert start_workflow.call_count == 2
         assert job.status == GeneratedWidgetGenerationJob.Status.QUEUED
         assert job.error_code is None
+
+    @parameterized.expand([("direct", False), ("bound", True)])
+    def test_improvement_requires_existing_inputs_and_preserves_slots(self, _name: str, bound: bool) -> None:
+        instance = self._mapping()
+        version = self._pinned_version(instance)
+        slot = "points" if bound else self.INPUT_NAME
+        version.input_contract[0]["slot"] = slot
+        if bound:
+            version.input_contract[0]["sourceName"] = "original_df"
+            instance.input_bindings = {slot: {"source": self.INPUT_NAME}}
+            instance.save(update_fields=["input_bindings"])
+        version.save(update_fields=["input_contract"])
+        self.notebook.content = markdown_content(
+            f'<PythonV2 nodeId="source" returnVariable="{self.INPUT_NAME}" />\n\n'
+            '<SQLV2 nodeId="unrun" returnVariable="unrun_df" code="SELECT 1" />\n\n'
+            f'<Widget nodeId="{self.NODE_ID}" />'
+        )
+        self.notebook.save(update_fields=["content"])
+        url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.NODE_ID}/generate/"
+        request = {
+            "prompt": "Use a darker background",
+            "generation_id": str(uuid4()),
+            "generation_operation": "improve",
+            "expected_current_version_id": str(version.id),
+        }
+        with (
+            patch("products.notebooks.backend.widgets._is_ai_usage_limited", return_value=False),
+            patch("products.notebooks.backend.widgets.start_widget_generation_workflow") as workflow,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(url, data=request, format="json")
+            assert response.status_code == 409
+            assert response.json()["code"] == "input_not_ready"
+            assert not GeneratedWidgetGenerationJob.objects.for_team(self.team.id).exists()
+            workflow.assert_not_called()
+
+            run = self._run()
+            response = self.client.post(url, data=request, format="json")
+
+        assert response.status_code == 202
+        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).get()
+        required = next(item for item in job.input_contract if item["slot"] == slot)
+        assert required == {
+            **version.input_contract[0],
+            "sourceName": self.INPUT_NAME,
+            "runId": str(run.id),
+            "totalRowCount": 150,
+        }
+        assert "unrun_df" not in [item["slot"] for item in job.input_contract]
+        workflow.assert_called_once()
 
     def test_improvement_rejects_a_stale_current_version_before_creating_a_job(self) -> None:
         self._mapping()
@@ -1245,6 +1328,7 @@ class TestWidgetData(APIBaseTest):
             model="claude-sonnet-4-6",
             input_contract=[],
             schema_hash="",
+            gateway_credential_hash=hash_key_value("phs_test_widget_credential"),
         )
         GeneratedWidgetGenerationJob.objects.for_team(self.team.id).filter(id=stale_job.id).update(
             created_at=timezone.now() - JOB_STALE_AFTER - timedelta(seconds=1)
@@ -1269,9 +1353,7 @@ class TestWidgetData(APIBaseTest):
 
         stale_job.refresh_from_db()
         assert stale_job.status == GeneratedWidgetGenerationJob.Status.FAILED
-        clear_credential.assert_called_once_with(
-            hash_key_value(_widget_gateway_api_key_value(stale_job.id, self.team.id))
-        )
+        clear_credential.assert_called_once_with(hash_key_value("phs_test_widget_credential"))
 
     def test_capacity_exhaustion_records_a_specific_failure(self) -> None:
         widget = GeneratedWidget.objects.for_team(self.team.id).create(
@@ -1376,6 +1458,8 @@ class TestWidgetData(APIBaseTest):
         assert error.exception.code == "generation_id_conflict"
 
     def test_generation_identifier_is_scoped_to_the_team(self) -> None:
+        self._run()
+        inspection = inspect_widget_inputs(self.notebook, [self.INPUT_NAME], authorize_run=lambda _run: None)
         generation_id = uuid4()
         other_team = Team.objects.create(organization=self.organization)
         other_notebook = Notebook.objects.create(
@@ -1420,7 +1504,7 @@ class TestWidgetData(APIBaseTest):
                 node_id=self.NODE_ID,
                 prompt="Make it lighter",
                 user_id=self.user.id,
-                inspection=WidgetInputInspection(resolved_inputs=[]),
+                inspection=inspection,
                 model="claude-sonnet-4-6",
                 generation_id=generation_id,
                 operation=GeneratedWidgetVersion.Operation.IMPROVE,
@@ -1585,12 +1669,13 @@ class TestWidgetData(APIBaseTest):
             model="claude-sonnet-4-6",
             input_contract=[],
             schema_hash="",
+            gateway_credential_hash=hash_key_value("phs_test_widget_credential"),
         )
 
         with patch("posthog.storage.gateway_credential_cache.clear_gateway_credential") as clear_credential:
             fail_widget_generation_job(job.id, self.team.id)
 
-        clear_credential.assert_called_once_with(hash_key_value(_widget_gateway_api_key_value(job.id, self.team.id)))
+        clear_credential.assert_called_once_with(hash_key_value("phs_test_widget_credential"))
         job.refresh_from_db()
         assert job.status == GeneratedWidgetGenerationJob.Status.FAILED
         assert job.error_code == "generation_abandoned"
@@ -1641,6 +1726,10 @@ class TestWidgetData(APIBaseTest):
                 "products.canvas.backend.notebook_integration.prepare_notebook_canvas_source",
                 side_effect=mark_terminal,
             ),
+            patch(
+                "products.canvas.backend.notebook_integration.notebook_canvas_source_transaction",
+                side_effect=lambda **kwargs: transaction.atomic(),
+            ),
             patch("products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_source") as publish,
         ):
             run_widget_generation_job(job.id, self.team.id)
@@ -1651,20 +1740,29 @@ class TestWidgetData(APIBaseTest):
         assert job.result_version_id is None
         assert GeneratedWidgetVersion.objects.for_team(self.team.id).filter(widget=instance.widget).count() == 1
 
+    @parameterized.expand(
+        [
+            (GeneratedWidgetVersion.Operation.INITIAL, False),
+            (GeneratedWidgetVersion.Operation.IMPROVE, False),
+            (GeneratedWidgetVersion.Operation.IMPROVE, True),
+        ]
+    )
     @override_settings(
         AI_GATEWAY_URL="https://ai-gateway.example/v1",
         AI_GATEWAY_API_KEY="phs_shared_key",
         AI_GATEWAY_REDIS_URL="redis://gateway",
     )
-    def test_generation_worker_persists_an_advisory_review_before_publication(self) -> None:
-        instance = self._mapping()
-        base_version = self._pinned_version(instance)
+    def test_generation_worker_persists_review_and_preserves_version_following(
+        self, operation: str, pinned: bool
+    ) -> None:
+        instance = self._mapping(pinned=pinned, with_version=operation != GeneratedWidgetVersion.Operation.INITIAL)
+        base_version = instance.widget.current_version
         job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             widget=instance.widget,
             instance=instance,
             requested_by=self.user,
-            operation=GeneratedWidgetVersion.Operation.IMPROVE,
+            operation=operation,
             prompt="Make it lighter",
             model="claude-sonnet-4-6",
             base_version=base_version,
@@ -1696,6 +1794,7 @@ class TestWidgetData(APIBaseTest):
             before_request()
             assert not ProjectSecretAPIKey.objects.filter(team_id=self.team.id).exists()
             gateway_api_keys.append(gateway_api_key)
+            Team.objects.filter(id=self.team.id).update(llm_gateway_overspend_allowance_usd=Decimal("0"))
             return GeneratedWidgetSource(title="Lighter globe", source=source)
 
         def perform_review(**kwargs: object) -> WidgetSecurityReview:
@@ -1710,6 +1809,11 @@ class TestWidgetData(APIBaseTest):
             return security_review
 
         def prepare_source(**_kwargs: object) -> MagicMock:
+            assert (
+                not GeneratedWidgetGenerationJob.objects.for_team(self.team.id)
+                .exclude(gateway_credential_hash=None)
+                .exists()
+            )
             events.append("prepare")
             return MagicMock()
 
@@ -1722,13 +1826,19 @@ class TestWidgetData(APIBaseTest):
                 "products.notebooks.backend.widget_generation.review_widget_source",
                 side_effect=perform_review,
             ) as review,
-            patch("posthog.storage.gateway_credential_cache.project_gateway_credential") as project_credential,
+            patch(
+                "posthog.storage.gateway_credential_cache.gateway_credential_hypercache.set_cache_value_redis_only"
+            ) as project_credential,
             patch("posthog.storage.gateway_credential_cache.clear_gateway_credential") as clear_credential,
             patch("products.canvas.backend.notebook_integration.get_notebook_canvas_source", return_value="source"),
             patch(
                 "products.canvas.backend.notebook_integration.prepare_notebook_canvas_source",
                 side_effect=prepare_source,
             ) as prepare,
+            patch(
+                "products.canvas.backend.notebook_integration.notebook_canvas_source_transaction",
+                side_effect=lambda **kwargs: transaction.atomic(),
+            ),
             patch(
                 "products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_source",
                 return_value=publication_id,
@@ -1739,6 +1849,9 @@ class TestWidgetData(APIBaseTest):
         job.refresh_from_db()
         assert job.status == GeneratedWidgetGenerationJob.Status.COMPLETED
         assert job.result_version_id is not None
+        instance.refresh_from_db()
+        assert instance.widget.current_version_id == job.result_version_id
+        assert instance.pinned_version_id == (job.result_version_id if pinned else None)
         version = GeneratedWidgetVersion.objects.for_team(self.team.id).get(id=job.result_version_id)
         assert version.canvas_source_version_id == publication_id
         assert version.security_review_severity == "critical"
@@ -1758,10 +1871,12 @@ class TestWidgetData(APIBaseTest):
         assert not ProjectSecretAPIKey.objects.filter(team_id=self.team.id).exists()
         assert project_credential.call_count == 3
         for call in project_credential.call_args_list:
-            projected_credential = call.args[0]
-            assert projected_credential.team_id == self.team.id
-            assert projected_credential.scopes == ["llm_gateway:read"]
-            assert projected_credential._state.adding
+            assert call.args[0] == hash_key_value(gateway_api_keys[0])
+            policy = call.args[1]
+            assert policy["team_id"] == self.team.id
+            assert policy["project_token"] == self.team.api_token
+            assert policy["scopes"] == ["llm_gateway:read"]
+        assert project_credential.call_args.args[1]["overspend_allowance_usd"] == "0.000000"
         clear_credential.assert_called_once_with(hash_key_value(gateway_api_keys[0]))
         review.assert_called_once()
         assert review.call_args.kwargs["team_id"] == self.team.id
@@ -1944,6 +2059,7 @@ class TestWidgetData(APIBaseTest):
             model="claude-sonnet-4-6",
             input_contract=[],
             schema_hash="",
+            gateway_credential_hash=hash_key_value("phs_test_widget_credential"),
         )
         GeneratedWidgetGenerationJob.objects.for_team(self.team.id).filter(id=job.id).update(
             created_at=timezone.now() - JOB_STALE_AFTER - timedelta(seconds=1),
@@ -1962,9 +2078,7 @@ class TestWidgetData(APIBaseTest):
         assert bool(write_queries) is expected_write
         assert clear_credential.called is expected_credential_clear
         if expected_credential_clear:
-            clear_credential.assert_called_once_with(
-                hash_key_value(_widget_gateway_api_key_value(job.id, self.team.id))
-            )
+            clear_credential.assert_called_once_with(hash_key_value("phs_test_widget_credential"))
         assert job.status == expected_job_status
         assert result.lifecycle_status == expected_lifecycle
         assert result.error_detail == ("Generation stopped unexpectedly. Start it again." if expected_write else None)

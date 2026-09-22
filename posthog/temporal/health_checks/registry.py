@@ -16,6 +16,7 @@ HEALTH_CHECK_MODULES = [
     "products.data_warehouse.backend.temporal.health_checks.external_data_failure",
     "products.web_analytics.backend.temporal.health_checks.no_live_events",
     "products.web_analytics.backend.temporal.health_checks.no_pageleave_events",
+    "products.web_analytics.backend.temporal.health_checks.missing_session_id",
     "products.growth.backend.temporal.health_checks.sdk_outdated",
     "products.cdp.backend.temporal.health_checks.ingestion_warnings",
     "products.data_warehouse.backend.temporal.health_checks.materialized_view_failure",
@@ -26,6 +27,7 @@ HEALTH_CHECK_MODULES = [
     "products.web_analytics.backend.temporal.health_checks.web_vitals",
     "products.web_analytics.backend.temporal.health_checks.path_cleaning_suggestions",
     "products.error_tracking.backend.temporal.health_checks.missing_source_maps",
+    "products.feature_flags.backend.temporal.health_checks.stale_flags",
 ]
 
 _registry_loaded = False

@@ -5,7 +5,7 @@ from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from parameterized import parameterized
@@ -282,7 +282,7 @@ class TestHttpSampleCapture:
     ) -> None:
         session = _session_with(responses)
         with (
-            freeze_time(NOW),
+            time_machine.travel(NOW, tick=False),
             mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session) as mock_session,
         ):
             list(
@@ -376,7 +376,7 @@ class TestAuditLogRows:
         urls = _requested_urls(session)
         assert _query_params(urls[2])["from"] == f"log-{AUDIT_LOGS_PAGE_SIZE - 1}"
 
-    @freeze_time(NOW)
+    @time_machine.travel(NOW, tick=False)
     def test_incremental_seeds_from_search(self) -> None:
         last_value = datetime(2026, 6, 30, 9, 0, 0, tzinfo=UTC)
         manager = _FakeManager()
@@ -394,7 +394,7 @@ class TestAuditLogRows:
         assert _query_params(urls[0]) == {"time": str(int(last_value.timestamp()))}
         assert [[log["id"] for log in batch] for batch in batches] == [["log-a"], ["log-b"]]
 
-    @freeze_time(NOW)
+    @time_machine.travel(NOW, tick=False)
     def test_incremental_caught_up(self) -> None:
         # No log at or after the watermark - the search endpoint 404s.
         manager = _FakeManager()
@@ -406,7 +406,7 @@ class TestAuditLogRows:
 
         assert batches == []
 
-    @freeze_time(NOW)
+    @time_machine.travel(NOW, tick=False)
     def test_incremental_watermark_older_than_search_limit_falls_back_to_earliest(self) -> None:
         stale_watermark = datetime(2024, 1, 1, tzinfo=UTC)
         manager = _FakeManager()
@@ -470,7 +470,7 @@ class TestHistoryRows:
             ("query_history", "query_history", "/api/v2/history/query"),
         ]
     )
-    @freeze_time(NOW)
+    @time_machine.travel(NOW, tick=False)
     def test_incremental_fetches_windows_up_to_now(self, _name: str, endpoint: str, expected_path: str) -> None:
         last_value = datetime(2026, 7, 1, 10, 0, 0, tzinfo=UTC)
         manager = _FakeManager()
@@ -492,7 +492,7 @@ class TestHistoryRows:
         assert batches[0][0]["utc_time"] == datetime(2026, 7, 1, 10, 30, 0, tzinfo=UTC)
         assert [state.window_start for state in manager.saved] == [NOW_EPOCH]
 
-    @freeze_time(NOW)
+    @time_machine.travel(NOW, tick=False)
     def test_walks_multiple_windows_and_saves_state_after_each(self) -> None:
         # 2.5 windows back from now: expect 3 requests covering contiguous ranges.
         last_value = NOW_EPOCH - int(2.5 * 24 * 60 * 60)
@@ -522,7 +522,7 @@ class TestHistoryRows:
             NOW_EPOCH,
         ]
 
-    @freeze_time(NOW)
+    @time_machine.travel(NOW, tick=False)
     def test_full_sync_starts_at_lookback_floor(self) -> None:
         manager = _FakeManager()
         # Widen the window so the full backfill is a single request.
@@ -533,7 +533,7 @@ class TestHistoryRows:
         assert params["start_time"] == str(NOW_EPOCH - MAX_LOOKBACK_DAYS * 24 * 60 * 60)
         assert params["end_time"] == str(NOW_EPOCH)
 
-    @freeze_time(NOW)
+    @time_machine.travel(NOW, tick=False)
     def test_incremental_caught_up_makes_no_requests(self) -> None:
         manager = _FakeManager()
         batches, session = self._get_batches([], manager, db_incremental_field_last_value=NOW)
@@ -541,7 +541,7 @@ class TestHistoryRows:
         assert batches == []
         assert session.get.call_count == 0
 
-    @freeze_time(NOW)
+    @time_machine.travel(NOW, tick=False)
     def test_resume_starts_at_saved_window(self) -> None:
         window_start = NOW_EPOCH - 3600
         manager = _FakeManager(resume=HarveyResumeConfig(window_start=window_start))
@@ -549,7 +549,7 @@ class TestHistoryRows:
 
         assert _query_params(_requested_urls(session)[0])["start_time"] == str(window_start)
 
-    @freeze_time(NOW)
+    @time_machine.travel(NOW, tick=False)
     def test_incremental_watermark_older_than_api_limit_is_clamped(self) -> None:
         manager = _FakeManager()
         with mock.patch(f"{HARVEY_MODULE}.HISTORY_WINDOW_SECONDS", 400 * 24 * 60 * 60):

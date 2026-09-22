@@ -1,4 +1,4 @@
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-2'
+import * as chartPng from '@posthog/brand/hoggies/png/chart'
 import { IconGraph } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -10,7 +10,7 @@ import { ProductAnalyticsPreview } from './ProductAnalyticsPreview'
 import { ProductAnalyticsPrimaryAction } from './ProductAnalyticsPrimaryAction'
 import { productAnalyticsSetupLogic } from './productAnalyticsSetupLogic'
 
-const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogChart = pngHoggie(chartPng)
 
 export const productAnalyticsEmptyState: SceneProductEmptyState = {
     statusLogic: productAnalyticsSetupLogic,
@@ -20,7 +20,7 @@ export const productAnalyticsEmptyState: SceneProductEmptyState = {
         icon: <IconGraph />,
         accentColor: 'var(--color-product-product-analytics-light)',
         accentColorDark: 'var(--color-product-product-analytics-dark)',
-        hedgehog: HedgehogMagnifyingGlass,
+        hedgehog: HedgehogChart,
         text: {
             'needs-setup': {
                 headline: 'Ask a question about your product and save the answer',

@@ -1,20 +1,26 @@
+from typing import Literal
+
 import pytest
-from freezegun import freeze_time
+import time_machine
 
 from django.db import OperationalError
 
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
+    ProcessTaskFatalError,
     SandboxExecutionError,
     SandboxMissingRepositoryError,
+    SandboxRateLimitedError,
     SandboxTimeoutError,
 )
+from products.tasks.backend.logic.services.launch_preparation_metrics import record_launch_preparation_ms
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
     CollectAgentShadowResultInput,
     StartAgentServerInput,
     _agentsh_domains_for,
+    _emit_agent_server_log_tail,
     _ensure_repository_on_disk,
     _include_personal_mcp_for_task,
     _invoke_start_agent_server,
@@ -28,11 +34,12 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     _resolve_protected_base_branch,
     await_agent_server_ready,
     collect_agent_shadow_result,
+    launch_agent_server,
     start_agent_server,
 )
 
 
-@freeze_time("2026-08-06T12:01:30Z")
+@time_machine.travel("2026-08-06T12:01:30Z", tick=False)
 def test_record_boot_total_excludes_wizard_time_and_labels_runtime(mocker) -> None:
     record_metric = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.record_boot_total_ms"
@@ -68,6 +75,7 @@ def _context(
     network_policy_fingerprint: str | None = None,
     use_modal_vm_sandbox: bool = False,
     use_modal_network_allowlist: bool = False,
+    claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway",
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -85,6 +93,7 @@ def _context(
         network_policy_fingerprint=network_policy_fingerprint,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
+        claude_model_access=claude_model_access,
         _branch=branch,
     )
 
@@ -154,8 +163,9 @@ async def test_start_failure_does_not_report_network_enforcement_observation(moc
     )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server._invoke_start_agent_server",
-        return_value=None,
+        side_effect=lambda *args, **kwargs: record_launch_preparation_ms(1250, "COMPLETED"),
     )
+    preparation_meter = mocker.patch("products.tasks.backend.logic.services.launch_preparation_metrics.metric_meter")
     record_observation = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server._record_network_enforcement_observation"
     )
@@ -171,6 +181,49 @@ async def test_start_failure_does_not_report_network_enforcement_observation(moc
 
     record_observation.assert_not_called()
     sandbox.wait_for_agent_server_ready.assert_called_once()
+    preparation_meter.return_value.with_additional_attributes.assert_called_once_with(
+        {
+            "boot_path": "classic",
+            "runtime": "vm",
+            "origin_product": "unknown",
+            "used_snapshot": "unknown",
+            "status": "COMPLETED",
+        }
+    )
+
+
+@pytest.mark.parametrize("use_vm", [False, True])
+async def test_deferred_launch_labels_preparation_metric(mocker, use_vm: bool) -> None:
+    prefix = "products.tasks.backend.temporal.process_task.activities.start_agent_server"
+    mocker.patch(f"{prefix}.get_sandbox_class_for_sandbox_id")
+    mocker.patch(f"{prefix}._prepare_launch")
+    mocker.patch(f"{prefix}._launch_agent_shadow", return_value=False)
+    mocker.patch(f"{prefix}._record_agent_server_launch")
+    mocker.patch(
+        f"{prefix}._invoke_start_agent_server",
+        side_effect=lambda *args, **kwargs: record_launch_preparation_ms(1250, "COMPLETED"),
+    )
+    preparation_meter = mocker.patch("products.tasks.backend.logic.services.launch_preparation_metrics.metric_meter")
+
+    await launch_agent_server(
+        StartAgentServerInput(
+            context=_context(use_modal_vm_sandbox=use_vm),
+            sandbox_id="sandbox-id",
+            sandbox_url="https://sandbox.example",
+            boot_path="overlap",
+            used_snapshot=False,
+        )
+    )
+
+    preparation_meter.return_value.with_additional_attributes.assert_called_once_with(
+        {
+            "boot_path": "overlap",
+            "runtime": "vm" if use_vm else "gvisor",
+            "origin_product": "unknown",
+            "used_snapshot": "false",
+            "status": "COMPLETED",
+        }
+    )
 
 
 @pytest.mark.parametrize("error_type", [SandboxExecutionError, SandboxTimeoutError])
@@ -192,6 +245,27 @@ def test_invoke_start_agent_server_preserves_process_task_error(mocker, error_ty
         _invoke_start_agent_server(sandbox, context, mocker.Mock(agentsh_domains=None), repo_ready_file=None)
 
     assert raised.value is error
+
+
+def test_invoke_start_agent_server_skips_log_tails_when_rate_limited(mocker) -> None:
+    error = SandboxRateLimitedError("Sandbox control plane is rate limited", {"sandbox_id": "sandbox-id"})
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.start_agent_server.side_effect = error
+    emit_agentsh = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._emit_agentsh_log_tail"
+    )
+    emit_agent_server = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._emit_agent_server_log_tail"
+    )
+
+    with pytest.raises(SandboxRateLimitedError) as raised:
+        _invoke_start_agent_server(
+            sandbox, _context(), mocker.Mock(agentsh_domains=["example.com"]), repo_ready_file=None
+        )
+
+    assert raised.value is error
+    emit_agentsh.assert_not_called()
+    emit_agent_server.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -264,6 +338,8 @@ async def test_combined_start_failure_records_step_statuses(mocker, error, expec
 async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, attempt, expects_relaunch) -> None:
     context = _context()
     sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.start_agent_server.side_effect = lambda **kwargs: record_launch_preparation_ms(1250, "COMPLETED")
+    preparation_meter = mocker.patch("products.tasks.backend.logic.services.launch_preparation_metrics.metric_meter")
     sandbox.execute.return_value.stdout = ""
     sandbox.read_agent_server_boot_metrics.return_value = (None, {})
     mocker.patch(
@@ -314,6 +390,15 @@ async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, a
     assert result.sandbox_url == "https://sandbox.example"
     sandbox.wait_for_agent_server_ready.assert_called_once_with(None)
     if expects_relaunch:
+        preparation_meter.return_value.with_additional_attributes.assert_called_once_with(
+            {
+                "boot_path": "overlap",
+                "runtime": "gvisor",
+                "origin_product": "unknown",
+                "used_snapshot": "unknown",
+                "status": "COMPLETED",
+            }
+        )
         sandbox.start_agent_server.assert_called_once()
         assert sandbox.start_agent_server.call_args.kwargs["wait_for_health"] is False
         record_retry.assert_called_once_with(
@@ -325,6 +410,7 @@ async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, a
         )
     else:
         sandbox.start_agent_server.assert_not_called()
+        preparation_meter.assert_not_called()
         record_retry.assert_not_called()
 
 
@@ -537,6 +623,32 @@ def test_ensure_repository_on_disk_skips_repo_less_runs(mocker) -> None:
     _ensure_repository_on_disk(_context(repository=None), sandbox)
 
     sandbox.execute.assert_not_called()
+
+
+@pytest.mark.parametrize("access,exit_code", [("posthog-gateway", 1), ("own-subscription", 0), ("own-subscription", 1)])
+def test_subscription_compatibility_is_checked_before_launch(mocker, access, exit_code) -> None:
+    sandbox = mocker.Mock()
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=exit_code)
+    params = _LaunchParams(
+        mcp_configs=[],
+        relayed_mcp_servers=[],
+        actor_user_id=None,
+        agentsh_domains=None,
+        protected_base_branch=None,
+        event_ingest_token=None,
+        task_run_session_token=None,
+        event_ingest_url=None,
+        event_ingest_keep_stream_open=False,
+    )
+    context = _context(claude_model_access=access)
+    if access == "own-subscription" and exit_code != 0:
+        with pytest.raises(ProcessTaskFatalError, match="cannot use your Claude plan yet"):
+            _invoke_start_agent_server(sandbox, context, params, repo_ready_file=None)
+        sandbox.start_agent_server.assert_not_called()
+    else:
+        _invoke_start_agent_server(sandbox, context, params, repo_ready_file=None)
+        sandbox.start_agent_server.assert_called_once()
+        assert sandbox.start_agent_server.call_args.kwargs["claude_model_access"] == access
 
 
 def test_agent_shadow_flag_uses_server_side_organization_targeting(mocker) -> None:
@@ -834,6 +946,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
         user_id=None,
         include_personal=False,
         interaction_origin=None,
+        slack_reply_context=False,
         allowed_installation_ids=None,
         origin_product="support_reply",
         task_agent_key="support",
@@ -951,3 +1064,21 @@ async def test_start_agent_server_passes_initial_permission_mode(mocker) -> None
 
     sandbox.start_agent_server.assert_called_once()
     assert sandbox.start_agent_server.call_args.kwargs["initial_permission_mode"] == "plan"
+
+
+@pytest.mark.parametrize(
+    ("stdout", "expected_message"),
+    [
+        ("line one\nline two\n", "agent-server log tail:\nline one\nline two"),
+        ("", "agent-server log tail: empty. The agent-server wrote nothing to /tmp/agent-server.log."),
+    ],
+)
+def test_emit_agent_server_log_tail_reports_empty_log(mocker, stdout, expected_message) -> None:
+    context = _context()
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.execute.return_value = ExecutionResult(stdout=stdout, stderr="", exit_code=0)
+    emit = mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server.emit_agent_log")
+
+    _emit_agent_server_log_tail(context, sandbox)
+
+    emit.assert_called_once_with(context.run_id, "debug", expected_message)

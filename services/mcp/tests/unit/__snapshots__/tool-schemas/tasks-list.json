@@ -11,6 +11,11 @@
             "enum": ["true", "false", "all"],
             "type": "string"
         },
+        "basic": {
+            "default": false,
+            "description": "With true, return basic list rows for summary surfaces: each row omits the full description and includes description_preview, its first 1000 characters. Defaults to false, which returns full task rows with description. The search parameter still matches description text server-side.",
+            "type": "boolean"
+        },
         "channel": {
             "description": "Filter tasks to a channel's feed.",
             "type": "string"
@@ -18,6 +23,11 @@
         "ci_status": {
             "description": "Filter tasks by the CI check rollup on their most recent run's pull request, as last observed from GitHub. 'none' means the PR has no checks.\n\n* `passing` - passing\n* `failing` - failing\n* `pending` - pending\n* `none` - none",
             "enum": ["passing", "failing", "pending", "none"],
+            "type": "string"
+        },
+        "client_provenance": {
+            "description": "Filter by the client that created the task\n\n* `posthog_desktop` - PostHog Desktop",
+            "enum": ["posthog_desktop"],
             "type": "string"
         },
         "commented_by": {

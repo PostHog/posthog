@@ -107,6 +107,7 @@ async def select_repository_for_team(
             model=agent_runtime.model,
             runtime_adapter=agent_runtime.runtime_adapter,
             reasoning_effort=agent_runtime.reasoning_effort,
+            service_tier=agent_runtime.service_tier,
             past_corrections=past_corrections,
         )
     except RepoSelectionRejectedError as exc:

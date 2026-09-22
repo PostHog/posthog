@@ -50,13 +50,13 @@ export const VisionObservationsRetrieveQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone."
+            "Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone."
         ),
     date_to: zod
         .string()
         .optional()
         .describe(
-            "Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone."
+            "Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone."
         ),
     labeled: zod
         .string()
@@ -167,6 +167,20 @@ export const visionObservationsSearchRetrieveQueryLimitMax = 50
 export const visionObservationsSearchRetrieveQueryQMax = 2000
 
 export const VisionObservationsSearchRetrieveQueryParams = () => zod.object({
+    date_from: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "Only observations analyzed at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone."
+        ),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "Only observations analyzed at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone."
+        ),
     limit: zod
         .number()
         .min(1)
@@ -223,7 +237,9 @@ export const VisionScannersListQueryParams = () => zod.object({
     enabled: zod
         .string()
         .optional()
-        .describe('Filter by enabled state. Accepts a comma-separated list of `enabled`\/`disabled`.'),
+        .describe(
+            'Filter by enabled state. Accepts `enabled`, `disabled`, a comma-separated list of both, or the boolean form `true`\/`false`. Omit to list every scanner.'
+        ),
     experiment_id: zod.string().optional().describe('Filter to scanners whose targeting watches the given experiment.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -298,6 +314,17 @@ export const VisionScannersCreateBody = () => zod
             )
             .describe(
                 'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+            ),
+        creation_method: zod
+            .union([
+                zod
+                    .enum(['ai', 'template', 'scratch'])
+                    .describe('\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
             ),
         scanner_config: zod
             .unknown()
@@ -450,6 +477,17 @@ export const VisionScannersPartialUpdateBody = () => zod
             .optional()
             .describe(
                 'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+            ),
+        creation_method: zod
+            .union([
+                zod
+                    .enum(['ai', 'template', 'scratch'])
+                    .describe('\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
             ),
         scanner_config: zod
             .unknown()
@@ -676,13 +714,13 @@ export const VisionScannersObservationsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone."
+            "Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone."
         ),
     date_to: zod
         .string()
         .optional()
         .describe(
-            "Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone."
+            "Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone."
         ),
     labeled: zod
         .boolean()
@@ -756,13 +794,13 @@ export const VisionScannersObservationsRetrieveQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone."
+            "Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone."
         ),
     date_to: zod
         .string()
         .optional()
         .describe(
-            "Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone."
+            "Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone."
         ),
     labeled: zod
         .string()
@@ -833,13 +871,13 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = () => zod.obje
         .string()
         .optional()
         .describe(
-            "Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone."
+            "Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone."
         ),
     date_to: zod
         .string()
         .optional()
         .describe(
-            "Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone."
+            "Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone."
         ),
     labeled: zod
         .string()
@@ -1037,6 +1075,10 @@ export const VisionScannersEstimateCreateBody = () => zod
  *
  * The config resolves to a scanner minted on first use, so asking the same question twice reuses
  * the observations it already has, while a different question about the same session gets its own.
+ *
+ * With `scanner_type` set to `summarizer`, this is how you get PostHog's own AI summary for a
+ * recording ID. It resolves to the Summarize button's own scanner only when the prompt and
+ * `scanner_config` match what the button sends, since the config is what the key fingerprints.
  */
 export const VisionScannersInlineScanCreateParams = () => zod.object({
     project_id: zod
@@ -1076,7 +1118,7 @@ export const VisionScannersInlineScanCreateBody = () => zod
             )
             .default(visionScannersInlineScanCreateBodyScannerTypeDefault)
             .describe(
-                'What the scan produces. Defaults to monitor, an open-ended observation against the prompt.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+                "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer"
             ),
         scanner_config: zod
             .unknown()

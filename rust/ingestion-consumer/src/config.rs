@@ -5,6 +5,7 @@ use tracing::info;
 
 use crate::discovery::DiscoveryMode;
 use crate::routing::RoutingStrategy;
+use crate::scheduler::SchedulerKind;
 use common_kafka_consumer::config::ConsumerConfigBuilder;
 
 /// Configuration for the ingestion consumer.
@@ -163,6 +164,13 @@ pub struct Config {
     #[envconfig(default = "60000")]
     pub consumer_deferred_flush_timeout_ms: u64,
 
+    /// How often the key-table scheduler retries its parked keys
+    /// (milliseconds). Matches the flush driver's retry cadence, so the
+    /// scheduler switch does not regress recovery latency. Only read under
+    /// `INGESTION_SCHEDULER=key_table`.
+    #[envconfig(from = "INGESTION_PARKED_RETRY_INTERVAL_MS", default = "200")]
+    pub parked_retry_interval_ms: u64,
+
     /// Maximum Kafka batches to process concurrently. Matches the Node.js
     /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
@@ -195,16 +203,6 @@ pub struct Config {
     /// (INGESTION_API_FEED_ORDER_SENTINEL_ENABLED on the Node.js side).
     #[envconfig(from = "CONSUMER_ORDER_SENTINEL_ENABLED", default = "true")]
     pub consumer_order_sentinel_enabled: bool,
-
-    // ---- Offset ledger ----
-    /// Kill switch for the shadow offset ledger. The ledger accounts every
-    /// delivered offset and reports where its frontier disagrees with the
-    /// offset the consumer commits; it never changes what is committed.
-    /// Off, the consumer builds no ledger: nothing is charged, settled,
-    /// forgotten on rebalance, or reported. Disable it only if its
-    /// accounting or metrics are implicated in a problem.
-    #[envconfig(from = "CONSUMER_OFFSET_LEDGER_SHADOW_ENABLED", default = "true")]
-    pub consumer_offset_ledger_shadow_enabled: bool,
 
     // ---- Worker transport ----
     /// Comma-separated list of worker HTTP URLs. Readiness probes hit these
@@ -282,6 +280,12 @@ pub struct Config {
     /// (power-of-two-choices — herd-resistant for a shared worker pool).
     #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "binpack")]
     pub routing_strategy: RoutingStrategy,
+
+    /// Which scheduler orders and places runs: `pin_stash` (default, sticky
+    /// pins with a per-batch stash) or `key_table` (at most one in-flight
+    /// request per key). The switch back is the rollback.
+    #[envconfig(from = "INGESTION_SCHEDULER", default = "pin_stash")]
+    pub scheduler: SchedulerKind,
 
     /// Minimum aperture width for `INGESTION_ROUTING_STRATEGY=aperture`: how
     /// many workers this dispatcher's ring slice spans. The effective width

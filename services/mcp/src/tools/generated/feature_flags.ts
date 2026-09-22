@@ -5,7 +5,7 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/feature_flags/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { validateDistinctIdPersonIdExclusive } from '@/schema/tool-inputs'
-import { castStringToInt } from '@/tools/cast-helpers'
+import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -77,9 +77,12 @@ const createFeatureFlag = (): ToolBase<
 
 const DeleteFeatureFlagSchema = () => {
     const FeatureFlagsDestroyParams = orvalSchemas.FeatureFlagsDestroyParams()
-    return FeatureFlagsDestroyParams.omit({ project_id: true }).extend({
-        id: z.preprocess(castStringToInt, FeatureFlagsDestroyParams.shape['id']),
-    })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+        FeatureFlagsDestroyParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, FeatureFlagsDestroyParams.shape['id']),
+        })
+    )
 }
 
 const deleteFeatureFlag = (): ToolBase<ReturnType<typeof DeleteFeatureFlagSchema>, Schemas.FeatureFlag> => ({
@@ -98,9 +101,12 @@ const deleteFeatureFlag = (): ToolBase<ReturnType<typeof DeleteFeatureFlagSchema
 
 const FeatureFlagArchiveSchema = () => {
     const FeatureFlagsArchiveCreateParams = orvalSchemas.FeatureFlagsArchiveCreateParams()
-    return FeatureFlagsArchiveCreateParams.omit({ project_id: true }).extend({
-        id: z.preprocess(castStringToInt, FeatureFlagsArchiveCreateParams.shape['id']),
-    })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+        FeatureFlagsArchiveCreateParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, FeatureFlagsArchiveCreateParams.shape['id']),
+        })
+    )
 }
 
 const featureFlagArchive = (): ToolBase<
@@ -129,9 +135,12 @@ const featureFlagArchive = (): ToolBase<
 
 const FeatureFlagDisableSchema = () => {
     const FeatureFlagsDisableCreateParams = orvalSchemas.FeatureFlagsDisableCreateParams()
-    return FeatureFlagsDisableCreateParams.omit({ project_id: true }).extend({
-        id: z.preprocess(castStringToInt, FeatureFlagsDisableCreateParams.shape['id']),
-    })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+        FeatureFlagsDisableCreateParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, FeatureFlagsDisableCreateParams.shape['id']),
+        })
+    )
 }
 
 const featureFlagDisable = (): ToolBase<
@@ -160,9 +169,12 @@ const featureFlagDisable = (): ToolBase<
 
 const FeatureFlagEnableSchema = () => {
     const FeatureFlagsEnableCreateParams = orvalSchemas.FeatureFlagsEnableCreateParams()
-    return FeatureFlagsEnableCreateParams.omit({ project_id: true }).extend({
-        id: z.preprocess(castStringToInt, FeatureFlagsEnableCreateParams.shape['id']),
-    })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+        FeatureFlagsEnableCreateParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, FeatureFlagsEnableCreateParams.shape['id']),
+        })
+    )
 }
 
 const featureFlagEnable = (): ToolBase<
@@ -249,9 +261,12 @@ const featureFlagGetAll = (): ToolBase<
 
 const FeatureFlagGetDefinitionSchema = () => {
     const FeatureFlagsRetrieveParams = orvalSchemas.FeatureFlagsRetrieveParams()
-    return FeatureFlagsRetrieveParams.omit({ project_id: true }).extend({
-        id: z.preprocess(castStringToInt, FeatureFlagsRetrieveParams.shape['id']),
-    })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+        FeatureFlagsRetrieveParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, FeatureFlagsRetrieveParams.shape['id']),
+        })
+    )
 }
 
 const featureFlagGetDefinition = (): ToolBase<
@@ -272,9 +287,12 @@ const featureFlagGetDefinition = (): ToolBase<
 
 const FeatureFlagUnarchiveSchema = () => {
     const FeatureFlagsUnarchiveCreateParams = orvalSchemas.FeatureFlagsUnarchiveCreateParams()
-    return FeatureFlagsUnarchiveCreateParams.omit({ project_id: true }).extend({
-        id: z.preprocess(castStringToInt, FeatureFlagsUnarchiveCreateParams.shape['id']),
-    })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+        FeatureFlagsUnarchiveCreateParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, FeatureFlagsUnarchiveCreateParams.shape['id']),
+        })
+    )
 }
 
 const featureFlagUnarchive = (): ToolBase<
@@ -304,9 +322,12 @@ const featureFlagUnarchive = (): ToolBase<
 const FeatureFlagsActivityRetrieveSchema = () => {
     const FeatureFlagsActivityRetrieveParams = orvalSchemas.FeatureFlagsActivityRetrieveParams()
     const FeatureFlagsActivityRetrieveQueryParams = orvalSchemas.FeatureFlagsActivityRetrieveQueryParams()
-    return FeatureFlagsActivityRetrieveParams.omit({ project_id: true })
-        .extend(FeatureFlagsActivityRetrieveQueryParams.shape)
-        .extend({ id: z.preprocess(castStringToInt, FeatureFlagsActivityRetrieveParams.shape['id']) })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+        FeatureFlagsActivityRetrieveParams.omit({ project_id: true })
+            .extend(FeatureFlagsActivityRetrieveQueryParams.shape)
+            .extend({ id: z.preprocess(castStringToInt, FeatureFlagsActivityRetrieveParams.shape['id']) })
+    )
 }
 
 const featureFlagsActivityRetrieve = (): ToolBase<
@@ -416,6 +437,39 @@ const featureFlagsBulkUpdateTagsCreate = (): ToolBase<
     },
 })
 
+const FeatureFlagsCopyDependenciesCheckSchema = () => {
+    const FeatureFlagsCopyFlagsDependencyRequirementsCreateBody =
+        orvalSchemas.FeatureFlagsCopyFlagsDependencyRequirementsCreateBody()
+    return FeatureFlagsCopyFlagsDependencyRequirementsCreateBody
+}
+
+const featureFlagsCopyDependenciesCheck = (): ToolBase<
+    ReturnType<typeof FeatureFlagsCopyDependenciesCheckSchema>,
+    Schemas.CopyFlagsDependencyRequirementsResponse
+> => ({
+    name: 'feature-flags-copy-dependencies-check',
+    schema: FeatureFlagsCopyDependenciesCheckSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagsCopyDependenciesCheckSchema>>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const body: Record<string, unknown> = {}
+        if (params.feature_flag_key !== undefined) {
+            body['feature_flag_key'] = params.feature_flag_key
+        }
+        if (params.from_project !== undefined) {
+            body['from_project'] = params.from_project
+        }
+        if (params.target_project_ids !== undefined) {
+            body['target_project_ids'] = params.target_project_ids
+        }
+        const result = await context.api.request<Schemas.CopyFlagsDependencyRequirementsResponse>({
+            method: 'POST',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/feature_flags/copy_flags/dependency_requirements/`,
+            body,
+        })
+        return result
+    },
+})
+
 const FeatureFlagsCopyFlagsCreateSchema = () => {
     const FeatureFlagsCopyFlagsCreateBody = orvalSchemas.FeatureFlagsCopyFlagsCreateBody()
     return FeatureFlagsCopyFlagsCreateBody
@@ -459,9 +513,12 @@ const featureFlagsCopyFlagsCreate = (): ToolBase<
 
 const FeatureFlagsDependentFlagsRetrieveSchema = () => {
     const FeatureFlagsDependentFlagsListParams = orvalSchemas.FeatureFlagsDependentFlagsListParams()
-    return FeatureFlagsDependentFlagsListParams.omit({ project_id: true }).extend({
-        id: z.preprocess(castStringToInt, FeatureFlagsDependentFlagsListParams.shape['id']),
-    })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+        FeatureFlagsDependentFlagsListParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, FeatureFlagsDependentFlagsListParams.shape['id']),
+        })
+    )
 }
 
 const featureFlagsDependentFlagsRetrieve = (): ToolBase<
@@ -537,9 +594,12 @@ const featureFlagsMyFlagsRetrieve = (): ToolBase<
 
 const FeatureFlagsStatusRetrieveSchema = () => {
     const FeatureFlagsStatusRetrieveParams = orvalSchemas.FeatureFlagsStatusRetrieveParams()
-    return FeatureFlagsStatusRetrieveParams.omit({ project_id: true }).extend({
-        id: z.preprocess(castStringToInt, FeatureFlagsStatusRetrieveParams.shape['id']),
-    })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+        FeatureFlagsStatusRetrieveParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, FeatureFlagsStatusRetrieveParams.shape['id']),
+        })
+    )
 }
 
 const featureFlagsStatusRetrieve = (): ToolBase<
@@ -561,10 +621,13 @@ const featureFlagsStatusRetrieve = (): ToolBase<
 const FeatureFlagsTestEvaluationCreateSchema = () => {
     const FeatureFlagsTestEvaluationCreateBody = orvalSchemas.FeatureFlagsTestEvaluationCreateBody()
     const FeatureFlagsTestEvaluationCreateParams = orvalSchemas.FeatureFlagsTestEvaluationCreateParams()
-    return FeatureFlagsTestEvaluationCreateParams.omit({ project_id: true })
-        .extend(FeatureFlagsTestEvaluationCreateBody.shape)
-        .extend({ id: z.preprocess(castStringToInt, FeatureFlagsTestEvaluationCreateParams.shape['id']) })
-        .superRefine(validateDistinctIdPersonIdExclusive)
+    return z.preprocess(
+        normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+        FeatureFlagsTestEvaluationCreateParams.omit({ project_id: true })
+            .extend(FeatureFlagsTestEvaluationCreateBody.shape)
+            .extend({ id: z.preprocess(castStringToInt, FeatureFlagsTestEvaluationCreateParams.shape['id']) })
+            .superRefine(validateDistinctIdPersonIdExclusive)
+    )
 }
 
 const featureFlagsTestEvaluationCreate = (): ToolBase<
@@ -800,23 +863,31 @@ const scheduledChangesUpdate = (): ToolBase<
 const UpdateFeatureFlagSchema = () => {
     const FeatureFlagsPartialUpdateBody = orvalSchemas.FeatureFlagsPartialUpdateBody()
     const FeatureFlagsPartialUpdateParams = orvalSchemas.FeatureFlagsPartialUpdateParams()
-    return FeatureFlagsPartialUpdateParams.omit({ project_id: true })
-        .extend(FeatureFlagsPartialUpdateBody.shape)
-        .extend({
-            id: z.preprocess(castStringToInt, FeatureFlagsPartialUpdateParams.shape['id']),
-            is_remote_configuration: FeatureFlagsPartialUpdateBody.shape['is_remote_configuration'].describe(
-                'Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string. There is no dedicated payload parameter.'
-            ),
-            ensure_experience_continuity: FeatureFlagsPartialUpdateBody.shape['ensure_experience_continuity'].describe(
-                'Whether to persist the flag\'s value for a user across the anonymous-to-identified transition (the "persist across authentication steps" option in the UI). Keeps a user\'s evaluated value stable once they log in. Incompatible with `device_id` bucketing.'
-            ),
-            evaluation_runtime: FeatureFlagsPartialUpdateBody.shape['evaluation_runtime'].describe(
-                'Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs only), or `all` (both). Defaults to `all`.'
-            ),
-            bucketing_identifier: FeatureFlagsPartialUpdateBody.shape['bucketing_identifier'].describe(
-                'Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.'
-            ),
-        })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+        FeatureFlagsPartialUpdateParams.omit({ project_id: true })
+            .extend(FeatureFlagsPartialUpdateBody.shape)
+            .extend({
+                id: z.preprocess(castStringToInt, FeatureFlagsPartialUpdateParams.shape['id']),
+                filters: FeatureFlagsPartialUpdateBody.shape['filters'].describe(
+                    'Full release-condition object (replaces filters at the API). For group flags set aggregation_group_type_index and property type "group" + group_type_index. Omitted type / group_type_index / aggregation_group_type_index are filled from the existing flag to prevent silent person demotion (see #46501).'
+                ),
+                is_remote_configuration: FeatureFlagsPartialUpdateBody.shape['is_remote_configuration'].describe(
+                    'Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string. There is no dedicated payload parameter.'
+                ),
+                ensure_experience_continuity: FeatureFlagsPartialUpdateBody.shape[
+                    'ensure_experience_continuity'
+                ].describe(
+                    'Whether to persist the flag\'s value for a user across the anonymous-to-identified transition (the "persist across authentication steps" option in the UI). Keeps a user\'s evaluated value stable once they log in. Incompatible with `device_id` bucketing.'
+                ),
+                evaluation_runtime: FeatureFlagsPartialUpdateBody.shape['evaluation_runtime'].describe(
+                    'Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs only), or `all` (both). Defaults to `all`.'
+                ),
+                bucketing_identifier: FeatureFlagsPartialUpdateBody.shape['bucketing_identifier'].describe(
+                    'Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.'
+                ),
+            })
+    )
 }
 
 const updateFeatureFlag = (): ToolBase<
@@ -883,6 +954,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'feature-flags-bulk-delete-create': featureFlagsBulkDeleteCreate,
     'feature-flags-bulk-keys-retrieve': featureFlagsBulkKeysRetrieve,
     'feature-flags-bulk-update-tags-create': featureFlagsBulkUpdateTagsCreate,
+    'feature-flags-copy-dependencies-check': featureFlagsCopyDependenciesCheck,
     'feature-flags-copy-flags-create': featureFlagsCopyFlagsCreate,
     'feature-flags-dependent-flags-retrieve': featureFlagsDependentFlagsRetrieve,
     'feature-flags-evaluation-reasons-retrieve': featureFlagsEvaluationReasonsRetrieve,

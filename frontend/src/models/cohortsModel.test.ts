@@ -1,14 +1,19 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { promiseResolveReject } from 'lib/utils/async'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { CohortType, FilterLogicalOperator } from '~/types'
 
-import { cohortsModel, processCohort } from './cohortsModel'
+import { cohortsModel, getReferencedCohortIds, processCohort } from './cohortsModel'
+
+jest.unmock('lib/utils/concurrencyController')
 
 const MOCK_COHORTS = {
     count: 2,
@@ -99,6 +104,232 @@ describe('cohortsModel', () => {
 
             await expectLogic(logic).toDispatchActions(['loadAllCohorts', 'loadAllCohortsSuccess'])
             expect(logic.values.pollTimeout).toBeNull()
+        })
+    })
+
+    describe('individual insights', () => {
+        const list = jest.fn(() => MOCK_COHORTS)
+        const requestedIds: number[] = []
+
+        beforeEach(async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, id: MOCK_DEFAULT_TEAM.id + 1 })
+            router.actions.push('/project/997/insights/abc123')
+            list.mockClear()
+            requestedIds.length = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/cohorts/': list,
+                    '/api/projects/:team/cohorts/:id/': ({ params }) => {
+                        if (params.team !== String(MOCK_DEFAULT_TEAM.project_id)) {
+                            return [404, { detail: 'Project not found.' }]
+                        }
+                        const id = Number(params.id)
+                        requestedIds.push(id)
+                        return { ...MOCK_COHORTS.results[0], id, name: `Cohort ${id}` }
+                    },
+                },
+            })
+            logic = cohortsModel()
+            logic.mount()
+        })
+
+        it('skips the list, resolves only missing IDs, and preserves both cache views', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(list).not.toHaveBeenCalled()
+            await expectLogic(logic, () => {
+                logic.actions.loadCohortsByIds({ ids: [1, 1, 3000, 0, -1] })
+                logic.actions.loadCohortsByIds({ ids: [1, 2] })
+            }).toFinishAllListeners()
+            expect(requestedIds.sort((a, b) => a - b)).toEqual([1, 2, 3000])
+            expect(Object.keys(logic.values.cohortsById)).toEqual(['1', '2', '3000'])
+            expect(logic.values.cohortsById[3000]?.name).toBe('Cohort 3000')
+            expect(logic.values.allCohorts.results).toHaveLength(3)
+            await expectLogic(logic, () => logic.actions.loadCohortsByIds({ ids: [1, 3000] })).toFinishAllListeners()
+            expect(requestedIds).toHaveLength(3)
+            expect(list).not.toHaveBeenCalled()
+        })
+
+        it('limits overlapping and nested cohort requests to ten in flight and drains after failures', async () => {
+            const firstTen = promiseResolveReject<void>()
+            const nextStarted = promiseResolveReject<void>()
+            const firstResponse = promiseResolveReject<void>()
+            const remainingResponses = promiseResolveReject<void>()
+            let active = 0
+            let peak = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/cohorts/:id/': async ({ params }) => {
+                        const id = Number(params.id)
+                        requestedIds.push(id)
+                        peak = Math.max(peak, ++active)
+                        if (requestedIds.length === 10) {
+                            firstTen.resolve()
+                        }
+                        if (requestedIds.length === 11) {
+                            nextStarted.resolve()
+                        }
+                        await (id === 1 ? firstResponse.promise : remainingResponses.promise)
+                        active--
+                        if (id === 2) {
+                            return [403, { detail: 'Forbidden.' }]
+                        }
+                        return {
+                            ...MOCK_COHORTS.results[0],
+                            id,
+                            filters: {
+                                properties: {
+                                    type: 'AND',
+                                    values:
+                                        id === 1
+                                            ? [{ type: 'cohort', value: Array.from({ length: 15 }, (_, i) => i + 21) }]
+                                            : [],
+                                },
+                            },
+                        }
+                    },
+                },
+            })
+            logic.actions.loadCohortsByIds({ ids: Array.from({ length: 15 }, (_, i) => i + 1) })
+            logic.actions.loadCohortsByIds({ ids: Array.from({ length: 11 }, (_, i) => i + 10) })
+            await firstTen.promise
+            expect(active).toBe(10)
+            expect(requestedIds).toHaveLength(10)
+            firstResponse.resolve()
+            await nextStarted.promise
+            expect(active).toBe(10)
+            remainingResponses.resolve()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(peak).toBe(10)
+            expect(requestedIds.sort((a, b) => a - b)).toEqual(Array.from({ length: 35 }, (_, i) => i + 1))
+            expect(logic.values.allCohorts.results).toHaveLength(34)
+            expect(logic.values.cohortsById[35]).toMatchObject({ id: 35 })
+        })
+
+        it.each([
+            '/insights/abc123/edit',
+            '/project/997/insights/abc123/subscriptions',
+            '/project/997/insights/abc123/subscriptions/123',
+            '/insights/abc123/alerts',
+            '/insights/abc123/alerts/123/',
+            '/project/997/insights/abc123/sharing',
+            '/insights/new',
+        ])('keeps targeted loading when navigating to %s', async (pathname) => {
+            await expectLogic(logic, () => router.actions.push(pathname)).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.loadCohortsByIds({ ids: [3000] })).toFinishAllListeners()
+            expect(list).not.toHaveBeenCalled()
+            expect(requestedIds).toEqual([3000])
+            expect(logic.values.cohortsById[3000]?.name).toBe('Cohort 3000')
+        })
+
+        it.each([
+            '/insights',
+            '/insights/quick-start',
+            '/project/997/insights/quick-start/',
+            '/feature_flags',
+            '/cohorts',
+            '/dashboard/1',
+        ])('loads the full list after navigating to %s', async (pathname) => {
+            await expectLogic(logic, () => router.actions.push(pathname)).toFinishAllListeners()
+            expect(list).toHaveBeenCalledTimes(1)
+            expect(logic.values.cohortsById[2]?.name).toBe('Cohort two')
+            await expectLogic(logic, () => router.actions.replace(pathname, { search: 'test' })).toFinishAllListeners()
+            expect(list).toHaveBeenCalledTimes(1)
+        })
+
+        it('reuses dashboard cohorts and fetches only references outside the loaded list', async () => {
+            await expectLogic(logic, () => router.actions.push('/dashboard/1')).toFinishAllListeners()
+            expect(list).toHaveBeenCalledTimes(1)
+            await expectLogic(logic, () => router.actions.push('/insights/abc123')).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.loadCohortsByIds({ ids: [1, 2, 3000] })).toFinishAllListeners()
+            expect(requestedIds).toEqual([3000])
+            expect(logic.values.cohortsById[2]?.name).toBe('Cohort two')
+            expect(logic.values.cohortsById[3000]?.name).toBe('Cohort 3000')
+            expect(list).toHaveBeenCalledTimes(1)
+        })
+
+        it('preserves targeted names when a list request finishes after returning to the insight', async () => {
+            let releaseList!: () => void
+            const listReady = new Promise<void>((resolve) => {
+                releaseList = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team/cohorts/': async () => {
+                        await listReady
+                        return MOCK_COHORTS
+                    },
+                },
+            })
+            await expectLogic(logic, () => logic.actions.loadCohortsByIds({ ids: [3000] })).toFinishAllListeners()
+            await expectLogic(logic, () => router.actions.push('/feature_flags')).toDispatchActions(['loadAllCohorts'])
+            router.actions.push('/insights/abc123')
+            releaseList()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(Object.keys(logic.values.cohortsById)).toEqual(['1', '2', '3000'])
+            expect(logic.values.cohortsById[3000]?.name).toBe('Cohort 3000')
+        })
+
+        it('loads nested cohort names without looping on circular references', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/cohorts/:id/': ({ params }) => {
+                        const id = Number(params.id)
+                        requestedIds.push(id)
+                        return {
+                            ...MOCK_COHORTS.results[0],
+                            id,
+                            filters: {
+                                properties: { type: 'AND', values: [{ type: 'cohort', value: id === 1 ? 2 : 1 }] },
+                            },
+                        }
+                    },
+                },
+            })
+            await expectLogic(logic, () => logic.actions.loadCohortsByIds({ ids: [1] })).toFinishAllListeners()
+            expect(requestedIds).toEqual([1, 2])
+            expect(Object.keys(logic.values.cohortsById)).toEqual(['1', '2'])
+        })
+
+        it.each([403, 404, 500])('keeps successful names and allows retry after a %s response', async (status) => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/cohorts/2/': [status, { detail: 'Unavailable' }],
+                },
+            })
+            await expectLogic(logic, () => logic.actions.loadCohortsByIds({ ids: [1, 2] })).toFinishAllListeners()
+            expect(logic.values.cohortsById[1]?.name).toBe('Cohort 1')
+            expect(logic.values.cohortsById[2]).toBeUndefined()
+            useMocks({ get: { '/api/projects/:team/cohorts/2/': MOCK_COHORTS.results[1] } })
+            await expectLogic(logic, () => logic.actions.loadCohortsByIds({ ids: [2] })).toFinishAllListeners()
+            expect(logic.values.cohortsById[2]?.name).toBe('Cohort two')
+        })
+    })
+
+    describe('referenced cohort IDs', () => {
+        it.each([
+            [null, []],
+            [{ properties: [{ type: 'event', key: 'cohort', value: 42 }] }, []],
+            [
+                {
+                    source: {
+                        properties: {
+                            type: 'AND',
+                            values: [
+                                { type: 'cohort', value: '12' },
+                                { type: 'cohort', value: [12, 34] },
+                            ],
+                        },
+                        series: [{ properties: [{ type: 'cohort', value: 56 }] }],
+                        breakdownFilter: { breakdown_type: 'cohort', breakdown: [34, '78', 'all', 0, -1] },
+                    },
+                },
+                [12, 34, 56, 78],
+            ],
+            [{ breakdownFilter: { breakdown_type: 'cohort', breakdown: 99 } }, [99]],
+            [{ properties: [{ type: 'cohort', value: ['nope', null, true, 1.2] }] }, []],
+        ])('extracts references from %j', (query, expected) => {
+            expect(getReferencedCohortIds(query)).toEqual(expected)
         })
     })
 

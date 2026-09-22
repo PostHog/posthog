@@ -72,6 +72,16 @@ class ResolvedAudience:
     owned_file_count: int = 0
 
 
+def team_slug_from_handle(handle: str) -> str:
+    """The bare slug in a GitHub team handle: `@PostHog/team-devex` becomes `team-devex`.
+
+    An audience key is this slug, and the digest matches the reviewer's per-team clauses back to
+    one by reading their handles the same way (see logic/digest.py), so the two agree by
+    construction rather than by two copies of the rule.
+    """
+    return handle.partition("/")[2]
+
+
 def _repository_audience_key(repo_config: StamphogRepoConfig) -> str:
     return f"{REPO_AUDIENCE_PREFIX}{repo_config.repository}"
 
@@ -108,8 +118,8 @@ def _owner_teams(gate_result: dict[str, Any] | None) -> list[_OwnerTeam]:
     for team in teams:
         if not isinstance(team, str) or not team.startswith(_TEAM_HANDLE_PREFIX):
             continue
-        # "@PostHog/team-devex" -> "team-devex". A handle without an org is not a team.
-        _, _, slug = team.partition("/")
+        # A handle without an organization is not a team, and the slug regex below rejects it.
+        slug = team_slug_from_handle(team)
         if not _TEAM_SLUG_RE.match(slug):
             logger.warning("stamphog_owner_team_slug_rejected", team=team)
             continue

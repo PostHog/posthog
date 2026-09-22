@@ -4,7 +4,8 @@ from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.schema import ActionsNode, DateRange, EventPropertyFilter, FunnelsQuery, InsightVizNode, PropertyOperator
+
 from posthog.models import EventDefinition, Person, PropertyDefinition
 
 from products.actions.backend.models.action import Action
@@ -38,31 +39,22 @@ class AppDataGenerator(DataGenerator):
         insight = Insight.objects.create(
             team=self.team,
             name="Installed App -> Rated App -> Rated App 5 Stars",
-            filters={
-                "actions": [
-                    {
-                        "id": installed_app_action.id,
-                        "name": "Installed App",
-                        "order": 0,
-                        "type": TREND_FILTER_TYPE_ACTIONS,
-                    },
-                    {
-                        "id": rated_app_action.id,
-                        "name": "Rated App",
-                        "order": 1,
-                        "type": TREND_FILTER_TYPE_ACTIONS,
-                    },
-                    {
-                        "id": rated_app_action.id,
-                        "name": "Rated App",
-                        "order": 2,
-                        "type": TREND_FILTER_TYPE_ACTIONS,
-                        "properties": {"app_rating": 5},
-                    },
-                ],
-                "insight": "FUNNELS",
-                "date_from": "yStart",
-            },
+            query=InsightVizNode(
+                source=FunnelsQuery(
+                    series=[
+                        ActionsNode(id=installed_app_action.id, name="Installed App"),
+                        ActionsNode(id=rated_app_action.id, name="Rated App"),
+                        ActionsNode(
+                            id=rated_app_action.id,
+                            name="Rated App",
+                            properties=[
+                                EventPropertyFilter(key="app_rating", value=5, operator=PropertyOperator.EXACT)
+                            ],
+                        ),
+                    ],
+                    dateRange=DateRange(date_from="yStart"),
+                )
+            ).model_dump(),
         )
         DashboardTile.objects.create(insight=insight, dashboard=dashboard)
         dashboard.save()  # to update the insight's filter hash

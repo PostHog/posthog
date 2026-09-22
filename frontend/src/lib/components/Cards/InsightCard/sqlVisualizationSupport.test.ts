@@ -82,21 +82,66 @@ describe('dashboard SQL visualization support', () => {
 
             expect(enabled.length).toBeGreaterThan(0)
 
-            for (const displayType of enabled) {
-                const saved = applyVisualizationType(baseQuery, displayType, columns, response.result.length)
+            const chartTypes = enabled.filter((displayType) => {
                 const resolved =
                     displayType === ChartDisplayType.Auto ? autoVisualizationType : (displayType as ChartDisplayType)
+                return ![ChartDisplayType.ActionsTable, ChartDisplayType.BoldNumber].includes(resolved)
+            })
 
-                const needsAxes = ![ChartDisplayType.ActionsTable, ChartDisplayType.BoldNumber].includes(resolved)
-                if (!needsAxes) {
-                    continue
-                }
+            for (const displayType of chartTypes) {
+                const saved = applyVisualizationType(baseQuery, displayType, columns, response.result.length)
 
                 expect(saved.chartSettings?.xAxis?.column).toEqual(expect.any(String))
                 expect(saved.chartSettings?.yAxis?.length ?? 0).toBeGreaterThan(0)
             }
         }
     )
+
+    it.each([responses['date and numeric'], responses['a single numeric column']])(
+        'sets up a dashboard Metric from numeric results',
+        (response) => {
+            const columns = columnsFromResponse(response)
+            const autoVisualizationType = getAutoVisualizationType(columns, response.result.length)
+
+            expect(
+                sqlVisualizationDisabledReason(
+                    ChartDisplayType.Metric,
+                    baseQuery,
+                    columns,
+                    response.result.length,
+                    autoVisualizationType
+                )
+            ).toBeUndefined()
+
+            const saved = applyVisualizationType(baseQuery, ChartDisplayType.Metric, columns, response.result.length)
+            expect(saved.chartSettings?.yAxis).toHaveLength(1)
+        }
+    )
+
+    it('sets up a dashboard horizontal bar chart from category and numeric columns', () => {
+        const response = responses['date and numeric']
+        const columns = columnsFromResponse(response)
+        const autoVisualizationType = getAutoVisualizationType(columns, response.result.length)
+
+        expect(
+            sqlVisualizationDisabledReason(
+                ChartDisplayType.ActionsBarValue,
+                baseQuery,
+                columns,
+                response.result.length,
+                autoVisualizationType
+            )
+        ).toBeUndefined()
+
+        const saved = applyVisualizationType(
+            baseQuery,
+            ChartDisplayType.ActionsBarValue,
+            columns,
+            response.result.length
+        )
+        expect(saved.chartSettings!.xAxis!.column).toBe('day')
+        expect(saved.chartSettings!.yAxis!.map((series) => series.column)).toEqual(['total'])
+    })
 
     it('does not offer Auto when it resolves to a type the card cannot set up', () => {
         const response = responses['two strings and a numeric, which Auto resolves to a 2d heatmap']

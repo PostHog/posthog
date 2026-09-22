@@ -623,6 +623,18 @@
 
     <function>
         <type>executable_pool</type>
+        <name>JSONCleanPostHogTemporaryProperties</name>
+        <return_type>String</return_type>
+        <argument>
+            <type>String</type>
+        </argument>
+        <format>Raw</format>
+        <command>json_clean_posthog_event_properties_udf --chunked --temporary-properties</command>
+        <send_chunk_header>true</send_chunk_header>
+    </function>
+
+    <function>
+        <type>executable_pool</type>
         <name>JSONStripEmptyStringsAndNulls</name>
         <return_type>String</return_type>
         <argument>
@@ -631,5 +643,21 @@
         <format>Raw</format>
         <command>json_strip_empty_strings_and_nulls_udf --chunked</command>
         <send_chunk_header>true</send_chunk_header>
+    </function>
+    <function>
+        <type>executable_pool</type>
+        <name>decompress</name>
+        <return_type>String</return_type>
+        <argument>
+            <type>String</type>
+        </argument>
+        <argument>
+            <type>String</type>
+        </argument>
+        <format>RowBinary</format>
+        <command>decompress_udf</command>
+        <send_chunk_header>true</send_chunk_header>
+        <stderr_reaction>throw</stderr_reaction>
+        <deterministic>true</deterministic>
     </function>
 </functions>

@@ -48,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     FRESHNESS_WINDOW_SECONDS,
     TAKEOVER_STALE_THRESHOLD_SECONDS,
     BatchQueue,
+    FailedRunRef,
     PendingBatch,
     _Unset,
 )
@@ -133,6 +134,16 @@ EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
 # with dead entries alone.
 JOB_STATUS_CACHE_TTL_SECONDS = 30
 JOB_STATUS_CACHE_MAX_ENTRIES = 1000
+
+
+def _is_transient_queue_connection_drop(err: Exception, conn: psycopg.AsyncConnection[Any]) -> bool:
+    """Whether `err` is a queue-db connection dying mid-query rather than a real bug.
+
+    A network blip, server-side cull, or pgbouncer bounce leaves `conn` closed; the next
+    reconcile cycle reconnects and retries, so it isn't worth paging on (mirrors the
+    conn.closed check already applied to the stranded-run sweep's own OperationalError).
+    """
+    return isinstance(err, psycopg.OperationalError) and conn.closed
 
 
 class DeltaBatchConsumerAdapter:
@@ -407,52 +418,8 @@ class DeltaBatchConsumerAdapter:
                 limit=limit,
             )
         for ref in refs:
-            # A producer can enqueue a batch into a run after fail_run swept it (the
-            # extraction is still in flight when a sibling batch exhausts retries).
-            # Such stragglers stay 'pending' forever — unclaimable, but counted by the
-            # freshness gauge and the CDC backpressure probe — so re-sweep the run here.
-            # No-op (one indexed statement) when the run has no non-terminal batches.
-            try:
-                stragglers = await BatchQueue.fail_run(
-                    conn,
-                    run_uuid=ref.run_uuid,
-                    team_id=ref.team_id,
-                    schema_id=ref.schema_id,
-                    reason="enqueued into an already-failed run (reconcile sweep)",
-                )
-            except Exception as e:
-                logger.exception("reconcile_straggler_sweep_failed", run_uuid=ref.run_uuid)
-                capture_exception(e)
-            else:
-                if stragglers:
-                    logger.warning(
-                        "reconcile_swept_straggler_batches",
-                        run_uuid=ref.run_uuid,
-                        team_id=ref.team_id,
-                        external_data_schema_id=ref.schema_id,
-                        batch_count=stragglers,
-                    )
-
-            try:
-                reconciled = await sync_to_async(mark_job_failed_if_not_terminal)(
-                    job_id=ref.job_id,
-                    team_id=ref.team_id,
-                    error=ref.reason or "run failed (reconciled from queue)",
-                )
-            except Exception as e:
-                if is_transient_db_error(e):
-                    logger.warning(
-                        "reconcile_job_status_update_app_db_not_ready",
-                        job_id=ref.job_id,
-                        run_uuid=ref.run_uuid,
-                        error=str(e),
-                    )
-                else:
-                    logger.exception("reconcile_job_status_update_failed", job_id=ref.job_id, run_uuid=ref.run_uuid)
-                    capture_exception(e)
-                reconciled = False
-
-            if reconciled:
+            await self._sweep_straggler_batches(conn, ref)
+            if await self._mark_run_job_failed(ref):
                 RUNS_RECONCILED_TOTAL.inc()
                 logger.warning(
                     "run_reconciled_to_failed",
@@ -461,31 +428,7 @@ class DeltaBatchConsumerAdapter:
                     team_id=ref.team_id,
                     external_data_schema_id=ref.schema_id,
                 )
-
-            # Attempted for every ref: this sweep is the retry for a fail_run whose own release
-            # failed silently. Safe to repeat, since the release compare-and-deletes on the token.
-            if ref.workflow_run_id:
-                try:
-                    await sync_to_async(release_v3_pipeline_lock)(
-                        team_id=ref.team_id,
-                        schema_id=ref.schema_id,
-                        token=ref.workflow_run_id,
-                    )
-                except Exception as e:
-                    logger.error(
-                        "failed_to_release_v3_pipeline_lock",
-                        job_id=ref.job_id,
-                        schema_id=ref.schema_id,
-                        exc_info=True,
-                    )
-                    capture_exception(e)
-            else:
-                logger.info(
-                    "v3_pipeline_lock_release_skipped_no_workflow_run_id",
-                    job_id=ref.job_id,
-                    run_uuid=ref.run_uuid,
-                    external_data_schema_id=ref.schema_id,
-                )
+            await self._release_run_lock(ref)
 
         # Runs the loader abandoned leave no 'failed' batch for get_failed_runs to key on, so sweep
         # them on the same cadence and connection. Isolated so its failure can't take the sweep down.
@@ -501,6 +444,91 @@ class DeltaBatchConsumerAdapter:
                 capture_exception(e)
         except Exception as e:
             logger.exception("stranded_run_reconcile_sweep_failed")
+            capture_exception(e)
+
+    async def _sweep_straggler_batches(self, conn: psycopg.AsyncConnection[Any], ref: FailedRunRef) -> None:
+        """Terminalize batches enqueued into a run that ``fail_run`` had already swept.
+
+        A producer can enqueue a batch into a run after fail_run swept it (the
+        extraction is still in flight when a sibling batch exhausts retries).
+        Such stragglers stay 'pending' forever — unclaimable, but counted by the
+        freshness gauge and the CDC backpressure probe — so re-sweep the run here.
+        No-op (one indexed statement) when the run has no non-terminal batches.
+        """
+        try:
+            stragglers = await BatchQueue.fail_run(
+                conn,
+                run_uuid=ref.run_uuid,
+                team_id=ref.team_id,
+                schema_id=ref.schema_id,
+                reason="enqueued into an already-failed run (reconcile sweep)",
+            )
+        except Exception as e:
+            if _is_transient_queue_connection_drop(e, conn):
+                logger.warning("reconcile_straggler_sweep_closed_connection", run_uuid=ref.run_uuid, error=str(e))
+            else:
+                logger.exception("reconcile_straggler_sweep_failed", run_uuid=ref.run_uuid)
+                capture_exception(e)
+            return
+
+        if stragglers:
+            logger.warning(
+                "reconcile_swept_straggler_batches",
+                run_uuid=ref.run_uuid,
+                team_id=ref.team_id,
+                external_data_schema_id=ref.schema_id,
+                batch_count=stragglers,
+            )
+
+    async def _mark_run_job_failed(self, ref: FailedRunRef) -> bool:
+        """Write the run's failure to the app DB. Returns whether this call moved the job to Failed."""
+        try:
+            return await sync_to_async(mark_job_failed_if_not_terminal)(
+                job_id=ref.job_id,
+                team_id=ref.team_id,
+                error=ref.reason or "run failed (reconciled from queue)",
+            )
+        except Exception as e:
+            if is_transient_db_error(e):
+                logger.warning(
+                    "reconcile_job_status_update_app_db_not_ready",
+                    job_id=ref.job_id,
+                    run_uuid=ref.run_uuid,
+                    error=str(e),
+                )
+            else:
+                logger.exception("reconcile_job_status_update_failed", job_id=ref.job_id, run_uuid=ref.run_uuid)
+                capture_exception(e)
+            return False
+
+    async def _release_run_lock(self, ref: FailedRunRef) -> None:
+        """Release the pipeline lock the failed run still holds.
+
+        Attempted for every ref: this sweep is the retry for a fail_run whose own release
+        failed silently. Safe to repeat, since the release compare-and-deletes on the token.
+        """
+        if not ref.workflow_run_id:
+            logger.info(
+                "v3_pipeline_lock_release_skipped_no_workflow_run_id",
+                job_id=ref.job_id,
+                run_uuid=ref.run_uuid,
+                external_data_schema_id=ref.schema_id,
+            )
+            return
+
+        try:
+            await sync_to_async(release_v3_pipeline_lock)(
+                team_id=ref.team_id,
+                schema_id=ref.schema_id,
+                token=ref.workflow_run_id,
+            )
+        except Exception as e:
+            logger.error(
+                "failed_to_release_v3_pipeline_lock",
+                job_id=ref.job_id,
+                schema_id=ref.schema_id,
+                exc_info=True,
+            )
             capture_exception(e)
 
     async def _reconcile_stale_stranded_runs(
@@ -535,10 +563,13 @@ class DeltaBatchConsumerAdapter:
                     reason=STRANDED_RUN_ERROR,
                 )
             except Exception as e:
-                # Without the batches failed we'd fail the job while leaving claimable stragglers
-                # behind — the exact resurrection this ordering prevents. Skip the rest for this run.
-                logger.exception("stranded_run_batch_sweep_failed", run_uuid=ref.run_uuid)
-                capture_exception(e)
+                if _is_transient_queue_connection_drop(e, conn):
+                    logger.warning("stranded_run_batch_sweep_closed_connection", run_uuid=ref.run_uuid, error=str(e))
+                else:
+                    # Without the batches failed we'd fail the job while leaving claimable stragglers
+                    # behind — the exact resurrection this ordering prevents. Skip the rest for this run.
+                    logger.exception("stranded_run_batch_sweep_failed", run_uuid=ref.run_uuid)
+                    capture_exception(e)
                 continue
 
             try:

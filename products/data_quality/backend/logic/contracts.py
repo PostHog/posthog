@@ -9,6 +9,8 @@ from ..facade.enums import SubjectType
 if TYPE_CHECKING:
     from posthog.hogql import ast
 
+    from products.data_catalog.backend.facade.contracts import HogQLMetricDefinition
+
 
 class Evaluation(StrEnum):
     """How the runner turns a compiled query's result row into a status."""
@@ -36,6 +38,8 @@ class SubjectRef:
 
     ``queryable_name`` is what the compiler puts in the FROM clause; it can differ from the stored
     ``subject_name`` after a rename, which is why the runner writes it back to the check row.
+
+    ``time_column`` is the column a lookback window bounds, or None for a subject that has none.
     """
 
     subject_type: SubjectType
@@ -43,6 +47,9 @@ class SubjectRef:
     name: str
     queryable_name: str
     exists: bool
+    time_column: str | None = None
+    definition_kind: str | None = None
+    metric_definition: "HogQLMetricDefinition | None" = None
 
 
 @dataclass(frozen=True)

@@ -24,15 +24,14 @@ import {
   Wrench,
 } from "@phosphor-icons/react";
 import { Input, MenuLabel } from "@posthog/quill";
-import { BILLING_FLAG } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useQuickAskAvailable } from "@posthog/ui/features/quick-ask/useQuickAskAvailable";
 import { SettingsPageContent } from "@posthog/ui/features/settings/components/SettingsPageContent";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { useSettingsBackupAvailable } from "@posthog/ui/features/settings/hooks/useSettingsBackupAvailable";
 import {
   type SettingsSearchEntry,
   searchSettings,
@@ -44,7 +43,6 @@ import {
   type SettingsCategory,
 } from "@posthog/ui/features/settings/types";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
-import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
 import * as nav from "@posthog/ui/router/navigationBridge";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { type ReactNode, useState } from "react";
@@ -129,12 +127,14 @@ export interface SettingsPanelProps {
   onClose?: () => void;
   /** Override the category-change handler. Defaults to router navigation. */
   onCategoryChange?: (category: SettingsCategory) => void;
+  children?: ReactNode;
 }
 
 export function SettingsPanel({
   activeCategory: activeCategoryProp,
   onClose,
   onCategoryChange,
+  children,
 }: SettingsPanelProps = {}) {
   const formMode = useSettingsPageStore((s) => s.formMode);
   const activeCategory = activeCategoryProp ?? "general";
@@ -148,14 +148,11 @@ export function SettingsPanel({
   );
   const client = useOptionalAuthenticatedClient();
   const { data: user } = useCurrentUser({ client });
-  const billingEnabled = useFeatureFlag(BILLING_FLAG);
   const { localWorkspaces } = useHostCapabilities();
   const quickAskAvailable = useQuickAskAvailable();
+  const backupAvailable = useSettingsBackupAvailable();
 
-  const spendAnalysisEnabled = useSpendAnalysisEnabled();
   const hiddenCategories = getHiddenSettingsCategories({
-    billingEnabled,
-    spendAnalysisEnabled,
     localWorkspaces,
     quickAskAvailable,
   });
@@ -163,7 +160,11 @@ export function SettingsPanel({
     ...group,
     items: group.items.filter((item) => !hiddenCategories.has(item.id)),
   })).filter((group) => group.items.length > 0);
-  const searchResults = searchSettings(searchQuery, hiddenCategories);
+  const searchResults = searchSettings(
+    searchQuery,
+    hiddenCategories,
+    backupAvailable,
+  );
 
   // Guard direct navigation (URL, deep link, programmatic openSettings) to a
   // category hidden on this host. Fall back to General so a hidden section is
@@ -209,7 +210,7 @@ export function SettingsPanel({
           onClick={close}
         >
           <ArrowLeft size={14} />
-          <span>Back to app</span>
+          <span>{children ? "Back" : "Back to app"}</span>
         </button>
 
         <SettingsSearchInput
@@ -296,11 +297,13 @@ export function SettingsPanel({
               fill="url(#settings-dot-pattern)"
             />
           </svg>
-          <SettingsPageContent
-            category={resolvedCategory}
-            formMode={formMode}
-            icon={activeCategoryIcon}
-          />
+          {children ?? (
+            <SettingsPageContent
+              category={resolvedCategory}
+              formMode={formMode}
+              icon={activeCategoryIcon}
+            />
+          )}
         </div>
       </div>
     </div>

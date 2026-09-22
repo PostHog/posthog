@@ -44,9 +44,9 @@ const componentCatalogNotebook = `# Component catalog
 
 <Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />
 
-<Python title="Python" code="print('hello')" />
+<PythonV2 title="Python" code="print('hello')" />
 
-<DuckSQL title="SQL (DuckDB)" code="select * from events" returnVariable="duck_df" />
+<SQLV2 title="SQL" code="select * from events" returnVariable="sql_df" />
 
 <RecordingPlaylist title="Session recordings" />
 
@@ -384,6 +384,15 @@ export const SlashMenuAndInsertion: Story = {
                 run: () => {},
             },
         ],
+    },
+}
+
+export const AskAIWithoutConsent: Story = {
+    args: {
+        value: '',
+        initialInsertMenu: { nodeIndex: 0, query: '' },
+        onAskAI: fn(),
+        askAIDisabledReason: 'Approve AI data processing in organization settings to use Ask AI.',
     },
 }
 

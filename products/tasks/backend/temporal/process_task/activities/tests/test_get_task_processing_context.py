@@ -11,9 +11,11 @@ from asgiref.sync import async_to_sync
 from posthog.models import OrganizationMembership, User
 from posthog.models.user_integration import UserIntegration
 
+from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
+    CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     DEV_STACK_IMAGE_NAME,
@@ -21,14 +23,15 @@ from products.tasks.backend.constants import (
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
+    STORE_SKILLS_STATE_KEY,
     vm_sandbox_allowed_origin_products,
     vm_sandbox_default_base_origin_products,
     vm_sandbox_default_custom_image,
     vm_sandbox_origin_in_rollout,
     vm_sandbox_origin_rollout_percentages,
 )
-from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
-from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxEnvironment, Task
+from products.tasks.backend.exceptions import ProcessTaskFatalError, TaskInvalidStateError, TaskRunNotReadyError
+from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
@@ -43,6 +46,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     _is_pr_babysit_snapshot_enabled,
     _is_rtk_enabled,
     _is_sandbox_event_ingest_enabled,
+    _resolve_claude_model_access,
     _resolve_modal_vm_sandbox,
     _resolve_sandbox_backend,
     get_task_processing_context,
@@ -220,11 +224,26 @@ class TestGetTaskProcessingContextActivity:
         task.soft_delete()
 
     @pytest.mark.django_db(transaction=True)
-    def test_get_task_processing_context_success(self, activity_environment, test_task):
-        task_run = test_task.create_run()
+    @pytest.mark.parametrize("subscription", [False, True])
+    def test_get_task_processing_context_success(self, activity_environment, test_task, subscription):
+        owner = User.objects.create_user(
+            email="subscription-owner@example.com", password=None, first_name="Owner", distinct_id="subscription-owner"
+        )
+        OrganizationMembership.objects.create(organization=test_task.team.organization, user=owner)
+        task_run = test_task.create_run(
+            acting_user_id=owner.id,
+            extra_state={"claude_model_access": "own-subscription"} if subscription else {},
+        )
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
-        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=False,
+        ) as flag:
+            flag.side_effect = lambda key, distinct_id=None, **kwargs: (
+                key == CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG and distinct_id == owner.distinct_id
+            )
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
         assert isinstance(result, TaskProcessingContext)
         assert result.task_id == str(test_task.id)
@@ -233,6 +252,7 @@ class TestGetTaskProcessingContextActivity:
         assert result.github_integration_id == test_task.github_integration_id
         assert result.repository == "posthog/posthog-js"
         assert result.create_pr is True
+        assert result.claude_model_access == ("own-subscription" if subscription else "posthog-gateway")
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_rejects_previous_owner_run(self, activity_environment, test_task):
@@ -514,8 +534,8 @@ class TestGetTaskProcessingContextActivity:
         org_id = str(test_task.team.organization_id)
         assert kwargs["groups"] == {"organization": org_id}
         assert kwargs["group_properties"] == {"organization": {"id": org_id}}
-        sandbox_args, _sandbox_kwargs = feature_enabled_mock.call_args_list[1]
-        assert sandbox_args[0] == SANDBOX_EVENT_INGEST_FEATURE_FLAG
+        evaluated_flags = [args[0] for args, _kwargs in feature_enabled_mock.call_args_list]
+        assert SANDBOX_EVENT_INGEST_FEATURE_FLAG in evaluated_flags
 
     @pytest.mark.django_db(transaction=True)
     def test_pi_runtime_enables_event_ingest_without_bypassing_persistent_upload_rollout(
@@ -551,6 +571,49 @@ class TestGetTaskProcessingContextActivity:
 
         assert result.sandbox_event_ingest_enabled is False
         assert result.agent_proxy_keep_stream_open is False
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "flag_value,expected_state",
+        [
+            (True, "resolved"),
+            (False, []),
+            (None, "untouched"),  # a flag-service outage must not clear stubs a resumed sandbox still has
+        ],
+    )
+    def test_store_skills_state_follows_the_sandbox_flag(
+        self, activity_environment, test_task, user, flag_value, expected_state
+    ):
+        LLMSkill.objects.create(
+            team=test_task.team,
+            name="my-skill",
+            description="Forecast  quota\nusage. " + "x" * 400,
+            body="# The real instructions\n",
+            version=1,
+            is_latest=True,
+            created_by=user,
+        )
+        task_run = test_task.create_run()
+        TaskRun.update_state_atomic(task_run.id, updates={STORE_SKILLS_STATE_KEY: [{"name": "from-last-session"}]})
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        with patch(
+            "products.tasks.backend.logic.services.store_skills.posthog_feature_flag_value",
+            return_value=flag_value,
+        ):
+            async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        stored = TaskRun.objects.get(id=task_run.id).state[STORE_SKILLS_STATE_KEY]
+        if expected_state == "untouched":
+            assert stored == [{"name": "from-last-session"}]
+        elif expected_state == "resolved":
+            assert len(stored) == 1
+            assert stored[0]["name"] == "my-skill"
+            assert stored[0]["version"] == 1
+            assert stored[0]["description"].startswith("Forecast quota usage. xxx")
+            assert len(stored[0]["description"]) == 300
+        else:
+            assert stored == expected_state
 
     @pytest.mark.django_db(transaction=True)
     def test_pr_loop_enabled_for_signal_report_origin_ignores_flag(self, activity_environment, test_task):
@@ -861,6 +924,71 @@ class TestGetTaskProcessingContextActivity:
                     state={"rtk_enabled": False},
                 )
                 is False
+            )
+
+    @pytest.mark.parametrize(
+        "flag_value, state, expected",
+        [
+            (True, {"claude_model_access": "own-subscription"}, "own-subscription"),
+            (True, {"claude_model_access": "posthog-gateway"}, "posthog-gateway"),
+            (True, {}, "posthog-gateway"),
+        ],
+    )
+    def test_claude_model_access_requires_state_ask_and_flag(self, flag_value, state, expected):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=flag_value,
+        ) as feature_enabled_mock:
+            assert (
+                _resolve_claude_model_access(
+                    task_runtime=Task.Runtime.ACP,
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    state=state,
+                )
+                == expected
+            )
+
+        if state.get("claude_model_access") == "own-subscription":
+            feature_enabled_mock.assert_called_once_with(
+                CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+                distinct_id="distinct-id",
+                groups={"organization": "organization-id"},
+                group_properties={"organization": {"id": "organization-id"}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        else:
+            feature_enabled_mock.assert_not_called()
+
+    @pytest.mark.parametrize("flag_value", [False, None, RuntimeError("flag service failed")])
+    def test_claude_model_access_never_changes_requested_billing(self, flag_value: object) -> None:
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+                return_value=flag_value,
+                side_effect=flag_value if isinstance(flag_value, Exception) else None,
+            ),
+            pytest.raises(ProcessTaskFatalError, match="Using your Claude plan for cloud tasks is unavailable"),
+        ):
+            _resolve_claude_model_access(
+                task_runtime=Task.Runtime.ACP,
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+                state={"claude_model_access": "own-subscription"},
+            )
+
+    @pytest.mark.parametrize("task_runtime,adapter", [(Task.Runtime.ACP, "codex"), (Task.Runtime.PI, None)])
+    def test_claude_subscription_rejects_other_adapters(self, task_runtime: str, adapter: str | None) -> None:
+        with pytest.raises(ProcessTaskFatalError, match="requires the Claude runtime"):
+            _resolve_claude_model_access(
+                task_runtime=task_runtime,
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+                state={"claude_model_access": "own-subscription", "runtime_adapter": adapter},
             )
 
     @pytest.mark.parametrize("launched_value", [True, False])

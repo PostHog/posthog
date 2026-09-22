@@ -1,6 +1,12 @@
 import type { Adapter } from "./adapter";
+import { getCustomCloud, isCustomCloudHost } from "./custom-cloud";
 import { CODEX_MODE_PRESETS } from "./execution-modes";
-import { modelHarnessMeta, restrictedModelMeta } from "./models";
+import { labelForModel } from "./model-catalog";
+import {
+  customModelMeta,
+  modelHarnessMeta,
+  restrictedModelMeta,
+} from "./models";
 import { getReasoningEffortOptions } from "./reasoning-effort";
 
 export interface GatewayModel {
@@ -114,8 +120,11 @@ const KNOWN_ACRONYMS = new Set(["gpt", "glm"]);
 export function getCloudTaskGatewayUrl(posthogHost: string): string {
   const url = new URL(posthogHost);
   let gatewayBaseUrl: string;
+  const custom = getCustomCloud();
 
-  if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+  if (custom?.gatewayUrl && isCustomCloudHost(posthogHost)) {
+    gatewayBaseUrl = custom.gatewayUrl;
+  } else if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
     gatewayBaseUrl = `${url.protocol}//localhost:3308`;
   } else if (url.hostname === "host.docker.internal") {
     gatewayBaseUrl = `${url.protocol}//host.docker.internal:3308`;
@@ -187,18 +196,6 @@ export function isOpenAIModel(model: GatewayModel): boolean {
 
 export function isCloudflareModelId(modelId: string): boolean {
   return modelId.startsWith("@cf/");
-}
-
-export function isGlmModelId(modelId: string): boolean {
-  return modelId.toLowerCase().includes("glm");
-}
-
-export function isGlm53ModelId(modelId: string): boolean {
-  return modelId.toLowerCase() === "zai-org/glm-5.3";
-}
-
-export function isGlm53FlashModelId(modelId: string): boolean {
-  return modelId.toLowerCase() === "zai-org/glm-5.3-flash";
 }
 
 export function isCloudflareModel(model: GatewayModel): boolean {
@@ -290,12 +287,10 @@ function formatProviderModelName(modelId: string): string {
   return [head, ...tail].join(" ");
 }
 
-const MODEL_DISPLAY_NAMES: Readonly<Record<string, string>> = {
-  "deepseek-ai/deepseek-v4-flash-0731": "DeepSeek V4 Flash",
-};
-
 export function formatGatewayModelName(model: GatewayModel): string {
-  const displayName = MODEL_DISPLAY_NAMES[model.id];
+  // The catalog names the models whose derived name reads wrong, so web and desktop show
+  // the same string for them; everything else still goes through the formatters below.
+  const displayName = labelForModel(model.id);
   if (displayName) {
     return displayName;
   }
@@ -342,11 +337,6 @@ export function adapterForModelId(modelId: string): Adapter {
     ? "codex"
     : "claude";
 }
-
-export const HARNESS_DISPLAY_NAMES: Record<Adapter, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-};
 
 function buildModelSelectOptions(
   models: readonly GatewayModel[],
@@ -440,7 +430,10 @@ export function buildProviderModelGroups(
       value: currentValue,
       name: currentValue,
       description: "Custom model",
-      _meta: modelHarnessMeta(adapter),
+      _meta: {
+        ...modelHarnessMeta(adapter),
+        ...customModelMeta(),
+      },
     });
   }
 
@@ -492,6 +485,7 @@ export function buildCloudTaskConfigOptions(
       value: resolvedModelId,
       name: resolvedModelId,
       description: "Custom model",
+      _meta: customModelMeta(),
     });
   }
 

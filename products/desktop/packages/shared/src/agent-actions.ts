@@ -16,8 +16,9 @@ const requiredField = z.string().trim().min(1);
 const composeFields = {
   kind: z.literal("compose"),
   prompt: requiredField.describe(
-    "Text to prefill the new-task composer with. The user reads it and sends " +
-      "it themselves, so nothing runs on click.",
+    "Text to prefill in a separate new task. This does not send a prompt in " +
+      "the current session. Do not use compose for approval, confirmation, " +
+      "or continued work in the current task.",
   ),
   repo: requiredField
     .optional()

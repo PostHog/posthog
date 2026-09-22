@@ -26,6 +26,7 @@ import { tracingEmptyState } from './emptyState/tracingEmptyState'
 import { OperationsTable } from './OperationsTable'
 import { TraceCompareFlame } from './TraceCompareFlame'
 import { TraceCompareTable } from './TraceCompareTable'
+import { TracingAgentIntegration } from './TracingAgentIntegration'
 import { tracingConfigLogic } from './tracingConfigLogic'
 import { tracingDataLogic } from './tracingDataLogic'
 import { TracingDisplayBar } from './TracingDisplayBar'
@@ -47,11 +48,16 @@ export const scene: SceneExport = {
 }
 
 export default function TracingScene(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const sceneLogic = tracingSceneLogic()
     // Keep filters + data + viewer logic alive across React unmounts by attaching them to the scene root.
     useAttachedLogic(tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
     useAttachedLogic(tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
     useAttachedLogic(tracingViewerLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
+
+    if (featureFlags[FEATURE_FLAGS.TRACING_UI_V2]) {
+        return <p>Tracing UI v2</p>
+    }
 
     // Bind the scene's keyed instances so nested components (filter bar, sparkline, ...)
     // resolve them from context — the same components work inside an embedded viewer
@@ -60,6 +66,7 @@ export default function TracingScene(): JSX.Element {
         <BindLogic logic={tracingFiltersLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
             <BindLogic logic={tracingDataLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
                 <BindLogic logic={tracingViewerLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
+                    <TracingAgentIntegration />
                     <TracingSceneContents />
                 </BindLogic>
             </BindLogic>
@@ -78,6 +85,7 @@ function TracingSceneContents(): JSX.Element {
         sparklineData,
         sparklineLoading,
         openTraceSpans,
+        traceIdentity,
         isLoadingFullTrace,
         canLoadMoreTraceSpans,
         traceSpansLoadingMore,
@@ -125,7 +133,7 @@ function TracingSceneContents(): JSX.Element {
 
     // Resolved aggregation window (ms) — turns span counts into a request rate.
     // Use sparklineWindowMs which correctly resolves relative date strings (e.g. '-1h').
-    const { sparklineWindowMs } = useValues(tracingFiltersLogic)
+    const { sparklineWindowMs, utcDateRange } = useValues(tracingFiltersLogic)
     const operationsWindowMs = sparklineWindowMs.endMs - sparklineWindowMs.startMs
 
     const onDocsLinkClick = (): void => {
@@ -205,7 +213,9 @@ function TracingSceneContents(): JSX.Element {
                     sparklineLoading={sparklineLoading || (isDurationMode && !showHeatmap && durationHistogramLoading)}
                     onDateRangeChange={setDateRange}
                     displayTimezone={TRACING_DISPLAY_TIMEZONE}
+                    currentDateTo={utcDateRange.date_to}
                     compare={compareConfig}
+                    compareActive={compareActive}
                     visibleRowDateRange={visibleRowDateRange}
                     durationHistogram={isDurationMode && !showHeatmap ? durationHistogramData : null}
                     visibleRowDurationRange={visibleRowDurationRange}
@@ -286,6 +296,7 @@ function TracingSceneContents(): JSX.Element {
                 traceId={selectedTraceId}
                 ts={selectedTraceTs}
                 spans={openTraceSpans}
+                identity={traceIdentity}
                 loading={isLoadingFullTrace}
                 hasMoreSpans={canLoadMoreTraceSpans}
                 loadingMoreSpans={traceSpansLoadingMore}

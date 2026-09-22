@@ -122,9 +122,11 @@ def build_client_secret(credentials: AppleSearchAdsCredentials, *, issued_at: Op
             headers={"alg": "ES256", "kid": credentials.key_id},
         )
     except (jwt.PyJWTError, ValueError, TypeError) as e:
+        # The cryptography backend's own text names its PEM framing internals and links its FAQ,
+        # neither of which helps someone in the setup form — keep it on the chained cause only.
         raise AppleSearchAdsAuthError(
             "Could not sign the Apple Ads client secret. The private key must be the unencrypted "
-            f"EC (P-256) PEM generated for your Apple Ads API client: {e}"
+            "EC (P-256) PEM generated for your Apple Ads API client."
         ) from e
 
 

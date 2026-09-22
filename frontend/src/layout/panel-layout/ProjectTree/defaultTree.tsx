@@ -218,6 +218,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     notebook: {
         icon: <IconNotebook />,
+        iconColor: ['var(--color-product-notebooks-light)', 'var(--color-product-notebooks-dark)'],
     },
     live_debugger: {
         icon: <IconBug />,

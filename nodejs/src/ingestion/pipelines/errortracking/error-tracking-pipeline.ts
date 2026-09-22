@@ -22,9 +22,8 @@ import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/ov
 import {
     createApplyCookielessProcessingStep,
     createApplyEventRestrictionsStep,
-    createOnlyCookielessRateLimitToOverflowStep,
     createOverflowLaneTTLRefreshStep,
-    createSkipCookielessRateLimitToOverflowStep,
+    createRateLimitToOverflowStep,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
 import { EmitEventStepOutput, createEmitEventStep } from '~/ingestion/common/steps/event-processing/emit-event-step'
@@ -168,11 +167,10 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
                 pipelineWritesPersons: false,
             })
         )
-        // Rate-limit non-cookieless events to overflow before parsing the body.
-        // Cookieless events (headers.distinct_id === sentinel) pass through and are
-        // handled post-cookieless by createOnlyCookielessRateLimitToOverflowStep, which
-        // keys on the hashed distinct_id assigned by the cookieless step.
-        .pipeChunk(createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
+        // Rate-limit events to overflow before parsing the body, keyed on the
+        // Kafka message key — the partition key capture computed. Cookieless
+        // events count under token:client_ip.
+        .pipeChunk(createRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
         .parseMessage()
         .resolveTeam()
         // Carry the Kafka message byte size through for Cymbal batch chunking.
@@ -182,10 +180,6 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
         // the final distinct ID.
         .gather()
         .pipeChunk(createApplyCookielessProcessingStep(cookielessManager))
-        // Rate-limit only cookieless events to overflow now that they
-        // have a real hashed distinct_id. Non-cookieless events were
-        // rate-limited pre-parse above.
-        .pipeChunk(createOnlyCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
         // Refresh TTLs for overflow lane events (keeps Redis flags alive)
         .pipeChunk(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
 

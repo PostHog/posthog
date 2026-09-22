@@ -34,7 +34,7 @@ Define your queries using backend Python query runners rather than constructing 
 
 The `QueryRunner` base class gives you:
 
-- **Caching**: Built-in caching with configurable refresh intervals. Override [`_refresh_frequency()`](https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/insights/trends/trends_query_runner.py#L125-L142) to control how often results are refreshed. Cache keys are automatically derived from the query, team, modifiers, and timezone via `get_cache_key()`.
+- **Caching**: Built-in caching with configurable refresh intervals. Override [`_refresh_frequency()`](https://github.com/PostHog/posthog/blob/master/products/product_analytics/backend/hogql_queries/trends/trends_query_runner.py#L125-L142) to control how often results are refreshed. Cache keys are automatically derived from the query, team, modifiers, and timezone via `get_cache_key()`.
 
 - **Observability**: Query execution is automatically instrumented with Prometheus metrics (`QUERY_EXECUTION_TOTAL`, `QUERY_EXECUTION_DURATION`) and PostHog analytics events, giving you latency histograms and error breakdowns for free.
 

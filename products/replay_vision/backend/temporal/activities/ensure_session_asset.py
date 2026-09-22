@@ -1,5 +1,3 @@
-import datetime as dt
-
 from django.utils.timezone import now
 
 from temporalio import activity
@@ -14,14 +12,13 @@ _PLAYBACK_SPEED = 8
 _RECORDING_FPS = 3
 _SHOW_METADATA_FOOTER = True
 _MOUSE_TAIL = False
-_ASSET_EXPIRES_AFTER_DAYS = 90
 
 
 @activity.defn
 @track_activity()
 async def ensure_session_asset_activity(inputs: EnsureSessionAssetInputs) -> EnsureSessionAssetOutput:
     """Get-or-create the `is_system=True` MP4 ExportedAsset for `(team, session)`; concurrent runs may produce orphaned duplicates that the asset expiry cleans up."""
-    existing = (
+    existing_id = (
         await ExportedAsset.objects.filter(
             team_id=inputs.team_id,
             export_format=_EXPORT_FORMAT,
@@ -33,10 +30,11 @@ async def ensure_session_asset_activity(inputs: EnsureSessionAssetInputs) -> Ens
             is_system=True,
         )
         .order_by("id")
+        .values_list("id", flat=True)
         .afirst()
     )
-    if existing is not None:
-        return EnsureSessionAssetOutput(asset_id=existing.id)
+    if existing_id is not None:
+        return EnsureSessionAssetOutput(asset_id=existing_id)
 
     created_at = now()
     asset = await ExportedAsset.objects.acreate(
@@ -50,7 +48,6 @@ async def ensure_session_asset_activity(inputs: EnsureSessionAssetInputs) -> Ens
             "mouse_tail": _MOUSE_TAIL,
         },
         created_at=created_at,
-        expires_after=created_at + dt.timedelta(days=_ASSET_EXPIRES_AFTER_DAYS),
         is_system=True,
     )
     return EnsureSessionAssetOutput(asset_id=asset.id)

@@ -1,5 +1,6 @@
 """Tests for the v2 eval report agent output tools (set_title, add_section, add_citation)."""
 
+import re
 import json
 import time
 import datetime as dt
@@ -39,6 +40,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     _dead_backticked_ids,
     _execute_ch_query_with_retry,
     _is_retriable_ch_error,
+    _label_generation_evals,
     _widened_ts_window,
     add_citation,
     add_section,
@@ -243,6 +245,54 @@ class TestSummaryMetrics(SimpleTestCase):
         self.assertIn("properties.$ai_sentiment_label = 'positive'", current_query)
         self.assertIn("properties.$ai_evaluation_result_type = 'sentiment'", current_query)
         self.assertNotIn("properties.$ai_evaluation_result = true", current_query)
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_detector_polarity_counts_a_false_result_as_the_pass(self, mock_execute_hogql):
+        # 18 clean and 80 flagged results: a detector reports the 80 flagged ones as fails.
+        mock_execute_hogql.side_effect = [
+            [[18, 80, 2, 100]],
+            [[2, 7, 1, 10]],
+        ]
+        state = {
+            "team_id": 1,
+            "evaluation_id": "eval-id",
+            "output_type": "boolean",
+            "true_is_failure": True,
+            "period_start": "2026-04-08T14:00:00+00:00",
+            "period_end": "2026-04-08T15:00:00+00:00",
+            "previous_period_start": "2026-04-08T13:00:00+00:00",
+        }
+
+        result = json.loads(_get_summary_metrics_fn(state=state))
+
+        self.assertEqual(result["current_period"]["result_counts"], {"pass": 18, "fail": 80, "na": 2})
+        self.assertEqual(result["current_period"]["pass_rate"], 18.37)
+        pass_column = re.search(r"countIf\((.*?)\) as pass_count", mock_execute_hogql.call_args_list[0].args[1], re.S)
+        assert pass_column is not None
+        self.assertIn("properties.$ai_evaluation_result = false", pass_column.group(1))
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_state_without_polarity_counts_a_true_result_as_the_pass(self, mock_execute_hogql):
+        # A report started before the field existed replays with no polarity key at all.
+        mock_execute_hogql.side_effect = [
+            [[80, 18, 2, 100]],
+            [[7, 2, 1, 10]],
+        ]
+        state = {
+            "team_id": 1,
+            "evaluation_id": "eval-id",
+            "output_type": "boolean",
+            "period_start": "2026-04-08T14:00:00+00:00",
+            "period_end": "2026-04-08T15:00:00+00:00",
+            "previous_period_start": "2026-04-08T13:00:00+00:00",
+        }
+
+        result = json.loads(_get_summary_metrics_fn(state=state))
+
+        self.assertEqual(result["current_period"]["result_counts"], {"pass": 80, "fail": 18, "na": 2})
+        pass_column = re.search(r"countIf\((.*?)\) as pass_count", mock_execute_hogql.call_args_list[0].args[1], re.S)
+        assert pass_column is not None
+        self.assertIn("properties.$ai_evaluation_result = true", pass_column.group(1))
 
 
 class TestTargetAwareEvalResults(SimpleTestCase):
@@ -1247,3 +1297,29 @@ class TestToolsCoordinate(SimpleTestCase):
         self.assertEqual(len(report.sections), 2)
         self.assertIsInstance(report.sections[0], ReportSection)
         self.assertEqual(len(report.citations), 1)
+
+
+class TestLabelGenerationEvals(SimpleTestCase):
+    # (eval_id, result_type, result, sentiment_label, sentiment_score, reasoning, applicable)
+    ROWS: list[list[object]] = [
+        ["detector-eval", "boolean", True, None, None, "struggled", None],
+        ["quality-eval", "boolean", True, None, None, "accurate", None],
+        ["sentiment-eval", "sentiment", None, "negative", 0.9, "", None],
+    ]
+
+    def test_each_evaluation_is_labeled_by_its_own_polarity(self):
+        labeled = _label_generation_evals(self.ROWS, {"detector-eval"})
+
+        outcomes = {row["evaluation_id"]: row["outcome"] for row in labeled}
+        self.assertEqual(outcomes, {"detector-eval": "fail", "quality-eval": "pass", "sentiment-eval": "negative"})
+
+    def test_no_detectors_keeps_every_true_result_a_pass(self):
+        labeled = _label_generation_evals(self.ROWS, set())
+
+        outcomes = {row["evaluation_id"]: row["outcome"] for row in labeled}
+        self.assertEqual(outcomes, {"detector-eval": "pass", "quality-eval": "pass", "sentiment-eval": "negative"})
+
+    def test_unsupported_output_type_is_dropped(self):
+        labeled = _label_generation_evals([["numeric-eval", "numeric", 1, None, None, "", None]], set())
+
+        self.assertEqual(labeled, [])

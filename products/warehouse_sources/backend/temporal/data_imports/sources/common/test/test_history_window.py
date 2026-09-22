@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import _BaseSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.history_window import (
     history_start_for_schema,
 )
@@ -34,6 +35,15 @@ class TestHistoryStartForSchema(BaseTest):
 
         schema.refresh_from_db()
         assert schema.history_start == NOW - dt.timedelta(days=2 * 365)
+
+    def test_a_source_whose_inputs_do_not_parse_keeps_its_declared_window(self):
+        # The config is read only for a source whose depth the user picks at setup. A source whose
+        # inputs no longer parse has to keep resolving its declared window, because this runs on
+        # every sync of every source.
+        schema = self._schema()
+
+        with mock.patch.object(_BaseSource, "parse_config", side_effect=ValueError("unreadable")):
+            assert self._resolve(schema) == NOW - dt.timedelta(days=2 * 365)
 
     def test_the_recorded_start_is_not_moved_by_a_later_run(self):
         # Recording it once is the whole mechanism. Re-deriving it per run is what this replaces.
@@ -137,3 +147,27 @@ def test_a_declared_window_is_reachable_through_the_registry(source_type: str) -
     lookback = SourceRegistry.get_source(ExternalDataSourceType(source_type)).history_lookback
 
     assert lookback == dt.timedelta(days=2 * 365)
+
+
+def test_a_source_that_declares_one_window_bounds_every_schema_the_same() -> None:
+    # Resolving the window per schema must keep answering with the declared one for the sources
+    # that bound their whole catalog together.
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+    from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+    source = SourceRegistry.get_source(ExternalDataSourceType("GoogleAds"))
+
+    assert source.history_lookback_for_schema("campaign_stats") == source.history_lookback
+
+
+def test_a_source_can_bound_some_of_its_schemas_and_not_others() -> None:
+    # Metronome bounds only the usage tables holding one row per period. Its other tables read
+    # lists the account already bounds, so recording a range for them would declare away the rest.
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+    from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+    source = SourceRegistry.get_source(ExternalDataSourceType("Metronome"))
+
+    assert source.history_lookback_for_schema("usage_daily") == dt.timedelta(days=365)
+    assert source.history_lookback_for_schema("usage_hourly") == dt.timedelta(days=30)
+    assert source.history_lookback_for_schema("usage") is None

@@ -106,6 +106,9 @@ These cross the boundary as classes — allowed only under all three rules:
    A test whose kind the scan cannot read statically counts as `drives(unresolved-kind)` against every query location it could reach, so an unreadable spelling holds the inputs instead of releasing them in silence.
    `hogli product:lint` keeps the location in the inputs while a line for it stands, and lets it go when none does.
    Nothing is declared. Move the driving tests into the product, regenerate the baseline, and the input may leave.
+   A location with several subtrees may be watched one subtree at a time.
+   `product_analytics` watches `backend/hogql_queries/trends/` alone, because trends is the only subtree an outside test still drives, so its funnels, retention, lifecycle, paths and stickiness runners change without re-running the suite.
+   The lint reads coverage per location rather than per subtree, so it cannot hold that scope; the repo invariant `test_product_analytics_drives_only_the_watched_subtree` does, and it fails when a line names code outside the watched subtree.
    The other locations stay in the inputs by presence until their channel (Celery task names, Temporal workflow names, Max tool names) is read the same way.
 3. **Validated registration.**
    Registration points check `issubclass(cls, Base)` and reject anything else.
@@ -170,12 +173,18 @@ Production code may not add one.
 `drives(...)` lines record the tests outside a product that execute its query runners.
 They are keyed by the product's `backend/hogql_queries/` location instead of a class, and read from test modules only.
 A new line is a new outside test that drives product code, and that test belongs in the product.
+`facade-*` lines record what a facade signature promises, read from the facade itself rather than from a caller.
 A repo-invariant test compares that file against a fresh scan, in both directions.
 A count can go down.
 A count must not go up.
 A use that goes away must leave the file in the same change.
 Run `hogli product:crossings <product>` to see the uses of one product's classes.
 Run `hogli product:crossings --all --write-baseline` to record a decrease.
+
+**The baseline only shrinks.**
+`--write-baseline` refuses to write when the scan holds a line the file does not, prints those lines, and changes nothing, so a new coupling cannot enter by regenerating.
+A coupling that must stand is a hand-edited line in the baseline plus a note here that says why it stands.
+Both are in the diff, which is what a reviewer reads; a regenerated line is not.
 
 **What the check cannot see.**
 The check reads uses of the class name, plus `get_model` string references.
@@ -190,6 +199,12 @@ All three are a declared residual, not permission to add more.
 A behavioral class that fits no approved interface must not cross at all.
 Wrap it in a facade function returning contracts, or register a plain function (see the managed-view provider registry in `products/data_modeling/backend/facade/managed_viewset_hooks.py`).
 A product whose facade hands out unapproved behavior is not soundly isolated: it loses `backend:contract-check` and pays the full suite until fixed.
+
+**Inbound webhook consumers are a designated location of the same kind.**
+A product declares its handlers in `backend/webhook_consumers.py`, in a `WEBHOOK_CONSUMERS` sequence.
+`posthog/ingress/` discovers that module through `load_product_modules("webhook_consumers")` on the first delivery, and its registry validates each consumer at build: an unknown provider app, a name already taken for that provider, or an event type the provider does not declare raises.
+No class crosses, because a consumer is a plain function behind a frozen contract, and an import-linter contract holds the module to its own product's `facade/`.
+See [posthog/ingress/README.md](/posthog/ingress/README.md).
 
 Why shape rules rather than location rules: publicness-by-location without a constrained API shape rots.
 Shopify's Packwerk `app/public` folders became a "catch-all drawer" of models, controllers, and jobs for exactly this reason.
@@ -249,7 +264,7 @@ myproduct/
 
 ### Which locations are fixed, and which are yours
 
-Only the paths the tooling is pointed at have fixed names: `facade/`, `presentation/`, `tasks/`, `routes.py`, and the wiring locations (`hogql_queries/`, `max_tools.py`, `temporal/`) — see [Wiring couplings](#wiring-couplings).
+Only the paths the tooling is pointed at have fixed names: `facade/`, `presentation/`, `tasks/`, `routes.py`, `webhook_consumers.py`, and the wiring locations (`hogql_queries/`, `max_tools.py`, `temporal/`) — see [Wiring couplings](#wiring-couplings).
 They are the narrowed `backend:contract-check` inputs, and two import-linter contracts hold the HTTP surface inside them by shape: `routes.py` may only import `presentation/`, and `presentation/` may only import `facade/`.
 Core reaches a product's views only through `routes.py`, so the chain core → routes → presentation → facade is three import edges, and a view anywhere else simply cannot be routed.
 `hogli product:lint` holds the same two rules by reading the imports directly, because import-linter cannot see a module under a directory without `__init__.py`.
@@ -533,7 +548,7 @@ Django auto-generates a reverse accessor (`project.visualreview_set`), a reverse
 
 **Rule:** declare every relation field (FK, O2O, M2M) that crosses a product boundary with `related_name="+"`, and do not set an explicit `related_query_name` on it. `related_name="+"` alone removes the reverse accessor and the reverse query name; an explicit `related_query_name` keeps `filter()` traversal alive, and the ratchet records it as a `query:<name>` row. A product may point relations _at_ core models; other products must not reference models _inside_ this product. When a caller needs reverse access, add a facade read function — do not traverse the ORM.
 
-A repo invariant enforces this: every cross-boundary reverse accessor is frozen as a `reverse-accessor(...)` line in `products/model_crossing_uses_baseline.txt`, next to the other crossing kinds. The set may only shrink. A new relation without `related_name="+"` fails CI until you seal it or a review adds a baseline line. Regenerate with `bin/hogli product:crossings --all --write-baseline`.
+A repo invariant enforces this: every cross-boundary reverse accessor is frozen as a `reverse-accessor(...)` line in `products/model_crossing_uses_baseline.txt`, next to the other crossing kinds. The set may only shrink. A new relation without `related_name="+"` fails CI until you seal it or a review adds a hand-edited baseline line. Regenerate after a removal with `bin/hogli product:crossings --all --write-baseline`.
 
 `db_constraint` is a separate concern: it is migration safety (see the hot-table FK rules in [products/README.md](README.md)) and multi-database planning, not Python isolation. Both `db_constraint=False` and a two-phase validated constraint are sanctioned.
 

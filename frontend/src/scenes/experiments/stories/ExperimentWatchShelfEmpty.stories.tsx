@@ -16,20 +16,21 @@ import {
     ExperimentWatchMultipleVariantHandlingEnumApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
-// One story per empty reason: the copy is the feature, and a screenshot is the only way to check
-// that the four read as different answers.
+// One story per empty reason, plus the too-early shelf that a cap bound: the copy is the feature,
+// and a screenshot is the only way to check that they read as different answers.
 const DELTAS_PATH = `/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/session_event_deltas/`
 
 // Typed as the generated response so a new required field on the serializer breaks the typecheck here.
 const emptyShelf = (
     emptyReason: ExperimentWatchEmptyReasonEnumApi,
-    variantPersons: number
+    variantPersons: number[],
+    sessionsTruncated: boolean
 ): ExperimentSessionEventDeltaResponseApi => ({
     cards: [],
     variants: [
-        { key: 'control', persons: variantPersons, sessions: Math.round(variantPersons * 1.4) },
-        { key: 'test-1', persons: variantPersons, sessions: Math.round(variantPersons * 1.3) },
-        { key: 'test-2', persons: variantPersons, sessions: Math.round(variantPersons * 1.4) },
+        { key: 'control', persons: variantPersons[0], sessions: Math.round(variantPersons[0] * 1.4) },
+        { key: 'test-1', persons: variantPersons[1], sessions: Math.round(variantPersons[1] * 1.3) },
+        { key: 'test-2', persons: variantPersons[2], sessions: Math.round(variantPersons[2] * 1.4) },
     ],
     multiple_variant_persons: 0,
     multiple_variant_handling: ExperimentWatchMultipleVariantHandlingEnumApi.Exclude,
@@ -38,7 +39,7 @@ const emptyShelf = (
     date_to: '2025-06-01T09:00:00Z',
     filter_test_accounts: true,
     used_exposure_fallback: false,
-    sessions_truncated: false,
+    sessions_truncated: sessionsTruncated,
     events_truncated: false,
     min_variant_persons: 50,
     max_card_recordings: 20,
@@ -58,7 +59,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-06-01',
         pageUrl: urls.experiment(EXPERIMENT_WITH_FUNNEL_METRIC.id) + '?tab=recordings',
-        featureFlags: [FEATURE_FLAGS.EXPERIMENT_RECORDINGS_TAB, FEATURE_FLAGS.EXPERIMENT_BEHAVIOR_COMPARISON],
+        featureFlags: [FEATURE_FLAGS.EXPERIMENT_BEHAVIOR_COMPARISON],
         testOptions: { waitForSelector: '[data-attr="experiment-recordings-tab"]' },
     },
     decorators: [
@@ -93,15 +94,45 @@ const openTheShelf: Story['play'] = async ({ canvasElement }) => {
     await makeDelay(500)()
 }
 
-const shelfStory = (emptyReason: ExperimentWatchEmptyReasonEnumApi, variantPersons: number): Story => ({
-    decorators: [mswDecorator({ post: { [DELTAS_PATH]: emptyShelf(emptyReason, variantPersons) } })],
+const shelfStory = (
+    emptyReason: ExperimentWatchEmptyReasonEnumApi,
+    variantPersons: number[],
+    sessionsTruncated: boolean = false
+): Story => ({
+    decorators: [mswDecorator({ post: { [DELTAS_PATH]: emptyShelf(emptyReason, variantPersons, sessionsTruncated) } })],
     play: openTheShelf,
 })
 
-export const ExperimentWatchShelfTooEarly: Story = shelfStory(ExperimentWatchEmptyReasonEnumApi.TooEarly, 12)
-export const ExperimentWatchShelfNoSeparation: Story = shelfStory(ExperimentWatchEmptyReasonEnumApi.NoSeparation, 2400)
-export const ExperimentWatchShelfNoRecordings: Story = shelfStory(ExperimentWatchEmptyReasonEnumApi.NoRecordings, 2400)
+export const ExperimentWatchShelfTooEarly: Story = shelfStory(ExperimentWatchEmptyReasonEnumApi.TooEarly, [12, 12, 12])
+// A cap bound the comparison, so the banner must not promise that waiting alone fills it.
+export const ExperimentWatchShelfTooEarlyTruncated: Story = shelfStory(
+    ExperimentWatchEmptyReasonEnumApi.TooEarly,
+    [1900, 3, 0],
+    true
+)
+export const ExperimentWatchShelfNoSeparation: Story = shelfStory(
+    ExperimentWatchEmptyReasonEnumApi.NoSeparation,
+    [2400, 2400, 2400]
+)
+export const ExperimentWatchShelfNoRecordings: Story = shelfStory(
+    ExperimentWatchEmptyReasonEnumApi.NoRecordings,
+    [2400, 2400, 2400]
+)
 export const ExperimentWatchShelfNoSessionLinkedExposures: Story = shelfStory(
     ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures,
-    0
+    [0, 0, 0]
 )
+
+// A 400 is the backend refusing a comparison this experiment cannot have, so the shelf states it
+// and offers no retry. Shot at two widths because the line sits under the filter row, where a long
+// refusal is what runs out of room first.
+const REFUSAL_DETAIL = 'This experiment has only one variant, so there is nothing to compare it against.'
+
+const refusedStory = (width: number): Story => ({
+    parameters: { testOptions: { viewport: { width, height: 1000 } } },
+    decorators: [mswDecorator({ post: { [DELTAS_PATH]: [400, { detail: REFUSAL_DETAIL }] } })],
+    play: openTheShelf,
+})
+
+export const ExperimentWatchShelfRefused: Story = refusedStory(1300)
+export const ExperimentWatchShelfRefusedNarrow: Story = refusedStory(800)
