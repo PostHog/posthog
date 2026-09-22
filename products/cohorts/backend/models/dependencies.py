@@ -41,6 +41,16 @@ COHORT_BACKFILL_DEBOUNCE_SECONDS = 300  # 5 minutes
 # than the countdown would swallow a save that lands after the task already read its state.
 COHORT_BACKFILL_REDIS_TTL_SECONDS = COHORT_BACKFILL_DEBOUNCE_SECONDS
 
+
+def cohort_backfill_pending_key(cohort_id: int, kind: str) -> str:
+    """The debounce key for one cohort and kind, holding the pending task's trigger kind.
+
+    It is the only record that a save asked for a build during the countdown, so the cohort API
+    reads it to tell a queued build from a cohort nothing is building.
+    """
+    return f"cohort_backfill_{kind}_pending:{cohort_id}"
+
+
 # Prometheus metrics for cache hit/miss tracking
 COHORT_DEPENDENCY_CACHE_COUNTER = Counter(
     "posthog_cohort_dependency_cache_requests_total",
@@ -496,8 +506,8 @@ def _trigger_cohort_backfill(cohort: Cohort, trigger_kind: str, kind: CohortBack
         )
 
         redis_client = get_redis_client()
-        lock_key = f"cohort_backfill_{kind}_pending:{cohort.pk}"
-        if not redis_client.set(lock_key, 1, nx=True, ex=COHORT_BACKFILL_REDIS_TTL_SECONDS):
+        lock_key = cohort_backfill_pending_key(cohort.pk, kind)
+        if not redis_client.set(lock_key, trigger_kind, nx=True, ex=COHORT_BACKFILL_REDIS_TTL_SECONDS):
             COHORT_BACKFILL_TRIGGER_COUNTER.labels(backfill_kind=kind, outcome="debounced").inc()
             logger.info(
                 "cohort_backfill_already_pending",

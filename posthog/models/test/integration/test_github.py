@@ -106,6 +106,24 @@ class TestParseRepoItemUrl(SimpleTestCase):
         assert GitHubIntegrationBase.parse_issue_url(issue_url) is None
 
 
+class TestPullRequestCommentMarker(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("absent", [], True, False),
+            ("present", [{"body": "note <!-- replacement -->"}], True, True),
+            ("incomplete", [], False, None),
+            ("present_in_partial_read", [{"body": "<!-- replacement -->"}], False, True),
+            ("malformed", {"error": "unavailable"}, True, None),
+        ]
+    )
+    def test_marker_absence_requires_a_complete_read(self, name, body, complete, expected) -> None:
+        github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
+        response = MagicMock(status_code=200)
+        response.json.return_value = body
+        with patch.object(github, "_installation_authenticated_get_pages", return_value=([response], complete)):
+            assert github.has_pull_request_comment("example/repo", 1, "<!-- replacement -->") is expected
+
+
 class TestGitHubIntegrationModel(BaseTest):
     def setUp(self):
         super().setUp()
@@ -873,6 +891,57 @@ class TestGitHubIntegrationModel(BaseTest):
         sent_query = mock_request.call_args.kwargs["params"]["q"]
         assert sent_query == 'repo:PostHog/posthog "crash  repo:microsoft/vscode" in:title type:issue'
 
+    def test_search_issues_retrieves_an_issue_by_number(self):
+        integration = self.create_integration(
+            config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
+        )
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200)
+        mock_response.json.return_value = {
+            "number": 42,
+            "title": "Checkout failed",
+            "html_url": "https://github.com/PostHog/posthog/issues/42",
+        }
+
+        with patch.object(github, "api_request", return_value=mock_response) as mock_request:
+            results = github.search_issues("posthog", "#42")
+
+        assert results == [
+            {
+                "id": "42",
+                "title": "Checkout failed",
+                "url": "https://github.com/PostHog/posthog/issues/42",
+                "external_context": {"repository": "posthog", "number": 42},
+            }
+        ]
+        assert mock_request.call_args.args == ("GET", "/repos/PostHog/posthog/issues/42")
+
+    def test_search_issues_falls_back_to_title_search_when_number_is_not_found(self):
+        integration = self.create_integration(
+            config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
+        )
+        github = GitHubIntegration(integration)
+        not_found_response = MagicMock(status_code=404)
+        search_response = MagicMock(status_code=200)
+        search_response.json.return_value = {
+            "items": [
+                {
+                    "number": 84,
+                    "title": "Migration for #42",
+                    "html_url": "https://github.com/PostHog/posthog/issues/84",
+                    "repository_url": "https://api.github.com/repos/PostHog/posthog",
+                }
+            ]
+        }
+
+        with patch.object(github, "api_request", side_effect=[not_found_response, search_response]) as mock_request:
+            results = github.search_issues("posthog", "#42")
+
+        assert [result["id"] for result in results] == ["84"]
+        assert mock_request.call_count == 2
+        assert mock_request.call_args.args == ("GET", "/search/issues")
+        assert mock_request.call_args.kwargs["params"]["q"] == 'repo:PostHog/posthog "#42" in:title type:issue'
+
     def test_comment_on_pull_request_posts_to_issues_endpoint(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
@@ -939,6 +1008,76 @@ class TestGitHubIntegrationModel(BaseTest):
             result = github.add_pull_request_assignees("PostHog/posthog", 123, ["alice"])
         assert result["success"] is False
         assert result["status_code"] == 422
+
+    @parameterized.expand(
+        [
+            ("assignable", 204, {"success": True, "assignable": True}),
+            ("not_assignable", 404, {"success": True, "assignable": False}),
+        ]
+    )
+    def test_is_assignable_reads_the_assignees_endpoint(self, _name: str, status_code: int, expected: dict):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(
+            github, "_installation_authenticated_get", return_value=MagicMock(status_code=status_code)
+        ) as mock_get:
+            result = github.is_assignable("PostHog/posthog", "alice")
+        assert result == expected
+        assert mock_get.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/assignees/alice"
+
+    def test_is_assignable_reports_a_github_error(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=403, text="Resource not accessible by integration")
+        with patch.object(github, "_installation_authenticated_get", return_value=mock_response):
+            result = github.is_assignable("PostHog/posthog", "alice")
+        assert result["success"] is False
+        assert result["status_code"] == 403
+
+    @parameterized.expand(
+        [
+            ("every_page_read", True, {"success": True, "logins": ["alice", "bob"]}),
+            # A partial member list would make a random pick skip part of the team.
+            ("a_page_failed", False, {"success": False}),
+        ]
+    )
+    def test_list_team_members_needs_every_page(self, _name: str, complete: bool, expected: dict):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        first = MagicMock(status_code=200)
+        first.json.return_value = [{"login": "alice"}]
+        second = MagicMock(status_code=200 if complete else 403, text="Resource not accessible by integration")
+        second.json.return_value = [{"login": "bob"}]
+        with patch.object(
+            github, "_installation_authenticated_get_pages", return_value=([first, second], complete)
+        ) as mock_pages:
+            result = github.list_team_members("PostHog", "team-devex")
+        assert {key: result[key] for key in expected} == expected
+        assert mock_pages.call_args.args[0] == "https://api.github.com/orgs/PostHog/teams/team-devex/members"
+
+    @parameterized.expand(
+        [
+            ("unassigned_on_a_later_page", True, "unassigned", {"success": True, "unassigned": True}),
+            ("never_unassigned", True, "labeled", {"success": True, "unassigned": False}),
+            ("a_page_failed", False, "labeled", {"success": False}),
+            ("a_page_is_not_a_list", True, None, {"success": False}),
+        ]
+    )
+    def test_was_ever_unassigned_reads_every_page(
+        self, _name: str, complete: bool, last_event: str | None, expected: dict
+    ):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        first = MagicMock(status_code=200)
+        first.json.return_value = [{"event": "assigned"}]
+        second = MagicMock(status_code=200 if complete else 502, text="Bad gateway")
+        second.json.return_value = [{"event": last_event}] if last_event else {"message": "Moved"}
+        with patch.object(
+            github, "_installation_authenticated_get_pages", return_value=([first, second], complete)
+        ) as mock_pages:
+            result = github.was_ever_unassigned("PostHog/posthog", 42)
+        assert {key: result[key] for key in expected} == expected
+        assert mock_pages.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/42/events"
 
     def test_add_pull_request_assignees_from_url_parses_and_posts(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})

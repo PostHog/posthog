@@ -435,6 +435,8 @@ jobs:
                         - 'posthog/temporal/ingestion_acceptance_test/**'
                         - 'posthog/temporal/backfill_group_type_created_at/**'
                         - 'posthog/temporal/backfill_materialized_property/**'
+                        - 'products/security/backend/temporal/**'
+                        - 'products/security/backend/logic/**'
                         - 'posthog/kafka_client/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
@@ -478,6 +480,7 @@ jobs:
                         - 'products/signals/skills/**'
                         - 'products/review_hog/backend/**'
                         - 'products/business_knowledge/backend/**'
+                        - 'products/customer_analytics/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
                         - pyproject.toml
@@ -547,6 +550,9 @@ jobs:
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
+                        # The personhog gRPC stubs are an installed package, outside the
+                        # local packages the import analysis graphs.
+                        - 'packages/personhog-proto/**'
 
                       llmAnalyticsEvals:
                         - 'posthog/temporal/ai_observability/**'

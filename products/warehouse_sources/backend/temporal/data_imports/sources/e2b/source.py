@@ -16,6 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.e2b import (
+    INVALID_CREDENTIALS_ERROR,
+    NO_ACCESS_ERROR,
     E2BResumeConfig,
     e2b_source,
     validate_credentials as validate_e2b_credentials,
@@ -75,8 +77,8 @@ You can create a team-scoped API key (prefixed `e2b_`) in your [E2B dashboard](h
         return {
             # An invalid or revoked API key surfaces as an HTTPError when `_fetch_page` calls
             # `raise_for_status()`. Retrying can never satisfy a credential problem, so stop the sync.
-            "401 Client Error: Unauthorized for url: https://api.e2b.app": "Your E2B API key is invalid or has been revoked. Create a new team-scoped API key in your E2B dashboard, then reconnect.",
-            "403 Client Error: Forbidden for url: https://api.e2b.app": "Your E2B API key does not have access to this data. Check the key's team scope in your E2B dashboard, then reconnect.",
+            "401 Client Error: Unauthorized for url: https://api.e2b.app": INVALID_CREDENTIALS_ERROR,
+            "403 Client Error: Forbidden for url: https://api.e2b.app": NO_ACCESS_ERROR,
         }
 
     def get_schemas(
@@ -108,9 +110,7 @@ You can create a team-scoped API key (prefixed `e2b_`) in your [E2B dashboard](h
         self, config: E2BSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         try:
-            if validate_e2b_credentials(config.api_key):
-                return True, None
-            return False, "Invalid E2B API key"
+            return validate_e2b_credentials(config.api_key)
         except Exception:
             # The probe couldn't reach E2B (timeout, rate limit, or a 5xx). That says nothing about the
             # key, so point the user at retrying rather than at their credentials.

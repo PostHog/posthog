@@ -76,8 +76,7 @@ Both controls live inside `feature_flag.filters`:
         ]
       },
       "groups": [{ "properties": [], "rollout_percentage": 100 }]
-    },
-    "ensure_experience_continuity": false
+    }
   }
 }
 ```
@@ -164,16 +163,47 @@ See `configuring-experiment-analytics` for how to set the multivariate handling.
 as part of the same operation (creation or update) — do not leave the user with an uneven split
 under default handling without an explicit, informed decision.
 
-## Persist flag across authentication steps
+## Bucketing and persistence across login
 
-This option (`ensure_experience_continuity` on the feature flag) is only relevant when:
+By default a person's variant follows their distinct ID. When the same person sees the flag before and after they are identified (usually at login), their distinct ID changes, and so can their variant.
+Choose at creation; never change bucketing or persistence on a live flag. In this order:
 
-- The feature flag is shown to **both** logged-out AND logged-in users
-- You need the same variant assignment before and after login
+1. **Page seen mostly by one kind of visitor** (almost all anonymous, or almost all identified): keep user-id bucketing and leave `ensure_experience_continuity` out, so the team's persistence default applies.
+2. **Page crosses identification, and every flag call carries a device ID**: use device-id bucketing (recipe below). A flag call without a device ID gets no variant, so a server SDK must forward the browser's device ID. Local evaluation works when it does. The web SDK sends the device ID on flag requests from posthog-js 1.307.1; check the version, because an older one puts a device ID on events but not on flag requests.
+3. **Page crosses identification, and no SDK evaluates the flag locally**: persist the flag (`ensure_experience_continuity: true`). Persistence needs person profiles for anonymous users, no bootstrapping, and `$anon_distinct_id` on server flag calls. Learn more: https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps
+4. **Otherwise**: keep user-id bucketing and tell the user what would unlock the other options (a device ID on every flag call, or no local evaluation).
 
-This is not compatible with all setups. Learn more: https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps
+When `ensure_experience_continuity` is omitted, `experiment-create` applies the team's persistence default. Set it to `false` only when that default is `true` and local evaluation rules persistence out. The device-id recipe needs no such step: `create-feature-flag` leaves persistence off unless you set it, and `experiment-create` rejects a `feature_flag` object for a flag that already exists. Device-id bucketing and persistence can't be combined.
 
-Only mention this to the user if their use case involves pre/post-authentication experiences.
+### Device-id bucketing recipe
+
+`experiment-create` cannot set bucketing, so create the flag first, then link it:
+
+1. Call `create-feature-flag` with the experiment's key, `bucketing_identifier: "device_id"`, and `active: false` so no one gets a variant before launch (a new flag is active by default):
+
+   ```json
+   {
+     "key": "kebab-case-key",
+     "name": "Experiment name",
+     "active": false,
+     "bucketing_identifier": "device_id",
+     "filters": {
+       "groups": [{ "properties": [], "rollout_percentage": 100 }],
+       "multivariate": {
+         "variants": [
+           { "key": "control", "rollout_percentage": 50 },
+           { "key": "test", "rollout_percentage": 50 }
+         ]
+       }
+     }
+   }
+   ```
+
+   `filters.groups` is required: a flag without a group is rejected.
+
+2. Call `experiment-create` with that `feature_flag_key` and no `feature_flag` object. The experiment links the flag as it is, and launching the experiment turns the flag on.
+
+`experiment-setup-context` reports the facts these rules need (the page's share of unidentified visitors, and per SDK the device-ID and local-evaluation shares). `creating-experiments` (`references/setup-decisions.md`) applies them.
 
 ## Resolving experiments
 

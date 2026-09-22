@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     is_transient_maintenance_error,
+    is_transient_object_store_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
@@ -165,6 +166,12 @@ def _is_transient_infra_error(error: Exception) -> bool:
     # delta.table._is_retryable_purge_error — not a customer credential problem. Retrying on the next
     # sync self-heals it; burning an attempt and reporting it instead abandons the table after the cap.
     if isinstance(error, PermissionError):
+        return True
+    # Same object-store blips (`Generic S3 error`, SlowDown, S3's internal-error response) that
+    # `is_transient_maintenance_error` already recognizes for the maintenance path — the rewrite hits
+    # the same data-warehouse bucket the same way, so an OSError/DeltaError matching one of those
+    # needles here is exactly as transient.
+    if is_transient_object_store_error(error):
         return True
     message = str(error).lower()
     return any(snippet in message for snippet in _TRANSIENT_ERROR_SNIPPETS)
@@ -296,6 +303,16 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             schema_id=inputs.schema_id,
         )
         return
+    except Exception as e:
+        # retry_on_db_connection_drop already retried once; a second failure here (e.g. the worker
+        # briefly exhausting its file descriptors under load) is the same transient-infra shape the
+        # rewrite itself stands down on below, just hit before a run has even started. No claim has
+        # been staked and no attempt charged yet, so standing down costs nothing: the table is simply
+        # picked up again on the next sync.
+        if not _is_transient_infra_error(e):
+            raise
+        logger.warning("repartition: database unavailable while fetching schema, standing down", exc_info=True)
+        return
 
     # A table with a pending corruption revive must heal first — the extract activity resets it and
     # rebuilds from source. Repartitioning it here would interleave with that heal and re-hollow the
@@ -367,6 +384,14 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             job_id=inputs.job_id,
         )
         return
+    except Exception as e:
+        # See the matching comment on the schema fetch above: a second connection failure after
+        # retry_on_db_connection_drop's own retry is transient infra, not a repartition bug, and
+        # nothing has been claimed or charged yet.
+        if not _is_transient_infra_error(e):
+            raise
+        logger.warning("repartition: database unavailable while fetching job, standing down", exc_info=True)
+        return
 
     # Attach the same source/schema identity the import activity does, so an exception captured
     # anywhere below (budget exhaustion, an unexpected rewrite failure) can be attributed to a
@@ -415,8 +440,23 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # the only intact copy, and `_give_up` clears the marker that points at it. A ready swap has to be
     # completed however many attempts it took to get here.
     if swap is None and _exhausted_attempts(pending, inputs.job_id):
-        _give_up(inputs, schema, pending, trigger_reason, logger)
-        return
+        # A killed attempt that still moved the checkpoint on is forward progress, not evidence the
+        # rewrite is doomed, which is the distinction `_handle_budget_exceeded` already draws for an
+        # attempt that ran out of budget. The checkpoint is the only signal available here, because a
+        # killed attempt records no outcome of its own. Otherwise a large table that converges one
+        # worker death per sync is abandoned at the cap, and `_give_up` discards its progress too.
+        if _last_attempt_advanced_rewrite(schema, pending):
+            logger.warning(
+                f"repartition: attempts are spent but the rewrite advanced to "
+                f"{_rewrite_rows_written(schema)} rows, resetting the count and resuming "
+                f"schema_id={schema.id}",
+                schema_id=str(schema.id),
+                rewrite_rows=_rewrite_rows_written(schema),
+            )
+            pending = _clear_attempts_after_progress(schema, pending, logger)
+        else:
+            _give_up(inputs, schema, pending, trigger_reason, logger)
+            return
 
     # Never while a swap is staged: that recovery runs no rewrite, so the checkpoint says nothing
     # about it, and temp is the only intact copy until it completes.
@@ -695,11 +735,13 @@ def _handle_budget_exceeded(
     run and finishing nothing, because the cap could never count to three.
 
     Two shapes count as progress. A resumed attempt that appended rows extended what it inherited. And
-    a genuine first attempt — one with no prior checkpoint to inherit — that persisted a checkpoint the
+    a genuine first attempt — one with no checkpoint it could build on — that persisted a checkpoint the
     next run resumes from broke new ground, even though `resumed_from` is 0. `had_prior_checkpoint`
-    keeps that first attempt apart from a restart that inherited nothing because it discarded an
-    existing checkpoint: the restart re-covered ground the last attempt already covered, however much it
-    wrote, so only it (and an attempt that saved no checkpoint at all) falls through to `_handle_failure`.
+    keeps that first attempt apart from a restart that inherited nothing because it discarded a
+    checkpoint it could have resumed: the restart re-covered ground the last attempt already covered,
+    however much it wrote, so only it (and an attempt that saved no checkpoint at all) falls through to
+    `_handle_failure`. A checkpoint the resume path rejected does not make an attempt a restart, because
+    it was left by an attempt killed at an arbitrary point and the rows it covered measure nothing.
 
     Returns the metric outcome: "superseded" when a newer attempt owns the claim, "progressing" when
     the rewrite broke new ground, otherwise whatever `_handle_failure` returns.
@@ -763,6 +805,42 @@ def _exhausted_attempts(pending: dict[str, Any] | None, job_id: str) -> bool:
 def _rewrite_rows_written(schema: ExternalDataSchema) -> int:
     """Rows the rewrite checkpoint says temp already holds, or 0 when there is no checkpoint."""
     return int((schema.repartition_rewrite or {}).get("rows_written") or 0)
+
+
+def _last_attempt_advanced_rewrite(schema: ExternalDataSchema, pending: dict[str, Any] | None) -> bool:
+    """Whether the last attempt left the rewrite checkpoint further along than it found it.
+
+    Every attempt stamps `attempt_rows` with the checkpoint it is about to run from (see
+    `_charge_attempt`), so a checkpoint reading past that stamp is the only trace an attempt killed
+    outright can leave of the rows it committed. Strictly past: a checkpoint standing exactly where
+    the attempt began is the stalled rewrite the cap exists to stop. A marker written before that
+    stamp existed carries no `attempt_rows` and claims no progress.
+    """
+    if pending is None:
+        return False
+    started_from = pending.get("attempt_rows")
+    return started_from is not None and _rewrite_rows_written(schema) > int(started_from)
+
+
+def _clear_attempts_after_progress(
+    schema: ExternalDataSchema, pending: dict[str, Any] | None, logger: FilteringBoundLogger
+) -> dict[str, Any] | None:
+    """Reset the failure count for a rewrite that is still advancing; return the marker now in force.
+
+    Resets rather than refunds, the same way `_handle_budget_exceeded` treats an attempt that
+    advanced: the count records consecutive attempts that got nowhere. A failed write leaves the
+    spent count in place, so the rewrite still runs this time and the next run re-reads the cap,
+    because bookkeeping must never block it.
+    """
+    if pending is None:
+        return None
+    marker = {**pending, "attempts": 0}
+    try:
+        schema.set_repartition_pending(marker)
+    except Exception:
+        logger.warning("repartition: could not reset the attempt count, proceeding on the spent one", exc_info=True)
+        return pending
+    return marker
 
 
 def _retrying_a_killed_attempt(schema: ExternalDataSchema, pending: dict[str, Any] | None, job_id: str) -> bool:

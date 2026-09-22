@@ -214,7 +214,7 @@ const ExperimentCreateSchema = () => {
     return ExperimentsCreateBody.omit({
         start_date: true,
         end_date: true,
-        running_time_calculation: true,
+        parameters: true,
         excluded_variants: true,
         secondary_metrics: true,
         saved_metrics_ids: true,
@@ -238,6 +238,9 @@ const ExperimentCreateSchema = () => {
     }).extend({
         feature_flag: ExperimentsCreateBody.shape['feature_flag'].describe(
             'Variant split, rollout scope, payloads, and experience continuity for the auto-created feature flag, in the flag\'s own filters shape. This is the canonical input for flag config. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100) to customize the variant split. Set filters.groups to a single group [{"properties": [], "rollout_percentage": N}] (0-100) to control the overall fraction of users entering the experiment. Default: 50/50 control/test, 100% rollout. Omit this parameter entirely when feature_flag_key refers to a pre-existing flag: the experiment links to that flag as-is and explicit config is rejected. No specific variant key is required. The analysis baseline defaults to the variant keyed `control` (lowercase) when present, else the first variant; override with stats_config.baseline_variant_key. Convention: when the user describes variants as "A/B", "old/new", "original/redesign", or any other natural-language pair without naming explicit keys, key the baseline `control` and keep their wording in the variant `name`. When the user asks for specific keys, use them as-is and put the baseline first.'
+        ),
+        running_time_calculation: ExperimentsCreateBody.shape['running_time_calculation'].describe(
+            "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config. When minimum_detectable_effect is omitted, the project's default MDE is stored instead, if the project has one."
         ),
     })
 }
@@ -264,8 +267,8 @@ const experimentCreate = (): ToolBase<ReturnType<typeof ExperimentCreateSchema>,
             if (params.holdout_id !== undefined) {
                 body['holdout_id'] = params.holdout_id
             }
-            if (params.parameters !== undefined) {
-                body['parameters'] = params.parameters
+            if (params.running_time_calculation !== undefined) {
+                body['running_time_calculation'] = params.running_time_calculation
             }
             if (params.exposure_criteria !== undefined) {
                 body['exposure_criteria'] = params.exposure_criteria
@@ -295,7 +298,7 @@ const experimentCreate = (): ToolBase<ReturnType<typeof ExperimentCreateSchema>,
                 'start_date',
                 'end_date',
                 'created_at',
-                'parameters',
+                'running_time_calculation',
                 'metrics',
                 'metrics_secondary',
                 'conclusion',
@@ -355,7 +358,6 @@ const experimentCreateFromPrompt = (): ToolBase<
                 'start_date',
                 'end_date',
                 'created_at',
-                'parameters',
                 'metrics',
                 'metrics_secondary',
                 'conclusion',
@@ -933,6 +935,33 @@ const experimentMetricsRecalculationRetrieve = (): ToolBase<
     },
 })
 
+const ExperimentMigrateSchema = () => {
+    const ExperimentsMigrateCreateParams = orvalSchemas.ExperimentsMigrateCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsMigrateCreateParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, ExperimentsMigrateCreateParams.shape['id']),
+        })
+    )
+}
+
+const experimentMigrate = (): ToolBase<
+    ReturnType<typeof ExperimentMigrateSchema>,
+    WithPostHogUrl<Schemas.Experiment>
+> =>
+    withUiApp('experiment', {
+        name: 'experiment-migrate',
+        schema: ExperimentMigrateSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentMigrateSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.Experiment>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/migrate/`,
+            })
+            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+        },
+    })
+
 const ExperimentPauseSchema = () => {
     const ExperimentsPauseCreateParams = orvalSchemas.ExperimentsPauseCreateParams()
     return z.preprocess(
@@ -1181,6 +1210,54 @@ const experimentSavedMetricsRetrieve = (): ToolBase<
     },
 })
 
+const ExperimentSetupContextSchema = () => {
+    const ExperimentsSetupContextCreateBody = orvalSchemas.ExperimentsSetupContextCreateBody()
+    return ExperimentsSetupContextCreateBody
+}
+
+const experimentSetupContext = (): ToolBase<
+    ReturnType<typeof ExperimentSetupContextSchema>,
+    WithInformationalResponse<Schemas.ExperimentSetupContextResponse>
+> => ({
+    name: 'experiment-setup-context',
+    schema: ExperimentSetupContextSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentSetupContextSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.target_event !== undefined) {
+            body['target_event'] = params.target_event
+        }
+        if (params.target_url_contains !== undefined) {
+            body['target_url_contains'] = params.target_url_contains
+        }
+        if (params.target_properties !== undefined) {
+            body['target_properties'] = params.target_properties
+        }
+        if (params.metric_event !== undefined) {
+            body['metric_event'] = params.metric_event
+        }
+        if (params.metric_properties !== undefined) {
+            body['metric_properties'] = params.metric_properties
+        }
+        if (params.previous_experiments_limit !== undefined) {
+            body['previous_experiments_limit'] = params.previous_experiments_limit
+        }
+        if (params.shared_metrics_limit !== undefined) {
+            body['shared_metrics_limit'] = params.shared_metrics_limit
+        }
+        const result = await context.api.request<Schemas.ExperimentSetupContextResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/setup_context/`,
+            body,
+        })
+        return withInformationalResponse(
+            result,
+            'experiment-setup-context',
+            'Use it only as facts about this project when configuring a new experiment.'
+        )
+    },
+})
+
 const ExperimentShipVariantSchema = () => {
     const ExperimentsShipVariantCreateBody = orvalSchemas.ExperimentsShipVariantCreateBody()
     const ExperimentsShipVariantCreateParams = orvalSchemas.ExperimentsShipVariantCreateParams()
@@ -1358,6 +1435,7 @@ const ExperimentUpdateSchema = () => {
                     start_date: true,
                     end_date: true,
                     feature_flag_key: true,
+                    parameters: true,
                     secondary_metrics: true,
                     filters: true,
                     deleted: true,
@@ -1403,9 +1481,6 @@ const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>,
             }
             if (params.holdout_id !== undefined) {
                 body['holdout_id'] = params.holdout_id
-            }
-            if (params.parameters !== undefined) {
-                body['parameters'] = params.parameters
             }
             if (params.running_time_calculation !== undefined) {
                 body['running_time_calculation'] = params.running_time_calculation
@@ -1462,8 +1537,8 @@ const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>,
                 'start_date',
                 'end_date',
                 'created_at',
-                'parameters',
                 'running_time_calculation',
+                'excluded_variants',
                 'metrics',
                 'metrics_secondary',
                 'saved_metrics',
@@ -1563,6 +1638,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-metrics-recalculation-create': experimentMetricsRecalculationCreate,
     'experiment-metrics-recalculation-latest-retrieve': experimentMetricsRecalculationLatestRetrieve,
     'experiment-metrics-recalculation-retrieve': experimentMetricsRecalculationRetrieve,
+    'experiment-migrate': experimentMigrate,
     'experiment-pause': experimentPause,
     'experiment-prompt-templates': experimentPromptTemplates,
     'experiment-reset': experimentReset,
@@ -1572,6 +1648,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-saved-metrics-list': experimentSavedMetricsList,
     'experiment-saved-metrics-partial-update': experimentSavedMetricsPartialUpdate,
     'experiment-saved-metrics-retrieve': experimentSavedMetricsRetrieve,
+    'experiment-setup-context': experimentSetupContext,
     'experiment-ship-variant': experimentShipVariant,
     'experiment-stats': experimentStats,
     'experiment-timeseries-results': experimentTimeseriesResults,

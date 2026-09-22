@@ -522,7 +522,7 @@ describe('RecordingService', () => {
                 expect.anything(),
                 expect.stringContaining('posthog_exportedasset'),
                 [1, ['"session-1"', '"session-2"']],
-                'expireRenderedRecordingVideos'
+                'expireRecordingExports'
             )
         })
 

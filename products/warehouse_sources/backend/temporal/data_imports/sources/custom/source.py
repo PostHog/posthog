@@ -814,7 +814,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # The generic HTTP/API connector. Match the terms people search when no named
             # connector for their API exists yet.
             keywords=["rest", "api", "http", "https", "rest api", "http api", "custom api", "endpoint"],
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption=(
                 "Set up a source using custom configured mappings. "
                 "Define a REST API source by providing a manifest that follows the same shape "

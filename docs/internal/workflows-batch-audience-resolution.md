@@ -12,7 +12,10 @@ The page fetch runs a ClickHouse query, so it does not fit the generic 3s `EXTER
 
 - `CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS` (default `30000`) — client-side budget in milliseconds for each audience fetch (blast-radius count, persons page, account page).
 
-A fetch that exceeds the budget aborts, retries up to `MAX_RESOLVER_ATTEMPTS` times with backoff, and then the run is marked failed with `Batch resolver failed: Audience fetch failed permanently…` on the workflow's log stream. Keep the budget under the HogQL default `max_execution_time` (60s): above it, the client only waits longer for a query ClickHouse will kill anyway. Note the client abort does not cancel the ClickHouse query — a query slower than the budget keeps running server-side until the HogQL cap, so a too-small budget wastes a full query execution per attempt.
+A fetch that exceeds the budget aborts, retries up to `MAX_RESOLVER_ATTEMPTS` times with backoff, and then the run is marked failed on the workflow's log stream.
+A timeout gets its own terminal reason, `Batch resolver failed: Audience query timed out…`, which names the budget and the attempt count.
+Any other fetch failure keeps the generic `Batch resolver failed: Audience fetch failed permanently…`, so search for both texts when you triage a failed run.
+Keep the budget under the HogQL default `max_execution_time` (60s): above it, the client only waits longer for a query ClickHouse will kill anyway. Note the client abort does not cancel the ClickHouse query — a query slower than the budget keeps running server-side until the HogQL cap, so a too-small budget wastes a full query execution per attempt.
 
 ## Lock heartbeats and batch size
 
@@ -29,7 +32,8 @@ This keeps an allowed slow fetch from reporting the worker as unhealthy while it
 
 ## Observing
 
-- Fetch durations: `instrumented_function_duration_seconds` for `cdpBatchResolve.getBlastRadiusPersons` and `cdpBatchResolve.getAccountAudiencePage`. Watch the p99 against the budget before tuning either.
+- Fetch durations: `instrumented_function_duration_seconds` for `cdpBatchResolve.getBlastRadiusPersons` and `cdpBatchResolve.getAccountAudiencePage`. Read the bucket counts rather than a quantile before tuning either. The finite bucket edges are 0.025, 0.1, 0.4, 1.6, 6.4, 25.6 and 102.4 seconds, so a quantile between two edges reports the share of slow fetches and not how long they took. `CdpBatchAudienceFetchSlow` counts fetches slower than 25.6s, the edge closest to the budget, and fires before any fetch aborts. That alert reads the persons function only. A slow account page therefore gets no warning before it starts to time out, so watch its bucket counts by hand or widen the alert.
+- Timeouts: `cdp_batch_hog_flow_audience_fetch_timeout{endpoint}` counts each fetch that used its full budget and aborted. A timeout raises `AudienceFetchTimeoutError`, which is a separate type from a transport failure, so the retry logs and the customer-visible failure reason name the timeout. `CdpBatchAudienceFetchTimingOut` alerts on a sustained rate. Both alerts live in [PostHog/charts `alerts/specs/cdp.yaml`](https://github.com/PostHog/charts/blob/main/alerts/specs/cdp.yaml).
 - Failures: `cdp_batch_hog_flow_resolver_pages_processed{outcome="fetch_failure"}`, and a `Batch resolver failed: <reason>` row in ClickHouse `log_entries` with `log_source = 'hog_flow'` and `log_source_id` = the **batch job id** (not the workflow id).
 
 ## Known gap: the failure reason is not visible in the app

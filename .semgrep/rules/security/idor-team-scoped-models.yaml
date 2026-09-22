@@ -58,6 +58,7 @@ rules:
                               |Account
                               |AccountChannelSummary
                               |AccountRelationship
+                              |AccountRelationshipControl
                               |AccountRelationshipDefinition
                               |AccountTrackRuleRun
                               |Action
@@ -118,6 +119,8 @@ rules:
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
                               |Conversation
+                              |ConversationDelivery
+                              |ConversationDeliveryPart
                               |ConversationInboundEvent
                               |ConversationRestoreToken
                               |CoreMemory
@@ -209,6 +212,7 @@ rules:
                               |FeatureRequest
                               |FeatureRequestAccountLink
                               |FeatureRequestEvidence
+                              |FeatureRequestGitHubLink
                               |FeatureRequestHistory
                               |FeatureRequestProductArea
                               |FeatureRequestProductAreaLink
@@ -312,6 +316,7 @@ rules:
                               |QuickFilterContext
                               |ReplayObservation
                               |ReplayObservationLabel
+                              |ReplayObservationMedia
                               |ReplayObservationUsage
                               |ReplayObservationView
                               |ReplayScanner
@@ -329,6 +334,7 @@ rules:
                               |ResourceLink
                               |ScoreDefinition
                               |SavedHeatmap
+                              |HeatmapCaptureConfigVersion
                               |ScheduledChange
                               |SessionGroupSummary
                               |SessionRecording
@@ -343,6 +349,7 @@ rules:
                               |SignalReportPullRequest
                               |SignalReportAssignment
                               |SignalReportRefund
+                              |SignalReportSlackThread
                               |SignalReportTask
                               |SignalReportTrackerIssue
                               |SignalRepositoryAreaActivity
@@ -364,6 +371,8 @@ rules:
                               |Subscription
                               |SubscriptionContext
                               |SubscriptionDelivery
+                              |PlatformAlert
+                              |PlatformAlertConfiguration
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -418,6 +427,7 @@ rules:
                               |WizardRunArtifact
                               |WizardSession
                               |WizardWorker
+                              |WorkflowProposal
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -477,6 +487,7 @@ rules:
                         |Account
                         |AccountChannelSummary
                         |AccountRelationship
+                        |AccountRelationshipControl
                         |AccountRelationshipDefinition
                         |AccountTrackRuleRun
                         |Action
@@ -535,6 +546,8 @@ rules:
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
                         |Conversation
+                        |ConversationDelivery
+                        |ConversationDeliveryPart
                         |ConversationInboundEvent
                         |ConversationRestoreToken
                         |CoreMemory
@@ -623,6 +636,7 @@ rules:
                         |FeatureRequest
                         |FeatureRequestAccountLink
                         |FeatureRequestEvidence
+                        |FeatureRequestGitHubLink
                         |FeatureRequestHistory
                         |FeatureRequestProductArea
                         |FeatureRequestProductAreaLink
@@ -719,6 +733,7 @@ rules:
                         |QuickFilterContext
                         |ReplayObservation
                         |ReplayObservationLabel
+                        |ReplayObservationMedia
                         |ReplayObservationUsage
                         |ReplayObservationView
                         |ReplayScanner
@@ -736,6 +751,7 @@ rules:
                         |ResourceLink
                         |ScoreDefinition
                         |SavedHeatmap
+                        |HeatmapCaptureConfigVersion
                         |ScheduledChange
                         |SessionGroupSummary
                         |SessionRecording
@@ -750,6 +766,7 @@ rules:
                         |SignalReportPullRequest
                         |SignalReportAssignment
                         |SignalReportRefund
+                        |SignalReportSlackThread
                         |SignalReportTask
                         |SignalReportTrackerIssue
                         |SignalRepositoryAreaActivity
@@ -771,6 +788,8 @@ rules:
                         |Subscription
                         |SubscriptionContext
                         |SubscriptionDelivery
+                        |PlatformAlert
+                        |PlatformAlertConfiguration
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification
@@ -824,6 +843,7 @@ rules:
                         |WizardRunArtifact
                         |WizardSession
                         |WizardWorker
+                        |WorkflowProposal
                     )$
           # Exclude when team filter is present
           - pattern-not: $M.objects. ... .$METHOD2(..., team__project_id=$T, ...)

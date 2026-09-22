@@ -1,30 +1,24 @@
 """GitHub App deliveries for the Conversations GitHub Issues channel.
 
-Two entry points, both reached from the facade after ingress verified the signature and parsed
-the body: ``github_delivery_ownership`` answers which region holds the delivery's installation,
-and ``accept_github_event`` hands the delivery to the Celery pipeline. No HTTP in here — ingress
-owns the request, the receipt, and the forward to the region that owns the installation.
+One entry point, reached from the facade after ingress verified the signature and parsed the
+body: ``accept_github_event`` hands the delivery to the Celery pipeline. No HTTP in here,
+because ingress owns the request and the receipt.
 """
 
 import json
 import hashlib
 from typing import Any, cast
 
-from django.db import OperationalError
-
 import structlog
 
 from posthog.github.installations import installation_id
-from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
-from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout
+from posthog.ingress.contracts import WebhookDelivery
+from posthog.ingress.dispatch.database import bounded_statement_timeout
 from posthog.models.integration import Integration
 
 from products.conversations.backend.tasks.github import process_github_event
 
 logger = structlog.get_logger(__name__)
-
-# The event types this product consumes, and so the only ones it can answer ownership for.
-_CONSUMED_EVENT_TYPES = frozenset({"issues", "issue_comment"})
 
 # The lookup runs inside the request, before dispatch, so it draws on the delivery's wall clock.
 _INSTALLATION_LOOKUP_TIMEOUT_MS = 800
@@ -50,8 +44,7 @@ def _team_for_github_installation(external_id: str) -> tuple[int | None, bool]:
     whose conversations_settings.github_integration_id explicitly points back
     to the Integration row, ensuring deterministic routing.
 
-    A cancelled statement raises, because a lookup that never finished is not an answer. Each
-    caller decides what to do with it.
+    A cancelled statement raises, because a lookup that never finished is not an answer.
     """
     with bounded_statement_timeout(_INSTALLATION_LOOKUP_TIMEOUT_MS, models=[Integration]):
         integrations = list(
@@ -72,34 +65,6 @@ def _team_for_github_installation(external_id: str) -> tuple[int | None, bool]:
     return None, False
 
 
-def github_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
-    """Which region holds the team this delivery's installation is connected to.
-
-    An installation this region does not own is `ELSEWHERE` rather than undecided, so the
-    delivery reaches the other region: it is the only one that can tell an installation it holds
-    from one nobody holds, and GitHub never redelivers an event it got a receipt for.
-    """
-    if delivery.event_type not in _CONSUMED_EVENT_TYPES:
-        return DeliveryOwnership.UNDECIDED
-    external_id = installation_id(dict(delivery.payload))
-    if external_id is None:
-        return DeliveryOwnership.UNDECIDED
-
-    try:
-        team_id, github_enabled = _team_for_github_installation(external_id)
-    except OperationalError as error:
-        if not is_statement_timeout(error):
-            raise
-        # Elsewhere rather than an error: the two answers here are "this region owns it" and
-        # "somebody else does", and a lookup that never finished has not shown ownership here.
-        logger.warning("github_issues_webhook_installation_lookup_timed_out", installation_id=external_id)
-        return DeliveryOwnership.ELSEWHERE
-
-    if team_id and github_enabled:
-        return DeliveryOwnership.LOCAL
-    return DeliveryOwnership.ELSEWHERE
-
-
 def accept_github_event(delivery: WebhookDelivery) -> None:
     """Route a verified GitHub delivery to the conversations Celery pipeline."""
     payload = dict(delivery.payload)
@@ -112,8 +77,9 @@ def accept_github_event(delivery: WebhookDelivery) -> None:
     # dedup mark and a redelivery reaches this consumer instead of the event being lost.
     team_id, github_enabled = _team_for_github_installation(external_id)
     if not (team_id and github_enabled):
-        # Quiet on purpose: ingress reports a delivery no region here owns, off the ownership
-        # answer this module gave it before dispatch.
+        # Quiet on purpose, because this is the normal case. Each region runs its own GitHub App,
+        # so this endpoint only ever receives its own installations, and an installation no team
+        # here has connected simply has the GitHub Issues channel off.
         return
 
     cast(Any, process_github_event).delay(

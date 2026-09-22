@@ -23,6 +23,7 @@ import type {
     ExportedAssetCreateApi,
     ExportsListParams,
     FileSystemApi,
+    FileSystemDestroyParams,
     FileSystemListParams,
     FileSystemShortcutApi,
     FileSystemShortcutListParams,
@@ -81,6 +82,7 @@ import type {
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
     SharingConfigurationApi,
+    ToolbarEntitlementsApi,
     UploadedMediaApi,
     UploadedMediaCreate201,
     UploadedMediaCreateBody,
@@ -1626,12 +1628,29 @@ export const fileSystemPartialUpdate = async (
     })
 }
 
-export const getFileSystemDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/file_system/${id}/`
+export const getFileSystemDestroyUrl = (projectId: string, id: string, params?: FileSystemDestroyParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/file_system/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/file_system/${id}/`
 }
 
-export const fileSystemDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getFileSystemDestroyUrl(projectId, id), {
+export const fileSystemDestroy = async (
+    projectId: string,
+    id: string,
+    params?: FileSystemDestroyParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getFileSystemDestroyUrl(projectId, id, params), {
         ...options,
         method: 'DELETE',
     })
@@ -2535,6 +2554,17 @@ export const revokeLeakedKeyCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(leakedKeyReportApi),
+    })
+}
+
+export const getUserToolbarEntitlementsRetrieveUrl = () => {
+    return `/api/user/toolbar_entitlements/`
+}
+
+export const userToolbarEntitlementsRetrieve = async (options?: RequestInit): Promise<ToolbarEntitlementsApi> => {
+    return apiMutator<ToolbarEntitlementsApi>(getUserToolbarEntitlementsRetrieveUrl(), {
+        ...options,
+        method: 'GET',
     })
 }
 

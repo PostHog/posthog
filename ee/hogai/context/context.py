@@ -491,6 +491,10 @@ class AssistantContextManager(AssistantContextMixin):
                     "notebook, use create_notebook with content containing the complete final notebook markdown."
                 ),
                 (
+                    "- The editor applies that artifact to this notebook and preserves the user's prompt when "
+                    "requested. Do not save a second notebook or repeat the edit with another notebook tool."
+                ),
+                (
                     f"- Full-notebook replacement content must omit `{response_marker}`, empty Prompt tags, and the "
                     "user's inline prompt unless the user explicitly asks to keep them."
                 ),
