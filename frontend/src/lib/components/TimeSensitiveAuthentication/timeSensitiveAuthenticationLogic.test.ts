@@ -194,17 +194,22 @@ describe('timeSensitiveAuthenticationLogic', () => {
                 const attempt = startPopupAttempt()
 
                 const popup = new BroadcastChannel('posthog-sso-reauth')
+                const acknowledgment = new Promise((resolve) => (popup.onmessage = (event) => resolve(event.data)))
                 popup.postMessage({
                     type: 'sso_reauth_complete',
                     attempt: source === 'own' ? attempt : 'someone-else',
                     error_code: errorCode,
                 })
-                popup.close()
                 await expectLogic(logic).toDispatchActions(['ssoReauthenticationFinished'])
 
                 expect(onSuccess).toHaveBeenCalledTimes(settled ? 1 : 0)
                 expect(logic.values.showAuthenticationModal).toBe(!settled)
                 expect(lemonToast.error).toHaveBeenCalledTimes(toasted ? 1 : 0)
+                if (source === 'own') {
+                    // The popup waits for this before it closes, so the result is never dropped
+                    expect(await acknowledgment).toEqual({ type: 'sso_reauth_received', attempt })
+                }
+                popup.close()
             }
         )
         it('keeps SAML on the full-page redirect', () => {

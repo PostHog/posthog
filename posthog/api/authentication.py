@@ -216,10 +216,10 @@ def sso_reauth_complete(request: HttpRequest) -> HttpResponse:
         "sso_reauth_complete.html",
         {
             "result": {
+                "channel": SSO_REAUTH_CHANNEL,
                 "attempt": request.GET.get("attempt") or None,
                 "error_code": request.GET.get("error_code") or None,
-            },
-            "channel_name": SSO_REAUTH_CHANNEL,
+            }
         },
     )
 

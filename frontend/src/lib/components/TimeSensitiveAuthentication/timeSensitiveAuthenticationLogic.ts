@@ -461,6 +461,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
                 return
             }
             cache.ssoReauthAttempt = null
+            cache.ssoReauthChannel.postMessage({ type: 'sso_reauth_received', attempt })
             if (errorCode) {
                 lemonToast.error(ERROR_MESSAGES[errorCode] ?? ERROR_MESSAGES.social_login_failure)
                 return
@@ -499,6 +500,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
         cache.disposables.add(
             () => {
                 const channel = new BroadcastChannel(SSO_REAUTH_CHANNEL)
+                cache.ssoReauthChannel = channel
                 channel.onmessage = (event: MessageEvent) => {
                     if (event.data?.type === 'sso_reauth_complete') {
                         actions.ssoReauthenticationFinished(String(event.data.attempt), event.data.error_code ?? null)

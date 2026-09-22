@@ -861,7 +861,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
         page = self.client.get(expected_location)
         self.assertEqual(page.status_code, status.HTTP_200_OK)
         self.assertContains(page, "posthog-sso-reauth")
-        result = {"attempt": "a1", "error_code": expected_error_code}
+        result = {"channel": "posthog-sso-reauth", "attempt": "a1", "error_code": expected_error_code}
         self.assertContains(
             page, f'<script id="sso-reauth-result" type="application/json">{json.dumps(result)}</script>'
         )
