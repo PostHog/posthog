@@ -50,6 +50,26 @@ The PostHog web application, built with React and TypeScript. Uses [Kea](https:/
 The app-level Files scene lives in `src/scenes/project-files` and reuses the project tree from `src/layout/panel-layout/ProjectTree`.
 Open `/project/<project_id>/files` to browse the project, or add `?folder=Research` to start in a folder.
 
+The sidebar lives in `src/layout/panel-layout/navbar`.
+The `simple-sidepanel` feature flag enables the Apps, Files, and Chat layout described below.
+When the flag is off, the existing Browse and Chat navigation remains, including the `flat-nav` experiment.
+Its default width stays at 215px so scene content keeps the same available space; users can resize it.
+Global search sits beside the project menu as a compact button with its keyboard shortcut.
+Apps lists all available product and data pages from the product manifests, with feature flags and access controls applied.
+When enabled, Self-driving appears between Home and Activity with a beta label.
+Users can star apps and saved files for quick access; starred items use the existing project shortcuts.
+Apps shows only starred apps, while Files shows starred files and folders between its search bar and the project file tree.
+Starred section headings have no menu or second-level panel; manage individual favorites through their row menus.
+Apps uses the catalog order and has no A-Z/recent sort control.
+Row menus appear on hover or keyboard focus and include Add to starred or Remove from starred.
+Existing app and file menus keep their actions, with starring last below a separator.
+Files contains the project file tree, including search, filtering, sorting, folders, and recent items.
+The Files filter, sort, and action menus sit beside its search field.
+Starred files and the project tree share one scroll area below the search field.
+Recents can be collapsed, and the sidebar remembers that preference.
+Chat keeps the conversation list in its own tab.
+Add navigation destinations to the product manifest so they appear in Apps automatically.
+
 ### `posthog`
 
 The Django backend application. Key subdirectories:
