@@ -1527,8 +1527,24 @@ describe('dashboardLogic', () => {
         it('preserves a tile layout when the grid update omits that tile', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
+            const dashboard = logic.values.dashboard!
+            const savedDashboard = {
+                ...dashboard,
+                tiles: dashboard.tiles.map((tile) => ({
+                    ...tile,
+                    layouts: {
+                        sm: logic.values.layouts.sm!.find((layout) => layout.i === String(tile.id))!,
+                        xs: logic.values.layouts.xs!.find((layout) => layout.i === String(tile.id))!,
+                    },
+                })),
+            }
+            logic.unmount()
+            logic = dashboardLogic({ id: 5, dashboard: savedDashboard })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
             const [omittedTile, movedTile] = logic.values.dashboard!.tiles
-            const originalLayouts = logic.values.dashboardLayouts[omittedTile.id]
+            const originalLayouts = { sm: logic.values.dashboardLayouts[omittedTile.id]!.sm }
             const currentLayouts = logic.values.layouts
             const changedLayouts = {
                 ...currentLayouts,
@@ -1549,7 +1565,7 @@ describe('dashboardLogic', () => {
                 originalLayouts
             )
             expect(api.update).toHaveBeenCalledWith(
-                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                `api/projects/${MOCK_TEAM_ID}/dashboards/5`,
                 expect.objectContaining({
                     tiles: expect.arrayContaining([
                         expect.objectContaining({ id: omittedTile.id, layouts: originalLayouts }),
