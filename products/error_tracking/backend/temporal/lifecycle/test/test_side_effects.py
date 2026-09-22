@@ -225,6 +225,7 @@ def test_alert_inputs_mirror_the_internal_event_and_key_the_exception_by_its_own
     alert = alert_delivery_inputs(
         inputs,
         event="$error_tracking_issue_spiking",
+        exception_timestamp=inputs.detected_at,
         extra_properties={"computed_baseline": 2.0, "current_bucket_value": 40, "ignored": "x"},
         include_status=False,
     )
@@ -235,10 +236,14 @@ def test_alert_inputs_mirror_the_internal_event_and_key_the_exception_by_its_own
     # carries the spike detection time.
     assert alert.event_uuid == inputs.event_uuid
     assert alert.event_timestamp == inputs.event_timestamp
+    # The filter clock is the lifecycle event's own time, normalized like the internal event.
+    assert alert.lifecycle_timestamp == "2026-07-21T12:30:00+00:00"
     assert alert.extra == {"computed_baseline": "2.0", "current_bucket_value": "40"}
     assert alert.issue_name is not None and len(alert.issue_name) == 500
 
-    reopened = alert_delivery_inputs(_inputs(), event="$error_tracking_issue_reopened")
+    reopened = alert_delivery_inputs(
+        _inputs(), event="$error_tracking_issue_reopened", exception_timestamp=_inputs().event_timestamp
+    )
     assert reopened.status == "Pending Release"
     assert reopened.assignee == '{"type":"user","id":1}'
 
@@ -251,7 +256,9 @@ def test_dispatch_raises_so_the_activity_retries() -> None:
         ) as start,
         pytest.raises(RuntimeError),
     ):
-        dispatch_issue_lifecycle_alert(_inputs(), event="$error_tracking_issue_reopened")
+        dispatch_issue_lifecycle_alert(
+            _inputs(), event="$error_tracking_issue_reopened", exception_timestamp="2026-07-21T12:05:00Z"
+        )
     assert start.call_args.args[0].event == "$error_tracking_issue_reopened"
 
 

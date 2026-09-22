@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.http import HttpRequest
 
-from products.replay_vision.backend.models import ReplayObservation, ReplayScanner
+from products.replay_vision.backend.models import ReplayObservation, ReplayObservationMedia, ReplayScanner
 
 
 @admin.register(ReplayScanner)
@@ -39,4 +39,18 @@ class ReplayObservationAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request: HttpRequest) -> bool:
         # Created by workflow/consumer, never via admin.
+        return False
+
+
+@admin.register(ReplayObservationMedia)
+class ReplayObservationMediaAdmin(admin.ModelAdmin):
+    list_display = ("observation", "kind", "position", "created_at")
+    list_select_related = ("observation", "team")
+    list_filter = ("kind",)
+    # raw_id_fields, not the default select: each of these targets a table too large to enumerate per row.
+    raw_id_fields = ("observation", "asset", "team")
+    readonly_fields = ("id", "created_at")
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        # Written by the media workflow, never via admin.
         return False

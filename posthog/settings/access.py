@@ -38,6 +38,11 @@ IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=str_to_bool)
 TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", None)
 TRUST_ALL_PROXIES = get_from_env("TRUST_ALL_PROXIES", False, type_cast=str_to_bool)
 
+# Keys the managed reverse proxy uses to sign the client IP it forwards (ManagedProxyClientIPMiddleware).
+# Comma-separated, newest first: "<new>,<old>" while a rotation is in progress. Django accepts a
+# signature from any key. When the list is empty, Django never trusts the signed client IP headers.
+MANAGED_PROXY_SIGNING_KEYS: list[str] = get_list(os.getenv("MANAGED_PROXY_SIGNING_KEYS", ""))
+
 
 if IS_BEHIND_PROXY:
     USE_X_FORWARDED_HOST = True

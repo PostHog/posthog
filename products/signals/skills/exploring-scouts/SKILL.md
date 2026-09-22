@@ -108,7 +108,7 @@ See [`references/scout-data-model.md`](references/scout-data-model.md) for every
 
 ## Workflow: survey the fleet
 
-"What scouts do I have / what are they doing?" — lead with `config-list`, then enrich with the most recent run per scout so the user sees liveness, not just configuration.
+"What scouts do I have / what are they doing?" — lead with `scout-config-list`, then enrich with the most recent run per scout so the user sees liveness, not just configuration.
 
 1. `scout-config-list` — the roster.
 2. `scout-runs-list` once with a small `limit` and pick the newest run per `skill_name` (runs come back newest-first across the whole fleet, so one call usually covers everyone); for a scout that doesn't appear in that page, call again with `skill_name` set.
@@ -120,13 +120,13 @@ Present it as a table the user can scan — scout, cadence, posture, last run, l
 
 "How does my error-tracking scout work / how is it doing?"
 
-1. **Read its config** — find the row in `config-list` for `signals-scout-error-tracking`: schedule, posture, last run.
+1. **Read its config** — find the row in `scout-config-list` for `signals-scout-error-tracking`: schedule, posture, last run.
 2. **Read its body** — `posthog:skill-get {"skill_name": "signals-scout-error-tracking"}` returns the team's actual instruction set (which may be a canonical default or a diverged, hand-edited row).
    This is what the agent is told to do every run — its signal-vs-noise discriminator, explore patterns, and disqualifiers.
    To understand _why_ a scout behaves the way it does, read its body.
-3. **Read its recent runs**: `runs-list` with `skill_name` set to the scout (add `text` to search its summaries for a topic).
+3. **Read its recent runs**: `scout-runs-list` with `skill_name` set to the scout (add `text` to search its summaries for a topic).
    The end-of-run `summary` on each run is the scout's own account of what it looked at and decided; a failed run carries `failure_reason` instead.
-4. **Read what it remembered** — `scratchpad-search` (see below).
+4. **Read what it remembered** — `scout-scratchpad-search` (see below).
    The memory entries a scout wrote reveal the baselines and noise it has internalized about this project.
 5. **Read what it was told** — `scout-notes-list {"skill_name": "signals-scout-error-tracking"}` returns the steering notes humans left for this scout plus the general fleet-wide ones — exactly what its runs read as prior context.
    Each note carries an `origin`: `human` for one left directly, or a derived kind the inbox forwarded automatically: `report_dismissal` (a dismiss/snooze note), `report_discussion` (a question typed into a report's Discuss box), `report_feedback` (a note left with a thumbs rating), `report_reviewer_correction` (someone added or removed a suggested reviewer). Derived notes expire after ~30 days, and the list hides them from a caller without report read access (`task:read`), since they quote report content, so a credential with only `signal_scout:read` sees the human notes alone.
@@ -160,7 +160,7 @@ scout-runs-retrieve
 { "id": "<uuid>" }
 ```
 
-Note the field name flip: `runs-list` returns each run's id as `run_id`, but `runs-retrieve` takes it as `id`.
+Note the field name flip: `scout-runs-list` returns each run's id as `run_id`, but `scout-runs-retrieve` takes it as `id`.
 Pass the `run_id` value through as `id`.
 
 Returns the full run: `status`, `started_at` / `completed_at` (compute duration from these), `skill_name` / `skill_version` (what ran, at what body version), the end-of-run `summary`, `emitted_report_ids` / `edited_report_ids`, `metadata`, and `task_url`.
@@ -265,13 +265,13 @@ The report contract behind each report — the report bar, evidence, actionabili
 
 "Is my scout actually working / earning its cost?"
 There's no single metric — judge a scout over a window of runs.
-Pull the runs (`runs-list` with a `date_from`), then reason across the dimensions below.
+Pull the runs (`scout-runs-list` with a `date_from`), then reason across the dimensions below.
 The full playbook, including how to read each signal and the common failure modes, is in [`references/assessing-performance.md`](references/assessing-performance.md).
 
 - **Cadence adherence**: are runs landing roughly every `run_interval_minutes`, or on each `run_cron_schedule` slot?
   Judge a cron scout against its slots, not its interval: a weekday-only scout's weekend gap is the schedule, not a stall, and `assess_health.py` skips interval-based scoring for it (its cadence column reads `cron`).
   Large gaps mean the coordinator is skipping it (disabled, drained from the flag, or capped out on busy ticks) — _or_ it's dispatching but the runs aren't materializing.
-  Tell the two apart with `last_run_at`: if the config's `last_run_at` is also stale, the coordinator stopped planning it; if `last_run_at` is fresh but the newest run row is hours old, it's the dispatch-vs-execution divergence above (workers backed up / down, or runs stranded), which `runs-list` alone hides.
+  Tell the two apart with `last_run_at`: if the config's `last_run_at` is also stale, the coordinator stopped planning it; if `last_run_at` is fresh but the newest run row is hours old, it's the dispatch-vs-execution divergence above (workers backed up / down, or runs stranded), which `scout-runs-list` alone hides.
 - **Success rate** — how many runs reach a clean `status` vs. error out?
   A run of errors is a broken scout, not a quiet one; group the failed runs by `failure_reason` to see whether it is one cause repeating.
 - **Report rate** — what fraction of runs wrote or edited a report vs. closed out empty.
@@ -291,7 +291,7 @@ They do **no network I/O** — they are the back half of an "agent fetches, scri
 The pattern is always the same:
 
 1. Fetch each payload with the MCP using **`call --json`** (raw JSON, not the pretty text format) and save it to a file.
-   For the big ones (`runs-list`, `tasks-runs-session-logs-retrieve`) this is mandatory anyway — they overflow inline and spill to a file you can point the script at.
+   For the big ones (`scout-runs-list`, `tasks-runs-session-logs-retrieve`) this is mandatory anyway — they overflow inline and spill to a file you can point the script at.
 2. Run the script over those files.
 
 All three are stdlib-only Python 3.11+ and print **plain text** to stdout (or `--out`) — designed to read well in a terminal, so save them as `.txt`.

@@ -526,6 +526,10 @@ class KnowledgeSearchResultSerializer(serializers.Serializer):
         read_only=True,
         help_text="The chunk's text content.",
     )
+    is_generated = serializers.BooleanField(
+        read_only=True,
+        help_text="True when this chunk comes from a generated source learned from a past support ticket.",
+    )
 
 
 class CreateFileSourceSerializer(_NameValidationMixin, serializers.Serializer):

@@ -71,6 +71,20 @@ export interface ErrorTrackingAlertDestinationApi {
     config: ErrorTrackingAlertSlackConfigApi
     /** Unique identifier of the destination. */
     readonly id: string
+    /**
+     * When a notification last reached this destination.
+     * @nullable
+     */
+    readonly last_delivered_at: string | null
+    /**
+     * When delivery to this destination last failed.
+     * @nullable
+     */
+    readonly last_failure_at: string | null
+    /** Message of the most recent delivery failure. */
+    readonly last_error: string
+    /** Delivery failures since the last successful delivery. */
+    readonly consecutive_failures: number
 }
 
 export interface ErrorTrackingAlertApi {
@@ -128,9 +142,9 @@ export interface ErrorTrackingAlertCreateRequestApi {
     /** Property filters a transition must match to open a notification thread. Same shape as hog function filters; the bytecode is compiled on save. */
     filters?: ErrorTrackingAlertFiltersApi
     /**
-     * Minimum seconds between thread-opening notifications per issue. 0 disables the throttle.
+     * Minimum seconds between thread-opening notifications per issue, at most 30 days. 0 disables the throttle.
      * @minimum 0
-     * @maximum 2147483647
+     * @maximum 2592000
      */
     throttle_seconds?: number
     /** Delivery targets notifications fan out to. */
@@ -148,9 +162,9 @@ export interface ErrorTrackingAlertPutRequestApi {
     /** Property filters a transition must match to open a notification thread. Same shape as hog function filters; the bytecode is compiled on save. */
     filters?: ErrorTrackingAlertFiltersApi
     /**
-     * Minimum seconds between thread-opening notifications per issue. 0 disables the throttle.
+     * Minimum seconds between thread-opening notifications per issue, at most 30 days. 0 disables the throttle.
      * @minimum 0
-     * @maximum 2147483647
+     * @maximum 2592000
      */
     throttle_seconds?: number
     /** Delivery targets notifications fan out to. */
@@ -172,9 +186,9 @@ export interface PatchedErrorTrackingAlertUpdateRequestApi {
     /** Property filters a transition must match to open a notification thread. Omit to keep the current filters. */
     filters?: ErrorTrackingAlertFiltersApi
     /**
-     * Minimum seconds between thread-opening notifications per issue. Omit to keep the current value.
+     * Minimum seconds between thread-opening notifications per issue, at most 30 days. Omit to keep the current value.
      * @minimum 0
-     * @maximum 2147483647
+     * @maximum 2592000
      */
     throttle_seconds?: number
     /** Delivery targets notifications fan out to. When provided, replaces all current destinations. */
@@ -708,6 +722,10 @@ export interface ErrorTrackingExternalReferenceResultApi {
     readonly integration: ErrorTrackingExternalReferenceIntegrationResultApi
     /** URL of the linked external issue in the provider's system. */
     readonly external_url: string
+    /** Provider-native identifier of the linked issue. */
+    readonly external_id: string
+    /** Title of the linked issue. */
+    readonly title: string
 }
 
 export interface PaginatedErrorTrackingExternalReferenceResultListApi {
@@ -734,6 +752,10 @@ export interface ErrorTrackingExternalReferenceCreateApi {
     readonly integration: ErrorTrackingExternalReferenceIntegrationResultApi
     /** URL of the linked external issue in the provider's system. */
     readonly external_url: string
+    /** Provider-native identifier of the linked issue. */
+    readonly external_id: string
+    /** Title of the linked issue. */
+    readonly title: string
     /** ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
     integration_id: number
     /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. */
@@ -743,7 +765,7 @@ export interface ErrorTrackingExternalReferenceCreateApi {
 }
 
 /**
- * Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
+ * Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
  */
 export type ErrorTrackingExternalReferenceLinkApiExternalContext = { [key: string]: unknown }
 
@@ -752,7 +774,7 @@ export interface ErrorTrackingExternalReferenceLinkApi {
     integration_id: number
     /** ID of the error tracking issue to link the reference to. */
     issue: string
-    /** Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
+    /** Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
     external_context: ErrorTrackingExternalReferenceLinkApiExternalContext
 }
 
@@ -2281,7 +2303,7 @@ export type ErrorTrackingExternalReferencesSearchIssuesRetrieveParams = {
      */
     repository?: string
     /**
-     * Text to match against existing issue titles / keys in the provider. GitHub matches it as an exact phrase. Leave blank for recent issues.
+     * Text to match against existing issue titles or identifiers in the provider. GitHub matches titles as an exact phrase. Leave blank for recent issues.
      */
     search?: string
 }

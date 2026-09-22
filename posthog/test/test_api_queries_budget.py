@@ -12,6 +12,7 @@ from parameterized import parameterized
 from posthog.api_queries_budget import (
     API_QUERIES_BUDGET_ERRORS_COUNTER,
     BUDGET_KEY_PREFIX,
+    BUDGET_REDIS_TIMEOUT_SECONDS,
     BudgetSpec,
     QueryCost,
     budget_spec_for,
@@ -50,6 +51,15 @@ class TestBudgetSpecFor(SimpleTestCase):
 
 @override_settings(API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR=70, API_QUERIES_BUDGET_CAPACITY_HOURS=24)
 class TestTokenBucket(BaseTest):
+    def test_budget_redis_calls_use_a_one_second_timeout(self):
+        with patch("posthog.api_queries_budget.get_client") as get_client:
+            refill_and_read("team-a", SPEC)
+
+        get_client.assert_called_once_with(
+            socket_timeout=BUDGET_REDIS_TIMEOUT_SECONDS,
+            socket_connect_timeout=BUDGET_REDIS_TIMEOUT_SECONDS,
+        )
+
     def test_fresh_bucket_starts_full(self):
         assert refill_and_read("team-a", SPEC, now=1000.0) == 7200.0
 

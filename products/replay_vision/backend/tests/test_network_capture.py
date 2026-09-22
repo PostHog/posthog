@@ -10,7 +10,11 @@ from products.replay_vision.backend.temporal.network_capture import (
 )
 
 
-def _line(*events: dict[str, Any], window_id: str = "w1") -> str:
+def _line(event: dict[str, Any], window_id: str = "w1") -> str:
+    return json.dumps([window_id, event])
+
+
+def _api_line(*events: dict[str, Any], window_id: str = "w1") -> str:
     return json.dumps({"window_id": window_id, "data": list(events)})
 
 
@@ -77,12 +81,14 @@ class TestParseNetworkPayload:
                     _rrweb_event(
                         1000,
                         {"name": "https://app.test/a", "responseStatus": 200, "status": 503, "duration": 5},
-                    ),
+                    )
+                ),
+                _line(
                     _rrweb_event(
                         2000,
                         {"name": "https://app.test/b", "status": 503, "responseStatus": 200, "duration": 5},
-                    ),
-                )
+                    )
+                ),
             ]
         )
         assert [request.status for request in payload.requests] == [503, 503]
@@ -168,6 +174,25 @@ class TestParseNetworkPayload:
         )
         assert captured_but_clean.captured
         assert captured_but_clean.requests == []
+
+    def test_an_unrecognized_array_is_ignored_not_misread(self) -> None:
+        # A two-event list matches a [window_id, event] pair by length. Reading it as one would keep the
+        # second event and silently drop the first, inventing a request the line never described.
+        both = json.dumps(
+            [
+                _rrweb_event(1000, {"name": "https://app.test/first", "status": 500}),
+                _rrweb_event(2000, {"name": "https://app.test/second", "status": 503}),
+            ]
+        )
+        payload = parse_network_payload([both])
+        assert payload.requests == []
+        assert payload.captured is False
+
+    def test_reads_the_api_wrapper_shape_too(self) -> None:
+        payload = parse_network_payload(
+            [_api_line(_rrweb_event(1000, {"name": "https://app.test/api/x", "status": 503}))]
+        )
+        assert [request.url for request in payload.requests] == ["https://app.test/api/x"]
 
     def test_survives_corrupt_lines_and_unusable_requests(self) -> None:
         payload = parse_network_payload(

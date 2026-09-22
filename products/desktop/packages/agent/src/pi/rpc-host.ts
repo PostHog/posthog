@@ -5,12 +5,16 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { createHarnessRuntime, runRpcMode } from "@posthog/harness";
 import { createAutoPublishExtension } from "@posthog/harness/extensions/auto-publish";
+import { createPiContextWikiExtension } from "@posthog/harness/extensions/context-wiki";
+import { createPiEnrichmentExtension } from "@posthog/harness/extensions/enrichment";
+import {
+  createPiTaskSystemPromptExtension,
+  resolvePiTaskContext,
+} from "@posthog/harness/extensions/task-system-prompt";
 import type {
   McpToolPermissionDecision,
   McpToolPermissionRequest,
 } from "@posthog/shared";
-import { createPiContextWikiExtension } from "./context-wiki-extension";
-import { createPiEnrichmentExtension } from "./enrichment-extension";
 import {
   POSTHOG_PI_QUEUE_ENTRY_TYPE,
   readPersistedPiQueue,
@@ -18,10 +22,6 @@ import {
 import { createPiRepositoryToolsExtension } from "./repository-tools-extension";
 import type { PiRpcBootstrap, PiRuntimeExtension } from "./rpc-client";
 import { sanitizePiHostEnvironment } from "./rpc-environment";
-import {
-  createPiTaskSystemPromptExtension,
-  resolvePiTaskContext,
-} from "./task-system-prompt-extension";
 
 interface PiHostRequest {
   type: "posthog_pi_host_request";

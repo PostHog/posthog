@@ -4,7 +4,7 @@ import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
 import { STRUCTURED_CONTENT_ONLY_TEXT, type ToolResultPayload, UI_APP_RENDER_NOTE } from '@/lib/build-tool-result'
-import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
+import { handleToolError, PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
@@ -135,17 +135,26 @@ describe('exec tool', () => {
             )
         })
 
-        it('reports every unknown guide as a typed learn error without partial content', async () => {
-            const exec = createExec(undefined, undefined, { learnCatalog })
+        it.each([true, false])(
+            'reports unknown guides with recovery instructions (skills enabled: %s)',
+            async (skillsEnabled) => {
+                const exec = createExec(undefined, undefined, {
+                    learnCatalog: new ExecLearnCatalog(guides, skillsEnabled ? { posthog: undefined } : undefined),
+                })
 
-            await expect(
-                exec.handler(mockContext, { command: 'learn analytics unknown missing unknown' })
-            ).rejects.toMatchObject({
-                name: 'ExecCommandError',
-                reason: 'unknown_learn_topic',
-                message: 'Unknown learning topics: "unknown", "missing". Available: analytics, visualizations',
-            })
-        })
+                await expect(
+                    exec.handler(mockContext, { command: 'learn analytics unknown missing unknown' })
+                ).rejects.toMatchObject({
+                    name: 'ExecCommandError',
+                    reason: 'unknown_learn_topic',
+                    message:
+                        'Unknown learning topics: "unknown", "missing". Available: analytics, visualizations.' +
+                        (skillsEnabled
+                            ? ' To load a skill, run `learn -s "<task keywords>"`, then `learn posthog:<skill>` or `learn project:<skill>` using the exact qualified name from the results.'
+                            : ' Run `learn` to list available topics.'),
+                })
+            }
+        )
 
         it('keeps core exec usable and reports each unavailable skill source', async () => {
             const exec = createExec(undefined, undefined, { learnCatalog })
@@ -164,9 +173,11 @@ describe('exec tool', () => {
     })
 
     describe('skills-first gate', () => {
-        const guideCatalog = (): ExecLearnCatalog =>
+        const guideCatalog = (withGuides = true): ExecLearnCatalog =>
             new ExecLearnCatalog(
-                [{ id: 'analytics', title: 'Analytics', description: 'Guidance.', content: 'Use the tools.' }],
+                withGuides
+                    ? [{ id: 'analytics', title: 'Analytics', description: 'Guidance.', content: 'Use the tools.' }]
+                    : [],
                 {
                     posthog: new SkillCatalog([
                         {
@@ -192,19 +203,88 @@ describe('exec tool', () => {
             }
         }
 
-        it('rejects an un-learned call with a typed reason and passes it after a skill load', async () => {
-            const exec = createExec(undefined, undefined, {
+        it.each([
+            'mock-tool',
+            'skill-get',
+            'skill-file-get',
+            'skill-list',
+            'llma-skill-get',
+            'llma-skill-file-get',
+            'llma-skill-list',
+        ])('directs a gated %s call to learn and permits it after a skill load', async (name) => {
+            const exec = createExec([makeMockTool({ name })], undefined, {
                 learnCatalog: guideCatalog(),
                 skillsSession: makeSkillsSession(),
             })
 
-            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toMatchObject({
+            const command = `call ${name} {}`
+            await expect(exec.handler(mockContext, { command })).rejects.toMatchObject({
                 name: 'ExecCommandError',
                 reason: 'skills_gate',
-                message: expect.stringContaining('No skills loaded this session'),
+                message: expect.stringContaining('`learn posthog:<skill>` or `learn project:<skill>`'),
+            })
+            const rejected = await exec
+                .handler(mockContext, { command })
+                .catch((error: unknown) => handleToolError(error, 'exec'))
+            expect(rejected).toMatchObject({
+                isError: true,
+                content: [
+                    {
+                        type: 'text',
+                        text: expect.stringContaining('`skill-get` and `skill-list` do not satisfy this gate.'),
+                    },
+                ],
             })
 
             await exec.handler(mockContext, { command: 'learn posthog:bot-traffic' })
+            await expect(exec.handler(mockContext, { command })).resolves.toBeDefined()
+        })
+
+        it.each([
+            { command: 'learn bot-traffic', hint: '`learn posthog:<skill>` or `learn project:<skill>`' },
+            { command: 'learn -s', hint: 'Usage: learn -s "<task keywords>"' },
+            {
+                command: 'learn posthog:bot-traffic SKILL.md -s',
+                hint: 'Usage: learn <source>:<skill> <path> -s "<keywords>"',
+            },
+            {
+                command: 'learn posthog:bot-traffic/SKILL.md',
+                hint: 'Separate the skill name and file path with a space: `learn <source>:<skill> <path>`.',
+                recovery: 'learn posthog:bot-traffic SKILL.md',
+            },
+            {
+                command: 'learn posthog:bot-traffic --file SKILL.md',
+                hint: '`learn` does not support --file. Pass the file path directly: `learn <source>:<skill> <path>`.',
+                recovery: 'learn posthog:bot-traffic SKILL.md',
+            },
+            {
+                command: 'learn posthog:bot-traffic SKILL.md --file',
+                hint: '`learn` does not support --file. Pass the file path directly: `learn <source>:<skill> <path>`.',
+                recovery: 'learn posthog:bot-traffic SKILL.md',
+            },
+        ])('returns recovery guidance for $command without opening the gate', async ({ command, hint, recovery }) => {
+            const exec = createExec(undefined, undefined, {
+                learnCatalog: guideCatalog(false),
+                skillsSession: makeSkillsSession(),
+            })
+            const rejected = await exec
+                .handler(mockContext, { command })
+                .catch((error: unknown) => handleToolError(error, 'exec'))
+            expect(rejected).toMatchObject({
+                isError: true,
+                content: [{ type: 'text', text: expect.stringContaining(hint) }],
+            })
+            expect(JSON.stringify(rejected)).not.toContain('Available:')
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toMatchObject({
+                reason: 'skills_gate',
+            })
+            await expect(exec.handler(mockContext, { command: 'learn -s "bot traffic"' })).resolves.toContain(
+                'posthog:bot-traffic'
+            )
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toMatchObject({
+                reason: 'skills_gate',
+            })
+            await exec.handler(mockContext, { command: recovery ?? 'learn posthog:bot-traffic' })
             await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
         })
 
@@ -1564,9 +1644,23 @@ describe('exec tool', () => {
             expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
         })
 
+        it('accepts an anchored alternation of a whole toolset', async () => {
+            const flagTool = makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' })
+            const exec = createExec([flagTool])
+            const alternation = [
+                ...Array.from({ length: 20 }, (_, index) => `^scout-some-long-tool-name-${index}$`),
+                '^feature-flag-get-all$',
+            ].join('|')
+            expect(alternation.length).toBeGreaterThan(400)
+
+            const result = await exec.handler(mockContext, { command: `search ${alternation}` })
+
+            expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
+        })
+
         it('rejects an overly long search pattern before compiling the regex', async () => {
             const exec = createExec([makeMockTool()])
-            const longPattern = 'a'.repeat(401)
+            const longPattern = 'a'.repeat(801)
             await expect(exec.handler(mockContext, { command: `search ${longPattern}` })).rejects.toThrow(
                 /pattern too long/i
             )
@@ -2197,14 +2291,14 @@ describe('exec tool', () => {
                 expect(message).toContain('resend them as {"query": {"orderBy": ..., "limit": ...}}')
             })
 
-            it('names only wrapper fields, so an undeclared key cannot reach the message', () => {
-                // The rendered shape is returned to the caller and recorded as the
-                // analytics error message, so every key in it has to come from the
-                // tool's own schema rather than the caller's payload.
+            it('builds the shape from wrapper fields, and names the key that fits none of them', () => {
+                // The rendered shape is the tool's own vocabulary, so a key the schema
+                // never declared cannot appear inside it. Naming it alongside is what
+                // stops the caller resending the same unaccepted key.
                 const message = formatFor({ limit: 10, sneaky_key: 'x' })
 
-                expect(message).toContain('{"query": {"limit": ...}}')
-                expect(message).not.toContain('sneaky_key')
+                expect(message).toContain('resend them as {"query": {"limit": ...}}')
+                expect(message).toContain('not fields of query, so remove or rename them: "sneaky_key"')
             })
 
             it('caps the fields it names so a large payload cannot inflate the message', () => {
@@ -2339,6 +2433,22 @@ describe('exec tool', () => {
                 )
             })
 
+            it('keeps a top-level sibling in the shape it tells the caller to resend', () => {
+                // A caller that copies a shape without `baselineDateRange` diffs against the
+                // default baseline, so the retry answers a different question.
+                const tool = GENERATED_TOOL_MAP['logs-patterns-diff']!()
+                const input = {
+                    serviceNames: ['api'],
+                    dateRange: { date_from: '-1d' },
+                    baselineDateRange: { date_from: '-2d', date_to: '-1d' },
+                }
+                const result = tool.schema.safeParse(input, { reportInput: true })
+
+                expect(formatInputValidationError('logs-patterns-diff', result.error!, input, tool.schema)).toContain(
+                    '"baselineDateRange": ...'
+                )
+            })
+
             describe('rewrapping it into the call the caller meant', () => {
                 const rewrapFor = (schema: ZodObjectAny, input: unknown): Record<string, unknown> | undefined => {
                     const result = schema.safeParse(input, { reportInput: true })
@@ -2390,6 +2500,83 @@ describe('exec tool', () => {
                     const input = { serviceNames: ['api'], dateRagne: { date_from: '-7d' } }
 
                     expect(rewrapFor(tool.schema, input)).toBeUndefined()
+                })
+
+                // Flattening the payload usually flattens the window one level further, and
+                // `{date_from, limit}` is the single most common rejected shape on these tools.
+                it.each([
+                    ['a window sent as loose snake_case keys', { date_from: '-1h', limit: 10 }],
+                    ['the camelCase spelling of the same keys', { dateFrom: '-1h', limit: 10 }],
+                ])("folds %s into the wrapper's own dateRange", (_label, input) => {
+                    const tool = GENERATED_TOOL_MAP['query-logs']!()
+
+                    expect(rewrapFor(tool.schema, input)).toMatchObject({
+                        query: { dateRange: { date_from: '-1h' }, limit: 10 },
+                    })
+                })
+
+                it('carries both ends of the window across', () => {
+                    const tool = GENERATED_TOOL_MAP['query-apm-spans']!()
+
+                    expect(rewrapFor(tool.schema, { date_from: '-1d', date_to: '-1h' })).toMatchObject({
+                        query: { dateRange: { date_from: '-1d', date_to: '-1h' } },
+                    })
+                })
+
+                it('places a loose field in whichever object declares it', () => {
+                    // Nothing about this is specific to a window: `compare` belongs to
+                    // `compareFilter` the same way `date_from` belongs to `dateRange`.
+                    const tool = GENERATED_TOOL_MAP['apm-spans-aggregate']!()
+                    const input = { serviceNames: ['api'], compare: true, date_from: '-1d' }
+
+                    expect(rewrapFor(tool.schema, input)).toMatchObject({
+                        query: {
+                            serviceNames: ['api'],
+                            compareFilter: { compare: true },
+                            dateRange: { date_from: '-1d' },
+                        },
+                    })
+                })
+
+                it('reads a field the caller spelled in the other case convention', () => {
+                    // These schemas mix the two: a query's own fields are camelCase while a
+                    // window's fields are snake_case, and `query-metrics` names its own window
+                    // `dateFrom`. A caller cannot tell which without reading the schema.
+                    const tool = GENERATED_TOOL_MAP['query-metrics']!()
+                    const input = { metricName: 'http_requests', date_from: '2026-09-01T00:00:00Z' }
+
+                    expect(rewrapFor(tool.schema, input)).toMatchObject({
+                        query: { metricName: 'http_requests', dateFrom: '2026-09-01T00:00:00Z' },
+                    })
+                })
+
+                it.each([
+                    ['two spellings of one field', { date_from: '-1h', dateFrom: '-7d' }],
+                    [
+                        'two spellings of one object',
+                        { dateRange: { date_from: '-1h' }, date_range: { date_from: '-7d' } },
+                    ],
+                ])('leaves a payload alone when it carries %s', (_label, input) => {
+                    // Both keys answer to the same place, so placing them would keep one value
+                    // and drop the other without telling the caller which.
+                    const tool = GENERATED_TOOL_MAP['query-logs']!()
+
+                    expect(rewrapFor(tool.schema, input)).toBeUndefined()
+                })
+
+                it('leaves a loose date key alone when the caller also sent a dateRange', () => {
+                    // Two windows in one call is a caller that means something we cannot read,
+                    // and picking either one runs a query over a range it did not ask for.
+                    const tool = GENERATED_TOOL_MAP['query-logs']!()
+                    const input = { dateRange: { date_from: '-1h' }, date_from: '-7d' }
+
+                    expect(rewrapFor(tool.schema, input)).toBeUndefined()
+                })
+
+                it('leaves a loose date key alone when the wrapper holds no window', () => {
+                    expect(
+                        rewrapFor(z.object({ query: z.object({ limit: z.number() }) }), { date_from: '-1h', limit: 10 })
+                    ).toBeUndefined()
                 })
 
                 it('leaves a rejection that names more than the missing wrapper alone', () => {
