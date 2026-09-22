@@ -704,12 +704,12 @@ class TestObjectDefaultDenyBeatsResourceGrant(BaseUserAccessControlTest):
         self.user_access_control = UserAccessControl(self.user, self.team)
 
     def _make_private_with_resource_grant(self, grant_subject: str = "project") -> None:
-        subject_kwargs = {
-            "project": {},
-            "role": {"role": self.role_a},
-            "member": {"organization_member": self.organization_membership},
-        }[grant_subject]
-        self._create_access_control(resource="dashboard", access_level="editor", **subject_kwargs)
+        self._create_access_control(
+            resource="dashboard",
+            access_level="editor",
+            role=self.role_a if grant_subject == "role" else None,
+            organization_member=self.organization_membership if grant_subject == "member" else None,
+        )
         self._create_access_control(
             resource="dashboard", resource_id=str(self.private_dashboard.id), access_level="none"
         )
