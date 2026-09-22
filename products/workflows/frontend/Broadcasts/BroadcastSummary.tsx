@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconArrowLeft, IconCheck, IconLetter, IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
@@ -165,7 +165,19 @@ const SEND_STATUS_TAG: Record<string, LemonTagType> = {
     spam: 'danger',
 }
 
-function SentTab({ workflowId }: { workflowId: string }): JSX.Element {
+/**
+ * The recipients of one run. Each run binds its own broadcastSentLogic (keyed on the run id), so
+ * expanding a second run loads that run's sends instead of replacing the first one's.
+ */
+function RunRecipients({ workflowId, runId }: { workflowId: string; runId: string }): JSX.Element {
+    return (
+        <BindLogic logic={broadcastSentLogic} props={{ id: workflowId || 'new', parentRunId: runId }}>
+            <RunRecipientsTable workflowId={workflowId} />
+        </BindLogic>
+    )
+}
+
+function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element {
     const {
         filteredSends,
         sendsLoading,
@@ -288,6 +300,42 @@ function SentTab({ workflowId }: { workflowId: string }): JSX.Element {
                 />
             ) : null}
         </div>
+    )
+}
+
+function SentTab({
+    workflowId,
+    batchJobs,
+    batchJobsLoading,
+    columns,
+    latestRunId,
+}: {
+    workflowId: string
+    batchJobs: HogFlowBatchJobApi[]
+    batchJobsLoading: boolean
+    columns: LemonTableColumns<HogFlowBatchJobApi>
+    latestRunId: string | null
+}): JSX.Element {
+    // The latest run is what a sender opens this tab to read, so it starts expanded. Clearing this on
+    // the first expand or collapse hands control back to the table, so the choice is not forced open again.
+    const [autoExpandedRunId, setAutoExpandedRunId] = useState<string | null>(latestRunId)
+
+    return (
+        <LemonTable
+            dataSource={batchJobs}
+            loading={batchJobsLoading}
+            rowKey="id"
+            columns={columns}
+            nouns={['run', 'runs']}
+            expandable={{
+                expandedRowRender: (job) => <RunRecipients workflowId={workflowId} runId={job.id} />,
+                rowExpandable: (job) => !!job.id,
+                isRowExpanded: (job) => (autoExpandedRunId && job.id === autoExpandedRunId ? 1 : -1),
+                onRowExpand: () => setAutoExpandedRunId(null),
+                onRowCollapse: () => setAutoExpandedRunId(null),
+            }}
+            emptyState="No runs yet. Scheduled broadcasts appear here after they send."
+        />
     )
 }
 
@@ -507,7 +555,15 @@ export function BroadcastSummary(): JSX.Element {
                             {
                                 key: 'sent' as const,
                                 label: 'Sent',
-                                content: <SentTab workflowId={broadcastId ?? ''} />,
+                                content: (
+                                    <SentTab
+                                        workflowId={broadcastId ?? ''}
+                                        batchJobs={batchJobs}
+                                        batchJobsLoading={batchJobsLoading}
+                                        columns={batchJobColumns}
+                                        latestRunId={latestBatchJobId ?? null}
+                                    />
+                                ),
                             },
                             {
                                 key: 'setup' as const,
@@ -517,18 +573,6 @@ export function BroadcastSummary(): JSX.Element {
                         ]}
                     />
                 </BindLogic>
-
-                <div className="flex flex-col gap-2">
-                    <h2 className="m-0 text-lg font-semibold">Runs</h2>
-                    <LemonTable
-                        dataSource={batchJobs}
-                        loading={batchJobsLoading}
-                        rowKey="id"
-                        columns={batchJobColumns}
-                        nouns={['run', 'runs']}
-                        emptyState="No runs yet. Scheduled broadcasts appear here after they send."
-                    />
-                </div>
             </div>
         </div>
     )

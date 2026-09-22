@@ -10,6 +10,14 @@ import { urls } from 'scenes/urls'
 
 import { broadcastWizardLogic } from './broadcastWizardLogic'
 
+// Starting points for someone who opens this screen with no idea what to type. They name an
+// audience and a purpose, because a prompt missing either sends the agent back to ask for it.
+const EXAMPLE_PROMPTS: string[] = [
+    'Tell everyone on the free plan about the new dashboard, and link them to the changelog',
+    'Email people who signed up last month but never created an insight, and offer a walkthrough',
+    "Let pro plan customers know about next week's maintenance window",
+]
+
 export function BroadcastStartStep(): JSX.Element {
     const { openFullEditor } = useActions(broadcastWizardLogic)
     const [prompt, setPrompt] = useState('')
@@ -82,6 +90,24 @@ export function BroadcastStartStep(): JSX.Element {
                         </LemonButton>
                     </div>
                 </label>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+                <p className="m-0 text-xs text-tertiary">Or start from one of these</p>
+                {EXAMPLE_PROMPTS.map((example) => (
+                    <button
+                        key={example}
+                        type="button"
+                        onClick={() => {
+                            setPrompt(example)
+                            textAreaRef.current?.focus()
+                        }}
+                        className="text-left text-sm text-secondary rounded border border-primary px-3 py-2 hover:bg-primary-highlight hover:text-default"
+                        data-attr="broadcast-ai-prompt-example"
+                    >
+                        {example}
+                    </button>
+                ))}
             </div>
 
             <p className="text-center text-xs text-muted">
