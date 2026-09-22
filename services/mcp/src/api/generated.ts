@@ -9847,6 +9847,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `used` - used
+     * * `edited` - edited
+     */
+    export type AiDraftHumanOutcomeEnum = typeof AiDraftHumanOutcomeEnum[keyof typeof AiDraftHumanOutcomeEnum];
+
+
+    export const AiDraftHumanOutcomeEnum = {
+      Used: 'used',
+      Edited: 'edited',
+    } as const;
+
+    /**
      * * `good` - good
      * * `bad` - bad
      */
@@ -9877,6 +9889,22 @@ export namespace Schemas {
          * @maxLength 2000
          */
       feedback_text?: string;
+    }
+
+    /**
+     * Payload for recording whether a human adopted an AI draft.
+     */
+    export interface AiHumanOutcomeRequest {
+      /**
+         * ID of the private AI draft being adopted.
+         * @maxLength 200
+         */
+      message_id: string;
+      /** used when the human inserts the draft as-is; edited after they change it in the composer.
+       *
+       * * `used` - used
+       * * `edited` - edited */
+      outcome: AiDraftHumanOutcomeEnum;
     }
 
     /**
@@ -47252,14 +47280,14 @@ export namespace Schemas {
       /** Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]. */
       events?: HogFlowConversionEvent[];
       /**
-         * How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. Omit it to use the default window. Set this or 'window_minutes', not both.
+         * How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both.
          * @maxLength 32
          * @nullable
          * @pattern ^(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)[dhms]$
          */
       window?: string | null;
       /**
-         * DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default window. Set this or 'window', not both.
+         * DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both.
          * @nullable
          */
       window_minutes?: number | null;
@@ -65676,7 +65704,7 @@ export namespace Schemas {
       ai_resolved?: boolean;
       /** @nullable */
       escalation_reason?: string | null;
-      /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
+      /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, verdict, blocker, sources). Retrieve hydrates sources from citations. */
       readonly ai_triage: unknown;
       readonly created_at: string;
       readonly updated_at: string;
@@ -95716,7 +95744,9 @@ export namespace Schemas {
     }
 
     export interface TicketError {
+      /** Human-readable error message. */
       detail: string;
+      /** Machine-readable error code. */
       error_type?: string;
     }
 
