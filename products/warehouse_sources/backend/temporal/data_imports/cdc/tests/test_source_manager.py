@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
     served_lanes,
     serves_buffered_lane,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCJobInputsUnreadableError
 
 _TEAM_ID = 7
 _SCHEMA_ID = "3f7c1f4e-0000-0000-0000-000000000001"
@@ -347,12 +348,29 @@ class TestBufferedGating:
                 "unrecognized_table_mode",
                 {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_table_mode": "something_new"},
             ),
-            ("job_inputs_not_a_mapping", {"job_inputs": "buffered"}),
             ("still_snapshotting", {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_mode": "snapshot"}),
         ]
     )
     def test_the_scheduled_sync_is_not_forced_off_the_flag_for(self, _name, overrides):
         assert scheduled_sync_consumes_buffer(_schema(**overrides)) is False
+
+    @parameterized.expand(
+        [
+            ("mapping", {"cdc_ingest_mode": "buffered"}, True),
+            ("json_string", '{"cdc_ingest_mode": "buffered"}', True),
+            ("json_string_not_flipped", '{"cdc_ingest_mode": "legacy"}', False),
+            ("empty_string", "", False),
+        ]
+    )
+    def test_the_flip_is_read_through_whichever_shape_job_inputs_decrypted_to(self, _name, job_inputs, consumes):
+        # EncryptedJSONField hands back a value that was written as a string as that same string,
+        # so reading only the mapping shape leaves a flipped source's buffer unconsumed.
+        assert scheduled_sync_consumes_buffer(_schema(job_inputs=job_inputs)) is consumes
+
+    @parameterized.expand([("not_json", "buffered"), ("json_scalar", "12"), ("not_a_string_either", 7)])
+    def test_job_inputs_that_is_no_mapping_at_all_is_an_error(self, _name, job_inputs):
+        with pytest.raises(CDCJobInputsUnreadableError):
+            scheduled_sync_consumes_buffer(_schema(job_inputs=job_inputs))
 
 
 @pytest.mark.asyncio

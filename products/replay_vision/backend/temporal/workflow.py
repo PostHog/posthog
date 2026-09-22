@@ -56,7 +56,11 @@ from products.replay_vision.backend.temporal.errors import (
     IneligibleSessionKind,
     ScannerFailureError,
 )
-from products.replay_vision.backend.temporal.media_types import ObservationMediaInputs
+from products.replay_vision.backend.temporal.media_types import (
+    MEDIA_WORKFLOW_NAME,
+    ObservationMediaInputs,
+    build_media_workflow_id,
+)
 from products.replay_vision.backend.temporal.scanners.base import BaseScannerOutput
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
 from products.replay_vision.backend.temporal.types import (
@@ -570,7 +574,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             # Started, not awaited: the poster is delivery, and the scan has no reason to hold a workflow
             # slot open while one frame is cut. ABANDON keeps the child alive past the parent's close.
             await wf.start_child_workflow(
-                "replay-vision-media",
+                MEDIA_WORKFLOW_NAME,
                 ObservationMediaInputs(
                     team_id=inputs.team_id,
                     observation_id=observation_id,
@@ -579,7 +583,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     signal_video_times=call_output.signal_video_spans,
                     thumbnail_video_s=call_output.thumbnail_video_s,
                 ),
-                id=f"replay-vision-media-{observation_id}",
+                id=build_media_workflow_id(observation_id),
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,
                 # A retried observation reuses its id, and the run it supersedes has long closed.
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
