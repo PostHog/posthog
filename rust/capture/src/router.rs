@@ -17,6 +17,7 @@ use tower_http::trace::TraceLayer;
 
 use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
+use crate::known_tokens::{KnownTokenChecker, TokenValidationMode};
 use crate::otel;
 use crate::outputs::OutputRegistry;
 use crate::test_endpoint;
@@ -127,6 +128,13 @@ pub struct State {
     /// (legacy and v1) so mode-specific policy — Import skips the global rate
     /// limiter and drops non-historical batches — lives with the pipeline.
     pub capture_mode: CaptureMode,
+    /// Reads the known-token projection so a token belonging to no team can be
+    /// named in the response instead of dying silently downstream. `None` when
+    /// the projection's Redis is not configured, which leaves every token
+    /// accepted. Paired with `token_validation_mode`, which decides how far an
+    /// unknown verdict goes.
+    pub known_token_checker: Option<Arc<KnownTokenChecker>>,
+    pub token_validation_mode: TokenValidationMode,
 }
 
 #[derive(Clone, Copy)]
@@ -199,6 +207,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     ai_gateway_signing_secret: Option<String>,
     ai_events_overflow_enabled: bool,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
+    known_token_checker: Option<Arc<KnownTokenChecker>>,
+    token_validation_mode: TokenValidationMode,
 ) -> Router {
     let state = State {
         outputs,
@@ -231,6 +241,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         ai_events_overflow_enabled,
         ingestion_warning_emitter,
         capture_mode,
+        known_token_checker,
+        token_validation_mode,
     };
 
     // Very permissive CORS policy, as old SDK versions

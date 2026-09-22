@@ -110,6 +110,20 @@ def delete_expired_exported_assets() -> None:
     ExportedAsset.delete_expired_assets()
 
 
+@shared_task(ignore_result=True, soft_time_limit=600, time_limit=660)
+@skip_team_scope_audit
+def sweep_capture_known_tokens() -> None:
+    """Rebuild the Redis projection of live project API tokens that capture reads.
+
+    Capture only rejects an unknown token while this sweep's freshness marker is
+    recent, so a sweep that stops running degrades to today's behavior rather than
+    to refused traffic.
+    """
+    from posthog.storage.capture_known_tokens import sweep_known_tokens
+
+    sweep_known_tokens()
+
+
 @shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
 def fail_stuck_video_exports() -> None:
     """Give up on video exports whose render workflow died without recording a reason.

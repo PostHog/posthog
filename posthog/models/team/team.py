@@ -1297,6 +1297,23 @@ def delete_team_in_cache_on_delete(sender, instance: Team, **kwargs):
 
 
 @mutable_receiver(post_save, sender=Team)
+def mark_api_token_known_on_save(sender, instance: Team, **kwargs):
+    # Capture rejects an unknown token at the edge, so a token has to reach the
+    # projection before the project's first event does. Waiting for the periodic
+    # sweep would refuse events during onboarding.
+    from posthog.storage.capture_known_tokens import mark_team_token_known
+
+    mark_team_token_known(instance.api_token)
+
+
+@mutable_receiver(post_delete, sender=Team)
+def forget_api_token_on_delete(sender, instance: Team, **kwargs):
+    from posthog.storage.capture_known_tokens import forget_team_token
+
+    forget_team_token(instance.api_token)
+
+
+@mutable_receiver(post_save, sender=Team)
 def reevaluate_authorized_urls_health(sender, instance: Team, **kwargs):
     update_fields = kwargs.get("update_fields")
     if update_fields is not None and "app_urls" not in update_fields:

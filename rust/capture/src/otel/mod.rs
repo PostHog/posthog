@@ -26,6 +26,7 @@ use crate::ingestion_warnings::otel::{
     emit_no_ai_spans_warning, emit_otel_parse_warning, emit_span_cap_warning,
     emit_span_too_big_warning, SpanCapStage,
 };
+use crate::known_tokens::enforce_known_token;
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
 use crate::token::validate_token;
@@ -138,6 +139,17 @@ pub async fn otel_handler(
         report_internal_error_metrics(err.to_metric_tag(), "otel_auth");
         err.into_response()
     })?;
+
+    if let Err(err) = enforce_known_token(
+        state.known_token_checker.as_ref(),
+        state.token_validation_mode,
+        token,
+    )
+    .await
+    {
+        report_internal_error_metrics(err.to_metric_tag(), "otel_auth");
+        return Err(err.into_response());
+    }
 
     if state.token_dropper.should_drop(token, "") {
         report_dropped_events("token_dropper", 1);

@@ -956,6 +956,8 @@ impl TestStateBuilder {
             ai_events_overflow_enabled,
             ingestion_warning_emitter: self.ingestion_warning_emitter,
             capture_mode: self.capture_mode,
+            known_token_checker: None,
+            token_validation_mode: crate::known_tokens::TokenValidationMode::Off,
         };
 
         TestState {

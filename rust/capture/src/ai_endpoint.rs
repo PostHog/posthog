@@ -28,6 +28,7 @@ use crate::events::overflow_stamping::stamp_overflow_reason;
 use crate::extractors::extract_body_with_timeout;
 use crate::ingestion_warnings::ai::emit_ai_failure_warning;
 use crate::ingestion_warnings::{unknown_if_missing, within_bound};
+use crate::known_tokens::enforce_known_token;
 use crate::payload::decompression::decompress_gzip_to_bytes;
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
@@ -167,6 +168,12 @@ async fn ai_handler_inner(
 
     let token = &auth_header[7..]; // Remove "Bearer " prefix
     validate_token(token).map_err(CaptureError::from)?;
+    enforce_known_token(
+        state.known_token_checker.as_ref(),
+        state.token_validation_mode,
+        token,
+    )
+    .await?;
 
     // Everything from here on is attributable. SDK identity isn't known yet —
     // it lives in the event part's properties — so warnings raised before that

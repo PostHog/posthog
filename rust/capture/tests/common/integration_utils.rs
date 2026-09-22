@@ -1136,6 +1136,8 @@ fn build_router_for_mode_at(
             None,  // ai_gateway_signing_secret
             false, // ai_events_overflow_enabled
             None,  // ingestion_warning_emitter
+            None,  // known_token_checker
+            capture::known_tokens::TokenValidationMode::Off,
         ),
         sink,
     )

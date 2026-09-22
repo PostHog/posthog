@@ -268,6 +268,8 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
         None,
         false,
         None,
+        None, // known_token_checker
+        capture::known_tokens::TokenValidationMode::Off,
     );
 
     // v0 reads the customer's choice from the event property.

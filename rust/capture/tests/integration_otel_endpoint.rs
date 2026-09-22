@@ -201,6 +201,8 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         options.ai_gateway_signing_secret,
         true,                              // ai_events_overflow_enabled
         options.ingestion_warning_emitter, // ingestion_warning_emitter
+        None,                              // known_token_checker
+        capture::known_tokens::TokenValidationMode::Off,
     );
 
     TestClient::new(app)
