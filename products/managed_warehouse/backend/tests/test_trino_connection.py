@@ -158,13 +158,24 @@ def test_connect_managed_warehouse_trino_enforces_verified_https_and_closes() ->
     driver_connection.close.assert_called_once_with()
 
 
-def test_managed_trino_requests_bypass_environment_proxies_only_for_the_managed_connection() -> None:
+@pytest.mark.parametrize(
+    "host,port,bypass_proxy",
+    [
+        ("trino.dw.us.postwh.com", 443, True),
+        ("TRINO.DW.US.POSTWH.COM.", 443, True),
+        ("trino.dw.us.postwh.com", 8443, False),
+        ("trino.example.com", 443, False),
+    ],
+)
+def test_managed_trino_requests_bypass_environment_proxies_only_for_known_hosts(
+    host: str, port: int, bypass_proxy: bool
+) -> None:
     proxy_url = "http://proxy.example.com:4750"
     with (
         mock.patch.dict(os.environ, {"HTTPS_PROXY": proxy_url, "NO_PROXY": ""}, clear=True),
         mock.patch(
             "products.managed_warehouse.backend.presentation.views._request",
-            return_value=_ready_response(host="trino.example.com"),
+            return_value=_ready_response(host=host, port=port),
         ),
         mock.patch(
             "products.managed_warehouse.backend.trino_connection.get_duckgres_query_server_config",
@@ -178,9 +189,9 @@ def test_managed_trino_requests_bypass_environment_proxies_only_for_the_managed_
 
         send.assert_called_once()
         request = send.call_args.args[0]
-        assert request.url == "https://trino.example.com:8443/v1/statement"
+        assert request.url == f"https://{host.lower()}:{port}/v1/statement"
         assert request.headers["Authorization"].startswith("Basic ")
-        assert send.call_args.kwargs["proxies"] == {}
+        assert send.call_args.kwargs["proxies"].get("https") == (None if bypass_proxy else proxy_url)
         assert send.call_args.kwargs["verify"] is True
         assert send.call_args.kwargs["timeout"] == 60
 

@@ -16,6 +16,8 @@ from products.managed_warehouse.backend.trino_target import get_ready_trino_conn
 if TYPE_CHECKING:
     from trino.dbapi import Connection
 
+_MANAGED_TRINO_HOSTS = frozenset({"trino.dw.dev.postwh.com", "trino.dw.us.postwh.com"})
+
 
 def resolve_managed_warehouse_trino_connection(organization_id: str) -> ManagedWarehouseTrinoConnection:
     target = get_ready_trino_connection_target(organization_id)
@@ -51,8 +53,9 @@ def connect_managed_warehouse_trino(organization_id: str) -> Iterator[Connection
 
     config = resolve_managed_warehouse_trino_connection(organization_id)
     with requests.Session() as http_session:
-        # The control plane owns this endpoint; only this trusted client bypasses environment proxies.
-        http_session.trust_env = False
+        # Only known hosted Trino endpoints bypass the proxy's private-IP restrictions.
+        if config.host.lower().rstrip(".") in _MANAGED_TRINO_HOSTS and config.port == 443:
+            http_session.trust_env = False
         connection = connect(
             host=config.host,
             port=config.port,
