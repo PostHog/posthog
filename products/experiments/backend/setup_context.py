@@ -9,6 +9,7 @@ recommendations, because every consumer applies its own policy to the same facts
 """
 
 import json
+import time
 import hashlib
 import logging
 import dataclasses
@@ -415,12 +416,18 @@ class ExperimentSetupContext:
     shared_metrics: SetupContextSection[SharedMetrics]
 
 
+# Called with the section name, its status and how long the read took, once per section that ran.
+# A skipped section never runs a provider, so the observer never hears about it.
+SectionObserver = Callable[[str, SetupContextSectionStatus, float], None]
+
+
 def build_setup_context(
     *,
     team: Team,
     inputs: SetupContextInputs,
     experiments: QuerySet[Experiment],
     saved_metrics: QuerySet[ExperimentSavedMetric],
+    on_section: SectionObserver | None = None,
 ) -> ExperimentSetupContext:
     """Assemble every section of the setup context.
 
@@ -432,15 +439,15 @@ def build_setup_context(
     # on a first call for a team writes) team extension rows outside ClickHouse.
     skipped: SetupContextSection[Any] = SetupContextSection(status=SetupContextSectionStatus.SKIPPED)
     return ExperimentSetupContext(
-        team_defaults=_run_section("team_defaults", team, lambda: get_team_defaults(team)),
-        sdk_profile=_run_section("sdk_profile", team, lambda: get_sdk_profile(team)),
+        team_defaults=_run_section("team_defaults", team, lambda: get_team_defaults(team), on_section),
+        sdk_profile=_run_section("sdk_profile", team, lambda: get_sdk_profile(team), on_section),
         target_surface=(
-            _run_section("target_surface", team, lambda: get_target_surface(team, inputs))
+            _run_section("target_surface", team, lambda: get_target_surface(team, inputs), on_section)
             if inputs.target_event
             else skipped
         ),
         candidate_metric=(
-            _run_section("candidate_metric", team, lambda: get_candidate_metric(team, inputs))
+            _run_section("candidate_metric", team, lambda: get_candidate_metric(team, inputs), on_section)
             if inputs.metric_event
             else skipped
         ),
@@ -448,6 +455,7 @@ def build_setup_context(
             "previous_experiments",
             team,
             lambda: get_previous_experiments(experiments, limit=inputs.previous_experiments_limit),
+            on_section,
         ),
         shared_metrics=_run_section(
             "shared_metrics",
@@ -459,11 +467,22 @@ def build_setup_context(
                 limit=inputs.shared_metrics_limit,
                 metric_event=inputs.metric_event,
             ),
+            on_section,
         ),
     )
 
 
-def _run_section(name: str, team: Team, provider: Callable[[], T]) -> SetupContextSection[T]:
+def _run_section(
+    name: str, team: Team, provider: Callable[[], T], on_section: SectionObserver | None = None
+) -> SetupContextSection[T]:
+    started = time.monotonic()
+    section = _read_section(name, team, provider)
+    if on_section is not None:
+        on_section(name, section.status, (time.monotonic() - started) * 1000)
+    return section
+
+
+def _read_section(name: str, team: Team, provider: Callable[[], T]) -> SetupContextSection[T]:
     try:
         return SetupContextSection(status=SetupContextSectionStatus.OK, data=provider())
     except _CLICKHOUSE_TOO_EXPENSIVE:
