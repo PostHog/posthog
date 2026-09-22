@@ -1092,7 +1092,7 @@ export const makeIncrementalEvent = (
         timestamp: number
         delay?: number
     }
-    if ('id' in converted.data && converted.data.id === 0) {
+    if (isObject(converted.data) && 'id' in converted.data && converted.data.id === 0) {
         converted.data.id = BODY_ID
     }
 

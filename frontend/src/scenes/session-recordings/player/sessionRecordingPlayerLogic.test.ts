@@ -353,6 +353,33 @@ describe('sessionRecordingPlayerLogic', () => {
         )
     })
 
+    describe('activityPerSecond', () => {
+        // A stored incremental snapshot can carry a primitive data field. Nothing catches a throw
+        // from this selector, so the player surface fails when it reaches one.
+        const START = 1682952380877
+
+        it.each([
+            ['a string', 'H4sI_truncated'],
+            ['null', null],
+        ])('reads a snapshot whose data is %s without throwing', (_label, badData) => {
+            const snapshots = [
+                { timestamp: START, type: EventType.Meta, windowId: 1, data: { width: 100, height: 100 } },
+                { timestamp: START + 1000, type: EventType.IncrementalSnapshot, windowId: 1, data: badData },
+                {
+                    timestamp: START + 2000,
+                    type: EventType.IncrementalSnapshot,
+                    windowId: 1,
+                    data: { source: IncrementalSource.Mutation, adds: [{}, {}], removes: [] },
+                },
+            ] as unknown as RecordingSnapshot[]
+
+            sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actions.setProcessedSnapshots(snapshots)
+
+            expect(() => logic.values.activityPerSecond).not.toThrow()
+            expect(logic.values.activityPerSecond.maxY).toBeGreaterThan(0)
+        })
+    })
+
     describe('currentPlayerTime clamping', () => {
         // Mock recording: start=1682952380877, end=1682952392745, durationMs=11868
         const START = 1682952380877

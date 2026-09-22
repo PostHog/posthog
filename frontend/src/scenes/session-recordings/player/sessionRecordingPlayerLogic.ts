@@ -38,6 +38,7 @@ import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { findLastIndex } from 'lib/utils/arrays'
 import { downloadFile } from 'lib/utils/dom'
+import { isObject } from 'lib/utils/guards'
 import { clamp } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
@@ -1654,7 +1655,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                             rawActivity[timestamp].y += 5000
                         } else if (
                             snapshot.type === EventType.IncrementalSnapshot &&
-                            'source' in snapshot.data &&
+                            isObject(snapshot.data) &&
                             snapshot.data.source === IncrementalSource.Mutation
                         ) {
                             rawActivity[timestamp].y +=
