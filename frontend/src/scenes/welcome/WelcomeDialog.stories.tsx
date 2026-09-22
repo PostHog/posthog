@@ -237,7 +237,13 @@ export const TwoFactorSetupRequired: StoryFn = () => <TwoFactorGateTemplate />
 TwoFactorSetupRequired.decorators = [
     mswDecorator({
         get: {
+            '/api/users/@me/two_factor_start_setup/': { secret: 'JBSWY3DPEHPK3PXP', success: true },
             '/api/organizations/@current/welcome/current/': () => [403, { code: 'two_factor_setup_required' }],
         },
     }),
 ]
+TwoFactorSetupRequired.parameters = {
+    // The QR code comes from a Django route that Storybook does not serve, so that one image never
+    // resolves here. The rest of the modal is what this story is for.
+    testOptions: { allowImagesWithoutWidth: true },
+}
