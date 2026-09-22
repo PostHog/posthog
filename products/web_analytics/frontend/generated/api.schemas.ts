@@ -7,6 +7,66 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface HeatmapCapturePageApi {
+    /** A page URL that currently sends heatmap data. */
+    url: string
+    /** Heatmap events captured on this page in the last 30 days. */
+    count: number
+}
+
+export interface HeatmapCapturePagesApi {
+    /** Top pages by recent heatmap volume, most active first. */
+    pages: HeatmapCapturePageApi[]
+}
+
+/**
+ * * `all` - All URLs
+ * * `url_allowlist` - Only listed URLs
+ */
+export type TeamHeatmapConfigCaptureModeEnumApi =
+    (typeof TeamHeatmapConfigCaptureModeEnumApi)[keyof typeof TeamHeatmapConfigCaptureModeEnumApi]
+
+export const TeamHeatmapConfigCaptureModeEnumApi = {
+    All: 'all',
+    UrlAllowlist: 'url_allowlist',
+} as const
+
+export interface HeatmapCaptureSettingsApi {
+    /** Whether to capture heatmap data from every page ('all') or only listed URLs ('url_allowlist').
+     *
+     * * `all` - All URLs
+     * * `url_allowlist` - Only listed URLs */
+    capture_mode: TeamHeatmapConfigCaptureModeEnumApi
+    /**
+     * Full http(s) URLs that may send heatmap data. Use * to match any characters.
+     * @items.maxLength 2000
+     */
+    url_allowlist: string[]
+    /** Whether this installation enforces the URL allow-list for heatmap capture. */
+    readonly enforcement_enabled: boolean
+    /** Whether this organization's plan may capture heatmaps on every page. */
+    readonly can_capture_all_urls: boolean
+    /**
+     * How many URLs this plan may capture, or null when the plan captures all pages.
+     * @nullable
+     */
+    readonly capture_url_limit: number | null
+}
+
+export interface PatchedHeatmapCaptureSettingsRequestApi {
+    /** Whether to capture heatmap data from every page ('all') or only listed URLs ('url_allowlist').
+     *
+     * * `all` - All URLs
+     * * `url_allowlist` - Only listed URLs */
+    capture_mode?: TeamHeatmapConfigCaptureModeEnumApi
+    /**
+     * Full http(s) URLs that may send heatmap data. Use * to match any characters.
+     * @maxItems 100
+     * @items.maxLength 2000
+     */
+    url_allowlist?: string[]
+}
+
 export interface HeatmapScreenshotSettingsApi {
     /**
      * Exact DNS hostnames approved to receive the screenshot cookie. No URLs, wildcards, or IP addresses.
