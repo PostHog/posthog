@@ -335,7 +335,3 @@ class DuckLakeTableResult:
     row_count: int
     file_size_bytes: int = 0
     file_size_delta_bytes: int = 0
-
-
-class TrinoCapacityUnavailable(RuntimeError):
-    pass

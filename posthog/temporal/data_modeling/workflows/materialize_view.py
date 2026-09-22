@@ -260,7 +260,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     else temporalio.workflow.ActivityCancellationType.TRY_CANCEL
                 ),
                 retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=20 if use_trino else (3 if managed_warehouse_only else 1),
+                    maximum_attempts=3 if managed_warehouse_only else 1,
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(minutes=5),
                 ),

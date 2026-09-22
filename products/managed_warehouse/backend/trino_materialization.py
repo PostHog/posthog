@@ -62,7 +62,5 @@ def execute_trino_shadow_materialization(
                 raise RuntimeError("Trino did not report the materialized row count")
         finally:
             cursor.close()
-            if control:
-                control.safe_to_release = True
 
     return DuckLakeTableResult(schema_name=schema_name, table_name=table_name, row_count=row_count)

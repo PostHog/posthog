@@ -241,5 +241,3 @@ def reconcile_trino_model_aliases(
             return result
         finally:
             cursor.close()
-            if control:
-                control.safe_to_release = True

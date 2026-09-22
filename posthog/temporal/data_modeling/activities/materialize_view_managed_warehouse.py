@@ -31,11 +31,7 @@ from products.managed_warehouse.backend.facade.api import (
     is_data_modeling_shadow_ready,
     is_dev_mode,
 )
-from products.managed_warehouse.backend.facade.contracts import (
-    DuckLakeCompiledQuery,
-    DuckLakeS3Secret,
-    TrinoCapacityUnavailable,
-)
+from products.managed_warehouse.backend.facade.contracts import DuckLakeCompiledQuery, DuckLakeS3Secret
 from products.managed_warehouse.backend.facade.feature_flags import DATA_MODELING_SHADOW_FLAG
 
 from ..metrics import get_node_suspended_metric
@@ -303,8 +299,6 @@ async def _materialize_view_managed_warehouse(
             engine=job_engine,
         )
         return shadow_result
-    except TrinoCapacityUnavailable:
-        raise
     except Exception as e:
         duration = time.monotonic() - start_time
         capture_exception(e, {"sql": sql, "inputs": inputs})

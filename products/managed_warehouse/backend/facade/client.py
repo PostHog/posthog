@@ -240,7 +240,6 @@ async def execute_trino_model(
     )
 
     return await run_trino_model(
-        organization_id,
         lambda control: execute_trino_shadow_materialization(
             organization_id=organization_id,
             team_id=team_id,

@@ -8,7 +8,6 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, CancelledError
 
 from posthog.dataclasses import frozen
-from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 
@@ -45,15 +44,7 @@ def _checkpoint() -> None:
 
 @activity.defn
 async def reconcile_trino_model_aliases_activity(inputs: ModelAliasBatch) -> ModelAliasReconciliation:
-    from posthog.models import Team
-
     from products.managed_warehouse.backend.trino_execution import TrinoQueryControl, run_trino_model
-
-    organization_id = await database_sync_to_async_pool(
-        lambda: Team.objects.filter(pk=inputs.team_id).values_list("organization_id", flat=True).first()
-    )()
-    if organization_id is None:
-        return ModelAliasReconciliation(active=False)
 
     def execute(control: TrinoQueryControl) -> ModelAliasReconciliation:
         def checkpoint() -> None:
@@ -63,7 +54,7 @@ async def reconcile_trino_model_aliases_activity(inputs: ModelAliasBatch) -> Mod
         return reconcile_trino_model_aliases(inputs.team_id, checkpoint, inputs.saved_query_ids, control)
 
     async with Heartbeater(details=("model_aliases", inputs.team_id)):
-        result = await run_trino_model(str(organization_id), execute, query_seconds=5 * 60)
+        result = await run_trino_model(execute, query_seconds=5 * 60)
     log = logger.warning if result.errors else logger.info
     log(
         "trino_model_aliases_reconciled",

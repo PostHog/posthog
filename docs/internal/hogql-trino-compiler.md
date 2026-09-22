@@ -211,17 +211,14 @@ The shadow row count comes from Trino's write result; storage size metrics are u
 
 ### Execution limits and cancellation
 
-Trino model builds and alias passes use a dedicated four-thread executor, separate from the general database thread pool.
-Redis admission leases cap their combined concurrency at 16 across workers and two per organization.
-Admission waits up to two minutes; a busy model build retries through Temporal with backoff, without counting capacity contention as a failed or suspended model.
-Trino shadow activities allow up to 20 attempts for infrastructure failures; query failures still produce a failed model result.
+Trino enforces tenant capacity and query queueing.
+Model builds and alias passes submit work without application-level global or organization admission limits.
+Their synchronous client calls use a dedicated executor with Python's default pool size, separate from the general database thread pool.
 
 Build sessions set `query_max_run_time` to 15 minutes.
 The client also enforces a total execution deadline and sends cancellation through the active Trino cursor when the activity is canceled or its deadline expires.
 Activities heartbeat every second under a two-minute heartbeat timeout, and workflow cancellation waits for activity cleanup.
-Leases expire after 40 minutes to recover from lost workers; a failed cancellation keeps its lease until expiry instead of immediately admitting another query.
-This covers admission and a statement submitted near the client deadline still running to its server deadline.
-Alias passes share the same capacity limits, use a five-minute total deadline, and cap each metadata statement at 30 seconds.
+Alias passes use a five-minute total deadline and cap each metadata statement at 30 seconds.
 
 ### Readable model names
 
