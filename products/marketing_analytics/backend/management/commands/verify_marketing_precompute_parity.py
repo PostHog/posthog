@@ -52,11 +52,12 @@ def _pct_diff(precompute_value: float, live_value: float) -> float:
     return abs(precompute_value - live_value) / live_value * 100
 
 
-def _run(team: Team, query: dict[str, Any], *, use_precompute: bool) -> tuple[dict[str, float], bool]:
-    """Run one path. Returns (metrics, served_from_precompute). `served_from_precompute` is only true when
-    the read actually read the preagg tables — `dataComputedAt` is set only then, so if it is None the
-    precompute path fell back to live (non-precomputable goal or build error) and the comparison would be
-    vacuous (live vs live), which the caller flags rather than reporting a hollow OK."""
+def _run(team: Team, query: dict[str, Any], *, use_precompute: bool) -> tuple[dict[str, float], bool, bool]:
+    """Run one path. Returns (metrics, served_from_precompute, not_ready). `served_from_precompute` is only
+    true when the read actually read the preagg tables — `dataComputedAt` is set only then, so if it is None
+    the precompute path either reported not-ready (no warm window) or fell back to live (non-precomputable
+    goal or build error). Both make the comparison vacuous, but they are different operator verdicts, so
+    `not_ready` separates them for the caller rather than reporting a hollow OK for either."""
     runner = get_query_runner(query=query, team=team)
     # Force the path under test regardless of the team's flag: the precompute read warms inline under the
     # CACHE_WARMUP tag (its ensures build), the live read scans events.
@@ -67,7 +68,8 @@ def _run(team: Team, query: dict[str, Any], *, use_precompute: bool) -> tuple[di
     else:
         response = runner.calculate()
     served_from_precompute = getattr(response, "dataComputedAt", None) is not None
-    return _results_to_dict(response.results), served_from_precompute
+    not_ready = bool(getattr(response, "precomputeNotReady", False))
+    return _results_to_dict(response.results), served_from_precompute, not_ready
 
 
 class Command(BaseCommand):
@@ -101,6 +103,8 @@ class Command(BaseCommand):
 
         teams_pass = 0
         teams_failed: list[int] = []
+        teams_errored: list[int] = []
+        teams_not_ready: list[int] = []
         teams_vacuous: list[int] = []
         query = _aggregated_query(date_from=date_from, date_to=date_to)
 
@@ -109,11 +113,18 @@ class Command(BaseCommand):
             if team is None:
                 continue
             try:
-                pre_metrics, served_from_precompute = _run(team, query, use_precompute=True)
-                live_metrics, _ = _run(team, query, use_precompute=False)
+                pre_metrics, served_from_precompute, not_ready = _run(team, query, use_precompute=True)
+                live_metrics, _, _ = _run(team, query, use_precompute=False)
             except Exception as exc:  # noqa: BLE001 — one bad team shouldn't abort the sweep
                 self.stderr.write(f"{team_id}: query failed — {type(exc).__name__}: {exc}")
-                teams_failed.append(team_id)
+                teams_errored.append(team_id)
+                continue
+
+            # Nothing warm to read yet, so there is nothing to compare. Kept apart from the live fallback
+            # below: this one is fixed by warming the window, that one by the goal becoming precomputable.
+            if not_ready:
+                teams_not_ready.append(team_id)
+                self.stdout.write(f"{team_id:>8}  NOT READY — no warm precompute window, comparison skipped")
                 continue
 
             # The precompute run fell back to live (no precomputable goal, or a build error), so a match
@@ -138,7 +149,8 @@ class Command(BaseCommand):
                 teams_failed.append(team_id)
 
         self.stdout.write(
-            f"\nsummary: pass={teams_pass} out_of_tolerance={teams_failed} vacuous_fell_back_to_live={teams_vacuous}"
+            f"\nsummary: pass={teams_pass} out_of_tolerance={teams_failed} errored={teams_errored} "
+            f"not_ready={teams_not_ready} vacuous_fell_back_to_live={teams_vacuous}"
         )
 
     def _parse_team_ids(self, options: dict[str, Any]) -> list[int]:
