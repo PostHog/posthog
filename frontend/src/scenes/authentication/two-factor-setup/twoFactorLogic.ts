@@ -52,6 +52,7 @@ export interface twoFactorLogicValues {
     isTokenSubmitting: boolean
     isTokenValid: boolean
     isTwoFactorSetupModalOpen: boolean
+    setupBackupCodes: string[]
     setupCallState: {
         isOngoing: boolean
     }
@@ -101,6 +102,9 @@ export interface twoFactorLogicActions {
         value: true
     }
     disable2FA: () => {
+        value: true
+    }
+    finishSetup: () => {
         value: true
     }
     generateBackupCodes: () => {
@@ -188,6 +192,9 @@ export interface twoFactorLogicActions {
         code: string
         detail: string
     }
+    setSetupBackupCodes: (codes: string[]) => {
+        codes: string[]
+    }
     setSetupCallOngoing: (ongoing: boolean) => {
         ongoing: boolean
     }
@@ -274,6 +281,8 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
         toggleDisable2FAModal: (open: boolean) => ({ open }),
         toggleBackupCodesModal: (open: boolean) => ({ open }),
         setSetupCallOngoing: (ongoing: boolean) => ({ ongoing }),
+        setSetupBackupCodes: (codes: string[]) => ({ codes }),
+        finishSetup: true,
     }),
     reducers({
         isTwoFactorSetupModalOpen: [
@@ -300,6 +309,13 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             false,
             {
                 toggleBackupCodesModal: (_, { open }) => open,
+            },
+        ],
+        setupBackupCodes: [
+            [] as string[],
+            {
+                setSetupBackupCodes: (_, { codes }) => codes,
+                finishSetup: () => [],
             },
         ],
         generalError: [
@@ -388,7 +404,9 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             submit: async ({ token }, breakpoint) => {
                 breakpoint()
                 try {
-                    return await api.create<any>('api/users/@me/two_factor_validate/', { token })
+                    const response = await api.create<any>('api/users/@me/two_factor_validate/', { token })
+                    actions.setSetupBackupCodes(response.backup_codes ?? [])
+                    return response
                 } catch (e) {
                     const { code, detail } = e as Record<string, any>
                     actions.setGeneralError(code, detail)
@@ -397,10 +415,16 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             },
         },
     })),
-    listeners(({ props, actions }) => ({
+    listeners(({ props, actions, values }) => ({
         submitTokenSuccess: () => {
             lemonToast.success('2FA method added successfully')
             actions.loadStatus()
+            // Setup finishes once the user has seen the backup codes, unless the server returned none.
+            if (!values.setupBackupCodes.length) {
+                props.onSuccess?.()
+            }
+        },
+        finishSetup: () => {
             props.onSuccess?.()
         },
         disable2FA: async () => {
