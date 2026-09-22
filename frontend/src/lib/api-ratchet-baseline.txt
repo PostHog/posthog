@@ -14,7 +14,6 @@ actions projects/{}/actions
 actionsDetail projects/{}/actions/{}
 activityLog projects/{}/activity_log
 aiObservabilityTranslate projects/{}/llm_analytics/translate
-alert projects/{}/alerts
 alert projects/{}/alerts/{}
 alerts projects/{}/alerts
 alerts projects/{}/alerts/{}
@@ -176,6 +175,8 @@ integrationTwilioPhoneNumbers projects/{}/integrations/{}/twilio_phone_numbers
 integrations projects/{}/integrations
 integrationsDomainConnectApplyUrl projects/{}/integrations/domain-connect/apply-url
 integrationsDomainConnectCheck projects/{}/integrations/domain-connect/check
+link projects/{}/links/{}
+links projects/{}/links
 logsExplainWithAI projects/{}/logs/explainLogWithAI
 logsExport projects/{}/logs/export
 logsHasLogs projects/{}/logs/has_logs
