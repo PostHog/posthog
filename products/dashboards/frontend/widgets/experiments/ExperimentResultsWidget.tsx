@@ -173,8 +173,6 @@ export function ExperimentResultsWidget({
     config,
     result,
     loading,
-    error,
-    onRefresh,
     onUpdateConfig,
 }: DashboardWidgetComponentProps): JSX.Element {
     const payload = result as ExperimentResultsWidgetResult | null | undefined
@@ -184,16 +182,6 @@ export function ExperimentResultsWidget({
 
     if (loading) {
         return <ExperimentResultsLoadingSkeleton />
-    }
-
-    if (error) {
-        return (
-            <WidgetCardContent>
-                <WidgetCardBodyMessage variant="error" onRefresh={onRefresh} refreshing={loading}>
-                    Couldn't load experiment results. Try again.
-                </WidgetCardBodyMessage>
-            </WidgetCardContent>
-        )
     }
 
     if (!payload || payload.needsConfiguration) {
