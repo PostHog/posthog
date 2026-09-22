@@ -24,6 +24,7 @@ from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.temporal.weekly_digest.activities import (
     NEW_ERROR_ISSUES_PER_TEAM_LIMIT,
@@ -375,13 +376,54 @@ def test_generate_filter_lookup_orders_filters_by_cached_recording_count(team, r
 
 
 @pytest.mark.django_db
-def test_generate_recording_lookup_stores_the_count_for_each_team(team, redis_servers, common_input, digest):
-    with patch("posthog.temporal.weekly_digest.activities.sync_execute", return_value=[(10,)]) as sync_execute:
-        run_sync(generate_recording_lookup, batch_input(team, digest, common_input))
+def test_generate_recording_lookup_counts_expiring_sessions_per_team(
+    organization, team, redis_servers, common_input, digest
+):
+    other_team = _make_team(organization, "other team")
+    quiet_team = _make_team(organization, "quiet team")
+    now = datetime.now(UTC)
+    # 30-day retention: sessions started 25 days ago expire in 5 days, inside the 10-day threshold.
+    for session_id in ("expiring-1", "expiring-2"):
+        produce_replay_summary(
+            team_id=team.id,
+            session_id=session_id,
+            first_timestamp=now - timedelta(days=25),
+            last_timestamp=now - timedelta(days=25),
+            retention_period_days=30,
+            ensure_analytics_event_in_session=False,
+        )
+    # Started 5 days ago, so it has 25 days left and is not about to expire.
+    produce_replay_summary(
+        team_id=team.id,
+        session_id="fresh",
+        first_timestamp=now - timedelta(days=5),
+        last_timestamp=now - timedelta(days=5),
+        retention_period_days=30,
+        ensure_analytics_event_in_session=False,
+    )
+    produce_replay_summary(
+        team_id=other_team.id,
+        session_id="other-expiring",
+        first_timestamp=now - timedelta(days=25),
+        last_timestamp=now - timedelta(days=25),
+        retention_period_days=30,
+        ensure_analytics_event_in_session=False,
+    )
 
-    assert sync_execute.call_args.args[1]["team_id"] == team.id
-    stored = json.loads(redis_servers.digest.get(team_data_key(digest.key, TeamDataKey.EXPIRING_RECORDINGS, team.id)))
-    assert stored == {"recording_count": 10}
+    run_sync(
+        generate_recording_lookup,
+        GenerateDigestDataBatchInput(
+            team_id_range=TeamIdRange(start=team.id, end=quiet_team.id + 1), digest=digest, common=common_input
+        ),
+    )
+
+    def stored_count(for_team: Team) -> dict | None:
+        raw = redis_servers.digest.get(team_data_key(digest.key, TeamDataKey.EXPIRING_RECORDINGS, for_team.id))
+        return json.loads(raw) if raw else None
+
+    assert stored_count(team) == {"recording_count": 2}
+    assert stored_count(other_team) == {"recording_count": 1}
+    assert stored_count(quiet_team) is None
 
 
 def _make_team(organization: Organization, name: str) -> Team:
@@ -580,11 +622,15 @@ def test_send_weekly_digest_batch_emails_subscribed_members_once(
         run_sync(send_weekly_digest_batch, _send_input(organization, digest, common_input, dry_run=dry_run))
 
     assert ph_client.capture.call_count == expected_captures
+    assert ph_client.shutdown.called
     record = MessagingRecord.objects.get(campaign_key=digest.key)
     # A dry run must not stamp the record, or the real run that follows would skip the organization.
     assert (record.sent_at is not None) is (not dry_run)
     if expected_captures == 0:
         return
+
+    method_names = [name for name, _, _ in ph_client.method_calls]
+    assert method_names.index("capture") < method_names.index("flush")
 
     capture = ph_client.capture.call_args.kwargs
     assert capture["distinct_id"] == subscribed.distinct_id
@@ -625,7 +671,8 @@ def test_send_weekly_digest_batch_stops_sending_once_the_activity_is_cancelled(
         )
 
     assert ph_client.capture.call_count == 1
-    assert MessagingRecord.objects.get(campaign_key=digest.key).sent_at is not None
+    # A queued event is unconfirmed until a drain finishes, so the cancelled attempt leaves the record unsent.
+    assert MessagingRecord.objects.get(campaign_key=digest.key).sent_at is None
 
 
 @pytest.mark.parametrize(
@@ -680,12 +727,40 @@ def test_query_team_usage_trends_windows_persons_and_test_accounts(team):
     )
     flush_persons_and_events()
 
-    result = _query_team_usage_trends(team.id, period_start, period_end)
+    result = _query_team_usage_trends(team, period_start, period_end)
 
     assert result is not None
     events, users = result.metrics
     assert (events.label, events.current, events.previous) == ("Events", 3, 1)
     assert (users.label, users.current, users.previous) == ("Active users", 2, 1)
+
+
+@pytest.mark.django_db
+def test_generate_usage_trends_lookup_queries_only_teams_with_events(
+    organization, team, redis_servers, common_input, digest
+):
+    idle_team = _make_team(organization, "idle team")
+    _create_event(team=team, event="$pageview", distinct_id="a", timestamp=digest.period_end - timedelta(days=1))
+    _create_event(team=idle_team, event="$pageview", distinct_id="b", timestamp=digest.period_start - timedelta(days=1))
+    flush_persons_and_events()
+
+    with patch(
+        "posthog.temporal.weekly_digest.activities._query_team_usage_trends", wraps=_query_team_usage_trends
+    ) as query_team_usage_trends:
+        run_sync(
+            generate_usage_trends_lookup,
+            GenerateDigestDataBatchInput(
+                team_id_range=TeamIdRange(start=team.id, end=idle_team.id + 1), digest=digest, common=common_input
+            ),
+        )
+
+    assert [call.args[0].id for call in query_team_usage_trends.call_args_list] == [team.id]
+    stored = json.loads(redis_servers.digest.get(team_data_key(digest.key, TeamDataKey.USAGE_TRENDS, team.id)))
+    assert [(metric["label"], metric["current"]) for metric in stored["metrics"]] == [
+        ("Events", 1),
+        ("Active users", 1),
+    ]
+    assert redis_servers.digest.get(team_data_key(digest.key, TeamDataKey.USAGE_TRENDS, idle_team.id)) is None
 
 
 @pytest.mark.django_db
@@ -706,7 +781,10 @@ def test_generate_usage_trends_lookup_raises_only_when_every_team_fails(
         team_id_range=TeamIdRange(start=team.id, end=second_team.id + 1), digest=digest, common=common_input
     )
 
-    with patch("posthog.temporal.weekly_digest.activities._query_team_usage_trends", side_effect=side_effects):
+    with (
+        patch("posthog.temporal.weekly_digest.activities._active_team_ids", return_value={team.id, second_team.id}),
+        patch("posthog.temporal.weekly_digest.activities._query_team_usage_trends", side_effect=side_effects),
+    ):
         if should_raise:
             with pytest.raises(RuntimeError):
                 run_sync(generate_usage_trends_lookup, input_data)
