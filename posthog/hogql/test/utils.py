@@ -178,7 +178,11 @@ def json_dynamic_read_sql_from_parts(
     sub_object_again = f"JSONStripEmptyStringsAndNulls(toJSONString({sub_object()}))" if with_sub_object else ""
     empty_check = f"isNull(nullIf(toString({field()}), ''))"
     is_datetime = f"startsWith(dynamicType(accurateCast({field()}, 'Dynamic')), 'DateTime')"
-    datetime_text = f"concat(ifNull(toString(replaceOne(toString({field()}), ' ', 'T')), ''), 'Z')"
+    utc_wall_clock = f"substring(toString(accurateCastOrNull({field()}, 'DateTime64(9, \\'UTC\\')')), 1, 19)"
+    datetime_text = (
+        f"concat(ifNull(toString(replaceOne({utc_wall_clock}, ' ', 'T')), ''), "
+        f"ifNull(toString(substring(toString({field()}), 20, 10)), ''), 'Z')"
+    )
     if as_json:
         datetime_value = f"concat('\"', ifNull(toString({datetime_text}), ''), '\"')"
         scalar = f"nullIf(nullIf(toJSONString({field()}), '[]'), '{{}}')"

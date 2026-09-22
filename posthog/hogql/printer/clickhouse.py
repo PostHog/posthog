@@ -116,6 +116,7 @@ INLINE_SENTINEL_LITERALS = frozenset(
         '^"|"$',
         "{}",
         "DateTime",
+        "DateTime64(9, 'UTC')",
         "Dynamic",
         "Float64",
         "Int64",

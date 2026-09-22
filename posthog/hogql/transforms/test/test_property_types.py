@@ -1089,7 +1089,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         assert "events_json" in printed, printed
         assert "JSONExtract(ifNull(" in printed, printed
         assert "toJSONString(events.properties.arr_field)" in printed, printed
-        assert "accurateCastOrNull" not in printed, printed
+        assert "accurateCastOrNull(events.properties.arr_field, 'Array" not in printed, printed
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_jsonextract_respects_restricted_properties(self):
