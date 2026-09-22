@@ -6,6 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -15,6 +16,7 @@ import {
     PropertyFilterType,
     PropertyOperator,
     RecordingUniversalFilters,
+    ReplayTabs,
 } from '~/types'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
@@ -232,6 +234,18 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         selectedRecordingId: 'abc',
                         activeSessionRecording: listOfSessionRecordings[0],
                     })
+            })
+
+            it('keeps the selection when opening a recording from a link that expands the filters', async () => {
+                // The saved-filters links land here, and selecting a recording closes the filters
+                // panel, which rewrites the URL from the router as it stood before the selection.
+                router.actions.push(urls.replay(ReplayTabs.Home), { showFilters: true, filtersTab: 'saved' })
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+
+                logic.actions.setSelectedRecordingId('def')
+
+                expect(logic.values.selectedRecordingId).toEqual('def')
+                expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'def')
             })
 
             it('mounts and loads the recording when a recording is opened', () => {
