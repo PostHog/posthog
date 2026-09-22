@@ -90,9 +90,6 @@ export interface actionFilterGroupLogicActions {
     setHogQLDropdownVisible: (visible: boolean) => {
         visible: boolean
     }
-    syncNestedRows: (nodes: AnyEntityNode[]) => {
-        nodes: AnyEntityNode[]
-    }
     setMath: (
         selectedMath: string | undefined,
         defaultMathHogQLExpression: string
@@ -109,6 +106,9 @@ export interface actionFilterGroupLogicActions {
     ) => {
         property: string
         propertyType: TaxonomicFilterGroupType
+    }
+    syncNestedRows: (nodes: AnyEntityNode[]) => {
+        nodes: AnyEntityNode[]
     }
     updateNestedSeries: (
         nestedIndex: number,
