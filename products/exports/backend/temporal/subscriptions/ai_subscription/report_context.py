@@ -27,7 +27,11 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.facade.auth import creator_can_query
 from products.exports.backend.models.subscription import Subscription
-from products.exports.backend.models.subscription_context import SubscriptionContext
+from products.exports.backend.models.subscription_context import (
+    MAX_REPORT_CONTEXTS,
+    ReportContextSelection,
+    SubscriptionContext,
+)
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
     insights_including_soft_deleted_for_team,
@@ -45,7 +49,6 @@ from ee.hogai.context.insight.query_executor import QueryExecutionHandle
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
 
-MAX_REPORT_CONTEXTS = 3
 MAX_DASHBOARD_INSIGHTS = 6
 MAX_CONCURRENT_CONTEXT_QUERIES = 5
 CONTEXT_QUERY_TIMEOUT_SECONDS = 45
@@ -148,13 +151,6 @@ class ReportContextEvidence:
         return any(dashboard.has_usable_result for dashboard in self.dashboards) or any(
             insight.has_usable_result for insight in self.insights
         )
-
-
-@frozen
-class ReportContextSelection:
-    dashboard_ids: tuple[int, ...] = ()
-    insight_ids: tuple[int, ...] = ()
-    over_limit: bool = False
 
 
 @frozen
@@ -418,23 +414,7 @@ def _load_report_context(
 ) -> _LoadedReportContext:
     subscription = Subscription.objects.select_related("team", "created_by").get(id=subscription_id, team_id=team_id)
     if selection is None:
-        context_rows = list(
-            SubscriptionContext.objects.for_team(team_id)
-            .filter(subscription_id=subscription.id)
-            .order_by("created_at", "id")
-            .values_list("dashboard_id", "insight_id")[: MAX_REPORT_CONTEXTS + 1]
-        )
-        selection = ReportContextSelection(
-            dashboard_ids=tuple(
-                sorted(
-                    dashboard_id for dashboard_id, _ in context_rows[:MAX_REPORT_CONTEXTS] if dashboard_id is not None
-                )
-            ),
-            insight_ids=tuple(
-                sorted(insight_id for _, insight_id in context_rows[:MAX_REPORT_CONTEXTS] if insight_id is not None)
-            ),
-            over_limit=len(context_rows) > MAX_REPORT_CONTEXTS,
-        )
+        selection = SubscriptionContext.report_selection(team_id=team_id, subscription_id=subscription.id)
     dashboard_ids = list(selection.dashboard_ids)
     insight_ids = list(selection.insight_ids)
     if selection.over_limit:

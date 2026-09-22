@@ -15,6 +15,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
 from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription, SubscriptionDelivery
+from products.exports.backend.models.subscription_context import ReportContextSelection
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import _deliver_ai_subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     CHART_IMAGE_URL_TTL,
@@ -35,10 +36,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
-    ReportContextEvidence,
-    ReportContextSelection,
-)
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import ReportContextEvidence
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PromptRejectedError,

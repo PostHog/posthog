@@ -31,12 +31,8 @@ from products.exports.backend.models.subscription import (
     SubscriptionDelivery,
     get_unsubscribe_token,
 )
-from products.exports.backend.models.subscription_context import SubscriptionContext
-from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
-    MAX_REPORT_CONTEXTS,
-    ReportContextSelection,
-    resolve_report_context,
-)
+from products.exports.backend.models.subscription_context import ReportContextSelection, SubscriptionContext
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import resolve_report_context
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
     generate_ai_report,
@@ -208,23 +204,7 @@ def _resolve_subscription_context(subscription: Subscription) -> SubscriptionRep
             .select_related("team", "created_by")
             .get(id=subscription.id, team_id=subscription.team_id)
         )
-        context_rows = list(
-            SubscriptionContext.objects.for_team(current.team_id)
-            .filter(subscription_id=current.id)
-            .order_by("created_at", "id")
-            .values_list("dashboard_id", "insight_id")[: MAX_REPORT_CONTEXTS + 1]
-        )
-        selection = ReportContextSelection(
-            dashboard_ids=tuple(
-                sorted(
-                    dashboard_id for dashboard_id, _ in context_rows[:MAX_REPORT_CONTEXTS] if dashboard_id is not None
-                )
-            ),
-            insight_ids=tuple(
-                sorted(insight_id for _, insight_id in context_rows[:MAX_REPORT_CONTEXTS] if insight_id is not None)
-            ),
-            over_limit=len(context_rows) > MAX_REPORT_CONTEXTS,
-        )
+        selection = SubscriptionContext.report_selection(team_id=current.team_id, subscription_id=current.id)
         last_scheduled_cutoff = (
             _last_scheduled_report_cutoff(current)
             if current.ai_window_mode == Subscription.AIWindowMode.SINCE_LAST_SENT

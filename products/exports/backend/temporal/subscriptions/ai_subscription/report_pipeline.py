@@ -24,6 +24,7 @@ from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async
 
 from products.exports.backend.models.subscription import AIQueryPlanStatus
+from products.exports.backend.models.subscription_context import MAX_REPORT_CONTEXTS
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
     SPEC_INVALID_DROP_REASONS,
     ChartFailureReason,
@@ -45,7 +46,6 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
     CONTEXT_NAME_MAX_LENGTH,
     MAX_DASHBOARD_INSIGHTS,
-    MAX_REPORT_CONTEXTS,
     ReportContextEvidence,
     ReportContextSchema,
     ReportContextStatus,
