@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.etsy import (
+    EXPIRED_REFRESH_TOKEN_ERROR,
     EtsyResumeConfig,
     etsy_source,
     validate_credentials as validate_etsy_credentials,
@@ -106,9 +107,10 @@ Register a personal app in the [Etsy developer portal](https://www.etsy.com/deve
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # Etsy answers a revoked or expired refresh token with a 400 from the token endpoint.
-            # Refresh tokens last 90 days, so this is the expected end-of-life failure.
-            "400 Client Error: Bad Request for url: https://api.etsy.com/v3/public/oauth/token": "Your Etsy refresh token is expired or revoked. Etsy refresh tokens last 90 days — reauthorize the app and paste the new token.",
+            # A dead refresh token (Etsy's `invalid_grant`) is the expected 90-day end-of-life
+            # failure, and only the customer can fix it. EtsyClient raises this marker for that one
+            # case so a transient token-endpoint 400 (retryable below) can't also disable the schema.
+            EXPIRED_REFRESH_TOKEN_ERROR: "Your Etsy refresh token is expired or revoked. Etsy refresh tokens last 90 days — reauthorize the app and paste the new token.",
             "401 Client Error: Unauthorized for url: https://api.etsy.com": "Etsy rejected your credentials. Check the API keystring, shared secret and refresh token, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.etsy.com": "Your Etsy token is missing a scope this table needs (transactions_r, listings_r, shops_r or billing_r). Reauthorize with the scopes you want to sync.",
             "This Etsy account has no shop": "The connected Etsy account does not own a shop. Enter the shop ID you want to sync, or reconnect with the seller account.",
@@ -120,8 +122,10 @@ Register a personal app in the [Etsy developer portal](https://www.etsy.com/deve
         # blip — transient, not a PostHog bug — and Temporal retries the whole activity, so the
         # sync self-recovers. `raise_for_status` derives these prefixes from the status code alone,
         # not the vendor's reason text, so they're stable to match on (see mailchimp/impact sources
-        # for the same pattern).
-        return {"429 Client Error", "Server Error"}
+        # for the same pattern). The token endpoint is a POST, which the adapter never retries, so
+        # match its URL too: every token failure except a dead refresh token (non-retryable above)
+        # can clear on the next mint, so retry rather than disabling the schema.
+        return {"429 Client Error", "Server Error", "https://api.etsy.com/v3/public/oauth/token"}
 
     def get_schemas(
         self,

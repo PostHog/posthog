@@ -15,6 +15,8 @@ from requests import HTTPError, Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.etsy import (
     ETSY_HISTORY_START,
+    ETSY_TOKEN_URL,
+    EXPIRED_REFRESH_TOKEN_ERROR,
     MAX_OFFSET,
     MIN_WINDOW_SECONDS,
     PAGE_SIZE,
@@ -56,6 +58,10 @@ def _rows(count: int, start: int = 0, key: str = "receipt_id") -> list[dict[str,
 
 def _token(access_token: str = "token-1") -> Response:
     return _response({"access_token": access_token, "expires_in": 3600, "token_type": "Bearer"})
+
+
+def _token_error(payload: dict[str, Any], *, status: int = 400) -> Response:
+    return _response(payload, status=status, url=ETSY_TOKEN_URL)
 
 
 class _FakeSession:
@@ -195,6 +201,31 @@ class TestEtsyTransport:
         )
         with pytest.raises(HTTPError):
             _collect(session, "shop_sections")
+
+    def test_dead_refresh_token_raises_the_reauthorize_marker(self) -> None:
+        # Etsy answers a revoked or expired refresh token with a 400 body naming invalid_grant. The
+        # client must raise the marker the source maps to a reauthorize message, and fail before any
+        # shop request goes out.
+        session = _FakeSession([], post_responses=[_token_error({"error": "invalid_grant"})])
+        with pytest.raises(EtsyAPIError) as exc_info:
+            _collect(session, "shop_sections")
+
+        assert str(exc_info.value) == EXPIRED_REFRESH_TOKEN_ERROR
+        assert session.get_calls == []
+
+    @parameterized.expand([({"error": "invalid_request"}, 400), ({"error": "server_error"}, 503)])
+    def test_transient_token_failure_surfaces_with_the_token_url_not_the_marker(
+        self, payload: dict[str, Any], status: int
+    ) -> None:
+        # A token-endpoint failure that isn't invalid_grant (a throttle-shaped 400, a 5xx) must
+        # surface carrying the token URL, so the source classifies it retryable instead of raising
+        # the marker that permanently disables the schema.
+        session = _FakeSession([], post_responses=[_token_error(payload, status=status)])
+        with pytest.raises(HTTPError) as exc_info:
+            _collect(session, "shop_sections")
+
+        assert ETSY_TOKEN_URL in str(exc_info.value)
+        assert EXPIRED_REFRESH_TOKEN_ERROR not in str(exc_info.value)
 
     def test_client_error_logs_the_response_body(self, caplog: pytest.LogCaptureFixture) -> None:
         # requests' raise_for_status() message carries only the status and URL, so the body is the

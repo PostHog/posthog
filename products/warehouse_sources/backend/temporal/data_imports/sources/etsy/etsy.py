@@ -2,7 +2,7 @@ import time
 import dataclasses
 from collections import deque
 from collections.abc import Iterator
-from typing import Any, Optional
+from typing import Any, NoReturn, Optional
 
 import structlog
 from requests import Response
@@ -36,6 +36,10 @@ NO_SHOP_ERROR = (
     "This Etsy account has no shop. Enter the shop ID you want to sync, or connect an account that owns a shop."
 )
 INVALID_SHOP_ID_ERROR = "The Etsy shop ID must be a positive number. Leave it blank to use the token's own shop."
+# Etsy answers a dead refresh token with a 400 whose body names `invalid_grant`. This marker rides
+# the raised error so EtsySource.get_non_retryable_errors matches only that case, leaving a
+# transient token-endpoint 400 to be retried rather than disabling the schema.
+EXPIRED_REFRESH_TOKEN_ERROR = "Etsy refresh token rejected (invalid_grant)"
 
 
 class EtsyAPIError(Exception):
@@ -96,11 +100,29 @@ class EtsyClient:
             },
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
-        response.raise_for_status()
+        if response.status_code >= 300:
+            self._raise_token_error(response)
         token = response.json().get("access_token")
         if not token:
             raise EtsyAPIError("Etsy returned no access token for the refresh token")
         return str(token)
+
+    def _raise_token_error(self, response: Response) -> NoReturn:
+        # raise_for_status() names only the status and URL, so the response body is the one place
+        # Etsy's OAuth `error` code survives. Log it (as the request path does), then split the
+        # outcomes: `invalid_grant` means the refresh token is dead and only reauthorizing fixes it,
+        # so raise the marker the source maps to a reauthorize message. Any other token failure (a
+        # throttle, a 5xx, a one-off rejection) can clear on the next mint, so let raise_for_status()
+        # produce a message the source classifies retryable instead of disabling a sync nobody broke.
+        self._logger.error(f"Etsy token error: status={response.status_code}, body={response.text[:500]}")
+        try:
+            oauth_error = str(response.json().get("error") or "")
+        except ValueError:
+            oauth_error = ""
+        if response.status_code == 400 and oauth_error == "invalid_grant":
+            raise EtsyAPIError(EXPIRED_REFRESH_TOKEN_ERROR)
+        response.raise_for_status()
+        raise EtsyAPIError(f"Unexpected Etsy token response: status={response.status_code}")
 
     def _send(self, path: str, params: Optional[dict[str, Any]]) -> Response:
         return self._session.get(
