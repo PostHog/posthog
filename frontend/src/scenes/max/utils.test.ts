@@ -39,7 +39,7 @@ describe('max/utils', () => {
             const dashboard = {
                 id: 1,
                 tiles: [{ id: 1, insight }],
-            } as DashboardType<InsightModel>
+            } as DashboardType
             const context =
                 contextType === 'insight' ? insightToMaxContext(insight) : dashboardToMaxContext(dashboard).insights[0]
 

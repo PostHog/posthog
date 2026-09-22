@@ -28,7 +28,7 @@ export function insightOnDashboard(
 }
 
 let tileId = 0
-export const tileFromInsight = (insight: InsightModel, id: number = tileId++): DashboardTile<InsightModel> => ({
+export const tileFromInsight = (insight: InsightModel, id: number = tileId++): DashboardTile => ({
     id: id,
     layouts: {},
     color: null,
@@ -37,9 +37,9 @@ export const tileFromInsight = (insight: InsightModel, id: number = tileId++): D
 
 export const dashboardResult = (
     dashboardId: number,
-    tiles: DashboardTile<InsightModel>[],
+    tiles: DashboardTile[],
     filters: Partial<DashboardFilter> = {}
-): DashboardType<InsightModel> => {
+): DashboardType => {
     return {
         ...dashboardJson,
         filters: { ...dashboardJson.filters, ...filters },

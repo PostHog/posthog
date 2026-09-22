@@ -775,7 +775,7 @@ describe('insightLogic', () => {
         it('reacts to removal from dashboard', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.tileRemovedFromDashboard({
-                    tile: { insight: { id: 42 } } as DashboardTile<InsightModel>,
+                    tile: { insight: { id: 42 } } as DashboardTile,
                     dashboardId: 3,
                 })
             })
@@ -788,7 +788,7 @@ describe('insightLogic', () => {
         it('does not reacts to removal of a different tile from dashboard', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.tileRemovedFromDashboard({
-                    tile: { insight: { id: 12 } } as DashboardTile<InsightModel>,
+                    tile: { insight: { id: 12 } } as DashboardTile,
                     dashboardId: 3,
                 })
             })
@@ -800,7 +800,7 @@ describe('insightLogic', () => {
 
         it('reacts to deletion of dashboard', async () => {
             await expectLogic(logic, () => {
-                dashboardsModel.actions.deleteDashboardSuccess({ id: 3 } as DashboardType<InsightModel>)
+                dashboardsModel.actions.deleteDashboardSuccess({ id: 3 } as DashboardType)
             })
                 .toFinishAllListeners()
                 .toMatchValues({
@@ -810,7 +810,7 @@ describe('insightLogic', () => {
 
         it('does not reacts to deletion of dashboard it is not on', async () => {
             await expectLogic(logic, () => {
-                dashboardsModel.actions.deleteDashboardSuccess({ id: 1034 } as DashboardType<InsightModel>)
+                dashboardsModel.actions.deleteDashboardSuccess({ id: 1034 } as DashboardType)
             })
                 .toFinishAllListeners()
                 .toMatchValues({

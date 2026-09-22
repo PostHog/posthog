@@ -49,7 +49,7 @@ export function getInsightQueryError(insight: InsightModel): ApiError | null {
 
 /** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
 export function dashboardToSaveableTemplate(
-    dashboard: DashboardType<InsightModel> | null | undefined
+    dashboard: DashboardType | null | undefined
 ): DashboardTemplateEditorType | undefined {
     if (!dashboard) {
         return undefined
@@ -112,7 +112,7 @@ export function dashboardToSaveableTemplate(
     }
 }
 
-export function getDashboardTileDisplayName(tile: DashboardTile<InsightModel>): string {
+export function getDashboardTileDisplayName(tile: DashboardTile): string {
     if (tile.insight) {
         return tile.insight.name || tile.insight.derived_name || 'Unnamed insight'
     }

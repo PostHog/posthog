@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardTileIdOrNew, DashboardType, InsightModel } from '~/types'
+import { DashboardTileIdOrNew, DashboardType } from '~/types'
 
 export interface ButtonTileForm {
     url: string
@@ -17,12 +17,12 @@ export interface ButtonTileForm {
 }
 
 export interface ButtonTileCardModalProps {
-    dashboard: DashboardType<InsightModel>
+    dashboard: DashboardType
     buttonTileId: DashboardTileIdOrNew
     onClose: () => void
 }
 
-const getExistingButtonTile = (dashboard: DashboardType<InsightModel>, buttonTileId: number): ButtonTileForm => {
+const getExistingButtonTile = (dashboard: DashboardType, buttonTileId: number): ButtonTileForm => {
     const tile = dashboard.tiles?.find((t) => t.id === buttonTileId)
     if (tile?.button_tile) {
         return {

@@ -21,7 +21,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
-import { DashboardTileIdOrNew, DashboardType, InsightModel } from '~/types'
+import { DashboardTileIdOrNew, DashboardType } from '~/types'
 
 import {
     DEFAULT_IMAGE_TILE_POSITION,
@@ -63,7 +63,7 @@ export function ImageTileModal({
 }: {
     isOpen: boolean
     onClose: () => void
-    dashboard: DashboardType<InsightModel>
+    dashboard: DashboardType
     imageTileId: DashboardTileIdOrNew
 }): JSX.Element {
     const isNewTile = imageTileId === null

@@ -2571,9 +2571,9 @@ export interface Tileable {
 
 export type DashboardTileIdOrNew = number | null
 
-export interface DashboardTile<T = InsightModel> extends Tileable {
+export interface DashboardTile extends Tileable {
     id: number
-    insight?: T
+    insight?: InsightModel
     text?: TextModel
     button_tile?: ButtonTileModel
     widget?: DashboardWidgetModel
@@ -2769,8 +2769,8 @@ export interface DashboardTemplateListParams {
 
 export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag' | 'organization'
 
-export interface DashboardType<T = InsightModel> extends DashboardBasicType {
-    tiles: DashboardTile<T>[]
+export interface DashboardType extends DashboardBasicType {
+    tiles: DashboardTile[]
     filters: DashboardFilter
     variables?: Record<string, HogQLVariable>
     persisted_filters?: DashboardFilter | null

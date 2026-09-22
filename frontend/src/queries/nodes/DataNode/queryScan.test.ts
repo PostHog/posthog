@@ -31,7 +31,7 @@ const BY_DESIGN_FINDING: QueryScanWarning = {
     actionable: false,
 }
 
-function tile(id: number, insight: Partial<InsightModel> | null): DashboardTile<InsightModel> {
+function tile(id: number, insight: Partial<InsightModel> | null): DashboardTile {
     return { id, color: null, insight: insight ? (insight as InsightModel) : undefined }
 }
 

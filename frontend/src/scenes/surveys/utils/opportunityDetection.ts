@@ -36,9 +36,9 @@ export interface SurveyableFunnelInsight {
  * - Doesn't already have a linked survey
  */
 export function getBestSurveyOpportunityFunnel(
-    tiles: DashboardTile<InsightModel>[],
+    tiles: DashboardTile[],
     linkedInsightIds: Set<number> = new Set()
-): DashboardTile<InsightModel> | null {
+): DashboardTile | null {
     const candidates = tiles
         .filter(
             (tile) =>

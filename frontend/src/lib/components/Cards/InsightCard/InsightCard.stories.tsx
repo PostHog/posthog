@@ -33,7 +33,7 @@ const defaultTile = {
             },
         ],
     } as TileFilters,
-} as DashboardTile<InsightModel>
+} as DashboardTile
 
 const examples = [
     EXAMPLE_TRENDS,

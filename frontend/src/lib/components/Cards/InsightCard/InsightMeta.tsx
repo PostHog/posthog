@@ -115,7 +115,7 @@ interface InsightMetaProps extends Pick<
 > {
     /** Called when the user mousedowns on the card meta (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
-    tile?: DashboardTile<InsightModel>
+    tile?: DashboardTile
     insight: InsightModel
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>

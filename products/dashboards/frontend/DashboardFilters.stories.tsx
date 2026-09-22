@@ -38,7 +38,7 @@ interface DashboardFilterBarStoryProps {
 
 const DASHBOARD_ID = 955
 
-const dashboard: DashboardType<InsightModel> = {
+const dashboard: DashboardType = {
     id: DASHBOARD_ID,
     name: 'Dashboard filter states',
     description: '',
@@ -60,7 +60,7 @@ const SQL_VARIABLE_ID = 'organization'
 const SQL_VARIABLE_DEFAULT = 'Default organization'
 const SQL_VARIABLE_OVERRIDE = 'Example organization'
 
-const sqlVariablesDashboard: DashboardType<InsightModel> = {
+const sqlVariablesDashboard: DashboardType = {
     ...dashboard,
     tiles: [
         {

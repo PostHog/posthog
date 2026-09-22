@@ -40,7 +40,7 @@ describe('maxContextLogic', () => {
         type: 'insight',
     }
 
-    const mockDashboard: DashboardType<InsightModel> = {
+    const mockDashboard: DashboardType = {
         id: 1,
         name: 'Test Dashboard',
         description: 'Test dashboard description',
@@ -50,7 +50,7 @@ describe('maxContextLogic', () => {
                 insight: mockInsight as InsightModel,
             },
         ],
-    } as DashboardType<InsightModel>
+    } as DashboardType
 
     const mockEvent: EventDefinition = {
         id: 'event-1',
@@ -686,7 +686,7 @@ describe('maxContextLogic', () => {
         const dashboardWithoutTiles = {
             ...mockDashboard,
             tiles: undefined,
-        } as unknown as DashboardType<InsightModel>
+        } as unknown as DashboardType
 
         afterEach(() => {
             jest.restoreAllMocks()

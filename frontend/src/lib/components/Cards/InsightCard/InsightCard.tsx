@@ -211,7 +211,7 @@ export interface InsightCardProps extends Resizeable {
     className?: string
     style?: React.CSSProperties
     children?: React.ReactNode
-    tile?: DashboardTile<InsightModel>
+    tile?: DashboardTile
     /** survey opportunity for this insight */
     surveyOpportunity?: boolean
     /** Show a direct action for creating an anomaly detection alert for this saved insight. */

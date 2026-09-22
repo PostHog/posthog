@@ -110,13 +110,11 @@ export interface addToDashboardModalLogicActions {
 export interface addToDashboardModalLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        dashboardsFuse: (
-            nameSortedDashboards: (DashboardBasicType | DashboardType<InsightModel<Node<Record<string, any>>>>)[]
-        ) => Fuse
+        dashboardsFuse: (nameSortedDashboards: (DashboardBasicType | DashboardType)[]) => Fuse
         filteredDashboards: (
             searchQuery: string,
             dashboardsFuse: Fuse,
-            nameSortedDashboards: (DashboardBasicType | DashboardType<InsightModel<Node<Record<string, any>>>>)[]
+            nameSortedDashboards: (DashboardBasicType | DashboardType)[]
         ) => DashboardBasicType[]
         currentDashboards: (
             filteredDashboards: DashboardBasicType[],
@@ -186,14 +184,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
     selectors({
         dashboardsFuse: [
             () => [dashboardsModel.selectors.nameSortedDashboards],
-            (
-                nameSortedDashboards: (
-                    | DashboardBasicType
-                    | DashboardType<
-                          import('~/types').InsightModel<import('../../../queries/schema').Node<Record<string, any>>>
-                      >
-                )[]
-            ): Fuse => {
+            (nameSortedDashboards: (DashboardBasicType | DashboardType)[]): Fuse => {
                 return createFuse(nameSortedDashboards || [], {
                     keys: ['name', 'description', 'tags'],
                 })
@@ -204,12 +195,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
             (
                 searchQuery: string,
                 dashboardsFuse: Fuse,
-                nameSortedDashboards: (
-                    | DashboardBasicType
-                    | DashboardType<
-                          import('~/types').InsightModel<import('../../../queries/schema').Node<Record<string, any>>>
-                      >
-                )[]
+                nameSortedDashboards: (DashboardBasicType | DashboardType)[]
             ): DashboardBasicType[] =>
                 searchQuery.length
                     ? dashboardsFuse.search(searchQuery).map((r: FuseResult<DashboardType>) => r.item)

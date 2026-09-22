@@ -9,7 +9,7 @@ import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dash
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
-import { DashboardPlacement, DashboardTile, PropertyFilterType, PropertyOperator, InsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { getDashboardWidgetCatalogEntry, tryGetDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
 import { userHasDashboardWidgetProductAccess } from '../../widgetProductAccess'
@@ -99,7 +99,7 @@ const tile = {
         config: { limit: 10, dateRange: { date_from: '-7d' } },
         dashboard_tiles: [],
     },
-} as unknown as DashboardTile<InsightModel>
+} as unknown as DashboardTile
 
 const tileWithoutDescription = {
     ...tile,
@@ -107,7 +107,7 @@ const tileWithoutDescription = {
         ...tile.widget!,
         description: '',
     },
-} as DashboardTile<InsightModel>
+} as DashboardTile
 
 describe('DashboardWidgetItem', () => {
     beforeEach(() => {

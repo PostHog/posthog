@@ -17,7 +17,7 @@ export type TerraformExportResult = DashboardExportResult | InsightExportResult
 
 export type TerraformExportResource =
     | { type: 'insight'; data: Partial<InsightModel> }
-    | { type: 'dashboard'; data: DashboardType<InsightModel> }
+    | { type: 'dashboard'; data: DashboardType }
 
 export interface TerraformExportState {
     loading: boolean
@@ -123,7 +123,7 @@ async function exportInsight(
 }
 
 async function exportDashboard(
-    dashboard: DashboardType<InsightModel>,
+    dashboard: DashboardType,
     checkStale: () => boolean,
     projectId: number
 ): Promise<DashboardExportResult> {

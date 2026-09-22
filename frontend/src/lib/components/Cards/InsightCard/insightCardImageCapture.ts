@@ -20,10 +20,7 @@ export function dashboardTileScreenshotKey(dashboardId?: number | null): string 
 /** The card's own chrome: the controls in the corner, the resize handles, and the grid's own handles. */
 const CARD_CHROME_SELECTOR = '.CardMeta__controls, .handle, .react-resizable-handle'
 
-export function insightCardKey(
-    insight: Pick<InsightModel, 'short_id'>,
-    tile?: Pick<DashboardTile<InsightModel>, 'id'>
-): string {
+export function insightCardKey(insight: Pick<InsightModel, 'short_id'>, tile?: Pick<DashboardTile, 'id'>): string {
     // The same insight can sit on a dashboard more than once, so the tile identifies the card when there is one.
     return tile?.id != null ? `tile-${tile.id}` : `insight-${insight.short_id}`
 }
@@ -36,7 +33,7 @@ export function insightCardKey(
  */
 export function insightCardCaptureTarget(
     insight: Pick<InsightModel, 'short_id' | 'name' | 'derived_name'>,
-    tile?: Pick<DashboardTile<InsightModel>, 'id'>,
+    tile?: Pick<DashboardTile, 'id'>,
     dashboardId?: number | null
 ): CaptureImageTarget {
     return {

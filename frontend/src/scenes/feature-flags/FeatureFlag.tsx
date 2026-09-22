@@ -76,7 +76,6 @@ import {
     FeatureFlagType,
     PropertyFilterType,
     PropertyOperator,
-    InsightModel,
 } from '~/types'
 
 import { FeatureFlagStaleBanner } from 'products/feature_flags/frontend/FeatureFlagStaleBanner'
@@ -667,7 +666,7 @@ function ConnectedUsageDashboard({
     const { dashboard, error404 } = useValues(
         dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
     ) as {
-        dashboard: DashboardType<InsightModel> | null
+        dashboard: DashboardType | null
         error404: boolean
     }
     const { enrichUsageDashboard } = useActions(featureFlagLogic)

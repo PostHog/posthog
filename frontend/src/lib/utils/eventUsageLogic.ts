@@ -616,7 +616,7 @@ function sanitizeInsight(insight: Partial<InsightModel> | null): object | undefi
     return sanitizedInsight
 }
 
-function sanitizeTile(tile: DashboardTile<InsightModel> | null): object | undefined {
+function sanitizeTile(tile: DashboardTile | null): object | undefined {
     if (!tile) {
         return undefined
     }
@@ -627,7 +627,7 @@ function sanitizeTile(tile: DashboardTile<InsightModel> | null): object | undefi
     }
 }
 
-function sanitizeDashboard(dashboard: DashboardType<InsightModel> | null): object | null {
+function sanitizeDashboard(dashboard: DashboardType | null): object | null {
     if (!dashboard) {
         return null
     }
@@ -722,12 +722,12 @@ function increment(counts: Record<string, any>, key: string): void {
     counts[key] = (counts[key] || 0) + 1
 }
 
-function insightTileCountKey(tile: DashboardTile<InsightModel>): string {
+function insightTileCountKey(tile: DashboardTile): string {
     const query = isNodeWithSource(tile.insight?.query) ? tile.insight.query.source : tile.insight?.query
     return `${query?.kind || !!tile.text ? 'text' : 'empty'}_count`
 }
 
-function countDashboardTiles(tiles: DashboardTile<InsightModel>[], properties: Record<string, any>): void {
+function countDashboardTiles(tiles: DashboardTile[], properties: Record<string, any>): void {
     for (const tile of tiles) {
         if (tile.insight) {
             increment(properties, insightTileCountKey(tile))
@@ -745,7 +745,7 @@ function countDashboardTiles(tiles: DashboardTile<InsightModel>[], properties: R
 }
 
 export function dashboardViewedProperties(
-    dashboard: DashboardType<InsightModel>,
+    dashboard: DashboardType,
     lastRefreshed: Dayjs | null,
     viewerUuid: string | undefined
 ): Record<string, any> {
@@ -1019,38 +1019,38 @@ export interface eventUsageLogicActions {
         source: 'header'
     }
     reportDashboardBreakdownColorsSaved: (
-        dashboard: DashboardType<InsightModel> | null,
+        dashboard: DashboardType | null,
         manualCount: number,
         autoCount: number,
         breakdownTypes: string[]
     ) => {
         autoCount: number
         breakdownTypes: string[]
-        dashboard: DashboardType<InsightModel<Node<Record<string, any>>>> | null
+        dashboard: DashboardType | null
         manualCount: number
     }
     reportDashboardColorThemeSet: (
-        dashboard: DashboardType<InsightModel> | null,
+        dashboard: DashboardType | null,
         themeId: number | null
     ) => {
-        dashboard: DashboardType<InsightModel<Node<Record<string, any>>>> | null
+        dashboard: DashboardType | null
         themeId: number | null
     }
     reportDashboardDateRangeChanged: (
-        dashboard: DashboardType<InsightModel> | null,
+        dashboard: DashboardType | null,
         dateFrom?: string | Dayjs | null,
         dateTo?: string | Dayjs | null
     ) => {
-        dashboard: DashboardType<InsightModel<Node<Record<string, any>>>> | null
+        dashboard: DashboardType | null
         dateFrom: string | Dayjs | null | undefined
         dateTo: string | Dayjs | null | undefined
     }
     reportDashboardEditModeDiscardPrompt: (
-        dashboard: DashboardType<InsightModel> | null,
+        dashboard: DashboardType | null,
         action: 'discarded' | 'kept_editing' | 'shown'
     ) => {
         action: 'discarded' | 'kept_editing' | 'shown'
-        dashboard: DashboardType<InsightModel<Node<Record<string, any>>>> | null
+        dashboard: DashboardType | null
     }
     reportDashboardEmptyAddChartClicked: (dashboardId: number | undefined) => {
         dashboardId: number | undefined
@@ -1082,12 +1082,12 @@ export interface eventUsageLogicActions {
         exportFormat: ExporterFormat
     }
     reportDashboardFiltersChanged: (
-        dashboard: DashboardType<InsightModel> | null,
+        dashboard: DashboardType | null,
         changeType: DashboardFilterChangeType,
         properties: Record<string, boolean | number | string | null | undefined>
     ) => {
         changeType: DashboardFilterChangeType
-        dashboard: DashboardType<InsightModel<Node<Record<string, any>>>> | null
+        dashboard: DashboardType | null
         properties: Record<string, boolean | number | string | null | undefined>
     }
     reportDashboardFrontEndUpdate: (
@@ -1144,20 +1144,20 @@ export interface eventUsageLogicActions {
         source: DashboardEventSource
     }
     reportDashboardLayoutEditModeEntered: (
-        dashboard: DashboardType<InsightModel> | null,
+        dashboard: DashboardType | null,
         source: DashboardEventSource,
         layoutZoom: number | null
     ) => {
-        dashboard: DashboardType<InsightModel<Node<Record<string, any>>>> | null
+        dashboard: DashboardType | null
         layoutZoom: number | null
         source: DashboardEventSource
     }
     reportDashboardLayoutZoomChanged: (
-        dashboard: DashboardType<InsightModel> | null,
+        dashboard: DashboardType | null,
         layoutZoom: number,
         source: 'button' | 'shortcut'
     ) => {
-        dashboard: DashboardType<InsightModel<Node<Record<string, any>>>> | null
+        dashboard: DashboardType | null
         layoutZoom: number
         source: 'button' | 'shortcut'
     }
@@ -1169,13 +1169,13 @@ export interface eventUsageLogicActions {
         loadingMilliseconds: number
     }
     reportDashboardModeToggled: (
-        dashboard: DashboardType<InsightModel> | null,
+        dashboard: DashboardType | null,
         mode: DashboardMode | null,
         source: DashboardEventSource | null,
         layoutZoom: number | null,
         layoutEditMode?: boolean
     ) => {
-        dashboard: DashboardType<InsightModel<Node<Record<string, any>>>> | null
+        dashboard: DashboardType | null
         layoutEditMode: boolean | undefined
         layoutZoom: number | null
         mode: DashboardMode | null
@@ -1197,8 +1197,8 @@ export interface eventUsageLogicActions {
         pinned: boolean
         source: DashboardEventSource
     }
-    reportDashboardPropertiesChanged: (dashboard: DashboardType<InsightModel> | null) => {
-        dashboard: DashboardType<InsightModel<Node<Record<string, any>>>> | null
+    reportDashboardPropertiesChanged: (dashboard: DashboardType | null) => {
+        dashboard: DashboardType | null
     }
     reportDashboardRefreshed: (
         dashboardId: number,
@@ -1252,7 +1252,7 @@ export interface eventUsageLogicActions {
     }
     reportDashboardTileRefreshed: (
         dashboardId: number,
-        tile: DashboardTile<InsightModel>,
+        tile: DashboardTile,
         filters: Record<string, any>,
         variables: Record<string, any>,
         refreshDurationMs: number,
@@ -1262,7 +1262,7 @@ export interface eventUsageLogicActions {
         filters: Record<string, any>
         individualRefresh: boolean
         refreshDurationMs: number
-        tile: DashboardTile<InsightModel<Node<Record<string, any>>>>
+        tile: DashboardTile
         variables: Record<string, any>
     }
     reportDashboardTileRepositioned: (
@@ -1275,11 +1275,11 @@ export interface eventUsageLogicActions {
         layoutZoom: number
     }
     reportDashboardViewed: (
-        dashboard: DashboardType<InsightModel>,
+        dashboard: DashboardType,
         lastRefreshed: Dayjs | null,
         delay?: number
     ) => {
-        dashboard: DashboardType<InsightModel<Node<Record<string, any>>>>
+        dashboard: DashboardType
         delay: number | undefined
         lastRefreshed: Dayjs | null
     }
@@ -2727,29 +2727,25 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             oldPropertyType?: string,
             newPropertyType?: string
         ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
-        reportDashboardViewed: (
-            dashboard: DashboardType<InsightModel>,
-            lastRefreshed: Dayjs | null,
-            delay?: number
-        ) => ({
+        reportDashboardViewed: (dashboard: DashboardType, lastRefreshed: Dayjs | null, delay?: number) => ({
             dashboard,
             delay,
             lastRefreshed,
         }),
         reportDashboardModeToggled: (
-            dashboard: DashboardType<InsightModel> | null,
+            dashboard: DashboardType | null,
             mode: DashboardMode | null,
             source: DashboardEventSource | null,
             layoutZoom: number | null,
             layoutEditMode?: boolean
         ) => ({ dashboard, mode, source, layoutZoom, layoutEditMode }),
         reportDashboardLayoutEditModeEntered: (
-            dashboard: DashboardType<InsightModel> | null,
+            dashboard: DashboardType | null,
             source: DashboardEventSource,
             layoutZoom: number | null
         ) => ({ dashboard, source, layoutZoom }),
         reportDashboardFiltersChanged: (
-            dashboard: DashboardType<InsightModel> | null,
+            dashboard: DashboardType | null,
             changeType: DashboardFilterChangeType,
             properties: Record<string, string | number | boolean | null | undefined>
         ) => ({ dashboard, changeType, properties }),
@@ -2759,22 +2755,22 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             ignored: boolean
         ) => ({ dashboardId, insightId, ignored }),
         reportDashboardLayoutZoomChanged: (
-            dashboard: DashboardType<InsightModel> | null,
+            dashboard: DashboardType | null,
             layoutZoom: number,
             source: 'button' | 'shortcut'
         ) => ({ dashboard, layoutZoom, source }),
         reportDashboardTileDensityConfigured: (tileDensity: DashboardTileSpacing) => ({ tileDensity }),
         reportDashboardEditModeDiscardPrompt: (
-            dashboard: DashboardType<InsightModel> | null,
+            dashboard: DashboardType | null,
             action: 'shown' | 'discarded' | 'kept_editing'
         ) => ({ dashboard, action }),
         reportDashboardBreakdownColorsSaved: (
-            dashboard: DashboardType<InsightModel> | null,
+            dashboard: DashboardType | null,
             manualCount: number,
             autoCount: number,
             breakdownTypes: string[]
         ) => ({ dashboard, manualCount, autoCount, breakdownTypes }),
-        reportDashboardColorThemeSet: (dashboard: DashboardType<InsightModel> | null, themeId: number | null) => ({
+        reportDashboardColorThemeSet: (dashboard: DashboardType | null, themeId: number | null) => ({
             dashboard,
             themeId,
         }),
@@ -2804,7 +2800,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportDashboardTileRefreshed: (
             dashboardId: number,
-            tile: DashboardTile<InsightModel>,
+            tile: DashboardTile,
             filters: Record<string, any>,
             variables: Record<string, any>,
             refreshDurationMs: number,
@@ -2818,7 +2814,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             individualRefresh,
         }),
         reportDashboardDateRangeChanged: (
-            dashboard: DashboardType<InsightModel> | null,
+            dashboard: DashboardType | null,
             dateFrom?: string | Dayjs | null,
             dateTo?: string | Dayjs | null
         ) => ({
@@ -2826,7 +2822,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             dateFrom,
             dateTo,
         }),
-        reportDashboardPropertiesChanged: (dashboard: DashboardType<InsightModel> | null) => ({ dashboard }),
+        reportDashboardPropertiesChanged: (dashboard: DashboardType | null) => ({ dashboard }),
         reportDashboardPinToggled: (dashboardId: number, pinned: boolean, source: DashboardEventSource) => ({
             dashboardId,
             pinned,

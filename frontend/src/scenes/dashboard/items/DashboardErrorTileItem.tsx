@@ -7,12 +7,12 @@ import { EditModeEdge, EditModeEdgeOverlay } from 'lib/components/Cards/InsightC
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 
-import { DashboardPlacement, DashboardTile, InsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile } from '~/types'
 
 import { getDashboardTileDisplayName } from '../dashboardUtils'
 
 interface DashboardErrorTileItemProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
-    tile: DashboardTile<InsightModel>
+    tile: DashboardTile
     canEnterEditModeFromEdge?: boolean
     onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>

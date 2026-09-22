@@ -26,7 +26,7 @@ jest.mock('products/posthog_ai/frontend/api/logics', () => ({
     useMcpToolApplyBack: jest.fn(),
 }))
 
-const MOCK_DASHBOARD: DashboardType<InsightModel> = {
+const MOCK_DASHBOARD: DashboardType = {
     id: 5,
     name: 'Test Dashboard',
     description: 'A test dashboard',
@@ -51,7 +51,7 @@ const MOCK_DASHBOARD: DashboardType<InsightModel> = {
     variables: {},
 }
 
-function makeDashboard(overrides: Record<string, any> = {}): DashboardType<InsightModel> {
+function makeDashboard(overrides: Record<string, any> = {}): DashboardType {
     return { ...MOCK_DASHBOARD, ...overrides }
 }
 
@@ -78,7 +78,7 @@ describe('DashboardHeader', () => {
     })
 
     function renderHeader(opts: {
-        dashboard?: DashboardType<InsightModel> | null
+        dashboard?: DashboardType | null
         dashboardMode?: DashboardMode | null
         dashboardEditing?: { filters: boolean; layout: boolean } | null
         dashboardModeSource?: DashboardEventSource

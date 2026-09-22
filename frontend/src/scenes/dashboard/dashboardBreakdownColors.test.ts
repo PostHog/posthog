@@ -18,7 +18,7 @@ import {
 } from './dashboardBreakdownColors'
 
 describe('dashboardBreakdownColors', () => {
-    const createTestTile = (overrides: Partial<InsightModel> = {}): DashboardTile<InsightModel> => ({
+    const createTestTile = (overrides: Partial<InsightModel> = {}): DashboardTile => ({
         id: 1,
         layouts: {},
         color: null,
@@ -45,7 +45,7 @@ describe('dashboardBreakdownColors', () => {
         },
     })
 
-    const trendsTile = (result: any[], breakdownFilter?: Record<string, any>): DashboardTile<InsightModel> =>
+    const trendsTile = (result: any[], breakdownFilter?: Record<string, any>): DashboardTile =>
         createTestTile({
             result,
             query: {
@@ -244,7 +244,7 @@ describe('dashboardBreakdownColors', () => {
         })
 
         it('handles retention insights with a breakdown', () => {
-            const retentionTile = (result: any[]): DashboardTile<InsightModel> =>
+            const retentionTile = (result: any[]): DashboardTile =>
                 createTestTile({
                     result,
                     query: {
@@ -316,7 +316,7 @@ describe('dashboardBreakdownColors', () => {
         })
 
         it('handles cohort breakdowns, keying them all to the shared cohort property', () => {
-            const cohortTile = (values: number[][]): DashboardTile<InsightModel> =>
+            const cohortTile = (values: number[][]): DashboardTile =>
                 createTestTile({
                     result: values.map((breakdown_value) => ({ action: { order: 0 }, breakdown_value })),
                     query: {

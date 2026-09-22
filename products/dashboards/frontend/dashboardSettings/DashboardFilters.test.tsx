@@ -15,7 +15,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DashboardPlacement, DashboardType, InsightModel } from '~/types'
 
-const MOCK_DASHBOARD: DashboardType<InsightModel> = {
+const MOCK_DASHBOARD: DashboardType = {
     id: 5,
     name: 'Test Dashboard',
     description: 'A test dashboard',
@@ -68,7 +68,7 @@ describe('DashboardFilterBar', () => {
 
     function renderFilterBar(
         dashboardModeSource: DashboardEventSource,
-        dashboard: DashboardType<InsightModel> = MOCK_DASHBOARD,
+        dashboard: DashboardType = MOCK_DASHBOARD,
         placement: DashboardPlacement = DashboardPlacement.Dashboard
     ): ReturnType<typeof dashboardLogic.build> {
         const logic = dashboardLogic({ id: dashboard.id, dashboard, placement })
@@ -118,7 +118,7 @@ describe('DashboardFilterBar', () => {
 
     it('keeps Preview and Discard available, but hides Save filters, for viewers', async () => {
         const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
-        const viewerDashboard: DashboardType<InsightModel> = {
+        const viewerDashboard: DashboardType = {
             ...MOCK_DASHBOARD,
             user_access_level: AccessControlLevel.Viewer,
             tiles: [
@@ -157,7 +157,7 @@ describe('DashboardFilterBar', () => {
         const getInsightSpy = jest
             .spyOn(dashboardUtils, 'getInsightWithRetry')
             .mockImplementation(async (_teamId, insight) => insight)
-        const previewDashboard: DashboardType<InsightModel> = {
+        const previewDashboard: DashboardType = {
             ...MOCK_DASHBOARD,
             tiles: [
                 {
@@ -213,7 +213,7 @@ describe('DashboardFilterBar', () => {
         const getInsightSpy = jest
             .spyOn(dashboardUtils, 'getInsightWithRetry')
             .mockRejectedValue(new Error('Preview request failed'))
-        const previewDashboard: DashboardType<InsightModel> = {
+        const previewDashboard: DashboardType = {
             ...MOCK_DASHBOARD,
             tiles: [
                 {

@@ -132,9 +132,7 @@ export const getDefaultQuery = (
 }
 
 /** Backfill the deprecated `dashboards` field on each tile's insight. */
-export const getQueryBasedDashboard = (
-    dashboard: DashboardType<InsightModel> | null
-): DashboardType<InsightModel> | null => {
+export const getQueryBasedDashboard = (dashboard: DashboardType | null): DashboardType | null => {
     if (dashboard == null) {
         return null
     }
@@ -146,7 +144,7 @@ export const getQueryBasedDashboard = (
                 ({
                     ...tile,
                     ...(tile.insight != null ? { insight: getQueryBasedInsightModel(tile.insight) } : {}),
-                }) as DashboardTile<InsightModel>
+                }) as DashboardTile
         ),
     }
 }

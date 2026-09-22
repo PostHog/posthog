@@ -2,11 +2,11 @@ import '@testing-library/jest-dom'
 
 import { fireEvent, render } from '@testing-library/react'
 
-import { DashboardPlacement, DashboardTile, InsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile } from '~/types'
 
 import { TextCard, TextContent } from './TextCard'
 
-const makeTextTile = (overrides: Partial<DashboardTile<InsightModel>> = {}): DashboardTile<InsightModel> =>
+const makeTextTile = (overrides: Partial<DashboardTile> = {}): DashboardTile =>
     ({
         id: 1,
         text: {
@@ -16,7 +16,7 @@ const makeTextTile = (overrides: Partial<DashboardTile<InsightModel>> = {}): Das
         layouts: {},
         color: null,
         ...overrides,
-    }) as DashboardTile<InsightModel>
+    }) as DashboardTile
 
 describe('TextCard', () => {
     it('shows the more button when placement is not Public', () => {

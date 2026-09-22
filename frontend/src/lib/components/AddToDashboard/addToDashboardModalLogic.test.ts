@@ -130,7 +130,7 @@ describe('addToDashboardModalLogic', () => {
             id: 99,
             name: 'New Dashboard',
             tiles: [],
-        } as unknown as DashboardType<InsightModel>
+        } as unknown as DashboardType
 
         await expectLogic(logic, () => {
             dashboardsModel.actions.addDashboardSuccess(newDashboard)

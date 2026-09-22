@@ -858,7 +858,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
             [dashboardsModel.actionTypes.tileRemovedFromDashboard]: (
                 state: Partial<InsightModel>,
-                { tile, dashboardId }: { tile?: DashboardTile<InsightModel>; dashboardId?: number }
+                { tile, dashboardId }: { tile?: DashboardTile; dashboardId?: number }
             ) => {
                 if (tile?.insight?.id === state.id) {
                     return { ...state, dashboards: state.dashboards?.filter((d: number) => d !== dashboardId) }
@@ -867,7 +867,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
             [dashboardsModel.actionTypes.deleteDashboardSuccess]: (
                 state: Partial<InsightModel>,
-                { dashboard }: { dashboard: DashboardType<InsightModel> }
+                { dashboard }: { dashboard: DashboardType }
             ) => {
                 const { id } = dashboard
                 return { ...state, dashboards: state.dashboards?.filter((d: number) => d !== id) }

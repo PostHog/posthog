@@ -43,7 +43,6 @@ import { EnhancedToolCall } from './max-constants'
 import { SuggestionGroup } from './maxLogic'
 import {
     EvaluationRuntime,
-    InsightWithQuery,
     MaxActionContext,
     MaxContextType,
     MaxDashboardContext,
@@ -221,7 +220,7 @@ export const insightToMaxContext = (
     }
 }
 
-export const dashboardToMaxContext = (dashboard: DashboardType<InsightWithQuery>): MaxDashboardContext => {
+export const dashboardToMaxContext = (dashboard: DashboardType): MaxDashboardContext => {
     return {
         type: MaxContextType.DASHBOARD,
         id: dashboard.id,
