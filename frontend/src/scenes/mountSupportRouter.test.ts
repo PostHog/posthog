@@ -35,6 +35,18 @@ describe('mountSupportRouter', () => {
         expect(unmountRouter).toHaveBeenCalledTimes(1)
     })
 
+    it('unmounts a router that resolves after the caller disposed', async () => {
+        const unmountRouter = jest.fn()
+        mount.mockReturnValue(unmountRouter)
+
+        const { unmount, mounted } = mountSupportRouter()
+        unmount()
+        await mounted
+
+        expect(mount).toHaveBeenCalledTimes(1)
+        expect(unmountRouter).toHaveBeenCalledTimes(1)
+    })
+
     it.each([
         ['Firefox', 'error loading dynamically imported module: https://app/chunk.js'],
         ['esbuild', 'Failed to fetch dynamically imported module'],
