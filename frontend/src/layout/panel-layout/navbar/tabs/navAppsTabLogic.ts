@@ -63,9 +63,20 @@ export const navAppsTabLogic = kea<navAppsTabLogicType>([
                         category: 'Project',
                         iconType: 'activity',
                         href: urls.activity(ActivityTab.ExploreEvents),
-                        visualOrder: 1,
+                        visualOrder: 2,
                     },
-                    ...getDefaultTreeProducts(),
+                    ...getDefaultTreeProducts().map(
+                        (item): FileSystemImport =>
+                            item.href === urls.inbox()
+                                ? {
+                                      ...item,
+                                      displayLabel: 'Self-driving',
+                                      category: 'Project',
+                                      visualOrder: 1,
+                                      tags: ['beta'],
+                                  }
+                                : item
+                    ),
                     ...getDefaultTreeDataAndPeople(),
                     ...groupItems,
                 ]

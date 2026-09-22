@@ -38,8 +38,18 @@ describe('navAppsTabLogic', () => {
 
     it('searches display names and preserves person ordering alongside dynamic groups', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true })
+        expect(navAppsTabLogic.values.groupedItems[0].items.map(appsItemName)).toEqual([
+            'Home',
+            'Self-driving',
+            'Activity',
+        ])
         await expectLogic(navAppsTabLogic, () => navAppsTabLogic.actions.setSearch('  self-driving  ')).toMatchValues({
-            groupedItems: [{ label: 'Tools', items: [expect.objectContaining({ href: urls.inbox() })] }],
+            groupedItems: [
+                {
+                    label: 'Project',
+                    items: [expect.objectContaining({ href: urls.inbox(), path: 'Inbox', tags: ['beta'] })],
+                },
+            ],
         })
         const groups = groupApps(
             [

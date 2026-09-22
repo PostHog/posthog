@@ -50,6 +50,7 @@ The PostHog web application, built with React and TypeScript. Uses [Kea](https:/
 The sidebar lives in `src/layout/panel-layout/navbar`.
 Global search sits beside the project menu as a compact button with its keyboard shortcut.
 Apps lists all available product and data pages from the product manifests, with feature flags and access controls applied.
+When enabled, Self-driving appears between Home and Activity with a beta label.
 Users can star apps and saved files for quick access; starred items use the existing project shortcuts.
 The app icon becomes a star button on hover or keyboard focus, so starring does not reserve space beside the app name.
 Files contains the project file tree, including search, filtering, sorting, folders, and recent items.
