@@ -83910,6 +83910,16 @@ export namespace Schemas {
       next_offset: number | null;
     }
 
+    export interface RevenueAnalyticsJoin {
+      /** True creates the person join for the project, false removes it. */
+      enabled: boolean;
+    }
+
+    export interface RevenueAnalyticsJoinResponse {
+      /** What the request did, for display. */
+      detail: string;
+    }
+
     export interface ReviewBlindSpotsConfig {
       /** Name of the `review-hog-blind-spots-*` skill this row represents (the sweep's identity). */
       skill_name: string;
