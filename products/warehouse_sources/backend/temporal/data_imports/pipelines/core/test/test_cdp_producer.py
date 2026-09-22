@@ -16,11 +16,14 @@ import pyarrow.parquet as pq
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
+from posthog.redis import get_async_client
+
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_emitted_rows import EmittedRowStore
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
@@ -1196,3 +1199,136 @@ def test_staging_paths_never_collide_between_a_schema_and_a_view_of_the_same_id(
     view = CDPProducer.for_view(team_id=1, saved_query_id=shared_id, job_id="job", logger=mock.AsyncMock())
 
     assert source._get_path_prefix() != view._get_path_prefix()
+
+
+def _producer_with_known_table_name(producer: CDPProducer) -> CDPProducer:
+    """Prime the table-name cache so a produce cycle needs no database."""
+    producer._table_name_cache = "my_view"
+    return producer
+
+
+async def _produce_staged_rows(producer: CDPProducer, rows: list[dict]) -> list[dict]:
+    """Stage `rows` as one chunk, run a whole produce cycle, and return the rows it produced."""
+    parquet_buffer = BytesIO()
+    pq.write_table(pa.Table.from_pylist(rows), parquet_buffer, compression="zstd")
+    parquet_buffer.seek(0)
+
+    mock_s3_client = MagicMock()
+    mock_s3_client._ls = mock.AsyncMock(return_value=[{"Key": "chunk_0.parquet", "type": "file"}])
+
+    mock_kafka_producer = MagicMock()
+    mock_kafka_producer.produce = mock.AsyncMock()
+    mock_kafka_producer.flush = mock.AsyncMock()
+    mock_kafka_producer.close = mock.AsyncMock()
+
+    mock_fs = MagicMock()
+    mock_file = MagicMock()
+    mock_file.__enter__ = MagicMock(return_value=parquet_buffer)
+    mock_file.__exit__ = MagicMock(return_value=False)
+    mock_fs.open_input_file.return_value = mock_file
+    mock_fs.delete_file = MagicMock()
+
+    with (
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.aget_s3_client"
+        ) as mock_get_s3_client,
+        patch.object(producer, "_get_fs", return_value=mock_fs),
+        _patch_async_producer_scope(mock_kafka_producer),
+    ):
+        mock_get_s3_client.return_value.__aenter__ = mock.AsyncMock(return_value=mock_s3_client)
+        mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=None)
+        await producer.produce_to_kafka_from_s3()
+
+    return [call[1]["data"]["properties"] for call in mock_kafka_producer.produce.call_args_list]
+
+
+def _view_producer_for_id(saved_query_id: str, job_id: str = "job_1") -> CDPProducer:
+    return _producer_with_known_table_name(
+        CDPProducer.for_view(team_id=1, saved_query_id=saved_query_id, job_id=job_id, logger=mock.AsyncMock())
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_view_row_an_earlier_run_produced_is_not_produced_again():
+    # A view's incremental window is inclusive of the watermark, so the boundary rows come back
+    # unchanged every run. Producing them again runs every subscribed workflow again, which for an
+    # outbound message means sending it again every sync period.
+    view_id = str(uuid.uuid4())
+    rows = [{"id": 1, "total": 5}, {"id": 2, "total": 7}]
+
+    assert await _produce_staged_rows(_view_producer_for_id(view_id), rows) == rows
+    assert await _produce_staged_rows(_view_producer_for_id(view_id, "job_2"), rows) == []
+
+
+@pytest.mark.asyncio
+async def test_a_changed_view_row_is_produced_again():
+    view_id = str(uuid.uuid4())
+
+    await _produce_staged_rows(_view_producer_for_id(view_id), [{"id": 1, "total": 5}, {"id": 2, "total": 7}])
+    produced = await _produce_staged_rows(
+        _view_producer_for_id(view_id, "job_2"), [{"id": 1, "total": 9}, {"id": 2, "total": 7}]
+    )
+
+    assert produced == [{"id": 1, "total": 9}]
+
+
+@pytest.mark.asyncio
+async def test_a_view_row_stays_suppressed_while_it_keeps_coming_back():
+    # The record holds a run's suppressed rows as well as its produced ones. Without that, a row
+    # that sits on the boundary for many runs comes back on every other run.
+    view_id = str(uuid.uuid4())
+    rows = [{"id": 1, "total": 5}]
+
+    await _produce_staged_rows(_view_producer_for_id(view_id), rows)
+    await _produce_staged_rows(_view_producer_for_id(view_id, "job_2"), rows)
+
+    assert await _produce_staged_rows(_view_producer_for_id(view_id, "job_3"), rows) == []
+
+
+@pytest.mark.asyncio
+async def test_a_source_row_is_produced_on_every_sync():
+    # A source's event id already mixes in the job id, so the same row in a later sync is a new
+    # delivery rather than a repeat. Suppression must not reach this path.
+    schema_id = str(uuid.uuid4())
+    rows = [{"id": 1, "name": "Alice"}]
+
+    def _producer(job_id: str) -> CDPProducer:
+        return _producer_with_known_table_name(
+            CDPProducer.for_source(team_id=1, schema_id=schema_id, job_id=job_id, logger=mock.AsyncMock())
+        )
+
+    assert await _produce_staged_rows(_producer("job_1"), rows) == rows
+    assert await _produce_staged_rows(_producer("job_2"), rows) == rows
+
+
+@pytest.mark.asyncio
+async def test_view_rows_are_produced_when_the_record_is_unreadable():
+    # Suppression is best effort. A Redis problem costs a repeated trigger; failing closed would
+    # drop a real one.
+    view_id = str(uuid.uuid4())
+    rows = [{"id": 1, "total": 5}]
+
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_emitted_rows.get_async_client",
+        side_effect=RuntimeError("redis down"),
+    ):
+        assert await _produce_staged_rows(_view_producer_for_id(view_id), rows) == rows
+        assert await _produce_staged_rows(_view_producer_for_id(view_id, "job_2"), rows) == rows
+
+
+@pytest.mark.asyncio
+async def test_the_record_never_holds_more_than_the_tracked_row_limit():
+    # One key per view, so a view big enough to pass the limit must not be able to grow it without
+    # bound. The rows past the limit repeat once more, which is the cheaper failure.
+    key = f"test_emitted_rows:{uuid.uuid4()}"
+    store = EmittedRowStore(key, mock.AsyncMock())
+
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_emitted_rows.MAX_TRACKED_ROWS", 2
+    ):
+        await store.load()
+        for event_id in ["a", "b", "c", "d"]:
+            store.is_repeat(event_id)
+        await store.commit()
+
+    assert await get_async_client().scard(key) == 2

@@ -1,0 +1,114 @@
+"""Remember which view rows a run already produced, so an unchanged row triggers only once.
+
+A materialized view's incremental window is inclusive of the previous run's watermark, so the rows
+on the boundary are recomputed and read again on every run without having changed. Each of those
+rows reaches ``CDPProducer``, which is what starts a subscribed workflow or destination, so a
+workflow that sends a message sends it again every sync period.
+
+The producer already keys a view row's event id on row content alone, which makes an unchanged row
+recognizable across runs. This store keeps the ids a view produced and suppresses the repeats.
+
+The record is one Redis set per view, replaced on each run. It holds the ids this run produced plus
+the ids this run suppressed, so a row that keeps coming back stays suppressed for as long as it
+does, and a row that stops coming back drops out after one run.
+"""
+
+from prometheus_client import Counter
+from structlog.types import FilteringBoundLogger
+
+from posthog.redis import get_async_client
+
+CDP_PRODUCER_ROWS_SUPPRESSED_TOTAL = Counter(
+    "warehouse_cdp_producer_rows_suppressed_total",
+    "Warehouse view rows not produced because a previous run produced the identical row",
+    labelnames=["team_id"],
+)
+
+# A row only has to stay remembered from one run of its view to the next. A week covers every sync
+# period a view can be scheduled on, with room for a run that is late or retried.
+EMITTED_ROWS_TTL_SECONDS = 7 * 24 * 60 * 60
+
+# Above this, the run stops recording, and the rows past the limit repeat once more. Suppression is
+# best effort, like the rest of this path, and a view large enough to pass the limit must not be
+# able to grow one Redis key without bound.
+MAX_TRACKED_ROWS = 200_000
+
+# Kept well under Redis' argument limit, so a large run cannot build a command the server rejects.
+_WRITE_CHUNK_SIZE = 1_000
+
+
+def emitted_rows_key(team_id: int, saved_query_id: str) -> str:
+    return f"cdp_produced_view_rows:{team_id}:{saved_query_id}"
+
+
+class EmittedRowStore:
+    """The event ids a view produced on its previous run.
+
+    Fail-open by design: a Redis problem disables suppression for the run, which costs a repeated
+    trigger. Failing closed would drop a real one.
+    """
+
+    def __init__(self, key: str | None, logger: FilteringBoundLogger) -> None:
+        self._key = key
+        self._logger = logger
+        self._previous: set[str] = set()
+        self._current: set[str] = set()
+        self._enabled = key is not None
+        self._at_limit = False
+
+    async def load(self) -> None:
+        if self._key is None:
+            return
+
+        try:
+            members = await get_async_client().smembers(self._key)
+            self._previous = {member.decode() if isinstance(member, bytes) else member for member in members}
+        except Exception as e:
+            self._enabled = False
+            await self._logger.awarning(f"Could not read produced view rows; not suppressing repeats this run: {e}")
+
+    def is_repeat(self, event_id: str) -> bool:
+        """Whether a previous run already produced this exact row.
+
+        Records the id either way, so a row still on the boundary several runs later stays
+        suppressed rather than returning once the previous run's record is replaced.
+        """
+        if not self._enabled:
+            return False
+
+        if len(self._current) < MAX_TRACKED_ROWS:
+            self._current.add(event_id)
+        else:
+            self._at_limit = True
+
+        return event_id in self._previous
+
+    async def commit(self) -> None:
+        """Replace the record with what this run saw.
+
+        Written to a scratch key and renamed, so a failure part way through leaves the previous
+        run's record in place instead of a half-written one.
+        """
+        if self._key is None or not self._enabled:
+            return
+
+        if self._at_limit:
+            await self._logger.awarning(
+                f"More than {MAX_TRACKED_ROWS} view rows in one run; rows past that may trigger again next run"
+            )
+
+        try:
+            client = get_async_client()
+            if not self._current:
+                await client.delete(self._key)
+                return
+
+            scratch_key = f"{self._key}:writing"
+            await client.delete(scratch_key)
+            members = list(self._current)
+            for start in range(0, len(members), _WRITE_CHUNK_SIZE):
+                await client.sadd(scratch_key, *members[start : start + _WRITE_CHUNK_SIZE])
+            await client.expire(scratch_key, EMITTED_ROWS_TTL_SECONDS)
+            await client.rename(scratch_key, self._key)
+        except Exception as e:
+            await self._logger.awarning(f"Could not record produced view rows; repeats may not be suppressed: {e}")
