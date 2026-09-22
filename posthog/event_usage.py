@@ -4,7 +4,7 @@ Module to centralize event reporting on the server-side.
 
 import re
 from enum import StrEnum
-from typing import TYPE_CHECKING, NotRequired, Optional, Required, TypedDict
+from typing import TYPE_CHECKING, Any, NotRequired, Optional, Required, TypedDict
 from urllib.parse import urlparse
 
 from django.contrib.auth.models import AnonymousUser
@@ -151,6 +151,38 @@ def report_user_logged_in(
         event="user logged in",
         properties={"social_provider": social_provider},
         groups=groups(user.current_organization, user.current_team),
+    )
+
+
+LOGIN_FAILED_UNIDENTIFIED_DISTINCT_ID = "login_failed_unidentified"
+
+
+def report_user_login_failed(
+    failure_reason: str,  # why the login was refused, matching the error code the API returns
+    user: Optional[User] = None,  # the account the attempt resolved to (None = the address reached no account)
+    social_provider: str = "",  # which third-party provider is involved (empty = no third-party)
+) -> None:
+    """
+    Reports that a login attempt was refused. Counterpart of `report_user_logged_in`.
+
+    The attempted address is never sent, because an attempt that reaches no account would
+    otherwise put an arbitrary typed address into the event stream.
+    """
+    distinct_id = user.distinct_id if user else None
+    properties: dict[str, Any] = {
+        "failure_reason": failure_reason,
+        "social_provider": social_provider,
+        "user_identified": bool(distinct_id),
+    }
+    if not distinct_id:
+        # Every unattributable attempt shares one distinct id, so it must not write a person profile.
+        properties["$process_person_profile"] = False
+
+    posthoganalytics.capture(
+        distinct_id=distinct_id or LOGIN_FAILED_UNIDENTIFIED_DISTINCT_ID,
+        event="user login failed",
+        properties=properties,
+        groups=groups(user.current_organization, user.current_team) if user else groups(),
     )
 
 
