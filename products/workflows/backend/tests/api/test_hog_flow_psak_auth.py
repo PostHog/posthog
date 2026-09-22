@@ -20,6 +20,7 @@ from products.workflows.backend.presentation.views.hog_flow import (
     HogFlowBurstRateThrottle,
     HogFlowProjectSecretApiKeyTeamBurstThrottle,
 )
+from products.workflows.backend.tests.api.test_hog_flow import _create_task_template
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
@@ -121,6 +122,21 @@ class TestHogFlowProjectSecretApiKeyAuth(APIBaseTest):
         assert revision.created_by_id is None
         detail = self._psak_audit_detail(flow_id, "updated")
         assert any(change["field"] == "actions" for change in detail["changes"])
+
+    def test_psak_create_refuses_a_create_ai_task_step_that_has_no_owner_to_run_as(self):
+        sync_template_to_db(_create_task_template())
+        workflow = _workflow()
+        workflow["actions"][1]["config"] = {
+            "template_id": "template-posthog-create-task",
+            "inputs": {"prompt": {"value": "Investigate"}},
+        }
+
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
+            response = self.service.post(self._url(), workflow, format="json", headers=self._bearer(self.token))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "project secret API key" in response.json()["detail"]
+        assert HogFlow.objects.count() == 0
 
     def test_psak_lists_and_retrieves_the_projects_workflows(self):
         flow_id = self._create_with_session()
