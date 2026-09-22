@@ -3,6 +3,7 @@ import json
 import hashlib
 from datetime import datetime, timedelta
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 import pytest
 import time_machine
@@ -2382,13 +2383,24 @@ class TestCSPMiddleware(APIBaseTest):
     @parameterized.expand(
         [
             (
-                "cloud",
+                "cloud_us",
                 {
                     "CLOUD_DEPLOYMENT": "US",
                     "SITE_URL": "https://us.posthog.com",
                     "JS_URL": "https://app-static-prod.posthog.com",
+                    "TASKS_AGENT_PROXY_PUBLIC_URL": "https://agent-proxy.us.posthog.com",
                 },
-                True,
+                ("us", "eu"),
+            ),
+            (
+                "cloud_eu",
+                {
+                    "CLOUD_DEPLOYMENT": "EU",
+                    "SITE_URL": "https://eu.posthog.com",
+                    "JS_URL": "https://app-static.eu.posthog.com",
+                    "TASKS_AGENT_PROXY_PUBLIC_URL": "https://agent-proxy.eu.posthog.com/",
+                },
+                ("eu", "us"),
             ),
             # An operator can turn reporting on for their own install, but the shadow names PostHog
             # Cloud's hosts and token, so its reports would tell that operator nothing they can act on.
@@ -2399,11 +2411,11 @@ class TestCSPMiddleware(APIBaseTest):
                     "SITE_URL": "https://posthog.example.com",
                     "CSP_REPORT_ENDPOINT": "https://posthog.example.com/report/?token=phc_test&v=2",
                 },
-                False,
+                None,
             ),
         ]
     )
-    def test_only_cloud_pages_carry_a_report_only_shadow_without_the_wildcards(self, _name, overrides, expects_shadow):
+    def test_only_cloud_pages_carry_a_report_only_shadow_without_the_wildcards(self, _name, overrides, regions):
         # The shadow is the evidence for dropping the wildcards, so it must report on its own version
         # and must not quietly keep a wildcard.
         with override_settings(TEST=False, DEBUG=False, **overrides):
@@ -2412,13 +2424,19 @@ class TestCSPMiddleware(APIBaseTest):
         app_policy, *shadows = response["Content-Security-Policy-Report-Only"].split(", ")
         assert "https://*.posthog.com" in app_policy
         assert "&v=2&" in app_policy
-        assert len(shadows) == (1 if expects_shadow else 0)
-        if expects_shadow:
+        assert len(shadows) == (1 if regions else 0)
+        if regions:
+            region, other_region = regions
             shadow = shadows[0]
             assert "*.posthog.com" not in shadow
             assert "https://internal-j.posthog.com/array/sTMFPsFhdP1Ssg/config.js" in shadow
-            assert "https://live.us.posthog.com" in shadow
             assert "&v=3&" in shadow
+            connect_src = next(part for part in shadow.split("; ") if part.startswith("connect-src ")).split()
+            assert f"https://live.{region}.posthog.com" in connect_src
+            assert f"https://{region}.i.posthog.com/decide/" in connect_src
+            assert f"https://agent-proxy.{region}.posthog.com" in connect_src
+            # Allowing the other region would hide a request that crossed regions by mistake.
+            assert not any(other_region in (urlsplit(source).hostname or "").split(".") for source in connect_src)
 
 
 class TestSocialAuthExceptionMiddleware(APIBaseTest):

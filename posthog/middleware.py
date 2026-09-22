@@ -41,7 +41,7 @@ from statshog.defaults.django import statsd
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, reset_query_tags, tag_queries
-from posthog.cloud_utils import is_cloud, is_dev_mode
+from posthog.cloud_utils import get_api_host, is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS, POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
@@ -1655,6 +1655,12 @@ class CSPMiddleware:
             shadow_parts: list[str] = []
             if report_uri and is_cloud() and resource_url == "https://*.posthog.com" and not settings.E2E_TESTING:
                 bundle = [bundle_origin] if bundle_origin else []
+                agent_proxy_url = settings.TASKS_AGENT_PROXY_PUBLIC_URL
+                agent_proxy = (
+                    [urlsplit(agent_proxy_url)._replace(path="", query="", fragment="").geturl()]
+                    if agent_proxy_url
+                    else []
+                )
                 replacements = {
                     # posthog-js loads its extensions from /static/ and our project's remote config. The
                     # config path names our token because the same path serves every project's config.
@@ -1668,6 +1674,10 @@ class CSPMiddleware:
                         *bundle,
                         POSTHOG_JS_CLOUD_HOST,
                         f"https://live.{urlsplit(settings.SITE_URL).hostname}",
+                        # The onboarding adblock check probes the region's ingestion host.
+                        f"{get_api_host()}/decide/",
+                        # A task run's live stream, when the server hands out the region's agent-proxy.
+                        *agent_proxy,
                     ],
                 }
                 shadow_uri = csp_report_endpoint(sample_rate=sample_rate, v=NARROWED_APP_POLICY_REPORT_VERSION)
