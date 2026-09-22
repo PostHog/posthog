@@ -2,7 +2,7 @@ import logging
 import datetime as dt
 from typing import TYPE_CHECKING
 
-from temporalio import workflow
+from temporalio import activity, workflow
 from temporalio.common import MetricCounter
 
 from posthog.kafka_client.routing import get_producer
@@ -63,6 +63,15 @@ def get_v3_lock_skipped_metric() -> MetricCounter:
     # counter a schema can silently miss every scheduled slot for days.
     return workflow.metric_meter().create_counter(
         "data_import_v3_lock_skipped", "Scheduled v3 runs skipped because the pipeline lock was not acquired."
+    )
+
+
+def get_v3_lock_lost_metric() -> MetricCounter:
+    # Counterpart to the skip metric, for the same race caught one step later: the run fails
+    # without reporting an error, so this counter is the only record of how often it happens.
+    # Emitted from the activity, so the meter comes from the activity context.
+    return activity.metric_meter().create_counter(
+        "data_import_v3_lock_lost", "V3 runs failed because another run took the pipeline lock before job creation."
     )
 
 
