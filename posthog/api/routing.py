@@ -138,6 +138,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     # Allows for a smoother transition from the old flat API structure to the newer nested one
     param_derived_from_user_current_team: Optional[Literal["team_id", "project_id"]] = None
 
+    # An organization-level viewset that reads its organization off the current team, but that
+    # still has a target when the user has no current team. An organization whose last project
+    # is gone leaves its members in that state, and they must keep reaching these endpoints.
+    resolves_organization_without_current_team: bool = False
+
     # Rewrite filter queries, so that for example foreign keys can be accessed
     # Example: {"team_id": "foo__team_id"} will make the viewset filtered by obj.foo.team_id instead of obj.team_id
     filter_rewrite_rules: dict[str, str] = {}
@@ -215,7 +220,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         """
         super().initial(request, *args, **kwargs)
         self._team_scope_token = None
-        if self._is_team_view or self._is_project_view:
+        if (self._is_team_view or self._is_project_view) and not self._resolves_organization_without_current_team:
             try:
                 team_id = self.team_id
             except (KeyError, ValidationError, AuthenticationFailed):
@@ -283,7 +288,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             AccessControlPermission,
         ]
 
-        if self._is_team_view or self._is_project_view:
+        if (self._is_team_view or self._is_project_view) and not self._resolves_organization_without_current_team:
             permission_classes.append(TeamMemberAccessPermission)
         else:
             permission_classes.append(OrganizationMemberPermissions)
@@ -433,6 +438,14 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         return obj
 
     @property
+    def _resolves_organization_without_current_team(self) -> bool:
+        """Whether this request must read its organization off the user rather than a project."""
+        if not self.resolves_organization_without_current_team:
+            return False
+        user = self.request.user
+        return isinstance(user, User) and user.current_team_id is None
+
+    @property
     def _is_team_view(self):
         return self.param_derived_from_user_current_team == "team_id" or "team_id" in self.parent_query_kwargs
 
@@ -514,6 +527,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     @cached_property
     def organization_id(self) -> str:
+        if self._resolves_organization_without_current_team:
+            current_organization_id = cast(User, self.request.user).current_organization_id
+            if not current_organization_id:
+                raise NotFound("You need to belong to an organization.")
+            return str(current_organization_id)
+
         try:
             return self.parents_query_dict["organization_id"]
         except KeyError:
@@ -533,7 +552,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     @cached_property
     def organization(self) -> Organization:
-        if self._is_team_view:
+        if self._is_team_view and not self._resolves_organization_without_current_team:
             return self.team.organization
         try:
             return Organization.objects.get(

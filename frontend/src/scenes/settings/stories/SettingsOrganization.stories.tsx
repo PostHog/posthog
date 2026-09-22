@@ -8,6 +8,7 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { billingUnsubscribedJson } from '~/mocks/fixtures/_billing_unsubscribed'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 import { SettingSectionId } from '../types'
@@ -181,6 +182,11 @@ export const SettingsOrganizationAuthentication: Story = { args: { sectionId: 'o
 export const SettingsOrganizationProxy: Story = { args: { sectionId: 'organization-proxy' } }
 
 export const SettingsOrganizationDangerZone: Story = { args: { sectionId: 'organization-danger-zone' } }
+
+export const SettingsOrganizationDangerZoneWithoutSubscription: Story = {
+    args: { sectionId: 'organization-danger-zone' },
+    decorators: [mswDecorator({ get: { '/api/billing/': { ...billingUnsubscribedJson } } })],
+}
 
 export const SettingsOrganizationBilling: Story = { args: { sectionId: 'organization-billing' } }
 

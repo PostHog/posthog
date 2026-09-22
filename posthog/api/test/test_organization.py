@@ -691,9 +691,12 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertTrue(self.organization.is_pending_deletion)
 
+    @patch("posthog.event_usage.posthoganalytics.capture")
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("posthog.api.organization.get_cached_instance_license")
-    def test_cannot_delete_organization_with_active_subscription(self, mock_get_license, mock_get_billing):
+    def test_cannot_delete_organization_with_active_subscription(
+        self, mock_get_license, mock_get_billing, mock_capture
+    ):
         mock_get_license.return_value = True
         mock_get_billing.return_value = {"has_active_subscription": True}
 
@@ -706,6 +709,12 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("active subscription", response.json()["detail"])
         self.assertTrue(Organization.objects.filter(id=self.organization.id).exists())
+
+        blocked_calls = [
+            call for call in mock_capture.call_args_list if call.kwargs.get("event") == "organization deletion blocked"
+        ]
+        self.assertEqual(len(blocked_calls), 1)
+        self.assertEqual(blocked_calls[0].kwargs["properties"]["reason"], "active_subscription")
 
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     @patch("ee.billing.billing_manager.BillingManager.get_billing")

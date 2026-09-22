@@ -654,6 +654,20 @@ def report_organization_deleted(user: User, organization: Organization):
     )
 
 
+def report_organization_deletion_blocked(user: User, organization: Organization, reason: str, source: str):
+    if _is_hosted_dev_deployment():
+        return
+
+    if not user.distinct_id:
+        return
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="organization deletion blocked",
+        properties={**organization.get_analytics_metadata(), "reason": reason, "source": source},
+        groups=groups(organization),
+    )
+
+
 def report_organization_deletion_initiated(user: User, organization: Organization):
     if _is_hosted_dev_deployment():
         return

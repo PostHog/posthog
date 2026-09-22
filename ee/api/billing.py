@@ -139,6 +139,9 @@ BILLING_USAGE_SPEND_ACCESS_DENIED_MESSAGE = (
     "Your PostHog user does not have access to billing usage and spend for this organization. "
     "Ask someone with billing access to run this or update your role."
 )
+BILLING_ORGANIZATION_NOT_FOUND_MESSAGE = (
+    "We could not find an organization for this request. Switch to an organization you belong to, then try again."
+)
 BILLING_PROJECT_ACCESS_DENIED_MESSAGE = (
     "The requested projects are not available to this PostHog user or token. "
     "Adjust the project filter or ask someone with billing access to run this."
@@ -265,6 +268,12 @@ def is_token_auth_request(request: Request) -> bool:
     return get_authenticator_scopes(getattr(request, "successful_authenticator", None)) is not None
 
 
+class BillingOrganizationNotFound(NotFound):
+    """The request has no organization to bill. This is not the same answer as an access denial."""
+
+    default_detail = BILLING_ORGANIZATION_NOT_FOUND_MESSAGE
+
+
 class HasBillingAccess(permissions.BasePermission):
     """
     Permission to allow users with Billing access to access Billing endpoints.
@@ -273,10 +282,7 @@ class HasBillingAccess(permissions.BasePermission):
     message = BILLING_ACCESS_DENIED_MESSAGE
 
     def has_permission(self, request: Request, view: Any) -> bool:
-        try:
-            org = view._get_org_required()
-        except Exception:
-            return False
+        org = view._get_org_required()
 
         if not isinstance(request.user, User):
             return False
@@ -292,10 +298,7 @@ class HasBillingUsageSpendReadAccess(permissions.BasePermission):
     message = BILLING_USAGE_SPEND_ACCESS_DENIED_MESSAGE
 
     def has_permission(self, request: Request, view: Any) -> bool:
-        try:
-            org = view._get_org_required()
-        except Exception:
-            return False
+        org = view._get_org_required()
 
         if not isinstance(request.user, User):
             return False
@@ -696,6 +699,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
     pagination_class = None
     param_derived_from_user_current_team = "team_id"
+    resolves_organization_without_current_team = True
 
     scope_object = "billing"
     scope_object_read_actions = ["list", "usage", "spend", "usage_export", "spend_export", "usage_team_options"]
@@ -1481,7 +1485,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return None
 
         try:
-            return self.team.organization
+            return self.organization
         except Exception:
             return None
 
@@ -1489,6 +1493,6 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         org = self._get_org()
 
         if not org:
-            raise Exception("You cannot interact with the billing service without an organization configured.")
+            raise BillingOrganizationNotFound()
 
         return org
