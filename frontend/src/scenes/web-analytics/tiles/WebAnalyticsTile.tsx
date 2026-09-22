@@ -1200,12 +1200,12 @@ export const WebStatsTableTile = ({
 
 export type RowFilterability =
     | { canFilter: true; breakdownValue: string | null }
-    | { canFilter: false; reason: string | null }
+    | { canFilter: false; reason?: string }
 
 /**
- * Decides whether clicking a breakdown row can apply a filter. The row only becomes a control
- * when it can, because LemonTable paints the pointer and the hover highlight from the presence
- * of a click handler. `reason` is set when a setting the user can change is what blocks the click.
+ * Decides whether clicking a breakdown row can apply a filter, which is what the row's click
+ * handler hangs on: LemonTable paints the pointer and the hover highlight from that handler.
+ * `reason` names the setting to change, where a setting is what blocks the click.
  */
 export const getRowFilterability = ({
     breakdownBy,
@@ -1228,7 +1228,7 @@ export const getRowFilterability = ({
     }
 
     if (breakdownValue === undefined) {
-        return { canFilter: false, reason: null }
+        return { canFilter: false }
     }
 
     // Compound breakdowns (UTM s/m/c, Viewport, Timezone) have dedicated handling in onClick,
@@ -1239,12 +1239,10 @@ export const getRowFilterability = ({
         breakdownBy === WebStatsBreakdown.Timezone
 
     if (isCompoundBreakdown) {
-        return breakdownValue ? { canFilter: true, breakdownValue } : { canFilter: false, reason: null }
+        return breakdownValue ? { canFilter: true, breakdownValue } : { canFilter: false }
     }
 
-    return webStatsBreakdownToPropertyName(breakdownBy)
-        ? { canFilter: true, breakdownValue }
-        : { canFilter: false, reason: null }
+    return webStatsBreakdownToPropertyName(breakdownBy) ? { canFilter: true, breakdownValue } : { canFilter: false }
 }
 
 const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): string | null | undefined => {

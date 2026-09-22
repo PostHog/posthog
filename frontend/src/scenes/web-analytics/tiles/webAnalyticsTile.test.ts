@@ -81,7 +81,7 @@ describe('WebAnalyticsTile helpers', () => {
             const filterability = getRowFilterability({ ...baseArgs, ...args })
 
             expect(filterability.canFilter).toEqual(canFilter)
-            expect(!filterability.canFilter && filterability.reason !== null).toEqual(expectsReason)
+            expect(!filterability.canFilter && filterability.reason !== undefined).toEqual(expectsReason)
         })
     })
 })
