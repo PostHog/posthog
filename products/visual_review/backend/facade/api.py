@@ -222,7 +222,9 @@ def _compute_unresolved(run) -> int:
     return 0
 
 
-def _to_run(run, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None) -> contracts.Run:
+def _to_run(
+    run, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None, unresolved: int | None = None
+) -> contracts.Run:
     approved_by = (user_basic_infos or {}).get(run.approved_by_id) if run.approved_by_id else None
     return contracts.Run(
         id=run.id,
@@ -240,7 +242,7 @@ def _to_run(run, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = N
             new=run.new_count,
             removed=run.removed_count,
             unchanged=run.total_snapshots - run.changed_count - run.new_count - run.removed_count,
-            unresolved=_compute_unresolved(run),
+            unresolved=_compute_unresolved(run) if unresolved is None else unresolved,
             tolerated_matched=run.tolerated_match_count,
         ),
         error_message=run.error_message or None,
@@ -595,10 +597,18 @@ def add_snapshots(input: contracts.AddSnapshotsInput, run_id: UUID, team_id: int
 
 
 def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
-    run = run_queries.get_run_with_snapshots(run_id, team_id=team_id)
+    run = run_queries.get_run(run_id, team_id=team_id)
     user_ids = {run.approved_by_id} if run.approved_by_id else set()
     user_basic_infos = _fetch_user_basic_infos(user_ids)
-    return _to_run(run, user_basic_infos)
+    # Observe runs are never approvable, so nothing in them is unresolved; see `_compute_unresolved`.
+    unresolved = 0 if run.purpose == RunPurpose.OBSERVE else gating.count_unresolved(run.id)
+    return _to_run(run, user_basic_infos, unresolved=unresolved)
+
+
+def get_run_scope(run_id: UUID, team_id: int) -> contracts.RunScope:
+    """The repo and run type a run belongs to, for endpoints that only need to know where to look."""
+    run = run_queries.get_run(run_id, team_id=team_id)
+    return contracts.RunScope(repo_id=run.repo_id, run_type=run.run_type)
 
 
 def get_run_snapshots(

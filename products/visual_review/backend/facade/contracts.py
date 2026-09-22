@@ -758,6 +758,14 @@ class FlakinessOverview:
 
 
 @dataclass(frozen=True)
+class RunScope:
+    """Where a run's snapshots live: its repo and run type."""
+
+    repo_id: UUID
+    run_type: str
+
+
+@dataclass(frozen=True)
 class TolerationPileupEntry:
     """One snapshot identity that keeps getting tolerated."""
 
