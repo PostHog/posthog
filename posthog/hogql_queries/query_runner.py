@@ -16,6 +16,7 @@ import structlog
 import posthoganalytics
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ConfigDict
+from pydantic_core import SchemaSerializer
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import (
@@ -301,6 +302,68 @@ def get_survey_query_metric_labels(query: Any) -> dict[str, str] | None:
         "query_type": getattr(query, "kind", "Other"),
         "query_name": getattr(tags, "name", None) or UNKNOWN_QUERY_METRIC_LABEL,
     }
+
+
+# A response can hold millions of rows, and every row of a column holds the same class, so the
+# recovery scan below reads a bounded prefix of the response instead of all of it.
+_DUMP_RECOVERY_SCAN_LIMIT = 1000
+
+
+def _rebuild_unbuilt_response_models(query_result: BaseModel) -> list[str]:
+    """Force-rebuild every model class in the response that pydantic left without a serializer.
+
+    The class is not always the response class. A model in a loosely typed position, such as a row
+    of `results`, carries its own serializer, and pydantic reaches for it during the dump.
+    """
+    rebuilt: list[str] = []
+    seen: set[type[BaseModel]] = set()
+    pending: list[Any] = [query_result]
+    budget = _DUMP_RECOVERY_SCAN_LIMIT
+    while pending and budget > 0:
+        value = pending.pop()
+        budget -= 1
+        if isinstance(value, BaseModel):
+            model_class = type(value)
+            if model_class not in seen:
+                seen.add(model_class)
+                if not isinstance(getattr(model_class, "__pydantic_serializer__", None), SchemaSerializer):
+                    model_class.model_rebuild(force=True, raise_errors=False)
+                    rebuilt.append(model_class.__name__)
+            pending.extend(value.__dict__.values())
+        elif isinstance(value, dict):
+            pending.extend(value.values())
+        elif isinstance(value, list | tuple):
+            # Iterators stay untouched: results support generators, and reading one here would
+            # consume the rows before the dump can serialize them.
+            pending.extend(value)
+    return rebuilt
+
+
+def dump_query_response(query_result: BaseModel) -> dict[str, Any]:
+    """Dump a response ClickHouse already returned, and recover an unbuilt pydantic serializer.
+
+    A rebuild resolves the deferred references, so the person keeps the result of a query that
+    succeeded. When the rebuild cannot resolve them, the failure names the response class, because
+    the pydantic error alone does not say which query type is affected.
+    """
+    try:
+        return query_result.model_dump()
+    except TypeError as serializer_error:
+        response_class = type(query_result)
+        rebuilt = _rebuild_unbuilt_response_models(query_result)
+        try:
+            dumped = query_result.model_dump()
+        except Exception as retry_error:
+            raise TypeError(f"Cannot serialize {response_class.__name__}: {retry_error}") from retry_error
+        capture_exception(
+            serializer_error,
+            {
+                "response_class": response_class.__name__,
+                "rebuilt_models": rebuilt,
+                "context": "query_response_dump",
+            },
+        )
+        return dumped
 
 
 def _annotation_mentions_base_model(annotation: Any) -> bool:
@@ -2708,7 +2771,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     SURVEY_QUERY_EXECUTION_DURATION.labels(**survey_query_metric_labels).observe(query_duration_seconds)
 
             fresh_response_dict: dict[str, Any] = {
-                **query_result.model_dump(),
+                **dump_query_response(query_result),
                 "is_cached": False,
                 "last_refresh": last_refresh,
                 "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
