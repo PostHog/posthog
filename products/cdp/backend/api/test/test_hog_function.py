@@ -2707,7 +2707,20 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-    def test_destination_with_an_unavailable_input_global_can_still_be_disabled(self):
+    @parameterized.expand(
+        [
+            # An input saved before this check must not trap the function: disabling or deleting it
+            # stays possible, while any save that leaves it enabled is still rejected.
+            ("disable_allowed", True, {"enabled": False}, status.HTTP_200_OK),
+            ("delete_allowed", True, {"deleted": True}, status.HTTP_200_OK),
+            ("edit_while_disabled_allowed", False, {"name": "renamed"}, status.HTTP_200_OK),
+            ("enable_blocked", False, {"enabled": True}, status.HTTP_400_BAD_REQUEST),
+            ("edit_while_enabled_blocked", True, {"name": "renamed"}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_unavailable_input_global_only_blocks_saves_that_leave_function_enabled(
+        self, _name, initial_enabled, patch, expected
+    ):
         function = HogFunction.objects.create(
             team=self.team,
             name="Saved before the check",
@@ -2715,15 +2728,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             hog="fetch(inputs.url)",
             inputs_schema=[{"key": "url", "type": "string", "required": True}],
             inputs={"url": {"value": "https://example.com/{distinct_id}"}},
-            enabled=True,
+            enabled=initial_enabled,
         )
-        response = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{function.id}/", {"enabled": False})
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["enabled"] is False
-
-        response = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{function.id}/", {"enabled": True})
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["attr"] == "inputs__url"
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{function.id}/", data=patch)
+        assert response.status_code == expected, response.json()
+        if expected == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["attr"] == "inputs__url"
 
     def test_limits_transformation_functions_per_team(self):
         """Test that we can create unlimited disabled transformations but only 20 enabled ones"""
