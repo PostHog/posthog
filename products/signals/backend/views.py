@@ -171,6 +171,7 @@ from products.signals.backend.serializers import (
     SignalReportMetricRefreshResponseSerializer,
     SignalReportRefundSerializer,
     SignalReportSerializer,
+    SignalReportSuggestedReviewersArtefactSerializer,
     SignalSourceConfigSerializer,
     SignalTeamConfigSerializer,
     SignalUserAutonomyConfigCreateSerializer,
@@ -2282,7 +2283,7 @@ class SignalReportViewSet(
     @extend_schema(
         summary="Set a report's suggested reviewers",
         request=SignalReportArtefactWriteSerializer,
-        responses={200: SignalReportArtefactSerializer},
+        responses={200: SignalReportSuggestedReviewersArtefactSerializer},
     )
     @action(detail=True, methods=["put"], url_path="reviewers", required_scopes=["task:write"])
     def reviewers(self, request, **kwargs):

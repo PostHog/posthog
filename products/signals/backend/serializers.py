@@ -1936,13 +1936,14 @@ class SuggestedReviewerEntryWriteSerializer(serializers.Serializer):
         required=False,
         allow_blank=False,
         max_length=200,
-        help_text="GitHub login (case-insensitive). Stored lowercased.",
+        help_text="GitHub login (case-insensitive). Stored lowercased. Required unless `user_uuid` is given.",
     )
     user_uuid = serializers.UUIDField(
         required=False,
         help_text=(
             "PostHog user UUID. Must be an org member on this team; a linked GitHub account is not "
-            "required. If supplied together with `github_login`, the user's own identity wins."
+            "required. Required unless `github_login` is given. If supplied together with "
+            "`github_login`, the user's own identity wins."
         ),
     )
     github_name = serializers.CharField(
@@ -1966,6 +1967,59 @@ class SuggestedReviewerEntryWriteSerializer(serializers.Serializer):
         if not attrs.get("github_login") and not attrs.get("user_uuid"):
             raise serializers.ValidationError("Each entry must include `github_login` or `user_uuid` (or both).")
         return attrs
+
+
+class SuggestedReviewerCommitSerializer(serializers.Serializer):
+    """Commit evidence behind a suggested reviewer."""
+
+    sha = serializers.CharField(help_text="Commit SHA.")
+    url = serializers.CharField(help_text="Link to the commit.")
+    reason = serializers.CharField(allow_blank=True, help_text="Why the commit makes this reviewer relevant.")
+
+
+class SuggestedReviewerEntryReadSerializer(serializers.Serializer):
+    """One reviewer as the read path returns it: the stored entry plus read-time enrichment.
+
+    `source_label`, `explanation` and `user` are computed on read, not stored, so a caller cannot
+    write them.
+    """
+
+    github_login = serializers.CharField(
+        allow_null=True, help_text="GitHub login, lowercased. Null when the reviewer has no linked account."
+    )
+    user_uuid = serializers.CharField(
+        allow_null=True,
+        help_text="PostHog user this entry routes to. Null on entries written before reviewers had one.",
+    )
+    github_name = serializers.CharField(allow_null=True, help_text="Display name, when the writer supplied one.")
+    relevant_commits = SuggestedReviewerCommitSerializer(
+        many=True, help_text="Commits attributed to this reviewer. Empty when the pick came from elsewhere."
+    )
+    reason = serializers.CharField(allow_null=True, help_text="Why this reviewer was chosen.")
+    is_skill_owner = serializers.BooleanField(
+        help_text="True when the scout owner guardrail added the entry rather than commit authorship."
+    )
+    source_skill = serializers.CharField(
+        allow_null=True, help_text="Scout skill whose run wrote the entry. Null when no scout did."
+    )
+    source_label = serializers.CharField(help_text="Where the suggestion came from, for display.")
+    explanation = serializers.CharField(
+        allow_null=True, help_text="One line of evidence for display. Null when there is none to show."
+    )
+    user = _UserSerializer(allow_null=True, help_text="Resolved org member. Null when the entry resolves to nobody.")
+
+
+class SignalReportSuggestedReviewersArtefactSerializer(SignalReportArtefactSerializer):
+    """The artefact, for a path that only ever returns a `suggested_reviewers` one.
+
+    `content` is polymorphic on the base serializer, so a generated client types it as unknown.
+    Here the type is fixed, so the entry shape can be declared. Runtime output is unchanged —
+    `get_content` delegates to the base.
+    """
+
+    @extend_schema_field(SuggestedReviewerEntryReadSerializer(many=True))
+    def get_content(self, obj: SignalReportArtefact) -> dict | list:
+        return super().get_content(obj)
 
 
 class SignalReportArtefactWriteSerializer(serializers.Serializer):
