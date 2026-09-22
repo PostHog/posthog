@@ -1,4 +1,5 @@
 import copy
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
@@ -142,6 +143,12 @@ def reconstruct_flag_at_version(
     expected_version = current_version
 
     for detail, created_at, user_id in entries:
+        if strict_history and (
+            not isinstance(detail, Mapping)
+            or not isinstance(detail.get("changes"), list)
+            or any(not isinstance(change, Mapping) for change in detail["changes"])
+        ):
+            raise VersionHistoryIncomplete(f"Activity log is incomplete. Cannot reconstruct version {target_version}.")
         changes = (detail or {}).get("changes") or []
         version_after = _get_version_after(changes)
 
@@ -156,7 +163,15 @@ def reconstruct_flag_at_version(
             if version_after > current_version:
                 continue
             context = (detail or {}).get("context") or {}
-            if version_after != expected_version or context.get("filters_version") != 2:
+            config_changes = context.get("config_changes") if isinstance(context, Mapping) else None
+            filter_changes = [change for change in changes if change.get("field") == "filters"]
+            if (
+                version_after != expected_version
+                or not isinstance(context, Mapping)
+                or context.get("filters_version") != 2
+                or not isinstance(config_changes, list)
+                or len(filter_changes) != int(bool(config_changes))
+            ):
                 raise VersionHistoryIncomplete(
                     f"Activity log is incomplete. Cannot reconstruct version {target_version}."
                 )
