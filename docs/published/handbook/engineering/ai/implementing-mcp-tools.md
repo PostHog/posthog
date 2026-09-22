@@ -442,6 +442,12 @@ and [`services/mcp/scripts/yaml-config-schema.ts`](https://github.com/PostHog/po
 
 ## Testing
 
+The `query-llm-trace` and `query-llm-traces-list` wrappers bound the complete response to 24,000 UTF-8 bytes for full detail and 16,000 bytes for summary detail.
+The limit includes the echoed query, warnings, and serialization of the MCP text content blocks, in either TOON or JSON output.
+Byte accounting keeps multilingual text within the same limit without relying on an average characters-per-token ratio.
+Both modes can omit events, and large echoed filters or warnings can also be shortened.
+Omission markers direct the agent to narrow the query or open the complete trace in PostHog.
+
 See [How to develop and test](/handbook/engineering/ai/implementation#how-to-develop-and-test)
 for instructions on running the MCP server locally and verifying tools end-to-end.
 
