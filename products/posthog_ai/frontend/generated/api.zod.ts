@@ -214,22 +214,6 @@ export const CoreMemoryPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Proxy text-to-speech to ElevenLabs, streaming mp3 audio back to the browser.
- *
- * The viewset has no per-action `parser_classes` other than this one because the
- * token endpoint takes no body. Putting JSONParser here keeps the rest of the
- * viewset parser-free.
- */
-export const maxHandsFreeSynthesizeCreateBodyTextMax = 2000
-
-export const MaxHandsFreeSynthesizeCreateBody = /* @__PURE__ */ zod.object({
-    text: zod
-        .string()
-        .max(maxHandsFreeSynthesizeCreateBodyTextMax)
-        .describe('The text the assistant should speak aloud.'),
-})
-
-/**
  * Invoke an MCP tool by name.
  *
  * This endpoint allows MCP callers to invoke Max AI tools directly

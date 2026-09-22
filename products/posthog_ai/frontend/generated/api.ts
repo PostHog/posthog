@@ -26,7 +26,6 @@ import type {
     PatchedMaxCoreMemoryApi,
     SandboxMessageResponseApi,
     SandboxOpenApi,
-    SynthesizeApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -372,30 +371,6 @@ export const coreMemoryPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedMaxCoreMemoryApi),
-    })
-}
-
-export const getMaxHandsFreeSynthesizeCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/max_hands_free/synthesize/`
-}
-
-/**
- * Proxy text-to-speech to ElevenLabs, streaming mp3 audio back to the browser.
- *
- * The viewset has no per-action `parser_classes` other than this one because the
- * token endpoint takes no body. Putting JSONParser here keeps the rest of the
- * viewset parser-free.
- */
-export const maxHandsFreeSynthesizeCreate = async (
-    projectId: string,
-    synthesizeApi: SynthesizeApi,
-    options?: RequestInit
-): Promise<Blob> => {
-    return apiMutator<Blob>(getMaxHandsFreeSynthesizeCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(synthesizeApi),
     })
 }
 

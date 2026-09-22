@@ -93074,14 +93074,6 @@ export namespace Schemas {
       force_refresh?: boolean;
     }
 
-    export interface Synthesize {
-      /**
-         * The text the assistant should speak aloud.
-         * @maxLength 2000
-         */
-      text: string;
-    }
-
     export interface TaggerCreate {
       /** @maxLength 400 */
       name: string;

@@ -618,14 +618,6 @@ export interface PatchedMaxCoreMemoryApi {
     scraping_status?: CoreMemoryScrapingStatusEnumApi | BlankEnumApi | null
 }
 
-export interface SynthesizeApi {
-    /**
-     * The text the assistant should speak aloud.
-     * @maxLength 2000
-     */
-    text: string
-}
-
 export interface HandsFreeTokenApi {
     /** Single-use ElevenLabs Scribe realtime token, valid for 15 minutes. */
     token: string
