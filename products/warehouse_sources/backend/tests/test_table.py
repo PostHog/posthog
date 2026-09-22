@@ -1,10 +1,8 @@
-import tempfile
 import subprocess
-from pathlib import Path
 from typing import Any
 
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
@@ -18,12 +16,15 @@ from posthog.hogql.database.models import DatabaseField, StringDatabaseField, UU
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.escape_sql import escape_param_clickhouse
 
+from posthog.clickhouse.client import sync_execute
 from posthog.exceptions import ClickHouseAtCapacity
+from posthog.models import Team
 
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import (
     DataWarehouseTable,
+    classify_warehouse_read_error,
     get_hogql_field_for_column,
     run_chdb_query,
 )
@@ -203,6 +204,143 @@ class TestSafeExposeChError:
             DataWarehouseTable()._safe_expose_ch_error(delta_kernel_error)
 
 
+class TestWarehouseReadErrorClassification:
+    # Engine wording, written from the shape of each failure rather than copied from a customer's
+    # table: a bucket that refuses the read, a parquet footer the reader can't parse, a URL that
+    # answers with a redirect, and a column that left the files. The needles are what the engines
+    # emit, so a rephrasing on either side has to fail here instead of silently dropping the error
+    # back into error tracking as an unactionable ClickHouse string.
+    @pytest.mark.parametrize(
+        "engine_error,expected_fragment",
+        [
+            (
+                RuntimeError(
+                    "Code: 1001. DB::Exception: parquet::ParquetException: Couldn't deserialize thrift: "
+                    "TProtocolException: Exceeded size limit. (STD_EXCEPTION)"
+                ),
+                "corrupted or oversized metadata",
+            ),
+            (
+                ServerException(
+                    "DB::Exception: Received DeltaLake kernel error ObjectStoreError: The operation lacked "
+                    "the necessary privileges to complete for path team_0_source_0/table_0/_delta_log",
+                    code=742,
+                ),
+                "Access was denied when reading the provided file",
+            ),
+            (
+                ServerException(
+                    "DB::Exception: Too many redirects: The table structure cannot be extracted from a "
+                    "Parquet format file.",
+                    code=230,
+                ),
+                "redirected too many times",
+            ),
+            (
+                ServerException(
+                    "DB::Exception: Unknown expression or function identifier `updated_at` in scope "
+                    "SELECT max(updated_at) FROM s3('https://example.com/exports/**.parquet')",
+                    code=47,
+                ),
+                "isn't in your files any more",
+            ),
+            (
+                ServerException("DB::Exception: A failure shape nobody has classified yet.", code=999),
+                None,
+            ),
+        ],
+    )
+    def test_recurring_engine_errors_map_to_an_actionable_message(
+        self, engine_error: Exception, expected_fragment: str | None
+    ) -> None:
+        classified = classify_warehouse_read_error(engine_error)
+
+        if expected_fragment is None:
+            assert classified is None
+        else:
+            assert classified is not None and expected_fragment in classified
+
+
+class TestChdbFailureReporting:
+    # Both chdb call sites fall back to ClickHouse, so a chdb failure that the fallback answers
+    # must not reach error tracking. Each of these used to mint one issue per read, which is what
+    # buried the failures that need a person.
+    @pytest.mark.parametrize(
+        "chdb_error,reported",
+        [
+            (RuntimeError("chdb query timed out after 30.0s"), False),
+            (
+                RuntimeError(
+                    "Code: 48. DB::Exception: Reading from files with different schema is not possible. "
+                    "The table has 7 columns, which is different from 8 columns in the file. (NOT_IMPLEMENTED)"
+                ),
+                False,
+            ),
+            (
+                RuntimeError(
+                    "Code: 742. DB::Exception: Received DeltaLake kernel error ObjectStoreError: The "
+                    "operation lacked the necessary privileges to complete. (DELTA_KERNEL_ERROR)"
+                ),
+                False,
+            ),
+            (
+                RuntimeError(
+                    "Code: 1001. DB::Exception: parquet::ParquetException: Couldn't deserialize thrift: "
+                    "TProtocolException: Exceeded size limit. (STD_EXCEPTION)"
+                ),
+                False,
+            ),
+            (RuntimeError("Code: 999. DB::Exception: A failure shape nobody has classified yet."), True),
+        ],
+    )
+    def test_only_unrecognized_chdb_failures_reach_error_tracking(self, chdb_error: Exception, reported: bool) -> None:
+        with patch("products.warehouse_sources.backend.models.table.capture_exception") as mock_capture:
+            DataWarehouseTable()._capture_unexpected_chdb_error(chdb_error)
+
+        assert mock_capture.called is reported
+
+
+class TestGetCountEngineChoice:
+    def _table(self, size_in_s3_mib: float | None) -> DataWarehouseTable:
+        return DataWarehouseTable(
+            name="t",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            team=Team(id=1),
+            url_pattern="s3://bucket/team_0/t/",
+            size_in_s3_mib=size_in_s3_mib,
+        )
+
+    @pytest.mark.parametrize(
+        "size_in_s3_mib,uses_chdb",
+        [
+            (None, True),
+            (10.0, True),
+            (4096.0, False),
+        ],
+    )
+    def test_chdb_is_skipped_for_a_table_it_cannot_count_in_its_budget(
+        self, size_in_s3_mib: float | None, uses_chdb: bool
+    ) -> None:
+        # A count reads the whole dataset, so a table already big enough for s3Cluster never
+        # finishes inside run_chdb_query's budget. Attempting it anyway added the full budget to
+        # every count of a large table before ClickHouse did the work regardless.
+        with (
+            patch("products.warehouse_sources.backend.models.table.TEST", False),
+            patch(
+                "products.warehouse_sources.backend.models.table.run_chdb_query", return_value="7\n"
+            ) as mock_run_chdb,
+            patch(
+                "products.warehouse_sources.backend.models.table.sync_execute", return_value=[(7,)]
+            ) as mock_sync_execute,
+        ):
+            count = self._table(size_in_s3_mib).get_count()
+
+        assert count == 7
+        assert mock_run_chdb.called is uses_chdb
+        if not uses_chdb:
+            assert "s3Cluster(" in mock_sync_execute.call_args.args[0]
+
+
 class TestRunChdbQuery:
     def test_hung_query_is_killed_and_raises_instead_of_blocking(self) -> None:
         # Real subprocess: chdb import alone exceeds the timeout, so this exercises the
@@ -259,18 +397,22 @@ class TestRunChdbQuery:
             assert DataWarehouseTable()._is_suppressed_chdb_error(exc_info.value) is suppressed
 
 
-class TestStructureAgainstTheEngine(BaseTest):
-    # chdb embeds the same ClickHouse engine that introspects a table and that every warehouse read
-    # runs against, over local files instead of S3. These cases therefore prove what the engine does
-    # with a structure we built, which no mock-based test can. They go through run_chdb_query so that
-    # a hung embedded query fails the test instead of wedging the job, and the timeout is generous
-    # because importing chdb alone costs seconds.
-    CHDB_TIMEOUT_SECONDS = 120.0
-
-    def _json_file(self, lines: list[str], name: str = "rows.json", directory: Path | None = None) -> Path:
-        path = (directory or Path(tempfile.mkdtemp())) / name
-        path.write_text("".join(f"{line}\n" for line in lines))
-        return path
+class TestStructureAgainstTheEngine(ClickhouseTestMixin, BaseTest):
+    # A warehouse read pins the stored structure as the `structure` argument of s3(), so what the engine
+    # does with that string decides whether a column is readable. These cases send the structure the model
+    # builds to ClickHouse and read rows back through it, which no mock-based test can do. They run on the
+    # cluster because that is where a read runs, and they send no settings for the same reason.
+    # `format()` stands in for s3() so the case needs no bucket: both take the same format and structure,
+    # and the parsing under test is the format reader's.
+    def _read_through_structure(self, table: DataWarehouseTable, select: str, rows: list[str]) -> list[tuple[Any, ...]]:
+        definition = table.hogql_definition()
+        assert isinstance(definition, HogQLDataWarehouseTable)
+        assert definition.structure is not None
+        return sync_execute(
+            f"SELECT {select} FROM format(JSONEachRow, "
+            f"{escape_param_clickhouse(definition.structure)}, "
+            f"{escape_param_clickhouse(''.join(f'{row}\n' for row in rows))}) ORDER BY id"
+        )
 
     def test_array_of_objects_is_readable_through_the_stored_structure(self) -> None:
         # The element names are what makes the column parseable. Without them ClickHouse reads
@@ -290,18 +432,36 @@ class TestStructureAgainstTheEngine(BaseTest):
                 },
             },
         )
-        path = self._json_file(['{"id": 1, "items": [{"sku": "widget", "qty": 2}]}'])
 
-        definition = table.hogql_definition()
-        assert isinstance(definition, HogQLDataWarehouseTable)
-        assert definition.structure is not None
-        result = run_chdb_query(
-            f"SELECT items.sku FROM file({escape_param_clickhouse(str(path))}, JSONEachRow, "
-            f"{escape_param_clickhouse(definition.structure)})",
-            timeout=self.CHDB_TIMEOUT_SECONDS,
+        result = self._read_through_structure(table, "items.sku", ['{"id": 1, "items": [{"sku": "widget", "qty": 2}]}'])
+
+        assert result == [(["widget"],)]
+
+    def test_a_key_outside_the_schema_reads_through_a_json_column(self) -> None:
+        # Introspection samples part of the data, so the second row's key is absent from the stored schema
+        # and still reads. A Tuple of the sampled keys drops it at parse time instead.
+        table = DataWarehouseTable(
+            name="runs",
+            format=DataWarehouseTable.TableFormat.JSON,
+            team=self.team,
+            url_pattern="s3://bucket/team_1/runs/*",
+            columns={
+                "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField", "valid": True},
+                "usage": {"clickhouse": "JSON", "hogql": "StringJSONDatabaseField", "valid": True},
+            },
         )
 
-        assert "widget" in result
+        result = self._read_through_structure(
+            table,
+            "id, toString(usage.cacheWriteInputTokenCount) AS written",
+            [
+                '{"id": 1, "usage": {"inputTokens": 10}}',
+                '{"id": 2, "usage": {"inputTokens": 20, "cacheWriteInputTokenCount": 5}}',
+            ],
+        )
+
+        # The row that carries the key reads it; the row that does not reads empty rather than failing.
+        assert result == [(1, ""), (2, "5")]
 
 
 class TestSchemaInferenceMode(BaseTest):
