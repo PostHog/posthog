@@ -44,7 +44,7 @@ import {
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isFlagPropertyFilter, isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -90,7 +90,7 @@ import {
     isDistinctIdFilter,
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
-import { FlagDependencyEstimateCaveat } from './FlagDependencyEstimateCaveat'
+import { countFlagDependencies, FlagDependencyEstimateCaveat } from './FlagDependencyEstimateCaveat'
 import { MatchingActorsLink } from './MatchingActorsLink'
 import { getPropertySelectErrorMessages, PropertySelectError } from './propertySelectErrorMessages'
 
@@ -222,12 +222,15 @@ function ConditionHeader({
 
     const countSummary = actualCount !== null ? `${humanFriendlyNumber(actualCount)} ${aggregationTargetName}` : null
 
-    const flagDependencyCount = (group.properties || []).filter(isFlagPropertyFilter).length
+    const flagDependencyCount = countFlagDependencies(group.properties)
     const countCaveat =
         flagDependencyCount > 0
-            ? `This count leaves out the flag ${
-                  flagDependencyCount === 1 ? 'dependency' : 'dependencies'
-              } in this condition.`
+            ? `This count leaves out the flag ${pluralize(
+                  flagDependencyCount,
+                  'dependency',
+                  'dependencies',
+                  false
+              )} in this condition.`
             : null
 
     return (
