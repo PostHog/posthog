@@ -73,7 +73,37 @@ describe('passkeySettingsLogic', () => {
         expect(beginRequestsWhenPromptOpened).toEqual(1)
     })
 
-    it('fetches the options itself when the prefetch has not answered', async () => {
+    it('joins the prefetch already in flight instead of replacing its challenge', async () => {
+        let releaseBegin = (): void => {}
+        const beginAnswers = new Promise<void>((resolve) => {
+            releaseBegin = resolve
+        })
+        useMocks({
+            post: {
+                '/api/webauthn/register/begin': async () => {
+                    beginRequestCount += 1
+                    await beginAnswers
+                    return [200, REGISTRATION_OPTIONS]
+                },
+                '/api/webauthn/register/complete': () => [
+                    200,
+                    { success: true, message: 'Credential stored.', credential_id: '42' },
+                ],
+            },
+        })
+
+        logic.actions.prepareRegistration()
+        await expectLogic(logic).toMatchValues({ registrationOptionsLoading: true })
+
+        logic.actions.beginRegistration('My passkey')
+        releaseBegin()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(beginRequestsWhenPromptOpened).toEqual(1)
+        expect(startRegistrationMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('fetches the options itself when no prefetch is in flight', async () => {
         logic.actions.beginRegistration('My passkey')
         await expectLogic(logic).toFinishAllListeners()
 

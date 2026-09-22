@@ -128,6 +128,9 @@ export interface passkeySettingsLogicActions {
     deletePasskey: (id: number) => {
         id: number
     }
+    dismissVerificationPrompt: () => {
+        value: true
+    }
     deletePasskeyFailure: (
         error: string,
         errorObject?: any
@@ -259,6 +262,7 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
         beginRegistration: (label: string) => ({ label }),
         setRegistrationStep: (step: RegistrationStep) => ({ step }),
         setPendingVerificationId: (id: number | null) => ({ id }),
+        dismissVerificationPrompt: true,
         verifyPasskeyCancelled: true,
         setError: (error: string | null) => ({ error }),
         clearError: true,
@@ -276,6 +280,7 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
             {
                 setRegistrationStep: (_, { step }) => step,
                 beginRegistration: () => 'registering',
+                dismissVerificationPrompt: () => 'idle',
                 verifyPasskey: (state) => (state === 'awaiting_verification' ? 'verifying' : state),
                 verifyPasskeyFailure: (state) => (state === 'verifying' ? 'awaiting_verification' : state),
             },
@@ -284,7 +289,7 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
             null as number | null,
             {
                 setPendingVerificationId: (_, { id }) => id,
-                beginRegistration: () => null,
+                dismissVerificationPrompt: () => null,
             },
         ],
         verificationCancelled: [
@@ -335,7 +340,7 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
             },
         ],
     }),
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         passkeys: [
             [] as PasskeyCredential[],
             {
@@ -404,13 +409,21 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
             null as RegistrationBeginResponse | null,
             {
                 prepareRegistration: async () => {
+                    // Each begin request replaces the session's registration challenge, so a click
+                    // that lands while this one is in flight joins it instead of starting a second.
+                    const request = api.create<RegistrationBeginResponse>('api/webauthn/register/begin')
+                    cache.registrationOptionsRequest = request
                     try {
-                        return await api.create<RegistrationBeginResponse>('api/webauthn/register/begin')
+                        return await request
                     } catch {
                         // These options are a prefetch for a click that has not happened yet.
                         // `beginRegistration` asks for them again when they are missing, so a failure
                         // here must stay out of the user's way.
                         return null
+                    } finally {
+                        if (cache.registrationOptionsRequest === request) {
+                            cache.registrationOptionsRequest = null
+                        }
                     }
                 },
             },
@@ -424,14 +437,17 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
                         // The browser shows the passkey prompt only while the click that started
                         // the flow still counts as user activation, and an API round trip can spend
                         // that activation before the prompt opens. So start the ceremony with the
-                        // options fetched ahead of the click, and request options here only when the
-                        // prefetch did not answer in time.
+                        // options fetched ahead of the click. When the prefetch has not answered,
+                        // wait for the request it already started, and ask for options here only
+                        // when no prefetch is in flight.
                         const preparedOptions = values.registrationOptions
+                        const pendingOptions: Promise<RegistrationBeginResponse> | null =
+                            cache.registrationOptionsRequest ?? null
                         const attestation = await (preparedOptions
                             ? startRegistration({ optionsJSON: toCreationOptions(preparedOptions) })
-                            : api
-                                  .create<RegistrationBeginResponse>('api/webauthn/register/begin')
-                                  .then((options) => startRegistration({ optionsJSON: toCreationOptions(options) })))
+                            : (
+                                  pendingOptions ?? api.create<RegistrationBeginResponse>('api/webauthn/register/begin')
+                              ).then((options) => startRegistration({ optionsJSON: toCreationOptions(options) })))
 
                         const { credential_id: credentialId } = await api.create<RegistrationCompleteResponse>(
                             'api/webauthn/register/complete',

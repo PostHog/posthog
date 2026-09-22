@@ -86,4 +86,20 @@ describe('PasskeyAddForm', () => {
         })
         expect(startAuthenticationMock).toHaveBeenCalledTimes(1)
     })
+
+    it('holds the add controls until the saved passkey is verified or the prompt is dismissed', async () => {
+        const { container } = render(
+            <Provider>
+                <PasskeyAddForm />
+            </Provider>
+        )
+        const addButton = (): HTMLButtonElement => container.querySelector('button.LemonButton--primary')!
+
+        fireEvent.click(screen.getByText('Add passkey'))
+        await expectLogic(passkeySettingsLogic).toFinishAllListeners()
+        expect(addButton()).toHaveAttribute('aria-disabled', 'true')
+
+        fireEvent.click(container.querySelector('button[aria-label="close"]')!)
+        expect(addButton()).toHaveAttribute('aria-disabled', 'false')
+    })
 })
