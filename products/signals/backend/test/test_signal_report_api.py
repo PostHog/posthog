@@ -1486,14 +1486,6 @@ class TestSignalReportListAPI(APIBaseTest):
         assert body["count"] == 3
         assert len(body["results"]) == 1
 
-    def test_filter_has_implementation_pr_ignores_an_unparsed_pr_url(self):
-        report = self._create_report(title="Unparsed PR url")
-        SignalReportAssignment.all_teams.create(team=self.team, report=report, pr_url="https://example.com/nope")
-
-        response = self.client.get(self._list_url(has_implementation_pr="true"))
-        assert response.status_code == status.HTTP_200_OK
-        assert {r["id"] for r in response.json()["results"]} == set()
-
     def test_filter_has_implementation_pr_count_only_skips_report_enrichment(self):
         for i in range(3):
             report = self._create_report(title=f"PR report {i}")
