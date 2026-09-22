@@ -160,31 +160,59 @@ async def _iter_parquet_row_batches(
         entries = listing.values() if isinstance(listing, dict) else listing
         file_paths = sorted(entry["Key"] for entry in entries if entry.get("type") != "directory")
         for file_path in file_paths:
-            uri = file_path if file_path.startswith("s3://") else f"s3://{file_path}"
-            data = await s3_client._cat_file(uri)
+            data = await s3_client._cat_file(_s3_uri(file_path))
             batches = await asyncio.to_thread(_parquet_batches, data)
             while (batch := await asyncio.to_thread(next, batches, None)) is not None:
                 yield await asyncio.to_thread(batch.to_pylist)
+
+
+def _s3_uri(key: str) -> str:
+    return key if key.startswith("s3://") else f"s3://{key}"
+
+
+def _s3_key(key: str) -> str:
+    return key.removeprefix("s3://").lstrip("/")
+
+
+def _snapshot_file_order(entry: dict[str, Any]) -> tuple[bool, Any, str]:
+    # Oldest first, so a newer run's hash wins for a repeated external id. Order by the file's
+    # last-modified time, falling back to the key when the store omits it. The (is-missing, time,
+    # key) shape keeps missing timestamps first without comparing None to a datetime.
+    last_modified = entry.get("LastModified")
+    return (last_modified is None, last_modified, entry["Key"])
+
+
+async def _list_snapshot_files(s3_client, prefix: str) -> list[str]:
+    try:
+        listing = await s3_client._ls(f"s3://{prefix}/", detail=True)
+    except FileNotFoundError:
+        return []
+    entries = listing.values() if isinstance(listing, dict) else listing
+    files = sorted((entry for entry in entries if entry.get("type") != "directory"), key=_snapshot_file_order)
+    return [entry["Key"] for entry in files]
+
+
+async def _merge_snapshot_files(s3_client, file_keys: list[str]) -> dict[str, str]:
+    hashes: dict[str, str] = {}
+    for key in file_keys:
+        try:
+            data = await s3_client._cat_file(_s3_uri(key))
+        except FileNotFoundError:
+            # A concurrent _write_snapshot_hashes merged this file into a new one and deleted it
+            # after we listed the folder. Its rows survive in that new file, so skip the vanished
+            # file rather than fail the whole segment.
+            continue
+        for row in await asyncio.to_thread(_decode_parquet_rows, data):
+            hashes[str(row["external_id"])] = str(row["value_hash"])
+    return hashes
 
 
 async def _read_snapshot_hashes(
     team_id: int, binding: WarehouseBinding, source_id: str, segment: AccountPropertySyncSegment
 ) -> dict[str, str]:
     prefix = account_property_snapshot_prefix(team_id, binding, source_id, segment.value)
-    hashes: dict[str, str] = {}
     async with aget_s3_client() as s3_client:
-        try:
-            listing = await s3_client._ls(f"s3://{prefix}/", detail=True)
-        except FileNotFoundError:
-            return hashes
-        entries = listing.values() if isinstance(listing, dict) else listing
-        files = sorted(entry["Key"] for entry in entries if entry.get("type") != "directory")
-        for file_path in files:
-            uri = file_path if file_path.startswith("s3://") else f"s3://{file_path}"
-            data = await s3_client._cat_file(uri)
-            for row in await asyncio.to_thread(_decode_parquet_rows, data):
-                hashes[str(row["external_id"])] = str(row["value_hash"])
-    return hashes
+        return await _merge_snapshot_files(s3_client, await _list_snapshot_files(s3_client, prefix))
 
 
 async def _write_snapshot_hashes(
@@ -201,26 +229,18 @@ async def _write_snapshot_hashes(
     prefix = account_property_snapshot_prefix(team_id, binding, source_id, segment.value)
     path = f"{prefix}/{job_id}.parquet"
     async with aget_s3_client() as s3_client:
-        try:
-            listing = await s3_client._ls(f"s3://{prefix}/", detail=True)
-        except FileNotFoundError:
-            listing = []
-        entries = listing.values() if isinstance(listing, dict) else listing
-        existing_files = sorted(entry["Key"] for entry in entries if entry.get("type") != "directory")
-        merged: dict[str, str] = {}
-        for file_path in existing_files:
-            uri = file_path if file_path.startswith("s3://") else f"s3://{file_path}"
-            data = await s3_client._cat_file(uri)
-            for row in await asyncio.to_thread(_decode_parquet_rows, data):
-                merged[str(row["external_id"])] = str(row["value_hash"])
+        existing_files = await _list_snapshot_files(s3_client, prefix)
+        merged = await _merge_snapshot_files(s3_client, existing_files)
         merged.update(hashes)
         snapshot = await asyncio.to_thread(_encode_snapshot, merged)
-        await s3_client._pipe_file(f"s3://{path}", snapshot)
-        stale = [file_path for file_path in existing_files if not file_path.endswith(f"/{job_id}.parquet")]
+        await s3_client._pipe_file(_s3_uri(path), snapshot)
+        stale = [file_path for file_path in existing_files if _s3_key(file_path) != _s3_key(path)]
         if stale:
-            await s3_client._rm(
-                [file_path if file_path.startswith("s3://") else f"s3://{file_path}" for file_path in stale]
-            )
+            try:
+                await s3_client._rm([_s3_uri(file_path) for file_path in stale])
+            except FileNotFoundError:
+                # A concurrent writer already deleted a file we listed. Nothing is lost.
+                pass
 
 
 def _matching_account_ids(

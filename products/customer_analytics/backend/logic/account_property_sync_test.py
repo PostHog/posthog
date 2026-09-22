@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -11,6 +12,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from asgiref.sync import async_to_sync
 
+from products.customer_analytics.backend.logic import account_property_sync as aps
 from products.customer_analytics.backend.logic.account_property_runs import (
     AccountPropertySyncRunContext,
     start_account_property_sync_runs,
@@ -20,17 +22,24 @@ from products.customer_analytics.backend.logic.account_property_sync import (
     AccountPropertySyncSegment,
     AppliedSourceValues,
     _iter_parquet_row_batches,
+    _list_snapshot_files,
     _mark_completed_and_maybe_cleanup,
     _matching_account_ids,
+    _merge_snapshot_files,
+    _read_snapshot_hashes,
     _source_values,
     _value_hash,
+    _write_snapshot_hashes,
     run_account_property_segment_sync,
 )
 from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.warehouse_sources.backend.facade.hooks import saved_query_binding
-from products.warehouse_sources.backend.facade.temporal import account_property_job_staged_prefix
+from products.warehouse_sources.backend.facade.temporal import (
+    account_property_job_staged_prefix,
+    account_property_snapshot_prefix,
+)
 
 _MODULE = "products.customer_analytics.backend.logic.account_property_sync"
 DataWarehouseSavedQuery = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
@@ -209,10 +218,10 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
 
 
 class _S3ClientContext:
-    def __init__(self, client: MagicMock) -> None:
+    def __init__(self, client: Any) -> None:
         self.client = client
 
-    async def __aenter__(self) -> MagicMock:
+    async def __aenter__(self) -> Any:
         return self.client
 
     async def __aexit__(self, *args) -> bool:
@@ -366,3 +375,102 @@ async def test_staged_parquet_is_deleted_only_after_both_segments_complete() -> 
         f"s3://{account_property_job_staged_prefix(7, binding, 'job-1')}/",
         recursive=True,
     )
+
+
+class _FakeS3:
+    def __init__(self) -> None:
+        self.store: dict[str, bytes] = {}
+        self.times: dict[str, int] = {}
+        self._clock = 0
+
+    async def _ls(self, path, detail=True):
+        prefix = aps._s3_key(path).rstrip("/") + "/"
+        entries = [
+            {"Key": key, "type": "file", "LastModified": self.times[key]}
+            for key in self.store
+            if key.startswith(prefix)
+        ]
+        if not entries:
+            raise FileNotFoundError(path)
+        return entries
+
+    async def _cat_file(self, path):
+        key = aps._s3_key(path)
+        if key not in self.store:
+            raise FileNotFoundError(path)
+        return self.store[key]
+
+    async def _pipe_file(self, path, data):
+        self._clock += 1
+        key = aps._s3_key(path)
+        self.store[key] = data
+        self.times[key] = self._clock
+
+    async def _rm(self, paths, recursive=False):
+        for path in [paths] if isinstance(paths, str) else paths:
+            key = aps._s3_key(path)
+            if key not in self.store:
+                raise FileNotFoundError(path)
+            self.store.pop(key)
+            self.times.pop(key)
+
+
+def _fake_s3_patch(fake: _FakeS3):
+    return patch(f"{_MODULE}.aget_s3_client", lambda: _S3ClientContext(fake))
+
+
+_SNAPSHOT_BINDING = saved_query_binding("019f0000-0000-7000-8000-000000000002")
+_SEGMENT = AccountPropertySyncSegment.TRACKED
+
+
+async def _write(fake: _FakeS3, job_id: str, hashes: dict[str, str]) -> None:
+    with _fake_s3_patch(fake):
+        await _write_snapshot_hashes(7, _SNAPSHOT_BINDING, "src", _SEGMENT, job_id, hashes)
+
+
+async def _read(fake: _FakeS3) -> dict[str, str]:
+    with _fake_s3_patch(fake):
+        return await _read_snapshot_hashes(7, _SNAPSHOT_BINDING, "src", _SEGMENT)
+
+
+@pytest.mark.asyncio
+async def test_snapshot_write_compacts_prior_files_newest_hash_winning() -> None:
+    fake = _FakeS3()
+    await _write(fake, "job-1", {"a": "h1", "b": "h1"})
+    await _write(fake, "job-2", {"b": "h2", "c": "h2"})
+
+    assert len(fake.store) == 1
+    assert await _read(fake) == {"a": "h1", "b": "h2", "c": "h2"}
+
+
+@pytest.mark.asyncio
+async def test_snapshot_read_skips_file_deleted_by_concurrent_compaction() -> None:
+    fake = _FakeS3()
+    await _write(fake, "job-1", {"a": "h1"})
+    prefix = account_property_snapshot_prefix(7, _SNAPSHOT_BINDING, "src", _SEGMENT.value)
+    with _fake_s3_patch(fake):
+        listed = await _list_snapshot_files(fake, prefix)
+        await fake._rm(listed)
+
+        assert await _merge_snapshot_files(fake, listed) == {}
+
+
+@pytest.mark.asyncio
+async def test_snapshot_write_survives_stale_file_deleted_by_concurrent_compaction() -> None:
+    fake = _FakeS3()
+    await _write(fake, "job-1", {"a": "h1"})
+    stale_key = next(iter(fake.store))
+
+    original_cat_file = fake._cat_file
+
+    async def _cat_then_vanish(path):
+        data = await original_cat_file(path)
+        fake.store.pop(stale_key, None)
+        fake.times.pop(stale_key, None)
+        return data
+
+    fake._cat_file = _cat_then_vanish  # type: ignore[method-assign]
+    await _write(fake, "job-2", {"b": "h2"})
+    fake._cat_file = original_cat_file  # type: ignore[method-assign]
+
+    assert await _read(fake) == {"a": "h1", "b": "h2"}
