@@ -91,9 +91,7 @@ export function TaskComposer(): JSX.Element {
                     {/* Repo/branch picker sits 8px above the input it configures. */}
                     <div className="w-full flex flex-col gap-2">
                         {taskCreationBlockedReason && (
-                            <LemonBanner type="warning" data-attr="task-composer-access-blocked">
-                                {taskCreationBlockedReason}
-                            </LemonBanner>
+                            <LemonBanner type="warning">{taskCreationBlockedReason}</LemonBanner>
                         )}
                         {!composerOverride?.hideRepositorySelector && (
                             <RepositorySelector
