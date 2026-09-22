@@ -146,7 +146,8 @@ class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
     """
     ClickHouse cluster resource that connects as the dedicated 'backups' user.
 
-    Requires CLICKHOUSE_BACKUPS_USER and CLICKHOUSE_BACKUPS_PASSWORD env vars.
+    Requires CLICKHOUSE_BACKUPS_USER and either CLICKHOUSE_BACKUPS_PASSWORD or
+    CLICKHOUSE_BACKUPS_PASSWORD_FILE env vars.
     The backups user must have a server-side settings profile with
     use_concurrency_control=0 (configured in users.xml via Ansible) because
     async BACKUP threads don't inherit session-level settings.
@@ -190,7 +191,8 @@ class PartBreakerClickhouseClusterResource(dagster.ConfigurableResource):
     """
     ClickHouse cluster resource that connects as the dedicated 'part_breaker' user.
 
-    Requires CLICKHOUSE_PART_BREAKER_USER and CLICKHOUSE_PART_BREAKER_PASSWORD env vars.
+    Requires CLICKHOUSE_PART_BREAKER_USER and either CLICKHOUSE_PART_BREAKER_PASSWORD or
+    CLICKHOUSE_PART_BREAKER_PASSWORD_FILE env vars.
     The part_breaker user needs SELECT on system tables, CREATE/DROP/INSERT/ALTER on
     staging tables, and ALTER FREEZE / DROP PART on source tables.
     """
