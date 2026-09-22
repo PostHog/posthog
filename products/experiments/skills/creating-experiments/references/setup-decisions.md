@@ -8,6 +8,7 @@ Use this file after `experiment-setup-context` returned. Each section maps the t
 
 Every section has the shape `{status, data}`. The field paths below are inside `data`: `target_surface.anonymous_share` means `target_surface.data.anonymous_share`.
 A `[]` in a path means a list: `previous_experiments.experiments[].primary_metric_types` is a field on each row.
+Write every path from its section name, never as a shorthand like `summary.using_custom_exposure`. A test resolves the full paths against the response and cannot check a shorthand.
 A section whose `status` is not `ok` gives no facts. Choices that depend on it drop to "best guess" at most, and the summary says which section was missing.
 
 ## Bucketing and persistence
@@ -16,7 +17,7 @@ Read these facts:
 
 - `target_surface.anonymous_share`: among the distinct IDs that sent the target event and say whether they are identified, the share that were anonymous. Every SDK's events count, not only the web SDK's. A high share usually means logged-out visitors. It is null only when no target event carried `$is_identified` at all.
 - `target_surface.device_id_share`: the share of target events that carry a device ID, across every SDK that sent them. Null when there were no target events.
-- `target_surface.libs[]`: the same two shares per SDK that reached the surface, plus a `category` of `web`, `mobile`, `server` or `other`.
+- `target_surface.libs[]`: the same two shares per SDK that reached the surface, plus a `category` of `web`, `mobile`, `server` or `other`. A row's `device_id_share` is always a number, because the row exists only where that SDK sent target events.
 - `sdk_profile.libs[]`: per SDK, `device_id_share` and `locally_evaluated_share` on flag calls, plus the same `category`. It covers the whole project, not one page, so use `target_surface.libs` to pick the rows that apply to this page. It is empty when the project sent no multivariate flag calls in the last 7 days.
 - `sdk_profile.libs_on_any_event[]`: which SDKs the project sends any event from. Set only when `sdk_profile.libs` is empty.
 
@@ -37,8 +38,8 @@ Precedent can confirm a choice these facts already allow. It never overrides thi
 
 ### The steps, in order
 
-Device-id bucketing is a web option. A mobile flag call carries no device ID, so `device_id_share` on a mobile row is 0 and step 1 cannot pass.
-When every `target_surface.libs[]` row that reaches the surface has `category: "mobile"`, go straight to step 2: the choice is persistence or user-id bucketing, and reporting "not decided" over a device-id share that can never arrive is wrong.
+Device-id bucketing is a web option. A mobile SDK puts no `$device_id` on its events, flag calls included, so both device-id shares step 1 reads sit near 0 on a mobile row and step 1 can never pass.
+When every `target_surface.libs[]` row that reaches the surface has `category: "mobile"`, go straight to step 2: the choice is persistence or user-id bucketing, and reporting "not decided" over a share that can never arrive is wrong.
 
 1. **Device-id bucketing**, if `target_surface.device_id_share` is near 1, at least one `sdk_profile.libs` row has a `lib` that appears in `target_surface.libs`, and every matching row has `device_id_share` near 1. A flag call without a device ID gets no variant, so a server SDK must forward the browser's device ID; local evaluation works when it does. `target_surface.device_id_share` is read from the target events; a `sdk_profile.libs` row's `device_id_share` is read from flag-call events. Neither is read from the flag requests, so neither proves that the request carried a device ID. The web SDK sends the device ID on flag requests from posthog-js 1.307.1. An older version puts a device ID on events and still gets no variant, so tell the user to check the SDK version. Set it up with the device-id recipe in `configuring-experiment-rollout`. `experiment-create` cannot set it.
 2. **Persistence** (`ensure_experience_continuity: true`), if no matching `sdk_profile.libs` row evaluates flags locally: every row that matches a `lib` in `target_surface.libs` has `locally_evaluated_share` near 0, or null on a web or mobile row. Null on a server row is unknown: go to step 3. Persistence also needs person profiles for anonymous users, no bootstrapping, and `$anon_distinct_id` on server flag calls. The tool cannot see those three, so list them for the user to check.
@@ -89,7 +90,9 @@ Every conversion window carries a unit (`conversion_window_unit`). A window with
 
 ### Follow the project's metric shape
 
-Read `previous_experiments.experiments[].primary_metric_types`. When the listed experiments consistently use one type for their primary metric, propose that shape unless the request asks for something else, and say you followed precedent. A project that measures every test as a funnel gets a funnel.
+Read `previous_experiments.experiments[].primary_metric_types`. Leave out every row whose list is empty: those experiments carry no primary metric, and reading them as a metric shape counts a draft nobody finished as a decision.
+When at least four in five of the rows that remain use one type, propose that shape unless the request asks for something else, and say you followed precedent. A project that measures every test as a funnel gets a funnel.
+Fewer than three rows with a metric is not a precedent. Say the project has too few experiments to read one.
 
 Then read `previous_experiments.experiments[].primary_metric_events`. When the event you picked already appears on a row, say which experiment measured it and as what, reading `primary_metric_types` on the same row. Tier: best guess.
 
@@ -109,7 +112,7 @@ When `candidate_metric.status` is `ok` and it has baseline stats:
    - `recommended_running_time`: the calculator's `recommended_running_time_days`
 3. If the running time is over about 8 weeks, say so plainly. Propose a more frequent event earlier in the journey as primary and keep the rare event as secondary.
 
-The estimate assumes people are exposed on the target surface. If the flag is evaluated more widely (across the whole app, or on a page before the one that changes), the exposed population is larger and converts less. The baseline and the running time are then too optimistic. Say so, and consider a custom exposure on the surface event.
+The estimate assumes people are exposed on the target surface. If the flag is evaluated more widely (across the whole app, or on a page before the one that changes), the exposed population is larger and converts less. The baseline and the running time are then too optimistic. Say so, and consider a custom exposure on the surface event. This is the one case where a custom exposure is right in a project that has never used one, and "Precedent" says so too.
 `previous_experiments.experiments[].outcome.control_baseline_value` shows what that dilution looked like: a control baseline far below the rate the surface itself converts at is an experiment that was exposed too widely.
 
 Check how the call scoped the target surface before you trust these numbers. `target_surface.target_properties` and `target_surface.target_url_contains` echo the filters the tool read.
@@ -122,11 +125,7 @@ Read the shape back with `read-data-schema` (`event_property_values`, a sample o
 
 `previous_experiments.summary` says how the project's earlier experiments fared for size. When `previous_experiments.summary.launched_with_zero_analyzed_exposures` or `launched_with_under_100_analyzed_exposures` is a large share of `launched`, the project has been launching experiments that could not measure anything. Say so, and treat the running time as the number to get right rather than a formality.
 
-### Name the surface precisely
-
-Narrow the target with `target_properties` wherever a property names it. `target_url_contains` is a substring match on `$current_url`: a bare domain matches every page on it, and `/pricing` also matches `/pricing/enterprise`. An exact `$host` and `$pathname` in `target_properties` names one page and nothing under it.
-Keep `target_url_contains` for a page that only a fragment of the URL identifies, and pass both when that helps.
-Use `metric_properties` the same way when the metric counts only some occurrences of its event, for example a purchase on one plan.
+`target_url_contains` is a substring match on the URL: a bare domain matches every page on it and overstates the page's traffic. Pass the most specific fragment you can.
 
 ### Read the counts in this order
 
@@ -144,7 +143,8 @@ When `previous_experiments.experiments` is empty, the project is creating its fi
 If most listed experiments use one setting, follow it unless the facts above contradict it, and say you followed precedent. Tier: best guess. Two limits:
 
 - The placement rule wins. A precedent of neither persistence nor device-id bucketing does not settle a surface that crosses identification.
-- Do not add configuration the project has never used, unless a fact above calls for it. A custom exposure and an activation event each narrow what counts as an exposure, and a project whose `previous_experiments.summary.using_custom_exposure` and `using_activation` are 0 has given you no reason to narrow it. The placement rule is the one thing that overrides a count of 0.
+- Do not add configuration the project has never used, unless a fact above calls for it. A custom exposure and an activation event each narrow what counts as an exposure, and a project whose `previous_experiments.summary.using_custom_exposure` and `using_activation` are 0 has given you no reason to narrow it.
+- Two facts above override a count of 0, and only these two. The placement rule, for persistence and device-id bucketing. And a flag evaluated more widely than the surface under test, for a custom exposure: that is the case "Feasibility and running time" describes, and it is the right first use of a custom exposure in a project that has never had one.
 
 Read `previous_experiments.experiments[].serving_single_variant` before you trust `previous_experiments.summary.using_uneven_split`. Shipping a variant rewrites the flag to serve that variant to everyone it matches, so an ended experiment's flag no longer carries the split it ran with. The summary leaves those experiments out of `using_uneven_split`, and `previous_experiments.experiments[].split_even` is null on any row where `serving_single_variant` is set.
 

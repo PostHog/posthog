@@ -237,7 +237,7 @@ class TestResponseCoversEveryFact(SimpleTestCase):
         assert declared - self.UNRENDERED == {dataclass_name for dataclass_name, _ in self.PAIRS}
 
 
-class TestSetupDecisionsNamesRealFields(SimpleTestCase):
+class TestCreationSkillNamesRealFields(SimpleTestCase):
     """The creation skill tells an agent which fields to read, in prose beside the dataclasses.
 
     A renamed or removed field leaves the skill naming a path that is never in the response, and
@@ -245,10 +245,13 @@ class TestSetupDecisionsNamesRealFields(SimpleTestCase):
     skill is not exercised by any test that runs the endpoint. Checked against the dataclasses
     rather than the serializer because `TestResponseCoversEveryFact` already ties those together.
 
+    Every markdown file in the skill counts, because a rule can move between SKILL.md and a
+    reference at any time.
+
     One direction only: a field no rule reads is allowed, so adding one stays cheap.
     """
 
-    DOC = Path(__file__).parents[2] / "skills" / "creating-experiments" / "references" / "setup-decisions.md"
+    SKILL = Path(__file__).parents[2] / "skills" / "creating-experiments"
 
     def test_every_documented_field_path_resolves(self) -> None:
         payloads = _payload_of_each_section()
@@ -256,17 +259,20 @@ class TestSetupDecisionsNamesRealFields(SimpleTestCase):
         field_segment = r"[a-z_][a-z0-9_]*(?:\[\])?"
         field_paths = re.compile(rf"\b({section})((?:\.{field_segment})+)")
 
+        documents = sorted(self.SKILL.rglob("*.md"))
+        assert documents, f"No markdown found under {self.SKILL}"
         unknown = sorted(
             {
-                match.group(0)
-                for match in field_paths.finditer(self.DOC.read_text())
+                f"{document.relative_to(self.SKILL)}: {match.group(0)}"
+                for document in documents
+                for match in field_paths.finditer(document.read_text())
                 if not _path_resolves(payloads[match.group(1)], match.group(2))
             }
         )
 
         assert not unknown, (
-            f"{self.DOC.name} names fields the setup context does not return: {', '.join(unknown)}. "
-            "Update the skill to the field's new name, or drop the rule that reads it."
+            "The creating-experiments skill names fields the setup context does not return: "
+            f"{', '.join(unknown)}. Update the skill to the field's new name, or drop the rule that reads it."
         )
 
 
