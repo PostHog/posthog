@@ -1,16 +1,20 @@
 import uuid
+import base64
 from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
+from posthog.storage.object_storage import ObjectStorageError
 
 from products.actions.backend.models.action import Action
 from products.autoresearch.backend.dataset.templates import TEMPLATES
@@ -23,6 +27,8 @@ from products.autoresearch.backend.models import (
     AutoresearchTrainingRun,
 )
 from products.autoresearch.backend.presentation.views.serializers import (
+    _POPULATION_KIND_REQUIRED_DAYS,
+    POPULATION_KINDS,
     VALIDATION_WARNING_CODES,
     AutoresearchPipelineCreateSerializer,
     PopulationDefinitionField,
@@ -566,9 +572,197 @@ class TestValidationWarningSerializer(SimpleTestCase):
         assert all(f"'{code}'" in help_text for code in VALIDATION_WARNING_CODES)
 
 
+class _InMemoryStorage:
+    def __init__(self) -> None:
+        self.store: dict[str, bytes] = {}
+
+    def write(self, key, content, extras=None, bucket=None) -> None:
+        self.store[key] = content if isinstance(content, bytes) else content.encode("utf-8")
+
+    def read_bytes(self, key, bucket=None, *, missing_ok: bool = False):
+        if key in self.store:
+            return self.store[key]
+        if missing_ok:
+            return None
+        raise FileNotFoundError(key)
+
+    def delete(self, key, bucket=None) -> None:
+        self.store.pop(key, None)
+
+    def list_objects(self, prefix):
+        keys = [k for k in self.store if k.startswith(prefix)]
+        return keys or None
+
+
+class TestAutoresearchArtifactAPI(TeamScopedTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.base_url = f"/api/projects/{self.team.pk}/autoresearch"
+        self._flag_patcher = patch(
+            "products.autoresearch.backend.access.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+        self._flag_patcher.start()
+        self.addCleanup(self._flag_patcher.stop)
+
+        self._storage_patcher = patch(
+            "products.autoresearch.backend.training.artifacts.object_storage",
+            _InMemoryStorage(),
+        )
+        self._storage_patcher.start()
+        self.addCleanup(self._storage_patcher.stop)
+
+        self.pipeline = AutoresearchPipeline.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Artifacts Pipeline",
+            target_event="$pageview",
+            horizon_days=7,
+        )
+        self.training_run = AutoresearchTrainingRun.objects.create(
+            pipeline=self.pipeline, status="running", iteration_count=0
+        )
+
+    def _artifacts_url(self, suffix: str = "") -> str:
+        return f"{self.base_url}/{self.pipeline.id}/training_runs/{self.training_run.id}/artifacts{suffix}"
+
+    def _upload(self, path: str, body: bytes):
+        return self.client.post(
+            self._artifacts_url("/upload"),
+            {"path": path, "content_base64": base64.b64encode(body).decode("ascii")},
+            format="json",
+        )
+
+    def test_upload_then_get_roundtrip(self):
+        with CaptureQueriesContext(connection) as queries:
+            resp = self._upload("train.py", b"print('train')")
+        assert resp.status_code == status.HTTP_201_CREATED, resp.content
+        # The write happens under the run row lock completion takes, so it cannot land on a frozen bundle.
+        assert any("FOR UPDATE" in q["sql"] for q in queries.captured_queries)
+        assert resp.json()["path"] == "train.py"
+        assert resp.json()["size_bytes"] == 14
+
+        resp = self.client.post(self._artifacts_url("/get"), {"path": "train.py"}, format="json")
+        assert resp.status_code == status.HTTP_200_OK
+        assert base64.b64decode(resp.json()["content_base64"]) == b"print('train')"
+
+    def test_list_artifacts(self):
+        self._upload("train.py", b"a")
+        self._upload("predict.py", b"b")
+        resp = self.client.get(self._artifacts_url())
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["count"] == 2
+        assert sorted(data["paths"]) == ["predict.py", "train.py"]
+
+    def test_delete_artifact(self):
+        self._upload("train.py", b"a")
+        resp = self.client.post(self._artifacts_url("/delete"), {"path": "train.py"}, format="json")
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["deleted"] is True
+        resp = self.client.post(self._artifacts_url("/delete"), {"path": "train.py"}, format="json")
+        assert resp.json()["deleted"] is False
+
+    def test_bundle_frozen_once_run_is_no_longer_running(self):
+        self._upload("train.py", b"print('train')")
+        self.training_run.status = AutoresearchTrainingRun.Status.COMPLETED
+        self.training_run.save(update_fields=["status"])
+
+        resp = self._upload("predict.py", b"print('predict')")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+        resp = self.client.post(self._artifacts_url("/delete"), {"path": "train.py"}, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+        # Reads stay open — inference and future runs still consume the frozen bundle.
+        resp = self.client.post(self._artifacts_url("/get"), {"path": "train.py"}, format="json")
+        assert resp.status_code == status.HTTP_200_OK
+
+    def test_features_sql_must_be_runnable(self):
+        runnable = b"SELECT a.person_id AS distinct_id, count() AS c FROM {anchors} a GROUP BY a.person_id"
+        resp = self._upload("features.sql", runnable + b" LIMIT 10")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "LIMIT" in str(resp.json())
+        assert self._upload("features.sql", runnable).status_code == status.HTTP_201_CREATED
+
+    def test_model_pkl_cannot_be_uploaded(self):
+        resp = self._upload("model.pkl", b"\x80\x04")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "model.pkl" in str(resp.json())
+
+    @patch("products.autoresearch.backend.facade.api.MAX_BUNDLE_FILES", 2)
+    def test_bundle_file_count_is_capped(self):
+        assert self._upload("train.py", b"a").status_code == status.HTTP_201_CREATED
+        assert self._upload("predict.py", b"b").status_code == status.HTTP_201_CREATED
+        resp = self._upload("eda/notes.md", b"c")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "2 files" in str(resp.json())
+        # Overwriting a file that is already in the bundle does not count against the cap.
+        assert self._upload("train.py", b"a2").status_code == status.HTTP_201_CREATED
+
+    @parameterized.expand([("upload",), ("delete",)])
+    def test_storage_failure_is_a_503(self, action: str):
+        self._upload("train.py", b"a")
+        storage = self._storage_patcher.new
+        with (
+            patch.object(storage, "write", side_effect=ObjectStorageError("s3 down")),
+            patch.object(storage, "delete", side_effect=ObjectStorageError("s3 down")),
+        ):
+            if action == "upload":
+                resp = self._upload("predict.py", b"b")
+            else:
+                resp = self.client.post(self._artifacts_url("/delete"), {"path": "train.py"}, format="json")
+        assert resp.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert "s3 down" in str(resp.json())
+
+    @parameterized.expand([("list",), ("upload",)])
+    def test_artifact_routes_are_scoped_to_the_parent_pipeline(self, action: str):
+        other_pipeline = AutoresearchPipeline.objects.create(
+            team=self.team, created_by=self.user, name="Other", target_event="$pageview", horizon_days=7
+        )
+        url = f"{self.base_url}/{other_pipeline.id}/training_runs/{self.training_run.id}/artifacts"
+        if action == "list":
+            resp = self.client.get(url)
+        else:
+            resp = self.client.post(f"{url}/upload", {"path": "train.py", "content_base64": "YQ=="}, format="json")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_get_missing_returns_404(self):
+        resp = self.client.post(self._artifacts_url("/get"), {"path": "nope.py"}, format="json")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_invalid_path_rejected(self):
+        resp = self._upload("../escape.py", b"a")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_invalid_base64_rejected(self):
+        resp = self.client.post(
+            self._artifacts_url("/upload"),
+            {"path": "train.py", "content_base64": "not base64!!!"},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_training_run_from_other_team_returns_404(self):
+        other_org = Organization.objects.create(name="Other")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        other_pipeline = AutoresearchPipeline.objects.create(
+            team=other_team, created_by=self.user, name="Other", target_event="$pageview", horizon_days=7
+        )
+        other_run = AutoresearchTrainingRun.objects.create(pipeline=other_pipeline, status="running")
+        # The viewset filters by request team; another team's run is not reachable here.
+        resp = self.client.get(f"{self.base_url}/{other_pipeline.id}/training_runs/{other_run.id}/artifacts")
+        assert resp.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+
+
 class TestPipelineCreateSerializerValidation(SimpleTestCase):
     # Field- and target-shape validation runs in memory, so these cases never need a DB.
     # The endpoint wiring (bad body -> 400) is covered by the APIBaseTest create tests above.
+
+    def test_required_key_table_covers_every_population_kind(self) -> None:
+        # POPULATION_KINDS is derived from the compiler registry in dataset/labeling.py, so a kind
+        # registered there reaches this table unannounced. A gap is a 500 on create, not a 400.
+        self.assertEqual(set(_POPULATION_KIND_REQUIRED_DAYS), set(POPULATION_KINDS))
 
     def _serializer(self, **overrides: Any) -> AutoresearchPipelineCreateSerializer:
         data: dict[str, Any] = {"name": "Pipeline", "target_event": "$pageview", **overrides}

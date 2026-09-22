@@ -5,6 +5,7 @@ import asyncio
 import dataclasses
 from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
+from http import HTTPStatus
 from itertools import batched
 from typing import Any, Literal, Optional
 from urllib.parse import urlencode, urlsplit
@@ -903,6 +904,20 @@ def _pace_before_request(installation_id: str, logger: FilteringBoundLogger) -> 
         time.sleep(pace)
 
 
+def _is_unmapped_client_status(status_code: int) -> bool:
+    """A 4xx `HTTPStatus` doesn't recognize, like the nginx-style 499 ("client closed request")
+    GitHub's edge has been observed returning from `/graphql` on an upstream hiccup. It's not a
+    denial GitHub meant to send us, so group it with the 5xx path instead of crashing the sync on
+    an unclassified HTTPError. Mirrors the Hubspot source's `_is_retryable_status`."""
+    if not (400 <= status_code < 500):
+        return False
+    try:
+        HTTPStatus(status_code)
+    except ValueError:
+        return True
+    return False
+
+
 # Transient failures every GitHub call retries on, REST and GraphQL alike.
 _GITHUB_RETRYABLE_ERRORS = (
     GithubRetryableError,
@@ -958,7 +973,7 @@ def _fetch_page(
     )
 
     # Transient server errors: retry with plain exponential backoff.
-    if response.status_code >= 500:
+    if response.status_code >= 500 or _is_unmapped_client_status(response.status_code):
         raise GithubRetryableError(f"Github API error (retryable): status={response.status_code}, url={page_url}")
 
     # Rate limited (secondary 429, or primary 403 with a rate-limit body): raise
@@ -1463,7 +1478,7 @@ def _fetch_merge_commit_shas(
         },
     )
 
-    if response.status_code >= 500:
+    if response.status_code >= 500 or _is_unmapped_client_status(response.status_code):
         raise GithubRetryableError(f"Github GraphQL error (retryable): status={response.status_code}")
     raise_if_github_rate_limited(response)
     if response.status_code in {401, 403, 404}:

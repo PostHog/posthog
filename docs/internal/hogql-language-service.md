@@ -267,8 +267,8 @@ The table fields are columns, not part of the property count.
 This profile fits the `64 MiB` request limit and the default `8 GiB` shared cache budget, but it is not an unlimited count guarantee.
 Longer names and richer metadata increase both serialized and resident sizes.
 
-Warm autocomplete and validation perform no synchronous metadata requests. Catalog refresh remains outside the
-keystroke path.
+Warm autocomplete and validation reuse a published catalog without synchronous metadata requests.
+A missing or incompatible catalog triggers synchronous catalog construction and publication in Django before the service retry.
 
 ## API direction
 
@@ -300,9 +300,20 @@ If publication fails or a catalog cannot represent the resolver result, Django u
 Malformed HTTP payloads, incompatible revisions after refresh, and malformed autocomplete or validation mappings also use the Python path.
 Malformed service responses produce a sanitized Error Tracking event without the SQL text, response body, user context, or original exception.
 
-Full-query HogQL autocomplete can use the language service when `sourceQuery` is absent or is a `HogQLQuery`; only the current editor SQL and cursor position are sent.
-Metadata requests still require `sourceQuery` to be absent.
+Full-query HogQL autocomplete and metadata can use the language service when `sourceQuery` is absent or is a `HogQLQuery`.
+Only the current editor SQL is sent, together with the cursor position for autocomplete.
+The editor can retain an older or incomplete `sourceQuery` while the current SQL changes; full-query metadata does not use that source text.
+For example, metadata for `SELECT distinct_id FROM events` can use Go even if `sourceQuery.query` is `SELECT event FROM events WHERE` and `indexUsage` is true.
 Both operations continue to use Python when `connectionId`, `globals`, `filters`, or `modifiers` is not null.
+Metadata also uses Python when `variables` is not null or `debug` is true.
+Expression languages and non-`HogQLQuery` source contexts remain on Python because they can require surrounding query resolution.
+Service failures preserve the original request, including its source context, for Python fallback.
+
+Go metadata returns diagnostics and logical table names, not the full Python compiler metadata.
+`indexUsage: true` does not force Python fallback or enable index analysis in Go.
+Go responses leave `index_usage`, `isUsingIndices`, and `ch_table_names` unset, and return an empty `notices` list.
+Python-only heuristic warnings, type notices, and actionable index warnings are not added to a successful Go response.
+Index analysis and compiler metadata parity remain separate follow-up work; this routing change does not add a second Python validation pass.
 
 For authenticated requests that have the service configured and the feature flag enabled, the Prometheus counter `hogql_editor_assist_responses_total` counts the backend that produced the final successful editor response.
 Its bounded attributes are the operation, backend, and routing reason.
@@ -340,6 +351,44 @@ A five-second success marker lets a request recheck Go before acquiring a newly 
 The marker is advisory: a missing or legacy Go response overrides it, and neither schemas nor authorization results are stored in Redis.
 Redis outages use the existing direct publication path.
 If catalog construction outlives the lease, a second publisher can duplicate the Go catalog build and publication.
+
+### Autocomplete response timings
+
+Autocomplete responses include timings for the Django editor-assist handler, including requests that fall back to Python.
+The existing `language_service_http` value measures only the final successful service request's HTTP duration.
+The existing `language_service_go` value measures the Go computation reported by that response.
+Neither value includes earlier catalog misses, catalog construction, publication, or Redis coordination.
+
+The `./editor_assist` timing measures the whole autocomplete handler.
+Nested stages use the following suffixes:
+
+| Stage                                         | Work measured                                                                  |
+| --------------------------------------------- | ------------------------------------------------------------------------------ |
+| `routing`                                     | Feature-flag evaluation and eligibility checks                                 |
+| `language_service_initial`                    | Initial service call, including a catalog miss or failure                      |
+| `catalog_coordination`                        | Full catalog recovery, including its nested stages                             |
+| `catalog_coordination/redis_marker_lookup`    | Redis client setup and success-marker lookup                                   |
+| `catalog_coordination/redis_lock_acquire`     | Lease acquisition, including contention waiting                                |
+| `catalog_coordination/language_service_check` | Accumulated service rechecks and retries                                       |
+| `catalog_coordination/catalog_schema`         | Permission-filtered database schema construction                               |
+| `catalog_coordination/catalog_build`          | Catalog payload construction, including properties and aliases                 |
+| `catalog_coordination/catalog_publish`        | Publication, including signing, payload serialization, and the service request |
+| `catalog_coordination/redis_marker_write`     | Success-marker write                                                           |
+| `catalog_coordination/redis_lock_release`     | Lease release                                                                  |
+| `response_mapping`                            | Conversion of the service response into autocomplete suggestions               |
+| `fallback_error_tracking`                     | Sanitized error reporting before Python fallback                               |
+| `fallback_database`                           | Database preparation for Python autocomplete                                   |
+| `fallback_python_autocomplete`                | Python autocomplete computation                                                |
+
+Timings use seconds and fixed stage names, without SQL, table names, or user identifiers.
+Only attempted stages appear; a failed stage retains its duration when the request recovers through Python.
+Repeated stages accumulate their durations within that request.
+Parent timings include their children, so do not sum every entry to calculate total latency.
+The final HTTP/Go timings and Python parser timings also overlap the handler stages.
+
+The handler total excludes request queuing, authentication, API request preparation, final API serialization, middleware, and browser/network latency.
+If the handler total is small but the browser request remains slow, inspect the enclosing query API traces and browser network timings.
+Metadata responses do not expose a timing list; this change does not extend their response schema.
 
 The initial rollout keeps ClickHouse execution in Django:
 
