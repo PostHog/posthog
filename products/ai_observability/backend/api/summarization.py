@@ -56,7 +56,10 @@ from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.summarization.budget import bounded_text_repr, text_repr_budget
 from products.ai_observability.backend.summarization.llm import summarize
 from products.ai_observability.backend.summarization.models import SummarizationMode
-from products.ai_observability.backend.summarization.utils import get_summary_cache_key
+from products.ai_observability.backend.summarization.utils import (
+    get_summarization_lookup_date_range,
+    get_summary_cache_key,
+)
 from products.ai_observability.backend.text_repr.formatters import (
     FormatterOptions,
     format_event_text_repr,
@@ -634,6 +637,11 @@ The response includes the structured summary, the text representation, and metad
                         trace_id = entity_id
                     else:
                         generation_id = entity_id
+                        date_range = get_summarization_lookup_date_range(
+                            entity_data["event"].get("timestamp"), date_from=date_from, date_to=date_to
+                        )
+                        date_from = date_range.date_from
+                        date_to = date_range.date_to
 
             cache_key = self._get_cache_key(summarize_type, entity_id, mode, model)
             if not force_refresh:

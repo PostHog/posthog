@@ -3,13 +3,37 @@
 import json
 import hashlib
 from collections.abc import Collection
+from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from django.template import Context, Engine
+from django.utils.dateparse import parse_datetime
+
+from posthog.schema import DateRange
 
 if TYPE_CHECKING:
     from posthog.hogql.property_access_types import RestrictedProperty
+
+
+def get_summarization_lookup_date_range(
+    timestamp: object, *, date_from: str | None = None, date_to: str | None = None
+) -> DateRange:
+    date_range = DateRange(date_from=date_from, date_to=date_to)
+    if not isinstance(timestamp, str) or (date_from and date_to):
+        return date_range
+
+    try:
+        parsed_timestamp = parse_datetime(timestamp)
+        if parsed_timestamp is not None:
+            return DateRange(
+                date_from=date_from or (parsed_timestamp - timedelta(days=1)).isoformat(),
+                date_to=date_to or (parsed_timestamp + timedelta(days=1)).isoformat(),
+            )
+    except (ValueError, OverflowError):
+        pass
+
+    return date_range
 
 
 def get_summary_cache_key(

@@ -631,8 +631,11 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
         for fragment in expected:
             self.assertIn(fragment, text_repr)
 
+    @parameterized.expand([("by_id", False), ("restricted_client_data", True)])
     @patch("products.ai_observability.backend.api.summarization.summarize")
-    def test_summarizes_an_event_predating_the_ai_events_split(self, mock_summarize):
+    def test_summarizes_an_event_predating_the_ai_events_split(
+        self, _name: str, use_client_data: bool, mock_summarize: MagicMock
+    ) -> None:
         self._approve_ai_processing()
         mock_summarize.return_value = SummarizationResponse(
             title="Event Summary",
@@ -642,7 +645,12 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
         )
 
         event_uuid = uuid.uuid4()
-        timestamp = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
+        timestamp = datetime.now(UTC) - timedelta(days=45)
+        properties = {
+            "$ai_trace_id": "trace-1",
+            "$ai_input": [{"role": "user", "content": "how do i reset my password"}],
+            "$ai_output_choices": [{"role": "assistant", "content": "private-output"}],
+        }
         bulk_create_events(
             [
                 {
@@ -651,22 +659,49 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
                     "distinct_id": "user-1",
                     "timestamp": timestamp,
                     "event_uuid": str(event_uuid),
-                    "properties": {
-                        "$ai_trace_id": "trace-1",
-                        "$ai_input": [{"role": "user", "content": "how do i reset my password"}],
-                    },
+                    "properties": properties,
                 }
             ]
         )
 
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/llm_analytics/summarization/",
-            {
+        if use_client_data:
+            reader = self._create_user("legacy-summary-reader@example.com")
+            self.client.force_login(reader)
+            self.organization.available_product_features = [
+                {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            definition = PropertyDefinition.objects.create(
+                team=self.team, name="$ai_output_choices", type=PropertyDefinition.Type.EVENT
+            )
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=definition,
+                organization_member=reader.organization_memberships.get(organization=self.organization),
+                access_level=PropertyAccessLevel.NONE.value,
+            )
+            request_data = {
+                "summarize_type": "event",
+                "data": {
+                    "event": {
+                        "id": str(event_uuid),
+                        "event": "$ai_generation",
+                        "timestamp": timestamp.isoformat(),
+                        "properties": properties,
+                    }
+                },
+            }
+        else:
+            request_data = {
                 "generation_id": str(event_uuid),
                 "mode": "minimal",
                 "date_from": (timestamp - timedelta(days=1)).isoformat(),
                 "date_to": (timestamp + timedelta(days=1)).isoformat(),
-            },
+            }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/",
+            request_data,
             format="json",
         )
 
@@ -677,6 +712,8 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
         else:
             self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
             self.assertIn("how do i reset my password", response.data["text_repr"].lower())
+            if use_client_data:
+                self.assertNotIn("private-output", response.data["text_repr"])
 
     def test_unknown_event_uuid_is_reported_as_not_found(self):
         self._approve_ai_processing()

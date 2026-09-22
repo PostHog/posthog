@@ -31,6 +31,8 @@ Denied values are omitted from returned event properties; explicit SQL reads ret
 MCP response compaction runs after the backend applies these rules.
 Summary caches also use the caller's current property restrictions, including cached titles and summaries read by PostHog AI.
 Restricted callers cannot reuse an unrestricted summary, and summaries generated from client-supplied data refetch the source with the caller's permissions.
+For client-supplied events, omitted lookup dates use a window from one day before to one day after the event's `timestamp`.
+Explicit `date_from` and `date_to` values take precedence; events without a valid timestamp keep the default lookup dates.
 
 Configure these rules in **Data management > Properties**, then open the property and select **Edit > Access control**.
 Heavy AI properties need definition discovery to consume the full AI event stream, since the shared events stream no longer contains those values.
