@@ -33,7 +33,7 @@ import {
     InsightType,
     PropertyFilterType,
     PropertyOperator,
-    QueryBasedInsightModel,
+    InsightModel,
     RetentionEntity,
     StepOrderValue,
 } from '~/types'
@@ -159,7 +159,7 @@ describe('insightNavLogic', () => {
                 await expectLogic(logic, () => {
                     builtInsightLogic.actions.loadInsightSuccess({
                         query: examples.InsightFunnels,
-                    } as QueryBasedInsightModel)
+                    } as InsightModel)
                 }).toMatchValues({
                     activeView: InsightType.FUNNELS,
                 })

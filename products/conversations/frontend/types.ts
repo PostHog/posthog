@@ -163,7 +163,7 @@ export interface Ticket {
     unread_customer_count: number
     session_id?: string
     session_context?: {
-        session_replay_url?: string
+        replay_url?: string
         current_url?: string
         [key: string]: any
     }
@@ -199,7 +199,7 @@ export interface ConversationTicket {
     unread_count?: number
     session_id?: string
     session_context?: {
-        session_replay_url?: string
+        replay_url?: string
         current_url?: string
         [key: string]: any
     }

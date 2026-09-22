@@ -46,7 +46,11 @@ from posthog.storage.gateway_credential_cache import (
     oauth_credential_authorized,
 )
 from posthog.user_permissions import UserPermissions
+from posthog.utils import get_trusted_client_ip
 
+from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
@@ -254,6 +258,20 @@ class SetupWizardViewSet(viewsets.ViewSet):
             # Ahead of the rollout gate, so a ban reads as a ban whatever the flag says.
             refuse("blocked", exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL), user=user)
 
+        try:
+            security_shadow_check(
+                SecuritySubject(
+                    email=user.email,
+                    user_uuid=str(user.uuid),
+                    organization_ids=(str(team.organization_id),),
+                    ip=get_trusted_client_ip(getattr(request, "_request", request)),
+                ),
+                SecuritySurface.AI_GATEWAY,
+                call_site="wizard_gateway_token",
+            )
+        except Exception:
+            logger.exception("security_shadow_check_site_failed", call_site="wizard_gateway_token")
+
         # A kill switch, not a rollout gate: only a literal False refuses. With the
         # legacy product off there is no second path, so reading an outage as "not
         # rolled out" turns a flag-service blip into a global wizard outage.
@@ -423,6 +441,20 @@ class SetupWizardViewSet(viewsets.ViewSet):
             # No outcome label: `cloud_run` already counts every PermissionDenied as
             # permission_denied.
             raise exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL)
+
+        try:
+            security_shadow_check(
+                SecuritySubject(
+                    email=user.email,
+                    user_uuid=str(user.uuid),
+                    organization_ids=(str(project.organization_id),),
+                    ip=get_trusted_client_ip(getattr(request, "_request", request)),
+                ),
+                SecuritySurface.AI_GATEWAY,
+                call_site="wizard_cloud_run",
+            )
+        except Exception:
+            logger.exception("security_shadow_check_site_failed", call_site="wizard_cloud_run")
 
         self._reserve_cloud_run_attempt(user.id)
 

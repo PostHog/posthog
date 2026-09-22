@@ -103,6 +103,11 @@ def save_export_asset_content_from_file(
     _save_content_from_file(asset, file_path, max_database_bytes=max_database_bytes)
 
 
+def delete_insight_subscriptions(*, project_id: int, insight_ids: Collection[int]) -> None:
+    for subscription in Subscription.objects.filter(team__project_id=project_id, insight_id__in=insight_ids):
+        subscription.delete()
+
+
 def insight_ids_with_subscriptions(insight_ids: Collection[int]) -> set[int]:
     """Which of the given insights have a subscription that has not been deleted.
 
