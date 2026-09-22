@@ -1737,6 +1737,19 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
 
         assert key_denied != key_granted
 
+    def test_default_denied_resource_partitions_cache_without_access_control(self):
+        self.organization.available_product_features = []
+        self.organization.save()
+        query = {"kind": "HogQLQuery", "query": "select * from system.data_deletion_requests"}
+
+        member_key = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        admin_key = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
+
+        assert member_key != admin_key
+
     @parameterized.expand(RUNNER_BASES)
     def test_query_reading_no_access_controlled_tables_shares_cache(self, _name, base):
         # A query that reads no access-controlled table is principal-independent: a denied user, a
@@ -2023,7 +2036,7 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         self.organization.available_product_features = []
         self.organization.save()
 
-        runner = self._runner(self.user, base=AnalyticsQueryRunner)
+        runner = self._runner(self.user, base=AnalyticsQueryRunner, queried_resources=set())
         with CaptureQueriesContext(connection) as ctx:
             runner.get_cache_key()
 

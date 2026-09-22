@@ -28,6 +28,7 @@ from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalScratchpad
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
+from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
 from products.signals.backend.scout_harness.note_targets import (
     PIPELINE_AUDIENCE_IMPLEMENTATION,
     PIPELINE_AUDIENCE_REPORT_RESEARCH,
@@ -84,6 +85,7 @@ from products.signals.backend.scout_harness.tools.report import (
 from products.signals.backend.scout_harness.tools.runs import (
     MAX_FAILURE_REASON_LENGTH,
     MAX_RUN_SEARCH_LIMIT,
+    MAX_SCOUTS_PER_RUNS_QUERY,
     recent_runs_per_scout,
 )
 from products.signals.backend.scout_harness.tools.scratchpad import (
@@ -429,6 +431,26 @@ class TestRecentRunsPerScout(BaseTest):
         hits = recent_runs_per_scout(team_id=self.team.id, max_age_days=30)
 
         assert [hit.run_id for hit in hits] == [str(run.id)]
+
+    def test_the_fleet_bound_is_not_the_enabled_scout_cap(self) -> None:
+        # The bug: the bound reused `MAX_ENABLED_SCOUTS_PER_TEAM` while the probe covers every
+        # config, paused ones included. Configs sort enabled-first, so a project with more configs
+        # than the cap lost its paused scouts' history in alphabetical order — their cards then read
+        # "No runs yet" beside a cost line proving they had run.
+        assert MAX_SCOUTS_PER_RUNS_QUERY > MAX_ENABLED_SCOUTS_PER_TEAM
+
+    def test_covers_every_scout_past_the_first_probe_statement(self) -> None:
+        # The fleet spans several probe statements once it outgrows one, and a paused scout sits in
+        # the last of them. Probing only the first would reinstate the same silent history loss.
+        self._configure("signals-scout-errors")
+        self._configure("signals-scout-surveys", enabled=False)
+        enabled_run = self._run_at(skill_name="signals-scout-errors", hours_ago=1)
+        paused_run = self._run_at(skill_name="signals-scout-surveys", hours_ago=2)
+
+        with patch("products.signals.backend.scout_harness.tools.runs.SCOUTS_PER_RUNS_PROBE", 1):
+            hits = recent_runs_per_scout(team_id=self.team.id)
+
+        assert [hit.run_id for hit in hits] == [str(enabled_run.id), str(paused_run.id)]
 
     def test_ignores_runs_left_behind_by_a_scout_with_no_config(self) -> None:
         # Runs outlive their config, and the fleet rollups derive success/emit rates from whatever
@@ -837,6 +859,10 @@ class TestValidateEmitInputs:
         with pytest.raises(InvalidEmitError, match="confidence"):
             _validate_inputs("ok", confidence, [], None)
 
+    def test_omitted_confidence_passes(self) -> None:
+        # The field is retired, so an emit that sends nothing must not trip the range check.
+        _validate_inputs("ok", None, [], None)
+
     def test_too_many_evidence_entries_raises(self) -> None:
         many = [EvidenceEntry(source_product="logs", summary=f"e{i}") for i in range(MAX_EVIDENCE_ENTRIES + 1)]
         with pytest.raises(InvalidEmitError, match="evidence"):
@@ -941,6 +967,26 @@ class TestBuildEmitExtra:
         # but rejects unexpected keys, so omission is the right shape.
         for opt in ("task_id", "hypothesis", "severity", "dedupe_keys", "time_range", "mcp_trace_id", "tags"):
             assert opt not in extra
+
+    def test_extra_omits_confidence_when_not_supplied(self) -> None:
+        # Retired field: absent from `extra` rather than a null the pydantic contract would carry.
+        extra = _build_extra(
+            run_id="run-uuid",
+            task_run_id="task-run-uuid",
+            task_id=None,
+            finding_id="finding-uuid",
+            skill_name="signals-scout-errors",
+            skill_version=2,
+            confidence=None,
+            evidence=[EvidenceEntry(source_product="error_tracking", summary="500s on /checkout")],
+            hypothesis=None,
+            severity=None,
+            dedupe_keys=None,
+            time_range=None,
+            mcp_trace_id=None,
+            tags=None,
+        )
+        assert "confidence" not in extra
 
     def test_skill_version_cast_to_float(self) -> None:
         extra = self._minimal()
@@ -1284,7 +1330,6 @@ async def test_emit_finding_persists_emission_rows(ateam_emit, arun_emit):
     assert emission.team_id == ateam_emit.id
     assert emission.finding_id == "f-emit"
     assert emission.description == "Checkout 500s post-deploy"
-    assert emission.weight == SCOUT_SIGNAL_WEIGHT
     assert emission.confidence == 0.85
     assert emission.severity == "P1"
     assert emission.tags == ["post-deploy-regression"]

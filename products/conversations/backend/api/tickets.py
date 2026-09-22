@@ -62,6 +62,8 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.conversations.backend.ai.evidence import citations_for_ticket, hydrate_ai_sources
+from products.conversations.backend.ai.human_outcome import AiDraftHumanOutcome, record_human_outcome
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
 from products.conversations.backend.api.ticket_filters import (
     AI_TRIAGE_FILTER_VALUES,
@@ -114,8 +116,8 @@ TicketAssignee = UserTicketAssignee | RoleTicketAssignee
 
 
 class TicketErrorSerializer(serializers.Serializer):
-    detail = serializers.CharField()
-    error_type = serializers.CharField(required=False)
+    detail = serializers.CharField(help_text="Human-readable error message.")
+    error_type = serializers.CharField(required=False, help_text="Machine-readable error code.")
 
 
 class TicketMessageSerializer(serializers.Serializer):
@@ -225,6 +227,16 @@ class AiFeedbackRequestSerializer(serializers.Serializer):
     rating = serializers.ChoiceField(choices=["good", "bad"], help_text="Reviewer rating: good or bad.")
     feedback_text = serializers.CharField(
         required=False, allow_blank=True, max_length=2000, help_text="Optional text explaining a bad rating."
+    )
+
+
+class AiHumanOutcomeRequestSerializer(serializers.Serializer):
+    """Payload for recording whether a human adopted an AI draft."""
+
+    message_id = serializers.CharField(max_length=200, help_text="ID of the private AI draft being adopted.")
+    outcome = serializers.ChoiceField(
+        choices=AiDraftHumanOutcome.choices,
+        help_text="used when the human inserts the draft as-is; edited after they change it in the composer.",
     )
 
 
@@ -436,9 +448,26 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
                 "Null when organization_id is unset."
             },
             "ai_triage": {
-                "help_text": "AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.)."
+                "help_text": (
+                    "AI support pipeline triage and outcome (status, result, ticket_type, confidence, "
+                    "attempts, verdict, blocker, sources). Retrieve hydrates sources from citations."
+                )
             },
         }
+
+    def to_representation(self, instance: Ticket) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        view = self.context.get("view")
+        if getattr(view, "action", None) != "retrieve":
+            return data
+        triage = dict(data.get("ai_triage") or {})
+        citations = citations_for_ticket(instance, triage)
+        if citations:
+            triage["sources"] = [
+                source.to_dict() for source in hydrate_ai_sources(team_id=instance.team_id, citations=citations)
+            ]
+            data["ai_triage"] = triage
+        return data
 
     def get_email_to(self, obj: Ticket) -> str | None:
         config = getattr(obj, "email_config", None)
@@ -665,6 +694,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         "compose",
         "reply",
         "ai_feedback",
+        "ai_human_outcome",
         "note",
         "delete_note",
     ]
@@ -1319,7 +1349,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 deleted=False,
             )
             .select_related("created_by")
-            .order_by("created_at")
+            # id breaks ties so separate page queries agree on the order of
+            # messages that share a created_at.
+            .order_by("created_at", "id")
         )
 
         page = self.paginate_queryset(comments)
@@ -1708,6 +1740,37 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             posthoganalytics.capture(distinct_id=distinct_id, event="$ai_metric", properties=properties)
 
         return Response(status=drf_status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        request=AiHumanOutcomeRequestSerializer,
+        responses={
+            202: AiHumanOutcomeRequestSerializer,
+            409: OpenApiResponse(response=TicketErrorSerializer),
+        },
+    )
+    @action(detail=True, methods=["post"])
+    def ai_human_outcome(self, request, *args, **kwargs):
+        """Record that a human used or edited the latest AI draft."""
+        ticket = self.get_object()
+        serializer = AiHumanOutcomeRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        outcome = serializer.validated_data["outcome"]
+        recorded = record_human_outcome(
+            team_id=self.team_id,
+            ticket_id=str(ticket.id),
+            draft_message_id=serializer.validated_data["message_id"],
+            outcome=outcome,
+        )
+        if not recorded:
+            return Response(
+                {
+                    "detail": "The AI draft is no longer current or its outcome is already recorded.",
+                    "error_type": "ai_draft_outcome_conflict",
+                },
+                status=drf_status.HTTP_409_CONFLICT,
+            )
+        return Response(serializer.data, status=drf_status.HTTP_202_ACCEPTED)
 
     @extend_schema(
         request=ComposeTicketSerializer,

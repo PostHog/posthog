@@ -89,6 +89,50 @@ Workers call `renew_inbound_lease` between pages, once more before comment write
 A failed renewal (fencing miss or database error) is logged. The worker finishes the backfill anyway: the replacement worker skips backfill once the ticket exists, so aborting would drop the rest of the thread.
 Fencing still stops the stale worker settling the receipt.
 
+## Slack outbound bodies (`ConversationDelivery` / `ConversationDeliveryPart`)
+
+One delivery per `(team, channel, comment_id)`.
+The body is a part with stable `part_key=body`.
+`team` is the canonical root team.
+The part's `team_id` must match the delivery; the composite FK rejects a mismatch.
+
+Enqueue the delivery and body part in the same transaction as the comment.
+`Comment` is project-scoped; `Ticket` is environment-scoped. Match them on the canonical root team.
+Snapshot destination and body at enqueue so a later comment edit cannot change what we post.
+An oversized snapshot fails the part without payload and must not roll back the comment.
+Generate one `client_msg_id` per body and keep it across retries.
+Celery `on_commit` dispatch is a wake-up hint with `apply_async(..., retry=False)`.
+`sweep_delivery_parts` (every minute) re-drives due and expired-lease parts, then drains snapshot cleanup.
+Cleanup nulls payload and route on accepted or delivered parts only.
+Failed parts keep their snapshots so manual redrive can still post.
+
+Workers claim the part, not the parent delivery, with a fencing token and a 5-minute lease.
+The claim transaction releases before `chat.postMessage` or the Slack file-upload HTTP calls.
+Accept and fail update the part in one transaction.
+Body accept also rolls the parent up and, in that same transaction, enqueues one pending part per image.
+A 2xx (or a Slack error that still returns the original `ts`) marks the body `accepted`.
+That is provider acceptance, not customer delivery.
+Timeouts after a possible accept retry with the same `client_msg_id`.
+Honor `Retry-After` on 429s, cap at one hour, and treat 5xx plus Slack timeout codes as transient.
+Permanent Slack application errors (revoked token, missing channel, invalid blocks) fail the part.
+Keep `post_reply_to_slack` registered for in-flight Celery messages.
+New work uses `process_slack_delivery_part`.
+
+Each image is its own part, keyed `image:<uploaded-media-uuid>` (or a hash of the URL when the path is not a UUID).
+The payload stores resumable `get_upload` / `byte_upload` / `complete_upload` substates, plus Slack `file_id` / `upload_url` after get-upload succeeds.
+Attachment bytes stay in object storage; the part never holds them.
+A crash between Slack calls resumes at the persisted step and does not post the body again.
+An expired upload URL resets the part to `get_upload` and retries.
+Image and fallback failures do not change the parent's `accepted_at` or `provider_message_id`.
+When every image part is terminal and at least one failed, enqueue a single `fallback` part with its own `client_msg_id` and the failed image URLs.
+A second permanent image failure must not create a second fallback.
+Posting the fallback waits if any image part is open again, then includes only currently failed URLs, so a redriven image that later succeeds is not linked.
+The URL set is read under a lock on the image parts and written to the fallback part before the post, so a concurrent redrive either forces another wait or lands after the posted set is recorded.
+A wait refunds the attempt the claim charged, and the last image to settle re-arms the waiting fallback, so a long redrive cannot exhaust the fallback's retry budget.
+Manual redrive is allowed only for `failed` parts, and only after route and Slack workspace config still match the delivery's canonical team.
+Redrive keeps `client_msg_id` (and image upload substate) and stamps `redriven_at`, which restarts the max-age window so an operator can still recover a failure older than 24 hours.
+Redriving an image does not clear the parent's body acceptance.
+
 ## Outbound email (already in Postgres)
 
 `EmailOutboxMessage` remains the outbound email outbox.

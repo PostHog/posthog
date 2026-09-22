@@ -344,10 +344,11 @@ Default to recent windows (~last 72h) when querying, since fresh evidence is usu
 
 _FINDING_SCHEMA = """# Finding schema
 
+Emit only what you are confident is real. When you are not sure, write a scratchpad entry instead. An unsure finding costs the reader more than a silent run.
+
 When you call `scout-emit-signal`:
 
 - `description`: the inbox surface and the dedupe key. Your skill body owns the prose contract.
-- `confidence` ∈ [0, 1]: your certainty the finding is real. This is the emit gate: below ~0.65, prefer a scratchpad entry over emitting.
 - `evidence`: a list of citations, capped at 20 entries.
 - `tags`: optional category slugs for the finding; see *Tagging your findings* below.
 - `finding_id`: a stable id for this finding, echoed into the signal for traceability. It does NOT dedupe: emitting the same id twice creates two signals, so emit each finding exactly once and never retry an emit."""
