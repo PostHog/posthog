@@ -1772,6 +1772,20 @@ class OrganizationInviteSustainedThrottle(_OrganizationInviteRateThrottleBase):
     rate = "200/day"
 
 
+class SourceLinkResolveThrottle(PersonalApiKeyOrUserRateThrottle):
+    # A cache miss on this endpoint reads a repository tree from GitHub or runs one GitLab search
+    # per frame, and nearly all of its traffic is browser sessions, which the default throttles
+    # skip. Keyed per team so a rotated key or session does not reset the budget.
+    scope = "source_link_resolve"
+    rate = "120/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+        return super().get_cache_key(request, view)
+
+
 class GitHubRepositoryRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
     # Rate limit manual GitHub repository cache refreshes.
     #

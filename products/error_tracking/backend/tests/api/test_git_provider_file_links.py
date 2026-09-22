@@ -202,6 +202,21 @@ class TestGitProviderFileLinksResolve(_SourceLinksTestMixin):
         assert first == second
         assert reads.call_count == expected_reads
 
+    @patch(
+        "products.error_tracking.backend.presentation.views.git_provider_file_link_resolver.SourceLinkResolveThrottle.rate",
+        new="2/minute",
+    )
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_a_browser_session_is_throttled_per_team(self, _enabled: Any) -> None:
+        # The default throttles skip session users, and a miss here costs live provider requests.
+        release = self._release({"remote_url": "https://github.com/acme/app", "commit_id": COMMIT})
+        three = self._frame(self._symbol_set(), "frame-three", "../src/three.ts")
+        body = {"release_id": str(release.id), "raw_ids": [three]}
+
+        statuses = [self.client.post(self._url(), body, format="json").status_code for _ in range(3)]
+
+        assert statuses == [200, 200, 429]
+
     @parameterized.expand(
         [
             ("unknown_release", None),

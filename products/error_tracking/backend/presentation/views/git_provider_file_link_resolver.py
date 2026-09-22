@@ -6,6 +6,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.rate_limit import SourceLinkResolveThrottle
 
 from products.error_tracking.backend.facade import (
     contracts,
@@ -40,6 +41,9 @@ class ErrorTrackingSourceLinkResolveResponseSerializer(serializers.Serializer):
 class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
     scope_object_read_actions = ["resolve"]
+
+    def get_throttles(self):
+        return [SourceLinkResolveThrottle(), *super().get_throttles()]
 
     # Placed above @action: the action decorator resets the function's schema metadata, so a
     # schema declared below it is dropped from the OpenAPI spec.
