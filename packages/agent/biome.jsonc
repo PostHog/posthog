@@ -86,6 +86,26 @@
           }
         }
       }
+    },
+    {
+      "includes": ["packages/agent-contracts/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["@posthog/*"],
+                    "message": "agent-contracts is a leaf shared with every host. It imports no internal package."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
     }
   ]
 }

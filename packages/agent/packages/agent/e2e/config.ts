@@ -17,12 +17,16 @@ const GATEWAY_URL =
   process.env.POSTHOG_CODE_E2E_GATEWAY_URL || "http://localhost:3308/ci";
 const TOKEN = process.env.POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY ?? "";
 
-// This checkout's bundled codex binaries, relative to packages/agent/e2e.
+// The desktop app downloads the codex binaries; it lives in the sibling desktop workspace.
 const CODEX_RESOURCES_DIR = join(
   __dirname,
   "..",
   "..",
   "..",
+  "..",
+  "..",
+  "products",
+  "desktop",
   "apps",
   "code",
   "resources",
