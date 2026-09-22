@@ -20,6 +20,8 @@ KEV_DATE_FACTS=${KEV_DATE_FACTS:-0}
 HERE=$(cd "$(dirname "$0")" && pwd)
 
 [ -f "$MODEL_DIR/manifest.json" ] || { echo "no checkpoint at $MODEL_DIR" >&2; exit 1; }
+# The image serves as an unprivileged user (uid 10001), so the checkpoint must be readable by everyone.
+chmod -R a+rX "$MODEL_DIR"
 
 if ! command -v caddy >/dev/null; then
   apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl

@@ -12,7 +12,7 @@ Before running `bootstrap.sh`:
 
 1. A DNS name for the instance, under the zone the gateway pins for decision hosts, pointing at the instance's public IP. Caddy needs it to obtain the certificate.
 2. The Lambda firewall. It is one ruleset per region on the account and every instance inherits it: port 80 open to everyone so Let's Encrypt can validate, port 443 open only to the production cluster's egress addresses (listed in the RFC, not here), SSH on its own rule for engineers.
-3. The checkpoint on disk at `MODEL_DIR`, fetched with `aws s3 sync` from the published version (see the package README) and verified with `kev-vllm-checkpoint verify`.
+3. The checkpoint on disk at `MODEL_DIR`, fetched with `aws s3 sync` from the published version (see the package README) and verified with `kev-vllm-checkpoint verify`. The container serves as an unprivileged user, so the directory has to be readable by everyone; the bootstrap script sets that, and a home directory on Ubuntu is not traversable by other users, so keep it outside `/home`.
 4. A bearer: `openssl rand -hex 32`. The same value goes to the gateway as `AI_GATEWAY_KEV_API_KEY`.
 
 Then, as root:
@@ -26,4 +26,4 @@ The script installs Caddy if missing, writes the env file and the units, pulls t
 
 On the gateway side the host is a served host of kind `kev-vllm` with `base_url` `https://kev-1.<zone>/v1`, the bearer in `AI_GATEWAY_KEV_API_KEY`, and the enrolled teams in `AI_GATEWAY_SYSTEMONE_TEAM_IDS`.
 
-To try the Caddyfile without a DNS name, set `INSTANCE_HOST=localhost:8443`: Caddy issues a locally trusted certificate for loopback names, so `curl -k` against port 8443 exercises the bearer check and the proxying against a vLLM already listening on 8000.
+To try the Caddyfile without a DNS name, set `INSTANCE_HOST=localhost:8443`: Caddy issues a locally trusted certificate for loopback names, so a client that accepts that local certificate can exercise the bearer check and the proxying on port 8443 against a vLLM already listening on 8000.

@@ -17,6 +17,11 @@ RUN pip install --no-cache-dir --no-deps . \
     && python3 -c "import kev_vllm.plugin, kev_vllm.checkpoint"
 COPY bin/serve.sh /usr/local/bin/kev-vllm-serve
 
+# vLLM writes its compile and tokenizer caches under HOME, so the serving user needs one it owns.
+RUN useradd --system --uid 10001 --create-home --home-dir /home/kev --shell /usr/sbin/nologin kev
+USER kev
+ENV HOME=/home/kev
+
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=3 \
     CMD curl -fs "http://127.0.0.1:${PORT}/health" || exit 1
