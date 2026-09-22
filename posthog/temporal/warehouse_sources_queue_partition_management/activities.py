@@ -131,8 +131,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
 
 
 def _partition_ddl_database_url() -> str:
-    # Postgres lets only the owner of a partitioned table create partitions of it. The migration
-    # role owns sourcebatch and sourcebatchstatus, so the partition job connects as that role.
+    # Only the owner of a partitioned table can create its partitions, and the migration role owns the queue tables.
     return settings.WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL or settings.WAREHOUSE_SOURCES_DATABASE_URL
 
 
@@ -269,8 +268,7 @@ def _cleanup_old_s3_extractions(today: date, errors: list[str]) -> list[str]:
         logger.debug("s3_extraction_prefix_not_found", prefix=base_prefix)
         return deleted
     except Exception as e:
-        # Record the error instead of raising, because a raise here ends the activity
-        # before it sends the Slack alert for this and every earlier error.
+        # Record instead of raising, because a raise here skips the Slack alert for every error so far.
         errors.append(f"Failed to list S3 extraction partitions: {e}")
         logger.exception("Failed to list S3 extraction partitions", prefix=base_prefix)
         return deleted
