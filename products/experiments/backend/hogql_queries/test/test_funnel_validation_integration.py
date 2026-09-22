@@ -1,8 +1,8 @@
 """
-Integration tests for FunnelDWValidator in query execution context.
+Integration tests for FunnelDWValidator with ExperimentQueryBuilder.
 
-These tests build a real ExperimentQueryBuilder against a team, so they need a database.
-The validator logic itself is covered in test_funnel_validation.py.
+These tests build a query against a team, so they need a database. The validator
+logic itself is covered in test_funnel_validation.py.
 """
 
 from datetime import datetime
