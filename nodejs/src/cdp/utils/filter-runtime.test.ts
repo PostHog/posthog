@@ -1,6 +1,8 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { FILTER_GLOBALS_RELATIVE_PATH, describeFilterRuntime, renderFilterGlobalsFile } from './filter-runtime'
 import { execHog } from './hog-exec'
 
@@ -10,7 +12,9 @@ describe('filter-runtime', () => {
     it('matches the committed file Django reads', () => {
         // The one gate. A global or a standard-library function added to the runtime lands here as a
         // diff until the file is regenerated, so Django cannot silently validate against a stale set.
-        expect(committed()).toEqual(renderFilterGlobalsFile(describeFilterRuntime()))
+        // Compared as parsed JSON: the pre-commit hook reformats the file, and whitespace is not the
+        // contract.
+        expect(parseJSON(committed())).toEqual(parseJSON(renderFilterGlobalsFile(describeFilterRuntime())))
     })
 
     it('describes what a hog function is actually evaluated with', () => {

@@ -100,7 +100,8 @@ export function renderFilterGlobalsFile(runtime: FilterRuntime): string {
                 callables: runtime.callables,
             },
             null,
-            2
+            // Matches what the pre-commit hook (bin/hogli format:yaml) writes, so a regenerate is a no-op.
+            4
         ) + '\n'
     )
 }
