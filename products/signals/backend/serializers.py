@@ -287,6 +287,29 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
 MAX_AUTOSTART_BASE_BRANCH_ENTRIES = 500
 
 
+_AUTOSTART_BASE_BRANCHES_HELP = (
+    "Per-repository base branch overrides for auto-started inbox PRs, keyed by "
+    "'organization/repository'. The branch is what the auto-PR targets; omit a repo "
+    "(or send {}) to keep targeting the repo default branch."
+)
+
+# The validator below bounds the key count, the key shape and the key length. A DictField publishes
+# only the value constraint, so the key rules are declared here to keep the schema and the validator
+# saying the same thing.
+_AUTOSTART_BASE_BRANCHES_SCHEMA = {
+    "type": "object",
+    "description": _AUTOSTART_BASE_BRANCHES_HELP,
+    "maxProperties": MAX_AUTOSTART_BASE_BRANCH_ENTRIES,
+    "propertyNames": {"pattern": "^[^/]+/[^/]+$", "maxLength": 255},
+    "additionalProperties": {"type": "string", "maxLength": 255},
+}
+
+
+@extend_schema_field(_AUTOSTART_BASE_BRANCHES_SCHEMA)
+class _AutostartBaseBranchesField(serializers.DictField):
+    pass
+
+
 # many=False: the read action is named `list` for routing, but the config is a per-project
 # singleton. Without this drf-spectacular types the response as a paginated list.
 @extend_schema_serializer(many=False)
@@ -311,14 +334,10 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "to created GitHub issues."
         ),
     )
-    autostart_base_branches = serializers.DictField(
+    autostart_base_branches = _AutostartBaseBranchesField(
         child=serializers.CharField(max_length=255, allow_blank=True),
         required=False,
-        help_text=(
-            "Per-repository base branch overrides for auto-started inbox PRs, keyed by "
-            "'organization/repository'. The branch is what the auto-PR targets; omit a repo "
-            "(or send {}) to keep targeting the repo default branch."
-        ),
+        help_text=_AUTOSTART_BASE_BRANCHES_HELP,
     )
     max_reports_per_day = serializers.IntegerField(
         required=False,

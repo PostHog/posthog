@@ -926,12 +926,9 @@ class SignalReportWorkflowStatusSerializer(serializers.Serializer):
 @extend_schema_view(
     destroy=extend_schema(
         summary="Delete a signal report",
-        responses={
-            200: OpenApiResponse(
-                response=SignalReportWorkflowStatusSerializer, description="A deletion is already running."
-            ),
-            202: OpenApiResponse(response=SignalReportWorkflowStatusSerializer, description="Deletion started."),
-        },
+        # No body: a generated client routes DELETE through the mutator's api.delete, which hands back
+        # the raw Response, so a declared body would be a contract no caller can read.
+        responses={204: None},
     ),
 )
 class SignalReportViewSet(
@@ -2358,7 +2355,7 @@ class SignalReportViewSet(
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
         except WorkflowAlreadyStartedError:
-            return Response({"status": "already_running", "report_id": report_id}, status=status.HTTP_200_OK)
+            return Response(status=status.HTTP_204_NO_CONTENT)
         except Exception:
             logger.exception("Failed to start deletion workflow for report %s", report_id)
             return Response(
@@ -2371,7 +2368,7 @@ class SignalReportViewSet(
         report._transition_actor_user_id = self._request_attribution().user_id  # type: ignore[attr-defined]
         report.save(update_fields=updated_fields)
 
-        return Response({"status": "deletion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         summary="List a report's signals",
