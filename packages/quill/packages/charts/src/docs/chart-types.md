@@ -86,8 +86,10 @@ There is no `series` or `labels`.
   `var(--…)` colors resolve inside the chart.
 - `nodeAlign` decides where a flow that ends early sits: `justify` (default) moves terminal nodes to the last column; `left` keeps each node at its own depth, which reads right when columns are stages.
   `preserveNodeOrder` keeps input order within a column instead of untangling ribbons.
+  A node with `column` set is pinned there whatever its depth, and the graph grows to fit the highest pin; use it when the data names its own stage, so `columnLabels` stay truthful for flows that end early or start late.
 - `columnLabels` renders headers above each column and reserves room for them.
   Node labels are DOM overlays beside each node, truncated to the free space before the next column; the last column's labels sit to its left.
+  A label that would print over a larger neighbor's label in the same column is dropped; the tooltip still names that node.
   `showNodeValues` appends the node value.
 - Hovering a node lifts its ribbons and dims the rest of the graph; hovering a ribbon lifts just that ribbon.
   The default tooltip shows the node label or `source → target`, the value, and its share of `layout.total` (the summed inflow of the nodes with no incoming link).

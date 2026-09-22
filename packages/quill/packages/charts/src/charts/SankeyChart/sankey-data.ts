@@ -13,6 +13,10 @@ export interface SankeyNodeInput<Meta = unknown> {
     color?: string
     /** Consumer data handed back through tooltips and click handlers. */
     meta?: Meta
+    /** Pin the node to this zero-based column. Use it when the data carries its own stage (the
+     *  step in a paths result), so a flow that ends early or starts late still sits under the right
+     *  `columnLabels` header. Nodes without a pin follow `nodeAlign`. */
+    column?: number
 }
 
 /** A directed flow from `source` to `target` (both node ids). The graph must be acyclic. */
@@ -103,6 +107,7 @@ interface LayoutNodeProps {
     label: string
     color: string
     meta?: unknown
+    pinnedColumn?: number
     [key: string]: unknown
 }
 
@@ -157,8 +162,15 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
     // The engine mutates its inputs, so hand it fresh objects.
     const engineNodes: LayoutNodeProps[] = nodes.map((node) => {
         const label = node.label ?? node.id
-        return { id: node.id, label, color: resolveColor(node.color || colorForLabel(label)), meta: node.meta }
+        return {
+            id: node.id,
+            label,
+            color: resolveColor(node.color || colorForLabel(label)),
+            meta: node.meta,
+            pinnedColumn: node.column,
+        }
     })
+    const hasPinnedColumns = nodes.some((node) => node.column !== undefined)
     const engineLinks: LayoutLinkProps[] = links.map((link) => ({
         source: link.source,
         target: link.target,
@@ -170,6 +182,7 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
     const graph = sankeyLayout<LayoutNodeProps, LayoutLinkProps>()
         .nodeId((node) => node.id)
         .nodeAlign(ALIGNMENTS[nodeAlign])
+        .nodeColumn(hasPinnedColumns ? (node) => node.pinnedColumn : null)
         .nodeSort(preserveNodeOrder ? null : undefined)
         .nodeWidth(nodeWidth)
         .nodePadding(nodePadding)
