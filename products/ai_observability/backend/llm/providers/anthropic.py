@@ -179,6 +179,8 @@ class AnthropicAdapter:
 
             parsed: BaseModel | None = None
             if use_structured:
+                if response.stop_reason == "max_tokens":
+                    raise OutputTokenLimitError("The model reached its output token limit.")
                 assert request.response_format is not None
                 try:
                     parsed = request.response_format.model_validate_json(content)

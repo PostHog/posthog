@@ -91,10 +91,7 @@ class OutputTokenLimitError(LLMError):
     """
 
 
-_OUTPUT_LIMIT_ERROR_MARKERS = (
-    "output limit was reached",
-    "higher max_tokens",
-)
+_OUTPUT_LIMIT_ERROR_MARKERS = ("output limit was reached",)
 
 
 def is_output_limit_error_message(message: str) -> bool:

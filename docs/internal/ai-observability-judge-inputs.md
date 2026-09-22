@@ -37,6 +37,7 @@ Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_
 ## Model output limits
 
 When the judge reply reaches the model's output limit, the evaluation skips that item with `output_limit_exceeded`.
+For Anthropic structured replies, `stop_reason="max_tokens"` triggers this skip before JSON parsing.
 Historical runs still include these items, as they do for `unparsable_response`, because neither skip produces a verdict.
 Users do not need to include items that already have a result to retry them.
 

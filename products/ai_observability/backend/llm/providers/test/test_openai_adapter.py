@@ -284,6 +284,7 @@ class TestOpenAIStreamErrorSurfacing:
             ("unsupported_temperature", "Unsupported value: 'temperature' does not support 0.7 with this model."),
             ("invalid_token_limit", "Invalid 'max_output_tokens': integer below minimum value. Expected >= 16, got 8."),
             ("excessive_token_limit", "Requested max_tokens exceeds the model output limit. Reduce max_tokens."),
+            ("higher_token_setting", "This model does not support higher max_tokens values. Reduce max_tokens."),
         ]
     )
     def test_unmapped_400_keeps_the_providers_reason_instead_of_telling_the_user_to_retry(
