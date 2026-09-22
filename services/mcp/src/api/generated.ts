@@ -19735,40 +19735,80 @@ export namespace Schemas {
       _create_static_person_ids?: string[];
     }
 
-    export type CohortPersonResultProperties = { [key: string]: unknown };
-
-    export type CohortPersonResultMatchedRecordingsItem = { [key: string]: unknown };
+    /**
+     * Minimal serializer for cohort references, read by the person cohorts endpoint.
+     */
+    export interface CohortMinimal {
+      readonly id: number;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      count?: number | null;
+    }
 
     /**
-     * * `person` - person
+     * Marks this actor as a person.
      */
-    export type CohortPersonResultTypeEnum = typeof CohortPersonResultTypeEnum[keyof typeof CohortPersonResultTypeEnum];
+    export type SerializedPersonActorType = typeof SerializedPersonActorType[keyof typeof SerializedPersonActorType];
 
 
-    export const CohortPersonResultTypeEnum = {
+    export const SerializedPersonActorType = {
       Person: 'person',
     } as const;
 
-    export interface CohortPersonResult {
+    /**
+     * The actor's properties.
+     */
+    export type SerializedPersonActorProperties = { [key: string]: unknown };
+
+    export type SerializedPersonActorMatchedRecordingsItem = { [key: string]: unknown };
+
+    export interface SerializedPersonActor {
+      /** The person's UUID, or the group's key. */
       id: string;
-      uuid: string;
-      type: CohortPersonResultTypeEnum;
-      name: string;
-      distinct_ids: string[];
-      properties: CohortPersonResultProperties;
-      /** @nullable */
+      /** The actor's properties. */
+      properties: SerializedPersonActorProperties;
+      /**
+         * When the actor was first seen.
+         * @nullable
+         */
       created_at: string | null;
-      /** @nullable */
-      last_seen_at: string | null;
-      /** @nullable */
-      is_identified: boolean | null;
-      matched_recordings: CohortPersonResultMatchedRecordingsItem[];
-      /** @nullable */
+      /** Recordings that matched the query. Empty unless the endpoint asks for them. */
+      matched_recordings: SerializedPersonActorMatchedRecordingsItem[];
+      /**
+         * The actor's value at the data point it was queried for. Null unless the query computes one.
+         * @nullable
+         */
       value_at_data_point: number | null;
+      /** Marks this actor as a person. */
+      type: SerializedPersonActorType;
+      /** The person's UUID. Same value as `id`. */
+      uuid: string;
+      /** Display name, resolved from the person's properties or distinct IDs. */
+      name: string;
+      /** The person's distinct IDs, newest first. */
+      distinct_ids: string[];
+      /**
+         * When the person was last seen.
+         * @nullable
+         */
+      last_seen_at: string | null;
+      /**
+         * Whether the person has been identified.
+         * @nullable
+         */
+      is_identified: boolean | null;
     }
 
     export interface CohortPersonsResponse {
-      results: CohortPersonResult[];
+      results: SerializedPersonActor[];
       /** @nullable */
       next: string | null;
       /** @nullable */
@@ -45243,6 +45283,26 @@ export namespace Schemas {
       add_images_to_comment_on_pr?: boolean;
     }
 
+    /**
+     * The group's properties.
+     */
+    export type FindGroupGroupProperties = { [key: string]: unknown };
+
+    export interface FindGroup {
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      group_type_index: number;
+      /** @maxLength 400 */
+      group_key: string;
+      /** The group's properties. */
+      group_properties: FindGroupGroupProperties;
+      readonly created_at: string;
+      /** @nullable */
+      readonly notebook: string | null;
+    }
+
     export interface FlagValueItem {
       name: unknown;
     }
@@ -46386,6 +46446,11 @@ export namespace Schemas {
       Symbol: 'symbol',
     } as const;
 
+    /**
+     * The group's properties.
+     */
+    export type GroupGroupProperties = { [key: string]: unknown };
+
     export interface Group {
       /**
          * @minimum -2147483648
@@ -46394,8 +46459,14 @@ export namespace Schemas {
       group_type_index: number;
       /** @maxLength 400 */
       group_key: string;
-      group_properties?: unknown;
+      /** The group's properties. */
+      group_properties: GroupGroupProperties;
       readonly created_at: string;
+    }
+
+    export interface GroupDeleteProperty {
+      /** Name of the property to delete. */
+      $unset: string;
     }
 
     export interface GroupType {
@@ -46417,6 +46488,18 @@ export namespace Schemas {
       default_columns?: string[] | null;
       /** @nullable */
       created_at?: string | null;
+    }
+
+    /**
+     * Value to set. Any JSON value other than null.
+     */
+    export type GroupUpdatePropertyRequestValue = string | number | boolean | { [key: string]: unknown } | unknown[];
+
+    export interface GroupUpdatePropertyRequest {
+      /** Name of the property to set. */
+      key: string;
+      /** Value to set. Any JSON value other than null. */
+      value: GroupUpdatePropertyRequestValue;
     }
 
     /**
@@ -75891,6 +75974,11 @@ export namespace Schemas {
       deletion_errors?: PersonBulkDeleteResponseDeletionErrorsItem[];
     }
 
+    export interface PersonCohortsResponse {
+      /** Cohorts the person currently belongs to. */
+      results: CohortMinimal[];
+    }
+
     export interface PersonDeletePropertyRequest {
       /** A property key, or a list of property keys, to remove from this person. */
       $unset: string | string[];
@@ -81999,6 +82087,50 @@ export namespace Schemas {
       Redshift: 'Redshift',
     } as const;
 
+    /**
+     * Marks this actor as a group.
+     */
+    export type SerializedGroupActorType = typeof SerializedGroupActorType[keyof typeof SerializedGroupActorType];
+
+
+    export const SerializedGroupActorType = {
+      Group: 'group',
+    } as const;
+
+    /**
+     * The actor's properties.
+     */
+    export type SerializedGroupActorProperties = { [key: string]: unknown };
+
+    export type SerializedGroupActorMatchedRecordingsItem = { [key: string]: unknown };
+
+    export interface SerializedGroupActor {
+      /** The person's UUID, or the group's key. */
+      id: string;
+      /** The actor's properties. */
+      properties: SerializedGroupActorProperties;
+      /**
+         * When the actor was first seen.
+         * @nullable
+         */
+      created_at: string | null;
+      /** Recordings that matched the query. Empty unless the endpoint asks for them. */
+      matched_recordings: SerializedGroupActorMatchedRecordingsItem[];
+      /**
+         * The actor's value at the data point it was queried for. Null unless the query computes one.
+         * @nullable
+         */
+      value_at_data_point: number | null;
+      /** Marks this actor as a group. */
+      type: SerializedGroupActorType;
+      /** Key identifying the group within its group type. */
+      group_key: string;
+      /** Index of the group type this group belongs to. */
+      group_type_index: number;
+    }
+
+    export type RelatedActor = SerializedPersonActor | SerializedGroupActor;
+
     export interface RelationshipReject {
       /** Why the proposal is rejected. Persisted so it is never re-proposed. */
       rejection_reason?: string;
@@ -84851,6 +84983,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly status_changed_at: string | null;
+      /** Who last moved `status`, when a person did it through this API. Null for a system transition such as an automatic pause, for a row whose status never changed, and for a caller that may not read member identities. Pair it with `status` to say who turned a scout off, instead of only when it went off. */
+      readonly status_changed_by: UserBasic | null;
       /** Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. Only ever set explicitly: re-enabling a swept scout instead grants a fresh grace window before the sweep may judge it again. */
       readonly auto_pause_exempt: boolean;
       /** Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter. */
@@ -105704,11 +105838,11 @@ export namespace Schemas {
     skip_create_notebook?: boolean;
     };
 
-    export type GroupsRelatedRetrieveParams = {
+    export type GroupsRelatedListParams = {
     /**
-     * Specify the group type to find
+     * Group type of the actor to find related actors for. Omit when the actor is a person.
      */
-    group_type_index: number;
+    group_type_index?: number;
     /**
      * Specify the id of the user to find groups for
      */
