@@ -482,28 +482,23 @@ def _another_session_is_busy(db_name: str) -> bool:
 
 def _patched_fixture_teardown(self: TransactionTestCase) -> None:
     """
-    The stock TransactionTestCase teardown runs the flush command, which truncates every table
-    and re-seeds content types and permissions after each test. pytest-django uses it for every
-    ``django_db(transaction=True)`` test. Use the selective flush of NonAtomicBaseTest instead.
+    Use the selective flush of NonAtomicBaseTest instead of the stock flush, which truncates every
+    table and re-seeds content types and permissions after each ``django_db(transaction=True)`` test.
 
-    The stock teardown stays for subset flushes (``available_apps``), serialized rollback, and a
-    failed selective flush. It also stays while another session on the database is busy, such as
-    a Temporal worker thread: TRUNCATE waits for that session's transaction to end, but the probe
-    and DELETE of the selective flush do not, so rows it commits later would leak into the next test.
+    Keep the stock flush while another session is busy, such as a Temporal worker thread: TRUNCATE
+    waits for that session's transaction, but the selective probe and DELETE do not, so rows it
+    commits later would leak into the next test.
     """
     db_names = cast(Any, self)._databases_names(include_mirrors=False)
-    if (
-        self.available_apps is None
-        and not self.serialized_rollback
-        and not any(map(_another_session_is_busy, db_names))
-    ):
-        try:
-            for db_name in db_names:
-                _selective_flush(db_name, reset_sequences=False)
-            return
-        except Exception:
-            logger.exception("Selective flush failed; falling back to the stock teardown")
-    _original_fixture_teardown(self)
+    if self.available_apps is not None or self.serialized_rollback or any(map(_another_session_is_busy, db_names)):
+        _original_fixture_teardown(self)
+        return
+    try:
+        for db_name in db_names:
+            _selective_flush(db_name, reset_sequences=False)
+    except Exception:
+        logger.exception("Selective flush failed; falling back to the stock teardown")
+        _original_fixture_teardown(self)
 
 
 _original_fixture_teardown = TransactionTestCase._fixture_teardown
