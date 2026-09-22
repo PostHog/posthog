@@ -2390,9 +2390,8 @@ class TestComputationExecutorExecute(BaseTest):
         returned_jobs = list(PreaggregationJob.objects.filter(id__in=result.job_ids))
         assert find_missing_contiguous_windows(returned_jobs, start, end) == []
 
-    def test_window_lost_after_the_coverage_proof_falls_back_instead_of_serving_short(self):
+    def test_peer_rebuild_after_the_coverage_proof_does_not_shrink_the_served_range(self):
         from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
-            LAZY_COMPUTATION_COVERAGE_GAPS_TOTAL,
             find_existing_jobs as real_find_existing_jobs,
         )
 
@@ -2411,15 +2410,16 @@ class TestComputationExecutorExecute(BaseTest):
         )
         PreaggregationJob.objects.filter(id=broad.id).update(created_at=now - timedelta(hours=2))
 
-        scans = []
+        peer_has_rebuilt = False
 
-        def rebuild_a_narrower_window_after_the_first_scan(*args, **kwargs):
+        def rebuild_one_window_after_the_coverage_proof(*args, **kwargs):
+            nonlocal peer_has_rebuilt
             jobs = real_find_existing_jobs(*args, **kwargs)
-            scans.append(1)
-            if len(scans) == 1:
-                # A peer refreshing one day lands between the loop's coverage proof and
-                # the collection that serves the read. Its newer row evicts the broad
-                # job in the overlap filter, so Jan 1-2 and Jan 3-4 lose their data.
+            if not peer_has_rebuilt:
+                peer_has_rebuilt = True
+                # A peer refreshing Jan 2 lands right after the coverage proof. Its row
+                # is newer, so it wins the overlap filter and evicts the broad job that
+                # also covers Jan 1 and Jan 3.
                 narrow = PreaggregationJob.objects.create(
                     team=self.team,
                     query_hash=query_hash,
@@ -2431,13 +2431,9 @@ class TestComputationExecutorExecute(BaseTest):
                 PreaggregationJob.objects.filter(id=narrow.id).update(created_at=now)
             return jobs
 
-        gaps_before = LAZY_COMPUTATION_COVERAGE_GAPS_TOTAL.labels(
-            table=str(LazyComputationTable.PREAGGREGATION_RESULTS)
-        )._value.get()
-
         with patch(
             "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.find_existing_jobs",
-            side_effect=rebuild_a_narrower_window_after_the_first_scan,
+            side_effect=rebuild_one_window_after_the_coverage_proof,
         ):
             result = LazyComputationExecutor().execute(
                 team=self.team,
@@ -2447,14 +2443,10 @@ class TestComputationExecutorExecute(BaseTest):
                 run_insert=lambda t, j: None,
             )
 
-        assert result.ready is False, "a set that no longer tiles the range must not be served"
-        assert result.job_ids == []
-        assert (
-            LAZY_COMPUTATION_COVERAGE_GAPS_TOTAL.labels(
-                table=str(LazyComputationTable.PREAGGREGATION_RESULTS)
-            )._value.get()
-            - gaps_before
-            == 1.0
+        assert result.ready is True
+        served = list(PreaggregationJob.objects.filter(id__in=result.job_ids))
+        assert find_missing_contiguous_windows(served, start, end) == [], (
+            "the served jobs must still tile the range the coverage proof accepted"
         )
 
     def test_variable_ttl_creates_jobs_with_different_expiry(self):
