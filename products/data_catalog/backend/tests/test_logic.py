@@ -227,7 +227,10 @@ class TestValidateMetricDefinition(BaseTest):
         with patch("products.data_catalog.backend.logic.validation.capture_exception") as capture:
             with self.assertRaises(ValidationError) as caught:
                 validate_metric_definition(definition, self.team, self.user)
-        assert "variables" in str(caught.exception.detail)
+        message = str(caught.exception.detail)
+        assert "'{variables}'" in message
+        assert "Add 'variables' to 'values'" in message
+        assert "remove the placeholder" in message
         capture.assert_not_called()
 
 
