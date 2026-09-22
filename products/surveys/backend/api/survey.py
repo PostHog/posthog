@@ -70,10 +70,10 @@ from products.actions.backend.api.action import ActionSerializer, ActionStepJSON
 from products.actions.backend.models.action import Action
 from products.feature_flags.backend.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
-    FeatureFlagSerializer,
     MinimalFeatureFlagSerializer,
     assert_feature_flag_write_scope,
 )
+from products.feature_flags.backend.facade.api import create_flag, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import FLAG_OWNER_SURVEY, assert_flag_available_for
 from products.product_analytics.backend.facade.models import Insight
@@ -2083,35 +2083,38 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     def _create_or_update_targeting_flag(
         self, existing_flag=None, filters=None, name=None, active=False, flag_name_suffix=None
     ):
+        request = self.context["request"]
+        team = self.context["get_team"]()
         with create_flag_with_survey_errors():
-            # Ensure the request method is set correctly for validation
+            # Ensure the request method is set correctly for validation. The facade passes a
+            # real request through as-is, so it does not set the method.
             if existing_flag:
-                self.context["request"].method = "PATCH"
-                existing_flag_serializer = FeatureFlagSerializer(
+                request.method = "PATCH"
+                return update_flag(
                     existing_flag,
-                    data={"filters": filters},
-                    partial=True,
-                    context=self.context,
+                    {"filters": filters},
+                    team=team,
+                    user=request.user,
+                    request=request,
+                    serializer_context=self.context,
                 )
-                existing_flag_serializer.is_valid(raise_exception=True)
-                return existing_flag_serializer.save()
             else:
-                self.context["request"].method = "POST"
+                request.method = "POST"
                 random_id = generate("1234567890abcdef", 10)
                 feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{random_id}{flag_name_suffix or ''}")
-                feature_flag_serializer = FeatureFlagSerializer(
-                    data={
+                return create_flag(
+                    {
                         "key": feature_flag_key,
                         "name": f"Targeting flag for survey {name}",
                         "filters": filters,
                         "active": active,
                         "creation_context": "surveys",
                     },
-                    context=self.context,
+                    team=team,
+                    user=request.user,
+                    request=request,
+                    serializer_context=self.context,
                 )
-
-                feature_flag_serializer.is_valid(raise_exception=True)
-                return feature_flag_serializer.save()
 
 
 class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):

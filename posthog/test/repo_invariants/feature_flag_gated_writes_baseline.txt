@@ -25,8 +25,6 @@ products/posthog_ai/evals/experiments/seeders.py::seed_inactive_flag_experiment:
 products/posthog_ai/evals/experiments/seeders.py::seed_running_experiment::FeatureFlag.objects.create()
 products/posthog_ai/evals/experiments/seeders.py::seed_uneven_split_experiment::FeatureFlag.objects.create()
 products/surveys/backend/api/survey.py::SurveySerializerCreateUpdateOnly._add_user_survey_interacted_filters::internal_targeting_flag.active =
-products/surveys/backend/api/survey.py::SurveySerializerCreateUpdateOnly._create_or_update_targeting_flag::FeatureFlagSerializer()
-products/surveys/backend/api/survey.py::SurveySerializerCreateUpdateOnly._create_or_update_targeting_flag::FeatureFlagSerializer(existing_flag)
 products/surveys/backend/api/survey.py::SurveySerializerCreateUpdateOnly.update::instance.targeting_flag.active =
 products/tasks/backend/management/commands/setup_background_agents.py::Command._setup_feature_flags::FeatureFlag.objects.create()
 products/tasks/backend/management/commands/setup_background_agents.py::Command._setup_feature_flags::existing.active =
