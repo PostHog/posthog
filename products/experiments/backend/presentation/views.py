@@ -1543,7 +1543,9 @@ class EnterpriseExperimentsViewSet(
             inputs=SetupContextInputs(
                 target_event=data.get("target_event") or None,
                 target_url_contains=data.get("target_url_contains") or None,
+                target_properties=tuple(data.get("target_properties") or ()),
                 metric_event=data.get("metric_event") or None,
+                metric_properties=tuple(data.get("metric_properties") or ()),
                 previous_experiments_limit=data["previous_experiments_limit"],
                 shared_metrics_limit=data["shared_metrics_limit"],
             ),
