@@ -43,25 +43,51 @@ const toResponse = (result: MockResult): Response => {
     return HttpResponse.json(result)
 }
 
+const ENVIRONMENTS_PATH = /(^|\/)api\/environments\//
+
+const withoutTrailingSlash = (path: string): string => path.replace(/\/$/, '')
+
+// `/api/environments/` is a deprecated alias of `/api/projects/`: EnvironmentsRewriteMiddleware
+// rewrites it in-process to the same viewset, so a mock registered on one path must answer the
+// other. Serving the twin here keeps the existing environments registrations working while the
+// frontend moves to the canonical projects path.
+// The alias is one-way on purpose. A projects registration never answers an environments request,
+// so a hand-written environments URL left in source still fails its test.
+const pathsForRegistration = (path: string, registeredPaths: Set<string>): string[] => {
+    if (!ENVIRONMENTS_PATH.test(path)) {
+        return [path]
+    }
+    const projectsTwin = path.replace(ENVIRONMENTS_PATH, '$1api/projects/')
+    // An explicit projects registration wins, because MSW answers with the first matching handler.
+    // Both sides drop the trailing slash, because the two styles register the same handler path.
+    if (registeredPaths.has(withoutTrailingSlash(projectsTwin))) {
+        return [path]
+    }
+    return [path, projectsTwin]
+}
+
 export const mocksToHandlers = (mocks: Mocks): HttpHandler[] => {
     const handlers: HttpHandler[] = []
     Object.entries(mocks)
         .filter((entry): entry is [HttpMethod, Record<string, MockSignature>] => !!entry[1])
         .forEach(([method, mockHandlers]) => {
+            const registeredPaths = new Set(Object.keys(mockHandlers).map(withoutTrailingSlash))
             Object.entries(mockHandlers).forEach(([path, handler]) => {
-                const pathWithoutTrailingSlash = path.replace(/\/$/, '')
-                handlers.push(
-                    (http[method] as (typeof http)['get'])(pathWithoutTrailingSlash, async (info) => {
-                        // Function handlers and static values support the same MockResult forms:
-                        // a `[status, body]` tuple, a Response, or a plain JSON body. Static
-                        // `[status, body]` tuples used to be serialized as a literal array body,
-                        // which silently broke every mock relying on the status.
-                        if (typeof handler === 'function') {
-                            return toResponse(await handler(info))
-                        }
-                        return toResponse(handler as MockResult)
-                    })
-                )
+                pathsForRegistration(path, registeredPaths).forEach((registeredPath) => {
+                    const pathWithoutTrailingSlash = withoutTrailingSlash(registeredPath)
+                    handlers.push(
+                        (http[method] as (typeof http)['get'])(pathWithoutTrailingSlash, async (info) => {
+                            // Function handlers and static values support the same MockResult forms:
+                            // a `[status, body]` tuple, a Response, or a plain JSON body. Static
+                            // `[status, body]` tuples used to be serialized as a literal array body,
+                            // which silently broke every mock relying on the status.
+                            if (typeof handler === 'function') {
+                                return toResponse(await handler(info))
+                            }
+                            return toResponse(handler as MockResult)
+                        })
+                    )
+                })
             })
         })
     return handlers
