@@ -14,7 +14,6 @@ from django.http import StreamingHttpResponse
 
 import requests
 import structlog
-from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from prometheus_client import Counter
 from rest_framework import serializers, status
@@ -164,7 +163,9 @@ class MaxHandsFreeViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         HANDS_FREE_TOKEN_COUNTER.labels(outcome="ok").inc()
         return Response({"token": token})
 
-    @extend_schema(request=SynthesizeSerializer, responses={200: OpenApiTypes.BINARY})
+    # Excluded on purpose: the response is streamed audio/mpeg, and Orval's shared mutator parses
+    # every response as JSON. The caller in lib/api.ts uses api.createResponse to read the stream.
+    @extend_schema(exclude=True)
     @action(
         detail=False,
         methods=["POST"],
