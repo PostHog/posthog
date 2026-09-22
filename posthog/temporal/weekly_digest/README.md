@@ -17,9 +17,9 @@ A body that runs on the event loop also trips Django's async-unsafe guard as soo
 Every team range and report generator must finish before organization aggregation starts.
 A Temporal patch marker preserves the activity scheduling behavior when replaying older histories.
 
-Generation has a 15-hour run timeout and a 15-hour execution timeout shared across its two allowed attempts.
-A healthy run can use the full generation budget without restarting and regenerating completed batches after six hours.
-Sending starts only after generation succeeds and has separate six-hour run and 15-hour execution timeouts.
+Generation has a four-hour run timeout and an eight-hour execution timeout shared across its two allowed attempts.
+Sending starts only after generation succeeds and has separate two-hour run and four-hour execution timeouts.
+Organizations are paged by id range, like teams; a second patch marker keeps offset paging for histories recorded before it.
 
 ## Redis Storage Structure
 
@@ -72,7 +72,7 @@ Generated via `user_data_key(digest_key, UserDataKey.*, user_id)`:
 │                        GenerateDigestDataWorkflow                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  1. Cut teams into id-range batches, count orgs for batching                │
+│  1. Cut teams into id-range batches                                         │
 │                                                                             │
 │  2. Generate team-level data (parallel per batch):                          │
 │     ├── generate_dashboard_lookup                                           │
@@ -87,7 +87,7 @@ Generated via `user_data_key(digest_key, UserDataKey.*, user_id)`:
 │     ├── generate_user_notification_lookup                                   │
 │     └── generate_product_suggestion_lookup                                  │
 │                                                                             │
-│  3. Aggregate into org digests:                                             │
+│  3. Cut orgs into id-range batches and aggregate into org digests:          │
 │     └── generate_organization_digest_batch                                  │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘

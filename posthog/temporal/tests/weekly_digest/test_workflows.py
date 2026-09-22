@@ -33,7 +33,9 @@ from posthog.temporal.weekly_digest.activities import (
     generate_survey_lookup,
     generate_usage_trends_lookup,
     generate_user_notification_lookup,
+    list_organization_id_ranges,
     list_team_id_ranges,
+    send_weekly_digest_batch,
 )
 from posthog.temporal.weekly_digest.types import (
     CommonInput,
@@ -41,6 +43,7 @@ from posthog.temporal.weekly_digest.types import (
     GenerateDigestDataBatchInput,
     GenerateDigestDataInput,
     GenerateOrganizationDigestInput,
+    OrganizationIdRange,
     SendWeeklyDigestBatchInput,
     SendWeeklyDigestInput,
     TeamIdRange,
@@ -71,7 +74,7 @@ _test_state: _TestState = {"generate_called": False, "send_called": False, "capt
 class MockGenerateDigestDataWorkflow:
     @workflow.run
     async def run(self, input: GenerateDigestDataInput) -> None:
-        await workflow.sleep(timedelta(hours=7))
+        await workflow.sleep(timedelta(hours=3))
         _test_state["generate_called"] = True
 
 
@@ -152,9 +155,46 @@ class LegacyGenerateDigestDataWorkflow:
         )
 
 
+@workflow.defn(name="send-weekly-digest")
+class LegacySendWeeklyDigestWorkflow:
+    @workflow.run
+    async def run(self, input: SendWeeklyDigestInput) -> None:
+        organization_count = await workflow.execute_activity(
+            count_organizations,
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=common.RetryPolicy(maximum_attempts=2, initial_interval=timedelta(minutes=1)),
+            heartbeat_timeout=timedelta(minutes=1),
+        )
+        batch_size = input.common.batch_size
+        await asyncio.gather(
+            *(
+                workflow.execute_activity(
+                    send_weekly_digest_batch,
+                    SendWeeklyDigestBatchInput(
+                        batch=(start, start + batch_size),
+                        dry_run=input.dry_run,
+                        allow_already_sent=input.allow_already_sent,
+                        digest=input.digest,
+                        common=input.common,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=30),
+                    retry_policy=common.RetryPolicy(maximum_attempts=2, initial_interval=timedelta(minutes=1)),
+                    heartbeat_timeout=timedelta(minutes=2),
+                )
+                for start in range(0, organization_count, batch_size)
+            )
+        )
+
+
+ORGANIZATION_ID_RANGES = [
+    OrganizationIdRange(start=uuid.UUID(int=1), end=uuid.UUID(int=2)),
+    OrganizationIdRange(start=uuid.UUID(int=2), end=None),
+]
+
+
 @pytest.mark.asyncio
 async def test_weekly_digest_workflow():
-    """Generation can take seven hours and still complete before sending starts."""
+    """Generation can take three hours and still complete before sending starts."""
     _test_state["generate_called"] = False
     _test_state["send_called"] = False
 
@@ -209,19 +249,19 @@ async def test_generate_digest_data_bounds_pending_activities(patched: bool) -> 
     pending = 0
     peak_pending = 0
     completed: list[tuple[object, int, int]] = []
-    aggregated: list[tuple[int, int]] = []
+    aggregated: list[OrganizationIdRange | tuple[int, int] | None] = []
 
     async def execute_activity(activity_fn: object, activity_input: object = None, **_: object) -> object:
         nonlocal pending, peak_pending
         if activity_fn is list_team_id_ranges:
             return team_ranges
-        if activity_fn is count_organizations:
+        if activity_fn is count_organizations or activity_fn is list_organization_id_ranges:
             assert pending == 0
             assert len(completed) == 13 * len(team_ranges)
-            return 3
+            return ORGANIZATION_ID_RANGES if activity_fn is list_organization_id_ranges else 3
         if activity_fn is generate_organization_digest_batch:
             assert isinstance(activity_input, GenerateOrganizationDigestInput)
-            aggregated.append(activity_input.batch)
+            aggregated.append(activity_input.organization_id_range or activity_input.batch)
             return None
 
         assert isinstance(activity_input, GenerateDigestDataBatchInput)
@@ -253,10 +293,11 @@ async def test_generate_digest_data_bounds_pending_activities(patched: bool) -> 
     assert Counter((start, end) for _, start, end in completed) == {
         (team_range.start, team_range.end): 13 for team_range in team_ranges
     }
-    assert aggregated == [(0, 2), (2, 4)]
     if patched:
+        assert aggregated == ORGANIZATION_ID_RANGES
         assert peak_pending <= MAX_CONCURRENT_GENERATION_ACTIVITIES < 2000
     else:
+        assert aggregated == [(0, 2), (2, 4)]
         assert peak_pending == 13 * len(team_ranges)
 
 
@@ -368,6 +409,7 @@ async def test_generate_digest_data_workflow():
     activity_calls = {
         "team_id_ranges": 0,
         "count_organizations": 0,
+        "organization_id_ranges": 0,
         "dashboard": 0,
         "event_definition": 0,
         "experiment_completed": 0,
@@ -393,6 +435,11 @@ async def test_generate_digest_data_workflow():
     async def count_organizations_mocked() -> int:
         activity_calls["count_organizations"] += 1
         return TEST_ORG_COUNT
+
+    @activity.defn(name="list-organization-id-ranges")
+    async def list_organization_id_ranges_mocked(input: CommonInput) -> list[OrganizationIdRange]:
+        activity_calls["organization_id_ranges"] += 1
+        return ORGANIZATION_ID_RANGES
 
     @activity.defn(name="generate-dashboard-lookup")
     async def generate_dashboard_lookup_mocked(input) -> None:
@@ -459,6 +506,7 @@ async def test_generate_digest_data_workflow():
             activities=[
                 list_team_id_ranges_mocked,
                 count_organizations_mocked,
+                list_organization_id_ranges_mocked,
                 generate_dashboard_lookup_mocked,
                 generate_event_definition_lookup_mocked,
                 generate_experiment_completed_lookup_mocked,
@@ -491,7 +539,9 @@ async def test_generate_digest_data_workflow():
             )
 
     assert activity_calls["team_id_ranges"] == 1
-    assert activity_calls["count_organizations"] == 1
+    # A fresh execution pages organizations by id range and never counts them.
+    assert activity_calls["organization_id_ranges"] == 1
+    assert activity_calls["count_organizations"] == 0
 
     # Calculate expected batches for teams
     expected_team_batches = (TEST_TEAM_COUNT + TEST_BATCH_SIZE - 1) // TEST_BATCH_SIZE
@@ -511,9 +561,7 @@ async def test_generate_digest_data_workflow():
     assert activity_calls["error_issue"] == expected_team_batches
     assert activity_calls["usage_trends"] == expected_team_batches
 
-    # Calculate expected batches for organizations
-    expected_org_batches = (TEST_ORG_COUNT + TEST_BATCH_SIZE - 1) // TEST_BATCH_SIZE
-    assert activity_calls["org_digest"] == expected_org_batches
+    assert activity_calls["org_digest"] == len(ORGANIZATION_ID_RANGES)
 
 
 @pytest.mark.asyncio
@@ -524,17 +572,26 @@ async def test_send_weekly_digest_workflow():
 
     activity_calls = {
         "count_organizations": 0,
+        "organization_id_ranges": 0,
         "send_batch": 0,
     }
+    sent_ranges: list[OrganizationIdRange] = []
 
     @activity.defn(name="count-organizations")
     async def count_organizations_mocked() -> int:
         activity_calls["count_organizations"] += 1
         return TEST_ORG_COUNT
 
+    @activity.defn(name="list-organization-id-ranges")
+    async def list_organization_id_ranges_mocked(input: CommonInput) -> list[OrganizationIdRange]:
+        activity_calls["organization_id_ranges"] += 1
+        return ORGANIZATION_ID_RANGES
+
     @activity.defn(name="send-weekly-digest-batch")
     async def send_weekly_digest_batch_mocked(input: SendWeeklyDigestBatchInput) -> None:
         activity_calls["send_batch"] += 1
+        assert input.organization_id_range is not None
+        sent_ranges.append(input.organization_id_range)
         assert input.dry_run is True
         assert input.digest.key == "test-digest"
 
@@ -546,6 +603,7 @@ async def test_send_weekly_digest_workflow():
             workflows=[SendWeeklyDigestWorkflow],
             activities=[
                 count_organizations_mocked,
+                list_organization_id_ranges_mocked,
                 send_weekly_digest_batch_mocked,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
@@ -566,11 +624,62 @@ async def test_send_weekly_digest_workflow():
                 task_queue=task_queue_name,
             )
 
-    assert activity_calls["count_organizations"] == 1
+    assert activity_calls["organization_id_ranges"] == 1
+    assert activity_calls["count_organizations"] == 0
+    assert activity_calls["send_batch"] == len(ORGANIZATION_ID_RANGES)
+    assert sorted(sent_ranges, key=lambda r: r.start) == ORGANIZATION_ID_RANGES
 
-    # Calculate expected batches
-    expected_batches = (TEST_ORG_COUNT + TEST_BATCH_SIZE - 1) // TEST_BATCH_SIZE
-    assert activity_calls["send_batch"] == expected_batches
+
+@pytest.mark.asyncio
+async def test_send_weekly_digest_replays_pre_patch_history() -> None:
+    # A send that started before the organization id range patch must finish on the new code,
+    # so its offset batches and count-organizations call have to replay unchanged.
+    @activity.defn(name="count-organizations")
+    async def count_organizations_mocked() -> int:
+        return 5
+
+    @activity.defn(name="send-weekly-digest-batch")
+    async def send_weekly_digest_batch_mocked(_input: SendWeeklyDigestBatchInput) -> None:
+        return None
+
+    task_queue_name = str(uuid.uuid4())
+    period_end = datetime.now(UTC)
+    send_input = SendWeeklyDigestInput(
+        dry_run=True,
+        allow_already_sent=False,
+        digest=Digest(key="replay-test", period_start=period_end - timedelta(days=7), period_end=period_end),
+        common=CommonInput(batch_size=2, redis_host="localhost", redis_port=6379),
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[LegacySendWeeklyDigestWorkflow],
+            activities=[count_organizations_mocked, send_weekly_digest_batch_mocked],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            handle = await env.client.start_workflow(
+                LegacySendWeeklyDigestWorkflow.run,
+                send_input,
+                id=str(uuid.uuid4()),
+                task_queue=task_queue_name,
+                execution_timeout=timedelta(seconds=30),
+            )
+            await handle.result()
+            pre_patch_history = await handle.fetch_history()
+
+    scheduled_activity_types = [
+        event.activity_task_scheduled_event_attributes.activity_type.name
+        for event in pre_patch_history.events
+        if event.HasField("activity_task_scheduled_event_attributes")
+    ]
+    assert scheduled_activity_types == ["count-organizations"] + ["send-weekly-digest-batch"] * 3
+    assert not any(event.HasField("marker_recorded_event_attributes") for event in pre_patch_history.events)
+    await Replayer(
+        workflows=[SendWeeklyDigestWorkflow],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ).replay_workflow(pre_patch_history)
 
 
 @pytest.mark.asyncio
