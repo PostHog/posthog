@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { clamp } from 'lib/utils/numbers'
+
 function clampPercentage(value: number): number {
-    return Math.round(Math.min(100, Math.max(0, value)) * 100) / 100
+    return Math.round(clamp(value, 0, 100) * 100) / 100
 }
 
 /** A percentage input (0–100) that allows clearing the field while typing.
