@@ -554,11 +554,6 @@
         "params": [],
         "scope": "project"
     },
-    "decisionPlayground": {
-        "template": "/ml-inference/decisions",
-        "params": [],
-        "scope": "project"
-    },
     "destinations": {
         "template": "/data-management/destinations",
         "params": [],
