@@ -43,6 +43,7 @@ from posthog.temporal.alerts.admission import (
     inflight_alert_ids,
     max_inflight_evaluations,
     release_evaluation_slot,
+    release_evaluation_slots,
 )
 from posthog.temporal.alerts.investigation import claim_investigation_slot, decide_investigation
 from posthog.temporal.alerts.metrics import record_due_insight_alert_metrics
@@ -58,6 +59,7 @@ from posthog.temporal.alerts.types import (
     PrepareAlertResult,
     RecordFailedEvaluationActivityInputs,
     RecordFailedEvaluationResult,
+    ReleaseEvaluationSlotsInputs,
     ScheduleDueAlertChecksWorkflowInputs,
     SkipReason,
 )
@@ -195,6 +197,11 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
 async def admit_alert_evaluations(inputs: AdmitEvaluationsInputs) -> AdmittedEvaluations:
     admitted = await asyncio.to_thread(admit_evaluation_slots, inputs.alert_ids, limit=max_inflight_evaluations())
     return AdmittedEvaluations(alert_ids=admitted)
+
+
+@temporalio.activity.defn
+async def release_alert_evaluation_slots(inputs: ReleaseEvaluationSlotsInputs) -> None:
+    await asyncio.to_thread(release_evaluation_slots, inputs.alert_ids)
 
 
 def _has_active_destinations(alert: AlertConfiguration) -> bool:
@@ -468,12 +475,12 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             investigation_user_id=alert.created_by_id if should_start_investigation else None,
         )
 
-    await asyncio.to_thread(hold_evaluation_slot, inputs.alert_id)
+    held_until = await asyncio.to_thread(hold_evaluation_slot, inputs.alert_id)
     try:
         async with Heartbeater():
             return await _evaluate()
     finally:
-        await asyncio.to_thread(release_evaluation_slot, inputs.alert_id)
+        await asyncio.to_thread(release_evaluation_slot, inputs.alert_id, held_until=held_until)
 
 
 @temporalio.activity.defn

@@ -49,6 +49,11 @@ class AdmittedEvaluations:
     alert_ids: list[str]
 
 
+@frozen
+class ReleaseEvaluationSlotsInputs:
+    alert_ids: list[str]
+
+
 @dataclasses.dataclass(frozen=True)
 class CheckAlertWorkflowInputs:
     alert_id: str

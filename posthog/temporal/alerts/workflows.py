@@ -17,6 +17,7 @@ from posthog.temporal.alerts.activities import (
     notify_alert,
     prepare_alert,
     record_failed_evaluation,
+    release_alert_evaluation_slots,
     retrieve_due_alerts,
     run_investigation_safety_net,
 )
@@ -35,6 +36,7 @@ from posthog.temporal.alerts.types import (
     PrepareAction,
     PrepareAlertActivityInputs,
     RecordFailedEvaluationActivityInputs,
+    ReleaseEvaluationSlotsInputs,
     ScheduleDueAlertChecksWorkflowInputs,
 )
 from posthog.temporal.common.base import PostHogWorkflow
@@ -105,6 +107,14 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
             temporalio.workflow.logger.info(
                 "check_alert.admission_budget_exhausted",
                 extra={"remaining": len(pending)},
+            )
+        if failed_ids:
+            # No child exists to give these slots back, so free them here rather than at lease expiry.
+            await temporalio.workflow.execute_activity(
+                release_alert_evaluation_slots,
+                ReleaseEvaluationSlotsInputs(alert_ids=failed_ids),
+                start_to_close_timeout=dt.timedelta(seconds=30),
+                retry_policy=_ADMISSION_ACTIVITY_RETRY_POLICY,
             )
         self._raise_for_failed_starts(failed_ids)
 

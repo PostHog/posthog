@@ -1,5 +1,4 @@
 import time
-from collections.abc import Callable
 
 from django.conf import settings
 
@@ -45,43 +44,79 @@ end
 return admitted
 """
 
+# Temporal can retry an activity while the timed-out attempt is still running, so only the attempt
+# whose expiry is still on the member may remove it.
+_RELEASE_OWNED_SCRIPT = """
+local key = KEYS[1]
+local alert_id = ARGV[1]
+local held_until = tonumber(ARGV[2])
+local current = redis.call('ZSCORE', key, alert_id)
+if current and tonumber(current) == held_until then
+    return redis.call('ZREM', key, alert_id)
+end
+return 0
+"""
+
 
 def max_inflight_evaluations() -> int:
     return settings.ALERTS_MAX_INFLIGHT_EVALUATIONS
+
+
+def _admit(alert_ids: list[str], *, limit: int, now: float) -> list[str]:
+    admitted = redis.get_client().eval(_ADMIT_SCRIPT, 1, INFLIGHT_KEY, now, limit, now + SLOT_LEASE_SECONDS, *alert_ids)
+    return [member.decode() if isinstance(member, bytes) else member for member in admitted]
 
 
 def admit_evaluation_slots(alert_ids: list[str], *, limit: int) -> list[str]:
     """Admit candidates in order while the set has room and return the ids that got a slot."""
     if not alert_ids:
         return []
+    return _admit(alert_ids, limit=limit, now=time.time())
+
+
+def reserve_evaluation_slots(alert_ids: list[str]) -> float:
+    """Take slots regardless of the limit and return the expiry they were given."""
     now = time.time()
-    admitted = redis.get_client().eval(_ADMIT_SCRIPT, 1, INFLIGHT_KEY, now, limit, now + SLOT_LEASE_SECONDS, *alert_ids)
-    return [member.decode() if isinstance(member, bytes) else member for member in admitted]
+    if alert_ids:
+        _admit(alert_ids, limit=_UNLIMITED, now=now)
+    return now + SLOT_LEASE_SECONDS
 
 
-def reserve_evaluation_slots(alert_ids: list[str]) -> None:
-    admit_evaluation_slots(alert_ids, limit=_UNLIMITED)
-
-
-def _best_effort(operation: Callable[[], object], event: str, alert_id: str) -> None:
-    # Bookkeeping must not fail a check that already ran, so retry briefly and then log instead of raising.
+def hold_evaluation_slot(alert_id: str) -> float:
+    """Take the slot for an evaluation that is about to run and return the expiry that identifies this holder."""
     for attempt in range(_BOOKKEEPING_ATTEMPTS):
         try:
-            operation()
+            return reserve_evaluation_slots([alert_id])
+        except Exception:
+            if attempt == _BOOKKEEPING_ATTEMPTS - 1:
+                raise
+            time.sleep(_BOOKKEEPING_RETRY_SECONDS)
+    raise AssertionError("unreachable")
+
+
+def release_evaluation_slot(alert_id: str, *, held_until: float | None = None) -> None:
+    """Free a slot; with held_until, only if this holder still owns it.
+
+    Best effort: the check this belongs to already ran, so a failure is logged rather than raised.
+    """
+    for attempt in range(_BOOKKEEPING_ATTEMPTS):
+        try:
+            client = redis.get_client()
+            if held_until is None:
+                client.zrem(INFLIGHT_KEY, alert_id)
+            else:
+                client.eval(_RELEASE_OWNED_SCRIPT, 1, INFLIGHT_KEY, alert_id, held_until)
             return
         except Exception:
             if attempt == _BOOKKEEPING_ATTEMPTS - 1:
-                logger.exception(event, alert_id=alert_id)
+                logger.exception("alerts.admission.release_failed", alert_id=alert_id)
                 return
             time.sleep(_BOOKKEEPING_RETRY_SECONDS)
 
 
-def hold_evaluation_slot(alert_id: str) -> None:
-    _best_effort(lambda: reserve_evaluation_slots([alert_id]), "alerts.admission.hold_failed", alert_id)
-
-
-def release_evaluation_slot(alert_id: str) -> None:
-    _best_effort(lambda: redis.get_client().zrem(INFLIGHT_KEY, alert_id), "alerts.admission.release_failed", alert_id)
+def release_evaluation_slots(alert_ids: list[str]) -> None:
+    if alert_ids:
+        redis.get_client().zrem(INFLIGHT_KEY, *alert_ids)
 
 
 def inflight_alert_ids() -> set[str]:

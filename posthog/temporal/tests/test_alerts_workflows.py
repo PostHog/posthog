@@ -38,6 +38,7 @@ from posthog.temporal.alerts.activities import (
     notify_alert,
     prepare_alert,
     record_failed_evaluation,
+    release_alert_evaluation_slots,
     retrieve_due_alerts,
 )
 from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY
@@ -84,6 +85,7 @@ class _SchedulerRun:
     start_child: AsyncMock
     sleep: AsyncMock
     admitted: list[list[str]]
+    released: list[list[str]]
 
 
 @contextmanager
@@ -97,6 +99,7 @@ def _admission_scheduler(
     pages = iter(due_pages)
     capacities = iter(free_capacity)
     admitted: list[list[str]] = []
+    released: list[list[str]] = []
     clock = itertools.count(0, seconds_per_clock_read)
     started_at = datetime(2026, 9, 22, 10, 0, tzinfo=UTC)
 
@@ -108,6 +111,9 @@ def _admission_scheduler(
             if admitted_ids:
                 admitted.append(admitted_ids)
             return AdmittedEvaluations(alert_ids=admitted_ids)
+        if activity is release_alert_evaluation_slots:
+            released.append(list(args[0].alert_ids))
+            return None
         raise AssertionError(f"unexpected activity {activity}")
 
     execute_activity_mock = AsyncMock(side_effect=execute_activity)
@@ -125,7 +131,11 @@ def _admission_scheduler(
         patch("posthog.temporal.alerts.workflows.temporalio.workflow.logger", new=MagicMock()),
     ):
         yield _SchedulerRun(
-            execute_activity=execute_activity_mock, start_child=start_child, sleep=sleep, admitted=admitted
+            execute_activity=execute_activity_mock,
+            start_child=start_child,
+            sleep=sleep,
+            admitted=admitted,
+            released=released,
         )
 
 
@@ -292,6 +302,7 @@ async def test_schedule_due_alert_checks_attempts_remaining_children_before_repo
             await ScheduleDueAlertChecksWorkflow().run()
 
     assert run.start_child.await_count == 2
+    assert run.released == [["alert-0"]]
 
 
 def test_schedule_is_registered_in_init_schedules():
