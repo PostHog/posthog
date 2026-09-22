@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useLayoutEffect, useRef, useState } from 'react'
 
 import { IconPencil, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
@@ -21,6 +22,46 @@ import { ExperimentDuration } from './ExperimentDuration'
 import { ExperimentReloadActionContainer } from './ExperimentReloadActionContainer'
 import { flagCleanupTaskLogic } from './flagCleanupTaskLogic'
 import { RunningTime } from './RunningTime'
+
+function ConclusionComment({ comment }: { comment: string }): JSX.Element {
+    const [isExpanded, setIsExpanded] = useState(false)
+    const [isOverflowing, setIsOverflowing] = useState(false)
+    const textRef = useRef<HTMLParagraphElement>(null)
+
+    useLayoutEffect(() => {
+        if (isExpanded) {
+            return
+        }
+        const element = textRef.current
+        if (!element) {
+            return
+        }
+        const checkOverflow = (): void => setIsOverflowing(element.scrollHeight > element.clientHeight + 1)
+        checkOverflow()
+        const observer = new ResizeObserver(checkOverflow)
+        observer.observe(element)
+        return () => observer.disconnect()
+    }, [comment, isExpanded])
+
+    return (
+        <>
+            <p
+                ref={textRef}
+                className={clsx(
+                    'metric-cell font-normal m-0 mt-1 leading-relaxed whitespace-pre-wrap break-words',
+                    !isExpanded && 'max-h-36 overflow-hidden'
+                )}
+            >
+                {comment}
+            </p>
+            {(isOverflowing || isExpanded) && (
+                <LemonButton className="mt-1" size="xsmall" type="tertiary" onClick={() => setIsExpanded(!isExpanded)}>
+                    {isExpanded ? 'Show less' : 'Show more'}
+                </LemonButton>
+            )}
+        </>
+    )
+}
 
 function FlagCleanupField({ experimentId, taskId }: { experimentId: number; taskId: string }): JSX.Element | null {
     const { cleanupTask } = useValues(flagCleanupTaskLogic({ experimentId }))
@@ -251,9 +292,7 @@ export function Info(): JSX.Element {
                             {CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]?.title || experiment.conclusion}
                         </span>
                     </div>
-                    <p className="metric-cell font-normal m-0 mt-1 leading-relaxed whitespace-pre-wrap break-words">
-                        {experiment.conclusion_comment}
-                    </p>
+                    <ConclusionComment comment={experiment.conclusion_comment} />
                 </LemonCard>
             )}
         </>
