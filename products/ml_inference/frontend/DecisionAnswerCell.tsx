@@ -25,12 +25,19 @@ export function DecisionAnswerCell({
     }
     const labelOf = (option: string): string => scaleLabels?.[Number(option)] ?? option
     const ranked = Object.entries(answer.probabilities ?? {}).sort(([, a], [, b]) => b - a)
+    const score = answer.score ?? 0
+    const scaleTop = ranked.length - 1
     return (
         <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
                 <LemonTag type="highlight">
-                    {answer.type === 'choice' ? answer.choice : answer.score?.toFixed(2)}
+                    {answer.type === 'choice' ? answer.choice : labelOf(String(Math.round(score)))}
                 </LemonTag>
+                {answer.type === 'score' && (
+                    <span className="text-secondary">
+                        {score.toFixed(2)} on a 0 to {scaleTop} scale
+                    </span>
+                )}
                 <span className="text-secondary">{percent(answer.confidence)} confidence</span>
             </div>
             <div className="text-secondary text-xs">

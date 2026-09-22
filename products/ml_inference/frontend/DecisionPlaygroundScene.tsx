@@ -20,11 +20,11 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { DecisionAnswerCell } from './DecisionAnswerCell'
 import {
+    PlaygroundOption,
     PlaygroundQuestion,
     PlaygroundQuestionType,
     QuestionsView,
     decisionPlaygroundLogic,
-    parseScale,
 } from './decisionPlaygroundLogic'
 import type { DecisionAnswerApi } from './generated/api.schemas'
 
@@ -55,8 +55,18 @@ export function DecisionPlaygroundScene(): JSX.Element {
         decisionLoading,
         askDisabledReason,
     } = useValues(decisionPlaygroundLogic)
-    const { setState, addQuestion, removeQuestion, updateQuestion, setQuestionsView, setQuestionsJson, askDecision } =
-        useActions(decisionPlaygroundLogic)
+    const {
+        setState,
+        addQuestion,
+        removeQuestion,
+        updateQuestion,
+        addOption,
+        removeOption,
+        updateOption,
+        setQuestionsView,
+        setQuestionsJson,
+        askDecision,
+    } = useActions(decisionPlaygroundLogic)
 
     const answerRows = decision
         ? Object.entries(decision.answers).map(([key, answer]) => {
@@ -64,7 +74,10 @@ export function DecisionPlaygroundScene(): JSX.Element {
               return {
                   key,
                   question: question?.instructions ?? key,
-                  scaleLabels: question?.type === 'score' ? parseScale(question.criteria) : undefined,
+                  scaleLabels:
+                      question?.type === 'score'
+                          ? question.options.map((option) => option.name.trim()).filter(Boolean)
+                          : undefined,
                   answer: answer as DecisionAnswerApi,
               }
           })
@@ -116,6 +129,9 @@ export function DecisionPlaygroundScene(): JSX.Element {
                                 question={question}
                                 onChange={(patch) => updateQuestion(question.key, patch)}
                                 onRemove={() => removeQuestion(question.key)}
+                                onAddOption={() => addOption(question.key)}
+                                onRemoveOption={(optionKey) => removeOption(question.key, optionKey)}
+                                onChangeOption={(optionKey, patch) => updateOption(question.key, optionKey, patch)}
                             />
                         ))}
                         <div>
@@ -179,10 +195,16 @@ function QuestionRow({
     question,
     onChange,
     onRemove,
+    onAddOption,
+    onRemoveOption,
+    onChangeOption,
 }: {
     question: PlaygroundQuestion
     onChange: (patch: Partial<PlaygroundQuestion>) => void
     onRemove: () => void
+    onAddOption: () => void
+    onRemoveOption: (optionKey: string) => void
+    onChangeOption: (optionKey: string, patch: Partial<PlaygroundOption>) => void
 }): JSX.Element {
     return (
         <div className="flex flex-col gap-2 border rounded p-3">
@@ -212,28 +234,79 @@ function QuestionRow({
                     data-attr="decision-playground-remove-question"
                 />
             </div>
-            {question.type === 'choice' && (
-                <div>
-                    <LemonLabel>Options, one per line as name: what it means</LemonLabel>
-                    <LemonTextArea
-                        value={question.criteria}
-                        onChange={(criteria) => onChange({ criteria })}
-                        minRows={2}
-                        placeholder={'billing: payments, invoices, refunds\nsupport: product questions and bugs'}
+            {question.type !== 'noul' && (
+                <div className="flex flex-col gap-1">
+                    <LemonLabel>{question.type === 'choice' ? 'Options' : 'Scale, from lowest to highest'}</LemonLabel>
+                    {question.options.map((option, index) => (
+                        <OptionRow
+                            key={option.key}
+                            option={option}
+                            position={question.type === 'score' ? index : undefined}
+                            withMeaning={question.type === 'choice'}
+                            onChange={(patch) => onChangeOption(option.key, patch)}
+                            onRemove={() => onRemoveOption(option.key)}
+                        />
+                    ))}
+                    <div>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconPlus />}
+                            onClick={onAddOption}
+                            data-attr="decision-playground-add-option"
+                        >
+                            {question.type === 'choice' ? 'Add option' : 'Add label'}
+                        </LemonButton>
+                    </div>
+                </div>
+            )}
+        </div>
+    )
+}
+
+function OptionRow({
+    option,
+    position,
+    withMeaning,
+    onChange,
+    onRemove,
+}: {
+    option: PlaygroundOption
+    /** The option's place on a rating scale, shown so the order of the labels is visible. */
+    position?: number
+    withMeaning: boolean
+    onChange: (patch: Partial<PlaygroundOption>) => void
+    onRemove: () => void
+}): JSX.Element {
+    return (
+        <div className="flex flex-wrap gap-2 items-center">
+            {position !== undefined && <span className="text-secondary w-4 text-right">{position}</span>}
+            <div className="w-40">
+                <LemonInput
+                    value={option.name}
+                    onChange={(name) => onChange({ name })}
+                    placeholder={withMeaning ? 'billing' : 'calm'}
+                    size="small"
+                />
+            </div>
+            {withMeaning && (
+                <div className="flex-1 min-w-60">
+                    <LemonInput
+                        value={option.meaning}
+                        onChange={(meaning) => onChange({ meaning })}
+                        placeholder="payments, invoices, refunds"
+                        size="small"
                     />
                 </div>
             )}
-            {question.type === 'score' && (
-                <div>
-                    <LemonLabel>Scale labels, one per line from lowest to highest</LemonLabel>
-                    <LemonTextArea
-                        value={question.criteria}
-                        onChange={(criteria) => onChange({ criteria })}
-                        minRows={2}
-                        placeholder={'calm\nirritated\nangry'}
-                    />
-                </div>
-            )}
+            <LemonButton
+                icon={<IconTrash />}
+                status="danger"
+                size="small"
+                onClick={onRemove}
+                tooltip={withMeaning ? 'Remove option' : 'Remove label'}
+                data-attr="decision-playground-remove-option"
+            />
         </div>
     )
 }

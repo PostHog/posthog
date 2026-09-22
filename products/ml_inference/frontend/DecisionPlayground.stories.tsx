@@ -12,21 +12,29 @@ const answered = mswDecorator({
             {
                 model: 'kev-4b',
                 answers: {
-                    urgent: {
+                    acceptable: {
                         type: 'noul',
-                        probability: 0.94,
+                        probability: 0.31,
                         choice: null,
                         score: null,
                         confidence: null,
                         probabilities: null,
                     },
-                    queue: {
+                    company_type: {
                         type: 'choice',
                         probability: null,
-                        choice: 'billing',
+                        choice: 'saas',
                         score: null,
-                        confidence: 0.94,
-                        probabilities: { billing: 0.97, support: 0.03 },
+                        confidence: 0.91,
+                        probabilities: { saas: 0.94, restaurant: 0.05, zoo: 0.01 },
+                    },
+                    importance: {
+                        type: 'score',
+                        probability: null,
+                        choice: null,
+                        score: 2.4,
+                        confidence: 0.62,
+                        probabilities: { '0': 0.02, '1': 0.08, '2': 0.38, '3': 0.52 },
                     },
                 },
                 input_tokens: 50,
@@ -51,5 +59,5 @@ export default meta
 
 type Story = StoryObj<{}>
 
-// The playground before anything is asked: the example ticket and two example questions.
+// The playground before anything is asked: the example text and the three example questions.
 export const Playground: Story = {}
