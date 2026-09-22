@@ -90,7 +90,10 @@ class TestExternalDataSchema(APIBaseTest):
         self.postgres_config = postgres_config
         self.temporal = temporal
 
-    def test_incremental_fields_stripe(self):
+    @parameterized.expand(
+        [("no_key_reported", {}, None), ("key_reported_by_sync", {"reported_primary_keys": ["id"]}, ["id"])]
+    )
+    def test_incremental_fields_stripe(self, _name, sync_type_config, expected_primary_keys):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.STRIPE,
@@ -103,6 +106,7 @@ class TestExternalDataSchema(APIBaseTest):
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config=sync_type_config,
         )
         with mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)):
             response = self.client.post(
@@ -122,7 +126,7 @@ class TestExternalDataSchema(APIBaseTest):
             "supports_webhooks": True,
             "webhook_only": False,
             "available_columns": [],
-            "detected_primary_keys": None,
+            "detected_primary_keys": expected_primary_keys,
             "primary_key_detection_supported": False,
         }
 
@@ -304,6 +308,7 @@ class TestExternalDataSchema(APIBaseTest):
             name="posthog_test",
             team=self.team,
             source=source,
+            sync_type_config={"reported_primary_keys": ["stale_key"]},
         )
 
         response = await sync_to_async(self.client.post)(

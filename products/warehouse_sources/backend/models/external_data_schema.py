@@ -637,6 +637,14 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
+    def reported_primary_keys(self) -> list[str] | None:
+        """The key the source's last sync reported, for display while no merge key is stored."""
+        if self.sync_type_config:
+            return self.sync_type_config.get("reported_primary_keys", None)
+
+        return None
+
+    @property
     def incremental_sync_blocked(self) -> str | None:
         """Why the last run proved this schema's incremental sync can never succeed, if it did."""
         return incremental_sync_blocked_reason(self.latest_error)

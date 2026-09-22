@@ -72,24 +72,41 @@ class TestResolvePrimaryKeys:
 class TestPersistPrimaryKeys:
     @parameterized.expand(
         [
-            # name, is_incremental, is_cdc, persisted_pk, resource_pks, db_config_before, expected_written (None = no write attempted)
-            # Full-refresh schemas don't merge on a PK — never touch sync_type_config.
-            ("skips_when_not_incremental", False, False, None, ["id"], {}, None),
+            # name, sync_type, persisted_pk, reported_pk, resource_pks, db_config_before, expected_written (None = no write attempted)
+            (
+                "records_reported_key_on_full_refresh",
+                "full_refresh",
+                None,
+                None,
+                ["id"],
+                None,
+                {"reported_primary_keys": ["id"]},
+            ),
+            ("skips_unchanged_reported_key", "full_refresh", None, ["id"], ["id"], None, None),
+            ("replaces_changed_reported_key", "append", None, ["old"], ["id"], None, {"reported_primary_keys": ["id"]}),
             # A CDC schema snapshots as full_refresh but streams incrementally, so its key must be
             # persisted during that first run — otherwise the streaming phase has no merge key and
             # trips the keyless-table guardrail.
-            ("backfills_for_cdc_snapshot", False, True, None, ["id"], {}, {"primary_key_columns": ["id"]}),
+            ("backfills_for_cdc_snapshot", "cdc", None, None, ["id"], None, {"primary_key_columns": ["id"]}),
             # A stored PK is already the source of truth — nothing to backfill.
-            ("skips_when_already_persisted", True, False, ["existing"], ["id"], {}, None),
+            ("skips_when_already_persisted", "incremental", ["existing"], None, ["id"], None, None),
             # No resolvable PK -> leave it empty so the keyless-table guardrail still fires.
-            ("skips_when_no_resolved_pk", True, False, None, None, {}, None),
+            ("skips_when_no_resolved_pk", "incremental", None, None, None, None, None),
             # The fix: an incremental schema with no stored PK backfills the resolved one.
-            ("backfills_when_incremental_and_empty", True, False, None, ["id"], {}, {"primary_key_columns": ["id"]}),
+            (
+                "backfills_when_incremental_and_empty",
+                "incremental",
+                None,
+                None,
+                ["id"],
+                None,
+                {"primary_key_columns": ["id"]},
+            ),
             # A concurrent API edit that landed a PK first must not be clobbered inside the lock.
             (
                 "does_not_clobber_concurrent_write",
-                True,
-                False,
+                "incremental",
+                None,
                 None,
                 ["id"],
                 {"primary_key_columns": ["already"]},
@@ -98,35 +115,40 @@ class TestPersistPrimaryKeys:
         ]
     )
     @pytest.mark.asyncio
-    async def test_persists_only_when_incremental_and_empty(
+    async def test_persists_keys_into_sync_type_config(
         self,
         _name: str,
-        is_incremental: bool,
-        is_cdc: bool,
+        sync_type: str,
         persisted: list[str] | None,
+        reported: list[str] | None,
         resource_pks: list[str] | None,
-        db_config_before: dict,
+        db_config_before: dict | None,
         expected_written: dict | None,
     ):
-        schema = MagicMock(id="s1", team_id=1, primary_key_columns=persisted, is_cdc=is_cdc)
-        resource = MagicMock(primary_keys=resource_pks)
-
-        captured: dict = {}
+        config = {
+            key: value
+            for key, value in (("primary_key_columns", persisted), ("reported_primary_keys", reported))
+            if value is not None
+        }
+        schema = ExternalDataSchema(id=uuid.uuid4(), team_id=1, sync_type=sync_type, sync_type_config=config)
+        resource = MagicMock(primary_keys=resource_pks, verified_primary_keys=None)
+        db = dict(config if db_config_before is None else db_config_before)
+        writes: list[dict] = []
 
         def fake_pool(fn):
-            async def _call(schema_id, team_id, *, mutate=None, **kwargs):
-                config = dict(db_config_before)
+            async def _call(schema_id, team_id, *, updates=None, mutate=None, **kwargs):
+                db.update(updates or {})
                 if mutate is not None:
-                    mutate(config)
-                captured["config"] = config
-                return config
+                    mutate(db)
+                writes.append(dict(db))
+                return dict(db)
 
             return _call
 
         with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", fake_pool):
-            await persist_primary_keys(schema, resource, is_incremental, AsyncMock())
+            await persist_primary_keys(schema, resource, sync_type == "incremental", AsyncMock())
 
-        assert captured.get("config") == expected_written
+        assert (writes[-1] if writes else None) == expected_written
 
     @pytest.mark.asyncio
     async def test_persistence_failure_does_not_raise(self):
@@ -144,7 +166,7 @@ class TestPersistPrimaryKeys:
         with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", fake_pool):
             await persist_primary_keys(schema, resource, True, logger)
 
-        logger.aexception.assert_awaited_once()
+        logger.aexception.assert_awaited()
 
 
 class TestTrimSourceJobInputs:

@@ -2083,7 +2083,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"field": col_name, "label": col_name, "type": col_type, "nullable": nullable}
                 for col_name, col_type, nullable in schema.columns
             ],
-            "detected_primary_keys": schema.detected_primary_keys,
+            # A source that declares its key in code reports none at discovery, so fall back to the
+            # key its last sync reported.
+            "detected_primary_keys": schema.detected_primary_keys or instance.reported_primary_keys,
             "primary_key_detection_supported": source_impl.detects_primary_keys,
         }
 
