@@ -321,8 +321,9 @@ describe('savedInsightsLogic', () => {
         sourceInsight.name = ''
         sourceInsight.derived_name = 'should be copied'
         await logic.asyncActions.duplicateInsight(sourceInsight)
+        // Duplication runs through api.insights.create, which still builds the environments path.
         expect(api.create).toHaveBeenCalledWith(
-            `api/projects/${MOCK_TEAM_ID}/insights`,
+            `api/environments/${MOCK_TEAM_ID}/insights`,
             expect.objectContaining({ name: '' }),
             expect.objectContaining({})
         )
@@ -333,8 +334,9 @@ describe('savedInsightsLogic', () => {
         sourceInsight.name = 'should be copied'
         sourceInsight.derived_name = ''
         await logic.asyncActions.duplicateInsight(sourceInsight)
+        // Duplication runs through api.insights.create, which still builds the environments path.
         expect(api.create).toHaveBeenCalledWith(
-            `api/projects/${MOCK_TEAM_ID}/insights`,
+            `api/environments/${MOCK_TEAM_ID}/insights`,
             expect.objectContaining({ name: 'should be copied (copy)' }),
             expect.objectContaining({})
         )
