@@ -68,6 +68,11 @@ function createHarness({ spyConnect = true } = {}) {
       setAdapter: vi.fn(),
       removeAdapter: vi.fn(),
     },
+    billingStore: {
+      getBilling: () => undefined,
+      setBilling: vi.fn(),
+      removeBilling: vi.fn(),
+    },
     trpc: {
       agent: {
         cancel: { mutate: vi.fn().mockResolvedValue(undefined) },

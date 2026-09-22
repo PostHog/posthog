@@ -162,9 +162,10 @@ function makeOrchestrationDeps(
         }
       }
     },
-    disconnectFromTask: (taskId) =>
+    disconnectFromTask: (taskId, opts) =>
       resolveService<SessionService>(SESSION_SERVICE).disconnectFromTask(
         taskId,
+        opts,
       ),
     archive: (taskId) => {
       const task = getCachedArchiveTask(queryClient, taskId);

@@ -60,7 +60,9 @@ describe("archiveTask", () => {
     await archiveTask(TASK_ID, harness.deps);
 
     expect(harness.deps.archive).toHaveBeenCalledWith(TASK_ID);
-    expect(harness.deps.disconnectFromTask).toHaveBeenCalledWith(TASK_ID);
+    expect(harness.deps.disconnectFromTask).toHaveBeenCalledWith(TASK_ID, {
+      preserveResumeState: true,
+    });
     expect(harness.deps.clearViewedState).toHaveBeenCalledWith(TASK_ID);
     expect(harness.ids).toContain(TASK_ID);
     expect(harness.list.some((a) => a.taskId === TASK_ID)).toBe(true);
