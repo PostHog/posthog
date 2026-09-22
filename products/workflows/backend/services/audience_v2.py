@@ -9,7 +9,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.models.filters import Filter
+from posthog.models.property import PropertyGroup
 from posthog.models.team.team import Team
 
 from products.feature_flags.backend.person_sampling import (
@@ -86,8 +86,8 @@ def get_dedupe_audience_count_v2(team: Team, filters: dict, dedupe_key: str) -> 
         return BlastRadiusResult(affected=min(affected, total), total=total)
 
 
-def _run_dedupe_count(team: Team, filter: Filter, database: Database, sample_modulus: Optional[int]) -> int:
-    query = build_dedupe_count_query(team, filter, sample_modulus=sample_modulus)
+def _run_dedupe_count(team: Team, prop_group: PropertyGroup, database: Database, sample_modulus: Optional[int]) -> int:
+    query = build_dedupe_count_query(team, prop_group, sample_modulus=sample_modulus)
     response = execute_hogql_query(
         query=query,
         team=team,
@@ -98,7 +98,7 @@ def _run_dedupe_count(team: Team, filter: Filter, database: Database, sample_mod
     return response.results[0][0] if response.results else 0
 
 
-def build_dedupe_count_query(team: Team, filter: Filter, sample_modulus: Optional[int]) -> ast.SelectQuery:
+def build_dedupe_count_query(team: Team, prop_group: PropertyGroup, sample_modulus: Optional[int]) -> ast.SelectQuery:
     where_exprs: list[ast.Expr] = [
         ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
@@ -110,8 +110,8 @@ def build_dedupe_count_query(team: Team, filter: Filter, sample_modulus: Optiona
         # A fresh group expr per use: the resolver annotates AST nodes in place, so the
         # WHERE and SELECT must not share one instance.
         where_exprs.append(sample_predicate(email_dedupe_group_expr(), sample_modulus))
-    if len(filter.property_groups.flat) > 0:
-        where_exprs.append(property_to_expr(filter.property_groups, team, scope="person"))
+    if len(prop_group.flat) > 0:
+        where_exprs.append(property_to_expr(prop_group, team, scope="person"))
 
     return ast.SelectQuery(
         select=[ast.Call(name="count", distinct=True, args=[email_dedupe_group_expr()])],

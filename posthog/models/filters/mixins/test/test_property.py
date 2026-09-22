@@ -282,7 +282,7 @@ def test_property_group_parsing_reports_and_skips_unparsable_property(
         }
     )
 
-    with patch("posthog.models.filters.mixins.property.capture_exception") as mock_capture_exception:
+    with patch("posthog.models.property.parse.capture_exception") as mock_capture_exception:
         properties = filter.property_groups.values
 
     assert len(properties) == 1
@@ -305,7 +305,7 @@ def test_property_group_parsing_reports_non_mapping_property():
     # contain both PropertyGroup and Property objects" check first.
     filter = Filter(data={"properties": [{"key": "attr", "value": "val_1"}, "not-a-mapping"]})
 
-    with patch("posthog.models.filters.mixins.property.capture_exception") as mock_capture_exception:
+    with patch("posthog.models.property.parse.capture_exception") as mock_capture_exception:
         properties = filter.property_groups.values
 
     assert len(properties) == 1
@@ -331,7 +331,7 @@ def test_property_group_parsing_disables_code_variable_capture_for_reported_exce
     filter = Filter(data={"properties": [{"key": "attr", "value": "val_1"}, "not-a-mapping"]})
 
     with patch(
-        "posthog.models.filters.mixins.property.capture_exception", side_effect=fake_capture_exception
+        "posthog.models.property.parse.capture_exception", side_effect=fake_capture_exception
     ) as mock_capture_exception:
         _ = filter.property_groups.values
 
