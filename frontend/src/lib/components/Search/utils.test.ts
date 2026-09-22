@@ -1,6 +1,12 @@
 import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
 
-import { SETTINGS_THEME_ITEM_ID, canOpenInNewTab, filterSearchItems, shouldSearchTickets } from './utils'
+import {
+    SETTINGS_THEME_ITEM_ID,
+    canOpenInNewTab,
+    filterSearchItems,
+    searchItemHref,
+    shouldSearchTickets,
+} from './utils'
 
 interface TestItem {
     name: string
@@ -153,5 +159,27 @@ describe('shouldSearchTickets', () => {
     it('does not send a query the server would drop', () => {
         expect(shouldSearchTickets('x'.repeat(200))).toBe(true)
         expect(shouldSearchTickets('x'.repeat(201))).toBe(false)
+    })
+})
+
+// Every path that opens a result reads its href from here, so a wrong surface here silently
+// attributes the view to another list, or to no list at all.
+describe('searchItemHref', () => {
+    const insight = { href: '/insights/abc123', itemType: 'insight' }
+    const cases: [label: string, item: Parameters<typeof searchItemHref>[0], expected: string | undefined][] = [
+        ['tags a starred insight', { ...insight, category: 'starred' }, '/insights/abc123#sceneSource=starred'],
+        ['tags a recent insight', { ...insight, category: 'recents' }, '/insights/abc123#sceneSource=recents'],
+        ['tags a search hit', { ...insight, category: 'insight' }, '/insights/abc123#sceneSource=search'],
+        [
+            'reads the type off the record when the item carries none',
+            { href: '/insights/abc123', category: 'recents', record: { type: 'insight/funnels' } },
+            '/insights/abc123#sceneSource=recents',
+        ],
+        ['leaves a link to anything else alone', { href: '/dashboard/1', category: 'starred' }, '/dashboard/1'],
+        ['leaves an item with nothing to open alone', { category: 'tools' }, undefined],
+    ]
+
+    it.each(cases)('%s', (_label, item, expected) => {
+        expect(searchItemHref(item)).toEqual(expected)
     })
 })

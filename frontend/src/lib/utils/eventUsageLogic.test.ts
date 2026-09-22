@@ -21,6 +21,7 @@ import {
     type DashboardType,
     FilterLogicalOperator,
     FunnelVizType,
+    type InsightShortId,
     PropertyFilterType,
     type QueryBasedInsightModel,
     StepOrderValue,
@@ -68,6 +69,55 @@ describe('eventUsageLogic', () => {
                 const call = capture.mock.calls.find(([name]) => name === event)
                 expect(call?.[1]).toMatchObject({ entry_point: entryPoint })
             }
+        })
+    })
+
+    describe('insight navigation events', () => {
+        let capture: jest.SpyInstance
+
+        beforeEach(() => {
+            initKeaTests()
+            eventUsageLogic.mount()
+            capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        })
+
+        afterEach(() => {
+            capture.mockRestore()
+        })
+
+        it.each([
+            ['starred' as const, 'starred'],
+            ['saved-insights-list' as const, 'saved-insights-list'],
+            [null, 'direct_or_unknown'],
+        ])('reports %s as the source of an insight view', (sceneSource, openedFrom) => {
+            eventUsageLogic.actions.reportInsightViewed(
+                { short_id: 'abc123' as InsightShortId },
+                null,
+                true,
+                0,
+                sceneSource
+            )
+
+            expect(capture).toHaveBeenCalledWith('insight viewed', expect.objectContaining({ opened_from: openedFrom }))
+        })
+
+        it('records the insight short ID alongside the name of a starred item', () => {
+            eventUsageLogic.actions.reportNavbarStarredItemAdded('insight', 'My funnel', 'abc123' as InsightShortId)
+
+            expect(capture).toHaveBeenCalledWith('navbar starred item added', {
+                item_type: 'insight',
+                item_name: 'My funnel',
+                insight_short_id: 'abc123',
+            })
+        })
+
+        it('keeps the name of a starred item that has no insight short ID', () => {
+            eventUsageLogic.actions.reportNavbarStarredItemRemoved('dashboard', 'My dashboard')
+
+            expect(capture).toHaveBeenCalledWith('navbar starred item removed', {
+                item_type: 'dashboard',
+                item_name: 'My dashboard',
+            })
         })
     })
 

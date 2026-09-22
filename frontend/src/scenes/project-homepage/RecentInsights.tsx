@@ -6,10 +6,11 @@ import { CompactList } from 'lib/components/CompactList/CompactList'
 import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { withSceneSource } from 'lib/utils/insightNavigation'
 import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
 import { urls } from 'scenes/urls'
 
-import { QueryBasedInsightModel } from '~/types'
+import { InsightSceneSource, QueryBasedInsightModel } from '~/types'
 
 import { ProjectHomePageCompactListItem } from './ProjectHomePageCompactListItem'
 import { projectHomepageLogic } from './projectHomepageLogic'
@@ -19,9 +20,10 @@ interface InsightRowProps {
     dataAttr?: string
     /** When true, text wraps instead of truncating and the row height grows to fit. */
     allowWrap?: boolean
+    sceneSource?: InsightSceneSource
 }
 
-export function InsightRow({ insight, dataAttr, allowWrap }: InsightRowProps): JSX.Element {
+export function InsightRow({ insight, dataAttr, allowWrap, sceneSource = 'recents' }: InsightRowProps): JSX.Element {
     const { reportInsightOpenedFromRecentInsightList } = useActions(eventUsageLogic)
 
     return (
@@ -29,7 +31,7 @@ export function InsightRow({ insight, dataAttr, allowWrap }: InsightRowProps): J
             title={insight.name || insight.derived_name || 'Insight'}
             subtitle={`Last modified ${dayjs(insight.last_modified_at).fromNow()}`}
             prefix={<InsightIcon insight={insight} />}
-            to={urls.insightView(insight.short_id)}
+            to={withSceneSource(urls.insightView(insight.short_id), sceneSource)}
             onClick={() => {
                 reportInsightOpenedFromRecentInsightList()
             }}

@@ -19,6 +19,7 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
+import { withInsightSceneSource } from 'lib/utils/insightNavigation'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
@@ -92,7 +93,7 @@ export function RecentItemsMenu(): JSX.Element {
                                     buttonProps={{
                                         menuItem: true,
                                     }}
-                                    to={item.href}
+                                    to={withInsightSceneSource(item.href, item.type, 'recents')}
                                     data-attr={`recent-item-${item.id}`}
                                 >
                                     {iconForType(item.type as FileSystemIconType)}
