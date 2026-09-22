@@ -7,11 +7,12 @@ import {
 } from 'products/mcp_store/frontend/generated/api'
 import {
     notebooksCreate,
-    notebooksDestroy,
     notebooksList,
+    notebooksPartialUpdate,
     notebooksRetrieve,
 } from 'products/notebooks/frontend/generated/api'
 import type { NotebookApi } from 'products/notebooks/frontend/generated/api.schemas'
+import { insightsRetrieve } from 'products/product_analytics/frontend/generated/api'
 
 import { PosthogCommands } from './posthogCommands'
 import { PosthogFilesystem } from './posthogFilesystem'
@@ -20,12 +21,16 @@ jest.mock('~/generated/core/api', () => ({ fileSystemList: jest.fn() }))
 jest.mock('products/notebooks/frontend/generated/api', () => ({
     notebooksList: jest.fn(),
     notebooksRetrieve: jest.fn(),
-    notebooksDestroy: jest.fn(),
+    notebooksPartialUpdate: jest.fn(),
     notebooksCreate: jest.fn(),
 }))
 jest.mock('products/mcp_store/frontend/generated/api', () => ({
     mcpServerInstallationsAvailableToolsRetrieve: jest.fn(),
     mcpServerInstallationsCallToolCreate: jest.fn(),
+}))
+jest.mock('products/product_analytics/frontend/generated/api', () => ({
+    insightsRetrieve: jest.fn(),
+    insightsList: jest.fn(),
 }))
 
 describe('PostHog terminal commands', () => {
@@ -47,7 +52,7 @@ describe('PostHog terminal commands', () => {
             results: [
                 {
                     id: 'fs-note',
-                    ref: 'short-note',
+                    ref: 'shortnote',
                     type: 'notebook',
                     path: 'Research/Notes',
                     user_access_level: 'editor',
@@ -60,7 +65,7 @@ describe('PostHog terminal commands', () => {
             results: [
                 {
                     id: '01900000-0000-7000-8000-000000000002',
-                    short_id: 'short-note',
+                    short_id: 'shortnote',
                     title: 'Notes',
                     deleted: false,
                     user_access_level: 'editor',
@@ -71,9 +76,9 @@ describe('PostHog terminal commands', () => {
                 },
             ],
         })
-        jest.mocked(notebooksRetrieve).mockResolvedValue({ short_id: 'short-note', title: 'Notes' } as NotebookApi)
-        jest.mocked(notebooksDestroy).mockResolvedValue(undefined)
-        jest.mocked(notebooksCreate).mockResolvedValue({ short_id: 'new-note' } as NotebookApi)
+        jest.mocked(notebooksRetrieve).mockResolvedValue({ short_id: 'shortnote', title: 'Notes' } as NotebookApi)
+        jest.mocked(notebooksPartialUpdate).mockResolvedValue({ short_id: 'shortnote', deleted: true } as NotebookApi)
+        jest.mocked(notebooksCreate).mockResolvedValue({ short_id: 'newnote' } as NotebookApi)
         jest.mocked(mcpServerInstallationsAvailableToolsRetrieve).mockResolvedValue({
             servers: [
                 {
@@ -103,18 +108,74 @@ describe('PostHog terminal commands', () => {
         commands = new PosthogCommands('42', signal, filesystem)
     })
 
-    it('resolves file paths and aliases without reading object bodies to discover IDs', async () => {
-        await expect(commands.execute(['notebook-delete', './Notes.md'], cwd)).resolves.toEqual({
-            deleted: 'short-note',
+    it.each([
+        ['notebook-delete', './Notes.md'],
+        ['notebooks-destroy', '--short-id', 'shortnote'],
+        ['notebook-delete', '--json', '{"short_id":"shortnote"}'],
+    ])('soft-deletes a notebook using %s %s', async (...argv) => {
+        await expect(commands.execute(argv, cwd)).resolves.toEqual({
+            deleted: 'shortnote',
         })
-        expect(notebooksDestroy).toHaveBeenCalledWith(
+        expect(notebooksPartialUpdate).toHaveBeenCalledWith(
             '42',
-            'short-note',
+            'shortnote',
+            { deleted: true },
             expect.objectContaining({ signal: expect.any(AbortSignal) })
         )
         expect(notebooksRetrieve).not.toHaveBeenCalled()
         expect(mcpServerInstallationsAvailableToolsRetrieve).not.toHaveBeenCalled()
         await expect(commands.execute(['dashboard-get', './Notes.md'], cwd)).rejects.toThrow('Expected a dashboard')
+    })
+
+    it.each([
+        ['notebook-delete', '..'],
+        ['notebook-delete', '--short-id', '%2e%2e'],
+        ['notebook-delete', '--json', '{"short_id":".."}'],
+        ['notebook-update', '..'],
+        ['notebook-get', 'shortnote?format=json'],
+        ['notebook-get', 'shortnote#'],
+        ['notebook-get', 'shortnote\n'],
+        ['insight-get', '..\\..\\99\\insights\\42'],
+        ['insight-get', '%2e%2e'],
+    ])('rejects unsafe object IDs in %s %s before an API request', async (...argv) => {
+        await expect(commands.execute(argv, cwd)).rejects.toThrow()
+        expect(notebooksPartialUpdate).not.toHaveBeenCalled()
+        expect(notebooksRetrieve).not.toHaveBeenCalled()
+        expect(insightsRetrieve).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        ['notebook-get', 'Ab12Cd34'],
+        ['notebook-get', 'Café123'],
+        ['insight-get', 'Ab12Cd34'],
+        ['insight-get', '123456789012345'],
+    ])('accepts supported IDs in %s %s', async (command, id) => {
+        await commands.execute([command, id], cwd)
+        if (command === 'notebook-get') {
+            expect(notebooksRetrieve).toHaveBeenCalledWith('42', id, expect.anything())
+        } else {
+            expect(insightsRetrieve).toHaveBeenCalledWith('42', id, undefined, expect.anything())
+        }
+    })
+
+    it('validates object IDs resolved from project files', async () => {
+        jest.mocked(fileSystemList).mockResolvedValue({
+            count: 1,
+            next: null,
+            results: [
+                {
+                    id: 'fs-note',
+                    ref: '..',
+                    type: 'notebook',
+                    path: 'Research/Notes',
+                    user_access_level: 'editor',
+                } as FileSystemApi,
+            ],
+        })
+        await filesystem.load()
+
+        await expect(commands.execute(['notebook-delete', './Notes.json'], cwd)).rejects.toThrow()
+        expect(notebooksPartialUpdate).not.toHaveBeenCalled()
     })
 
     it('parses typed flags while preserving strings and rejects unknown arguments before making API calls', async () => {
@@ -127,9 +188,9 @@ describe('PostHog terminal commands', () => {
             expect.anything()
         )
         await expect(
-            commands.execute(['notebook-delete', '--json', '{"short_id":"short-note","project_id":"99"}'], cwd)
+            commands.execute(['notebook-delete', '--json', '{"short_id":"shortnote","project_id":"99"}'], cwd)
         ).rejects.toThrow()
-        expect(notebooksDestroy).not.toHaveBeenCalled()
+        expect(notebooksPartialUpdate).not.toHaveBeenCalled()
         await expect(commands.execute(['notebooks-list', '--limti', '10'], cwd)).rejects.toThrow('Unknown argument')
     })
 
@@ -160,7 +221,7 @@ describe('PostHog terminal commands', () => {
         const response = directory.children!.get('response')!
         const read = async (): Promise<unknown> => JSON.parse(new TextDecoder().decode((await response.open!()).bytes))
         await request.save!(new TextEncoder().encode(JSON.stringify({ argv: ['notebook-get', './Notes.md'], cwd })))
-        expect(await read()).toMatchObject({ ok: true, result: { short_id: 'short-note' } })
+        expect(await read()).toMatchObject({ ok: true, result: { short_id: 'shortnote' } })
         await request.save!(new TextEncoder().encode('{invalid'))
         expect(await read()).toMatchObject({ ok: false })
         jest.mocked(notebooksRetrieve).mockRejectedValue(new Error('Not allowed'))

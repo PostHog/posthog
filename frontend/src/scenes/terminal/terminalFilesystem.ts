@@ -8,9 +8,10 @@ export interface TerminalNode {
     name: string
     parent?: TerminalNode
     children?: Map<string, TerminalNode>
-    open?: () => Promise<TerminalFile>
+    open?: (signal?: AbortSignal) => Promise<TerminalFile>
     size: number
     writable: boolean
+    writeKey?: string
     mkdir?: (name: string) => Promise<TerminalNode>
     rename?: (parent: TerminalNode, name: string) => Promise<void>
     remove?: () => Promise<void>
@@ -40,7 +41,12 @@ export class TerminalFilesystem {
         return node
     }
 
-    file(name: string, parent: TerminalNode, open: () => Promise<TerminalFile>, writable = false): TerminalNode {
+    file(
+        name: string,
+        parent: TerminalNode,
+        open: (signal?: AbortSignal) => Promise<TerminalFile>,
+        writable = false
+    ): TerminalNode {
         const node: TerminalNode = { id: this.nextId++, name, parent, open, size: 0, writable }
         parent.children?.set(name, node)
         return node

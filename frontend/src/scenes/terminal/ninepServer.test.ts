@@ -208,12 +208,93 @@ describe('PostHog 9P filesystem', () => {
         expect(saved).toBe('# café 🦔\n')
     })
 
+    it('cancels a pending open without blocking flush or replying to its reused tag', async () => {
+        let reading!: () => void
+        const started = new Promise<void>((resolve) => (reading = resolve))
+        filesystem.file('slow.json', filesystem.root, async (signal) => {
+            reading()
+            await new Promise<void>((_, reject) =>
+                signal!.addEventListener('abort', () => reject(signal!.reason), { once: true })
+            )
+            return { bytes: encoder.encode('never returned') }
+        })
+        await walk('slow.json', 3)
+        const originalReply = jest.fn()
+        server.handle(new NinePWriter().number(3, 4).number(0, 4).frame(12, 10), originalReply)
+        await started
+        expect((await request(108, new NinePWriter().number(10, 2))).type).toBe(109)
+        const bytes = await new Promise<Uint8Array>((resolve) =>
+            server.handle(new NinePWriter().number(1, 4).number(0x7ff, 8).frame(24, 10), resolve)
+        )
+        const response = new NinePReader(bytes)
+        response.number(4)
+        expect(response.number(1)).toBe(25)
+        expect(response.number(2)).toBe(10)
+        expect(originalReply).not.toHaveBeenCalled()
+        expect((await request(120, new NinePWriter().number(3, 4))).type).toBe(121)
+    })
+
+    it('shares writer locks across mounted aliases, including truncation and deletion', async () => {
+        const note = filesystem.root.children!.get('note.md')!
+        note.writeKey = 'notebook:note'
+        const alias = filesystem.file('alias.json', filesystem.root, note.open!, true)
+        alias.writeKey = note.writeKey
+        alias.remove = jest.fn(async () => {})
+        await open(1)
+        await walk('alias.json', 3)
+        expect(await open(1, 3)).toBe(7)
+        const truncate = await request(
+            26,
+            new NinePWriter().number(3, 4).number(8, 4).data(new Uint8Array(12)).number(0, 8)
+        )
+        expect(truncate.body.number(4)).toBe(16)
+        const remove = await request(76, new NinePWriter().number(1, 4).string('alias.json').number(0, 4))
+        expect(remove.body.number(4)).toBe(16)
+        expect(alias.remove).not.toHaveBeenCalled()
+        await request(120, new NinePWriter().number(2, 4))
+        expect(await open(1, 3)).toBe(13)
+    })
+
     it('appends to freshly loaded content even when the guest sends a stale size as its offset', async () => {
         expect(await open(1025)).toBe(13)
         await write('Appended', 0)
         await write(' twice', 8)
         await request(120, new NinePWriter().number(2, 4))
         expect(saved).toBe('# café 🦔\nAppended twice')
+    })
+
+    it('lists unrelated directories while an API save is pending', async () => {
+        let saving!: () => void
+        let finish!: () => void
+        const started = new Promise<void>((resolve) => (saving = resolve))
+        const pending = new Promise<void>((resolve) => (finish = resolve))
+        filesystem.file(
+            'slow-write.json',
+            filesystem.root,
+            async () => ({
+                bytes: encoder.encode('{}'),
+                save: async () => {
+                    saving()
+                    await pending
+                },
+            }),
+            true
+        )
+        await walk('slow-write.json')
+        await open(513)
+        await write('{}')
+        const closed = new Promise<Uint8Array>((resolve) =>
+            server.handle(new NinePWriter().number(2, 4).frame(120, 10), resolve)
+        )
+        await started
+        try {
+            expect((await request(24, new NinePWriter().number(1, 4).number(0x7ff, 8))).type).toBe(25)
+            expect((await request(40, new NinePWriter().number(1, 4).number(0, 8).number(1024, 4))).type).toBe(41)
+            await walk('view.json', 3)
+        } finally {
+            finish()
+            await closed
+        }
     })
 
     it('keeps directory offsets stable across paginated readdir', async () => {

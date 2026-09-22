@@ -25,7 +25,8 @@ function qid(writer: NinePWriter, node: TerminalNode): NinePWriter {
 
 export class NinePServer {
     private fids = new Map<number, Fid>()
-    private writers = new Set<number>()
+    private writers = new Set<string | number>()
+    private requests = new Map<number, AbortController>()
     private queue: Promise<void> = Promise.resolve()
     private messageSize = 256 * 1024
 
@@ -34,24 +35,53 @@ export class NinePServer {
         private onSaveError: (message: string) => void
     ) {}
 
-    // Serialize requests so a close cannot overtake an asynchronous read or save on the same fid.
+    // Keep API operations ordered, but let local metadata and buffered reads proceed during a slow request.
     handle = (bytes: Uint8Array, reply: (bytes: Uint8Array) => void): void => {
-        this.queue = this.queue.then(async () => {
-            const reader = new NinePReader(bytes)
-            let tag = 0xffff
-            try {
-                const size = reader.number(4)
-                const type = reader.number(1)
-                tag = reader.number(2)
-                if (size !== bytes.length || size > this.messageSize) {
-                    throw new FilesystemError(22)
-                }
-                const result = await this.request(type, reader)
-                reply(result.frame(type + 1, tag))
-            } catch (error) {
-                reply(new NinePWriter().number(error instanceof FilesystemError ? error.errno : 5, 4).frame(7, tag))
+        const reader = new NinePReader(bytes)
+        let tag = 0xffff
+        let type: number
+        try {
+            const size = reader.number(4)
+            type = reader.number(1)
+            tag = reader.number(2)
+            if (size !== bytes.length || size > this.messageSize) {
+                throw new FilesystemError(22)
             }
-        })
+            if (type === 108) {
+                this.requests.get(reader.number(2))?.abort()
+                reply(new NinePWriter().frame(109, tag))
+                return
+            }
+        } catch (error) {
+            reply(new NinePWriter().number(error instanceof FilesystemError ? error.errno : 5, 4).frame(7, tag))
+            return
+        }
+        const controller = new AbortController()
+        this.requests.set(tag, controller)
+        const execute = async (): Promise<void> => {
+            try {
+                if (controller.signal.aborted) {
+                    return
+                }
+                const result = await this.request(type, reader, controller.signal)
+                if (!controller.signal.aborted) {
+                    reply(result.frame(type + 1, tag))
+                }
+            } catch (error) {
+                if (!controller.signal.aborted) {
+                    reply(new NinePWriter().number(error instanceof FilesystemError ? error.errno : 5, 4).frame(7, tag))
+                }
+            } finally {
+                if (this.requests.get(tag) === controller) {
+                    this.requests.delete(tag)
+                }
+            }
+        }
+        if ([24, 40, 110, 116].includes(type)) {
+            void execute()
+        } else {
+            this.queue = this.queue.then(execute)
+        }
     }
 
     private fid(id: number): Fid {
@@ -62,7 +92,7 @@ export class NinePServer {
         return fid
     }
 
-    private async open(fid: Fid, flags: number): Promise<void> {
+    private async open(fid: Fid, flags: number, signal?: AbortSignal): Promise<void> {
         if (fid.node.removed) {
             throw new FilesystemError(2)
         }
@@ -73,17 +103,22 @@ export class NinePServer {
             return
         }
         const writing = !!(flags & 3)
-        if (writing && (!fid.node.writable || this.writers.has(fid.node.id))) {
+        const writeKey = fid.node.writeKey ?? fid.node.id
+        if (writing && (!fid.node.writable || this.writers.has(writeKey))) {
             throw new FilesystemError(fid.node.writable ? 16 : 30)
         }
-        fid.file = await fid.node.open!()
+        const file = await fid.node.open!(signal)
+        if (signal?.aborted) {
+            throw new FilesystemError(4)
+        }
+        fid.file = file
         if (writing && !fid.file.save) {
             throw new FilesystemError(30)
         }
         fid.writing = writing
         fid.append = !!(flags & 1024)
         if (writing) {
-            this.writers.add(fid.node.id)
+            this.writers.add(writeKey)
         }
         if (writing && flags & 512) {
             fid.file.bytes = new Uint8Array()
@@ -123,6 +158,9 @@ export class NinePServer {
         }
         // Linux can truncate through a path fid while a separate open fid owns the write.
         const writer = [...this.fids.values()].find((candidate) => candidate.node === fid.node && candidate.writing)
+        if (!writer && this.writers.has(fid.node.writeKey ?? fid.node.id)) {
+            throw new FilesystemError(16)
+        }
         const target: Fid = writer ?? { node: fid.node }
         if (!writer) {
             await this.open(target, 1)
@@ -141,7 +179,7 @@ export class NinePServer {
             }
         } finally {
             if (!writer) {
-                this.writers.delete(target.node.id)
+                this.writers.delete(target.node.writeKey ?? target.node.id)
             }
         }
     }
@@ -188,13 +226,13 @@ export class NinePServer {
         if (node.children?.size) {
             throw new FilesystemError(39)
         }
-        if (this.writers.has(node.id)) {
+        if (this.writers.has(node.writeKey ?? node.id)) {
             throw new FilesystemError(16)
         }
         await node.remove()
     }
 
-    private async request(type: number, reader: NinePReader): Promise<NinePWriter> {
+    private async request(type: number, reader: NinePReader, signal: AbortSignal): Promise<NinePWriter> {
         const result = new NinePWriter()
         switch (type) {
             case 100: {
@@ -239,7 +277,7 @@ export class NinePServer {
             }
             case 12: {
                 const fid = this.fid(reader.number(4))
-                await this.open(fid, reader.number(4))
+                await this.open(fid, reader.number(4), signal)
                 return qid(result, fid.node).number(this.messageSize - 24, 4)
             }
             case 72: {
@@ -275,7 +313,7 @@ export class NinePServer {
                     await this.remove(fid.node, !!fid.node.children)
                 } finally {
                     if (fid.writing) {
-                        this.writers.delete(fid.node.id)
+                        this.writers.delete(fid.node.writeKey ?? fid.node.id)
                     }
                     this.fids.delete(id)
                 }
@@ -398,7 +436,7 @@ export class NinePServer {
                     await this.save(fid)
                 } finally {
                     if (fid.writing) {
-                        this.writers.delete(fid.node.id)
+                        this.writers.delete(fid.node.writeKey ?? fid.node.id)
                     }
                     this.fids.delete(id)
                 }

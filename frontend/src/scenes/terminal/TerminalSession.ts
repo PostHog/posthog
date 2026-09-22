@@ -49,6 +49,8 @@ export class TerminalSession {
         paste: () => void
     ) {
         this.element.className = 'h-full min-w-0 bg-black'
+        this.element.dataset.shortcutsIgnore = 'ctrl'
+        this.element.dataset.shortcutsAllowKeys = '` ~'
         this.view.loadAddon(this.fit)
         this.view.open(this.element)
         this.view.onData(write)
@@ -60,6 +62,9 @@ export class TerminalSession {
             }
         })
         this.view.attachCustomKeyEventHandler((event) => {
+            if (event.ctrlKey && !event.metaKey) {
+                event.stopPropagation()
+            }
             const key = event.key.toLowerCase()
             if ((event.metaKey || (event.ctrlKey && event.shiftKey)) && (key === 'c' || key === 'v')) {
                 event.stopPropagation()

@@ -8,7 +8,6 @@ import {
 } from 'products/mcp_store/frontend/generated/api'
 import {
     notebooksCreate,
-    notebooksDestroy,
     notebooksList,
     notebooksPartialUpdate,
     notebooksRetrieve,
@@ -101,7 +100,20 @@ export class PosthogCommands {
                 offset: z.number().int().nonnegative().optional(),
             })
             .strict()
-        const shortId = z.object({ short_id: z.string().min(1) }).strict()
+        const shortId = z
+            .object({
+                short_id: z
+                    .string()
+                    .regex(/^[\p{L}\p{N}]{1,12}(?![\s\S])/u, 'Use a notebook ID with up to 12 letters or numbers.'),
+            })
+            .strict()
+        const insightId = z
+            .object({
+                short_id: z
+                    .string()
+                    .regex(/^(?:[A-Za-z0-9]{1,12}|[0-9]+)(?![\s\S])/, 'Use an insight short ID or numeric ID.'),
+            })
+            .strict()
         const id = z.object({ id: z.number().int().positive() }).strict()
         const notebook = { parameter: 'short_id', type: 'notebook' }
         const builtins = [
@@ -123,7 +135,7 @@ export class PosthogCommands {
                 'Delete a notebook from PostHog.',
                 shortId,
                 async ({ short_id }) => {
-                    await notebooksDestroy(projectId, short_id, options)
+                    await notebooksPartialUpdate(projectId, short_id, { deleted: true }, options)
                     return { deleted: short_id }
                 },
                 { readOnly: false, reference: notebook }
@@ -167,7 +179,7 @@ export class PosthogCommands {
             command(
                 'insight-get',
                 'Read an insight by short ID or filesystem path.',
-                shortId,
+                insightId,
                 ({ short_id }) => insightsRetrieve(projectId, short_id, undefined, options),
                 { readOnly: true, reference: { parameter: 'short_id', type: 'insight' } }
             ),

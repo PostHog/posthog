@@ -44,6 +44,9 @@ export class TerminalRuntime {
     private emulator?: V86
     private output = ''
     private decoder = new TextDecoder()
+    private outputBuffer = new Uint8Array(8192)
+    private outputLength = 0
+    private outputScheduled = false
     private ready = false
     private disposed = false
     private columns = 80
@@ -102,10 +105,18 @@ export class TerminalRuntime {
             }
         })
         emulator.add_listener('serial0-output-byte', (byte: number) => {
-            const data = Uint8Array.of(byte)
-            this.output = (this.output + this.decoder.decode(data, { stream: true })).slice(-1_000_000)
-            this.onOutput(data)
-            if (this.ready) {
+            this.outputBuffer[this.outputLength++] = byte
+            if (this.outputLength === this.outputBuffer.length) {
+                this.flushOutput()
+            }
+            if (!this.outputScheduled) {
+                this.outputScheduled = true
+                queueMicrotask(() => {
+                    this.outputScheduled = false
+                    this.flushOutput()
+                })
+            }
+            if (configured) {
                 return
             }
             boot = (boot + String.fromCharCode(byte)).slice(-4096)
@@ -152,7 +163,21 @@ export class TerminalRuntime {
     }
 
     read(): string {
-        return this.output
+        this.flushOutput()
+        return this.output.slice(-1_000_000)
+    }
+
+    private flushOutput(): void {
+        if (!this.outputLength || this.disposed) {
+            return
+        }
+        const data = this.outputBuffer.slice(0, this.outputLength)
+        this.outputLength = 0
+        this.output += this.decoder.decode(data, { stream: true })
+        if (this.output.length > 1_100_000) {
+            this.output = this.output.slice(-1_000_000)
+        }
+        this.onOutput(data)
     }
 
     syncClock(): void {
@@ -173,5 +198,8 @@ export class TerminalRuntime {
     dispose(): void {
         this.disposed = true
         this.emulator?.destroy()
+        this.emulator = undefined
+        this.output = ''
+        this.outputLength = 0
     }
 }

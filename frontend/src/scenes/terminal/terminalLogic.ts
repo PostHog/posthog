@@ -192,6 +192,10 @@ export const terminalLogic = kea<terminalLogicType>([
                     controller.abort()
                     disposables.dispose('clock-sync')
                     runtime.dispose()
+                    if (cache.runtime === runtime) {
+                        cache.runtime = null
+                        cache.filesystem = null
+                    }
                     if (window.posthogTerminal?.read === agent.read) {
                         delete window.posthogTerminal
                     }
@@ -204,12 +208,12 @@ export const terminalLogic = kea<terminalLogicType>([
             try {
                 const filesystem = new PosthogFilesystem(String(projectId), controller.signal)
                 await filesystem.load()
-                cache.filesystem = filesystem
-                new PosthogCommands(String(projectId), controller.signal, filesystem)
                 breakpoint()
                 if (controller.signal.aborted) {
                     return
                 }
+                cache.filesystem = filesystem
+                new PosthogCommands(String(projectId), controller.signal, filesystem)
                 actions.setStatus('booting')
                 const server = new NinePServer(filesystem, (error) => {
                     if (!controller.signal.aborted) {
@@ -227,6 +231,9 @@ export const terminalLogic = kea<terminalLogicType>([
                         }, 'clock-sync')
                     }
                 })
+                if (controller.signal.aborted) {
+                    return
+                }
                 disposables.add(
                     () => {
                         const timeout = setTimeout(() => {

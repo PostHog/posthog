@@ -1,6 +1,6 @@
 import apiMutator from 'lib/api-orval-mutator'
 
-import { fileSystemCreate, fileSystemDestroy, fileSystemList } from '~/generated/core/api'
+import { fileSystemCreate, fileSystemDestroy, fileSystemList, fileSystemRetrieve } from '~/generated/core/api'
 import type { FileSystemApi } from '~/generated/core/api.schemas'
 
 import { notebooksList, notebooksPartialUpdate, notebooksRetrieve } from 'products/notebooks/frontend/generated/api'
@@ -15,6 +15,7 @@ jest.mock('~/generated/core/api', () => ({
     fileSystemList: jest.fn(),
     fileSystemCreate: jest.fn(),
     fileSystemDestroy: jest.fn(),
+    fileSystemRetrieve: jest.fn(),
 }))
 jest.mock('lib/api-orval-mutator', () => {
     const mutator = jest.fn()
@@ -40,7 +41,7 @@ describe('PostHog filesystem projection', () => {
         user_access_level: 'editor',
     })
     const notebook = {
-        short_id: 'note-1',
+        short_id: 'note1',
         version: 7,
         user_access_level: 'editor',
         content: {
@@ -60,21 +61,23 @@ describe('PostHog filesystem projection', () => {
         jest.mocked(fileSystemList).mockResolvedValue({
             count: 1,
             next: null,
-            results: [entry('note-1', 'Research/Notes')],
+            results: [entry('note1', 'Research/Notes')],
         })
         jest.mocked(notebooksList).mockResolvedValue({
             count: 2,
             next: null,
-            results: [notebookIndex, { ...notebookIndex, short_id: 'note-2' }],
+            results: [notebookIndex, { ...notebookIndex, short_id: 'note2' }],
         })
         jest.mocked(notebooksRetrieve).mockResolvedValue(notebook)
     })
 
     it('projects markdown without changing the stored path and saves with the version it read', async () => {
-        const fs = new PosthogFilesystem('42', new AbortController().signal)
+        const session = new AbortController()
+        const read = new AbortController()
+        const fs = new PosthogFilesystem('42', session.signal)
         await fs.load()
-        expect(fs.resolveReference('./Notes.md', '/posthog/files/Research', 'notebook')).toBe('note-1')
-        expect(fs.resolveReference('/posthog/api/notebook/note-1.json', '/', 'notebook')).toBe('note-1')
+        expect(fs.resolveReference('./Notes.md', '/posthog/files/Research', 'notebook')).toBe('note1')
+        expect(fs.resolveReference('/posthog/api/notebook/note1.json', '/', 'notebook')).toBe('note1')
         expect(() => fs.resolveReference('./Notes.md', '/posthog/files/Research', 'dashboard')).toThrow(
             'Expected a dashboard'
         )
@@ -86,13 +89,15 @@ describe('PostHog filesystem projection', () => {
         )
         const file = fs.root.children!.get('files')!.children!.get('Research')!.children!.get('Notes.md')!
         expect(file.writable).toBe(true)
-        const opened = await file.open!()
+        const opened = await file.open!(read.signal)
         expect(decoder.decode(opened.bytes)).toBe('# Hello 🦔')
+        read.abort()
+        expect(jest.mocked(notebooksRetrieve).mock.calls[0][2]?.signal).not.toBe(session.signal)
         jest.mocked(notebooksPartialUpdate).mockResolvedValue({ ...notebook, version: 8 })
         await opened.save!(new TextEncoder().encode('# Updated'))
         expect(notebooksPartialUpdate).toHaveBeenCalledWith(
             '42',
-            'note-1',
+            'note1',
             {
                 content: {
                     type: 'doc',
@@ -101,24 +106,98 @@ describe('PostHog filesystem projection', () => {
                 text_content: '# Updated',
                 version: 7,
             },
-            expect.objectContaining({ signal: expect.any(AbortSignal) })
+            expect.objectContaining({ signal: session.signal })
         )
         jest.mocked(notebooksPartialUpdate).mockRejectedValue(new Error('Version conflict'))
         await expect(opened.save!(new TextEncoder().encode('Conflict'))).rejects.toThrow('Version conflict')
         expect(jest.mocked(notebooksPartialUpdate).mock.calls[1][2]?.version).toBe(8)
     })
 
-    it('refreshes paths without fetching bodies or keeping deleted files addressable', async () => {
+    it('refreshes through retained directory and file handles without saving deleted objects', async () => {
         const fs = new PosthogFilesystem('42', new AbortController().signal)
         await fs.load()
-        const oldId = fs.root.children!.get('files')!.children!.get('Research')!.children!.get('Notes.md')!.id
-        jest.mocked(fileSystemList).mockResolvedValue({ count: 1, next: null, results: [entry('note-1', 'Renamed')] })
+        const note = fs.root.children!.get('files')!.children!.get('Research')!.children!.get('Notes.md')!
+        const apiNote = fs.root.children!.get('api')!.children!.get('notebook')!.children!.get('note1.json')!
+        const opened = await note.open!()
+        const openedApi = await apiNote.open!()
+        const server = new NinePServer(fs, jest.fn())
+        const request = async (type: number, body: NinePWriter): Promise<{ type: number; body: NinePReader }> => {
+            const bytes = await new Promise<Uint8Array>((resolve) => server.handle(body.frame(type, 1), resolve))
+            const response = new NinePReader(bytes)
+            response.number(4)
+            const responseType = response.number(1)
+            response.number(2)
+            return { type: responseType, body: response }
+        }
+        await request(104, new NinePWriter().number(1, 4).number(0xffffffff, 4).string('root').string(''))
+        await request(110, new NinePWriter().number(1, 4).number(2, 4).number(2, 2).string('files').string('Research'))
+        jest.mocked(fileSystemList).mockResolvedValue({
+            count: 2,
+            next: null,
+            results: [entry('note1', 'Research/Notes'), entry('note2', 'Research/New')],
+        })
+        jest.mocked(notebooksRetrieve).mockClear()
+        await fs.load()
+        expect(fs.root.children!.get('files')!.children!.get('Research')!.children!.get('Notes.md')).toBe(note)
+        expect(fs.root.children!.get('api')!.children!.get('notebook')!.children!.get('note1.json')).toBe(apiNote)
+        expect(
+            (await request(110, new NinePWriter().number(2, 4).number(3, 4).number(1, 2).string('New.md'))).type
+        ).toBe(111)
+        jest.mocked(fileSystemCreate).mockResolvedValue(entry('folder', 'Research/New folder', 'folder'))
+        expect((await request(72, new NinePWriter().number(2, 4).string('New folder'))).type).toBe(73)
+        expect(fileSystemCreate).toHaveBeenLastCalledWith(
+            '42',
+            { path: 'Research/New folder', type: 'folder' },
+            expect.anything()
+        )
+        jest.mocked(fileSystemList).mockResolvedValue({ count: 1, next: null, results: [entry('note1', 'Renamed')] })
         await fs.load()
         const renamed = fs.root.children!.get('files')!.children!.get('Renamed.md')!
-        expect(renamed.id).toBeGreaterThan(oldId)
-        expect(fs.resolveReference('Renamed.md', '/posthog/files', 'notebook')).toBe('note-1')
+        expect(renamed).toBe(note)
+        expect(fs.resolveReference('Renamed.md', '/posthog/files', 'notebook')).toBe('note1')
         expect(() => fs.resolveReference('Research/Notes.md', '/posthog/files', 'notebook')).toThrow('No project file')
+        jest.mocked(notebooksPartialUpdate).mockResolvedValue({ ...notebook, version: 8 })
+        await opened.save!(new TextEncoder().encode('Save after refresh'))
+        expect(notebooksPartialUpdate).toHaveBeenCalledWith(
+            '42',
+            'note1',
+            expect.objectContaining({ version: 7, text_content: 'Save after refresh' }),
+            expect.anything()
+        )
+        jest.mocked(fileSystemList).mockResolvedValue({ count: 0, next: null, results: [] })
+        await fs.load()
+        jest.mocked(notebooksPartialUpdate).mockClear()
+        await expect(opened.save!(new TextEncoder().encode('Deleted notebook'))).rejects.toMatchObject({ errno: 116 })
+        await expect(openedApi.save!(new TextEncoder().encode('{"title":"Deleted notebook"}'))).rejects.toMatchObject({
+            errno: 116,
+        })
+        expect(notebooksPartialUpdate).not.toHaveBeenCalled()
         expect(notebooksRetrieve).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        ['markdown', 'read'],
+        ['markdown', 'session'],
+        ['JSON', 'read'],
+        ['JSON', 'session'],
+    ])('cancels a pending %s read when the %s ends', async (format, aborted) => {
+        const session = new AbortController()
+        const read = new AbortController()
+        const fs = new PosthogFilesystem('42', session.signal)
+        await fs.load()
+        jest.mocked(notebooksRetrieve).mockImplementationOnce(
+            (_, __, options) =>
+                new Promise((_, reject) => {
+                    options!.signal!.addEventListener('abort', () => reject(new Error('Read canceled')), { once: true })
+                })
+        )
+        const node =
+            format === 'markdown'
+                ? fs.root.children!.get('files')!.children!.get('Research')!.children!.get('Notes.md')!
+                : fs.root.children!.get('api')!.children!.get('notebook')!.children!.get('note1.json')!
+        const result = await expect(node.open!(read.signal)).rejects.toThrow('Read canceled')
+        ;(aborted === 'read' ? read : session).abort()
+        await result
     })
 
     it('removes project references and empty folders only after the API succeeds, without loading bodies', async () => {
@@ -126,8 +205,8 @@ describe('PostHog filesystem projection', () => {
             count: 3,
             results: [
                 entry('folder', 'Research', 'folder'),
-                entry('note-1', 'Research/Notes'),
-                { ...entry('alias', 'Copy'), ref: 'note-1' },
+                entry('note1', 'Research/Notes'),
+                { ...entry('alias', 'Copy'), ref: 'note1' },
             ],
         })
         const fs = new PosthogFilesystem('42', new AbortController().signal)
@@ -139,15 +218,15 @@ describe('PostHog filesystem projection', () => {
         expect(fileSystemDestroy).not.toHaveBeenCalled()
         jest.mocked(fileSystemDestroy).mockRejectedValueOnce({ status: 403 })
         await expect(note.remove!()).rejects.toMatchObject({ errno: 13 })
-        expect(fs.resolveReference('Research/Notes.md', '/posthog/files')).toBe('note-1')
+        expect(fs.resolveReference('Research/Notes.md', '/posthog/files')).toBe('note1')
         jest.mocked(fileSystemDestroy).mockResolvedValue(undefined)
         await note.remove!()
-        expect(fileSystemDestroy).toHaveBeenLastCalledWith('42', 'note-1', { recursive: false }, expect.anything())
+        expect(fileSystemDestroy).toHaveBeenLastCalledWith('42', 'note1', { recursive: false }, expect.anything())
         expect(folder.children!.size).toBe(0)
         expect(() => fs.resolveReference('Research/Notes.md', '/posthog/files')).toThrow('No project file')
-        expect(fs.resolveReference('/posthog/api/notebook/note-1.json', '/')).toBe('note-1')
+        expect(fs.resolveReference('/posthog/api/notebook/note1.json', '/')).toBe('note1')
         await files.children!.get('Copy.md')!.remove!()
-        expect(() => fs.resolveReference('/posthog/api/notebook/note-1.json', '/')).toThrow('No project file')
+        expect(() => fs.resolveReference('/posthog/api/notebook/note1.json', '/')).toThrow('No project file')
         jest.mocked(fileSystemDestroy).mockRejectedValueOnce({ status: 409 })
         await expect(folder.remove!()).rejects.toMatchObject({ errno: 39 })
         expect(files.children!.get('Research')).toBe(folder)
@@ -162,7 +241,7 @@ describe('PostHog filesystem projection', () => {
         async (storedName) => {
             jest.mocked(fileSystemList).mockResolvedValue({
                 count: 2,
-                results: [entry('research', 'Research', 'folder'), entry('note-1', `Research/${storedName}`)],
+                results: [entry('research', 'Research', 'folder'), entry('note1', `Research/${storedName}`)],
             })
             jest.mocked(fileSystemCreate).mockImplementation(async (_, body) => entry('created', body.path, 'folder'))
             jest.mocked(apiMutator).mockResolvedValue({})
@@ -208,7 +287,7 @@ describe('PostHog filesystem projection', () => {
             await walk(2, 5, 'Archive')
             expect((await move(3, 'Notes.md', 5, 'Renamed.md')).type).toBe(75)
             expect(apiMutator).toHaveBeenLastCalledWith(
-                '/api/projects/42/file_system/note-1/move/',
+                '/api/projects/42/file_system/note1/move/',
                 expect.objectContaining({
                     method: 'POST',
                     body: JSON.stringify({
@@ -216,7 +295,7 @@ describe('PostHog filesystem projection', () => {
                     }),
                 })
             )
-            expect(fs.resolveReference('Archive/Renamed.md', '/posthog/files', 'notebook')).toBe('note-1')
+            expect(fs.resolveReference('Archive/Renamed.md', '/posthog/files', 'notebook')).toBe('note1')
             expect(() => fs.resolveReference('Research/Notes.md', '/posthog/files')).toThrow('No project file')
             expect(fs.root.children!.get('files')!.children!.get('Archive')!.children!.get('Renamed.md')).toBe(note)
             const rename = await request(20, new NinePWriter().number(5, 4).number(2, 4).string('Published'))
@@ -227,13 +306,13 @@ describe('PostHog filesystem projection', () => {
                     body: JSON.stringify({ new_path: 'Published' }),
                 })
             )
-            expect(fs.resolveReference('Published/Renamed.md', '/posthog/files', 'notebook')).toBe('note-1')
+            expect(fs.resolveReference('Published/Renamed.md', '/posthog/files', 'notebook')).toBe('note1')
             expect(notebooksRetrieve).not.toHaveBeenCalled()
             jest.mocked(notebooksPartialUpdate).mockResolvedValue({ ...notebook, version: 8 })
             await opened.save!(new TextEncoder().encode('Edit after move'))
             expect(notebooksPartialUpdate).toHaveBeenCalledWith(
                 '42',
-                'note-1',
+                'note1',
                 expect.objectContaining({ version: 7 }),
                 expect.anything()
             )
@@ -249,18 +328,18 @@ describe('PostHog filesystem projection', () => {
             expect(apiMutator).toHaveBeenCalledTimes(2)
             jest.mocked(apiMutator).mockRejectedValue(new Error('Permission denied'))
             expect((await move(5, 'Renamed.md', 3, 'Denied.md')).type).toBe(7)
-            expect(fs.resolveReference('Published/Renamed.md', '/posthog/files', 'notebook')).toBe('note-1')
+            expect(fs.resolveReference('Published/Renamed.md', '/posthog/files', 'notebook')).toBe('note1')
             expect(() => fs.resolveReference('Research/Denied.md', '/posthog/files')).toThrow('No project file')
         }
     )
 
     it('loads every page and keeps legacy notebooks and duplicate names accessible', async () => {
         jest.mocked(fileSystemList)
-            .mockResolvedValueOnce({ count: 3, next: '/next', results: [entry('note-1', 'Research/Notes')] })
+            .mockResolvedValueOnce({ count: 3, next: '/next', results: [entry('note1', 'Research/Notes')] })
             .mockResolvedValueOnce({
                 count: 3,
                 next: null,
-                results: [entry('note-2', 'Research/Notes'), entry('legacy', 'Research/Legacy')],
+                results: [entry('note2', 'Research/Notes'), entry('legacy', 'Research/Legacy')],
             })
         jest.mocked(notebooksRetrieve).mockImplementation(async (_, id) =>
             id === 'legacy' ? { ...notebook, content: { type: 'doc', content: [{ type: 'paragraph' }] } } : notebook
@@ -268,9 +347,9 @@ describe('PostHog filesystem projection', () => {
         const fs = new PosthogFilesystem('42', new AbortController().signal)
         await fs.load()
         const directory = fs.root.children!.get('files')!.children!.get('Research')!
-        expect([...directory.children!.keys()].sort()).toEqual(['Legacy.json', 'Notes.md', 'Notes~note-2.md'])
+        expect([...directory.children!.keys()].sort()).toEqual(['Legacy.json', 'Notes.md', 'Notes~note2.md'])
         expect(directory.children!.get('Legacy.json')!.writable).toBe(true)
-        const api = fs.root.children!.get('api')!.children!.get('notebook')!.children!.get('note-1.json')!
+        const api = fs.root.children!.get('api')!.children!.get('notebook')!.children!.get('note1.json')!
         expect(JSON.parse(decoder.decode((await api.open!()).bytes)).version).toBe(7)
         expect(jest.mocked(fileSystemList).mock.calls[1][1]?.offset).toBe(1)
     })
@@ -278,7 +357,7 @@ describe('PostHog filesystem projection', () => {
     it('does not offer writes on viewer notebooks or expose entries without read access', async () => {
         jest.mocked(fileSystemList).mockResolvedValue({
             count: 2,
-            results: [entry('note-1', 'Notes'), { ...entry('hidden', 'Hidden'), user_access_level: 'none' }],
+            results: [entry('note1', 'Notes'), { ...entry('hidden', 'Hidden'), user_access_level: 'none' }],
         })
         jest.mocked(notebooksList).mockResolvedValue({
             count: 1,
@@ -289,14 +368,14 @@ describe('PostHog filesystem projection', () => {
         const files = fs.root.children!.get('files')!
         expect([...files.children!.keys()]).toEqual(['Notes.md'])
         expect(files.children!.get('Notes.md')!.writable).toBe(false)
-        expect(fs.root.children!.get('api')!.children!.get('notebook')!.children!.get('note-1.json')!.writable).toBe(
+        expect(fs.root.children!.get('api')!.children!.get('notebook')!.children!.get('note1.json')!.writable).toBe(
             false
         )
     })
 
     it.each([
         ['dashboard', 'dashboards', '12'],
-        ['insight', 'insights', 'insight-short-id'],
+        ['insight', 'insights', 'insightId'],
         ['feature_flag', 'feature_flags', '13'],
         ['cohort', 'cohorts', '14'],
         ['action', 'actions', '15'],
@@ -304,7 +383,13 @@ describe('PostHog filesystem projection', () => {
         ['experiment', 'experiments', '16'],
     ])('reads and saves %s JSON through its project-scoped endpoint from both mounts', async (type, route, ref) => {
         jest.mocked(fileSystemList).mockResolvedValue({ count: 1, results: [entry(ref, 'Object', type)] })
-        const original = { id: ref, name: 'Original', nested: { enabled: false }, readonly_field: 'from API' }
+        const original = {
+            id: ref,
+            name: 'Original',
+            nested: { enabled: false },
+            readonly_field: 'from API',
+            restriction_level: 0,
+        }
         jest.mocked(apiMutator).mockResolvedValue(original)
         const signal = new AbortController().signal
         const fs = new PosthogFilesystem('42', signal)
@@ -325,7 +410,7 @@ describe('PostHog filesystem projection', () => {
                 method: 'PATCH',
                 signal,
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(edited),
+                body: JSON.stringify({ id: 'another-id', name: 'Edited', nested: { enabled: true } }),
             })
         }
     })
@@ -365,26 +450,62 @@ describe('PostHog filesystem projection', () => {
         }
     })
 
-    it('saves notebook JSON with the opened version and advances it after a successful save', async () => {
+    it.each([
+        ['notebook', 'invalid/id'],
+        ['insight', 'invalid?query'],
+        ['survey', 'invalid-id'],
+        ['dashboard', 'not-a-number'],
+        ['dashboard', '9007199254740993'],
+    ])('keeps %s records with invalid object IDs read-only', async (type, ref) => {
+        jest.mocked(fileSystemList).mockResolvedValue({
+            count: 1,
+            results: [{ ...entry('record', 'Object', type), ref }],
+        })
+        jest.mocked(fileSystemRetrieve).mockResolvedValue({ ...entry('record', 'Object', type), ref })
         const fs = new PosthogFilesystem('42', new AbortController().signal)
         await fs.load()
-        const file =
-            await fs.root.children!.get('api')!.children!.get('notebook')!.children!.get('note-1.json')!.open!()
+        const nodes = [
+            fs.root.children!.get('files')!.children!.get('Object.json')!,
+            fs.root
+                .children!.get('api')!
+                .children!.get(type)!
+                .children!.get(`${terminalFilename(ref)}.json`)!,
+        ]
+        for (const node of nodes) {
+            expect(node.writable).toBe(false)
+            expect((await node.open!()).save).toBeUndefined()
+        }
+        expect(fileSystemRetrieve).toHaveBeenCalledTimes(2)
+        expect(fileSystemRetrieve).toHaveBeenLastCalledWith('42', 'record', expect.anything())
+        expect(apiMutator).not.toHaveBeenCalled()
+        expect(notebooksRetrieve).not.toHaveBeenCalled()
+    })
+
+    it('saves notebook JSON with the opened version and advances it after a successful save', async () => {
+        const session = new AbortController()
+        const read = new AbortController()
+        const fs = new PosthogFilesystem('42', session.signal)
+        await fs.load()
+        const file = await fs.root.children!.get('api')!.children!.get('notebook')!.children!.get('note1.json')!.open!(
+            read.signal
+        )
+        read.abort()
+        expect(jest.mocked(notebooksRetrieve).mock.calls[0][2]?.signal).not.toBe(session.signal)
         jest.mocked(notebooksPartialUpdate).mockResolvedValue({ ...notebook, version: 8 })
         const data = new TextEncoder().encode(JSON.stringify({ ...notebook, title: 'Edited', version: 99 }))
         await file.save!(data)
         expect(notebooksPartialUpdate).toHaveBeenLastCalledWith(
             '42',
-            'note-1',
+            'note1',
             expect.objectContaining({ title: 'Edited', version: 7 }),
-            expect.anything()
+            expect.objectContaining({ signal: session.signal })
         )
         await file.save!(data)
         expect(notebooksPartialUpdate).toHaveBeenLastCalledWith(
             '42',
-            'note-1',
+            'note1',
             expect.objectContaining({ version: 8 }),
-            expect.anything()
+            expect.objectContaining({ signal: session.signal })
         )
     })
 

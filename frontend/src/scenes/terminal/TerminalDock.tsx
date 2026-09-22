@@ -55,7 +55,6 @@ export function TerminalDock(): JSX.Element | null {
             ['ctrl', 'shift', '~'],
             ['command', '`'],
             ['command', 'shift', '~'],
-            ['command', 'j'],
         ],
         intent: 'Toggle terminal',
         interaction: 'function',

@@ -25,7 +25,7 @@ function DockedTerminalPreview(): JSX.Element {
         <>
             <div className="app-layout">
                 <div className="left-nav flex flex-col gap-2 p-4">
-                    <LemonButton to="/notebooks/demo-note">Notebook page</LemonButton>
+                    <LemonButton to="/notebooks/demonote">Notebook page</LemonButton>
                     <LemonButton to="/terminal">Full terminal</LemonButton>
                 </div>
                 <div className="main-content-container flex min-h-0 flex-col p-4">
@@ -70,7 +70,7 @@ const meta: Meta<typeof TerminalScene> = {
     render: (_, { parameters }) => {
         const notebook = {
             id: '01900000-0000-7000-8000-000000000002',
-            short_id: 'demo-note',
+            short_id: 'demonote',
             title: 'Welcome',
             content: {
                 type: 'doc',
@@ -89,7 +89,7 @@ const meta: Meta<typeof TerminalScene> = {
         const folders = new Map([['01900000-0000-7000-8000-000000000005', 'Research']])
         const objects = [
             { type: 'dashboard', route: 'dashboards', ref: '101', name: 'Overview' },
-            { type: 'insight', route: 'insights', ref: 'demo-insight', name: 'Signups' },
+            { type: 'insight', route: 'insights', ref: 'demoinsight', name: 'Signups' },
             { type: 'feature_flag', route: 'feature_flags', ref: '102', name: 'New navigation' },
             { type: 'cohort', route: 'cohorts', ref: '103', name: 'Active users' },
             { type: 'action', route: 'actions', ref: '104', name: 'Checkout' },
@@ -214,7 +214,7 @@ const meta: Meta<typeof TerminalScene> = {
                         ...notebook,
                         ...body,
                         id: '01900000-0000-7000-8000-000000000004',
-                        short_id: 'demo-created',
+                        short_id: 'democreated',
                     }
                     notebooks.set(created.short_id, created)
                     paths.set(created.id, `Research/${created.title}`)
@@ -294,7 +294,7 @@ export const Default: StoryObj<typeof TerminalScene> = {}
 export const Docked: StoryObj<typeof TerminalScene> = {
     parameters: {
         docked: true,
-        pageUrl: '/notebooks/demo-note',
+        pageUrl: '/notebooks/demonote',
         layout: 'fullscreen',
         featureFlags: [FEATURE_FLAGS.POSTHOG_TERMINAL],
     },
@@ -302,7 +302,7 @@ export const Docked: StoryObj<typeof TerminalScene> = {
 export const DockDisabled: StoryObj<typeof TerminalScene> = {
     parameters: {
         docked: true,
-        pageUrl: '/notebooks/demo-note',
+        pageUrl: '/notebooks/demonote',
         layout: 'fullscreen',
         featureFlags: { [FEATURE_FLAGS.POSTHOG_TERMINAL]: false },
     },

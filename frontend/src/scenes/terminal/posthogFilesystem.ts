@@ -88,7 +88,7 @@ This is a Linux virtual machine running in your browser.
 /posthog/api         JSON representations, grouped by object type and ID.
 /posthog/tools       Command descriptions and argument schemas. Run ph tools to discover MCP tools.
 /posthog/recovery    Edits that could not be saved. Copy them before leaving this page.
-/root and /tmp       Local Linux files. These disappear when the terminal closes.
+/root and /tmp       Local Linux files. These disappear when you stop Linux or reload PostHog.
 
 Try:
   mc
@@ -108,7 +108,7 @@ Try:
 Saving an existing .md notebook updates PostHog using your current permissions.
 JSON files for notebooks, dashboards, insights, feature flags, cohorts, actions,
 surveys, and experiments are editable in both mounts when you have edit access.
-Saving sends the JSON object to its existing API endpoint with PATCH. The mounted
+Saving sends changed JSON fields to the existing API endpoint with PATCH. The mounted
 path selects the object, even if you edit an ID inside the JSON. API validation
 and read-only fields still apply. Unsupported object types remain read-only.
 Writes commit on fsync or close. Notebook saves use version checks; other objects
@@ -337,56 +337,83 @@ export class PosthogFilesystem extends TerminalFilesystem {
         }
     }
 
-    private objectApi(entry: FileSystemApi):
+    private validReference(entry: FileSystemApi): boolean {
+        const ref = entry.ref
+        if (!ref) {
+            return false
+        }
+        switch (entry.type) {
+            case 'notebook':
+                return /^[\p{L}\p{N}]{1,12}(?![\s\S])/u.test(ref)
+            case 'insight':
+                return /^(?:[A-Za-z0-9]{1,12}|[0-9]+)(?![\s\S])/.test(ref)
+            case 'survey':
+                return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}(?![\s\S])/i.test(ref)
+            case 'dashboard':
+            case 'feature_flag':
+            case 'cohort':
+            case 'action':
+            case 'experiment':
+                return /^[1-9][0-9]*(?![\s\S])/.test(ref) && Number.isSafeInteger(Number(ref))
+            default:
+                return false
+        }
+    }
+
+    private objectApi(
+        entry: FileSystemApi,
+        signal?: AbortSignal
+    ):
         | {
               read: () => Promise<unknown>
               update: (data: Record<string, unknown>) => Promise<unknown>
           }
         | undefined {
         const options = { signal: this.signal }
+        const readOptions = { signal: signal ?? this.signal }
         const ref = entry.ref
-        if (!ref) {
+        if (!ref || !this.validReference(entry)) {
             return undefined
         }
         switch (entry.type) {
             case 'notebook':
                 return {
-                    read: () => notebooksRetrieve(this.projectId, ref, options),
+                    read: () => notebooksRetrieve(this.projectId, ref, readOptions),
                     update: (data) => notebooksPartialUpdate(this.projectId, ref, data, options),
                 }
             case 'dashboard':
                 return {
-                    read: () => dashboardsRetrieve(this.projectId, Number(ref), undefined, options),
+                    read: () => dashboardsRetrieve(this.projectId, Number(ref), undefined, readOptions),
                     update: (data) => dashboardsPartialUpdate(this.projectId, Number(ref), data, undefined, options),
                 }
             case 'insight':
                 return {
-                    read: () => insightsRetrieve(this.projectId, ref, undefined, options),
+                    read: () => insightsRetrieve(this.projectId, ref, undefined, readOptions),
                     update: (data) => insightsPartialUpdate(this.projectId, ref, data, undefined, options),
                 }
             case 'feature_flag':
                 return {
-                    read: () => featureFlagsRetrieve(this.projectId, Number(ref), options),
+                    read: () => featureFlagsRetrieve(this.projectId, Number(ref), readOptions),
                     update: (data) => featureFlagsPartialUpdate(this.projectId, Number(ref), data, options),
                 }
             case 'cohort':
                 return {
-                    read: () => cohortsRetrieve(this.projectId, Number(ref), options),
+                    read: () => cohortsRetrieve(this.projectId, Number(ref), readOptions),
                     update: (data) => cohortsPartialUpdate(this.projectId, Number(ref), data, options),
                 }
             case 'action':
                 return {
-                    read: () => actionsRetrieve(this.projectId, Number(ref), undefined, options),
+                    read: () => actionsRetrieve(this.projectId, Number(ref), undefined, readOptions),
                     update: (data) => actionsPartialUpdate(this.projectId, Number(ref), data, undefined, options),
                 }
             case 'survey':
                 return {
-                    read: () => surveysRetrieve(this.projectId, ref, options),
+                    read: () => surveysRetrieve(this.projectId, ref, readOptions),
                     update: (data) => surveysPartialUpdate(this.projectId, ref, data, options),
                 }
             case 'experiment':
                 return {
-                    read: () => experimentsRetrieve(this.projectId, Number(ref), options),
+                    read: () => experimentsRetrieve(this.projectId, Number(ref), readOptions),
                     update: (data) => experimentsPartialUpdate(this.projectId, Number(ref), data, options),
                 }
             default:
@@ -394,11 +421,13 @@ export class PosthogFilesystem extends TerminalFilesystem {
         }
     }
 
-    private async json(entry: FileSystemApi, writable: boolean): Promise<TerminalFile> {
-        const endpoint = this.objectApi(entry)
+    private async json(entry: FileSystemApi, writable: boolean, signal?: AbortSignal): Promise<TerminalFile> {
+        const endpoint = this.objectApi(entry, signal)
         let value = endpoint
             ? await endpoint.read()
-            : await fileSystemRetrieve(this.projectId, entry.id, { signal: this.signal })
+            : await fileSystemRetrieve(this.projectId, entry.id, {
+                  signal: signal ?? this.signal,
+              })
         return {
             ...jsonFile(value),
             save:
@@ -413,7 +442,14 @@ export class PosthogFilesystem extends TerminalFilesystem {
                           if (!update || typeof update !== 'object' || Array.isArray(update)) {
                               throw new Error('The JSON must contain an object with the fields to update.')
                           }
-                          const payload = { ...update } as Record<string, unknown>
+                          const original = value && typeof value === 'object' ? value : {}
+                          const payload = Object.fromEntries(
+                              Object.entries(update).filter(
+                                  ([key, value]) =>
+                                      JSON.stringify(value) !==
+                                      JSON.stringify((original as Record<string, unknown>)[key])
+                              )
+                          )
                           if (entry.type === 'notebook' && value && typeof value === 'object' && 'version' in value) {
                               payload.version = value.version
                           }
@@ -423,8 +459,13 @@ export class PosthogFilesystem extends TerminalFilesystem {
         }
     }
 
-    private async notebook(entry: FileSystemApi): Promise<TerminalFile> {
-        let notebook = await notebooksRetrieve(this.projectId, entry.ref!, { signal: this.signal })
+    private async notebook(entry: FileSystemApi, signal?: AbortSignal): Promise<TerminalFile> {
+        if (!this.validReference(entry)) {
+            throw new FilesystemError(22)
+        }
+        let notebook = await notebooksRetrieve(this.projectId, entry.ref!, {
+            signal: signal ?? this.signal,
+        })
         const node = markdownNode(notebook.content)
         if (!node) {
             throw new Error('Notebook format changed. Restart the terminal to refresh the filename.')
@@ -486,14 +527,29 @@ export class PosthogFilesystem extends TerminalFilesystem {
                 offset += page.results.length
             }
         }
-        this.files.children!.clear()
-        this.api.children!.clear()
+        const previousNodes = this.mountedNodes()
+        const directories = new Map(
+            [...previousNodes].filter((node) => node.children).map((node) => [this.mountedPath(node), node])
+        )
+        const files = new Map(
+            [...this.projectNodes]
+                .filter(([, metadata]) => metadata.entry && metadata.extension)
+                .map(([node, metadata]) => [this.fileIdentity(metadata.entry!, metadata.extension!), node])
+        )
+        const apiFiles = new Map(
+            [...previousNodes]
+                .filter((node) => !node.children && node.parent?.parent === this.api)
+                .map((node) => [this.mountedPath(node), node])
+        )
+        for (const node of previousNodes) {
+            node.children?.clear()
+        }
         this.references.clear()
         this.projectNodes.clear()
         this.registerDirectory(this.files, [])
         for (const entry of entries.filter((item) => item.type === 'folder' && item.user_access_level !== 'none')) {
             const parts = splitPath(entry.path)
-            this.registerDirectory(this.parent(parts, this.files), parts, entry)
+            this.registerDirectory(this.parent(parts, this.files, directories), parts, entry)
         }
         for (const entry of entries) {
             if (entry.type === 'folder' || entry.user_access_level === 'none') {
@@ -502,7 +558,7 @@ export class PosthogFilesystem extends TerminalFilesystem {
             const notebook = entry.type === 'notebook' ? markdownNotebooks.get(entry.ref ?? '') : undefined
             const parts = splitPath(entry.path)
             const basename = terminalFilename(parts.pop() ?? 'Untitled')
-            const parent = this.parent(parts, this.files)
+            const parent = this.parent(parts, this.files, directories)
             const extension = notebook ? '.md' : '.json'
             let name = basename.endsWith(extension) ? basename : `${basename}${extension}`
             if (parent.children!.has(name)) {
@@ -517,28 +573,118 @@ export class PosthogFilesystem extends TerminalFilesystem {
                 !!this.objectApi(entry) &&
                 entry.user_access_level !== 'viewer' &&
                 (access === null || ['editor', 'manager'].includes(access ?? ''))
-            const file = this.file(
+            const file = this.mountFile(
                 name,
                 parent,
-                notebook ? () => this.notebook(entry) : () => this.json(entry, writable),
-                writable
+                notebook ? (signal) => this.notebook(entry, signal) : (signal) => this.json(entry, writable, signal),
+                writable,
+                files.get(this.fileIdentity(entry, extension))
             )
+            file.writeKey = JSON.stringify([entry.type, entry.ref ?? entry.id])
             this.projectNodes.set(file, { parts: splitPath(entry.path), entry, extension })
             file.rename = (parent, name) => this.move(file, parent, name)
             file.remove = () => this.remove(file)
             this.references.set(`/posthog/files/${[...parts.map(terminalFilename), name].join('/')}`, entry)
-            const type = this.directory(terminalFilename(entry.type ?? 'unknown'), this.api)
+            const type = this.mountDirectory(terminalFilename(entry.type ?? 'unknown'), this.api, directories)
             const apiName = `${terminalFilename(entry.ref ?? entry.id)}.json`
             if (!type.children!.has(apiName)) {
-                this.file(apiName, type, () => this.json(entry, writable), writable)
+                const apiFile = this.mountFile(
+                    apiName,
+                    type,
+                    (signal) => this.json(entry, writable, signal),
+                    writable,
+                    apiFiles.get(`${this.mountedPath(type)}/${apiName}`)
+                )
+                apiFile.writeKey = file.writeKey
                 this.references.set(`/posthog/api/${type.name}/${apiName}`, entry)
+            }
+        }
+        const currentNodes = this.mountedNodes()
+        for (const node of previousNodes) {
+            if (!currentNodes.has(node)) {
+                node.removed = true
             }
         }
     }
 
-    private parent(parts: string[], root: TerminalNode): TerminalNode {
+    private fileIdentity(entry: FileSystemApi, extension: string): string {
+        return JSON.stringify([entry.id, entry.type, entry.ref, extension])
+    }
+
+    private mountedNodes(): Set<TerminalNode> {
+        const nodes = new Set<TerminalNode>([this.files, this.api])
+        for (const node of nodes) {
+            for (const child of node.children?.values() ?? []) {
+                nodes.add(child)
+            }
+        }
+        return nodes
+    }
+
+    private mountDirectory(name: string, parent: TerminalNode, directories: Map<string, TerminalNode>): TerminalNode {
+        const node = directories.get(`${this.mountedPath(parent)}/${name}`) ?? this.directory(name, parent)
+        parent.children!.set(name, node)
+        return node
+    }
+
+    private async readFile(
+        open: (signal?: AbortSignal) => Promise<TerminalFile>,
+        signal?: AbortSignal
+    ): Promise<TerminalFile> {
+        if (!signal) {
+            return open(this.signal)
+        }
+        const controller = new AbortController()
+        const abort = (): void => controller.abort()
+        this.signal.addEventListener('abort', abort, { once: true })
+        signal.addEventListener('abort', abort, { once: true })
+        try {
+            if (this.signal.aborted || signal.aborted) {
+                controller.abort()
+            }
+            return await open(controller.signal)
+        } finally {
+            this.signal.removeEventListener('abort', abort)
+            signal.removeEventListener('abort', abort)
+        }
+    }
+
+    private mountFile(
+        name: string,
+        parent: TerminalNode,
+        open: (signal?: AbortSignal) => Promise<TerminalFile>,
+        writable: boolean,
+        existing?: TerminalNode
+    ): TerminalNode {
+        const node = existing ?? this.file(name, parent, open, writable)
+        node.name = name
+        node.parent = parent
+        node.writable = writable
+        node.open = async (signal) => {
+            if (node.removed) {
+                throw new FilesystemError(116)
+            }
+            const file = await this.readFile(open, signal)
+            const save = file.save
+            return {
+                ...file,
+                save: save
+                    ? async (bytes) => {
+                          if (node.removed) {
+                              throw new FilesystemError(116)
+                          }
+                          await save(bytes)
+                      }
+                    : undefined,
+            }
+        }
+        parent.children!.set(name, node)
+        return node
+    }
+
+    private parent(parts: string[], root: TerminalNode, directories: Map<string, TerminalNode>): TerminalNode {
         return parts.reduce((parent, part, index) => {
-            const node = this.directory(terminalFilename(part), parent)
+            const node = this.mountDirectory(terminalFilename(part), parent, directories)
             if (!this.projectNodes.has(node)) {
                 this.registerDirectory(node, parts.slice(0, index + 1))
             }
