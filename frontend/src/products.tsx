@@ -217,6 +217,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-servers': ['McpGateway', 'mcpGateway'],
     '/mcp-servers/:tab': ['McpGateway', 'mcpGatewayTab'],
     '/metrics': ['Metrics', 'metrics'],
+    '/ml-inference/decisions': ['DecisionPlayground', 'decisionPlayground'],
     '/notebooks/widgets/:widgetId': ['ReusableWidget', 'reusableWidget'],
     '/person/*': ['Person', 'personByDistinctId'],
     '/persons/*': ['Person', 'personByUUID'],
@@ -904,6 +905,12 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'metrics',
         docsHref: 'https://posthog.com/docs/metrics',
     },
+    DecisionPlayground: {
+        projectBased: true,
+        name: 'Decisions playground',
+        description: 'Ask the decision model questions about a piece of text.',
+        layout: 'app-container',
+    },
     ReusableWidget: { name: 'Reusable widget', projectBased: true, activityScope: 'Notebook', iconType: 'notebook' },
     Person: { projectBased: true, name: 'People', activityScope: ActivityScope.PERSON, iconType: 'user' },
     Persons: {
@@ -1446,6 +1453,7 @@ export const productUrls = {
     mcpGatewayAgent: (id: string): string => `/mcp-servers/agent/${id}`,
     mcpGatewayMember: (id: string | number): string => `/mcp-servers/member/${id}`,
     metrics: (): string => '/metrics',
+    decisionPlayground: (): string => '/ml-inference/decisions',
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,

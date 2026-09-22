@@ -11,6 +11,23 @@ from .enums import DecisionQuestionType
 DEFAULT_DECISION_MODEL = "posthog/posthog/decision-4b"
 
 
+class DecisionsDisabledError(Exception):
+    """The team is not enrolled in decisions; callers show the feature as absent."""
+
+    def __init__(self, team_id: int) -> None:
+        super().__init__(f"decisions are not enabled for team {team_id}")
+        self.team_id = team_id
+
+
+class DecisionGatewayError(Exception):
+    """The gateway answered, but not with a decision."""
+
+    def __init__(self, status_code: int, detail: str) -> None:
+        super().__init__(f"decision gateway returned {status_code}: {detail}")
+        self.status_code = status_code
+        self.detail = detail
+
+
 @dataclass(frozen=True)
 class DecisionQuestion:
     type: DecisionQuestionType

@@ -10,6 +10,7 @@ from posthog.llm.gateway_client import GatewayNotConfiguredError
 
 from products.ml_inference.backend.facade.contracts import (
     ChoiceAnswer,
+    DecisionGatewayError,
     DecisionQuestion,
     DecisionRequest,
     NoulAnswer,
@@ -97,7 +98,7 @@ class TestDecide:
         ],
     )
     def test_rejects_a_200_that_is_not_a_decision(self, payload: object) -> None:
-        with pytest.raises(decisions.DecisionGatewayError) as raised:
+        with pytest.raises(DecisionGatewayError) as raised:
             decisions.parse_result(payload)
 
         assert raised.value.status_code == 200
@@ -105,7 +106,7 @@ class TestDecide:
     def test_surfaces_a_gateway_refusal_with_its_status(self) -> None:
         transport = httpx.MockTransport(lambda _request: httpx.Response(404, json={"error": {"code": "not_found"}}))
 
-        with override_settings(**GATEWAY), pytest.raises(decisions.DecisionGatewayError) as raised:
+        with override_settings(**GATEWAY), pytest.raises(DecisionGatewayError) as raised:
             decisions.decide(_request(), transport=transport)
 
         assert raised.value.status_code == 404

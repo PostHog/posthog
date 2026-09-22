@@ -15,7 +15,15 @@ from posthog.llm.gateway_client import (
 )
 from posthog.models import Team
 
-from ..facade.contracts import ChoiceAnswer, DecisionAnswer, DecisionRequest, DecisionResult, NoulAnswer, ScoreAnswer
+from ..facade.contracts import (
+    ChoiceAnswer,
+    DecisionAnswer,
+    DecisionGatewayError,
+    DecisionRequest,
+    DecisionResult,
+    NoulAnswer,
+    ScoreAnswer,
+)
 from ..facade.enums import DecisionQuestionType
 
 logger = structlog.get_logger(__name__)
@@ -23,15 +31,6 @@ logger = structlog.get_logger(__name__)
 DECISIONS_FEATURE_FLAG = "ml-inference-decisions"
 DECISION_PATH = "/v1/systemone"
 DEFAULT_TIMEOUT_SECONDS = 30.0
-
-
-class DecisionGatewayError(Exception):
-    """The gateway answered, but not with a decision."""
-
-    def __init__(self, status_code: int, detail: str) -> None:
-        super().__init__(f"decision gateway returned {status_code}: {detail}")
-        self.status_code = status_code
-        self.detail = detail
 
 
 def decisions_enabled(team_id: int) -> bool:
@@ -79,7 +78,11 @@ def decide(
         response = client.post(decision_url(config.url), json=_wire_body(request), headers=headers)
     if response.status_code != 200:
         raise DecisionGatewayError(response.status_code, response.text[:500])
-    return parse_result(response.json())
+    try:
+        payload = response.json()
+    except ValueError as error:
+        raise DecisionGatewayError(200, "decision response is not JSON") from error
+    return parse_result(payload)
 
 
 def _wire_body(request: DecisionRequest) -> dict[str, Any]:
@@ -106,9 +109,11 @@ def parse_result(payload: Any) -> DecisionResult:
         raise DecisionGatewayError(200, "decision response usage has no input_tokens")
     try:
         parsed = {question_id: _parse_answer(answer) for question_id, answer in answers.items()}
+        return DecisionResult(
+            model=model, answers=parsed, input_tokens=input_tokens, latency_ms=payload.get("latency_ms")
+        )
     except (ValueError, TypeError, KeyError) as error:
         raise DecisionGatewayError(200, f"decision response has an unreadable answer: {error}") from error
-    return DecisionResult(model=model, answers=parsed, input_tokens=input_tokens, latency_ms=payload.get("latency_ms"))
 
 
 def _parse_answer(answer: Any) -> DecisionAnswer:

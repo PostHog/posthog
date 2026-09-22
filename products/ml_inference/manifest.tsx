@@ -1,21 +1,22 @@
-/**
- * Product manifest for ml_inference.
- *
- * Defines scenes, routes, URLs, and navigation for this product.
- */
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'MlInference',
     scenes: {
-        // Define scenes here
+        DecisionPlayground: {
+            import: () => import('./frontend/DecisionPlaygroundScene'),
+            projectBased: true,
+            name: 'Decisions playground',
+            description: 'Ask the decision model questions about a piece of text.',
+            layout: 'app-container',
+        },
     },
     routes: {
-        // Define routes here
+        '/ml-inference/decisions': ['DecisionPlayground', 'decisionPlayground'],
     },
     redirects: {},
     urls: {
-        // Define URL helpers here
+        decisionPlayground: (): string => '/ml-inference/decisions',
     },
     fileSystemTypes: {},
     treeItemsNew: [],

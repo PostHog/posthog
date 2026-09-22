@@ -29881,6 +29881,111 @@ export namespace Schemas {
     }
 
     /**
+     * * `noul` - Yes or no
+     * * `choice` - Multiple choice
+     * * `score` - Rating scale
+     */
+    export type DecisionQuestionTypeEnum = typeof DecisionQuestionTypeEnum[keyof typeof DecisionQuestionTypeEnum];
+
+
+    export const DecisionQuestionTypeEnum = {
+      Noul: 'noul',
+      Choice: 'choice',
+      Score: 'score',
+    } as const;
+
+    /**
+     * For a multiple choice question, the options keyed by name. Omitted for other question types.
+     */
+    export type DecisionQuestionCriteria = {[key: string]: string};
+
+    export interface DecisionQuestion {
+      /** What kind of answer to produce: a yes/no probability, one of the given options, or a rating.
+       *
+       * * `noul` - Yes or no
+       * * `choice` - Multiple choice
+       * * `score` - Rating scale */
+      type: DecisionQuestionTypeEnum;
+      /** The question to ask about the state, phrased for the model. */
+      instructions: string;
+      /** For a multiple choice question, the options keyed by name. Omitted for other question types. */
+      criteria?: DecisionQuestionCriteria;
+    }
+
+    /**
+     * The questions to ask, keyed by an id of your choice. Answers come back under the same ids.
+     */
+    export type DecideRequestQuestions = {[key: string]: DecisionQuestion};
+
+    export interface DecideRequest {
+      /** The text the questions are about, for example a support ticket or a session summary. */
+      state: string;
+      /** The questions to ask, keyed by an id of your choice. Answers come back under the same ids. */
+      questions: DecideRequestQuestions;
+      /** The decision model to ask, as a gateway model id. */
+      model?: string;
+    }
+
+    /**
+     * For multiple choice and rating questions, the probability of each option.
+     * @nullable
+     */
+    export type DecisionAnswerProbabilities = {[key: string]: number} | null;
+
+    export interface DecisionAnswer {
+      /** The question type answered.
+       *
+       * * `noul` - Yes or no
+       * * `choice` - Multiple choice
+       * * `score` - Rating scale */
+      type: DecisionQuestionTypeEnum;
+      /**
+         * For a yes/no question, the probability of yes.
+         * @nullable
+         */
+      probability: number | null;
+      /**
+         * For a multiple choice question, the option chosen.
+         * @nullable
+         */
+      choice: string | null;
+      /**
+         * For a rating question, the expected rating.
+         * @nullable
+         */
+      score: number | null;
+      /**
+         * How far the chosen option stands out from the rest, from 0 (a coin flip) to 1.
+         * @nullable
+         */
+      confidence: number | null;
+      /**
+         * For multiple choice and rating questions, the probability of each option.
+         * @nullable
+         */
+      probabilities: DecisionAnswerProbabilities;
+    }
+
+    /**
+     * One answer per question, under the ids the request used.
+     */
+    export type DecideResponseAnswers = {[key: string]: DecisionAnswer};
+
+    export interface DecideResponse {
+      /** The model that answered, as the serving host names it. */
+      model: string;
+      /** One answer per question, under the ids the request used. */
+      answers: DecideResponseAnswers;
+      /** Tokens the model read, which is what the request is billed on. */
+      input_tokens: number;
+      /**
+         * Time the model spent answering, if reported.
+         * @nullable
+         */
+      latency_ms: number | null;
+    }
+
+    /**
      * * `rule` - rule
      * * `scope` - scope
      * * `team` - team

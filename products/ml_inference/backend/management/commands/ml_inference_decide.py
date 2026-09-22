@@ -5,7 +5,12 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError
 
 from products.ml_inference.backend.facade import api
-from products.ml_inference.backend.facade.contracts import DEFAULT_DECISION_MODEL, DecisionQuestion, DecisionRequest
+from products.ml_inference.backend.facade.contracts import (
+    DEFAULT_DECISION_MODEL,
+    DecisionQuestion,
+    DecisionRequest,
+    DecisionsDisabledError,
+)
 
 
 class Command(BaseCommand):
@@ -26,11 +31,13 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         team_id: int = options["team_id"]
-        if not options["force"] and not api.decisions_enabled(team_id):
-            raise CommandError(f"decisions are not enabled for team {team_id}; pass --force to ask anyway")
         state = self._state(options)
         questions = self._questions(options["questions_json"])
-        result = api.decide(DecisionRequest(team_id=team_id, state=state, questions=questions, model=options["model"]))
+        decision = DecisionRequest(team_id=team_id, state=state, questions=questions, model=options["model"])
+        try:
+            result = api.decide_unchecked(decision) if options["force"] else api.decide(decision)
+        except DecisionsDisabledError as error:
+            raise CommandError(f"{error}; pass --force to ask anyway") from error
         self.stdout.write(
             json.dumps(
                 {

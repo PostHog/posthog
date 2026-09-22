@@ -1,9 +1,9 @@
 """Exported enums for ml_inference."""
 
-from enum import StrEnum
+from django.db import models
 
 
-class DecisionQuestionType(StrEnum):
-    NOUL = "noul"
-    CHOICE = "choice"
-    SCORE = "score"
+class DecisionQuestionType(models.TextChoices):
+    NOUL = "noul", "Yes or no"
+    CHOICE = "choice", "Multiple choice"
+    SCORE = "score", "Rating scale"
