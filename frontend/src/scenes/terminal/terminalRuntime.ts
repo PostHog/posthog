@@ -1,6 +1,7 @@
 import { V86 } from 'v86'
 import wasmUrl from 'v86/build/v86.wasm?url'
 
+import kernelUrl from 'public/terminal/buildroot-bzimage.bin?url'
 import jqUrl from 'public/terminal/jq-linux-i386.bin?url'
 import toolsUrl from 'public/terminal/tools-linux-i386.tar.gz.bin?url'
 
@@ -64,7 +65,7 @@ export class TerminalRuntime {
             ),
             verifiedImage(
                 // This image's uncached 9P reads work before API file sizes are known; Linux 6.8 clamps them to zero.
-                'https://i.copy.sh/buildroot-bzimage.bin',
+                kernelUrl,
                 '7befbaea31e249d9a518c4b95fa42b2a193d0e3de46250d617cbdeb866ee28b0',
                 signal
             ),
