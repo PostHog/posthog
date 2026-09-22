@@ -13,6 +13,7 @@ from products.wizard.backend.facade.contracts import (
     GitRepositoryWorkspace,
     ListWizardRunsInput,
     LocalFolderWorkspace,
+    UpdateWizardRunTaskListInput,
     WizardRunCreationResult,
     WizardRunDTO,
     WizardRunPage,
@@ -236,3 +237,17 @@ def transition_run(
 
     run_observability.run_transitioned(previous, run)
     return run
+
+
+def update_run_task_list(
+    team_id: int, run_id: UUID, tasks: UpdateWizardRunTaskListInput
+) -> UpdateWizardRunTaskListInput:
+    """
+    what this should do:
+    - take the raw task list snapshot as input
+    - take the last stored task list snapshot
+    - compare them, and compute the derived fields (created_at, started_at, completed_at, failed_at, and error_message)
+    - store the new, computed state
+    """
+
+    return tasks

@@ -153,6 +153,48 @@ class WizardRunCreatorDTO:
 
 
 @frozen
+class UpdateWizardRunTaskInput:
+    """
+    Payload used to update a single task of a WizardRun.
+    """
+
+    title: str
+    status: WizardSessionTaskStatus
+
+
+@frozen
+class UpdateWizardRunTaskListInput:
+    """
+    Payload used to update the list of tasks of a WizardRun.
+
+    The Wizard's LLM generates and updates the task list, as a snaphost.
+    This is why the input shape doesn't have timestamps. Those will computed
+    server-side.
+    """
+
+    tasks: list[UpdateWizardRunTaskInput]
+
+
+@frozen
+class WizardTaskDTO:
+    """
+    A single task of a WizardRun.
+
+    Note: the datetimes are computed server-side,
+          since the Wizard only sends the current list's snapshot.
+          This is why it is only shown to the user.
+    """
+
+    title: str
+    status: WizardSessionTaskStatus
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    failed_at: datetime | None
+    error_message: str | None
+
+
+@frozen
 class WizardRunDTO:
     id: UUID
     team_id: int

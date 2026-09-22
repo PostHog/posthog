@@ -36,6 +36,7 @@ from products.wizard.backend.logic import (
     sessions,
 )
 from products.wizard.backend.logic.artifacts import service as artifacts
+from products.wizard.backend.logic.runs.lifecycle import UpdateWizardRunTaskListInput
 from products.wizard.backend.logic.sessions import pubsub
 
 
@@ -131,6 +132,12 @@ def update_run_status(
     error_code: str | None = None,
 ) -> WizardRunDTO:
     return run_service.transition_run(team_id, run_id, status, error_code=error_code)
+
+
+def update_run_task_list(
+    team_id: int, run_id: UUID, tasks: UpdateWizardRunTaskListInput
+) -> UpdateWizardRunTaskListInput:
+    return run_service.update_run_task_list(team_id, run_id, tasks)
 
 
 def create_git_diff_artifact(team_id: int, run_id: UUID, content: bytes) -> WizardRunGitDiffArtifactDTO | None:
