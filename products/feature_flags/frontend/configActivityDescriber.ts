@@ -35,14 +35,15 @@ export function describeConfigActivity(change: ActivityChange, logItem?: Activit
         if (summary.field === 'rule_order') {
             return 'changed the rule order'
         }
+        const verb = summary.action === 'created' ? 'added' : summary.action === 'deleted' ? 'removed' : 'changed'
         const [root, id, field] = summary.field?.split('/') ?? []
         if (root === 'rules' && id) {
             if (!field) {
-                return `${summary.action === 'created' ? 'added' : 'removed'} rule ${id}`
+                return `${verb} rule ${id}`
             }
-            return `changed ${fieldLabels[field] ?? 'configuration'} for rule ${id}`
+            return `${verb} ${fieldLabels[field] ?? 'configuration'} for rule ${id}`
         }
-        return `changed the ${fieldLabels[root] ?? 'configuration'}`
+        return `${verb} the ${fieldLabels[root] ?? 'configuration'}`
     })
     return { description: description.length ? description : ['changed the feature flag configuration'] }
 }
