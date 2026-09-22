@@ -59,6 +59,8 @@ Pipes, redirection, completion, terminal colors, Ctrl+C, and scrollback use the 
 The terminal uses a black background in both app themes and fills the available page height.
 Scrolling to the bottom returns to the current prompt without typing.
 The guest clock and local timezone offset follow your browser, with synchronization every 30 seconds and when you return to the tab.
+The toolbar's environment selector lists **PostHog Linux WASM (in-browser, experimental)** under **Environment**.
+The **Stop**, **Copy**, and **Paste** icon buttons have tooltips with their names.
 Selecting text copies it automatically. **Copy** also copies selected text, and **Paste** inserts clipboard text into the terminal.
 Keyboard shortcuts are ⌘C/⌘V on macOS and Ctrl+Shift+C/V on Linux and Windows; Ctrl+C still interrupts the running command.
 If the browser denies clipboard access, focus the terminal and use its native paste shortcut or context menu.

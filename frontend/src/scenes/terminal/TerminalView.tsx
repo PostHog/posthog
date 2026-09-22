@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconX, IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonMenu, LemonTag, Popover } from '@posthog/lemon-ui'
+import { IconCopy, IconInfo, IconStopFilled, IconX } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonMenu, LemonSelect, LemonTag, Popover } from '@posthog/lemon-ui'
+
+import { IconClipboardEdit } from 'lib/lemon-ui/icons'
 
 import { terminalLogic } from './terminalLogic'
 
@@ -72,6 +74,25 @@ export function TerminalView({
     return (
         <div className="h-full min-h-0 flex flex-col gap-1">
             <div className="flex shrink-0 items-center gap-1 flex-wrap px-1">
+                <LemonSelect
+                    size="xsmall"
+                    value="posthog-linux-wasm"
+                    aria-label="Environment"
+                    data-attr="terminal-environment"
+                    className="min-w-0 max-w-full"
+                    truncateText={{ maxWidthClass: 'max-w-full' }}
+                    options={[
+                        {
+                            title: 'Environment',
+                            options: [
+                                {
+                                    value: 'posthog-linux-wasm',
+                                    label: 'PostHog Linux WASM (in-browser, experimental)',
+                                },
+                            ],
+                        },
+                    ]}
+                />
                 <LemonButton
                     size="xsmall"
                     type="primary"
@@ -84,29 +105,32 @@ export function TerminalView({
                 </LemonButton>
                 <LemonButton
                     size="xsmall"
+                    icon={<IconStopFilled />}
+                    aria-label="Stop"
+                    tooltip="Stop"
                     onClick={stop}
                     disabledReason={status === 'idle' ? 'Start the terminal first' : undefined}
                     data-attr="terminal-stop"
-                >
-                    Stop
-                </LemonButton>
+                />
                 <LemonButton
                     size="xsmall"
+                    icon={<IconCopy />}
+                    aria-label="Copy"
+                    tooltip="Copy"
                     onClick={copy}
                     disabledReason={!hasSelection ? 'Select terminal text to copy' : undefined}
                     data-attr="terminal-copy"
-                >
-                    Copy
-                </LemonButton>
+                />
                 <LemonButton
                     size="xsmall"
+                    icon={<IconClipboardEdit />}
+                    aria-label="Paste"
+                    tooltip="Paste"
                     onClick={paste}
                     loading={pasting}
                     disabledReason={status !== 'ready' ? 'Start the terminal first' : undefined}
                     data-attr="terminal-paste"
-                >
-                    Paste
-                </LemonButton>
+                />
                 <LemonMenu
                     items={examples.map(({ title, commands }) => ({
                         title,
