@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -81,6 +82,7 @@ function backfill(overrides: Partial<EvaluationBackfillApi> = {}): EvaluationBac
         total_count: 10,
         dispatched_count: 8,
         skipped_count: 2,
+        remaining_count: 0,
         created_by: null,
         created_at: '2024-01-02T00:00:00Z',
         finished_at: '2024-01-02T01:00:00Z',
@@ -91,6 +93,7 @@ function backfill(overrides: Partial<EvaluationBackfillApi> = {}): EvaluationBac
 function estimate(overrides: Partial<EvaluationBackfillEstimateApi> = {}): EvaluationBackfillEstimateApi {
     return {
         total_units: 42,
+        already_evaluated_units: 0,
         unit: 'generation',
         window_start: '2024-01-01T00:00:00Z',
         window_end: '2024-01-08T00:00:00Z',
@@ -361,6 +364,20 @@ describe('evaluationBackfillsLogic', () => {
             .toDispatchActions(['requestEstimateFailure'])
             .toMatchValues({ estimateLoading: false, estimateError: null })
         expect(estimateMock).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        [0, 'No generations in this range match these conditions'],
+        // The number carries the formatter's own separators, so the expectation reuses it.
+        [446003, `All ${pluralize(446003, 'generation')} in this range already have a result`],
+    ])('explains an empty count when %s units already have a result', async (alreadyEvaluated, expected) => {
+        await mountAndSettle()
+
+        await expectLogic(logic, () => {
+            logic.actions.requestEstimateSuccess(
+                estimate({ total_units: 0, already_evaluated_units: alreadyEvaluated })
+            )
+        }).toMatchValues({ estimateSummary: expected })
     })
 
     it('anchors a relative preset on the project timezone', async () => {

@@ -51,6 +51,15 @@ const BACKFILL_STATUS_TAG: Record<EvaluationBackfillStatusEnumApi, { label: stri
 
 const WINDOW_TIME_FORMAT = { formatDate: 'MMM D, YYYY', formatTime: 'HH:mm' }
 
+function backfillRemainderLabel(backfill: EvaluationBackfillApi): string {
+    // Counted when the run ended, so it says whether the window came out covered, by this run or
+    // by the evaluation's own live grading.
+    if (backfill.remaining_count === 0) {
+        return `every ${backfill.target} in this range has a result`
+    }
+    return `${pluralize(backfill.remaining_count, backfill.target)} still without a result`
+}
+
 function backfillUnitPlural(backfill: EvaluationBackfillApi): string {
     return pluralize(2, backfill.target, undefined, false)
 }
@@ -94,6 +103,7 @@ export function EvaluationBackfillsTab({
         estimate,
         estimateError,
         estimateLoading,
+        estimateSummary,
         expandedBackfillIds,
         rerunExisting,
         settleWait,
@@ -374,8 +384,8 @@ export function EvaluationBackfillsTab({
                             ? 'Counting…'
                             : estimateError
                               ? estimateError
-                              : estimate
-                                ? `${pluralize(estimate.total_units, estimate.unit)} would be evaluated${
+                              : estimateSummary
+                                ? `${estimateSummary}${
                                       clampedWindow ? ` between ${clampedWindow.start} and ${clampedWindow.end}` : ''
                                   }`
                                 : null}
@@ -457,10 +467,15 @@ export function EvaluationBackfillsTab({
                                     <span>
                                         {backfill.dispatched_count.toLocaleString('en-US')} started,{' '}
                                         {backfill.skipped_count.toLocaleString('en-US')} skipped, out of{' '}
-                                        {pluralize(backfill.total_count, backfill.target)} in range
-                                        {backfill.rerun_existing &&
-                                            `, including ${backfillUnitPlural(backfill)} that already had a result`}
+                                        {pluralize(backfill.total_count, backfill.target)}
+                                        {backfill.rerun_existing ? ' in range' : ' without a result'}
                                     </span>
+                                    {backfill.status === 'completed' && (
+                                        <>
+                                            <span>·</span>
+                                            <span>{backfillRemainderLabel(backfill)}</span>
+                                        </>
+                                    )}
                                 </div>
                             </div>
                             <LemonButton

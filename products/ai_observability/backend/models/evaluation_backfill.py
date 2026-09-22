@@ -49,6 +49,14 @@ class EvaluationBackfill(TeamScopedRootMixin, UUIDModel):
     skipped_count = models.PositiveIntegerField(
         default=0, help_text="Units whose child workflow already existed, so the live path had them."
     )
+    remaining_count = models.PositiveIntegerField(
+        default=0,
+        db_default=0,
+        help_text=(
+            "Units in the window still holding no result when the run finished, counted then "
+            "rather than inferred. Children this run started may not have landed yet."
+        ),
+    )
 
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
