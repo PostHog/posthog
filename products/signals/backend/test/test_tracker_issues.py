@@ -208,7 +208,7 @@ def test_link_pull_request_appends_the_reference_once(team):
         patch.object(
             GitHubIntegration,
             "get_pull_request",
-            return_value={"success": True, "body": "Fixes the thing", "etag": '"version-1"'},
+            return_value={"success": True, "body": "Fixes the thing"},
         ),
         patch.object(GitHubIntegration, "update_pull_request_body", return_value={"success": True}) as update,
     ):
@@ -219,9 +219,45 @@ def test_link_pull_request_appends_the_reference_once(team):
     body = update.call_args.args[2]
     assert PR_BODY_MARKER in body
     assert "Closes #12" in body
-    assert update.call_args.kwargs["expected_etag"] == '"version-1"'
     tracker.refresh_from_db()
     assert tracker.pr_linked_at is not None
+
+
+@pytest.mark.django_db
+def test_link_pull_request_backs_off_when_the_body_changes_during_the_edit(team):
+    _connect_tracker(team, "github")
+    report = _make_report(team)
+    tracker = SignalReportTrackerIssue.all_teams.create(
+        team=team,
+        report=report,
+        provider="github",
+        status=SignalReportTrackerIssue.Status.CREATED,
+        external_context={"repository": "acme/web", "number": 12},
+        issue_url="https://github.com/acme/web/issues/12",
+    )
+
+    with (
+        patch.object(
+            GitHubIntegration, "first_for_team_repository", return_value=GitHubIntegration.__new__(GitHubIntegration)
+        ),
+        patch.object(
+            GitHubIntegration,
+            "get_pull_request",
+            side_effect=[
+                {"success": True, "body": "Fixes the thing"},
+                {"success": True, "body": "Fixes the thing, rewritten by the agent"},
+            ],
+        ),
+        patch.object(GitHubIntegration, "update_pull_request_body", return_value={"success": True}) as update,
+    ):
+        linked = link_pull_request_to_tracker_issue(
+            team_id=team.id, report_id=str(report.id), pr_url="https://github.com/acme/web/pull/50"
+        )
+
+    assert linked is False
+    update.assert_not_called()
+    tracker.refresh_from_db()
+    assert tracker.pr_linked_at is None
 
 
 @pytest.mark.django_db
