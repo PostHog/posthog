@@ -5,23 +5,27 @@ import { rolloutOf } from './releaseConditionsDiff'
 export interface ConditionSetSummaryProps {
     group: FeatureFlagGroupType
     aggregationTargetName: string
-    /** The editor phrases the criteria line as an edit in progress. */
-    editing?: boolean
+    /** The editor phrases the criteria line as an edit in progress instead of a finished state. */
+    readOnly?: boolean
 }
 
 /**
- * One line summary of who a condition set matches. A set without criteria only matches everyone at
- * a full rollout, so the rollout percentage decides the wording.
+ * One line summary of who a condition set matches. For a set without criteria, the rollout
+ * percentage decides the wording.
  */
-export function ConditionSetSummary({ group, aggregationTargetName, editing }: ConditionSetSummaryProps): JSX.Element {
+export function ConditionSetSummary({
+    group,
+    aggregationTargetName,
+    readOnly = true,
+}: ConditionSetSummaryProps): JSX.Element {
     if (group.properties?.length) {
-        return editing ? (
+        return readOnly ? (
             <>
-                Matching <b>{aggregationTargetName}</b> against the criteria
+                Match <b>{aggregationTargetName}</b> against <b>all</b> criteria
             </>
         ) : (
             <>
-                Match <b>{aggregationTargetName}</b> against <b>all</b> criteria
+                Matching <b>{aggregationTargetName}</b> against the criteria
             </>
         )
     }

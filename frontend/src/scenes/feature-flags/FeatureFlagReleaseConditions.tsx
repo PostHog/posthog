@@ -209,7 +209,7 @@ export function FeatureFlagReleaseConditions({
                                 <ConditionSetSummary
                                     group={group}
                                     aggregationTargetName={aggregationTargetName(group.aggregation_group_type_index)}
-                                    editing={!readOnly}
+                                    readOnly={readOnly}
                                 />
                             </div>
                         </div>
