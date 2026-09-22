@@ -19,7 +19,7 @@ const d = await api.alerts.create({ name })
 
 // A nested member chain is a different AST shape than api.<ns>.<method>().
 // ruleid: prefer-codegen-api-namespaced-signals
-const e = await api.signalScout.runs.list({ limit: 10 })
+const e = await api.signalSourceConfigs.runs.list({ limit: 10 })
 
 // ruleid: prefer-codegen-api-namespaced-error_tracking
 const f = await api.errorTracking.symbolSets.bulkDelete(ids)

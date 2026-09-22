@@ -790,40 +790,6 @@ rules:
               - '**/__mocks__/**'
               - '**/mocks/**'
 
-    - id: prefer-codegen-api-namespaced-mcp_store
-      message: >-
-          Manual `api.<namespace>.<method>(...)` call in products/mcp_store. The namespace
-          builds its URL in `frontend/src/lib/api.ts`, and this product's generated client
-          already covers that URL. Use `products/mcp_store/frontend/generated/api.ts`.
-
-          Informational while the backlog is worked down, but a call this pull request adds
-          fails the job. `hogli product:maturity --codegen mcp_store` lists the call sites.
-
-          Agents: invoke the `adopting-generated-api-types` skill
-          (`.agents/skills/adopting-generated-api-types/SKILL.md`) for the migration
-          workflow.
-
-          If no generated equivalent is available yet (endpoint missing OpenAPI tags,
-          dynamic URL, etc.), add `// nosemgrep: prefer-codegen-api-namespaced-mcp_store`
-          above this line - the maturity tooling continues to track tagged sites.
-      severity: WARNING
-      languages: [typescript, javascript]
-      pattern-either:
-          - pattern: api.mcpServerInstallations.$METHOD(...)
-          - pattern: api.mcpServerInstallations.$MEMBER.$METHOD(...)
-          - pattern: api.mcpServers.$METHOD(...)
-          - pattern: api.mcpServers.$MEMBER.$METHOD(...)
-      paths:
-          include:
-              - '/products/mcp_store/frontend/'
-          exclude:
-              - '**/generated/**'
-              - '**/*.test.ts'
-              - '**/*.test.tsx'
-              - '**/*.stories.tsx'
-              - '**/__mocks__/**'
-              - '**/mocks/**'
-
     - id: prefer-codegen-api-namespaced-messaging
       message: >-
           Manual `api.<namespace>.<method>(...)` call in products/messaging. The namespace
@@ -1149,12 +1115,8 @@ rules:
       pattern-either:
           - pattern: api.signalReports.$METHOD(...)
           - pattern: api.signalReports.$MEMBER.$METHOD(...)
-          - pattern: api.signalScout.$METHOD(...)
-          - pattern: api.signalScout.$MEMBER.$METHOD(...)
           - pattern: api.signalSourceConfigs.$METHOD(...)
           - pattern: api.signalSourceConfigs.$MEMBER.$METHOD(...)
-          - pattern: api.signalUserAutonomy.$METHOD(...)
-          - pattern: api.signalUserAutonomy.$MEMBER.$METHOD(...)
       paths:
           include:
               - '/products/signals/frontend/'
