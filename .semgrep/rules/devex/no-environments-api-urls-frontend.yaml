@@ -50,8 +50,6 @@ rules:
               # Each file below still constructs hand-coded `/api/environments/`
               # or `api/environments/` URLs. Removing a file from this list
               # re-enables the gate for it.
-              - '/products/groups/frontend/logics/groupLogic.ts'
-              - '/products/groups/frontend/logics/relatedGroupsLogic.ts'
               - '/products/ai_observability/frontend/aiObservabilitySessionDataLogic.ts'
               - '/products/ai_observability/frontend/clusters/clusteringConfigLogic.ts'
               - '/products/ai_observability/frontend/clusters/clusteringJobsLogic.ts'
@@ -70,13 +68,6 @@ rules:
               - '/products/ai_observability/frontend/tags/llmTaggersLogic.ts'
               - '/products/ai_observability/frontend/text-view/textViewLogic.ts'
               - '/products/ai_observability/frontend/traceReviews/traceReviewsApi.ts'
-              - '/products/conversations/frontend/components/SavedViews/ticketViewsLogic.ts'
-              - '/products/conversations/frontend/scenes/tickets/supportTicketsSceneLogic.ts'
-              - '/products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene.tsx'
-              - '/products/logs/frontend/components/LogsViewer/Filters/serviceFilterLogic.ts'
-              - '/products/logs/frontend/components/LogsViews/logsViewsLogic.ts'
-              - '/products/mcp_store/frontend/scene/ServerDetailPanel.tsx'
-              - '/products/workflows/frontend/OptOuts/customerIOImportLogic.ts'
       # No leading slash on the regex — catches both `/api/environments/` and
       # bare `api/environments/` (the form used by api.get/create callers).
       pattern-regex: 'api/environments/'
