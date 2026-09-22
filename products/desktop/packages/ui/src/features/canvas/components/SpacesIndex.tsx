@@ -115,7 +115,7 @@ function SpaceRow({ channel }: { channel: Channel }) {
             <Tooltip>
               <TooltipTrigger
                 render={
-                  <span className="text-[11px] text-muted-foreground tabular-nums opacity-0 transition-opacity group-hover/space:opacity-100">
+                  <span className="text-[11px] text-muted-foreground tabular-nums">
                     +{people.length - FACES_PER_ROW}
                   </span>
                 }
