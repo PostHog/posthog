@@ -409,6 +409,28 @@ def arm_pending_checks_when_report_resolved(
     )
 
 
+# A step that reached one of these is done, so the plans above it are re-read for their verdict.
+# A deleted step is dropped from that verdict, which can leave the rest of them unanimous.
+_PLAN_ROLLUP_CLOSED_STATUSES = frozenset(
+    {
+        SignalReport.Status.RESOLVED,
+        SignalReport.Status.SUPPRESSED,
+        SignalReport.Status.DELETED,
+    }
+)
+
+# The statuses a plan's own run lands in that `transition_to` still allows a resolve from. A plan
+# whose steps all closed while it was still running is unresolvable when the last step's close
+# fires, and no later step event retries it, so it is re-read when its own run lands instead.
+_PLAN_ROLLUP_RETRY_STATUSES = frozenset(
+    {
+        SignalReport.Status.READY,
+        SignalReport.Status.PENDING_INPUT,
+        SignalReport.Status.FAILED,
+    }
+)
+
+
 @receiver(post_save, sender=SignalReport)
 def roll_up_plan_parents_when_report_closes(
     sender: type[SignalReport],
@@ -426,12 +448,7 @@ def roll_up_plan_parents_when_report_closes(
     The roll-up walks the whole ancestor chain itself and marks the reports it moved, so this
     receiver stops on its own writes instead of starting a second walk per level.
     """
-    if instance.status not in (
-        SignalReport.Status.READY,
-        SignalReport.Status.RESOLVED,
-        SignalReport.Status.SUPPRESSED,
-        SignalReport.Status.DELETED,
-    ):
+    if instance.status not in _PLAN_ROLLUP_CLOSED_STATUSES | _PLAN_ROLLUP_RETRY_STATUSES:
         return
     if getattr(instance, "_plan_rollup", False):
         return
@@ -448,7 +465,7 @@ def roll_up_plan_parents_when_report_closes(
             _roll_up_plan_parents_safely,
             team_id=team_id,
             report_id=report_id,
-            include_report=instance.status == SignalReport.Status.READY,
+            include_report=instance.status in _PLAN_ROLLUP_RETRY_STATUSES,
         )
     )
 
