@@ -173,7 +173,7 @@ def _governed_metrics_section(project_has_governed_metrics: bool) -> str:
 
 # The close-out step is identical on every channel bar the word for what the run produces, and it is
 # numbered differently (the report channel has an extra search step), so both are rendered from here.
-_CLOSE_OUT_STEP_TEMPLATE = """{number}. **Close out.** End your turn with a JSON object matching the schema in *Output format* below. Its `summary` field is your run close-out; see *Writing the summary* for how to structure it. A quiet day is a real outcome: "looked, found nothing meaningful" is a genuine, useful summary, not a failure, so don't manufacture {output} to fill space. The harness parses the JSON and writes `summary` to the run row as searchable prose."""
+_CLOSE_OUT_STEP_TEMPLATE = """{number}. **Close out.** End your turn with a JSON object matching the schema in *Output format* below. Its `summary` field is your run close-out; see *Writing the summary* for how to structure it. A quiet day is a real outcome: "looked, found nothing meaningful" is a genuine, useful summary, not a failure, so don't manufacture {output} to fill space. The harness parses the JSON and writes `summary` to the run row as searchable prose. Before that, call `task_summary_update` with the same close-out text, per *Writing the summary*."""
 
 _HOW_A_RUN_WORKS_SIGNAL_STEPS = """4. **Decide.** For each hypothesis, decide whether to:
    - **Emit** a finding (call `scout-emit-signal`). This includes building on a prior finding when new evidence materially advances the picture: emit a fresh finding citing the prior one's `finding_id` in your description.
@@ -710,7 +710,9 @@ Everything you write for a reader follows one rule: {_FRONT_LOAD_RULE}. Whatever
 
 Your close-out `summary` renders in the scout's run history **collapsed to the first ~2 lines** until expanded, so applied here that means one or two sentences stating the outcome (what was found, with the key number, or that the run was quiet), a blank line, then two to five short bullets for what you checked, what you skipped and why, and what you wrote to memory.
 
-Keep it a close-out, not a transcript: methodology and tool-by-tool narration belong in the task log."""
+Keep it a close-out, not a transcript: methodology and tool-by-tool narration belong in the task log.
+
+The `task_summary_update` tool holds the same close-out for the task run row, which is what a reader sees without opening the transcript. Send it the same verdict-first text you put in `summary`. Run ritual does not belong there: your skill version, the emit-eligibility gate, and a list of scratchpad keys tell a reader nothing about what you found."""
 
 # Rendered only for a team whose knowledge base is reachable and looks maintained — the runner
 # resolves `business_knowledge.is_maintained_for_team` per run (`business_knowledge_maintained`).

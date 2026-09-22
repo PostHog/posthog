@@ -60,7 +60,7 @@ The following additions still need implementation:
 - Capture complete persisted reports and memory changes. The current scout adapter exposes IDs and newly created memory keys, which are insufficient to grade all content and edits.
 - Give every repeated trial a unique artifact path. The current [log writer](../../../../posthog_ai/eval_harness/log_sink.py) names files by case alone within an experiment directory, so repeated trials can overwrite each other's local logs.
 
-Start with one case-specific loader and the existing Docker provider.
+Implement v0 as a parameterized script on the devbox, using one case-specific loader and the existing Docker provider.
 It needs an empty project option: the current team factory always copies demo data, which would mix unrelated evidence into a historical case.
 Restore event files into ClickHouse and the small related state into the normal product models, preserving relationships when IDs change.
 The scout adapter must forward the selected skill version, repository, and explicit investigation bounds through the production runner's existing inputs.
@@ -69,6 +69,23 @@ Do not build a general export service, another query engine, or a separate runne
 The [suite instructions](../../../evals/agentic/AGENTS.md) currently describe public repositories and synthetic fixtures.
 A historical snapshot requires a private-fixture path and a review of every log and artifact destination.
 `WorkflowPrivateEval` is an existing starting point; its flags alone do not establish privacy for every downstream service.
+
+### Where restoration and execution happen
+
+The v0 deliverable is a script that a developer runs on a started devbox.
+Its parameters select the case, snapshot location, model, effort, skill or prompt version, repeat count, and result directory.
+The PostHog backend, MCP server, Postgres, ClickHouse, and snapshot restoration run on that devbox; the existing Docker provider creates the scout containers there.
+Restoration belongs in the runner's per-trial setup, after its test databases and fresh project exist.
+Each trial gets fresh writable state, and the script retains complete results before cleanup.
+Develop and verify this flow end to end on the devbox.
+
+Keep case files separate from machine setup, and configure paths and service endpoints rather than tying them to one devbox.
+Use the same restore/run/capture flow for every configuration.
+These boundaries preserve a later move to programmatic Modal execution without adding a scheduler, deployment system, or new image build to v0.
+
+For that later move, the existing [VM sandbox template](../../../../tasks/backend/sandbox/images/Dockerfile.sandbox-vm) and [dev-stack image preparation](../../../../tasks/backend/logic/services/dev_stack_image.py) are starting points for hosting the complete runner and databases inside a Modal VM.
+Their compatibility and the job's launch, result-retention, and teardown steps remain future work.
+The existing [harness Modal provider](../../../../posthog_ai/eval_harness/harness/providers.py) moves only the agent sandbox remotely and tunnels to the launching host's services; that option alone does not move the databases.
 
 ## Environment options
 
@@ -180,7 +197,7 @@ This is less suitable as the first general data snapshot because selection and t
 Agent feedback is selected for the first version; its fixture must preserve comparison windows and tool-call denominators.
 Flag cleanup is the next candidate for testing how much restoration code another scout can reuse.
 Trunk and skill validation remain later candidates, once retained external evidence and explicit task scope are supported.
-No new scout run has been authorized.
+Development and end-to-end verification use the devbox; a comparative experiment remains a separately budgeted step.
 
 ## Time and evaluation awareness
 
@@ -267,7 +284,8 @@ Reuse the separation of saved data from execution, with Parquet as a possible ev
 2. Specify its full investigation and comparison data, private artifact location, date-transform inventory, and expected query results. Missing history must not appear as zero activity.
 3. Add the empty-project restore path and full output capture to the existing runner, including unique artifacts per repeat and checks on private trace destinations.
 4. Enforce the API-quality repository state before the first agent turn, including later fetches. Verify both cases' restored queries, state isolation, report containment, and equivalent inputs across two restores before running agents.
-5. Clarify severity and execution budget, then obtain approval for a new experiment.
+5. Expose the validated flow through the parameterized devbox script and document its setup, invocation, and result location. Modal deployment is outside v0.
+6. Clarify severity and execution budget, then obtain approval for a comparative experiment.
 
 The production improvements listed in the round-1 [final report](FINAL_REPORT.md) remain useful, especially memory isolation, effort recording, and complete report capture.
 The isolated eval path can supply these properties without first implementing every production configuration change.
