@@ -1,10 +1,12 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@frozen
 class PagerDutyEndpointConfig:
     path: str  # Path under the API base URL, e.g. "/incidents"
     envelope_key: str  # Key the list of objects is wrapped under in the response body
