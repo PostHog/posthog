@@ -82,6 +82,38 @@ function object(value: unknown): Record<string, unknown> {
         : {}
 }
 
+const jsonTypes = ['number', 'integer', 'boolean', 'object', 'array']
+
+// Connected MCP servers write their own schemas, so a property can state its type through a
+// reference, a composed branch, or a type array instead of a plain `type`.
+function schemaTypes(property: unknown, root: Record<string, unknown>, depth = 0): Set<string> {
+    const types = new Set<string>()
+    const node = object(property)
+    if (depth > 8) {
+        return types
+    }
+    const pointer = typeof node.$ref === 'string' ? /^#\/(\$defs|definitions)\/([^/]+)$/.exec(node.$ref) : null
+    if (pointer) {
+        const name = pointer[2].replaceAll('~1', '/').replaceAll('~0', '~')
+        for (const type of schemaTypes(object(root[pointer[1]])[name], root, depth + 1)) {
+            types.add(type)
+        }
+    }
+    for (const type of Array.isArray(node.type) ? node.type : [node.type]) {
+        if (typeof type === 'string' && type !== 'null') {
+            types.add(type)
+        }
+    }
+    for (const key of ['anyOf', 'oneOf', 'allOf']) {
+        for (const branch of Array.isArray(node[key]) ? (node[key] as unknown[]) : []) {
+            for (const type of schemaTypes(branch, root, depth + 1)) {
+                types.add(type)
+            }
+        }
+    }
+    return types
+}
+
 export class PosthogCommands {
     private readonly commands = new Map<string, Command>()
     private readonly toolDirectory
@@ -269,14 +301,15 @@ export class PosthogCommands {
                 const equals = argument.indexOf('=')
                 const rawName = argument.slice(2, equals < 0 ? undefined : equals)
                 const name = rawName in properties ? rawName : rawName.replaceAll('-', '_')
-                const property = object(properties[name])
                 if (!(name in properties)) {
                     throw new Error(`Unknown argument --${rawName}. Run ph help ${tool.name}.`)
                 }
+                const types = schemaTypes(properties[name], tool.inputSchema)
+                const flag = types.size > 0 && [...types].every((type) => type === 'boolean')
                 const value =
                     equals >= 0
                         ? argument.slice(equals + 1)
-                        : property.type === 'boolean' && (!argv[index + 1] || argv[index + 1].startsWith('--'))
+                        : flag && (!argv[index + 1] || argv[index + 1].startsWith('--'))
                           ? 'true'
                           : argv[++index]
                 if (value === undefined) {
@@ -297,15 +330,13 @@ export class PosthogCommands {
             )
         }
         for (const [name, value] of Object.entries(args)) {
-            const property = object(properties[name])
-            if (
-                typeof value === 'string' &&
-                ['number', 'integer', 'boolean', 'object', 'array'].includes(String(property.type))
-            ) {
+            const types = [...schemaTypes(properties[name], tool.inputSchema)]
+            // A property that also accepts a string keeps the text it was given.
+            if (typeof value === 'string' && types.length > 0 && types.every((type) => jsonTypes.includes(type))) {
                 try {
                     args[name] = JSON.parse(value)
                 } catch {
-                    throw new Error(`Invalid ${property.type} value for --${name}.`)
+                    throw new Error(`Invalid ${types.join(' or ')} value for --${name}.`)
                 }
             }
         }

@@ -93,6 +93,23 @@ describe('PostHog terminal commands', () => {
                             approval_state: 'approved',
                             annotations: { readOnlyHint: true },
                         },
+                        {
+                            name: 'convert',
+                            description: 'Convert arguments',
+                            input_schema: {
+                                type: 'object',
+                                $defs: { Count: { type: 'integer' } },
+                                properties: {
+                                    dry_run: { anyOf: [{ type: 'boolean' }, { type: 'null' }] },
+                                    force: { type: ['boolean', 'null'] },
+                                    limit: { $ref: '#/$defs/Count' },
+                                    query: { oneOf: [{ type: 'object' }, { type: 'array' }] },
+                                    note: { anyOf: [{ type: 'string' }, { type: 'object' }] },
+                                },
+                            },
+                            approval_state: 'approved',
+                            annotations: { readOnlyHint: true },
+                        },
                     ],
                 },
             ],
@@ -192,6 +209,32 @@ describe('PostHog terminal commands', () => {
         ).rejects.toThrow()
         expect(notebooksPartialUpdate).not.toHaveBeenCalled()
         await expect(commands.execute(['notebooks-list', '--limti', '10'], cwd)).rejects.toThrow('Unknown argument')
+    })
+
+    it('resolves argument types through references, unions and type arrays', async () => {
+        await commands.execute(
+            ['example/convert', '--dry-run', '--force', '--limit', '10', '--query', '{"kind":"events"}'],
+            cwd
+        )
+        expect(mcpServerInstallationsCallToolCreate).toHaveBeenLastCalledWith(
+            '42',
+            'server-id',
+            {
+                tool_name: 'convert',
+                arguments: { dry_run: true, force: true, limit: 10, query: { kind: 'events' } },
+            },
+            expect.anything()
+        )
+        await commands.execute(['example/convert', '--note', 'plain text'], cwd)
+        expect(mcpServerInstallationsCallToolCreate).toHaveBeenLastCalledWith(
+            '42',
+            'server-id',
+            { tool_name: 'convert', arguments: { note: 'plain text' } },
+            expect.anything()
+        )
+        await expect(commands.execute(['example/convert', '--limit', 'ten'], cwd)).rejects.toThrow(
+            'Invalid integer value for --limit.'
+        )
     })
 
     it('discovers connected MCP tools and exposes their schemas as files', async () => {
