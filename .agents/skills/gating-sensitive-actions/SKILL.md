@@ -24,7 +24,7 @@ These rules are settled. Do not reopen them in a feature PR.
 Gate a write when it does one of these:
 
 - It changes how someone signs in or proves who they are: password, email, 2FA, passkeys, backup codes.
-- It creates, rolls, or revokes a credential: personal API keys, project secret API keys, OAuth connected apps, personal integrations (GitHub, Slack).
+- It creates, rolls, or revokes a credential: personal API keys, project secret API keys, OAuth connected apps, personal integrations (GitHub, Slack), personal PostHog connections.
 - It ends sessions or deletes the account.
 - It changes who can act as the user, or what data is collected about them: allow impersonation, data opt-out.
 - It changes organization membership, roles, domains, SSO, or invites.
@@ -50,6 +50,8 @@ Add the permission to the viewset `permission_classes`, then exempt the non-sens
 | `time_sensitive_exclude_actions`      | Named actions that are never sensitive. They skip the step-up check too, so use this only for bookkeeping.  |
 
 References: `posthog/api/user.py` (`UserViewSet`), `posthog/api/personal_api_key.py`, `posthog/api/webauthn.py`, `posthog/api/oauth/connected_apps.py`, `posthog/api/user_integration.py`.
+
+When one viewset serves both personal credentials and team-shared records, gate only the personal ones. `PersonalConnectionRecentAuthPermission` in `posthog/api/integration.py` gates `posthog` connections and leaves team integrations as they were.
 
 If a read returns a secret, change the response to a count or a masked value. Do not gate the read. Update the serializer, run `hogli build:openapi`, and change the frontend to show the secret only from the create response.
 

@@ -56,6 +56,7 @@ from posthog.middleware import KnownLoginDeviceCookieMiddleware
 from posthog.models import User
 from posthog.models.activity_logging.signal_handlers import post_login
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -2383,6 +2384,36 @@ class TestTimeSensitivePermissions(APIBaseTest):
         with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
             res = getattr(self.client, method)(url, {}, format="json")
             assert res.status_code != 403, res.content
+
+    @parameterized.expand(
+        [
+            ("personal_posthog_connection", "posthog", True),
+            ("team_slack_integration", "slack", False),
+        ]
+    )
+    def test_integration_removal_needs_recent_authentication_only_for_personal_connections(
+        self, _name, kind, needs_reauth
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        integration = Integration.objects.create(team=self.team, kind=kind, config={}, created_by=self.user)
+        now = datetime.now()
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
+            res = self.client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.pk}/")
+            if needs_reauth:
+                assert res.status_code == 403, res.content
+                assert res.json()["code"] == "sensitive_action_required_reauth"
+            else:
+                assert res.status_code != 403, res.content
+
+    def test_creating_a_personal_posthog_connection_needs_recent_authentication(self):
+        now = datetime.now()
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
+            res = self.client.post(
+                f"/api/environments/{self.team.pk}/integrations/", {"kind": "posthog", "config": {}}, format="json"
+            )
+            assert res.status_code == 403, res.content
+            assert res.json()["code"] == "sensitive_action_required_reauth"
 
 
 class TestTeamSecretTokenAuthentication(APIBaseTest):

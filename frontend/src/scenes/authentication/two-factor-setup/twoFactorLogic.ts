@@ -293,6 +293,9 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             false,
             {
                 toggleBackupCodesModal: (_, { open }) => open,
+                // New codes replace the old ones, so a result that lands after close reopens the modal. The
+                // user sees them once, and closing again clears them.
+                generateBackupCodesSuccess: () => true,
             },
         ],
         generatingCodes: [
