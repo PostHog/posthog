@@ -98,7 +98,7 @@ gated to non-dev (production) builds (`capture_exceptions` in
 ### OAuth redirect URI registration — required for sign-in
 
 The web host reuses the Code ("Array") OAuth application client ids
-(`packages/shared/src/oauth.ts`). Each region stores its app's `redirect_uris`
+(`packages/agent-contracts/src/oauth.ts`). Each region stores its app's `redirect_uris`
 as database rows (Django admin → OAuth applications), and they must include:
 
 - `https://<web-origin>/callback` for the deployed host. `http` is rejected for
