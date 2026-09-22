@@ -183,6 +183,10 @@ def _write_repo(
     (root / "products/workflows/frontend/generated/api.ts").write_text(GENERATED_WORKFLOWS)
     (root / api_ratchet.CORE_GENERATED).parent.mkdir(parents=True, exist_ok=True)
     (root / api_ratchet.CORE_GENERATED).write_text(GENERATED_CORE)
+    rule = root / api_ratchet.SEMGREP_RULE
+    rule.parent.mkdir(parents=True, exist_ok=True)
+    rule.write_text(f"rules:\n{api_ratchet.SEMGREP_BEGIN}\n{api_ratchet.SEMGREP_END}\n")
+    api_ratchet.write_semgrep_rules(root, Ratchet(root))
     if baseline is not None:
         (root / api_ratchet.BASELINE).write_text(baseline)
 
@@ -378,29 +382,38 @@ class TestBaselineFixModes:
         assert result.exit_code == 0
         assert "grandfathers new debt" in result.output
         assert runner.invoke(cmd_lint_api_ratchet, []).exit_code == 0
-class TestSemgrepPatterns:
-    # The generated block sits inside a YAML list, so a write that loses the
-    # indentation of its end marker makes the whole rule file unparseable.
-    def test_written_block_keeps_the_rule_file_valid(self, tmp_path: Path) -> None:
+
+
+class TestSemgrepRules:
+    def test_rules_are_scoped_to_the_owning_product(self, tmp_path: Path) -> None:
         _write_repo(tmp_path)
-        rule = tmp_path / api_ratchet.SEMGREP_RULE
-        rule.parent.mkdir(parents=True)
-        rule.write_text(
-            "rules:\n"
-            "    - id: prefer-codegen-api-namespaced\n"
-            "      pattern-either:\n"
-            f"{api_ratchet.SEMGREP_BEGIN}\n"
-            f"{api_ratchet.SEMGREP_END}\n"
-            "      severity: WARNING\n"
-        )
-        count = api_ratchet.write_semgrep_patterns(tmp_path, Ratchet(tmp_path))
-        parsed = yaml.safe_load(rule.read_text())
-        assert count == 2
-        assert parsed["rules"][0]["pattern-either"] == [
-            {"pattern": "api.hogFlows.$METHOD(...)"},
-            {"pattern": "api.signalReports.$METHOD(...)"},
+        parsed = yaml.safe_load((tmp_path / api_ratchet.SEMGREP_RULE).read_text())
+        by_id = {rule["id"]: rule for rule in parsed["rules"]}
+        assert sorted(by_id) == [
+            "prefer-codegen-api-namespaced-signals",
+            "prefer-codegen-api-namespaced-workflows",
         ]
-        assert parsed["rules"][0]["severity"] == "WARNING"
+        signals = by_id["prefer-codegen-api-namespaced-signals"]
+        assert signals["paths"]["include"] == ["/products/signals/frontend/"]
+        assert signals["severity"] == "WARNING"
+        # Both nesting depths, so api.signalScout.runs.list() cannot slip through.
+        assert signals["pattern-either"] == [
+            {"pattern": "api.signalReports.$METHOD(...)"},
+            {"pattern": "api.signalReports.$MEMBER.$METHOD(...)"},
+        ]
+        # A namespace only the core client covers belongs to no product, so no rule.
+        assert "prefer-codegen-api-namespaced-core" not in by_id
+
+    def test_the_check_fails_when_the_committed_rules_are_stale(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write_repo(tmp_path, baseline="hogFlows\npropertyDefinitions\nsignalReport\nsignalReports\n")
+        rule = tmp_path / api_ratchet.SEMGREP_RULE
+        rule.write_text(rule.read_text().replace("api.signalReports.$METHOD(...)", "api.somethingElse.$METHOD(...)"))
+        monkeypatch.setattr(api_ratchet, "REPO_ROOT", tmp_path)
+        result = runner.invoke(cmd_lint_api_ratchet, [])
+        assert result.exit_code == 1
+        assert "--write-semgrep" in result.output
 
 
 class TestCommand:

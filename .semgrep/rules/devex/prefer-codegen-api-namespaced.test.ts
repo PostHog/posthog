@@ -1,32 +1,42 @@
 // @ts-nocheck
-// Test fixture for the prefer-codegen-api-namespaced rule.
+// Test fixture for the generated prefer-codegen-api-namespaced-<product> rules.
+// `semgrep --test` ignores paths.include, so every rule runs against this file and
+// each line names the product rule that has to fire on it.
 
 import api from 'lib/api'
 
-// ruleid: prefer-codegen-api-namespaced
+// ruleid: prefer-codegen-api-namespaced-signals
 const a = await api.signalReports.list()
 
-// ruleid: prefer-codegen-api-namespaced
+// ruleid: prefer-codegen-api-namespaced-workflows
 const b = await api.hogFlows.get(id)
 
-// ruleid: prefer-codegen-api-namespaced
+// ruleid: prefer-codegen-api-namespaced-error_tracking
 const c = await api.errorTracking.updateIssue(id, { status: 'resolved' })
 
-// ruleid: prefer-codegen-api-namespaced
+// ruleid: prefer-codegen-api-namespaced-alerts
 const d = await api.alerts.create({ name })
 
-// ok: prefer-codegen-api-namespaced
-const e = await api.signalTeamConfig.get()
+// A nested member chain is a different AST shape than api.<ns>.<method>().
+// ruleid: prefer-codegen-api-namespaced-signals
+const e = await api.signalScout.runs.list({ limit: 10 })
 
-// ok: prefer-codegen-api-namespaced
-const f = await api.coreMemory.get()
+// ruleid: prefer-codegen-api-namespaced-error_tracking
+const f = await api.errorTracking.symbolSets.bulkDelete(ids)
+
+// A namespace no generated client covers stays allowed.
+// ok: prefer-codegen-api-namespaced-signals
+const g = await api.signalTeamConfig.get()
+
+// ok: prefer-codegen-api-namespaced-signals
+const h = await api.coreMemory.get()
 
 // The bare verbs are the other rule's job.
-// ok: prefer-codegen-api-namespaced
-const g = await api.get(`api/projects/${projectId}/signals/reports/`)
+// ok: prefer-codegen-api-namespaced-signals
+const i = await api.get(`api/projects/${projectId}/signals/reports/`)
 
-// ok: prefer-codegen-api-namespaced
-const h = await signalsReportsList(projectId)
+// ok: prefer-codegen-api-namespaced-signals
+const j = await signalsReportsList(projectId)
 
-// nosemgrep: prefer-codegen-api-namespaced
-const i = await api.signalReports.availableReviewers()
+// nosemgrep: prefer-codegen-api-namespaced-signals
+const k = await api.signalReports.availableReviewers()

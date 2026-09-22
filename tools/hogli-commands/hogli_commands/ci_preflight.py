@@ -236,11 +236,12 @@ DIFF_CHECKS: list[DiffCheck] = [
             "frontend/src/lib/api-ratchet-baseline.txt",
             "frontend/src/generated/core/api.ts",
             "products/*/frontend/generated/api.ts",
+            ".semgrep/rules/devex/prefer-codegen-api-namespaced.yaml",
         ],
         verify=["hogli", "lint:api-ratchet"],
         # Prune, never update: --update-baseline would grandfather the duplicate the
         # branch just added, which is the one thing the check exists to stop.
-        fix=["hogli", "lint:api-ratchet", "--prune-baseline"],
+        fix=["hogli", "lint:api-ratchet", "--prune-baseline", "--write-semgrep"],
         requires=("python-env",),
     ),
     DiffCheck(

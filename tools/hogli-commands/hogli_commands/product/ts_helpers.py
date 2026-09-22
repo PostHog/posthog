@@ -100,7 +100,9 @@ def owned_namespace_pattern(frontend_dir: Path) -> re.Pattern[str] | None:
     if not owned:
         return None
     alternatives = "|".join(sorted(owned))
-    return re.compile(rf"\bapi\.({alternatives})\.(\w+)\s*(?:<[^(]*>)?\s*\(")
+    # `(?:\.\w+)+` so a nested chain (api.signalScout.runs.list) counts once, as one
+    # call. Matching a single member would miss it, which hid a third of signals.
+    return re.compile(rf"\bapi\.({alternatives})((?:\.\w+)+)\s*(?:<[^(]*>)?\s*\(")
 
 
 def count_manual_api_calls(frontend_dir: Path) -> int:
@@ -294,7 +296,7 @@ def codegen_call_sites(frontend_dir: Path) -> list[ManualCallSite]:
                 ManualCallSite(
                     file=rel_path,
                     line=content[: m.start()].count("\n") + 1,
-                    verb=f"{m.group(1)}.{m.group(2)}",
+                    verb=f"{m.group(1)}{m.group(2)}",
                     url="",
                     method="",
                     generated_equivalent=None,
