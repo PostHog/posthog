@@ -76,7 +76,10 @@ export interface LinkApi {
      * @maxLength 255
      */
     short_link_domain: string
-    /** The unique code/path that identifies the short link, e.g. 'abc123' */
+    /**
+     * The unique code/path that identifies the short link, e.g. 'abc123'
+     * @maxLength 255
+     */
     short_code: string
     /**
      * Free-form note about what the link is for.
@@ -113,7 +116,10 @@ export interface PatchedLinkApi {
      * @maxLength 255
      */
     short_link_domain?: string
-    /** The unique code/path that identifies the short link, e.g. 'abc123' */
+    /**
+     * The unique code/path that identifies the short link, e.g. 'abc123'
+     * @maxLength 255
+     */
     short_code?: string
     /**
      * Free-form note about what the link is for.
