@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -116,3 +117,22 @@ class TestDecide:
 
         with override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY=""), pytest.raises(GatewayNotConfiguredError):
             decisions.decide(_request(), transport=transport)
+
+
+class TestDecisionsEnabled:
+    @pytest.mark.parametrize(
+        "debug,deployment,expected",
+        [
+            (True, "EU", True),
+            (False, "EU", False),
+            (False, None, False),
+        ],
+    )
+    def test_region_guard_runs_before_the_flag(self, debug: bool, deployment: str | None, expected: bool) -> None:
+        with (
+            override_settings(DEBUG=debug, CLOUD_DEPLOYMENT=deployment),
+            patch("products.ml_inference.backend.logic.decisions.posthoganalytics.feature_enabled") as flag,
+        ):
+            assert decisions.decisions_enabled(team_id=1) is expected
+
+        flag.assert_not_called()

@@ -52,10 +52,10 @@ export function DecisionPlaygroundScene(): JSX.Element {
                 <div className="flex flex-col gap-2">
                     {questions.map((question) => (
                         <QuestionRow
-                            key={question.id}
+                            key={question.key}
                             question={question}
-                            onChange={(patch) => updateQuestion(question.id, patch)}
-                            onRemove={() => removeQuestion(question.id)}
+                            onChange={(patch) => updateQuestion(question.key, patch)}
+                            onRemove={() => removeQuestion(question.key)}
                         />
                     ))}
                     <div>

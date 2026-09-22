@@ -33,8 +33,15 @@ DECISION_PATH = "/v1/systemone"
 DEFAULT_TIMEOUT_SECONDS = 30.0
 
 
+def decisions_available_here() -> bool:
+    """Dark launch: local development and the US cloud only, so no flag or setting can bring it up in the EU."""
+    return bool(settings.DEBUG) or (settings.CLOUD_DEPLOYMENT or "").upper() == "US"
+
+
 def decisions_enabled(team_id: int) -> bool:
     """DEBUG bypasses the flag: the analytics SDK is disabled in local dev, where the surface has to be exercisable."""
+    if not decisions_available_here():
+        return False
     if settings.DEBUG:
         return True
     try:
