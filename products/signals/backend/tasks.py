@@ -170,7 +170,7 @@ def link_report_tracker_issues(self, team_id: int, task_id: str, pr_url: str) ->
     """Write a task's new pull request body: the Origin section and the tracker issue cross-reference.
 
     Both edits share this task so they run in sequence. Two tasks would race on the same body and
-    keep failing each other's etag check.
+    keep failing each other's changed-body check.
     """
     report_ids = (
         SignalReport.objects.filter(team_id=team_id)
