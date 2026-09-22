@@ -6,6 +6,11 @@ from rest_framework import serializers
 from ..facade.contracts import DEFAULT_DECISION_MODEL, MAX_QUESTIONS_PER_REQUEST
 from ..facade.enums import DecisionQuestionType
 
+MAX_STATE_CHARS = 65_536
+MAX_INSTRUCTIONS_CHARS = 2_000
+MAX_OPTIONS_PER_QUESTION = 255
+MAX_OPTION_CHARS = 500
+
 
 @extend_schema_field(
     {
@@ -20,12 +25,20 @@ class CriteriaField(serializers.Field):
         if isinstance(data, dict) and all(
             isinstance(key, str) and isinstance(value, str) for key, value in data.items()
         ):
-            return data
-        if isinstance(data, list) and all(isinstance(value, str) for value in data):
-            return data
-        raise serializers.ValidationError(
-            "Criteria must be an object of option names to meanings, or a list of scale labels."
-        )
+            texts = [*data.keys(), *data.values()]
+        elif isinstance(data, list) and all(isinstance(value, str) for value in data):
+            texts = data
+        else:
+            raise serializers.ValidationError(
+                "Criteria must be an object of option names to meanings, or a list of scale labels."
+            )
+        if len(data) > MAX_OPTIONS_PER_QUESTION:
+            raise serializers.ValidationError(f"A question takes at most {MAX_OPTIONS_PER_QUESTION} options.")
+        if any(len(text) > MAX_OPTION_CHARS for text in texts):
+            raise serializers.ValidationError(
+                f"An option name, meaning or label takes at most {MAX_OPTION_CHARS} characters."
+            )
+        return data
 
     def to_representation(self, value: dict[str, str] | list[str]) -> dict[str, str] | list[str]:
         return value
@@ -37,6 +50,7 @@ class DecisionQuestionSerializer(serializers.Serializer):
         help_text="What kind of answer to produce: a yes/no probability, one of the given options, or a rating.",
     )
     instructions = serializers.CharField(
+        max_length=MAX_INSTRUCTIONS_CHARS,
         help_text="The question to ask about the state, phrased for the model.",
     )
     criteria = CriteriaField(
@@ -61,6 +75,7 @@ class DecisionQuestionSerializer(serializers.Serializer):
 
 class DecideRequestSerializer(serializers.Serializer):
     state = serializers.CharField(
+        max_length=MAX_STATE_CHARS,
         help_text="The text the questions are about, for example a support ticket or a session summary.",
     )
     questions = serializers.DictField(
@@ -72,6 +87,7 @@ class DecideRequestSerializer(serializers.Serializer):
     )
     model = serializers.CharField(
         default=DEFAULT_DECISION_MODEL,
+        max_length=200,
         help_text="The decision model to ask, as a gateway model id.",
     )
 

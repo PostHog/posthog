@@ -57,6 +57,33 @@ class TestDecideRequestValidation(SimpleTestCase):
         assert not serializer.is_valid()
         assert "questions" in serializer.errors
 
+    @parameterized.expand(
+        [
+            ("state", {"state": "x" * 65_537, "questions": QUESTIONS}),
+            ("instructions", {"state": "text", "questions": {"q": {"type": "noul", "instructions": "x" * 2_001}}}),
+            (
+                "option_count",
+                {
+                    "state": "text",
+                    "questions": {
+                        "q": {"type": "choice", "instructions": "?", "criteria": {str(i): "m" for i in range(256)}}
+                    },
+                },
+            ),
+            (
+                "option_length",
+                {
+                    "state": "text",
+                    "questions": {"q": {"type": "score", "instructions": "?", "criteria": ["low", "x" * 501]}},
+                },
+            ),
+        ]
+    )
+    def test_bounds_the_size_of_every_text_field(self, _name, data) -> None:
+        serializer = DecideRequestSerializer(data=data)
+
+        assert not serializer.is_valid()
+
     def test_defaults_the_model(self) -> None:
         serializer = DecideRequestSerializer(data={"state": "text", "questions": QUESTIONS})
 
