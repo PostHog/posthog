@@ -501,8 +501,8 @@ def _patched_fixture_teardown(self: TransactionTestCase) -> None:
         _original_fixture_teardown(self)
 
 
-_original_fixture_teardown = TransactionTestCase._fixture_teardown
-TransactionTestCase._fixture_teardown = _patched_fixture_teardown  # type: ignore[method-assign]
+_original_fixture_teardown = TransactionTestCase._fixture_teardown  # type: ignore[attr-defined]
+TransactionTestCase._fixture_teardown = _patched_fixture_teardown  # type: ignore[attr-defined]
 
 
 @pytest.fixture
