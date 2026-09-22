@@ -12,22 +12,17 @@ Before running `bootstrap.sh`:
 
 1. A DNS name for the instance, under the zone the gateway pins for decision hosts, pointing at the instance's public IP.
 2. The Lambda firewall. It is one ruleset per region on the account and every instance inherits it: port 443 open only to the production cluster's egress addresses (listed in the RFC, not here), SSH on its own rule for engineers, and nothing else. No port 80: the certificate challenge is a DNS record, so Let's Encrypt never connects to the instance.
-3. An AWS access key for the ACME user that the zone's Terraform creates. Its policy can write only `_acme-challenge` TXT records in that zone, so what a compromised box gains is the ability to issue certificates for names in the zone, not access to anything else. Mint the key when the instance starts and delete it when the instance goes, the same lifecycle the ML training account uses for its rental keys:
-
-   ```bash
-   AWS_PROFILE=ml-prod-us-write aws iam create-access-key --user-name ml-inference-acme
-   ```
-
+3. The instance in the `dns` unit's instance map in posthog-cloud-infra. That one entry gives it its A record and puts its exact `_acme-challenge` name into the ACME user's policy, so a compromised box can issue certificates for itself and for nothing else. The same unit keeps the ACME user's access key in Secrets Manager, where the host script reads it; nothing is minted by hand, and `terragrunt apply -replace=aws_iam_access_key.acme` rotates it.
 4. The checkpoint on disk at `MODEL_DIR`, fetched with `aws s3 sync` from the published version (see the package README) and verified with `kev-vllm-checkpoint verify`. The container serves as an unprivileged user, so the directory has to be readable by everyone; the bootstrap script sets that, and a home directory on Ubuntu is not traversable by other users, so keep it outside `/home`.
-5. A bearer: `openssl rand -hex 32`. The same value goes to the gateway as `AI_GATEWAY_KEV_API_KEY`.
+5. The bearer, as `AI_GATEWAY_KEV_API_KEY` in the gateway's `ai-gateway-secrets` bag for that environment, created with the secrets tool (PostHog/secrets) and generated there. The gateway and the host script read the same key, so the two sides cannot drift.
 
-Then, from your machine, with the environment's values in `envs/<environment>.env` copied from `envs/prod-us.env.example` (the box, the bucket and region, and the secrets as `op://` references, so 1Password prompts once and nothing lands on disk; a new region is a new file):
+Then, from your machine, with the environment's values in `envs/<environment>.env` copied from `envs/prod-us.env.example` (the box, the bucket, the AWS profiles, and the SSH key as an `op://` reference, so 1Password prompts once and nothing lands on disk; a new region is a new file):
 
 ```bash
 deploy/phase1/lambda-host.sh prod-us all
 ```
 
-`lambda-host.sh` loads the SSH key into a throwaway agent, copies this directory to the box, downloads the checkpoint through presigned URLs and verifies it with the serving image, streams the env file over SSH into `/etc/kev-vllm/env`, and runs `bootstrap.sh` there. That script builds the Caddy image, pulls the serving image, starts both services, waits for the certificate, requires a 200 through Caddy with the bearer and a 401 without it, and fails if anything answers on port 80. `stage` and `bootstrap` also run as separate steps.
+`lambda-host.sh` loads the SSH key into a throwaway agent, copies this directory to the box, downloads the checkpoint through presigned URLs and verifies it with the serving image, reads the ACME key and the bearer from Secrets Manager, streams the env file over SSH into `/etc/kev-vllm/env`, and runs `bootstrap.sh` there. That script builds the Caddy image, pulls the serving image, starts both services, waits for the certificate, requires a 200 through Caddy with the bearer and a 401 without it, and fails if anything answers on port 80. `stage` and `bootstrap` also run as separate steps.
 
 On the gateway side the host is a served host of kind `kev-vllm` with `base_url` `https://kev-1.<zone>/v1`, the bearer in `AI_GATEWAY_KEV_API_KEY`, and the enrolled teams in `AI_GATEWAY_SYSTEMONE_TEAM_IDS`.
 

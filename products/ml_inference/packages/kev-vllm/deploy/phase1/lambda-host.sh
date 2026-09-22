@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Drive a hand-launched decision instance from an engineer's machine in one go: the SSH key comes from 1Password into
-# a throwaway agent, the checkpoint reaches the box through presigned URLs, and the secrets the box needs travel over
-# the SSH session, never through a command line or a file on this machine.
+# a throwaway agent, the checkpoint reaches the box through presigned URLs, and the ACME key and the bearer come from
+# Secrets Manager, where Terraform and the secrets tool put them, and travel over the SSH session, never through a
+# command line or a file on this machine.
 #
 #   deploy/phase1/lambda-host.sh prod-us all
 #
 # The first argument names the environment: its values live in envs/<environment>.env (see envs/prod-us.env.example),
-# with secrets as op:// references. The script re-executes itself under `op run --env-file` so 1Password resolves
-# them once. Steps: `sync` copies this directory to the box, `stage` downloads and verifies the checkpoint,
+# with the SSH key as an op:// reference. The script re-executes itself under `op run --env-file` so 1Password
+# prompts once. Steps: `sync` copies this directory to the box, `stage` downloads and verifies the checkpoint,
 # `bootstrap` writes /etc/kev-vllm/env and runs bootstrap.sh, `all` does the three.
 set -euo pipefail
 
@@ -27,6 +28,12 @@ eval "$(ssh-agent -s)" >/dev/null
 trap 'ssh-agent -k >/dev/null 2>&1' EXIT
 printf '%s\n' "$LAMBDA_SSH_KEY" | ssh-add -q - 2>/dev/null
 SSH=(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o "IdentityAgent=$SSH_AUTH_SOCK" -o IdentitiesOnly=no)
+
+secret_fields() {
+  local profile=$1 secret_id=$2; shift 2
+  aws secretsmanager get-secret-value --profile "$profile" --secret-id "$secret_id" --query SecretString --output text \
+    | python3 -c 'import json, sys; bag = json.load(sys.stdin); print(*(bag[field] for field in sys.argv[1:]), sep="\n")' "$@"
+}
 
 sync_files() {
   rsync -az -e "${SSH[*]}" --exclude 'envs' "$HERE/" "$TARGET:kev-vllm-phase1/"
@@ -56,17 +63,21 @@ stage_checkpoint() {
 }
 
 bootstrap_box() {
-  : "${INSTANCE_HOST:?}" "${ACME_EMAIL:?}" "${ROUTE53_ZONE_ID:?}" "${AWS_ACCESS_KEY_ID:?}" "${AWS_SECRET_ACCESS_KEY:?}"
-  : "${KEV_BEARER:?}" "${MODEL_NAME:?}" "${IMAGE:?}"
+  : "${INSTANCE_HOST:?}" "${ACME_EMAIL:?}" "${ROUTE53_ZONE_ID:?}" "${ACME_SECRET_ID:?}" "${AWS_READ_PROFILE:?}"
+  : "${GATEWAY_SECRETS_PROFILE:?}" "${MODEL_NAME:?}" "${IMAGE:?}"
+  local acme_key_id acme_secret bearer
+  { read -r acme_key_id; read -r acme_secret; } < <(secret_fields "$AWS_READ_PROFILE" "$ACME_SECRET_ID" AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY)
+  # The gateway reads the same bag, so the two sides of the bearer cannot drift.
+  read -r bearer < <(secret_fields "$GATEWAY_SECRETS_PROFILE" ai-gateway-secrets AI_GATEWAY_KEV_API_KEY)
   # The env file goes over stdin and lands root-only on the box; bootstrap.sh reads it from there.
   printf '%s\n' \
     "INSTANCE_HOST=$INSTANCE_HOST" \
     "ACME_EMAIL=$ACME_EMAIL" \
     "ROUTE53_ZONE_ID=$ROUTE53_ZONE_ID" \
-    "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" \
-    "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" \
+    "AWS_ACCESS_KEY_ID=$acme_key_id" \
+    "AWS_SECRET_ACCESS_KEY=$acme_secret" \
     "AWS_REGION=${AWS_REGION:-us-east-1}" \
-    "KEV_BEARER=$KEV_BEARER" \
+    "KEV_BEARER=$bearer" \
     "IMAGE=$IMAGE" \
     "MODEL_DIR=/srv/models/${MODEL_NAME}" \
     "KEV_DATE_FACTS=${KEV_DATE_FACTS:-0}" \
