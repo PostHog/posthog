@@ -434,7 +434,7 @@ export interface funnelDataLogicMeta {
         funnelVizType: (funnelsFilter: FunnelsFilter | null | undefined) => FunnelVizType
         aggregationTargetLabel: (
             querySource: FunnelsQuery | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => Noun
         results: (
             insightData: Record<string, any>,
@@ -452,7 +452,6 @@ export interface funnelDataLogicMeta {
             querySource: FunnelsQuery | null
         ) => FunnelResultType
         steps: (
-            insightData: Record<string, any>,
             vizQuerySource:
                 | FunnelsQuery
                 | LifecycleQuery
@@ -512,7 +511,6 @@ export interface funnelDataLogicMeta {
             timeConversionResultsPrevious: FunnelsTimeConversionBins | null
         ) => HistogramGraphDatum[] | null
         hasFunnelResults: (
-            insightData: Record<string, any>,
             funnelsFilter: FunnelsFilter | null | undefined,
             steps: FunnelStepWithNestedBreakdown[],
             histogramGraphData: HistogramGraphDatum[] | null,
@@ -563,7 +561,7 @@ export interface funnelDataLogicMeta {
         }[]
         getFunnelsColorToken: (
             resultCustomizations: Record<string, ResultCustomizationByValue> | undefined,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // insightVizDataLogic
             breakdownFilter: BreakdownFilter | null | undefined,
             querySource: FunnelsQuery | null,
             flattenedBreakdowns: FlattenedFunnelStepByBreakdown[],

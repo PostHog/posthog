@@ -35,7 +35,7 @@ import {
     QuerySchemaRoot,
 } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
-import { ActionType, DashboardType, EventDefinition, InsightModel } from '~/types'
+import { ActionType, EventDefinition, InsightModel } from '~/types'
 
 import { Scene } from '../sceneTypes'
 import { MODE_DEFINITIONS } from './max-constants'
@@ -45,6 +45,7 @@ import {
     EvaluationRuntime,
     MaxActionContext,
     MaxContextType,
+    MaxContextDashboard,
     MaxDashboardContext,
     MaxErrorTrackingIssueContext,
     MaxEvaluationContext,
@@ -220,7 +221,7 @@ export const insightToMaxContext = (
     }
 }
 
-export const dashboardToMaxContext = (dashboard: DashboardType): MaxDashboardContext => {
+export const dashboardToMaxContext = (dashboard: MaxContextDashboard): MaxDashboardContext => {
     return {
         type: MaxContextType.DASHBOARD,
         id: dashboard.id,

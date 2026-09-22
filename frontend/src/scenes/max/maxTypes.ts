@@ -107,15 +107,33 @@ export type MaxContextItem =
     | MaxEvaluationContext
     | MaxNotebookContext
 
+/**
+ * The insight fields Max's context needs.
+ *
+ * Scene context is held in `rawSceneContext`, which deep-compares its whole value on every scene
+ * update, so an insight is narrowed to these fields before it gets there. Passing the model whole
+ * would put `result` into that comparison and make a refresh that only changed results look like a
+ * context change.
+ */
+export type MaxContextInsight = Pick<
+    Partial<InsightModel>,
+    'query' | 'short_id' | 'name' | 'derived_name' | 'description' | 'id'
+>
+
+/** A dashboard reduced to what Max reads from it, for the same reason as `MaxContextInsight`. */
+export type MaxContextDashboard = Pick<DashboardType, 'id' | 'name' | 'description' | 'filters'> & {
+    tiles: { insight?: MaxContextInsight }[]
+}
+
 type MaxInsightContextInput = {
     type: MaxContextType.INSIGHT
-    data: Partial<InsightModel>
+    data: MaxContextInsight
     filtersOverride?: DashboardFilter
     variablesOverride?: Record<string, HogQLVariable>
 }
 type MaxDashboardContextInput = {
     type: MaxContextType.DASHBOARD
-    data: DashboardType
+    data: MaxContextDashboard
 }
 type MaxEventContextInput = {
     type: MaxContextType.EVENT
@@ -152,6 +170,17 @@ export type MaxContextInput =
     | MaxEvaluationContextInput
     | MaxNotebookContextInput
 
+function pickInsightFields(insight: Partial<InsightModel>): MaxContextInsight {
+    return {
+        id: insight.id,
+        short_id: insight.short_id,
+        name: insight.name,
+        derived_name: insight.derived_name,
+        description: insight.description,
+        query: insight.query,
+    }
+}
+
 /**
  * Helper functions to create maxContext items safely
  * These ensure proper typing and consistent patterns across scene logics
@@ -159,9 +188,17 @@ export type MaxContextInput =
 export const createMaxContextHelpers = {
     dashboard: (dashboard: DashboardType): MaxDashboardContextInput => ({
         type: MaxContextType.DASHBOARD,
-        // A dashboard scene offers its context before the tiles stream in, so `tiles` can still be
-        // unset here despite the type.
-        data: { ...dashboard, tiles: dashboard.tiles ?? [] },
+        data: {
+            id: dashboard.id,
+            name: dashboard.name,
+            description: dashboard.description,
+            filters: dashboard.filters,
+            // A dashboard scene offers its context before the tiles stream in, so `tiles` can
+            // still be unset here despite the type.
+            tiles: (dashboard.tiles ?? []).map((tile) => ({
+                insight: tile.insight ? pickInsightFields(tile.insight) : tile.insight,
+            })),
+        },
     }),
 
     insight: (
@@ -175,7 +212,7 @@ export const createMaxContextHelpers = {
         } = {}
     ): MaxInsightContextInput => ({
         type: MaxContextType.INSIGHT,
-        data: insight,
+        data: pickInsightFields(insight),
         filtersOverride,
         variablesOverride,
     }),

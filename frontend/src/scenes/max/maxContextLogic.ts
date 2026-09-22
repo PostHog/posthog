@@ -18,6 +18,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, InsightModel } from '~/types'
 
+import type { Node } from '../../queries/schema/schema-general'
 import type { LoadedScene } from '../sceneTypes'
 import type { ToolRegistration } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -180,7 +181,7 @@ export interface maxContextLogicActions {
         filtersOverride?: DashboardFilter,
         variablesOverride?: Record<string, HogQLVariable>
     ) => {
-        data: Partial<InsightModel>
+        data: Partial<InsightModel<Node<Record<string, any>>>>
         filtersOverride: DashboardFilter | undefined
         variablesOverride: Record<string, HogQLVariable> | undefined
     }
