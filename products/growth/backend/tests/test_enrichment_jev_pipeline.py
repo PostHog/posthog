@@ -132,9 +132,11 @@ class TestJevBatchScoring(BaseTest):
             is_active=True,
             scoring_rules={
                 "source": (
-                    "let points := if(ai_pilled, 23, 0); "
+                    "let positive := typeof(enrichments.ai_pilled.ai_pilled) == 'boolean' "
+                    "and enrichments.ai_pilled.ai_pilled == true; "
+                    "let points := if(positive, 23, 0); "
                     "return {'status': 'scored', 'score': points, 'components': {'ai_pilled': points}, "
-                    "'ai_pilled_source': if(ai_pilled, 'llm', null)};"
+                    "'flags': {'ai_pilled_source': if(positive, 'llm', null)}};"
                 )
             },
         )
@@ -174,7 +176,11 @@ class TestJevBatchScoring(BaseTest):
         assert record.data["icp_fit_score"] == points
         assert record.data["icp_fit_components"] == {"ai_pilled": points}
         assert record.data["icp_fit_lists_version"] == "synthetic-hog-formula"
-        assert record.data["icp_fit_ai_label_projected_result_id"] == str(label.id)
+        assert record.data["icp_fit_input_versions"] == {
+            "current_fetch": str(self.fetch.id),
+            "enrichment/ai_pilled": str(label.id),
+        }
+        assert record.data["icp_fit_projected_input_hash"] == record.data["icp_fit_input_hash"]
         assert self.analytics.group_identify.call_args.kwargs["properties"]["icp_fit_score"] == points
 
     @parameterized.expand([("missing_key",), ("vendor_busy",)])
