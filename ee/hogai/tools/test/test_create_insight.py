@@ -253,10 +253,12 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIsNotNone(artifact)
         self.assertEqual(len(artifact.messages), 2)
         await insight.arefresh_from_db()
-        self.assertEqual(insight.query["source"]["breakdownFilter"]["breakdown"], "name")
-        self.assertEqual(insight.query["source"]["trendsFilter"], {"hideWeekends": True})
+        saved_query = insight.query
+        assert isinstance(saved_query, dict)
+        self.assertEqual(saved_query["source"]["breakdownFilter"]["breakdown"], "name")
+        self.assertEqual(saved_query["source"]["trendsFilter"], {"hideWeekends": True})
         self.assertEqual(
-            insight.query["source"]["modifiers"], {"personsOnEventsMode": "person_id_override_properties_joined"}
+            saved_query["source"]["modifiers"], {"personsOnEventsMode": "person_id_override_properties_joined"}
         )
         self.assertEqual(insight.name, "Existing name")
         self.assertEqual(insight.description, "Existing description")
