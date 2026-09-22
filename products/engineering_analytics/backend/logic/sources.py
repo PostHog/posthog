@@ -58,7 +58,7 @@ ISSUE_EVENTS_SCHEMA = "issue_events"
 # succeeded or failed), so reads must degrade gracefully when either is unsynced.
 DEPLOYMENTS_SCHEMA = "deployments"
 DEPLOYMENT_STATUSES_SCHEMA = "deployment_statuses"
-# Submitted pull-request reviews, the substrate for the approval split on the author page. Optional
+# Submitted pull request reviews, the substrate for the approval split on the author page. Optional
 # at the source, so reads must degrade gracefully (no review data) exactly like issue_events.
 REVIEWS_SCHEMA = "reviews"
 

@@ -1,4 +1,7 @@
 import os
+import json
+import time
+import base64
 import logging
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
@@ -12,6 +15,7 @@ from django.conf import settings
 
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
+from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 
@@ -40,6 +44,7 @@ class NodeRole(StrEnum):
     LOGS = "logs"
 
     # Below nodes are part of separate clusters.
+    APM = "apm"
     AI_EVENTS = "ai_events"
     AUX = "aux"
     BATCH_EXPORTS = "batch_exports"
@@ -113,6 +118,40 @@ class ClickHouseUser(StrEnum):
     DICT_READER = "dict_reader"
 
 
+EXPIRED_TOKEN_PASSWORD_FALLBACK_COUNTER = Counter(
+    "posthog_clickhouse_expired_token_password_fallback",
+    "Times a ClickHouse user with a static password used it because its token file had expired.",
+    labelnames=["user"],
+)
+
+_TOKEN_EXPIRY_LEEWAY_SECONDS = 10
+
+
+def _token_expiry(token: str) -> float | None:
+    """Return the exp claim of a JWT, or None when it cannot be read.
+
+    The token is a projected ServiceAccount JWT. Decode the exp without verifying the signature. The
+    ch-podauth bridge still validates the token, so this only decides whether the token is worth sending.
+    """
+    parts = token.split(".")
+    if len(parts) != 3:
+        return None
+    try:
+        padding = "=" * (-len(parts[1]) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(parts[1] + padding))
+        if not isinstance(claims, dict):
+            return None
+        exp = claims.get("exp")
+        return float(exp) if isinstance(exp, int | float) and not isinstance(exp, bool) else None
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+
+def _token_is_expired(token: str) -> bool:
+    exp = _token_expiry(token)
+    return exp is not None and time.time() >= exp - _TOKEN_EXPIRY_LEEWAY_SECONDS
+
+
 @frozen
 class ClickHouseCredentials:
     user: str
@@ -131,6 +170,12 @@ class ClickHouseCredentials:
                 logging.warning("clickhouse: %s is not readable, using the static fallback", path)
                 return self._validated_password(self.password)
             if token:
+                # The kubelet stops refreshing a terminating pod's token, so a long drain can present
+                # an expired token the bridge rejects. The static password recovers it when the user keeps one.
+                if self.password and _token_is_expired(token):
+                    logging.warning("clickhouse: %s has expired, using the static fallback", path)
+                    EXPIRED_TOKEN_PASSWORD_FALLBACK_COUNTER.labels(user=self.user).inc()
+                    return self._validated_password(self.password)
                 return token
             logging.warning("clickhouse: %s is empty, using the static fallback", path)
         return self._validated_password(self.password)

@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -284,6 +285,7 @@ class TestAiGatewayEnvVars:
             "AI_GATEWAY_URL": "https://ai-gateway.dev.posthog.dev",
             "AI_GATEWAY_PRODUCTS": "signals_scout,signals_research",
             "AI_GATEWAY_TOKEN": "phe_abc",
+            "AI_GATEWAY_TOKEN_CAP_USD": "3",
             "AI_GATEWAY_PRODUCT": "signals_scout",
             "AI_GATEWAY_AI_STAGE": "scout:logs",
         }
@@ -311,6 +313,7 @@ class TestAiGatewayEnvVars:
     def test_reserved_keys_cover_the_pinned_product_env(self):
         assert "AI_GATEWAY_PRODUCT" in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
         assert "AI_GATEWAY_AI_STAGE" in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
+        assert "AI_GATEWAY_TOKEN_CAP_USD" in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
 
     def test_skill_qualified_allowlist_still_mints(self, mint_settings):
         """The D4-D6 batched scout flips route by skill-qualified entries alone; a mint
@@ -462,7 +465,27 @@ class TestProvisioningBoundaries:
             state={"ai_stage": "scout:logs"},
             model="claude-sonnet-5",
             runtime="acp",
+            prior_slack_run=False,
         )
+
+    def test_non_slack_origin_skips_the_prior_run_lookup(self, mint_settings):
+        from products.tasks.backend.temporal.process_task import utils
+
+        with patch("products.tasks.backend.models.TaskRun.objects") as runs:
+            utils.run_gateway_env_vars(self._ctx(), self._task())
+        runs.filter.assert_not_called()
+
+    def test_slack_run_without_its_own_stamp_looks_for_an_earlier_one(self, mint_settings):
+        from products.tasks.backend.temporal.process_task import utils
+
+        ctx = self._ctx()
+        ctx.origin_product = "slack"
+        ctx.state = {"run_source": "manual"}
+        with patch("products.tasks.backend.models.TaskRun.objects") as runs:
+            runs.filter.return_value.exists.return_value = True
+            with patch.object(utils, "ai_gateway_env_vars", return_value={}) as env:
+                utils.run_gateway_env_vars(ctx, self._task())
+        assert env.call_args.kwargs["prior_slack_run"] is True
 
     def test_subscription_run_does_not_mint_gateway_credentials(self, mint_settings):
         ctx = self._ctx()
@@ -537,7 +560,12 @@ class TestProvisioningBoundaries:
             assert utils.run_gateway_env_vars(self._ctx(), self._task()) == {}
 
     def test_a_pinned_token_the_stamp_could_not_record_is_dropped(self, mint_settings):
-        env = {"AI_GATEWAY_URL": "url", "AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "slack_app"}
+        env = {
+            "AI_GATEWAY_URL": "url",
+            "AI_GATEWAY_TOKEN": "phe",
+            "AI_GATEWAY_TOKEN_CAP_USD": "75",
+            "AI_GATEWAY_PRODUCT": "slack_app",
+        }
         with (
             patch.object(utils, "ai_gateway_env_vars", return_value=env),
             patch(
@@ -547,6 +575,7 @@ class TestProvisioningBoundaries:
         ):
             out = utils.run_gateway_env_vars(self._ctx(), self._task())
         assert "AI_GATEWAY_TOKEN" not in out
+        assert "AI_GATEWAY_TOKEN_CAP_USD" not in out
         assert out["AI_GATEWAY_URL"] == "url"
 
     def test_an_unpinned_token_survives_a_failed_stamp_removal(self, mint_settings):
@@ -742,8 +771,81 @@ class TestSlackAppMint:
 
         assert "interaction_origin" in _PROTECTED_RUN_STATE_KEYS
 
+    def test_internal_slack_helper_run_mints(self, mint_settings):
+        env, mint = self._env(mint_settings, state={"ai_stage": "repo_selection"}, internal=True)
+        assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
+        assert env["AI_GATEWAY_PRODUCT"] == "slack_app"
+        mint.assert_called_once()
+
+    def test_run_after_a_stamped_run_mints(self, mint_settings):
+        env, mint = self._env(mint_settings, state={"run_source": "manual"}, prior_slack_run=True)
+        assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
+        mint.assert_called_once()
+
+    def test_unstamped_caller_run_still_does_not_mint(self, mint_settings):
+        env, mint = self._env(mint_settings, state={"run_source": "manual"})
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+    @pytest.mark.parametrize("overrides", [{"runtime": "pi"}, {"model": "zai-org/glm-5.3"}])
+    def test_other_gates_still_refuse_an_internal_helper_run(self, mint_settings, overrides):
+        env, mint = self._env(mint_settings, state={"ai_stage": "repo_selection"}, internal=True, **overrides)
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+    def test_internal_does_not_admit_a_non_slack_origin(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "slack_app,background_agents"
+        env, mint = self._env(mint_settings, origin_product="user_created", state=None, internal=True)
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+    def test_mint_outcomes_name_their_reason_in_the_message(self, mint_settings, caplog):
+        with caplog.at_level(logging.INFO):
+            self._env(mint_settings, state={"run_source": "manual"})
+        skipped = [r for r in caplog.records if "mint skipped" in r.getMessage()]
+        assert skipped, "no mint-skipped line was logged"
+        assert "no_slack_provenance" in skipped[0].getMessage()
+        assert "slack_app" in skipped[0].getMessage()
+
+    def test_mint_failure_names_its_error_in_the_message(self, mint_settings, caplog):
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = MagicMock(status_code=429, text="mint rate limit exceeded")
+            with caplog.at_level(logging.WARNING):
+                assert mint_scoped_token(ai_product="slack_app", team_id=123) is None
+        failed = [r for r in caplog.records if "mint failed" in r.getMessage()]
+        assert failed, "no mint-failed line was logged"
+        assert "HTTP 429" in failed[0].getMessage()
+        assert "slack_app" in failed[0].getMessage()
+
     def test_slack_gates_leave_other_products_alone(self):
         assert mint_refusal("review_hog", team_id=2, state=None, model="zai-org/glm-5.3", runtime="pi") is None
+
+    # The mocked tests never run the JSON lookup; this one does.
+    @pytest.mark.django_db
+    def test_earlier_slack_stamp_is_found_in_the_database(self):
+        from products.tasks.backend.models import Task, TaskRun
+        from products.tasks.backend.temporal.process_task.utils import _task_has_stamped_slack_run
+
+        organization = Organization.objects.create(name="Slack Org")
+        team = Team.objects.create(organization=organization, name="Slack Team")
+        task = Task.objects.create(
+            team=team, title="From Slack", description="thread", origin_product=Task.OriginProduct.SLACK
+        )
+        unstamped = {"run_source": "manual"}
+        assert _task_has_stamped_slack_run(task, "slack", unstamped) is False
+
+        # The run being provisioned is already a row, so matching any run would vouch for every Slack run.
+        TaskRun.objects.create(task=task, team=team, status=TaskRun.Status.QUEUED, state=unstamped)
+        assert _task_has_stamped_slack_run(task, "slack", unstamped) is False
+
+        TaskRun.objects.create(
+            task=task, team=team, status=TaskRun.Status.COMPLETED, state={"interaction_origin": "slack"}
+        )
+        assert _task_has_stamped_slack_run(task, "slack", unstamped) is True
+        other = Task.objects.create(
+            team=team, title="Other", description="other", origin_product=Task.OriginProduct.SLACK
+        )
+        assert _task_has_stamped_slack_run(other, "slack", unstamped) is False
 
     @pytest.mark.django_db
     def test_quota_check_reads_the_team_token(self):
