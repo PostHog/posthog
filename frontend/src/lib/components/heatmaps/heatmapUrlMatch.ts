@@ -47,7 +47,8 @@ export const resolveHeatmapUrlFilter = (
             .replace(/\.\*/g, '*')
             .split('*')
             .map(escapeUnescapedRegex)
-        return { href: segments.join('*'), matchType: 'pattern', regex: `^${segments.join('.*')}$` }
+        const href = segments.join('*')
+        return { href, matchType: 'pattern', regex: heatmapUrlPatternToRegex(href) }
     }
     const parsed = parseUrl(trimmed)
     const page = heatmapPageUrl(trimmed)

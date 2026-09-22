@@ -6,6 +6,7 @@ import type { JSX } from 'react'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { hasWildcard } from 'lib/components/heatmaps/heatmapUrlMatch'
 import type { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { DEFAULT_HEATMAP_WIDTH } from 'lib/components/IframedToolbarBrowser/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -85,13 +86,11 @@ function getCreationFailureCategory(error: unknown): 'validation' | 'permission'
     return 'unknown'
 }
 
-const hasPageUrlPatternChars = (url: string): boolean => /[*+?^${}()|[\]\\]/.test(url)
-
 function isValidPageUrl(url: string | null): boolean {
     if (!url) {
         return true
     }
-    if (hasPageUrlPatternChars(url)) {
+    if (hasWildcard(url)) {
         return false
     }
     try {
@@ -904,18 +903,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
             (error: string | JSX.Element | null, generating: boolean): boolean => !!error || generating,
         ],
         isDisplayUrlValid: [(s) => [s.displayUrl], (displayUrl: string | null) => isValidPageUrl(displayUrl)],
-        displayUrlIsPattern: [
-            (s) => [s.displayUrl],
-            (displayUrl: string | null) => hasPageUrlPatternChars(displayUrl ?? ''),
-        ],
+        displayUrlIsPattern: [(s) => [s.displayUrl], (displayUrl: string | null) => hasWildcard(displayUrl ?? '')],
         isPageUrlDraftValid: [
             (s) => [s.pageUrlDraft],
             (pageUrlDraft: string) => isValidPageUrl(pageUrlDraft.trim() || null),
         ],
-        pageUrlDraftIsPattern: [
-            (s) => [s.pageUrlDraft],
-            (pageUrlDraft: string) => hasPageUrlPatternChars(pageUrlDraft),
-        ],
+        pageUrlDraftIsPattern: [(s) => [s.pageUrlDraft], (pageUrlDraft: string) => hasWildcard(pageUrlDraft)],
         desiredNumericWidth: [
             (s) => [s.widthOverride, s.containerWidth],
             (widthOverride: number, containerWidth: number | null) => {
