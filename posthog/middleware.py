@@ -1787,6 +1787,10 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
         "POST",
         re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/warehouse_saved_queries/check_incremental/?$"),
     ),
+    # POST but read-only: reads the project facts that decide how to configure a new experiment, for
+    # support on identity and bucketing tickets. The action is named exactly, because the same prefix
+    # hosts the mutating experiment actions.
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/experiments/setup_context/?$")),
     # POST but read-only: kicks off insight/dashboard/session replay export renders (e.g. MP4)
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/exports/?$")),
     # POST but read-only: the Logs product sends its queries as POST because the filter payload

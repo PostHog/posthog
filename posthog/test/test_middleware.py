@@ -1095,6 +1095,7 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             ("tracing_trace_by_id", "tracing/spans/trace/zzz/", {}),
             ("metrics_query", "metrics/query/", {}),
             ("metrics_explain", "metrics/explain/", {}),
+            ("experiments_setup_context", "experiments/setup_context/", {}),
         ]
     )
     def test_read_only_impersonation_allows_allowlisted_post(self, _name, path_suffix, body):
@@ -1119,6 +1120,7 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
                 "warehouse_saved_query_materialize",
                 "warehouse_saved_queries/00000000-0000-0000-0000-000000000000/materialize/",
             ),
+            ("experiments_create", "experiments/"),
         ]
     )
     def test_read_only_impersonation_blocks_mutating_siblings(self, _name, path_suffix):
