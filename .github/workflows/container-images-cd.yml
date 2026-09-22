@@ -180,47 +180,19 @@ jobs:
             # The Python SDK sends that id as $release_id on every event, which links a backend
             # exception to the same release the frontend bundles carry: the sourcemap stage of the
             # Dockerfile resolves the release by the same name and version, so it finds this one.
-            # The CLI pin is read from the Dockerfile so both places run one CLI version. This step
-            # must never block a deploy. The script turns the expected failures (no secret, a
-            # download, checksum, or API error) into an empty id with a warning. continue-on-error
-            # and the step timeout cover what the script does not catch, such as a hung API call.
+            # This step must never block a deploy. The action turns the expected failures (no secret,
+            # a download, checksum, or API error) into an empty id with a warning. continue-on-error
+            # and the step timeout cover what the action does not catch, such as a hung API call.
             # An empty id is fine: the SDK treats a blank value as unset.
             - name: Resolve error tracking release
               id: release
               if: steps.preflight.outputs.digest == ''
               continue-on-error: true
               timeout-minutes: 5
-              env:
-                  POSTHOG_CLI_TOKEN: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
-                  POSTHOG_CLI_ENV_ID: '2'
-                  POSTHOG_CLI_INSTALL_DIR: ${{ runner.temp }}/posthog-cli
-                  POSTHOG_CLI_NO_MODIFY_PATH: '1'
-                  RELEASE_VERSION: ${{ github.sha }}
-              run: |
-                  release_id=""
-                  if [ -n "$POSTHOG_CLI_TOKEN" ]; then
-                      # Explicit && chaining, not set -e: bash ignores errexit inside a command
-                      # substitution that || guards, so a failed download or checksum would
-                      # otherwise fall through to running the installer.
-                      release_id="$(
-                          version="$(sed -n 's/^ARG POSTHOG_CLI_VERSION=//p' Dockerfile)" &&
-                          checksum="$(sed -n 's/^ARG POSTHOG_CLI_INSTALLER_SHA256=//p' Dockerfile)" &&
-                          [ -n "$version" ] && [ -n "$checksum" ] &&
-                          installer="$RUNNER_TEMP/posthog-cli-installer.sh" &&
-                          curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
-                              -o "$installer" \
-                              "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv${version}/posthog-cli-installer.sh" &&
-                          echo "${checksum}  ${installer}" | sha256sum -c - >&2 &&
-                          sh "$installer" >&2 &&
-                          "$POSTHOG_CLI_INSTALL_DIR/posthog-cli" release resolve \
-                              --release-name posthog \
-                              --release-version "$RELEASE_VERSION"
-                      )" || release_id=""
-                  fi
-                  if [ -z "$release_id" ]; then
-                      echo "::warning::No error tracking release resolved; the image ships without POSTHOG_RELEASE_ID"
-                  fi
-                  echo "release-id=$release_id" >> "$GITHUB_OUTPUT"
+              uses: ./.github/actions/resolve-error-tracking-release
+              with:
+                  api-key: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
+                  release-version: ${{ github.sha }}
 
             - name: Build and push container image
               id: build
