@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from django.db.models import Model
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
@@ -66,11 +66,18 @@ class ReportContextSchema:
 class FetchInsightArgs(BaseModel):
     """Execute one attached saved insight's current query and return its formatted results."""
 
+    # bind_tools() names the tool after the schema's title, not its class name; the title must
+    # match the CONTEXT_TOOL_NAMES entry dispatch() switches on, or a real model's tool call
+    # never reaches it.
+    model_config = ConfigDict(title="fetch_insight")
+
     insight_id: int
 
 
 class FetchDashboardArgs(BaseModel):
     """List an attached dashboard's query tiles; pass insight_ids to execute specific tiles."""
+
+    model_config = ConfigDict(title="fetch_dashboard")
 
     dashboard_id: int
     insight_ids: list[int] | None = None
@@ -78,6 +85,8 @@ class FetchDashboardArgs(BaseModel):
 
 class ListSelectedContextsArgs(BaseModel):
     """List the dashboards and insights attached to this subscription, with the remaining read budget."""
+
+    model_config = ConfigDict(title="list_selected_contexts")
 
 
 def _safe_text(value: str | None, max_length: int, fallback: str) -> str:
