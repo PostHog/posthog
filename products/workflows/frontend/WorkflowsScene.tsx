@@ -214,14 +214,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             link: urls.workflows(),
         },
         {
-            label: (
-                <>
-                    Broadcasts{' '}
-                    <LemonTag className="ml-1" type="completion">
-                        Beta
-                    </LemonTag>
-                </>
-            ),
+            label: 'Broadcasts',
             key: 'broadcasts',
             content: <BroadcastsTable />,
             link: urls.workflows('broadcasts'),

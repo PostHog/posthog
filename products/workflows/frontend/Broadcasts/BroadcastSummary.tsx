@@ -127,7 +127,7 @@ export function BroadcastSummary(): JSX.Element {
                     <h2 className="m-0 text-lg font-semibold">
                         {latestBatchJobId ? 'Performance (latest send)' : 'Performance (last 30 days)'}
                     </h2>
-                    <EmailMetricsSummary logicKey={logicKey} />
+                    <EmailMetricsSummary logicKey={logicKey} compact />
                 </div>
 
                 <div className="flex flex-col gap-2">
