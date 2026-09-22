@@ -77,22 +77,17 @@ export function IntegrationEmailDomainView({
                 <div className="flex flex-col">
                     {integrations.map((integration) => (
                         <div key={integration.id} className="flex items-center px-4 py-2 border-t gap-2">
-                            <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
+                            <div className="flex flex-1 items-center gap-1 min-w-0">
                                 <span>
                                     {integration.config.name} &lt;{integration.config.email}&gt;
                                 </span>
                                 <CopyToClipboardInline
                                     explicitValue={String(integration.id)}
-                                    description="integration id"
-                                    tooltipMessage="Use this id in integrationIds when you define the workflow in code. Click to copy."
+                                    description="integration ID"
+                                    tooltipMessage="Copy integration ID"
                                     iconSize="xsmall"
-                                    className="text-xs text-secondary"
-                                    data-attr="email-integration-id"
-                                >
-                                    <span>
-                                        Integration id <span className="font-mono">{integration.id}</span>
-                                    </span>
-                                </CopyToClipboardInline>
+                                    iconMargin={false}
+                                />
                             </div>
                             <LemonButton
                                 type="primary"
