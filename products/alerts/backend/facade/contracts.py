@@ -138,7 +138,11 @@ class PlatformAlertUpsert:
 
 
 class CheckOutcomeReason(StrEnum):
-    """Why a check reached the outcome it did. A metric label, not an input to a decision."""
+    """Why a check reached the outcome it did.
+
+    A label on the platform's own counters. It never reaches an alert's state or schedule; the
+    one branch on it picks which counter to write.
+    """
 
     EVALUATED = "evaluated"
     QUIET_HOURS = "quiet_hours"
