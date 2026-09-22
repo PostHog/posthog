@@ -176,6 +176,7 @@ export interface pullRequestDetailLogicValues {
     lifecycleLoading: boolean
     loadFailed: boolean
     prCost: PRCostSummaryApi | null
+    prCostFailed: boolean
     prCostLoading: boolean
     prRuns: WorkflowRunDetailApi[]
     prRunsFailed: boolean
@@ -479,6 +480,14 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                 loadPrRuns: () => false,
                 loadPrRunsSuccess: () => false,
                 loadPrRunsFailure: () => true,
+            },
+        ],
+        prCostFailed: [
+            false,
+            {
+                loadPrCost: () => false,
+                loadPrCostSuccess: () => false,
+                loadPrCostFailure: () => true,
             },
         ],
         timelinesFailed: [false, { loadTimelines: () => false, loadTimelinesFailure: () => true }],

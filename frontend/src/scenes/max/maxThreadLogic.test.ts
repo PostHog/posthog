@@ -20,6 +20,7 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
+import { insightsModel } from '~/models/insightsModel'
 import * as notebooksModel from '~/models/notebooksModel'
 import {
     AgentMode,
@@ -30,7 +31,14 @@ import {
     SlashCommandName,
 } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
-import { Conversation, ConversationDetail, ConversationStatus, ConversationType, OrganizationType } from '~/types'
+import {
+    Conversation,
+    ConversationDetail,
+    ConversationStatus,
+    ConversationType,
+    OrganizationType,
+    InsightShortId,
+} from '~/types'
 
 import { attachedContextLogic, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -2208,6 +2216,33 @@ describe('maxThreadLogic', () => {
         beforeEach(() => {
             logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
+        })
+
+        it('dispatches a saved insight refresh from a create insight result', async () => {
+            const { onEventImplementation } = await import('./maxThreadLogic')
+            const dashboardModel = insightsModel()
+            dashboardModel.mount()
+            const cache = {}
+            const emit = async (message: object): Promise<void> =>
+                onEventImplementation(AssistantEventType.Message, JSON.stringify(message), {
+                    actions: logic.actions,
+                    values: logic.values,
+                    props: logic.props,
+                    agentMode: null,
+                    cache,
+                })
+            const saved = {
+                id: 'save-result',
+                type: AssistantMessageType.ToolCall,
+                content: 'Updated insight',
+                tool_call_id: 'save-tool',
+                ui_payload: { create_insight: { saved_insight: { short_id: 'saved-chart' } } },
+            }
+            await expectLogic(dashboardModel, () => emit(saved)).toDispatchActions([
+                dashboardModel.actionCreators.insightSaved('saved-chart' as InsightShortId),
+            ])
+            await expectLogic(dashboardModel, () => emit(saved)).toNotHaveDispatchedActions(['insightSaved'])
+            dashboardModel.unmount()
         })
 
         it('handles streaming message with temp- ID by adding it first time', async () => {

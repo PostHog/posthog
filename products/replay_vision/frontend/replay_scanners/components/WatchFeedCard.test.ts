@@ -5,7 +5,7 @@ describe('WatchFeedCard helpers', () => {
     describe('watchReasonCopy', () => {
         it.each<{ name: string; reason: WatchFeedReasonApi; expected: string }>([
             {
-                name: 'pluralizes multiple signals',
+                name: 'counts signals on a session scanned before headlines shipped',
                 reason: { kind: 'signal_emitted', signals_count: 3 } as WatchFeedReasonApi,
                 expected: 'The scanner raised 3 signals from this session.',
             },
@@ -40,6 +40,62 @@ describe('WatchFeedCard helpers', () => {
                     problem_types: ['bug', 'bug', 'ux_friction'],
                 } as WatchFeedReasonApi,
                 expected: 'The scanner raised 3 signals from this session: 2 bug signals, 1 UX friction signal.',
+            },
+            {
+                name: 'names the finding behind a single signal',
+                reason: {
+                    kind: 'signal_emitted',
+                    signals_count: 1,
+                    problem_types: ['bug'],
+                    signals: [{ problem_type: 'bug', headline: 'Checkout button does nothing' }],
+                } as WatchFeedReasonApi,
+                expected: 'The scanner raised a bug signal from this session: Checkout button does nothing.',
+            },
+            {
+                name: 'lists the findings when one type raised several',
+                reason: {
+                    kind: 'signal_emitted',
+                    signals_count: 2,
+                    problem_types: ['bug', 'bug'],
+                    signals: [
+                        { problem_type: 'bug', headline: 'Checkout button does nothing' },
+                        { problem_type: 'bug', headline: 'Card form rejects a valid card' },
+                    ],
+                } as WatchFeedReasonApi,
+                expected:
+                    'The scanner raised 2 bug signals from this session: Checkout button does nothing, and Card form rejects a valid card.',
+            },
+            {
+                name: 'groups the findings under each type in a mixed breakdown',
+                reason: {
+                    kind: 'signal_emitted',
+                    signals_count: 3,
+                    problem_types: ['bug', 'bug', 'ux_friction'],
+                    signals: [
+                        { problem_type: 'bug', headline: 'Checkout button does nothing' },
+                        { problem_type: 'bug', headline: 'Card form rejects a valid card' },
+                        { problem_type: 'ux_friction', headline: 'Search results load twice' },
+                    ],
+                } as WatchFeedReasonApi,
+                expected:
+                    'The scanner raised 3 signals from this session: 2 bug (Checkout button does nothing, Card form rejects a valid card), and 1 UX friction (Search results load twice).',
+            },
+            {
+                name: 'counts the findings it has no room to name',
+                reason: {
+                    kind: 'signal_emitted',
+                    signals_count: 5,
+                    problem_types: ['bug', 'bug', 'bug', 'bug', 'bug'],
+                    signals: [
+                        { problem_type: 'bug', headline: 'Checkout button does nothing' },
+                        { problem_type: 'bug', headline: 'Card form rejects a valid card' },
+                        { problem_type: 'bug', headline: 'Order total shows zero' },
+                        { problem_type: 'bug', headline: 'Address lookup returns nothing' },
+                        { problem_type: 'bug', headline: 'Receipt page is blank' },
+                    ],
+                } as WatchFeedReasonApi,
+                expected:
+                    'The scanner raised 5 bug signals from this session: Checkout button does nothing, Card form rejects a valid card, Order total shows zero, and 2 more.',
             },
             {
                 name: 'rounds the score and window average',
