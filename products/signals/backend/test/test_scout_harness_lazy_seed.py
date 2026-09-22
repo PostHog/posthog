@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import textwrap
 from pathlib import Path
 
@@ -22,8 +23,11 @@ from products.signals.backend.scout_harness.lazy_seed import (
     seed_canonical_skills,
     sync_canonical_skills,
 )
-from products.signals.backend.scout_harness.skill_loader import load_skill_for_run
+from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX, load_skill_for_run
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
+
+# How one skill cross-references another.
+_WIKILINK_RE = re.compile(r"\[\[([a-z0-9-]+)\]\]")
 
 
 def _write_canonical_skill(
@@ -508,8 +512,29 @@ class TestDiscoverCanonicalSkills:
             # that directory drops it from every team's store, and a scout told to read it
             # would report it missing instead of failing.
             "exploring-replay-vision-observations",
+            "creating-replay-vision-scanners",
+            "investigating-replay",
+            "inbox-exploration",
         }
         assert expected.issubset(names), f"missing canonical skills: {expected - names}"
+
+    def test_companion_wikilinks_resolve_to_seeded_skills(self) -> None:
+        # A companion is written for the agent that reads skills through the store, where the
+        # only rows are the ones seeded here. A `[[link]]` to a skill nobody seeds answers
+        # `skill-not-found`, and an agent sent to a scanner-authoring guide it cannot open
+        # stops rather than guessing. Scout bodies are exempt: a scout runs in a sandbox that
+        # carries the built-in skills as local files, so its 404 is expected, not a gap.
+        skills = discover_canonical_skills()
+        seeded = {skill.name for skill in skills}
+        dangling = {
+            (skill.name, link)
+            for skill in skills
+            if not skill.name.startswith(SIGNALS_SCOUT_SKILL_PREFIX)
+            for text in (skill.body, *(f.content for f in skill.files))
+            for link in _WIKILINK_RE.findall(text)
+            if link not in seeded
+        }
+        assert not dangling, f"companion skills link to skills no team gets: {sorted(dangling)}"
 
     def test_oversized_body_raises(self, tmp_path: Path) -> None:
         # Body byte limit mirrors the REST API contract (MAX_SKILL_BODY_BYTES = 1 MB).
