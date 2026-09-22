@@ -2,16 +2,15 @@ import structlog
 
 from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
-from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY
+from posthog.temporal.health_checks.detectors import HealthExecutionPolicy
 from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
 
-from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
-# Cap list payloads so one badly-configured endpoint can't write an unbounded issue row.
 _MAX_LISTED = 20
 
 
@@ -19,22 +18,19 @@ class WebhookSubscriptionStaleCheck(HealthCheck):
     """Flag a webhook source that silently receives nothing because its provider endpoint is
     subscribed to too narrow a set of events.
 
-    A webhook endpoint created before the source's resource-to-event map grew keeps its original,
-    narrower `enabled_events` forever — the reconcile that would widen it only runs when a user
-    edits a schema. So a table added later never receives a delivery and freezes at the
-    source-creation date, with no error anywhere. This check finds the shape directly: a
-    webhook-synced schema that has never landed data (zero deliveries since creation) on a source
-    whose endpoint is missing events the source wants subscribed.
+    A webhook endpoint created before its source's resource-to-event map grew keeps its original,
+    narrower ``enabled_events`` forever, because the reconcile that would widen it only runs when a
+    user edits a schema. A table added later never receives a delivery and freezes at the
+    source-creation date, with no error anywhere. This check flags a webhook-synced schema that has
+    never landed data and whose own mapped events are entirely absent from the endpoint.
     """
 
     name = "webhook_subscription_stale"
     kind = "webhook_subscription_stale"
     owner = JobOwners.TEAM_DATA_STACK
-    policy = DEFAULT_EXECUTION_POLICY
-    # Offset from the other data-warehouse checks so the daily runs don't pile up.
+    policy = HealthExecutionPolicy(batch_size=50, max_concurrent=3)
     schedule = "45 7 * * *"
     active_since_days = 30
-    # Payloads carry source pipeline names and event types.
     access_controlled_resource = "external_data_source"
     remediation = Remediation(
         human="""
@@ -68,8 +64,6 @@ class WebhookSubscriptionStaleCheck(HealthCheck):
         from products.data_warehouse.backend.logic.external_data_source.webhooks import get_webhook_url
         from products.warehouse_sources.backend.facade.source_management import SourceRegistry, WebhookSource
 
-        # Webhook-synced schemas that have never landed data: last_synced_at is only set once a
-        # scheduled sync consumes a delivery, so a null value means zero deliveries since creation.
         stale_schemas = (
             ExternalDataSchema.objects.filter(
                 team_id__in=team_ids,
@@ -83,7 +77,7 @@ class WebhookSubscriptionStaleCheck(HealthCheck):
         )
 
         schemas_by_source: dict[str, list[ExternalDataSchema]] = {}
-        sources: dict[str, object] = {}
+        sources: dict[str, ExternalDataSource] = {}
         for schema in stale_schemas:
             source = schema.source
             if source is None or not source.job_inputs:
@@ -112,17 +106,13 @@ class WebhookSubscriptionStaleCheck(HealthCheck):
                 continue
 
             webhook_url = get_webhook_url(hog_function.id)
-            eligible_names = [schema.name for schema in schemas]
             try:
                 config = source_impl.parse_config(source.job_inputs)
                 api_version = source_impl.resolve_api_version(source.api_version)
                 external = source_impl.get_external_webhook_info(
                     config, webhook_url, source.team_id, api_version=api_version
                 )
-                desired = source_impl.get_desired_webhook_events(config, eligible_names) or []
             except Exception as e:
-                # A read failure is real, but this proactive check can't tell a misconfigured endpoint
-                # from a transient provider error, so leave that to the on-demand webhook info surface.
                 logger.warning(
                     "webhook_subscription_stale: could not read webhook info",
                     source_id=source_pk,
@@ -130,16 +120,26 @@ class WebhookSubscriptionStaleCheck(HealthCheck):
                 )
                 continue
 
-            # No provider-side subscription to drift (e.g. Slack), the endpoint is gone, or the read
-            # itself failed — none of which is this "narrow subscription" failure.
-            if not desired or external is None or not external.exists or external.error:
+            if external is None or not external.exists or external.error:
                 continue
-
             enabled = set(external.enabled_events or [])
             if "*" in enabled:
                 continue
-            missing = sorted(event for event in desired if event not in enabled)
-            if not missing:
+
+            affected_schemas: list[str] = []
+            missing_events: set[str] = set()
+            for schema in schemas:
+                try:
+                    desired = source_impl.get_desired_webhook_events(config, [schema.name]) or []
+                except Exception:
+                    continue
+                key = source_impl.webhook_mapping_key(schema.name)
+                schema_events = [event for event in desired if event == key or event.startswith(f"{key}.")]
+                if schema_events and not any(event in enabled for event in schema_events):
+                    affected_schemas.append(schema.name)
+                    missing_events.update(schema_events)
+
+            if not affected_schemas:
                 continue
 
             issues.setdefault(source.team_id, []).append(
@@ -150,8 +150,8 @@ class WebhookSubscriptionStaleCheck(HealthCheck):
                         "pipeline_id": source_pk,
                         "pipeline_name": source.prefix or source.source_type,
                         "source_type": source.source_type,
-                        "affected_schemas": sorted(schema.name for schema in schemas)[:_MAX_LISTED],
-                        "missing_events": missing[:_MAX_LISTED],
+                        "affected_schemas": sorted(affected_schemas)[:_MAX_LISTED],
+                        "missing_events": sorted(missing_events)[:_MAX_LISTED],
                     },
                     hash_keys=["pipeline_type", "pipeline_id"],
                 )

@@ -21,7 +21,7 @@ DESIRED_EVENTS = ["charge.succeeded", "customer.created", "invoice.paid"]
 
 
 class _FakeWebhookBase:
-    """Stands in for WebhookSource so the check's isinstance gate passes without the real ABC."""
+    pass
 
 
 class _FakeStripeSource(_FakeWebhookBase):
@@ -35,6 +35,9 @@ class _FakeStripeSource(_FakeWebhookBase):
 
     def resolve_api_version(self, pinned: str | None) -> str:
         return pinned or "2020-08-27"
+
+    def webhook_mapping_key(self, schema_name: str) -> str:
+        return schema_name
 
     def get_external_webhook_info(
         self, config: Any, webhook_url: str, team_id: int, api_version: str | None = None
@@ -58,7 +61,6 @@ class TestWebhookSubscriptionStaleCheck(BaseTest):
             team=self.team,
             type="warehouse_source_webhook",
             hog="return event",
-            # save() rebuilds inputs from inputs_schema, so source_id must be declared to survive.
             inputs_schema=[{"key": "source_id", "type": "string"}],
             inputs={"source_id": {"value": str(source.pk)}},
         )
@@ -88,13 +90,14 @@ class TestWebhookSubscriptionStaleCheck(BaseTest):
 
     @parameterized.expand(
         [
-            # (enabled_events on the endpoint, whether the source should be flagged)
-            ("narrow_subscription", ["invoice.paid"], True),
-            ("complete_subscription", DESIRED_EVENTS, False),
-            ("wildcard_subscription", ["*"], False),
+            ("own_events_unsubscribed", ["invoice.paid"], True),
+            ("own_events_subscribed", ["charge.succeeded"], False),
+            ("wildcard", ["*"], False),
         ]
     )
-    def test_reports_only_when_events_are_missing(self, _name: str, enabled_events: list[str], flagged: bool) -> None:
+    def test_reports_only_when_a_schemas_own_events_are_missing(
+        self, _name: str, enabled_events: list[str], flagged: bool
+    ) -> None:
         source = self._create_webhook_source()
         self._create_webhook_schema(source, "charge", last_synced_at=None)
 
@@ -103,23 +106,29 @@ class TestWebhookSubscriptionStaleCheck(BaseTest):
         if flagged:
             assert len(payloads) == 1
             assert payloads[0]["pipeline_id"] == str(source.pk)
-            assert payloads[0]["missing_events"] == ["charge.succeeded", "customer.created"]
+            assert payloads[0]["missing_events"] == ["charge.succeeded"]
             assert payloads[0]["affected_schemas"] == ["charge"]
         else:
             assert payloads == []
 
-    def test_schema_that_has_ever_synced_is_not_a_candidate(self) -> None:
-        # last_synced_at is set once a delivery is consumed, so a synced schema is receiving data and
-        # must not be flagged even if the endpoint is missing some events.
+    def test_only_flags_schemas_whose_own_events_are_unsubscribed(self) -> None:
         source = self._create_webhook_source()
-        # Any non-null timestamp means a delivery was consumed; the exact value is irrelevant here.
+        self._create_webhook_schema(source, "charge", last_synced_at=None)
+        self._create_webhook_schema(source, "customer", last_synced_at=None)
+
+        payloads = self._detect(_FakeStripeSource(["charge.succeeded"]))
+
+        assert len(payloads) == 1
+        assert payloads[0]["affected_schemas"] == ["customer"]
+        assert payloads[0]["missing_events"] == ["customer.created"]
+
+    def test_schema_that_has_ever_synced_is_not_a_candidate(self) -> None:
+        source = self._create_webhook_source()
         self._create_webhook_schema(source, "charge", last_synced_at=dt.datetime(2026, 1, 1, tzinfo=dt.UTC))
 
         assert self._detect(_FakeStripeSource(["invoice.paid"])) == []
 
     def test_unreadable_endpoint_is_skipped(self) -> None:
-        # A webhook whose external status can't be confirmed is left to the on-demand webhook surface,
-        # not turned into a proactive alert this check can't stand behind.
         source = self._create_webhook_source()
         self._create_webhook_schema(source, "charge", last_synced_at=None)
 
