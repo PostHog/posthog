@@ -11164,6 +11164,14 @@ snapshots:
         hash: v1.k794b7964.074d7d64c384134bfd4c223d57cd339854d39bc4283b7d9b239d4c83d78e30fb._jPmYLjyiEistYmpwqii497iwY6LHQ1WQ4nzk9aMTDs
     scenes-app-workflows-createaitaskconnectors--unavailable-connector--light:
         hash: v1.k794b7964.c4fdab3ab5190ace67d354d7010b49cbd37e9ec72feaa3fab9760d1f1010c8b0.S5qBDGrQNUo7qygcV1_MG_nu9RWeaMnoOFrYdhnV97E
+    scenes-code-review--default--dark:
+        hash: v1.k794b7964.99d5413f62da6fd79189c3e3e74b4c29d0623a8bda4fdb2afc3358a79e131745.95vWL4i-5X2UOK7he1TWDQMJpt_BSa3XRSugibzJG-I
+    scenes-code-review--default--light:
+        hash: v1.k794b7964.283e9ea199eed12b5798fb775e39035fa35e9c753b8ad1bf7167440e3af35afd.RIyVmxpZZ0-OT4gDMOXyjjfZ9LMV4EzLP4o75VVULCM
+    scenes-code-review--narrow--dark:
+        hash: v1.k794b7964.e3159cbdd891243ab7fada6687ea215fbcad26b36ad9eec8c5bbe16750e8c8c4.nBWAH2u4lWuYa0rK2SeXB7TK1cx6Uolc13mvvXWXMrM
+    scenes-code-review--narrow--light:
+        hash: v1.k794b7964.80e7047478c38b7788af6d97e1f6c6ac9b81b818b49a80bff3e9b7a005bff0f5._mk-hCUP8zXV3Ub-CCRdEvHQusrsmTlHjDp9-BmFcNk
     scenes-dashboards-customize-breakdown-colors--customize-breakdown-colors--dark:
         hash: v1.k794b7964.cf89a12669d5221b2441fbfb4439b8b1b38191943438a2c1a220444148329954.B4ew6uW3gZCbPU_3vTOggsOyHojRlyvuXxh5FZnlO-0
     scenes-dashboards-customize-breakdown-colors--customize-breakdown-colors--light:
