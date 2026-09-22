@@ -130,6 +130,54 @@ func TestCatalogAliasesStayWithinPublishedTeamAndUser(t *testing.T) {
 	}
 }
 
+func TestTraversalRelationsStayWithinPublishedTeamAndUser(t *testing.T) {
+	s := newTestServer(t)
+	handler := s.handler()
+	body := `{"revision":"traversal","catalog":{"tables":{"events":{"fields":{"person":{"type":"lazy","relation":"person"},"session":{"type":"lazy","relation":"session"}}},"sessions":{"fields":{"session_id":{"type":"String"}}}},"relations":{"empty":{"fields":{}},"person":{"fields":{"email":{"type":"String"},"properties":{"type":"JSON","propertyNamespace":"person"}}},"session":{"table":"sessions"}},"properties":{"person":[{"name":"plan","property_type":"String"}]}}}`
+	request := httptest.NewRequest(http.MethodPut, scopePath(1, 10)+"/catalog", strings.NewReader(body))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("catalog upload returned %d: %s", response.Code, response.Body.String())
+	}
+	putCatalogForTest(t, handler, 1, 20, "flat", "events")
+
+	for _, test := range []struct {
+		userID int64
+		valid  bool
+	}{
+		{userID: 10, valid: true},
+		{userID: 20, valid: false},
+	} {
+		request = httptest.NewRequest(http.MethodPost, scopePath(1, test.userID)+"/validate", strings.NewReader(`{"query":"SELECT e.person.email FROM events AS e"}`))
+		response = httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("validate returned %d: %s", response.Code, response.Body.String())
+		}
+		var result validationResponse
+		if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+			t.Fatal(err)
+		}
+		if result.Valid != test.valid {
+			t.Fatalf("user %d result = %#v", test.userID, result)
+		}
+	}
+	request = httptest.NewRequest(http.MethodPost, scopePath(1, 10)+"/validate", strings.NewReader(`{"query":"SELECT e.session.session_id FROM events AS e"}`))
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("table-backed validate returned %d: %s", response.Code, response.Body.String())
+	}
+	var result validationResponse
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Valid {
+		t.Fatalf("table-backed traversal result = %#v", result)
+	}
+}
+
 func TestCatalogRejectsInvalidAliasMaps(t *testing.T) {
 	handler := newTestServer(t).handler()
 	for name, aliases := range map[string]string{
