@@ -68,6 +68,7 @@ A pre-emptive `checkReauthentication()` is correct only when the flow cannot be 
 SSO and social login re-auth run in a popup, so the page and its pending request stay alive.
 The popup returns to `/reauth/complete` (`sso_reauth_complete` in `posthog/api/authentication.py`), which reports the outcome on the `posthog-sso-reauth` `BroadcastChannel` and closes.
 The channel is used instead of `window.opener`, because our `Cross-Origin-Opener-Policy` cuts the opener link once the popup visits the identity provider.
+Each popup carries a random `attempt` ID in `next`, and the page echoes it back. The listener ignores any message that does not match the attempt it started, because anyone can open the completion page.
 When the browser blocks the popup, the modal falls back to a full-page redirect, and that one path still loses the pending request.
 
 ## Testing a new gate

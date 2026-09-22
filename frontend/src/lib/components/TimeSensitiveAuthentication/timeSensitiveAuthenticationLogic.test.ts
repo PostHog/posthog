@@ -175,22 +175,38 @@ describe('timeSensitiveAuthenticationLogic', () => {
     })
 
     describe('SSO re-authentication in a popup', () => {
+        const startPopupAttempt = (): string => {
+            const open = jest.spyOn(window, 'open').mockReturnValue({} as Window)
+            logic.actions.beginSsoReauthentication('google-oauth2')
+            const next = new URL(open.mock.calls[0][0] as string, location.origin).searchParams.get('next')!
+            return new URL(next, location.origin).searchParams.get('attempt')!
+        }
+
         it.each([
-            ['success', null, true],
-            ['failure', 'reauth_user_mismatch', false],
-        ])('on %s, settles the waiting write: %s', async (_, errorCode, settled) => {
-            const onSuccess = jest.fn()
-            apiStatusLogic.actions.setTimeSensitiveAuthenticationRequired([onSuccess, jest.fn()])
+            ['success', 'own', null, true, false],
+            ['failure', 'own', 'reauth_user_mismatch', false, true],
+            ['a message from another attempt', 'other', null, false, false],
+        ])(
+            'on %s, settles the waiting write only when it succeeded',
+            async (_, source, errorCode, settled, toasted) => {
+                const onSuccess = jest.fn()
+                apiStatusLogic.actions.setTimeSensitiveAuthenticationRequired([onSuccess, jest.fn()])
+                const attempt = startPopupAttempt()
 
-            const popup = new BroadcastChannel('posthog-sso-reauth')
-            popup.postMessage({ type: 'sso_reauth_complete', error_code: errorCode })
-            popup.close()
-            await expectLogic(logic).toDispatchActions(['ssoReauthenticationFinished'])
+                const popup = new BroadcastChannel('posthog-sso-reauth')
+                popup.postMessage({
+                    type: 'sso_reauth_complete',
+                    attempt: source === 'own' ? attempt : 'someone-else',
+                    error_code: errorCode,
+                })
+                popup.close()
+                await expectLogic(logic).toDispatchActions(['ssoReauthenticationFinished'])
 
-            expect(onSuccess).toHaveBeenCalledTimes(settled ? 1 : 0)
-            expect(logic.values.showAuthenticationModal).toBe(!settled)
-            expect(lemonToast.error).toHaveBeenCalledTimes(settled ? 0 : 1)
-        })
+                expect(onSuccess).toHaveBeenCalledTimes(settled ? 1 : 0)
+                expect(logic.values.showAuthenticationModal).toBe(!settled)
+                expect(lemonToast.error).toHaveBeenCalledTimes(toasted ? 1 : 0)
+            }
+        )
     })
 
     describe('failed SSO re-authentication', () => {

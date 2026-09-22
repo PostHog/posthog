@@ -16,6 +16,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { ApiError } from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { uuid } from 'lib/utils/dom'
 import { PrecheckResponseType } from 'scenes/authentication/login/loginLogic'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { userLogic } from 'scenes/userLogic'
@@ -172,7 +173,11 @@ export interface timeSensitiveAuthenticationLogicActions {
     showSsoReauthenticationError: () => {
         value: true
     }
-    ssoReauthenticationFinished: (errorCode: string | null) => {
+    ssoReauthenticationFinished: (
+        attempt: string,
+        errorCode: string | null
+    ) => {
+        attempt: string
         errorCode: string | null
     }
     submitReauthentication: () => {
@@ -239,7 +244,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
         checkReauthentication: true,
         showSsoReauthenticationError: true,
         beginSsoReauthentication: (provider: SSOProvider) => ({ provider }),
-        ssoReauthenticationFinished: (errorCode: string | null) => ({ errorCode }),
+        ssoReauthenticationFinished: (attempt: string, errorCode: string | null) => ({ attempt, errorCode }),
         beginPasskey2FA: true,
         checkPasskeysAvailable: true,
         setTotpAvailable: (available: boolean) => ({ available }),
@@ -401,7 +406,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
         },
     })),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         submitReauthenticationSuccess: () => {
             posthog.capture('reauthentication_completed')
             actions.resolveSensitiveAction('success')
@@ -422,9 +427,14 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
         },
         beginSsoReauthentication: ({ provider }) => {
             const params = { email: values.user?.email || '', reauth: 'true' }
+            cache.ssoReauthAttempt = uuid()
             // A popup keeps this page, and the request waiting on re-auth, alive.
             const popup = window.open(
-                getSocialLoginUrl(provider, { ...params, next: SSO_REAUTH_COMPLETE_PATH }, {}),
+                getSocialLoginUrl(
+                    provider,
+                    { ...params, next: `${SSO_REAUTH_COMPLETE_PATH}?attempt=${cache.ssoReauthAttempt}` },
+                    {}
+                ),
                 'posthog-sso-reauth',
                 'popup,width=600,height=700'
             )
@@ -435,11 +445,12 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
                 })
             }
         },
-        ssoReauthenticationFinished: ({ errorCode }) => {
-            // Every open tab receives the broadcast. Only a tab that asked for re-auth reacts to it.
-            if (!values.timeSensitiveAuthenticationRequired) {
+        ssoReauthenticationFinished: ({ attempt, errorCode }) => {
+            // Anyone can open the completion page, and every tab hears it. Only the attempt this tab started counts.
+            if (!cache.ssoReauthAttempt || attempt !== cache.ssoReauthAttempt) {
                 return
             }
+            cache.ssoReauthAttempt = null
             if (errorCode) {
                 lemonToast.error(ERROR_MESSAGES[errorCode] ?? ERROR_MESSAGES.social_login_failure)
                 return
@@ -480,7 +491,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
                 const channel = new BroadcastChannel(SSO_REAUTH_CHANNEL)
                 channel.onmessage = (event: MessageEvent) => {
                     if (event.data?.type === 'sso_reauth_complete') {
-                        actions.ssoReauthenticationFinished(event.data.error_code ?? null)
+                        actions.ssoReauthenticationFinished(String(event.data.attempt), event.data.error_code ?? null)
                     }
                 }
                 return () => channel.close()
