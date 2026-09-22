@@ -322,7 +322,7 @@ def _is_single_host(host: str) -> bool:
         # A scope id ("fe80::1%eth0") selects an interface and is not part of the address. CPython
         # keeps whatever follows the "%" verbatim, commas and spaces included, so a host list can
         # ride through here and be split by the driver.
-        return parsed.version != 6 or parsed.scope_id is None
+        return not isinstance(parsed, ipaddress.IPv6Address) or parsed.scope_id is None
     return 0 < len(normalized) <= 253 and all(_HOST_LABEL.match(label) for label in normalized.split("."))
 
 
