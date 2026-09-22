@@ -18,12 +18,8 @@ import type {
 } from '~/queries/schema/schema-general'
 import { DataModelingEdge, DataModelingNode, DataWarehouseSavedQueryRunHistory } from '~/types'
 
-import { lineageDataLogic } from 'products/data_modeling/frontend/lineage/lineageDataLogic'
-import {
-    ParsedLineageSearch,
-    nodeIdsForLineageSearch,
-    parseLineageSearch,
-} from 'products/data_modeling/frontend/lineage/lineageSearch'
+import { lineageDataLogic } from './lineage/lineageDataLogic'
+import { ParsedLineageSearch, nodeIdsForLineageSearch, parseLineageSearch } from './lineage/lineageSearch'
 
 export const PAGE_SIZE = 10
 

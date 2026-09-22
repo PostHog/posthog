@@ -18,11 +18,11 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, DataWarehouseSavedQuery } from '~/types'
 
 import { DataQualityOverview } from 'products/data_quality/frontend/overview/DataQualityOverview'
-import { ViewsTab } from 'products/data_warehouse/frontend/scenes/DataOpsScene/tabs/ViewsTab'
 
 import { ModelsLineageTab } from './lineage/ModelsLineageTab'
 import { ModelsOverviewTab } from './ModelsOverviewTab'
 import { ModelsSceneTab, modelsSceneLogic } from './modelsSceneLogic'
+import { ViewsTab } from './ViewsTab'
 
 export const scene: SceneExport = {
     component: ModelsScene,

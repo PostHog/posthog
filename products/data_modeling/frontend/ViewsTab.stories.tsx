@@ -5,7 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { ViewsTab } from 'products/data_warehouse/frontend/scenes/DataOpsScene/tabs/ViewsTab'
+import { ViewsTab } from './ViewsTab'
 
 const meta: Meta<typeof ViewsTab> = {
     title: 'Products/Data modeling/Views list',
