@@ -7,6 +7,78 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch.
+ */
+export type SignalTeamConfigApiAutostartBaseBranches = { [key: string]: string }
+
+/**
+ * Where in the tracker the issues land. Required keys depend on the integration kind: github -> {repository}; linear -> {team_id}; jira -> {project_key}; gitlab needs none, because its integration is already bound to one project. An optional 'label' is applied to created GitHub issues.
+ */
+export type SignalTeamConfigApiIssueTrackingConfig = { [key: string]: string }
+
+/**
+ * * `P0` - P0
+ * * `P1` - P1
+ * * `P2` - P2
+ * * `P3` - P3
+ * * `P4` - P4
+ */
+export type AutonomyPriorityEnumApi = (typeof AutonomyPriorityEnumApi)[keyof typeof AutonomyPriorityEnumApi]
+
+export const AutonomyPriorityEnumApi = {
+    P0: 'P0',
+    P1: 'P1',
+    P2: 'P2',
+    P3: 'P3',
+    P4: 'P4',
+} as const
+
+export interface SignalTeamConfigApi {
+    readonly id: string
+    /**
+     * Master switch for autonomous inbox PRs. Null (never set) leaves autostart on; set false to opt out, so actionable reports still generate and notify but the team never auto-starts an implementation task or opens a PR — reviewers open PRs manually.
+     * @nullable
+     */
+    autostart_enabled?: boolean | null
+    default_autostart_priority?: AutonomyPriorityEnumApi
+    /**
+     * Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply.
+     * @maxLength 255
+     * @nullable
+     */
+    default_slack_notification_channel?: string | null
+    /** Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch. */
+    autostart_base_branches?: SignalTeamConfigApiAutostartBaseBranches
+    /**
+     * Connected GitHub, GitLab, Linear, or Jira integration that self-driving opens a tracker issue in for each pull request it makes. Null turns tracker issues off, which is the default.
+     * @nullable
+     */
+    issue_tracking_integration?: number | null
+    /** Where in the tracker the issues land. Required keys depend on the integration kind: github -> {repository}; linear -> {team_id}; jira -> {project_key}; gitlab needs none, because its integration is already bound to one project. An optional 'label' is applied to created GitHub issues. */
+    issue_tracking_config?: SignalTeamConfigApiIssueTrackingConfig
+    /**
+     * Daily cap on new reports surfacing to the inbox, counted per calendar day in the project's timezone. Once reached, signal ingestion, scout runs, and report research pause until local midnight. Null means unlimited.
+     * @minimum 1
+     * @maximum 2147483647
+     * @nullable
+     */
+    max_reports_per_day?: number | null
+    /** Whether self-driving pull requests open ready for review instead of draft, so the full CI matrix starts when the pull request is created. False by default. A reviewer's own github_open_pull_request_ready overrides this for reports that suggest them as reviewer. */
+    default_open_pull_request_ready?: boolean
+    /** Whether self-driving comments back on a GitHub issue that raised a report, linking to the report so everybody watching the issue knows it is being researched. The comment is public on the issue thread and carries a link only, never report content. False by default. Needs a GitHub integration that can reach the issue's repository. */
+    github_issue_writeback_enabled?: boolean
+    /**
+     * How many reports first became visible in the inbox during the current project-timezone day. This is the count the daily report limit compares against.
+     * @minimum 0
+     */
+    readonly reports_generated_today: number
+    /** Whether the team hit its daily report limit, pausing new report generation until local midnight. Always false when max_reports_per_day is null. */
+    readonly daily_report_limit_reached: boolean
+    readonly created_at: string
+    readonly updated_at: string
+}
+
 export interface PauseStateResponseApi {
     /**
      * The timestamp the pipeline is paused until, or null if not paused/not running.
@@ -736,6 +808,16 @@ export interface PatchedSignalReportContentUpdateApi {
     summary?: string
 }
 
+/**
+ * Envelope returned by the report actions that only kick off a Temporal workflow.
+ */
+export interface SignalReportWorkflowStatusApi {
+    /** Outcome of the request: the workflow was started, or one was already running. */
+    status: string
+    /** Report the workflow runs against. */
+    report_id: string
+}
+
 export interface SignalReportClaimApi {
     /** Active claim ID returned by an earlier call. Stale claims are rejected. */
     claim_id?: string
@@ -1091,6 +1173,146 @@ export interface SignalReportRefundResponseApi {
     readonly created_at: string
     /** True when the report already had a refund and that existing refund is returned unchanged — refunds are one-per-report and repeat calls are idempotent. */
     readonly already_refunded: boolean
+}
+
+/**
+ * Single entry in a PUT body for a `suggested_reviewers` artefact.
+ *
+ * Each entry must identify a reviewer by at least one of `github_login` or `user_uuid`. A
+ * `user_uuid` only has to name an org member on this team — a member with no linked GitHub
+ * account is stored by uuid and routes like any other reviewer.
+ */
+export interface SuggestedReviewerEntryWriteApi {
+    /**
+     * GitHub login (case-insensitive). Stored lowercased.
+     * @maxLength 200
+     */
+    github_login?: string
+    /** PostHog user UUID. Must be an org member on this team; a linked GitHub account is not required. If supplied together with `github_login`, the user's own identity wins. */
+    user_uuid?: string
+    /**
+     * Optional human-readable display name. Not backfilled from GitHub by the server.
+     * @maxLength 200
+     */
+    github_name?: string
+    /**
+     * Optional short evidence for why this reviewer was chosen. Omitted entries keep the prior reason for reviewers already on the report.
+     * @maxLength 500
+     * @nullable
+     */
+    reason?: string | null
+}
+
+/**
+ * PUT body for replacing a `suggested_reviewers` artefact's content.
+ *
+ * Only `suggested_reviewers` artefacts may be modified via this endpoint;
+ * the viewset enforces the type check before validation runs.
+ */
+export interface SignalReportArtefactWriteApi {
+    /** Full replacement list of reviewers. Empty list clears the artefact. At most 10 entries. */
+    content: SuggestedReviewerEntryWriteApi[]
+}
+
+export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]
+
+/**
+ * * `video_segment` - Video Segment
+ * * `safety_judgment` - Safety Judgment
+ * * `actionability_judgment` - Actionability Judgment
+ * * `priority_judgment` - Priority Judgment
+ * * `signal_finding` - Signal Finding
+ * * `repo_selection` - Repo Selection
+ * * `suggested_reviewers` - Suggested Reviewers
+ * * `channel_assignment` - Channel Assignment
+ * * `dismissal` - Dismissal
+ * * `code_reference` - Code Reference
+ * * `commit` - Commit
+ * * `task_run` - Task Run
+ * * `note` - Note
+ * * `title_change` - Title Change
+ * * `summary_change` - Summary Change
+ * * `code_review` - Code Review
+ * * `related_to` - Related To
+ * * `report_link` - Report Link
+ * * `work_claim` - Work Claim
+ * * `work_release` - Work Release
+ * * `pull_request` - Pull Request
+ * * `check_result` - Check Result
+ * * `check_scheduled` - Check Scheduled
+ * * `check_expired` - Check Expired
+ * * `check_cancelled` - Check Cancelled
+ * * `implementation_decision` - Implementation Decision
+ * * `implementation_dispatch` - Implementation Dispatch
+ * * `implementation_replacement` - Implementation Replacement
+ * * `implementation_handover` - Implementation Handover
+ */
+export type SignalReportArtefactArtefactTypeEnumApi =
+    (typeof SignalReportArtefactArtefactTypeEnumApi)[keyof typeof SignalReportArtefactArtefactTypeEnumApi]
+
+export const SignalReportArtefactArtefactTypeEnumApi = {
+    VideoSegment: 'video_segment',
+    SafetyJudgment: 'safety_judgment',
+    ActionabilityJudgment: 'actionability_judgment',
+    PriorityJudgment: 'priority_judgment',
+    SignalFinding: 'signal_finding',
+    RepoSelection: 'repo_selection',
+    SuggestedReviewers: 'suggested_reviewers',
+    ChannelAssignment: 'channel_assignment',
+    Dismissal: 'dismissal',
+    CodeReference: 'code_reference',
+    Commit: 'commit',
+    TaskRun: 'task_run',
+    Note: 'note',
+    TitleChange: 'title_change',
+    SummaryChange: 'summary_change',
+    CodeReview: 'code_review',
+    RelatedTo: 'related_to',
+    ReportLink: 'report_link',
+    WorkClaim: 'work_claim',
+    WorkRelease: 'work_release',
+    PullRequest: 'pull_request',
+    CheckResult: 'check_result',
+    CheckScheduled: 'check_scheduled',
+    CheckExpired: 'check_expired',
+    CheckCancelled: 'check_cancelled',
+    ImplementationDecision: 'implementation_decision',
+    ImplementationDispatch: 'implementation_dispatch',
+    ImplementationReplacement: 'implementation_replacement',
+    ImplementationHandover: 'implementation_handover',
+} as const
+
+export interface SignalReportArtefactApi {
+    /**
+     * Work claim that produced this artefact.
+     * @nullable
+     */
+    readonly claim_id: string | null
+    /**
+     * Shared PR record linked by this artefact.
+     * @nullable
+     */
+    readonly pull_request_id: string | null
+    readonly id: string
+    readonly type: SignalReportArtefactArtefactTypeEnumApi
+    readonly content: SignalReportArtefactApiContent
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** Actor kind. Legacy rows without attribution are returned as system. */
+    readonly actor_kind: SignalActorKindEnumApi
+    /**
+     * MCP client name when an external agent produced the artefact.
+     * @nullable
+     */
+    readonly actor_agent: string | null
+    /** Authenticated user principal for user or external agent writes. Null for internal task and system writes. */
+    readonly created_by: _UserApi | null
+    /**
+     * Internal task the artefact is attributed to. Null for user, external agent, and system writes.
+     * @nullable
+     */
+    readonly task_id: string | null
 }
 
 /**
@@ -2107,107 +2329,6 @@ export interface SignalReportStateRequestApi {
      * @maximum 100000
      */
     snooze_for?: number
-}
-
-/**
- * * `video_segment` - Video Segment
- * * `safety_judgment` - Safety Judgment
- * * `actionability_judgment` - Actionability Judgment
- * * `priority_judgment` - Priority Judgment
- * * `signal_finding` - Signal Finding
- * * `repo_selection` - Repo Selection
- * * `suggested_reviewers` - Suggested Reviewers
- * * `channel_assignment` - Channel Assignment
- * * `dismissal` - Dismissal
- * * `code_reference` - Code Reference
- * * `commit` - Commit
- * * `task_run` - Task Run
- * * `note` - Note
- * * `title_change` - Title Change
- * * `summary_change` - Summary Change
- * * `code_review` - Code Review
- * * `related_to` - Related To
- * * `report_link` - Report Link
- * * `work_claim` - Work Claim
- * * `work_release` - Work Release
- * * `pull_request` - Pull Request
- * * `check_result` - Check Result
- * * `check_scheduled` - Check Scheduled
- * * `check_expired` - Check Expired
- * * `check_cancelled` - Check Cancelled
- * * `implementation_decision` - Implementation Decision
- * * `implementation_dispatch` - Implementation Dispatch
- * * `implementation_replacement` - Implementation Replacement
- * * `implementation_handover` - Implementation Handover
- */
-export type SignalReportArtefactArtefactTypeEnumApi =
-    (typeof SignalReportArtefactArtefactTypeEnumApi)[keyof typeof SignalReportArtefactArtefactTypeEnumApi]
-
-export const SignalReportArtefactArtefactTypeEnumApi = {
-    VideoSegment: 'video_segment',
-    SafetyJudgment: 'safety_judgment',
-    ActionabilityJudgment: 'actionability_judgment',
-    PriorityJudgment: 'priority_judgment',
-    SignalFinding: 'signal_finding',
-    RepoSelection: 'repo_selection',
-    SuggestedReviewers: 'suggested_reviewers',
-    ChannelAssignment: 'channel_assignment',
-    Dismissal: 'dismissal',
-    CodeReference: 'code_reference',
-    Commit: 'commit',
-    TaskRun: 'task_run',
-    Note: 'note',
-    TitleChange: 'title_change',
-    SummaryChange: 'summary_change',
-    CodeReview: 'code_review',
-    RelatedTo: 'related_to',
-    ReportLink: 'report_link',
-    WorkClaim: 'work_claim',
-    WorkRelease: 'work_release',
-    PullRequest: 'pull_request',
-    CheckResult: 'check_result',
-    CheckScheduled: 'check_scheduled',
-    CheckExpired: 'check_expired',
-    CheckCancelled: 'check_cancelled',
-    ImplementationDecision: 'implementation_decision',
-    ImplementationDispatch: 'implementation_dispatch',
-    ImplementationReplacement: 'implementation_replacement',
-    ImplementationHandover: 'implementation_handover',
-} as const
-
-export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]
-
-export interface SignalReportArtefactApi {
-    /**
-     * Work claim that produced this artefact.
-     * @nullable
-     */
-    readonly claim_id: string | null
-    /**
-     * Shared PR record linked by this artefact.
-     * @nullable
-     */
-    readonly pull_request_id: string | null
-    readonly id: string
-    readonly type: SignalReportArtefactArtefactTypeEnumApi
-    readonly content: SignalReportArtefactApiContent
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    /** Actor kind. Legacy rows without attribution are returned as system. */
-    readonly actor_kind: SignalActorKindEnumApi
-    /**
-     * MCP client name when an external agent produced the artefact.
-     * @nullable
-     */
-    readonly actor_agent: string | null
-    /** Authenticated user principal for user or external agent writes. Null for internal task and system writes. */
-    readonly created_by: _UserApi | null
-    /**
-     * Internal task the artefact is attributed to. Null for user, external agent, and system writes.
-     * @nullable
-     */
-    readonly task_id: string | null
 }
 
 export interface PaginatedSignalReportArtefactListApi {
@@ -4635,23 +4756,6 @@ export interface EditReportResponseApi {
 }
 
 /**
- * * `P0` - P0
- * * `P1` - P1
- * * `P2` - P2
- * * `P3` - P3
- * * `P4` - P4
- */
-export type AutonomyPriorityEnumApi = (typeof AutonomyPriorityEnumApi)[keyof typeof AutonomyPriorityEnumApi]
-
-export const AutonomyPriorityEnumApi = {
-    P0: 'P0',
-    P1: 'P1',
-    P2: 'P2',
-    P3: 'P3',
-    P4: 'P4',
-} as const
-
-/**
  * One finding a scout run emitted to the inbox — the persisted, queryable record of
  * *what* the run surfaced, returned by `scout-runs-emissions-list`. The emitted text
  * lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
@@ -5908,6 +6012,22 @@ export type SignalsReportChecksListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type SignalsReportsAvailableReviewersRetrieveParams = {
+    /**
+     * Case-insensitive filter on name or email.
+     */
+    query?: string
+}
+
+export type SignalsReportsAvailableReviewersRetrieve200 = {
+    [key: string]: {
+        /** Member's full name. */
+        name: string
+        /** Member's email address. */
+        email: string
+    }
 }
 
 export type SignalsReportsPrCiStatusesParams = {
