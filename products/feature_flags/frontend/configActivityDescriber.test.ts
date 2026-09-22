@@ -50,6 +50,27 @@ describe('config activity descriptions', () => {
         expect(JSON.stringify(result)).not.toMatch(/private-seed|opaque-value/)
     })
 
+    it.each([
+        ['created', 'added'],
+        ['deleted', 'removed'],
+        ['changed', 'changed'],
+    ])('describes %s configuration fields accurately', (action, verb) => {
+        const result = describeConfigActivity(change, {
+            ...item,
+            detail: {
+                ...item.detail,
+                context: {
+                    filters_version: 2,
+                    config_changes: [
+                        { field: 'aggregation_group_type_index', action },
+                        { field: 'rules/rule-a/metadata', action },
+                    ],
+                },
+            },
+        })
+        expect(result?.description).toEqual([`${verb} the aggregation group`, `${verb} metadata for rule rule-a`])
+    })
+
     it.each([null, {}, { version: 1 }, { groups: [] }])(
         'leaves legacy config to the existing describer: %p',
         (value) => {

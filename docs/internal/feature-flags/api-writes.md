@@ -80,8 +80,11 @@ Rollback closes the policy and reverts the update routing. Format guards and rea
 
 Config version 2 uses the existing activity log and management version endpoint.
 The model signal captures the writer database's before-state inside the locked update and the saved configuration after server-owned IDs and seeds resolve.
-The v2 adapter finishes that one activity entry after the tag mixin persists tags, inside the same transaction, without another save or version increment.
+The v2 adapter captures that one activity entry after the tag mixin persists tags, inside the same transaction, without another save or version increment.
 Actor, impersonation, caller triggers and on-commit handling retain the existing activity-log behavior.
+When `ACTIVITY_LOG_TRANSACTION_MANAGEMENT` is enabled, the shared logger inserts the captured entry after commit.
+An audit insert failure does not roll back the committed flag update; historical reads across the missing transition return HTTP 422.
+This path preserves existing audit timing and does not guarantee atomic persistence of the flag and its history.
 
 The reversible contract is a `Change` with `field: "filters"` and complete, unmodified `before` and `after` documents when the configuration changes.
 Those documents retain rule order, IDs, assignment seeds, descriptions and opaque metadata.
@@ -104,7 +107,8 @@ The full configuration change remains the reconstruction source.
 Supported row metadata uses ordinary field changes; v2 version responses also include historical tags.
 
 V2 reconstruction requires a continuous chain of row-version transitions using this contract, including the transition into a non-initial target version.
-Missing transitions, unsupported configurations or inconsistent configuration snapshots return the existing incomplete-history error (HTTP 422).
+Every traversed transition, including the target, must have a valid row-version predecessor and matching `after` values for tracked fields and tags.
+Missing transitions, unsupported configurations or inconsistent configuration/metadata snapshots return the existing incomplete-history error (HTTP 422).
 Earlier entries without the v2 audit contract cannot establish complete v2 history.
 Current-version reads return the supported stored document exactly.
 V1 reconstruction keeps its legacy shape normalization and diff behavior.

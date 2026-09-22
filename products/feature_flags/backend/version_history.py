@@ -175,6 +175,18 @@ def reconstruct_flag_at_version(
                 raise VersionHistoryIncomplete(
                     f"Activity log is incomplete. Cannot reconstruct version {target_version}."
                 )
+            version_change = next(change for change in changes if change.get("field") == "version")
+            if type(version_change.get("before")) is not int or version_change["before"] != expected_version - 1:
+                raise VersionHistoryIncomplete(
+                    f"Activity log is incomplete. Cannot reconstruct version {target_version}."
+                )
+            for change in changes:
+                field = change.get("field")
+                if isinstance(field, str) and (field in RECONSTRUCTABLE_FIELDS or field == "tags"):
+                    if not json_equal(change.get("after"), fields[field]):
+                        raise VersionHistoryIncomplete(
+                            f"Activity log is incomplete. Cannot reconstruct version {target_version}."
+                        )
 
         if version_after == target_version:
             version_timestamp = created_at
@@ -184,19 +196,12 @@ def reconstruct_flag_at_version(
 
         if version_after > target_version:
             if strict_history:
-                version_change = next(change for change in changes if change.get("field") == "version")
-                if type(version_change.get("before")) is not int or version_change["before"] != expected_version - 1:
-                    raise VersionHistoryIncomplete(
-                        f"Activity log is incomplete. Cannot reconstruct version {target_version}."
-                    )
                 expected_version -= 1
             for change in changes:
                 field = change.get("field")
                 if field and (field in RECONSTRUCTABLE_FIELDS or (strict_history and field == "tags")):
                     if strict_history and field == "filters":
-                        if not is_supported_v2_config(change.get("before")) or not json_equal(
-                            change.get("after"), fields["filters"]
-                        ):
+                        if not is_supported_v2_config(change.get("before")):
                             raise VersionHistoryIncomplete(
                                 f"Activity log is incomplete. Cannot reconstruct version {target_version}."
                             )

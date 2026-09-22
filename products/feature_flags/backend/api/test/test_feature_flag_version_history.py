@@ -379,3 +379,45 @@ class TestV2FeatureFlagVersionHistoryAPI(APIBaseTest):
         other = self.organization.teams.create(name="Other project")
         response = self.client.get(f"/api/projects/{other.id}/feature_flags/{self.flag.pk}/versions/1/")
         assert response.status_code == 404
+
+    @parameterized.expand(
+        [(field, version) for field in ("version", "filters", "name", "key", "tags") for version in (2, 3)]
+    )
+    def test_inconsistent_transition_snapshots_are_rejected(self, field: str, entry_version: int) -> None:
+        self.update(filters=config(default_value=True), name="Second", key="second", tags=["second"])
+        self.update(filters=config(default_value=False), name="Third", key="third", tags=["third"])
+        entry = self.updates().order_by("created_at")[entry_version - 2]
+        assert entry.detail is not None
+        change = next(c for c in entry.detail["changes"] if c["field"] == field)
+        if field == "version":
+            change["before"] = 0
+        else:
+            change["after"] = {"filters": config(default_value=None), "tags": [], "name": "Wrong", "key": "wrong"}[
+                field
+            ]
+        entry.save()
+
+        response = self.client.get(f"{self.url}versions/2/")
+        assert response.status_code == 422
+        assert "incomplete" in response.json()["detail"]
+
+    @override_settings(ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True)
+    def test_deferred_audit_failure_leaves_history_explicitly_incomplete(self) -> None:
+        with (
+            self.assertRaisesMessage(RuntimeError, "Synthetic audit failure"),
+            patch.object(ActivityLog.objects, "create", side_effect=RuntimeError("Synthetic audit failure")),
+        ):
+            with self.captureOnCommitCallbacks(execute=True), admit_v2_updates():
+                saved = flag_facade.update_flag(
+                    self.flag, {"version": 1, "filters": config(default_value=True)}, team=self.team, user=self.user
+                )
+                persisted = copy.deepcopy(saved.filters)
+                assert self.updates().count() == 0
+        self.flag.refresh_from_db()
+        assert self.flag.version == 2
+        assert self.flag.filters == persisted
+        assert self.updates().count() == 0
+        assert self.history(2)["filters"] == persisted
+        response = self.client.get(f"{self.url}versions/1/")
+        assert response.status_code == 422
+        assert "incomplete" in response.json()["detail"]

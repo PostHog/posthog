@@ -32,8 +32,8 @@ const item: ActivityLogItem = {
             filters_version: 2,
             config_changes: [
                 { field: 'default_value', action: 'changed' },
-                { field: `rules/${ruleId}/targeting`, action: 'changed' },
-                { field: `rules/${ruleId}/rollout_percentage`, action: 'changed' },
+                { field: `rules/${ruleId}/metadata`, action: 'created' },
+                { field: `rules/${ruleId}/description`, action: 'deleted' },
                 {
                     field: 'rule_order',
                     action: 'changed',
