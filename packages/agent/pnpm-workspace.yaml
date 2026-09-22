@@ -3,6 +3,9 @@
 packages:
     - packages/*
 
+blockExoticSubdeps: true
+trustPolicy: no-downgrade
+
 catalog:
     '@hono/node-server': ^1.13.7
     '@hono/trpc-server': ^0.3.4

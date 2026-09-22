@@ -1,6 +1,6 @@
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -25,9 +25,7 @@ function sourceFiles(dir, out = []) {
   return out;
 }
 
-if (!existsSync(join(agentWorkspace, "node_modules"))) {
-  run("pnpm install --frozen-lockfile");
-}
+run("pnpm install --frozen-lockfile");
 run("pnpm build");
 
 const hash = createHash("sha256");
