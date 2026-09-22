@@ -26,6 +26,12 @@ uv run kev-vllm-upload --src build/kev-4b --profile ml-prod-us-write
 
 Writes to `s3://posthog-ml-training-prod-us-east-1-base-models/posthog/kev-4b-vllm/<kev Hub revision>/` and a `checksums.tsv` under `_provenance/`. It refuses a prefix that already has content, so a new export is a new version. The profile needs write access to the ML training account.
 
+When the export sits on a GPU box with a fast pipe and no AWS credentials, `bin/upload_via_box.py` publishes it from there: this machine creates the multipart upload, presigns one URL per part and per small file, the box PUTs them in parallel over ssh-delivered URLs, and this machine completes the upload and writes the provenance file. The 8.4 GB Kev-4B checkpoint took 37 seconds from a Lambda instance. The URLs must be SigV4; SigV2 signs the content type and fails with `SignatureDoesNotMatch`.
+
+```bash
+uv run python bin/upload_via_box.py --host ubuntu@<ip> --key ~/.ssh/<key> --remote-src /home/ubuntu/kev-vllm/build/kev-4b --profile ml-prod-us-write
+```
+
 ## Serve
 
 On a CUDA box with the `serve` extra installed (`uv sync --extra serve`), the entry points register the model class and the IO processor on import:
