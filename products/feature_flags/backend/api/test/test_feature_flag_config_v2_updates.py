@@ -546,7 +546,10 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
     def test_unsupported_flag_families_are_not_admitted(self, field: str) -> None:
         # Not in the admitted family, so the write falls back to the closed path rather
         # than gaining a v2 route through it.
-        flag = self.flag(**{field: True})
+        flag = self.flag(
+            has_encrypted_payloads=field == "has_encrypted_payloads",
+            is_remote_configuration=field == "is_remote_configuration",
+        )
         response = self.patch_flag(flag, {"version": 3, "filters": config(targeted())})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "reserved_config_version"
