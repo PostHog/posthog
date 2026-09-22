@@ -248,7 +248,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         logger.info(f"Warming insight cache: {insight.pk} for team {insight.team_id} and dashboard {dashboard_id}")
 
         try:
-            tile = DashboardTile.objects.filter(dashboard=dashboard, insight=insight).first() if dashboard else None
+            tile = dashboard.tiles.filter(insight=insight).first() if dashboard is not None else None
             variables_override = (
                 variables_override_requested_by_client(None, dashboard, insight_variables_for_team(insight.team_id))
                 if dashboard is not None and dashboard.variables
